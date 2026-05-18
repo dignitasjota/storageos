@@ -20,16 +20,30 @@
     "db:generate": "pnpm --filter @storageos/database generate",
     "db:migrate": "pnpm --filter @storageos/database migrate:dev",
     "db:studio": "pnpm --filter @storageos/database studio",
+    "db:seed": "pnpm --filter @storageos/database seed",
+    "db:reset": "pnpm --filter @storageos/database migrate:reset",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
-    "docker:ps": "docker compose ps"
+    "docker:ps": "docker compose ps",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@storageos/prettier-config": "workspace:*",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
     "prettier": "^3.4.2",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2"
   },
-  "prettier": "@storageos/prettier-config"
+  "prettier": "@storageos/prettier-config",
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --max-warnings=0 --fix",
+      "prettier --write"
+    ],
+    "*.{js,mjs,cjs,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
 }

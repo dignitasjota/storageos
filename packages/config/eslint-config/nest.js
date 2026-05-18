@@ -23,6 +23,11 @@ export default [
       // Decoradores generan código que ESLint a veces marca como vacío.
       '@typescript-eslint/no-extraneous-class': 'off',
       '@typescript-eslint/no-empty-function': 'off',
+      // NestJS resuelve dependencias por reflexion sobre los tipos del
+      // constructor. Si marcamos como `import type` un servicio inyectado,
+      // TypeScript lo borra del JS y la DI rompe en runtime. Apagamos esta
+      // regla en el preset nest.
+      '@typescript-eslint/consistent-type-imports': 'off',
     },
   },
 ];

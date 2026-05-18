@@ -3,11 +3,9 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "outDir": "dist",
-    "rootDir": "src",
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "prisma/seed.ts", "tests/**/*", "vitest.config.mts"],
   "exclude": ["node_modules", "dist"]
 }

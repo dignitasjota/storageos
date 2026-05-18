@@ -1,13 +1,19 @@
 // Esquema Prisma de StorageOS.
 //
-// En Fase 0 se incluye únicamente el modelo `Tenant` para validar el flujo
-// end-to-end (Prisma <-> Postgres a través de docker-compose). El modelo
-// completo de tenancy (users, subscriptions, plans, etc.) se añade en Fase 1
-// según `docs/DATA_MODEL.md`.
+// Fase 1A: núcleo de tenancy (tenants, users, planes, suscripciones, audit_logs).
+// El resto del modelo (facilities, units, contracts, invoices, ...) llega en
+// las fases siguientes según docs/DATA_MODEL.md.
 //
-// Nota sobre IDs: el modelo de datos prevé UUID v7. Por simplicidad, en
-// Fase 0 usamos `uuid()` (v4). Se migrará a v7 en Fase 1 con una extensión
-// Postgres o cliente que lo soporte.
+// Convenciones:
+//   - Tablas en snake_case (mediante @map/@@map).
+//   - IDs: UUID v7 generados por la función SQL `uuid_generate_v7()` (creada en
+//     una migración previa). Permite ordenación cronológica e índices más
+//     eficientes que UUID v4.
+//   - Timestamps: `timestamptz(6)`, UTC en BD; conversión a timezone del
+//     facility en la capa de presentación.
+//   - Multi-tenancy: toda tabla con datos de cliente lleva `tenant_id` con
+//     índice y queda bajo Row-Level Security (políticas en migración aparte).
+//     `subscription_plans` es global y NO lleva RLS.
 
 generator client {
   provider        = "prisma-client-js"
@@ -19,12 +25,176 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum TenantStatus {
+  trial
+  active
+  suspended
+  cancelled
+
+  @@map("tenant_status")
+}
+
+enum UserRole {
+  owner
+  manager
+  staff
+  readonly
+
+  @@map("user_role")
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  past_due
+  cancelled
+  expired
+
+  @@map("subscription_status")
+}
+
+// ============================================================================
+// Modelos
+// ============================================================================
+
+/// Empresas clientes del SaaS.
 model Tenant {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name         String
+  slug         String       @unique
+  status       TenantStatus @default(trial)
+  trialEndsAt  DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
+  billingEmail String?      @map("billing_email")
+  country      String       @default("ES") @db.Char(2)
+  locale       String       @default("es-ES")
+  currency     String       @default("EUR") @db.Char(3)
+  timezone     String       @default("Europe/Madrid")
+  taxId        String?      @map("tax_id")
+  deletedAt    DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users        User[]
+  subscription TenantSubscription?
+  auditLogs    AuditLog[]
+  sessions     Session[]
 
   @@map("tenants")
+}
+
+/// Staff interno del tenant.
+model User {
+  id                  String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  email               String
+  passwordHash        String    @map("password_hash")
+  fullName            String    @map("full_name")
+  phone               String?
+  role                UserRole  @default(staff)
+  twoFactorSecret     String?   @map("two_factor_secret")
+  twoFactorEnabled    Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorEnrolledAt DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
+  lastLoginAt         DateTime? @map("last_login_at") @db.Timestamptz(6)
+  isActive            Boolean   @default(true) @map("is_active")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  auditLogs AuditLog[]
+  sessions  Session[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+/// Planes comerciales del SaaS (globales, sin tenant).
+model SubscriptionPlan {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name          String
+  slug          String   @unique
+  priceMonthly  Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly   Decimal  @map("price_yearly") @db.Decimal(10, 2)
+  maxUnits      Int?     @map("max_units")
+  maxFacilities Int?     @map("max_facilities")
+  maxUsers      Int?     @map("max_users")
+  features      Json     @default("{}")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscriptions TenantSubscription[]
+
+  @@map("subscription_plans")
+}
+
+/// Suscripción activa de cada tenant.
+model TenantSubscription {
+  id                   String             @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String             @unique @map("tenant_id") @db.Uuid
+  planId               String             @map("plan_id") @db.Uuid
+  status               SubscriptionStatus @default(trial)
+  currentPeriodStart   DateTime           @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd     DateTime           @map("current_period_end") @db.Timestamptz(6)
+  stripeSubscriptionId String?            @map("stripe_subscription_id")
+  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("tenant_subscriptions")
+}
+
+/// Registro inmutable de acciones críticas. Sobrevive al borrado de usuarios.
+model AuditLog {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  changes    Json     @default("{}")
+  ipAddress  String?  @map("ip_address") @db.Inet
+  userAgent  String?  @map("user_agent")
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+/// Sesion de refresh. Cada login emite una sesion; cada refresh rota la
+/// actual y crea otra (`rotatedFromId` apunta a la anterior). Si una sesion
+/// ya revocada o rotada se intenta reusar, revocamos todas las del usuario
+/// (politica paranoid; ver SessionsService).
+model Session {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @map("refresh_token_hash")
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address") @db.Inet
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason    String?   @map("revoked_reason")
+  rotatedFromId    String?   @map("rotated_from_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
 }

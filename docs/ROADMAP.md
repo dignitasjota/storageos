@@ -17,19 +17,63 @@ Plan de desarrollo por fases. El objetivo es llegar a un MVP funcional con el me
 
 ## Fase 1 — Fundamentos multi-tenant (MVP core, 1-2 semanas)
 
-### Backend
-- [ ] Schema Prisma inicial: `tenants`, `users`, `subscription_plans`, `tenant_subscriptions`
-- [ ] Auth completo: registro de tenant, login, refresh tokens, recuperación de password, 2FA TOTP
-- [ ] Guard `TenantContext` que inyecta `tenant_id` en cada request
-- [ ] Row-Level Security policies en Postgres
-- [ ] Módulo de gestión de usuarios del tenant (CRUD, invitaciones, roles)
-- [ ] Logs de auditoría base
+Subdividida en sub-fases 1A–1F para facilitar revisiones intermedias.
 
-### Frontend
-- [ ] Páginas públicas: landing mínima, registro, login, recuperación de password
-- [ ] Layout de panel autenticado con sidebar y switcher de facility
-- [ ] Páginas de configuración del tenant: perfil de empresa, usuarios, planes
+### 1A — Schema completo + RLS + seeds ✅
+
+- [x] Schema Prisma: `tenants`, `users`, `subscription_plans`, `tenant_subscriptions`, `audit_logs` + enums (`TenantStatus`, `UserRole`, `SubscriptionStatus`)
+- [x] Función SQL `uuid_generate_v7()` (UUID v7 timestamp-ordered)
+- [x] Rol Postgres `storageos_app` restringido sin `BYPASSRLS`
+- [x] Row-Level Security policies (`tenants`, `users`, `tenant_subscriptions`, `audit_logs`)
+- [x] Prisma client con helper `withTenantContext` (`set_config('app.current_tenant')`)
+- [x] Seed dev idempotente (3 planes + tenant demo + owner + audit logs); credenciales por env
+- [x] Tests Vitest (11/11): uuid_v7, RLS, seed
+- [x] Husky + lint-staged
+
+### 1B — Auth backend ✅
+
+- [x] Tabla `sessions` con RLS (refresh tokens opacos + rotacion + reuso paranoid)
+- [x] Schemas Zod compartidos en `@storageos/shared/auth` (Register, Login + DTOs)
+- [x] `PrismaService` (`storageos_app`, RLS) + `PrismaAdminService` (`storageos`, bypass)
+- [x] AsyncLocalStorage para tenant context por request
+- [x] `TokensService`: access JWT HS256 + refresh opaco argon2id
+- [x] `SessionsService`: create, rotate (3 tx separadas), revoke, revokeAllForUser; deteccion de reuso paranoid
+- [x] `AuthService` con 6 flujos: register, login, refresh, logout, logout-all, me
+- [x] `AuthController` + `JwtStrategy` (passport-jwt) + `@Public()` + `@CurrentUser()` + `JwtAuthGuard` global
+- [x] Throttler diferenciado: 5/min login, 3/h register, 30/min refresh, 60/min default
+- [x] Audit logs: auth.register, login.success/failed, refresh, logout, logout_all
+- [x] Tests unit (19/19) + e2e Supertest (29/29)
+- [x] `docs/API.md` documentado
+
+### 1C — Frontend publico y layout autenticado
+
+- [ ] Paginas publicas: landing minima, login, registro
+- [ ] Layout de panel autenticado con sidebar y switcher de facility (placeholder)
 - [ ] Componentes UI base: tabla, formulario, modal, toast, loading states
+- [ ] Auth client (TanStack Query) con manejo de refresh transparente
+- [ ] next-intl + next-themes
+
+### 1D — Verificacion email + password recovery
+
+- [ ] Tabla `email_verification_tokens` (RLS)
+- [ ] Tabla `password_reset_tokens` (RLS)
+- [ ] Endpoints: `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/password/forgot`, `POST /auth/password/reset`
+- [ ] Email transaccional via Mailpit (dev); plantilla bilingue
+- [ ] Bloqueo de login hasta verificacion exitosa
+
+### 1E — User management + invitaciones + audit logs
+
+- [ ] Endpoints CRUD `/users` con permisos por rol
+- [ ] Invitaciones (`POST /invitations`, `GET /invitations/:token`, `POST /invitations/:token/accept`) con expiracion 7d
+- [ ] Audit logs ampliados: user.created, user.role_changed, invitation.sent/accepted/revoked
+- [ ] Pagina de gestion de usuarios en el panel
+
+### 1F — 2FA TOTP
+
+- [ ] `POST /auth/2fa/setup`, `POST /auth/2fa/verify`, `POST /auth/2fa/disable`
+- [ ] Codigos de recuperacion (10, single-use)
+- [ ] Forzar 2FA para roles `owner` y `manager` (politica gradual)
+- [ ] UI de enrolment y verificacion
 
 ## Fase 2 — Locales, trasteros y plano (1-2 semanas)
 
@@ -91,6 +135,7 @@ Plan de desarrollo por fases. El objetivo es llegar a un MVP funcional con el me
 ## Fase 7 — Control de accesos físicos (variable)
 
 Dependiente del hardware que se quiera soportar.
+
 - [ ] Schema: `access_credentials`, `access_logs`, `access_devices`
 - [ ] Generación de PINs/QRs
 - [ ] Bloqueo automático por impago
