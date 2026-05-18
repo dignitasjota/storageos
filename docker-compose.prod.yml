@@ -1,0 +1,21 @@
+name: storageos-prod
+
+# Placeholder para el despliegue en VPS (Portainer + Nginx Proxy Manager).
+# Se completará en Fase 8 (panel super admin + facturación SaaS), o antes
+# si necesitamos un entorno de staging.
+#
+# Diferencias previstas frente al docker-compose.yml de desarrollo:
+#   - Imágenes inmutables con tags concretos (no `latest`).
+#   - Variables sensibles desde Docker secrets en lugar de .env.
+#   - Sin exposición de puertos al host: NPM enruta vía red interna.
+#   - Servicios extra: api, web, worker (BullMQ), Uptime Kuma.
+#   - Healthchecks más estrictos y políticas `restart: always`.
+#   - Backups: contenedor de backups cifrados a almacenamiento externo.
+#
+# Ver `docs/DEPLOYMENT.md` cuando esté redactado.
+
+services:
+  placeholder:
+    image: alpine:3.21
+    command: ['sh', '-c', 'echo "docker-compose.prod.yml pendiente de Fase 8" && sleep infinity']
+    profiles: ['__never__']

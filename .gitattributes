@@ -1,0 +1,13 @@
+# Forzar LF en todos los archivos de texto, sin importar el SO del colaborador.
+* text=auto eol=lf
+
+# Binarios explícitos
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.tgz  binary

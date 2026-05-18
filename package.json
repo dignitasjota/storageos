@@ -1,0 +1,35 @@
+{
+  "name": "storageos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SaaS multi-tenant para gestión de locales de self-storage",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.18 <21",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\" --ignore-path .gitignore",
+    "db:generate": "pnpm --filter @storageos/database generate",
+    "db:migrate": "pnpm --filter @storageos/database migrate:dev",
+    "db:studio": "pnpm --filter @storageos/database studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:ps": "docker compose ps"
+  },
+  "devDependencies": {
+    "@storageos/prettier-config": "workspace:*",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "prettier": "@storageos/prettier-config"
+}

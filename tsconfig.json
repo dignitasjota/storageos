@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@storageos/database": ["packages/database/src/index.ts"],
+      "@storageos/shared": ["packages/shared/src/index.ts"],
+      "@storageos/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "**/dist", "**/.next", "**/.turbo"]
+}

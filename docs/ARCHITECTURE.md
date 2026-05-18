@@ -59,6 +59,13 @@ Decisiones arquitecturales del proyecto. Cada decisión va con su justificación
 **Por qué:** entregabilidad alta, API moderna, plan gratis razonable para empezar. Brevo como plan B si necesitamos SMS y WhatsApp en el mismo proveedor.
 **Por qué NO autohospedar SMTP:** los IPs nuevos no llegan a inbox, marcado como spam, gestión de blacklists es un trabajo a tiempo completo.
 
+## ADR-011: Identidad de usuario por tenant
+
+**Decisión:** un usuario humano que pertenezca a dos tenants distintos tendrá dos filas separadas en `users`, cada una con su propio `email` único dentro de su tenant.
+**Por qué:** simplifica drásticamente el aislamiento con Row-Level Security: cada `user.id` pertenece a un único `tenant_id` y los joins/queries son triviales. La alternativa (usuario global con pertenencia muchos-a-muchos) obligaría a separar autenticación de autorización, complicaría el RLS y abriría la puerta a fugas accidentales entre tenants.
+**Coste asumido:** una persona que trabaje para dos clientes ve dos cuentas distintas, con login independiente. Es aceptable: en este sector el solapamiento es raro.
+**Cuándo reconsiderar:** si aparece un caso real (franquicia, partner) con muchos usuarios cruzados, valoraremos una capa de identidad global con SSO.
+
 ## Diagrama de servicios (producción)
 
 ```

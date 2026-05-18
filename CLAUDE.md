@@ -85,7 +85,7 @@ storage-saas/
 - Errores: usar excepciones de NestJS (`BadRequestException`, etc.) con mensajes traducibles.
 - Tests: Jest para unit, Supertest para e2e backend, Playwright para e2e frontend.
 - Commits: **Conventional Commits** (`feat:`, `fix:`, `chore:`, `refactor:`...).
-- Branches: `main` (prod), `develop` (staging), `feat/...`, `fix/...`.
+- Branches: trabajamos sobre `main` hasta tener un entorno de staging. Cuando lo montemos, se creará `develop`. Para cambios sustanciales se usan ramas `feat/...` o `fix/...`.
 
 ## Seguridad
 

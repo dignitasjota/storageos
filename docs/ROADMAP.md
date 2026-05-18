@@ -4,16 +4,16 @@ Plan de desarrollo por fases. El objetivo es llegar a un MVP funcional con el me
 
 ## Fase 0 — Setup (1-2 días)
 
-- [ ] Inicializar monorepo con pnpm workspaces + Turborepo
-- [ ] Configurar TypeScript estricto, ESLint, Prettier, Husky + lint-staged
-- [ ] Esqueleto NestJS en `apps/api`
-- [ ] Esqueleto Next.js 15 en `apps/web` con Tailwind + shadcn/ui
-- [ ] Paquete `packages/database` con Prisma inicializado
-- [ ] `docker-compose.yml` para desarrollo: postgres, redis, minio, mailhog
-- [ ] `docker-compose.prod.yml` para producción
-- [ ] `.env.example` documentado
-- [ ] README con instrucciones de instalación y arranque
-- [ ] CI básico (GitHub Actions): lint + typecheck + tests
+- [x] Inicializar monorepo con pnpm workspaces + Turborepo
+- [x] Configurar TypeScript estricto, ESLint, Prettier (Husky + lint-staged pospuesto a Fase 1)
+- [x] Esqueleto NestJS en `apps/api`
+- [x] Esqueleto Next.js 15 en `apps/web` con Tailwind + shadcn/ui (init, sin componentes)
+- [x] Paquete `packages/database` con Prisma inicializado (modelo `Tenant` mínimo y migración inicial)
+- [x] `docker-compose.yml` para desarrollo: postgres, redis, minio, **mailpit** (en vez de mailhog), createbuckets
+- [x] `docker-compose.prod.yml` (placeholder, se completa en Fase 8)
+- [x] `.env.example` documentado (raíz + apps + packages/database)
+- [x] README con instrucciones de instalación y arranque
+- [ ] CI básico (GitHub Actions): lint + typecheck + build
 
 ## Fase 1 — Fundamentos multi-tenant (MVP core, 1-2 semanas)
 
@@ -61,13 +61,14 @@ Plan de desarrollo por fases. El objetivo es llegar a un MVP funcional con el me
 
 ## Fase 4 — Facturación y pagos (2-3 semanas)
 
-- [ ] Schema: `invoices`, `invoice_items`, `payments`, `payment_methods`, `dunning_actions`, `pricing_rules`, `promotions`
+- [ ] Schema: `invoices`, `invoice_items`, `invoice_series`, `payments`, `payment_methods`, `dunning_actions`, `pricing_rules`, `promotions`
+- [ ] **Verifactu compliance desde MVP** (obligatorio para sociedades desde 2026-01-01). Ver detalle en `docs/DATA_MODEL.md` → "Pendiente Fase 4 — Verifactu".
+- [ ] Schema RGPD: `data_subject_requests`, `consents`. Ver `docs/DATA_MODEL.md` → "Pendiente RGPD".
 - [ ] Integración Stripe: tarjeta + Stripe SEPA
 - [ ] Integración GoCardless (opcional en MVP)
 - [ ] Job recurrente con BullMQ para generar facturas mensuales
-- [ ] Generación de PDFs de facturas
+- [ ] Generación de PDFs de facturas (con QR Verifactu)
 - [ ] Gestión de impagos: reintentos, recargos, escalado
-- [ ] Conformidad Verifactu (España) — investigar requisitos exactos según fecha de lanzamiento
 - [ ] Portal de facturas para inquilino (descarga + pago online)
 - [ ] Exportación contable (CSV)
 

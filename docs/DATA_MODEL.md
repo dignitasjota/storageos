@@ -47,6 +47,8 @@ Tipologías de trastero del tenant.
 Cada trastero individual.
 - id, tenant_id, facility_id, floor_id (nullable), unit_type_id, code (único por facility), width_m, depth_m, height_m, area_m2 (calculado), volume_m3 (calculado), status (available/occupied/reserved/maintenance/blocked), base_price_monthly, plan_x, plan_y, plan_width, plan_height, plan_shape (jsonb, para polígonos), notes
 
+> `area_m2` y `volume_m3` se implementan como columnas `GENERATED ALWAYS AS` en Postgres para garantizar coherencia (no se pueden setear desde la app).
+
 ### `unit_status_history`
 Auditoría de cambios de estado.
 - id, unit_id, previous_status, new_status, changed_by_user_id, reason, occurred_at
@@ -179,3 +181,42 @@ Productos accesorios para venta.
 - `access_credentials` se desactivan automáticamente si el contrato se cierra o si hay `dunning_action` de tipo `access_block` activa.
 - Borrar un `customer` con contratos activos no está permitido; se hace soft delete.
 - La timezone de las fechas mostradas es la del `facility` correspondiente; las almacenadas siempre UTC.
+
+## Pendiente — Fase 4 — Verifactu (RD 1007/2023)
+
+España exige Verifactu para sociedades desde el 1 de enero de 2026. El MVP de StorageOS debe ser compliant. Cambios a aplicar cuando se implemente la facturación:
+
+### `invoices` — campos adicionales
+
+- `hash` (text) — hash de la propia factura, calculado conforme al algoritmo Verifactu.
+- `previous_hash` (text, nullable) — hash de la factura inmediatamente anterior de la misma serie, para encadenamiento criptográfico. `NULL` solo en la primera factura de cada serie.
+- `qr_code_url` (text) — URL del QR obligatorio en la factura (apunta a la AEAT con los datos clave).
+- `verifactu_mode` (enum: `verifactu` | `no_verifactu`) — modalidad declarada por el tenant.
+- `aeat_sent_at` (timestamptz, nullable) — momento de envío.
+- `aeat_status` (enum: `pending` | `accepted` | `accepted_with_warnings` | `rejected` | `error`) — resultado del envío.
+- `aeat_response` (jsonb, nullable) — payload de respuesta para diagnóstico.
+- `aeat_csv` (text, nullable) — Código Seguro de Verificación devuelto por la AEAT cuando aplica.
+
+### `invoice_series` — nueva tabla
+
+Para soportar múltiples series por tenant (p. ej. una por facility o por año):
+
+- `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `facility_id` (nullable), `is_active`.
+
+### `audit_logs` — convención
+
+Toda emisión de factura genera un `audit_log` con el hash y el `aeat_status` final. Sin excepciones.
+
+## Pendiente — RGPD
+
+Para cumplir el derecho de acceso, rectificación, supresión y portabilidad:
+
+### `data_subject_requests`
+
+- `id`, `tenant_id`, `customer_id` (nullable si el sujeto no es cliente registrado), `email`, `request_type` (`access` | `rectification` | `erasure` | `portability` | `restriction`), `status` (`open` | `in_progress` | `fulfilled` | `denied`), `submitted_at`, `due_at` (calculado: 1 mes desde submitted_at), `fulfilled_at`, `notes`, `handled_by_user_id`.
+
+### `consents`
+
+Registra los consentimientos explícitos (marketing, comunicaciones no esenciales, etc.):
+
+- `id`, `tenant_id`, `customer_id`, `purpose` (string), `granted` (boolean), `granted_at`, `revoked_at`, `evidence` (jsonb con IP, user-agent, texto exacto del consentimiento).
