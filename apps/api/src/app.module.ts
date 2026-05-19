@@ -6,12 +6,27 @@ import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
 
 import { AsyncContextModule } from './common/async-context/async-context.module';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { RolesGuard } from './common/guards/roles.guard';
 import { AppConfigModule } from './config/env.config';
 import { AuthModule } from './modules/auth/auth.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
+import { CustomersModule } from './modules/customers/customers.module';
 import { DatabaseModule } from './modules/database/database.module';
+import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
+import { FacilitiesModule } from './modules/facilities/facilities.module';
+import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
+import { InvitationsModule } from './modules/invitations/invitations.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { PortalModule } from './modules/portal/portal.module';
+import { QueuesModule } from './modules/queues/queues.module';
+import { RgpdModule } from './modules/rgpd/rgpd.module';
+import { TwoFactorModule } from './modules/two-factor/two-factor.module';
+import { UsersModule } from './modules/users/users.module';
 
 import type { Env } from './config/env.schema';
 import type { Options as PinoHttpOptions } from 'pino-http';
@@ -72,16 +87,32 @@ import type { Options as PinoHttpOptions } from 'pino-http';
       },
     }),
     AsyncContextModule,
+    CryptoModule,
     DatabaseModule,
     EmailModule,
     HealthModule,
     AuthModule,
+    UsersModule,
+    InvitationsModule,
+    TwoFactorModule,
+    FilesModule,
+    FacilitiesModule,
+    CustomersModule,
+    ContractsModule,
+    QueuesModule,
+    PaymentsModule,
+    BillingModule,
+    DunningModule,
+    RgpdModule,
+    PortalModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
-    // Orden importante: rate limiting ANTES de la verificacion de JWT.
+    // Orden importante: throttler -> jwt -> roles. Cada uno se ejecuta
+    // solo si el anterior dejo pasar el request.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

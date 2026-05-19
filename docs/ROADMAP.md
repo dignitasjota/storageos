@@ -70,60 +70,104 @@ Subdividida en sub-fases 1A–1F para facilitar revisiones intermedias.
 - [x] Tests e2e con Mailpit API (37/37 verdes)
 - [x] Frontend: paginas `/verify-email-sent`, `/verify-email/[token]`, `/forgot-password`, `/forgot-password-sent`, `/reset-password/[token]`
 
-### 1E — User management + invitaciones + audit logs
+### 1E — User management + invitaciones + audit logs ✅
 
-- [ ] Endpoints CRUD `/users` con permisos por rol
-- [ ] Invitaciones (`POST /invitations`, `GET /invitations/:token`, `POST /invitations/:token/accept`) con expiracion 7d
-- [ ] Audit logs ampliados: user.created, user.role_changed, invitation.sent/accepted/revoked
-- [ ] Pagina de gestion de usuarios en el panel
+- [x] Tabla `invitations` con RLS + indice unico parcial para invitaciones pendientes
+- [x] Schemas Zod en `@storageos/shared/users` (Invite, UpdateUser, UpdateProfile, ChangePassword, AcceptInvitation)
+- [x] `RolesGuard` con decorador `@Roles(...)` (orden global: Throttler → JwtAuth → Roles)
+- [x] `InvitationTokensService` con tokens opacos `<invitationId>.<secret>` + hash argon2id + atomic single-use
+- [x] `InvitationsService`: list/create/revoke/resend + accept publico (resend invalida el token anterior con `revokedReason: 'replaced_by_resend'`)
+- [x] React Email template `invitation-email.tsx`
+- [x] Endpoints admin `/invitations` (owner/manager) + publicos `/invitations/token/:token` y `/invitations/token/:token/accept`
+- [x] `UsersService` con invariantes: solo invitaciones (sin POST /users directo), unico owner, transferencia explicita, manager no puede asignar manager
+- [x] Endpoints `/users` (list/detail/update/deactivate/transfer-ownership) + `/me` (PATCH perfil, POST change-password)
+- [x] Change-password revoca otras sesiones y mantiene la actual
+- [x] Aceptar invitacion verifica email automaticamente
+- [x] Audit logs ampliados: user.invited, user.invitation_revoked, user.invitation_resent, user.invitation_accepted, user.updated, user.deactivated, user.ownership_transferred, user.password_changed
+- [x] Tests e2e (50/50 verdes) cubriendo invitations, users, /me
+- [x] Frontend `/settings/users` (tabla + invitar/editar/desactivar/transferir/revocar/reenviar)
+- [x] Frontend `/settings/profile` con tabs (datos personales + cambio de contrasena)
+- [x] Frontend publico `/invite/[token]` (aceptar invitacion -> login automatico)
+- [x] Componentes shadcn adicionales: table, dialog, select, tabs
 
-### 1F — 2FA TOTP
+### 1F — 2FA TOTP ✅
 
-- [ ] `POST /auth/2fa/setup`, `POST /auth/2fa/verify`, `POST /auth/2fa/disable`
-- [ ] Codigos de recuperacion (10, single-use)
-- [ ] Forzar 2FA para roles `owner` y `manager` (politica gradual)
-- [ ] UI de enrolment y verificacion
+- [x] Migracion: `users.two_factor_pending_secret`, tabla `recovery_codes` con RLS
+- [x] `CryptoService` AES-256-GCM (`MASTER_ENCRYPTION_KEY`) para cifrar el TOTP secret en BD
+- [x] `TotpService` (otpauth, SHA1, 6 digitos, periodo 30s, ventana ±1)
+- [x] `RecoveryCodesService`: 10 codigos `XXXX-XXXX`, hashed argon2id, single-use atomico
+- [x] Endpoints autenticados: `POST /auth/2fa/setup`, `/verify`, `/disable`, `/recovery-codes/regenerate`, `GET /auth/2fa/status`
+- [x] Login con challenge: `/auth/login` devuelve `{ requires2fa, pendingToken }` cuando 2FA esta activado; `POST /auth/2fa/challenge` emite la sesion real
+- [x] `pendingToken` JWT corto con secret independiente (`JWT_2FA_PENDING_SECRET`, TTL 5 min, purpose `2fa_pending`)
+- [x] Audit logs: `auth.2fa.enabled/disabled/challenge.success/failed/recovery_codes_regenerated/recovery_code_used`
+- [x] Throttle 5/min en `/auth/2fa/challenge` y `/auth/2fa/disable`
+- [x] Tests e2e (9/9 verdes) cubriendo setup/verify/login challenge/recovery single-use/regenerate/disable
+- [x] Frontend `/settings/security` con setup (QR + secret manual), verify, recovery codes (copiar/descargar/regenerar), disable
+- [x] Frontend `/login` con paso de challenge integrado (estado en memoria, TOTP o recovery code)
+- [x] **Opt-in**. El gate "must_setup_2fa" para roles owner/manager se introducira en Fase 8 / seguridad como politica de tenant
 
-## Fase 2 — Locales, trasteros y plano (1-2 semanas)
+## Fase 2 — Locales, trasteros y plano ✅
 
-- [ ] Schema: `facilities`, `facility_floors`, `unit_types`, `units`, `unit_status_history`
-- [ ] API CRUD para facilities, unit_types, units
-- [ ] Frontend: gestión de facilities
-- [ ] Frontend: gestión de unit_types con colores
-- [ ] **Editor visual de planos** con react-konva:
-  - Cargar imagen de plano de fondo (subida a MinIO)
-  - Crear/editar trasteros como rectángulos sobre el plano
-  - Snap a grid, edición de medidas
-  - Asignar unit_type, código, precio base
-  - Vista de estados con código de colores en tiempo real
-- [ ] Vista de listado de trasteros con filtros (estado, tipo, precio)
-- [ ] Dashboard de ocupación: % por facility, por tipo
+- [x] Schema: `facilities`, `facility_floors`, `unit_types`, `units`, `unit_status_history` + RLS + columnas generadas `area_m2`/`volume_m3`
+- [x] `unit_types` por tenant (compartidos entre facilities), `floors` opcional con default automática
+- [x] API CRUD para facilities (soft delete), unit_types, units (con cursor pagination + filtros)
+- [x] `POST /units/:id/change-status` con `unit_status_history` + transiciones válidas (`occupied` reservado a contratos en Fase 3)
+- [x] `GET /units/:id/history` para timeline del trastero
+- [x] MinIO + `@aws-sdk/client-s3` con signed URLs PUT directos: `POST /floors/:id/plan-upload-url` + `PATCH /floors/:id/plan`
+- [x] `PATCH /floors/:id/units-layout` para guardar coordenadas del editor visual en `$transaction`
+- [x] `GET /dashboard/occupancy` agregado por facility + por unit_type
+- [x] Audit logs ampliados: `facility.created/updated/deleted`, `unit_type.*`, `floor.*`, `unit.created/updated/deleted/status_changed`
+- [x] Tests e2e (10 nuevos, 69/69 totales): facilities CRUD, unit_types duplicate/deactivate, units codigo único, change-status con transiciones, dashboard agregación, plan-upload-url
+- [x] Bug fix crítico en helper de tests: `env-setup.ts` no overrideaba `DATABASE_URL` cuando `packages/database/.env` ya lo había cargado como admin → RLS quedaba bypass en tests
+- [x] Frontend `<DataTable>` reutilizable sobre TanStack Table v8 + shadcn Table (sorting/filtering/pagination)
+- [x] Frontend `/facilities` (lista + alta) y `/facilities/[id]` con tabs (Trasteros, Plantas y plano, Tipos)
+- [x] Frontend `/units` listado global con filtros (facility, status, tipo)
+- [x] Frontend `/units/[id]` con stats + historial de estados
+- [x] Editor visual `<PlanEditor>` con react-konva: imagen de fondo, rectángulos drag + snap a grid, guardar layout
+- [x] Dashboard `/dashboard` con `<OccupancyCard>` (donut Recharts) + agregación por facility
+- [x] `<FacilitySwitcher>` real en AppHeader: persiste selección en Zustand + localStorage
 
-## Fase 3 — Inquilinos, contratos y reservas (2 semanas)
+## Fase 3 — Inquilinos, contratos y reservas ✅
 
-- [ ] Schema: `customers`, `customer_documents`, `contracts`, `contract_events`, `reservations`
-- [ ] CRUD de inquilinos con documentos (subida de DNI/CIF a MinIO)
-- [ ] CRUD de contratos:
-  - Asignación cliente ↔ trastero
-  - Cálculo de precio con tarifas y descuentos
-  - Generación de PDF con plantilla (Puppeteer)
-  - Estados del contrato y transiciones permitidas
-  - Sincronización automática del estado de `units`
-- [ ] Reservas con bloqueo temporal del trastero
-- [ ] Vista de timeline del contrato (eventos)
+- [x] Schema: `customers` (soft delete), `customer_documents`, `contracts` (state machine), `contract_events`, `reservations` + RLS
+- [x] **EXCLUDE USING gist** sobre `tstzrange` para evitar overbooking en reservations a nivel BD (extensión `btree_gist` + columna generada `time_range`)
+- [x] CRUD customers con búsqueda full-text + KYC toggle + soft delete
+- [x] CustomerDocuments con signed URL PUT a MinIO (PDF/PNG/JPG/WebP, máx 10 MB, tipos `id_front`/`id_back`/`proof_of_address`/`other`)
+- [x] CRUD contracts con número secuencial `CT-{year}-{NNNNN}` por tenant
+- [x] **State machine** contracts: `draft → active → ending → ended` + `cancel`. Cambios disparan `contract_events` y sincronizan `unit.status`
+- [x] **Pricing snapshot**: precio congelado al firmar; cambios via `POST /contracts/:id/change-price` con motivo
+- [x] Reservations: `pending → confirmed → converted/cancelled/expired`; convert genera contrato `draft`
+- [x] `PricingService` ligero (base − descuento). Pricing rules + promotions quedan para Fase 4
+- [x] `ContractPdfService` con Puppeteer headless (síncrono); PDF a MinIO + `signedPdfUrl`. Dynamic import por ESM/Jest
+- [x] Audit logs: `customer.*`, `customer_document.*`, `contract.*`, `reservation.*`
+- [x] Tests e2e (14 nuevos, 83/83 totales): customers, contracts state machine + invariantes, EXCLUDE constraint, convert reserva
+- [x] Frontend `/customers` + `/customers/[id]` con tabs (contratos, reservas, documentos, datos)
+- [x] Frontend `/contracts` + `/contracts/new` wizard 4 pasos + `/contracts/[id]` con timeline + PDF
+- [x] Frontend `/reservations` con confirm/cancel/convert dialog
+- [x] Plano interactivo: click sobre unit `available` muestra acciones (nuevo contrato / reservar / detalle)
 
-## Fase 4 — Facturación y pagos (2-3 semanas)
+## Fase 4 — Facturación y pagos ✅
 
-- [ ] Schema: `invoices`, `invoice_items`, `invoice_series`, `payments`, `payment_methods`, `dunning_actions`, `pricing_rules`, `promotions`
-- [ ] **Verifactu compliance desde MVP** (obligatorio para sociedades desde 2026-01-01). Ver detalle en `docs/DATA_MODEL.md` → "Pendiente Fase 4 — Verifactu".
-- [ ] Schema RGPD: `data_subject_requests`, `consents`. Ver `docs/DATA_MODEL.md` → "Pendiente RGPD".
-- [ ] Integración Stripe: tarjeta + Stripe SEPA
-- [ ] Integración GoCardless (opcional en MVP)
-- [ ] Job recurrente con BullMQ para generar facturas mensuales
-- [ ] Generación de PDFs de facturas (con QR Verifactu)
-- [ ] Gestión de impagos: reintentos, recargos, escalado
-- [ ] Portal de facturas para inquilino (descarga + pago online)
-- [ ] Exportación contable (CSV)
+- [x] Schema completo: `invoice_series`, `invoices` (con campos Verifactu: hash, previous*hash, qr_code_url, verifactu_mode, aeat*\*), `invoice_items`, `payments`, `payment_methods` (tokens cifrados AES-GCM), `dunning_actions`, `pricing_rules`, `promotions`, `data_subject_requests`, `consents` + RLS
+- [x] **Verifactu ready** con `AEAT_MODE=stub` en Fase 4 (sandbox/production en Fase 8): hash SHA-256 encadenado entre facturas de la misma serie, QR AEAT generado con `qrcode`, estructura completa de envío preparada
+- [x] **Numeración secuencial** atómica por serie con `prefix/year/00001`. Inmutable tras emitir
+- [x] **State machine de invoices**: `draft → issued → paid/overdue/cancelled/refunded/partially_refunded` con transiciones validadas
+- [x] **Invoicing custom + Stripe PaymentIntents** (no Stripe Billing managed). Patrón `PaymentGateway` interface + `StripeGateway`. Charges automáticos al cobrar invoice + webhook handler con verificación HMAC firma `Stripe-Signature`
+- [x] **PaymentMethodsService** con Stripe SetupIntent + tokens cifrados con `CryptoService` (AES-256-GCM, ADR-007)
+- [x] **`InvoicePdfService`** con Puppeteer + plantilla HTML inline + QR Verifactu embebido data-url + PDF a MinIO bucket `invoices`
+- [x] **BullMQ + Redis** activado en mismo proceso NestJS (apps/worker separado para Fase 8). Colas: billing/dunning/payments/verifactu/email
+- [x] **Cron diario `billing.generate-recurring`**: identifica contratos activos sin factura emitida para el periodo y crea drafts (no auto-issue: el admin revisa antes de emitir, para evitar errores costosos con hash Verifactu)
+- [x] **PricingService extendido**: resuelve `pricing_rules` activas (scope unit/unit_type/facility/tenant + condiciones jsonb) + `promotions` con código. Snapshot del precio efectivo en cada `invoice_items.unit_price`
+- [x] **DunningService** con state machine `issued → overdue` (cron diario) + calendario de acciones (+1 email recordatorio, +7 email con recargo, +14 access_block para Fase 5, +30 legal_notice manual)
+- [x] **RgpdService**: exportación de datos del customer en JSON + anonimización irreversible (preserva invoices por obligación fiscal Verifactu, sustituye datos personales por `*** ANONIMIZADO ***`)
+- [x] **Customer portal mínimo** con magic link in-memory: `POST /portal/login/{request,consume}`, lista de facturas + pago (UI placeholder, integración Stripe Elements en una iteración posterior)
+- [x] Audit logs ampliados: `invoice.*`, `payment.*`, `payment_method.*`, `dunning.*.executed`, `rgpd.*`, `invoice_series.*`
+- [x] Tests e2e (7 nuevos: invoice state machine, hash encadenado, mark-paid parcial/total, refund, series unique, portal magic link)
+- [x] Frontend `/invoices` + `/invoices/[id]` con timeline, acciones según estado, PDF generate/download, visor QR Verifactu
+- [x] Frontend `/payments` listado global
+- [x] Frontend `/settings/billing` con CRUD de series de facturación
+- [x] Frontend público `/portal/login` + `/portal/consume` con lista de facturas del cliente
+- [x] Dashboard con `<BillingMetricsCard>`: MRR, pendiente de cobro, vencidas, cobrado este mes
 
 ## Fase 5 — Comunicaciones y CRM básico (1-2 semanas)
 

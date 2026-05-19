@@ -7,6 +7,7 @@ import type {
   AuthSuccessResponse,
   ForgotPasswordInput,
   LoginInput,
+  LoginRequires2faResponse,
   MeResponse,
   RegisterInput,
   RegisterPendingResponse,
@@ -14,6 +15,8 @@ import type {
   ResetPasswordInput,
   VerifyEmailInput,
 } from '@storageos/shared';
+
+type LoginResponse = AuthSuccessResponse | LoginRequires2faResponse;
 
 export const meQueryKey = ['auth', 'me'] as const;
 
@@ -32,12 +35,13 @@ export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: LoginInput) =>
-      apiFetch<AuthSuccessResponse>('/auth/login', {
+      apiFetch<LoginResponse>('/auth/login', {
         method: 'POST',
         json: input,
         requiresAuth: false,
       }),
     onSuccess: (data) => {
+      if ('requires2fa' in data) return;
       useAuthStore.getState().setAccessToken(data.accessToken);
       queryClient.setQueryData(meQueryKey, {
         user: data.user,

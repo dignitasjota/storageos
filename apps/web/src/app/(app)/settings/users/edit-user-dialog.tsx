@@ -1,0 +1,188 @@
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { type UpdateUserInput, UpdateUserSchema, type UserDetailDto } from '@storageos/shared';
+import { useTranslations } from 'next-intl';
+import { useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
+
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ApiError } from '@/lib/auth/api';
+import { useUpdateUser } from '@/lib/users/hooks';
+
+const ROLES = ['manager', 'staff', 'readonly'] as const;
+
+interface Props {
+  user: UserDetailDto | null;
+  onClose: () => void;
+}
+
+export function EditUserDialog({ user, onClose }: Props) {
+  const t = useTranslations('settings.users');
+  const tCommon = useTranslations('common');
+  const update = useUpdateUser();
+
+  const form = useForm<UpdateUserInput>({
+    resolver: zodResolver(UpdateUserSchema),
+    defaultValues: {},
+  });
+
+  useEffect(() => {
+    if (user) {
+      form.reset({
+        fullName: user.fullName,
+        phone: user.phone ?? '',
+        ...(user.role === 'owner' ? {} : { role: user.role }),
+        isActive: user.isActive,
+      });
+    }
+  }, [user, form]);
+
+  if (!user) return null;
+  const isOwner = user.role === 'owner';
+
+  async function onSubmit(values: UpdateUserInput) {
+    if (!user) return;
+    try {
+      await update.mutateAsync({ id: user.id, input: values });
+      toast.success(t('editDialog.success'));
+      onClose();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const code = (err.body as { code?: string }).code;
+        if (code === 'owner_required') {
+          toast.error(t('errors.ownerRequired'));
+          return;
+        }
+        if (code === 'insufficient_role') {
+          toast.error(t('errors.insufficientRole'));
+          return;
+        }
+        toast.error(err.body.message || tCommon('errors.generic'));
+        return;
+      }
+      toast.error(tCommon('errors.network'));
+    }
+  }
+
+  return (
+    <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('editDialog.title')}</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <FormField
+              control={form.control}
+              name="fullName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('editDialog.fullName')}</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('editDialog.phone')}</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {!isOwner && (
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('editDialog.role')}</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? user.role}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ROLES.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {t(`role.${role}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {!isOwner && (
+              <FormField
+                control={form.control}
+                name="isActive"
+                render={({ field }) => (
+                  <FormItem className="flex items-center gap-2">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value ?? false}
+                        onCheckedChange={(v) => field.onChange(v === true)}
+                      />
+                    </FormControl>
+                    <FormLabel className="!mt-0">{t('editDialog.isActive')}</FormLabel>
+                  </FormItem>
+                )}
+              />
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={form.formState.isSubmitting}
+              >
+                {tCommon('cancel')}
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? tCommon('loading') : t('editDialog.submit')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}

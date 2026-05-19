@@ -37,6 +37,6 @@ import type { Env } from '../../config/env.schema';
     PasswordResetTokensService,
     JwtStrategy,
   ],
-  exports: [AuthService, TokensService, SessionsService],
+  exports: [AuthService, TokensService, SessionsService, AuditService],
 })
 export class AuthModule {}

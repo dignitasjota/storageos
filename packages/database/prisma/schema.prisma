@@ -57,6 +57,214 @@ enum SubscriptionStatus {
   @@map("subscription_status")
 }
 
+enum UnitStatus {
+  available
+  occupied
+  reserved
+  maintenance
+  blocked
+
+  @@map("unit_status")
+}
+
+enum CustomerType {
+  individual
+  business
+
+  @@map("customer_type")
+}
+
+enum CustomerDocumentType {
+  id_front
+  id_back
+  proof_of_address
+  other
+
+  @@map("customer_document_type")
+}
+
+enum ContractStatus {
+  draft
+  active
+  ending
+  ended
+  cancelled
+
+  @@map("contract_status")
+}
+
+enum ContractBillingCycle {
+  monthly
+  weekly
+  daily
+
+  @@map("contract_billing_cycle")
+}
+
+enum ContractDepositStatus {
+  none
+  held
+  returned
+  partially_returned
+
+  @@map("contract_deposit_status")
+}
+
+enum ContractEventType {
+  created
+  signed
+  price_changed
+  unit_changed
+  paused
+  resumed
+  ending_requested
+  ended
+  cancelled
+  note_added
+
+  @@map("contract_event_type")
+}
+
+enum ReservationStatus {
+  pending
+  confirmed
+  expired
+  converted
+  cancelled
+
+  @@map("reservation_status")
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  paid
+  overdue
+  cancelled
+  refunded
+  partially_refunded
+
+  @@map("invoice_status")
+}
+
+enum VerifactuMode {
+  verifactu
+  no_verifactu
+
+  @@map("verifactu_mode")
+}
+
+enum AeatStatus {
+  pending
+  accepted
+  accepted_with_warnings
+  rejected
+  error
+
+  @@map("aeat_status")
+}
+
+enum PaymentStatus {
+  pending
+  processing
+  succeeded
+  failed
+  refunded
+  partially_refunded
+
+  @@map("payment_status")
+}
+
+enum PaymentMethodType {
+  card
+  sepa_debit
+  bank_transfer
+  cash
+  other
+
+  @@map("payment_method_type")
+}
+
+enum PaymentGatewayProvider {
+  stripe
+  gocardless
+  redsys
+  manual
+
+  @@map("payment_gateway_provider")
+}
+
+enum DunningActionType {
+  email_reminder
+  sms_reminder
+  late_fee
+  access_block
+  legal_notice
+
+  @@map("dunning_action_type")
+}
+
+enum DunningActionStatus {
+  scheduled
+  executed
+  failed
+  cancelled
+
+  @@map("dunning_action_status")
+}
+
+enum PricingRuleScope {
+  unit
+  unit_type
+  facility
+  tenant
+
+  @@map("pricing_rule_scope")
+}
+
+enum PricingRuleType {
+  seasonal
+  occupancy_based
+  duration_discount
+  custom
+
+  @@map("pricing_rule_type")
+}
+
+enum PriceModifierType {
+  percentage
+  fixed
+
+  @@map("price_modifier_type")
+}
+
+enum PromotionDiscountType {
+  percentage
+  fixed
+  free_months
+
+  @@map("promotion_discount_type")
+}
+
+enum DataSubjectRequestType {
+  access
+  rectification
+  erasure
+  portability
+  restriction
+
+  @@map("data_subject_request_type")
+}
+
+enum DataSubjectRequestStatus {
+  open
+  in_progress
+  fulfilled
+  denied
+
+  @@map("data_subject_request_status")
+}
+
 // ============================================================================
 // Modelos
 // ============================================================================
@@ -84,6 +292,26 @@ model Tenant {
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+  invitations             Invitation[]
+  facilities              Facility[]
+  unitTypes               UnitType[]
+  units                   Unit[]
+  unitStatusHistory       UnitStatusHistory[]
+  customers               Customer[]
+  customerDocuments       CustomerDocument[]
+  contracts               Contract[]
+  contractEvents          ContractEvent[]
+  reservations            Reservation[]
+  invoiceSeries           InvoiceSeries[]
+  invoices                Invoice[]
+  invoiceItems            InvoiceItem[]
+  payments                Payment[]
+  paymentMethods          PaymentMethod[]
+  dunningActions          DunningAction[]
+  pricingRules            PricingRule[]
+  promotions              Promotion[]
+  dataSubjectRequests     DataSubjectRequest[]
+  consents                Consent[]
 
   @@map("tenants")
 }
@@ -97,11 +325,12 @@ model User {
   fullName            String    @map("full_name")
   phone               String?
   role                UserRole  @default(staff)
-  emailVerifiedAt     DateTime? @map("email_verified_at") @db.Timestamptz(6)
-  twoFactorSecret     String?   @map("two_factor_secret")
-  twoFactorEnabled    Boolean   @default(false) @map("two_factor_enabled")
-  twoFactorEnrolledAt DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
-  lastLoginAt         DateTime? @map("last_login_at") @db.Timestamptz(6)
+  emailVerifiedAt        DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  twoFactorSecret        String?   @map("two_factor_secret")
+  twoFactorPendingSecret String?   @map("two_factor_pending_secret")
+  twoFactorEnabled       Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorEnrolledAt    DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
+  lastLoginAt            DateTime? @map("last_login_at") @db.Timestamptz(6)
   isActive            Boolean   @default(true) @map("is_active")
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -111,10 +340,34 @@ model User {
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+  invitationsSent         Invitation[]             @relation("InvitationInviter")
+  recoveryCodes           RecoveryCode[]
+  unitStatusChanges       UnitStatusHistory[]      @relation("UnitStatusChangedBy")
+  customerDocsUploaded    CustomerDocument[]       @relation("DocUploadedBy")
+  contractEvents          ContractEvent[]          @relation("ContractEventCreatedBy")
+  dataRequestsHandled     DataSubjectRequest[]     @relation("DataRequestHandledBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
+}
+
+/// Codigos de recuperacion para 2FA. Se generan 10 al activar 2FA; solo se
+/// devuelven en plaintext una vez. Cada codigo es single-use (used_at).
+/// Regenerar todos los codigos invalida los anteriores (delete + insert).
+model RecoveryCode {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId, usedAt])
+  @@map("recovery_codes")
 }
 
 /// Planes comerciales del SaaS (globales, sin tenant).
@@ -245,4 +498,664 @@ model PasswordResetToken {
   @@index([userId, usedAt])
   @@index([expiresAt])
   @@map("password_reset_tokens")
+}
+
+/// Invitacion para que un email externo se una al tenant con un role. El
+/// invitado fija su propia password al aceptar; el email queda verificado
+/// implicitamente. Single-use (accepted_at). Revocable (revoked_at). Solo
+/// puede haber una invitacion pendiente por (tenant, email): se garantiza
+/// con un indice unico parcial creado en SQL en la migracion 1E_rls.
+model Invitation {
+  id                String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  email             String
+  role              UserRole
+  invitedByUserId   String?   @map("invited_by_user_id") @db.Uuid
+  tokenHash         String    @map("token_hash")
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  acceptedAt        DateTime? @map("accepted_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason     String?   @map("revoked_reason")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invitedBy   User?  @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, email])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+/// Local fisico del tenant. Cada facility tiene N floors y N units. Soft
+/// delete (`deleted_at`) porque borrar implicaria perder historial de
+/// contratos asociados a sus units (Fase 3).
+model Facility {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  name          String
+  address       String?
+  city          String?
+  postalCode    String?   @map("postal_code")
+  country       String    @default("ES") @db.Char(2)
+  latitude      Decimal?  @db.Decimal(9, 6)
+  longitude     Decimal?  @db.Decimal(9, 6)
+  timezone      String    @default("Europe/Madrid")
+  openingHours  Json      @default("{}") @map("opening_hours")
+  contactPhone  String?   @map("contact_phone")
+  contactEmail  String?   @map("contact_email")
+  isActive      Boolean   @default(true) @map("is_active")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  floors FacilityFloor[]
+  units  Unit[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive, deletedAt])
+  @@map("facilities")
+}
+
+/// Plantas dentro de un local. Cada facility puede tener 0..N floors. Si
+/// el tenant no crea ninguna, el servicio garantiza una "default floor"
+/// automatica al crear la primera unit. Las units siempre apuntan a una
+/// floor concreta.
+model FacilityFloor {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  facilityId      String   @map("facility_id") @db.Uuid
+  name            String
+  floorNumber     Int      @default(0) @map("floor_number")
+  planImageUrl    String?  @map("plan_image_url")
+  planWidthPx     Int?     @map("plan_width_px")
+  planHeightPx    Int?     @map("plan_height_px")
+  /// true = creada automaticamente al primer unit, no por el usuario.
+  isDefault       Boolean  @default(false) @map("is_default")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  units    Unit[]
+
+  @@index([facilityId])
+  @@map("facility_floors")
+}
+
+/// Tipologia de trastero (S/M/L/XL...) a nivel de tenant. Las units
+/// referencian un unit_type para heredar color, precio por defecto y
+/// features. Cambiar features de un unit_type NO modifica las units
+/// existentes (snapshot en `units.base_price_monthly`).
+model UnitType {
+  id                   String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  name                 String
+  description          String?
+  defaultPriceMonthly  Decimal  @map("default_price_monthly") @db.Decimal(10, 2)
+  color                String   @default("#888888") @db.Char(7)
+  features             Json     @default("{}")
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  units  Unit[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("unit_types")
+}
+
+/// Trastero individual. `area_m2` y `volume_m3` son columnas generadas en
+/// Postgres (GENERATED ALWAYS AS ... STORED) para coherencia: nunca se
+/// settean desde la app. Su DDL vive en la migracion 2A_facilities porque
+/// Prisma no las modela (`@@ignore` no aplica aqui).
+model Unit {
+  id                 String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String     @map("tenant_id") @db.Uuid
+  facilityId         String     @map("facility_id") @db.Uuid
+  floorId            String     @map("floor_id") @db.Uuid
+  unitTypeId         String     @map("unit_type_id") @db.Uuid
+  code               String
+  widthM             Decimal    @map("width_m") @db.Decimal(6, 2)
+  depthM             Decimal    @map("depth_m") @db.Decimal(6, 2)
+  heightM            Decimal    @map("height_m") @db.Decimal(6, 2)
+  /// Columnas generadas en Postgres. Prisma las lee pero no las escribe.
+  areaM2             Decimal?   @map("area_m2") @db.Decimal(10, 4)
+  volumeM3           Decimal?   @map("volume_m3") @db.Decimal(12, 4)
+  status             UnitStatus @default(available)
+  basePriceMonthly   Decimal    @map("base_price_monthly") @db.Decimal(10, 2)
+  planX              Decimal?   @map("plan_x") @db.Decimal(10, 3)
+  planY              Decimal?   @map("plan_y") @db.Decimal(10, 3)
+  planWidth          Decimal?   @map("plan_width") @db.Decimal(10, 3)
+  planHeight         Decimal?   @map("plan_height") @db.Decimal(10, 3)
+  planShape          Json?      @map("plan_shape")
+  notes              String?
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  facility       Facility            @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  floor          FacilityFloor       @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  unitType       UnitType            @relation(fields: [unitTypeId], references: [id], onDelete: Restrict)
+  statusHistory  UnitStatusHistory[]
+  contracts      Contract[]
+  reservations   Reservation[]
+
+  @@unique([facilityId, code])
+  @@index([tenantId])
+  @@index([facilityId, status])
+  @@index([floorId])
+  @@map("units")
+}
+
+/// Historial de cambios de estado de cada unit. Inmutable. Se inserta
+/// desde `UnitsService.changeStatus`. Permite reconstruir la timeline
+/// de un trastero (cuando estuvo ocupado, en mantenimiento, etc.).
+model UnitStatusHistory {
+  id               String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  unitId           String     @map("unit_id") @db.Uuid
+  previousStatus   UnitStatus @map("previous_status")
+  newStatus        UnitStatus @map("new_status")
+  changedByUserId  String?    @map("changed_by_user_id") @db.Uuid
+  reason           String?
+  occurredAt       DateTime   @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit       Unit   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  changedBy  User?  @relation("UnitStatusChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([unitId, occurredAt(sort: Desc)])
+  @@map("unit_status_history")
+}
+
+/// Inquilino del tenant. Individuo o empresa que alquila trasteros.
+/// Soft delete (`deleted_at`) porque borrar implicaria perder historial
+/// de contratos y facturas (Fase 4). El email puede ser NULL: hay
+/// inquilinos sin email (efectivo, walk-in). El `document_number` es la
+/// identidad legal (DNI/NIE/CIF) y NO es unico globalmente (un mismo
+/// DNI puede repetirse entre tenants).
+model Customer {
+  id                     String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String       @map("tenant_id") @db.Uuid
+  customerType           CustomerType @default(individual) @map("customer_type")
+  firstName              String?      @map("first_name")
+  lastName               String?      @map("last_name")
+  companyName            String?      @map("company_name")
+  documentType           String?      @map("document_type")
+  documentNumber         String?      @map("document_number")
+  email                  String?
+  phone                  String?
+  address                String?
+  city                   String?
+  postalCode             String?      @map("postal_code")
+  country                String       @default("ES") @db.Char(2)
+  emergencyContactName   String?      @map("emergency_contact_name")
+  emergencyContactPhone  String?      @map("emergency_contact_phone")
+  notes                  String?
+  tags                   String[]     @default([])
+  portalAccessEnabled    Boolean      @default(false) @map("portal_access_enabled")
+  portalPasswordHash     String?      @map("portal_password_hash")
+  kycVerified            Boolean      @default(false) @map("kyc_verified")
+  kycVerifiedAt          DateTime?    @map("kyc_verified_at") @db.Timestamptz(6)
+  deletedAt              DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  documents      CustomerDocument[]
+  contracts      Contract[]
+  reservations   Reservation[]
+  invoices       Invoice[]
+  payments       Payment[]
+  paymentMethods PaymentMethod[]
+  consents       Consent[]
+
+  @@index([tenantId])
+  @@index([tenantId, deletedAt])
+  @@index([tenantId, documentNumber])
+  @@index([tenantId, email])
+  @@map("customers")
+}
+
+/// Documentos de un inquilino subidos a MinIO. Cada uno con su tipo
+/// (DNI front/back, comprobante de domicilio, otros) y metadatos.
+model CustomerDocument {
+  id              String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  customerId      String                @map("customer_id") @db.Uuid
+  type            CustomerDocumentType
+  fileUrl         String                @map("file_url")
+  fileName        String                @map("file_name")
+  mimeType        String                @map("mime_type")
+  fileSize        Int                   @map("file_size")
+  uploadedByUserId String?              @map("uploaded_by_user_id") @db.Uuid
+  expiresAt       DateTime?             @map("expires_at") @db.Timestamptz(6)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  uploadedBy User?    @relation("DocUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("customer_documents")
+}
+
+/// Contrato de alquiler. Estados: draft -> active -> ending -> ended,
+/// o draft/active/ending -> cancelled. El `price_monthly` se congela al
+/// firmar (snapshot, ver ADR-020); cambios posteriores requieren un
+/// `ContractEvent` price_changed. Numero secuencial unico por tenant.
+model Contract {
+  id                      String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String                @map("tenant_id") @db.Uuid
+  customerId              String                @map("customer_id") @db.Uuid
+  unitId                  String                @map("unit_id") @db.Uuid
+  contractNumber          String                @map("contract_number")
+  status                  ContractStatus        @default(draft)
+  startDate               DateTime              @map("start_date") @db.Date
+  endDate                 DateTime?             @map("end_date") @db.Date
+  signedAt                DateTime?             @map("signed_at") @db.Timestamptz(6)
+  endingRequestedAt       DateTime?             @map("ending_requested_at") @db.Timestamptz(6)
+  endedAt                 DateTime?             @map("ended_at") @db.Timestamptz(6)
+  cancelledAt             DateTime?             @map("cancelled_at") @db.Timestamptz(6)
+  billingCycle            ContractBillingCycle  @default(monthly) @map("billing_cycle")
+  /// Precio congelado al firmar (snapshot). Antes de firmar es el
+  /// precio propuesto y puede cambiarse libremente. Tras firmar, solo
+  /// cambia via ContractEvent price_changed.
+  priceMonthly            Decimal               @map("price_monthly") @db.Decimal(10, 2)
+  discountAmount          Decimal               @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  discountReason          String?               @map("discount_reason")
+  depositAmount           Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
+  depositStatus           ContractDepositStatus @default(none) @map("deposit_status")
+  signedPdfUrl            String?               @map("signed_pdf_url")
+  autoRenew               Boolean               @default(true) @map("auto_renew")
+  cancellationNoticeDays  Int                   @default(15) @map("cancellation_notice_days")
+  notes                   String?
+  deletedAt               DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  createdAt               DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  unit     Unit            @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  events   ContractEvent[]
+  invoices Invoice[]
+  invoiceItems InvoiceItem[]
+
+  @@unique([tenantId, contractNumber])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([customerId])
+  @@index([unitId])
+  @@map("contracts")
+}
+
+/// Historial inmutable de eventos de un contrato. Se inserta cada vez
+/// que cambia el estado (signed, ended, cancelled), el precio
+/// (price_changed) o se anyade una nota. Permite reconstruir la timeline
+/// completa para auditoria y soporte.
+model ContractEvent {
+  id              String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  contractId      String            @map("contract_id") @db.Uuid
+  eventType       ContractEventType @map("event_type")
+  payload         Json              @default("{}")
+  createdByUserId String?           @map("created_by_user_id") @db.Uuid
+  occurredAt      DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  contract  Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("ContractEventCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([contractId, occurredAt(sort: Desc)])
+  @@map("contract_events")
+}
+
+/// Reserva previa a la firma del contrato. Pre-bloquea un unit durante
+/// un periodo. El EXCLUDE constraint con btree_gist garantiza a nivel
+/// de BD que no haya solapamiento entre reservas pending/confirmed para
+/// el mismo unit. Ver migracion <fecha>_phase3_reservations_exclude.
+///
+/// `timeRange` es una columna GENERATED de Postgres (tstzrange) cuyo
+/// DDL vive en la migracion SQL (Prisma no la modela). El servicio
+/// nunca la escribe; solo lee `validFrom`/`validUntil`.
+model Reservation {
+  id            String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  unitId        String            @map("unit_id") @db.Uuid
+  customerId    String?           @map("customer_id") @db.Uuid
+  status        ReservationStatus @default(pending)
+  validFrom     DateTime          @map("valid_from") @db.Timestamptz(6)
+  validUntil    DateTime          @map("valid_until") @db.Timestamptz(6)
+  depositPaid   Boolean           @default(false) @map("deposit_paid")
+  depositAmount Decimal           @default(0) @map("deposit_amount") @db.Decimal(10, 2)
+  notes         String?
+  convertedContractId String?     @map("converted_contract_id") @db.Uuid
+  cancelledAt   DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason  String?           @map("cancel_reason")
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit     Unit      @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([unitId, status])
+  @@index([customerId])
+  @@index([validUntil])
+  @@map("reservations")
+}
+
+/// Serie de numeracion de facturas. Cada tenant puede tener varias
+/// (p.ej. una por facility o por año, segun configuracion de IVA y
+/// requisitos Verifactu). El `next_number` se incrementa atomicamente
+/// al emitir cada factura (UNIQUE en invoices + UPDATE ... RETURNING).
+model InvoiceSeries {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  code        String
+  name        String
+  prefix      String
+  yearScope   Boolean  @default(true) @map("year_scope")
+  /// El siguiente numero a usar al emitir. Se actualiza junto con el
+  /// invoice INSERT en la misma transaccion.
+  nextNumber  Int      @default(1) @map("next_number")
+  facilityId  String?  @map("facility_id") @db.Uuid
+  isActive    Boolean  @default(true) @map("is_active")
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoices Invoice[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("invoice_series")
+}
+
+/// Factura emitida. Verifactu fields:
+///   - `hash`: SHA-256 del payload de la factura (RD 1007/2023).
+///   - `previous_hash`: hash de la inmediatamente anterior de la misma serie.
+///   - `qr_code_url`: URL del QR AEAT (con CSV cuando este disponible).
+///   - `verifactu_mode`: declarado por el tenant.
+///   - `aeat_*`: estado de envio a AEAT (en Fase 4: stub; en Fase 8: real).
+///
+/// El `invoice_number` es inmutable tras pasar de `draft` a `issued`. La
+/// numeracion secuencial dentro de (tenant, series) la garantiza UNIQUE.
+model Invoice {
+  id                  String         @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String         @map("tenant_id") @db.Uuid
+  customerId          String         @map("customer_id") @db.Uuid
+  contractId          String?        @map("contract_id") @db.Uuid
+  seriesId            String         @map("series_id") @db.Uuid
+  sequenceNumber      Int            @map("sequence_number")
+  invoiceNumber       String         @map("invoice_number")
+  status              InvoiceStatus  @default(draft)
+  issueDate           DateTime?      @map("issue_date") @db.Date
+  dueDate             DateTime?      @map("due_date") @db.Date
+  /// Periodo facturado (p.ej. mes natural si es un alquiler mensual).
+  periodStart         DateTime?      @map("period_start") @db.Date
+  periodEnd           DateTime?      @map("period_end") @db.Date
+  subtotal            Decimal        @default(0) @db.Decimal(12, 2)
+  taxAmount           Decimal        @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  total               Decimal        @default(0) @db.Decimal(12, 2)
+  amountPaid          Decimal        @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  amountRefunded      Decimal        @default(0) @map("amount_refunded") @db.Decimal(12, 2)
+  currency            String         @default("EUR") @db.Char(3)
+  pdfUrl              String?        @map("pdf_url")
+  notes               String?
+  /// --- Verifactu ---
+  hash                String?
+  previousHash        String?        @map("previous_hash")
+  qrCodeUrl           String?        @map("qr_code_url")
+  verifactuMode       VerifactuMode  @default(verifactu) @map("verifactu_mode")
+  aeatSentAt          DateTime?      @map("aeat_sent_at") @db.Timestamptz(6)
+  aeatStatus          AeatStatus?    @map("aeat_status")
+  aeatResponse        Json?          @map("aeat_response")
+  aeatCsv             String?        @map("aeat_csv")
+  paidAt              DateTime?      @map("paid_at") @db.Timestamptz(6)
+  cancelledAt         DateTime?      @map("cancelled_at") @db.Timestamptz(6)
+  deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract Contract?      @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  series   InvoiceSeries  @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  items    InvoiceItem[]
+  payments Payment[]
+  dunningActions DunningAction[]
+
+  @@unique([tenantId, seriesId, sequenceNumber])
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([customerId])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+/// Linea de factura. `unit_price` snapshot del precio aplicado tras
+/// resolver pricing rules y promotions (no se recalcula al recargar).
+model InvoiceItem {
+  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  invoiceId         String   @map("invoice_id") @db.Uuid
+  description       String
+  quantity          Decimal  @default(1) @db.Decimal(10, 3)
+  unitPrice         Decimal  @map("unit_price") @db.Decimal(12, 2)
+  taxRate           Decimal  @default(21) @map("tax_rate") @db.Decimal(5, 2)
+  taxAmount         Decimal  @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  total             Decimal  @default(0) @db.Decimal(12, 2)
+  relatedContractId String?  @map("related_contract_id") @db.Uuid
+  relatedUnitId     String?  @map("related_unit_id") @db.Uuid
+  periodStart       DateTime? @map("period_start") @db.Date
+  periodEnd         DateTime? @map("period_end") @db.Date
+  position          Int      @default(0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  relatedContract Contract? @relation(fields: [relatedContractId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+/// Pago. Puede asociarse a una invoice o ser standalone (p.ej. fianza
+/// inicial sin factura). Sincronizado con el gateway via webhook.
+model Payment {
+  id                  String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String                 @map("tenant_id") @db.Uuid
+  invoiceId           String?                @map("invoice_id") @db.Uuid
+  customerId          String                 @map("customer_id") @db.Uuid
+  paymentMethodId     String?                @map("payment_method_id") @db.Uuid
+  amount              Decimal                @db.Decimal(12, 2)
+  currency            String                 @default("EUR") @db.Char(3)
+  status              PaymentStatus          @default(pending)
+  methodType          PaymentMethodType      @map("method_type")
+  gateway             PaymentGatewayProvider @default(manual)
+  gatewayPaymentId    String?                @map("gateway_payment_id")
+  gatewayResponse     Json?                  @map("gateway_response")
+  paidAt              DateTime?              @map("paid_at") @db.Timestamptz(6)
+  refundedAt          DateTime?              @map("refunded_at") @db.Timestamptz(6)
+  refundedAmount      Decimal                @default(0) @map("refunded_amount") @db.Decimal(12, 2)
+  failureReason       String?                @map("failure_reason")
+  notes               String?
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([customerId])
+  @@index([gatewayPaymentId])
+  @@map("payments")
+}
+
+/// Metodo de pago guardado del cliente. Tokens del gateway cifrados con
+/// CryptoService (AES-256-GCM, ADR-007).
+model PaymentMethod {
+  id                  String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String                 @map("tenant_id") @db.Uuid
+  customerId          String                 @map("customer_id") @db.Uuid
+  type                PaymentMethodType
+  gateway             PaymentGatewayProvider
+  /// Cifrado AES-256-GCM. NUNCA en plaintext.
+  gatewayTokenEncrypted String               @map("gateway_token_encrypted")
+  /// Id del Customer en el gateway (Stripe customer id, etc.). No es secreto.
+  gatewayCustomerId   String?                @map("gateway_customer_id")
+  last4               String?                @db.Char(4)
+  brand               String?
+  expMonth            Int?                   @map("exp_month")
+  expYear             Int?                   @map("exp_year")
+  isDefault           Boolean                @default(false) @map("is_default")
+  mandateReference    String?                @map("mandate_reference")
+  deletedAt           DateTime?              @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([tenantId])
+  @@index([customerId, deletedAt])
+  @@map("payment_methods")
+}
+
+/// Accion de dunning programada o ejecutada sobre una factura overdue.
+model DunningAction {
+  id            String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String              @map("tenant_id") @db.Uuid
+  invoiceId     String              @map("invoice_id") @db.Uuid
+  actionType    DunningActionType   @map("action_type")
+  status        DunningActionStatus @default(scheduled)
+  scheduledFor  DateTime            @map("scheduled_for") @db.Timestamptz(6)
+  executedAt    DateTime?           @map("executed_at") @db.Timestamptz(6)
+  result        Json?
+  notes         String?
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([scheduledFor, status])
+  @@map("dunning_actions")
+}
+
+/// Regla de pricing dinamico. `conditions` JSONB describe cuando aplica
+/// (rango fechas, ocupacion %, duracion contrato, etc.). `priority`
+/// resuelve conflictos (mayor primero).
+model PricingRule {
+  id                  String             @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String             @map("tenant_id") @db.Uuid
+  name                String
+  scope               PricingRuleScope
+  targetId            String?            @map("target_id") @db.Uuid
+  ruleType            PricingRuleType    @map("rule_type")
+  conditions          Json               @default("{}")
+  modifierType        PriceModifierType  @map("modifier_type")
+  modifierValue       Decimal            @map("modifier_value") @db.Decimal(10, 2)
+  validFrom           DateTime?          @map("valid_from") @db.Timestamptz(6)
+  validUntil          DateTime?          @map("valid_until") @db.Timestamptz(6)
+  priority            Int                @default(0)
+  isActive            Boolean            @default(true) @map("is_active")
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, isActive, scope])
+  @@map("pricing_rules")
+}
+
+/// Codigo promocional. `applies_to` JSONB describe a que units/types
+/// aplica (vacio = todo el catalogo del tenant).
+model Promotion {
+  id              String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  code            String
+  name            String
+  discountType    PromotionDiscountType @map("discount_type")
+  discountValue   Decimal               @map("discount_value") @db.Decimal(10, 2)
+  appliesTo       Json                  @default("{}") @map("applies_to")
+  maxUses         Int?                  @map("max_uses")
+  usedCount       Int                   @default(0) @map("used_count")
+  validFrom       DateTime?             @map("valid_from") @db.Timestamptz(6)
+  validUntil      DateTime?             @map("valid_until") @db.Timestamptz(6)
+  isActive        Boolean               @default(true) @map("is_active")
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@map("promotions")
+}
+
+/// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
+/// SLA 30 dias desde `submitted_at`. La supresion NO borra facturas
+/// emitidas (obligacion fiscal); anonimiza el customer manteniendo el
+/// historial.
+model DataSubjectRequest {
+  id                String                       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId          String                       @map("tenant_id") @db.Uuid
+  customerId        String?                      @map("customer_id") @db.Uuid
+  email             String
+  requestType       DataSubjectRequestType       @map("request_type")
+  status            DataSubjectRequestStatus     @default(open)
+  submittedAt       DateTime                     @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  dueAt             DateTime                     @map("due_at") @db.Timestamptz(6)
+  fulfilledAt       DateTime?                    @map("fulfilled_at") @db.Timestamptz(6)
+  notes             String?
+  handledByUserId   String?                      @map("handled_by_user_id") @db.Uuid
+  exportFileUrl     String?                      @map("export_file_url")
+  createdAt         DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  handledBy User?  @relation("DataRequestHandledBy", fields: [handledByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([status, dueAt])
+  @@map("data_subject_requests")
+}
+
+/// Consentimientos explicitos del cliente (marketing, comunicaciones no
+/// esenciales). `evidence` JSONB con IP, user-agent y texto exacto del
+/// consentimiento mostrado.
+model Consent {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  customerId    String   @map("customer_id") @db.Uuid
+  purpose       String
+  granted       Boolean  @default(false)
+  grantedAt     DateTime? @map("granted_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  evidence      Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId, purpose])
+  @@map("consents")
 }

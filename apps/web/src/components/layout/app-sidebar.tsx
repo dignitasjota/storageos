@@ -1,6 +1,15 @@
 'use client';
 
-import { Building2, CreditCard, LayoutDashboard, Settings, Users } from 'lucide-react';
+import {
+  Boxes,
+  Building2,
+  CalendarClock,
+  CreditCard,
+  FileText,
+  LayoutDashboard,
+  Settings,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -26,9 +35,12 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard, enabled: true },
-  { href: '/facilities', labelKey: 'facilities', icon: Building2, enabled: false },
-  { href: '/customers', labelKey: 'customers', icon: Users, enabled: false },
-  { href: '/billing', labelKey: 'billing', icon: CreditCard, enabled: false },
+  { href: '/facilities', labelKey: 'facilities', icon: Building2, enabled: true },
+  { href: '/units', labelKey: 'units', icon: Boxes, enabled: true },
+  { href: '/customers', labelKey: 'customers', icon: Users, enabled: true },
+  { href: '/contracts', labelKey: 'contracts', icon: FileText, enabled: true },
+  { href: '/reservations', labelKey: 'reservations', icon: CalendarClock, enabled: true },
+  { href: '/invoices', labelKey: 'invoices', icon: CreditCard, enabled: true },
 ];
 
 export function AppSidebar() {
@@ -81,12 +93,13 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              tooltip={common('comingSoon')}
-              disabled
-              className="cursor-not-allowed opacity-60"
+              asChild
+              isActive={pathname === '/settings' || pathname.startsWith('/settings/')}
             >
-              <Settings />
-              <span>{t('settings')}</span>
+              <Link href="/settings/users">
+                <Settings />
+                <span>{t('settings')}</span>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

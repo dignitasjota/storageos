@@ -1,0 +1,626 @@
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+
+import { AuditService } from '../auth/audit.service';
+import { PrismaService } from '../database/prisma.service';
+
+import { InvoiceSeriesService } from './invoice-series.service';
+import { VerifactuService } from './verifactu.service';
+
+import type { RequestMeta } from '../auth/auth.service';
+import type { Invoice, InvoiceItem, InvoiceStatus, Prisma } from '@storageos/database';
+import type {
+  CancelInvoiceInput,
+  CreateInvoiceInput,
+  CreateInvoiceItemInput,
+  InvoiceDto,
+  InvoiceItemDto,
+  InvoiceStatusValue,
+  MarkPaidManuallyInput,
+  RefundInvoiceInput,
+  UpdateInvoiceInput,
+} from '@storageos/shared';
+
+const ALLOWED_TRANSITIONS: Record<InvoiceStatusValue, InvoiceStatusValue[]> = {
+  draft: ['issued', 'cancelled'],
+  issued: ['paid', 'overdue', 'cancelled', 'refunded', 'partially_refunded'],
+  overdue: ['paid', 'cancelled', 'refunded', 'partially_refunded'],
+  paid: ['refunded', 'partially_refunded'],
+  partially_refunded: ['refunded'],
+  refunded: [],
+  cancelled: [],
+};
+
+type InvoiceWithRelations = Invoice & {
+  items: InvoiceItem[];
+  customer: {
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+    customerType: 'individual' | 'business';
+  };
+  contract: { contractNumber: string } | null;
+  series: { code: string };
+};
+
+interface ListFilters {
+  status?: InvoiceStatusValue;
+  customerId?: string;
+  contractId?: string;
+  overdue?: boolean;
+}
+
+@Injectable()
+export class InvoicesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly series: InvoiceSeriesService,
+    private readonly verifactu: VerifactuService,
+  ) {}
+
+  async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
+    const where: Prisma.InvoiceWhereInput = { deletedAt: null };
+    if (filters.status) where.status = filters.status as InvoiceStatus;
+    if (filters.customerId) where.customerId = filters.customerId;
+    if (filters.contractId) where.contractId = filters.contractId;
+    if (filters.overdue) {
+      where.status = { in: ['issued', 'overdue'] };
+      where.dueDate = { lt: new Date() };
+    }
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where,
+          orderBy: [{ updatedAt: 'desc' }],
+          include: {
+            items: { orderBy: { position: 'asc' } },
+            customer: {
+              select: {
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                customerType: true,
+              },
+            },
+            contract: { select: { contractNumber: true } },
+            series: { select: { code: true } },
+          },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => this.toDto(r));
+  }
+
+  async detail(tenantId: string, id: string): Promise<InvoiceDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id));
+  }
+
+  async create(args: {
+    tenantId: string;
+    userId: string;
+    input: CreateInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const created = await this.prisma.withTenant(async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: args.input.customerId, deletedAt: null },
+      });
+      if (!customer) {
+        throw new NotFoundException({
+          code: 'customer_not_found',
+          message: 'Inquilino no encontrado',
+        });
+      }
+      const series = args.input.seriesId
+        ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
+        : await tx.invoiceSeries.findFirst({
+            where: { isDefault: true, isActive: true },
+          });
+      if (!series) {
+        throw new BadRequestException({
+          code: 'no_default_series',
+          message: 'No hay serie por defecto configurada',
+        });
+      }
+      const { subtotal, taxAmount, total } = this.computeTotals(args.input.items);
+      // En draft NO se asigna invoiceNumber; se asigna al issue.
+      const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
+      return tx.invoice.create({
+        data: {
+          tenantId: args.tenantId,
+          customerId: args.input.customerId,
+          ...(args.input.contractId ? { contractId: args.input.contractId } : {}),
+          seriesId: series.id,
+          sequenceNumber: 0,
+          invoiceNumber: placeholderNumber,
+          status: 'draft',
+          ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
+          ...(args.input.dueDate ? { dueDate: new Date(args.input.dueDate) } : {}),
+          ...(args.input.periodStart ? { periodStart: new Date(args.input.periodStart) } : {}),
+          ...(args.input.periodEnd ? { periodEnd: new Date(args.input.periodEnd) } : {}),
+          subtotal,
+          taxAmount,
+          total,
+          notes: args.input.notes?.trim() || null,
+          verifactuMode: args.input.verifactuMode,
+          items: {
+            create: args.input.items.map((item, idx) =>
+              this.toItemCreateData(item, args.tenantId, idx),
+            ),
+          },
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.created',
+      entityType: 'Invoice',
+      entityId: created.id,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(created);
+  }
+
+  async update(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    input: UpdateInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    if (existing.status !== 'draft' && args.input.items !== undefined) {
+      throw new BadRequestException({
+        code: 'invoice_not_editable',
+        message: 'Solo se pueden editar lineas en estado draft',
+      });
+    }
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const data: Prisma.InvoiceUpdateInput = {};
+      if (args.input.dueDate !== undefined) {
+        data.dueDate = args.input.dueDate ? new Date(args.input.dueDate) : null;
+      }
+      if (args.input.notes !== undefined) {
+        data.notes = args.input.notes?.trim() || null;
+      }
+      if (args.input.items !== undefined) {
+        const totals = this.computeTotals(args.input.items);
+        data.subtotal = totals.subtotal;
+        data.taxAmount = totals.taxAmount;
+        data.total = totals.total;
+        await tx.invoiceItem.deleteMany({ where: { invoiceId: args.invoiceId } });
+        await tx.invoiceItem.createMany({
+          data: args.input.items.map((item, idx) => ({
+            ...this.toItemCreateData(item, args.tenantId, idx),
+            invoiceId: args.invoiceId,
+          })),
+        });
+      }
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data,
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.updated',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  /**
+   * Emite la factura: asigna numero secuencial, calcula hash Verifactu
+   * encadenado, marca `status = issued`, dispara envio AEAT (stub en
+   * Fase 4). Todo en una transaccion.
+   */
+  async issue(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    this.assertTransition(existing.status as InvoiceStatusValue, 'issued');
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
+      const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber);
+      const issueDate = existing.issueDate ?? new Date();
+      const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate);
+
+      // Verifactu hash encadenado.
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: args.tenantId },
+        select: { taxId: true },
+      });
+      const total = Number(existing.total);
+      const { hash, previousHash } = await this.verifactu.computeChainedHash(tx, {
+        tenantId: args.tenantId,
+        tenantTaxId: tenant.taxId ?? 'PENDIENTE',
+        seriesId: existing.seriesId,
+        invoiceNumber,
+        issueDate,
+        total,
+      });
+      const qrCodeUrl = await this.verifactu.buildQrDataUrl({
+        tenantTaxId: tenant.taxId ?? 'PENDIENTE',
+        invoiceNumber,
+        issueDate,
+        total,
+      });
+
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          status: 'issued',
+          invoiceNumber,
+          sequenceNumber,
+          issueDate,
+          dueDate,
+          hash,
+          previousHash,
+          qrCodeUrl,
+          aeatStatus: 'pending',
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+
+    // Disparar envio (stub o real). Fuera de la transaccion principal.
+    await this.verifactu.sendToAeat(updated.id, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.issued',
+      entityType: 'Invoice',
+      entityId: updated.id,
+      changes: { invoiceNumber: updated.invoiceNumber, total: Number(updated.total) },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
+  }
+
+  async cancel(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    input: CancelInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    this.assertTransition(existing.status as InvoiceStatusValue, 'cancelled');
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.update({
+          where: { id: args.invoiceId },
+          data: { status: 'cancelled', cancelledAt: new Date() },
+          include: this.includeRelations(),
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.cancelled',
+      entityType: 'Invoice',
+      entityId: updated.id,
+      changes: { reason: args.input.reason ?? null },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  /** Marca una factura como pagada manualmente (cobro en efectivo, transferencia...). */
+  async markPaidManually(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    input: MarkPaidManuallyInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    if (existing.status !== 'issued' && existing.status !== 'overdue') {
+      throw new BadRequestException({
+        code: 'invoice_not_payable',
+        message: 'La factura no esta en estado pagable',
+      });
+    }
+    const amount = args.input.amount;
+    const total = Number(existing.total);
+    const alreadyPaid = Number(existing.amountPaid);
+    const newPaid = alreadyPaid + amount;
+    if (newPaid > total + 0.001) {
+      throw new BadRequestException({
+        code: 'overpayment',
+        message: 'El importe excede el pendiente',
+      });
+    }
+    const fullyPaid = newPaid >= total - 0.001;
+    const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await tx.payment.create({
+        data: {
+          tenantId: args.tenantId,
+          invoiceId: args.invoiceId,
+          customerId: existing.customerId,
+          amount,
+          methodType: args.input.methodType,
+          gateway: 'manual',
+          status: 'succeeded',
+          paidAt,
+          notes: args.input.notes?.trim() || null,
+        },
+      });
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          amountPaid: newPaid,
+          ...(fullyPaid ? { status: 'paid', paidAt } : {}),
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: fullyPaid ? 'invoice.paid' : 'invoice.partial_payment',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      changes: { amount, methodType: args.input.methodType },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  async refund(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    input: RefundInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    if (existing.status !== 'paid' && existing.status !== 'partially_refunded') {
+      throw new BadRequestException({
+        code: 'invoice_not_refundable',
+        message: 'Solo se pueden reembolsar facturas pagadas',
+      });
+    }
+    const amount = args.input.amount;
+    const alreadyRefunded = Number(existing.amountRefunded);
+    const total = Number(existing.total);
+    const newRefunded = alreadyRefunded + amount;
+    if (newRefunded > total + 0.001) {
+      throw new BadRequestException({
+        code: 'over_refund',
+        message: 'El importe excede el cobrado',
+      });
+    }
+    const fullyRefunded = newRefunded >= total - 0.001;
+
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.update({
+          where: { id: args.invoiceId },
+          data: {
+            amountRefunded: newRefunded,
+            status: fullyRefunded ? 'refunded' : 'partially_refunded',
+          },
+          include: this.includeRelations(),
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.refunded',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      changes: { amount, fully: fullyRefunded, reason: args.input.reason ?? null },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  /** Persiste la URL del PDF tras generarlo. */
+  async attachPdf(args: { tenantId: string; invoiceId: string; pdfUrl: string }): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.update({
+          where: { id: args.invoiceId },
+          data: { pdfUrl: args.pdfUrl },
+        }),
+      args.tenantId,
+    );
+  }
+
+  /** Marca como `overdue` las facturas issued con dueDate ya vencida. */
+  async markOverdueDue(tenantId: string): Promise<{ updated: number }> {
+    const result = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.updateMany({
+          where: {
+            status: 'issued',
+            dueDate: { lt: new Date() },
+          },
+          data: { status: 'overdue' },
+        }),
+      tenantId,
+    );
+    return { updated: result.count };
+  }
+
+  private async findOrThrow(tenantId: string, id: string): Promise<InvoiceWithRelations> {
+    const row = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: { id, deletedAt: null },
+          include: this.includeRelations(),
+        }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({
+        code: 'invoice_not_found',
+        message: 'Factura no encontrada',
+      });
+    }
+    return row;
+  }
+
+  private assertTransition(from: InvoiceStatusValue, to: InvoiceStatusValue): void {
+    if (!ALLOWED_TRANSITIONS[from].includes(to)) {
+      throw new BadRequestException({
+        code: 'invalid_invoice_transition',
+        message: `Transicion invalida: ${from} -> ${to}`,
+      });
+    }
+  }
+
+  private includeRelations() {
+    return {
+      items: { orderBy: { position: 'asc' as const } },
+      customer: {
+        select: {
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          customerType: true,
+        },
+      },
+      contract: { select: { contractNumber: true } },
+      series: { select: { code: true } },
+    } as const;
+  }
+
+  private computeTotals(items: CreateInvoiceItemInput[]): {
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+  } {
+    let subtotal = 0;
+    let tax = 0;
+    for (const it of items) {
+      const lineSubtotal = it.quantity * it.unitPrice;
+      const lineTax = (lineSubtotal * it.taxRate) / 100;
+      subtotal += lineSubtotal;
+      tax += lineTax;
+    }
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const sub = round(subtotal);
+    const t = round(tax);
+    return { subtotal: sub, taxAmount: t, total: round(sub + t) };
+  }
+
+  private toItemCreateData(
+    item: CreateInvoiceItemInput,
+    tenantId: string,
+    position: number,
+  ): Prisma.InvoiceItemUncheckedCreateWithoutInvoiceInput {
+    const lineSubtotal = item.quantity * item.unitPrice;
+    const lineTax = (lineSubtotal * item.taxRate) / 100;
+    return {
+      tenantId,
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      taxRate: item.taxRate,
+      taxAmount: Math.round(lineTax * 100) / 100,
+      total: Math.round((lineSubtotal + lineTax) * 100) / 100,
+      ...(item.relatedContractId ? { relatedContractId: item.relatedContractId } : {}),
+      ...(item.relatedUnitId ? { relatedUnitId: item.relatedUnitId } : {}),
+      ...(item.periodStart ? { periodStart: new Date(item.periodStart) } : {}),
+      ...(item.periodEnd ? { periodEnd: new Date(item.periodEnd) } : {}),
+      position,
+    };
+  }
+
+  private computeDefaultDueDate(issueDate: Date): Date {
+    const due = new Date(issueDate);
+    due.setDate(due.getDate() + 15);
+    return due;
+  }
+
+  private toDto(row: InvoiceWithRelations): InvoiceDto {
+    const customerName =
+      row.customer.customerType === 'business'
+        ? (row.customer.companyName ?? 'Empresa')
+        : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ').trim() ||
+          'Sin nombre';
+    const total = Number(row.total);
+    const amountPaid = Number(row.amountPaid);
+    const amountRefunded = Number(row.amountRefunded);
+    return {
+      id: row.id,
+      invoiceNumber: row.invoiceNumber,
+      seriesId: row.seriesId,
+      seriesCode: row.series.code,
+      sequenceNumber: row.sequenceNumber,
+      customerId: row.customerId,
+      customerName,
+      contractId: row.contractId,
+      contractNumber: row.contract?.contractNumber ?? null,
+      status: row.status as InvoiceStatusValue,
+      issueDate: row.issueDate ? row.issueDate.toISOString().slice(0, 10) : null,
+      dueDate: row.dueDate ? row.dueDate.toISOString().slice(0, 10) : null,
+      periodStart: row.periodStart ? row.periodStart.toISOString().slice(0, 10) : null,
+      periodEnd: row.periodEnd ? row.periodEnd.toISOString().slice(0, 10) : null,
+      subtotal: Number(row.subtotal),
+      taxAmount: Number(row.taxAmount),
+      total,
+      amountPaid,
+      amountRefunded,
+      amountPending: Math.max(0, total - amountPaid),
+      currency: row.currency,
+      pdfUrl: row.pdfUrl,
+      notes: row.notes,
+      hash: row.hash,
+      previousHash: row.previousHash,
+      qrCodeUrl: row.qrCodeUrl,
+      verifactuMode: row.verifactuMode,
+      aeatSentAt: row.aeatSentAt ? row.aeatSentAt.toISOString() : null,
+      aeatStatus: row.aeatStatus,
+      aeatCsv: row.aeatCsv,
+      paidAt: row.paidAt ? row.paidAt.toISOString() : null,
+      cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
+      items: row.items.map((it) => this.toItemDto(it)),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toItemDto(item: InvoiceItem): InvoiceItemDto {
+    return {
+      id: item.id,
+      description: item.description,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      taxRate: Number(item.taxRate),
+      taxAmount: Number(item.taxAmount),
+      total: Number(item.total),
+      relatedContractId: item.relatedContractId,
+      relatedUnitId: item.relatedUnitId,
+      periodStart: item.periodStart ? item.periodStart.toISOString().slice(0, 10) : null,
+      periodEnd: item.periodEnd ? item.periodEnd.toISOString().slice(0, 10) : null,
+      position: item.position,
+    };
+  }
+}

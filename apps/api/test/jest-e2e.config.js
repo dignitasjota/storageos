@@ -15,4 +15,7 @@ module.exports = {
   setupFiles: ['<rootDir>/test/helpers/env-setup.ts'],
   testTimeout: 30000,
   clearMocks: true,
+  // BullMQ/Stripe/Cron mantienen conexiones abiertas que pueden retrasar
+  // el cierre del proceso tras `app.close()`. forceExit lo asegura.
+  forceExit: true,
 };

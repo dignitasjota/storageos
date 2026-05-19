@@ -71,3 +71,36 @@ export interface MeResponse {
   tenant: TenantDto;
   subscription: SubscriptionDto;
 }
+
+/**
+ * Respuesta de `POST /auth/login` cuando el user tiene 2FA activado. NO
+ * emite tokens: el frontend debe pedir el codigo y llamar a `/auth/2fa/challenge`
+ * con el `pendingToken`.
+ */
+export interface LoginRequires2faResponse {
+  requires2fa: true;
+  pendingToken: string;
+  /** TTL en segundos del pendingToken. */
+  expiresIn: number;
+}
+
+/** Respuesta de `POST /auth/2fa/setup`. El frontend renderiza el QR. */
+export interface Setup2faResponse {
+  otpauthUri: string;
+  secretBase32: string;
+}
+
+/**
+ * Respuesta de `POST /auth/2fa/verify` y `POST /auth/2fa/recovery-codes/regenerate`.
+ * Los recovery codes se muestran al user UNA SOLA VEZ.
+ */
+export interface RecoveryCodesResponse {
+  recoveryCodes: string[];
+}
+
+/** Estado del 2FA del user (para `/settings/security`). */
+export interface TwoFactorStatusResponse {
+  enabled: boolean;
+  enrolledAt: string | null;
+  recoveryCodesRemaining: number;
+}

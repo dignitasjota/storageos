@@ -7,5 +7,9 @@
  *     enums, schemas y DTOs de autenticacion.
  */
 export * from './auth';
+export * from './users';
+export * from './facilities';
+export * from './customers';
+export * from './billing';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;

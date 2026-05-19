@@ -8,6 +8,8 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import type { Env } from '../../config/env.schema';
 import type { UserRole } from '@storageos/shared';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Payload firmado dentro del access JWT. */
 export interface AccessTokenPayload {
   sub: string;
@@ -97,6 +99,7 @@ export class TokensService {
     if (parts.length !== 3) return null;
     const [tenantId, sessionId, secret] = parts;
     if (!tenantId || !sessionId || !secret) return null;
+    if (!UUID_REGEX.test(tenantId) || !UUID_REGEX.test(sessionId)) return null;
     return { tenantId, sessionId, secret };
   }
 
@@ -106,6 +109,49 @@ export class TokensService {
       return await argonVerify(expectedHash, secret);
     } catch {
       return false;
+    }
+  }
+
+  // --------------------- 2FA pending token (corto) -------------------------
+
+  /**
+   * Token efimero que se devuelve cuando el login es valido pero el user
+   * tiene 2FA activado. NO autentica todavia: solo prueba que la pareja
+   * (tenantSlug, email, password) era correcta hace pocos minutos.
+   * Firmado con un secret independiente para que no pueda confundirse con
+   * un access JWT bajo ningun decoder.
+   */
+  async sign2faPending(
+    sub: string,
+    tenantId: string,
+  ): Promise<{ token: string; expiresIn: number }> {
+    const expiresIn = this.config.get('JWT_2FA_PENDING_TTL_SECONDS', { infer: true });
+    const token = await this.jwt.signAsync(
+      { tenantId, purpose: '2fa_pending' },
+      {
+        subject: sub,
+        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+        expiresIn,
+      },
+    );
+    return { token, expiresIn };
+  }
+
+  async verify2faPending(token: string): Promise<{ sub: string; tenantId: string }> {
+    try {
+      const payload = await this.jwt.verifyAsync<{
+        sub: string;
+        tenantId: string;
+        purpose: string;
+      }>(token, {
+        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+      });
+      if (payload.purpose !== '2fa_pending') {
+        throw new Error('purpose');
+      }
+      return { sub: payload.sub, tenantId: payload.tenantId };
+    } catch {
+      throw new UnauthorizedException('Token 2FA invalido o expirado');
     }
   }
 }

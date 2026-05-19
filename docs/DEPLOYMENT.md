@@ -1,6 +1,27 @@
 # DEPLOYMENT
 
-> Estado: **placeholder**. Se rellena en Fase 8 (Super Admin y facturación SaaS) o antes si necesitamos staging.
+> Estado al cierre de **Fase 1F**: solo existe el entorno de **desarrollo local** con docker-compose. La topología de producción que sigue es la **prevista** según ADR-006; se completará en Fase 8 (Super Admin y facturación SaaS) o antes si necesitamos un entorno de staging.
+
+## Desarrollo local (existente)
+
+Arranque completo en `README.md`. Resumen de servicios levantados por `pnpm docker:up`:
+
+| Servicio      | Imagen          | Puerto host                | Notas                                                           |
+| ------------- | --------------- | -------------------------- | --------------------------------------------------------------- |
+| postgres      | postgres:16     | `5433`                     | Roles `storageos` (admin) y `storageos_app` (RLS). Ver ADR-013. |
+| redis         | redis:7         | `6380`                     | Reservado para Fase 4 (BullMQ). No se usa todavía.              |
+| minio         | minio/minio     | `9010` (S3), `9011` (UI)   | Reservado para subidas de archivo (planos, documentos).         |
+| mailpit       | axllent/mailpit | `1026` (SMTP), `8026` (UI) | Captura todos los emails en dev.                                |
+| createbuckets | minio/mc        | one-shot                   | Crea buckets iniciales en MinIO.                                |
+
+`.env` raíz tiene la configuración de docker-compose. Cada app (`apps/api/.env`, `apps/web/.env`) tiene sus propias variables (ver `.env.example` de cada uno). Las claves nuevas tras Fase 1F:
+
+- `JWT_ACCESS_SECRET`, `JWT_ACCESS_TTL_SECONDS`, `JWT_REFRESH_TTL_SECONDS` (Fase 1B).
+- `JWT_2FA_PENDING_SECRET`, `JWT_2FA_PENDING_TTL_SECONDS` (Fase 1F).
+- `MASTER_ENCRYPTION_KEY` — base64 de 32 bytes para AES-256-GCM de secretos TOTP. Generar con `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` (Fase 1F).
+- `SMTP_*`, `WEB_BASE_URL` para los enlaces en los emails (Fase 1D).
+- `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_SAMESITE` para el refresh cookie.
+- `ALLOWED_ORIGINS` para CORS.
 
 ## Topología prevista (ADR-006)
 

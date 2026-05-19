@@ -152,9 +152,212 @@
   "sidebar": {
     "dashboard": "Resumen",
     "facilities": "Locales",
+    "units": "Trasteros",
     "customers": "Inquilinos",
+    "contracts": "Contratos",
+    "reservations": "Reservas",
+    "invoices": "Facturas",
     "billing": "Facturación",
     "settings": "Configuración"
+  },
+  "settings": {
+    "nav": {
+      "users": "Usuarios",
+      "profile": "Mi perfil",
+      "security": "Seguridad",
+      "billing": "Facturación"
+    },
+    "users": {
+      "title": "Usuarios",
+      "subtitle": "Gestiona el equipo que accede al panel.",
+      "tableTitle": "Miembros del equipo",
+      "invite": "Invitar usuario",
+      "invitationsTitle": "Invitaciones pendientes",
+      "noInvitations": "No hay invitaciones pendientes.",
+      "columns": {
+        "name": "Nombre",
+        "email": "Email",
+        "role": "Rol",
+        "status": "Estado",
+        "lastLogin": "Último acceso",
+        "actions": "Acciones",
+        "invitedBy": "Invitado por",
+        "expires": "Expira",
+        "createdAt": "Enviada"
+      },
+      "status": {
+        "active": "Activo",
+        "inactive": "Desactivado",
+        "pending": "Pendiente",
+        "accepted": "Aceptada",
+        "revoked": "Revocada",
+        "expired": "Caducada"
+      },
+      "role": {
+        "owner": "Propietario",
+        "manager": "Manager",
+        "staff": "Staff",
+        "readonly": "Solo lectura"
+      },
+      "actions": {
+        "edit": "Editar",
+        "deactivate": "Desactivar",
+        "reactivate": "Reactivar",
+        "transferOwnership": "Transferir propiedad",
+        "resend": "Reenviar",
+        "revoke": "Revocar"
+      },
+      "inviteDialog": {
+        "title": "Invitar nuevo usuario",
+        "description": "Le enviaremos un email para que cree su cuenta.",
+        "email": "Email",
+        "role": "Rol",
+        "fullName": "Nombre (opcional)",
+        "fullNameHint": "Si lo dejas vacío, lo pondrá al aceptar la invitación.",
+        "submit": "Enviar invitación",
+        "success": "Invitación enviada.",
+        "errors": {
+          "duplicate": "Ya existe un usuario o invitación con ese email."
+        }
+      },
+      "editDialog": {
+        "title": "Editar usuario",
+        "fullName": "Nombre",
+        "phone": "Teléfono",
+        "role": "Rol",
+        "isActive": "Cuenta activa",
+        "submit": "Guardar cambios",
+        "success": "Cambios guardados."
+      },
+      "transferDialog": {
+        "title": "Transferir propiedad",
+        "description": "Pasarás a tener el rol manager. Esta acción es inmediata.",
+        "confirm": "Transferir",
+        "success": "Propiedad transferida."
+      },
+      "deactivateDialog": {
+        "title": "Desactivar usuario",
+        "description": "No podrá iniciar sesión. Sus sesiones activas se cerrarán.",
+        "confirm": "Desactivar",
+        "success": "Usuario desactivado."
+      },
+      "revokeDialog": {
+        "title": "Revocar invitación",
+        "description": "El enlace dejará de funcionar.",
+        "confirm": "Revocar",
+        "success": "Invitación revocada."
+      },
+      "resendSuccess": "Hemos vuelto a enviar la invitación.",
+      "errors": {
+        "ownerRequired": "No se puede desactivar o cambiar el rol del propietario.",
+        "insufficientRole": "Solo el propietario puede asignar el rol manager.",
+        "wrongCurrentPassword": "La contraseña actual no es correcta."
+      }
+    },
+    "profile": {
+      "title": "Mi perfil",
+      "subtitle": "Edita tus datos y tu contraseña.",
+      "tabs": {
+        "profile": "Datos personales",
+        "password": "Contraseña"
+      },
+      "fullName": "Nombre",
+      "phone": "Teléfono",
+      "email": "Email",
+      "emailHint": "El email no se puede cambiar todavía.",
+      "submit": "Guardar cambios",
+      "success": "Perfil actualizado.",
+      "passwordTab": {
+        "currentPassword": "Contraseña actual",
+        "newPassword": "Nueva contraseña",
+        "submit": "Cambiar contraseña",
+        "success": "Contraseña actualizada. Las demás sesiones se han cerrado.",
+        "errors": {
+          "wrongCurrent": "La contraseña actual no es correcta."
+        }
+      }
+    }
+  },
+  "security": {
+    "title": "Autenticación en dos pasos",
+    "subtitle": "Añade una capa extra de seguridad a tu cuenta con una app de autenticación.",
+    "status": {
+      "enabled": "Activado",
+      "disabled": "Desactivado",
+      "enrolledAt": "Activado el {date}",
+      "recoveryRemaining": "Códigos de recuperación: {count} sin usar"
+    },
+    "enable": {
+      "cta": "Activar 2FA",
+      "scanTitle": "Paso 1 · Escanea el código",
+      "scanBody": "Abre tu app de autenticación (Google Authenticator, 1Password, Authy...) y escanea este QR. Si no puedes escanearlo, copia el secreto manualmente.",
+      "secretLabel": "Secreto",
+      "verifyTitle": "Paso 2 · Introduce el código",
+      "verifyBody": "Para terminar, introduce el código de 6 dígitos que muestra tu app.",
+      "code": "Código",
+      "submit": "Confirmar",
+      "cancel": "Cancelar",
+      "errors": {
+        "invalidCode": "El código no es válido. Inténtalo de nuevo."
+      }
+    },
+    "codesTitle": "Paso 3 · Guarda tus códigos de recuperación",
+    "codesBody": "Te los mostramos una sola vez. Guárdalos en un sitio seguro: te permitirán entrar si pierdes el acceso a tu app de autenticación. Cada código sirve una sola vez.",
+    "copy": "Copiar",
+    "download": "Descargar .txt",
+    "copied": "Copiado al portapapeles.",
+    "done": "Hecho",
+    "regenerateCta": "Regenerar códigos",
+    "regenerateDialog": {
+      "title": "Regenerar códigos de recuperación",
+      "description": "Los códigos anteriores dejarán de funcionar. Necesitamos verificar tu contraseña y un código TOTP.",
+      "currentPassword": "Contraseña actual",
+      "code": "Código TOTP",
+      "submit": "Regenerar"
+    },
+    "disableCta": "Desactivar 2FA",
+    "disableDialog": {
+      "title": "Desactivar 2FA",
+      "description": "Tu cuenta dejará de pedir el segundo factor al iniciar sesión.",
+      "currentPassword": "Contraseña actual",
+      "method": "Método de verificación",
+      "methodTotp": "Código TOTP",
+      "methodRecovery": "Código de recuperación",
+      "code": "Código",
+      "submit": "Desactivar"
+    },
+    "errors": {
+      "wrongPassword": "La contraseña no es correcta.",
+      "invalidCode": "El código no es válido."
+    }
+  },
+  "loginChallenge": {
+    "title": "Verifica tu identidad",
+    "subtitle": "Introduce el código de tu app de autenticación.",
+    "code": "Código de 6 dígitos",
+    "submit": "Verificar",
+    "useRecovery": "Usar un código de recuperación",
+    "useTotp": "Volver al código TOTP",
+    "recoveryLabel": "Código de recuperación",
+    "errors": {
+      "invalid": "El código no es válido.",
+      "expired": "Tu sesión de verificación ha caducado. Vuelve a iniciar sesión."
+    }
+  },
+  "invite": {
+    "title": "Te han invitado a {tenant}",
+    "subtitle": "Completa tus datos para crear tu cuenta.",
+    "invitedBy": "Invitado por {name}",
+    "role": "Rol: {role}",
+    "expires": "Caduca el {date}",
+    "fullName": "Tu nombre",
+    "password": "Contraseña",
+    "passwordHint": "Al menos 8 caracteres, con mayúsculas, minúsculas y un dígito",
+    "submit": "Crear cuenta y entrar",
+    "errors": {
+      "invalid": "Esta invitación ya se ha usado, ha sido revocada o ha caducado.",
+      "tryAgain": "Pide al administrador que te envíe una nueva."
+    }
   },
   "dashboard": {
     "welcome": "Hola, {name}",

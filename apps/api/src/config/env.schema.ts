@@ -22,6 +22,22 @@ export const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET debe tener al menos 32 caracteres'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
+  /** Secret independiente para firmar el pendingToken del flujo 2FA. */
+  JWT_2FA_PENDING_SECRET: z
+    .string()
+    .min(32, 'JWT_2FA_PENDING_SECRET debe tener al menos 32 caracteres'),
+  /** TTL del pendingToken (segundos). Default 300 = 5 min. */
+  JWT_2FA_PENDING_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+
+  // --- Cifrado simetrico de secrets en BD (TOTP) ---
+  /** Clave maestra en base64; debe representar 32 bytes (AES-256). */
+  MASTER_ENCRYPTION_KEY: z.string().refine((v) => {
+    try {
+      return Buffer.from(v, 'base64').length === 32;
+    } catch {
+      return false;
+    }
+  }, 'MASTER_ENCRYPTION_KEY debe ser base64 de 32 bytes'),
 
   // --- Cookies ---
   COOKIE_DOMAIN: z.string().default('localhost'),
@@ -41,6 +57,36 @@ export const envSchema = z.object({
         .map((o) => o.trim())
         .filter(Boolean),
     ),
+
+  // --- Redis + BullMQ ---
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().int().positive().default(6380),
+  REDIS_PASSWORD: z.string().optional(),
+  REDIS_DB: z.coerce.number().int().nonnegative().default(0),
+
+  // --- Stripe ---
+  STRIPE_SECRET_KEY: z.string().default('sk_test_dummy'),
+  STRIPE_PUBLISHABLE_KEY: z.string().default('pk_test_dummy'),
+  STRIPE_WEBHOOK_SECRET: z.string().default('whsec_dummy'),
+
+  // --- Verifactu (Fase 4: stub; Fase 8: sandbox/production) ---
+  AEAT_MODE: z.enum(['stub', 'sandbox', 'production']).default('stub'),
+  AEAT_TENANT_TAX_ID: z.string().default(''),
+
+  // --- MinIO / S3 ---
+  MINIO_ENDPOINT: z.string().default('localhost'),
+  MINIO_PORT: z.coerce.number().int().positive().default(9010),
+  MINIO_USE_SSL: z
+    .union([z.literal('true'), z.literal('false')])
+    .default('false')
+    .transform((v) => v === 'true'),
+  MINIO_ACCESS_KEY: z.string().min(1),
+  MINIO_SECRET_KEY: z.string().min(1),
+  MINIO_BUCKET_UPLOADS: z.string().default('storageos-uploads'),
+  MINIO_BUCKET_INVOICES: z.string().default('storageos-invoices'),
+  MINIO_BUCKET_PLANS: z.string().default('storageos-plans'),
+  /** Base URL publica para servir objetos. En dev = http://localhost:9010. */
+  MINIO_PUBLIC_URL: z.string().url().default('http://localhost:9010'),
 
   // --- SMTP ---
   SMTP_HOST: z.string().default('localhost'),

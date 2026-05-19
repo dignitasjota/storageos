@@ -21,8 +21,36 @@ export async function cleanupTestTenants(): Promise<void> {
     if (ids.length === 0) return;
 
     await admin.$transaction([
+      // Fase 4: facturas, pagos, dunning, rgpd.
+      admin.dunningAction.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.payment.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.paymentMethod.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.invoiceItem.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.invoice.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.invoiceSeries.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.pricingRule.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.promotion.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.consent.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.dataSubjectRequest.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 3: contratos, reservas y customers.
+      admin.contractEvent.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.contract.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.reservation.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.customerDocument.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.customer.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 2: tablas que dependen de tenant + units + facilities.
+      admin.unitStatusHistory.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.unit.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.facilityFloor.deleteMany({
+        where: { facility: { tenantId: { in: ids } } },
+      }),
+      admin.unitType.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.facility.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 1.
+      admin.recoveryCode.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.session.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.auditLog.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.invitation.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.tenantSubscription.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.user.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.tenant.deleteMany({ where: { id: { in: ids } } }),

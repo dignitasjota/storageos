@@ -28,6 +28,7 @@ import type {
   AuthSuccessResponse,
   ForgotPasswordInput,
   LoginInput,
+  LoginRequires2faResponse,
   MeResponse,
   RefreshSuccessResponse,
   RegisterInput,
@@ -146,7 +147,10 @@ export class AuthService {
 
   // ============================== login ====================================
 
-  async login(input: LoginInput, meta: RequestMeta): Promise<AuthFlowResult<AuthSuccessResponse>> {
+  async login(
+    input: LoginInput,
+    meta: RequestMeta,
+  ): Promise<AuthFlowResult<AuthSuccessResponse> | { body: LoginRequires2faResponse }> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
     if (!tenant || tenant.deletedAt) {
       throw new UnauthorizedException('Credenciales invalidas');
@@ -217,6 +221,22 @@ export class AuthService {
       throw new InternalServerErrorException('Configuracion del tenant incompleta');
     }
 
+    // 2FA: si esta activo, NO emitimos sesion todavia. Devolvemos un
+    // pendingToken corto y el frontend debe llamar a /auth/2fa/challenge.
+    if (user.twoFactorEnabled) {
+      const { token: pendingToken, expiresIn } = await this.tokens.sign2faPending(
+        user.id,
+        tenant.id,
+      );
+      return {
+        body: {
+          requires2fa: true,
+          pendingToken,
+          expiresIn,
+        },
+      };
+    }
+
     await this.admin.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -232,6 +252,48 @@ export class AuthService {
       userAgent: meta.userAgent ?? null,
     });
 
+    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta);
+  }
+
+  /**
+   * Completa el login tras superar el challenge 2FA. Asume que el caller ya
+   * verifico el codigo TOTP o recovery; aqui solo emitimos la sesion real
+   * y actualizamos `lastLoginAt` + audit log.
+   */
+  async completeLoginAfter2fa(
+    userId: string,
+    tenantId: string,
+    meta: RequestMeta,
+  ): Promise<AuthFlowResult<AuthSuccessResponse>> {
+    const user = await this.admin.user.findUnique({ where: { id: userId } });
+    if (!user || user.tenantId !== tenantId || !user.isActive || !user.emailVerifiedAt) {
+      throw new UnauthorizedException('Credenciales invalidas');
+    }
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new UnauthorizedException('Credenciales invalidas');
+    }
+    const subscription = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: true },
+    });
+    if (!subscription) {
+      throw new InternalServerErrorException('Configuracion del tenant incompleta');
+    }
+    await this.admin.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+    await this.audit.write({
+      tenantId,
+      userId: user.id,
+      action: 'auth.login.success',
+      entityType: 'User',
+      entityId: user.id,
+      changes: { method: '2fa' },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
     return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta);
   }
 

@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { type LoginInput, LoginSchema } from '@storageos/shared';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useLogin } from '@/lib/auth/hooks';
+import { useChallenge2fa } from '@/lib/two-factor/hooks';
 
 export function LoginForm() {
   const t = useTranslations('auth.login');
@@ -55,9 +56,15 @@ export function LoginForm() {
     },
   });
 
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
+
   async function onSubmit(values: LoginInput) {
     try {
-      await login.mutateAsync(values);
+      const result = await login.mutateAsync(values);
+      if ('requires2fa' in result) {
+        setPendingToken(result.pendingToken);
+        return;
+      }
       router.replace(next && next.startsWith('/') ? next : '/dashboard');
     } catch (err) {
       // Limpiar password tras cualquier fallo: estandar de UX seguro.
@@ -96,6 +103,19 @@ export function LoginForm() {
       }
       toast.error(tCommon('errors.network'));
     }
+  }
+
+  if (pendingToken) {
+    return (
+      <ChallengeStep
+        pendingToken={pendingToken}
+        onSuccess={() => router.replace(next && next.startsWith('/') ? next : '/dashboard')}
+        onExpired={() => {
+          setPendingToken(null);
+          form.setValue('password', '');
+        }}
+      />
+    );
   }
 
   return (
@@ -151,5 +171,89 @@ export function LoginForm() {
         </Button>
       </form>
     </Form>
+  );
+}
+
+interface ChallengeStepProps {
+  pendingToken: string;
+  onSuccess: () => void;
+  onExpired: () => void;
+}
+
+function ChallengeStep({ pendingToken, onSuccess, onExpired }: ChallengeStepProps) {
+  const t = useTranslations('loginChallenge');
+  const tCommon = useTranslations('common');
+  const challenge = useChallenge2fa();
+  const [method, setMethod] = useState<'totp' | 'recovery'>('totp');
+  const [value, setValue] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const payload =
+        method === 'totp' ? { pendingToken, code: value } : { pendingToken, recoveryCode: value };
+      await challenge.mutateAsync(payload);
+      onSuccess();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.statusCode === 401) {
+          toast.error(t('errors.expired'));
+          onExpired();
+          return;
+        }
+        if (err.statusCode === 403) {
+          toast.error(t('errors.invalid'));
+          setValue('');
+          return;
+        }
+        if (err.statusCode === 429) {
+          toast.error(tCommon('errors.tooManyRequests'));
+          return;
+        }
+        toast.error(err.body.message || tCommon('errors.generic'));
+        return;
+      }
+      toast.error(tCommon('errors.network'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="space-y-4" onSubmit={submit} noValidate>
+      <div className="space-y-1">
+        <h2 className="text-lg font-medium">{t('title')}</h2>
+        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">
+          {method === 'totp' ? t('code') : t('recoveryLabel')}
+        </label>
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoFocus
+          autoComplete="one-time-code"
+          inputMode={method === 'totp' ? 'numeric' : 'text'}
+          maxLength={method === 'totp' ? 6 : 20}
+        />
+      </div>
+      <Button type="submit" className="w-full" disabled={submitting || value.length < 4}>
+        {submitting ? tCommon('loading') : t('submit')}
+      </Button>
+      <button
+        type="button"
+        className="block w-full text-center text-sm text-muted-foreground hover:text-foreground hover:underline"
+        onClick={() => {
+          setMethod((m) => (m === 'totp' ? 'recovery' : 'totp'));
+          setValue('');
+        }}
+      >
+        {method === 'totp' ? t('useRecovery') : t('useTotp')}
+      </button>
+    </form>
   );
 }

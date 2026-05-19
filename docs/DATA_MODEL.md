@@ -2,6 +2,8 @@
 
 Modelo de datos completo. Las tablas se implementan con Prisma sobre PostgreSQL 16.
 
+> **Estado de implementación (2026-05-19):** las secciones **1. Núcleo de tenancy** y **1bis. Auth** están implementadas (Fases 1A–1F). Las secciones **2 a 10** son la **especificación de destino** del MVP; sus tablas se irán creando con la migración correspondiente cuando la fase llegue. La fuente de verdad de lo que existe ahora mismo es [`packages/database/prisma/schema.prisma`](../packages/database/prisma/schema.prisma); este documento describe **a dónde vamos**.
+
 ## Convenciones generales
 
 - Toda tabla (salvo `tenants`, `subscription_plans` y tablas de configuración global) lleva `tenant_id` con FK e índice.
@@ -32,10 +34,10 @@ El usuario de la app **NO puede ejecutar DDL** ni bypassear RLS. Cualquier inten
 
 ### Row-Level Security
 
-Tablas con RLS activado:
+Tablas con RLS activado al cierre de Fase 1F:
 
 - `tenants` (filtro por `id`)
-- `users`, `tenant_subscriptions`, `audit_logs` (filtro por `tenant_id`)
+- `users`, `tenant_subscriptions`, `audit_logs`, `sessions`, `email_verification_tokens`, `password_reset_tokens`, `invitations`, `recovery_codes` (filtro por `tenant_id`)
 
 Tablas SIN RLS:
 
@@ -84,7 +86,13 @@ Empresas clientes del SaaS.
 
 Staff interno del tenant.
 
-- id, tenant_id, email (único por tenant), password_hash (argon2id), full_name, phone, role (owner/manager/staff/readonly), two_factor_secret, two_factor_enabled, last_login_at, is_active
+- `id`, `tenant_id`, `email` (único por tenant), `password_hash` (argon2id), `full_name`, `phone`, `role` (owner/manager/staff/readonly), `email_verified_at`, `two_factor_secret` (cifrado AES-256-GCM, ver ADR-015), `two_factor_pending_secret` (cifrado; setado durante el flujo de enrolment, se mueve a `two_factor_secret` al verificar), `two_factor_enabled`, `two_factor_enrolled_at`, `last_login_at`, `is_active`.
+
+**Invariantes** (Fase 1E):
+
+- Exactamente **un user con role `owner`** por tenant. Garantizado por el servicio: `PATCH /users/:id` rechaza cambiar el role del owner (`code: owner_required`) y `POST /users/:id/transfer-ownership` hace el swap en una sola transacción.
+- `manager` no puede asignar `manager` a otro user; solo el `owner` puede (`code: insufficient_role`).
+- Soft delete vía `is_active = false` (revoca todas las sesiones del user; no hay borrado físico desde la UI).
 
 ### `subscription_plans`
 
@@ -97,6 +105,46 @@ Planes que vendemos como super admin (sin tenant_id, global).
 Suscripción activa de cada tenant.
 
 - id, tenant_id, plan_id, status, current_period_start, current_period_end, stripe_subscription_id, cancel_at_period_end
+
+## 1bis. Auth (Fases 1B, 1D, 1E, 1F)
+
+Tablas que soportan login, refresh, verificación de email, password recovery, invitaciones y 2FA. Todas con RLS.
+
+### `sessions` (Fase 1B)
+
+Cada login emite una sesión. Cada refresh rota la actual (la marca `revokedReason: rotated`) y crea otra apuntando con `rotated_from_id`.
+
+- `id`, `tenant_id`, `user_id`, `refresh_token_hash` (argon2id de `secret`), `user_agent`, `ip_address` (inet), `expires_at`, `last_used_at`, `revoked_at`, `revoked_reason` (`logout` | `rotated` | `refresh_reuse` | `password_changed` | `password_reset`), `rotated_from_id` (FK self).
+- Detección de reuso paranoid: ver ADR-014.
+
+### `email_verification_tokens` (Fase 1D)
+
+Token que viaja en el enlace del email de verificación tras `/auth/register` o `/auth/resend-verification`. Plaintext `<id>.<secret>`; solo el hash argon2id del secret se persiste. Single-use.
+
+- `id`, `tenant_id`, `user_id`, `token_hash`, `expires_at`, `used_at`.
+
+### `password_reset_tokens` (Fase 1D)
+
+Mismo formato que el anterior. TTL más corto (1 h por defecto). Al usarse, **se revocan todas las sesiones del user** con `revokedReason: password_reset`.
+
+- `id`, `tenant_id`, `user_id`, `token_hash`, `expires_at`, `used_at`, `requested_ip`, `requested_user_agent`.
+
+### `invitations` (Fase 1E)
+
+Única vía para crear nuevos users del tenant. Token plaintext `<invitationId>.<secret>` en el enlace del email; hash argon2id en BD. Single-use atómico (`updateMany` con `WHERE accepted_at IS NULL AND revoked_at IS NULL`). TTL 7 días.
+
+- `id`, `tenant_id`, `email`, `role` (manager/staff/readonly; no `owner`), `invited_by_user_id`, `token_hash`, `expires_at`, `accepted_at`, `revoked_at`, `revoked_reason` (`manual` | `replaced_by_resend`).
+- Índice único parcial `(tenant_id, email) WHERE accepted_at IS NULL AND revoked_at IS NULL` — solo una pendiente por email/tenant. Implementado en SQL crudo en la migración 1E (Prisma no soporta `WHERE` en `@@unique`).
+- Al aceptar (`POST /invitations/token/:token/accept`), se crea el `user` con `email_verified_at = now()` y se emite sesión normal.
+- `resend` revoca la invitación original con `revokedReason: replaced_by_resend` y crea una nueva fila con token nuevo.
+
+### `recovery_codes` (Fase 1F)
+
+10 códigos de recuperación de 2FA por user. Hash argon2id, single-use atómico.
+
+- `id`, `tenant_id`, `user_id`, `code_hash`, `used_at`.
+- `issueForUser` borra los previos del user en transacción (regenerar invalida los anteriores).
+- `consume` itera sobre los códigos no usados, hace `argon2.verify` y marca con `updateMany WHERE id = $1 AND used_at IS NULL` (resuelve carreras).
 
 ## 2. Instalaciones físicas y trasteros
 

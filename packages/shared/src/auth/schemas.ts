@@ -89,3 +89,58 @@ export const ResetPasswordSchema = z.object({
   password: passwordSchema,
 });
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
+
+// ============================================================================
+// 2FA TOTP
+// ============================================================================
+
+const totpCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'El codigo debe tener 6 digitos');
+
+const recoveryCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .min(8, 'Codigo de recuperacion invalido')
+  .max(20, 'Codigo de recuperacion invalido');
+
+/** POST /auth/2fa/verify — body. Activa 2FA con el primer codigo TOTP. */
+export const Verify2faSetupSchema = z.object({
+  code: totpCodeSchema,
+});
+export type Verify2faSetupInput = z.infer<typeof Verify2faSetupSchema>;
+
+/** POST /auth/2fa/disable — body. Requiere password + un metodo de prueba. */
+export const Disable2faSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'La contrasena actual es obligatoria'),
+    code: totpCodeSchema.optional(),
+    recoveryCode: recoveryCodeSchema.optional(),
+  })
+  .refine((v) => v.code !== undefined || v.recoveryCode !== undefined, {
+    message: 'Debes enviar el codigo TOTP o un codigo de recuperacion',
+    path: ['code'],
+  });
+export type Disable2faInput = z.infer<typeof Disable2faSchema>;
+
+/** POST /auth/2fa/recovery-codes/regenerate — body. */
+export const Regenerate2faRecoveryCodesSchema = z.object({
+  currentPassword: z.string().min(1, 'La contrasena actual es obligatoria'),
+  code: totpCodeSchema,
+});
+export type Regenerate2faRecoveryCodesInput = z.infer<typeof Regenerate2faRecoveryCodesSchema>;
+
+/** POST /auth/2fa/challenge — body. */
+export const Challenge2faSchema = z
+  .object({
+    pendingToken: z.string().min(20),
+    code: totpCodeSchema.optional(),
+    recoveryCode: recoveryCodeSchema.optional(),
+  })
+  .refine((v) => v.code !== undefined || v.recoveryCode !== undefined, {
+    message: 'Debes enviar el codigo TOTP o un codigo de recuperacion',
+    path: ['code'],
+  });
+export type Challenge2faInput = z.infer<typeof Challenge2faSchema>;

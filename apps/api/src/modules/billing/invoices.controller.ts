@@ -1,0 +1,204 @@
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
+import {
+  CancelInvoiceSchema,
+  CreateInvoiceSchema,
+  type InvoiceDto,
+  InvoiceStatusEnum,
+  MarkPaidManuallySchema,
+  RefundInvoiceSchema,
+  UpdateInvoiceSchema,
+} from '@storageos/shared';
+import { createZodDto } from 'nestjs-zod';
+
+import {
+  type AuthenticatedUser,
+  CurrentUser,
+} from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+
+import { BillingJobsService } from './billing-jobs.service';
+import { InvoicePdfService } from './invoice-pdf.service';
+import { InvoicesService } from './invoices.service';
+
+import type { RequestMeta } from '../auth/auth.service';
+import type { Request } from 'express';
+
+class CreateInvoiceDto extends createZodDto(CreateInvoiceSchema) {}
+class UpdateInvoiceDto extends createZodDto(UpdateInvoiceSchema) {}
+class CancelInvoiceDto extends createZodDto(CancelInvoiceSchema) {}
+class RefundInvoiceDto extends createZodDto(RefundInvoiceSchema) {}
+class MarkPaidManuallyDto extends createZodDto(MarkPaidManuallySchema) {}
+
+function extractMeta(req: Request): RequestMeta {
+  const ua = req.header('user-agent');
+  const ip = req.ip;
+  return {
+    ...(ua ? { userAgent: ua } : {}),
+    ...(ip ? { ipAddress: ip } : {}),
+  };
+}
+
+@Controller('invoices')
+export class InvoicesController {
+  constructor(
+    private readonly invoices: InvoicesService,
+    private readonly pdf: InvoicePdfService,
+    private readonly billingJobs: BillingJobsService,
+  ) {}
+
+  @Get()
+  async list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+    @Query('customerId') customerId?: string,
+    @Query('contractId') contractId?: string,
+    @Query('overdue') overdue?: string,
+  ): Promise<InvoiceDto[]> {
+    const parsedStatus = status ? InvoiceStatusEnum.parse(status) : undefined;
+    return this.invoices.list(user.tenantId, {
+      ...(parsedStatus ? { status: parsedStatus } : {}),
+      ...(customerId ? { customerId } : {}),
+      ...(contractId ? { contractId } : {}),
+      ...(overdue === 'true' ? { overdue: true } : {}),
+    });
+  }
+
+  @Get(':id')
+  async detail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<InvoiceDto> {
+    return this.invoices.detail(user.tenantId, id);
+  }
+
+  @Roles('owner', 'manager', 'staff')
+  @Post()
+  async create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: CreateInvoiceDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.create({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager', 'staff')
+  @Patch(':id')
+  async update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateInvoiceDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.update({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager')
+  @Post(':id/issue')
+  @HttpCode(HttpStatus.OK)
+  async issue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.issue({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager')
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: CancelInvoiceDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.cancel({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager')
+  @Post(':id/refund')
+  @HttpCode(HttpStatus.OK)
+  async refund(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RefundInvoiceDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.refund({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager', 'staff')
+  @Post(':id/mark-paid')
+  @HttpCode(HttpStatus.OK)
+  async markPaid(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: MarkPaidManuallyDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.markPaidManually({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager')
+  @Post(':id/generate-pdf')
+  @HttpCode(HttpStatus.OK)
+  async generatePdf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ pdfUrl: string }> {
+    return this.pdf.generate(user.tenantId, id);
+  }
+
+  @Roles('owner', 'manager')
+  @Post('jobs/run-recurring')
+  @HttpCode(HttpStatus.OK)
+  async runRecurring(@CurrentUser() user: AuthenticatedUser): Promise<{ jobId: string }> {
+    return this.billingJobs.enqueueForTenant(user.tenantId);
+  }
+}

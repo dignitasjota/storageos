@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   type AuthSuccessResponse,
   ForgotPasswordSchema,
+  type LoginRequires2faResponse,
   LoginSchema,
   type MeResponse,
   type RefreshSuccessResponse,
@@ -81,9 +82,11 @@ export class AuthController {
     @Body() input: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthSuccessResponse> {
+  ): Promise<AuthSuccessResponse | LoginRequires2faResponse> {
     const result = await this.authService.login(input, this.extractMeta(req));
-    this.setRefreshCookie(res, result.refreshToken);
+    if ('refreshToken' in result) {
+      this.setRefreshCookie(res, result.refreshToken);
+    }
     return result.body;
   }
 

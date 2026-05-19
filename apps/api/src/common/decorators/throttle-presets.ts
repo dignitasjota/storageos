@@ -22,3 +22,6 @@ export const ThrottleRegister = () =>
 
 export const ThrottleRefresh = () =>
   applyDecorators(Throttle({ default: { limit: 30, ttl: MINUTE } }));
+
+/** 5 intentos/min para challenge 2FA y disable 2FA. */
+export const Throttle2fa = () => applyDecorators(Throttle({ default: { limit: 5, ttl: MINUTE } }));

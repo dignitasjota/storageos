@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
+import { raw } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -23,6 +24,10 @@ async function bootstrap() {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
 
   app.use(helmet());
+  // Raw body para la verificacion de firma de webhooks Stripe.
+  // DEBE ir antes de cualquier parser JSON; las demas rutas pasan a JSON
+  // via el parser que aplica NestJS internamente.
+  app.use('/webhooks/stripe', raw({ type: 'application/json' }));
   app.use(cookieParser());
   app.enableCors({
     origin: config.get('ALLOWED_ORIGINS', { infer: true }),

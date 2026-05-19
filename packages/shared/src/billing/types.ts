@@ -1,0 +1,218 @@
+import type {
+  AeatStatusValue,
+  DataSubjectRequestTypeValue,
+  DunningActionTypeValue,
+  InvoiceStatusValue,
+  PaymentGatewayProviderValue,
+  PaymentMethodTypeValue,
+  PaymentStatusValue,
+  PriceModifierTypeValue,
+  PricingRuleScopeValue,
+  PricingRuleTypeValue,
+  PromotionDiscountTypeValue,
+  VerifactuModeValue,
+} from './schemas';
+
+export interface InvoiceSeriesDto {
+  id: string;
+  code: string;
+  name: string;
+  prefix: string;
+  yearScope: boolean;
+  nextNumber: number;
+  facilityId: string | null;
+  isActive: boolean;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface InvoiceItemDto {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  relatedContractId: string | null;
+  relatedUnitId: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  position: number;
+}
+
+export interface InvoiceDto {
+  id: string;
+  invoiceNumber: string;
+  seriesId: string;
+  seriesCode: string;
+  sequenceNumber: number;
+  customerId: string;
+  customerName: string;
+  contractId: string | null;
+  contractNumber: string | null;
+  status: InvoiceStatusValue;
+  issueDate: string | null;
+  dueDate: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  amountPaid: number;
+  amountRefunded: number;
+  amountPending: number;
+  currency: string;
+  pdfUrl: string | null;
+  notes: string | null;
+  hash: string | null;
+  previousHash: string | null;
+  qrCodeUrl: string | null;
+  verifactuMode: VerifactuModeValue;
+  aeatSentAt: string | null;
+  aeatStatus: AeatStatusValue | null;
+  aeatCsv: string | null;
+  paidAt: string | null;
+  cancelledAt: string | null;
+  items: InvoiceItemDto[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentDto {
+  id: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  customerId: string;
+  customerName: string;
+  paymentMethodId: string | null;
+  amount: number;
+  currency: string;
+  status: PaymentStatusValue;
+  methodType: PaymentMethodTypeValue;
+  gateway: PaymentGatewayProviderValue;
+  gatewayPaymentId: string | null;
+  paidAt: string | null;
+  refundedAt: string | null;
+  refundedAmount: number;
+  failureReason: string | null;
+  createdAt: string;
+}
+
+export interface PaymentMethodDto {
+  id: string;
+  customerId: string;
+  type: PaymentMethodTypeValue;
+  gateway: PaymentGatewayProviderValue;
+  last4: string | null;
+  brand: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  isDefault: boolean;
+  mandateReference: string | null;
+  createdAt: string;
+}
+
+export interface SetupIntentResponseDto {
+  clientSecret: string;
+  setupIntentId: string;
+  customerId: string;
+  /** Publishable key del tenant (mismo para todos en MVP). */
+  publishableKey: string;
+}
+
+export interface DunningActionDto {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  actionType: DunningActionTypeValue;
+  status: 'scheduled' | 'executed' | 'failed' | 'cancelled';
+  scheduledFor: string;
+  executedAt: string | null;
+  notes: string | null;
+}
+
+export interface PricingRuleDto {
+  id: string;
+  name: string;
+  scope: PricingRuleScopeValue;
+  targetId: string | null;
+  ruleType: PricingRuleTypeValue;
+  conditions: Record<string, unknown>;
+  modifierType: PriceModifierTypeValue;
+  modifierValue: number;
+  validFrom: string | null;
+  validUntil: string | null;
+  priority: number;
+  isActive: boolean;
+}
+
+export interface PromotionDto {
+  id: string;
+  code: string;
+  name: string;
+  discountType: PromotionDiscountTypeValue;
+  discountValue: number;
+  appliesTo: Record<string, unknown>;
+  maxUses: number | null;
+  usedCount: number;
+  validFrom: string | null;
+  validUntil: string | null;
+  isActive: boolean;
+}
+
+export interface DataSubjectRequestDto {
+  id: string;
+  customerId: string | null;
+  email: string;
+  requestType: DataSubjectRequestTypeValue;
+  status: 'open' | 'in_progress' | 'fulfilled' | 'denied';
+  submittedAt: string;
+  dueAt: string;
+  fulfilledAt: string | null;
+  exportFileUrl: string | null;
+  notes: string | null;
+}
+
+export interface BillingMetricsDto {
+  /** Monthly Recurring Revenue (suma de cuotas efectivas de contratos active+ending). */
+  mrr: number;
+  /** Importe pendiente de cobro (issued + overdue). */
+  outstanding: number;
+  /** Facturas vencidas (count). */
+  overdueCount: number;
+  /** Facturas pagadas este mes. */
+  paidThisMonth: number;
+  /** Importe cobrado este mes. */
+  collectedThisMonth: number;
+  /** Top 5 clientes por facturado en los ultimos 12 meses. */
+  topCustomers: Array<{
+    customerId: string;
+    customerName: string;
+    total: number;
+  }>;
+}
+
+/** Respuesta del portal del cliente (lectura de sus facturas). */
+export interface PortalInvoiceDto {
+  id: string;
+  invoiceNumber: string;
+  issueDate: string | null;
+  dueDate: string | null;
+  total: number;
+  amountPaid: number;
+  amountPending: number;
+  status: InvoiceStatusValue;
+  pdfUrl: string | null;
+}
+
+export interface PortalSessionDto {
+  customerId: string;
+  customerName: string;
+  email: string;
+  tenantName: string;
+  tenantSlug: string;
+  /** JWT corto para autenticar requests del portal. */
+  accessToken: string;
+  expiresIn: number;
+}

@@ -3,6 +3,9 @@
 import { Calendar, CreditCard, Sparkles } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 
+import { BillingMetricsCard } from './billing-metrics-card';
+import { OccupancyCard } from './occupancy-card';
+
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -37,15 +40,6 @@ export function DashboardContent() {
   const days = daysUntil(tenant.trialEndsAt);
   const trialDate = tenant.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
   const planTitle = subscription.planSlug.charAt(0).toUpperCase() + subscription.planSlug.slice(1);
-  // Limites del plan (placeholders hasta que conectemos la API de planes en
-  // siguientes fases). Como referencia mostramos los limites pactados.
-  const planLimits: Record<string, { facilities: number; units: number }> = {
-    free: { facilities: 1, units: 50 },
-    starter: { facilities: 3, units: 200 },
-    pro: { facilities: -1, units: -1 },
-  };
-  const limits = planLimits[subscription.planSlug] ?? { facilities: -1, units: -1 };
-  const facilitiesMax = limits.facilities === -1 ? '∞' : String(limits.facilities);
 
   return (
     <div className="container space-y-8 py-10">
@@ -103,18 +97,11 @@ export function DashboardContent() {
         </Card>
       </section>
 
+      <BillingMetricsCard />
+
+      <OccupancyCard />
+
       <section className="grid gap-4 md:grid-cols-2">
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">{t('cards.empty.facilities.title')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <p className="text-3xl font-semibold tabular-nums">
-              {t('cards.empty.facilities.value', { max: facilitiesMax })}
-            </p>
-            <p className="text-xs text-muted-foreground">{t('cards.empty.facilities.hint')}</p>
-          </CardContent>
-        </Card>
         <Card className="border-dashed">
           <CardHeader>
             <CardTitle className="text-base">{t('cards.empty.customers.title')}</CardTitle>
