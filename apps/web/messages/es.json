@@ -1,0 +1,190 @@
+{
+  "common": {
+    "appName": "StorageOS",
+    "tagline": "El SaaS para gestionar tus locales de self-storage",
+    "loading": "Cargando...",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "continue": "Continuar",
+    "submit": "Enviar",
+    "comingSoon": "Próximamente",
+    "errors": {
+      "generic": "Algo no ha ido bien. Intenta otra vez en un momento.",
+      "network": "No hemos podido conectar con el servidor.",
+      "tooManyRequests": "Demasiadas peticiones. Espera unos segundos.",
+      "sessionExpired": "Tu sesión ha caducado. Vuelve a iniciar sesión."
+    }
+  },
+  "publicHeader": {
+    "login": "Iniciar sesión",
+    "register": "Crear cuenta",
+    "goToApp": "Ir al panel"
+  },
+  "publicFooter": {
+    "copyright": "© {year} StorageOS",
+    "terms": "Términos",
+    "privacy": "Privacidad"
+  },
+  "landing": {
+    "heroTitle": "Gestiona tus trasteros sin papeleo",
+    "heroSubtitle": "Inquilinos, contratos, facturación y accesos en una sola plataforma. En español, conforme a Verifactu y lista para varios locales.",
+    "primaryCta": "Crear cuenta",
+    "secondaryCta": "Iniciar sesión",
+    "features": {
+      "title": "Todo lo que necesita tu negocio",
+      "subtitle": "Sin hojas de cálculo, sin correos perdidos, sin facturas a mano.",
+      "plan": {
+        "title": "Plano interactivo",
+        "description": "Visualiza cada trastero, su estado y su precio en un click."
+      },
+      "billing": {
+        "title": "Facturación automática",
+        "description": "Cobros recurrentes con Stripe y SEPA, sin perderte un mes."
+      },
+      "access": {
+        "title": "Control de accesos",
+        "description": "PINs y QRs que se desactivan al impago, sin pasar por el local."
+      }
+    }
+  },
+  "auth": {
+    "register": {
+      "title": "Crea tu cuenta",
+      "subtitle": "Pruébalo 14 días gratis. Sin tarjeta.",
+      "tenantName": "Nombre de la empresa",
+      "tenantSlug": "Subdominio",
+      "tenantSlugHint": "Se generará automáticamente si lo dejas vacío",
+      "fullName": "Tu nombre",
+      "email": "Email",
+      "password": "Contraseña",
+      "passwordHint": "Al menos 8 caracteres, con mayúsculas, minúsculas y un dígito",
+      "acceptTerms": "Acepto los términos y la política de privacidad",
+      "submit": "Crear cuenta",
+      "haveAccount": "¿Ya tienes cuenta?",
+      "loginLink": "Inicia sesión",
+      "errors": {
+        "slugTaken": "Ese subdominio ya está en uso. Prueba con otro."
+      }
+    },
+    "login": {
+      "title": "Bienvenido de vuelta",
+      "subtitle": "Inicia sesión para entrar al panel.",
+      "tenantSlug": "Empresa",
+      "tenantSlugHint": "Es el identificador único de tu empresa.",
+      "email": "Email",
+      "password": "Contraseña",
+      "submit": "Iniciar sesión",
+      "forgot": "¿Has olvidado tu contraseña?",
+      "noAccount": "¿No tienes cuenta?",
+      "registerLink": "Crear cuenta",
+      "errors": {
+        "invalidCredentials": "Email, contraseña o empresa incorrectos.",
+        "accountDisabled": "Esta cuenta está desactivada. Contacta con tu administrador.",
+        "emailNotVerified": "Tu cuenta aún no está verificada. Revisa tu email.",
+        "resendVerification": "Reenviar"
+      },
+      "sessionExpiredNotice": "Tu sesión ha caducado. Vuelve a iniciar sesión.",
+      "passwordChangedNotice": "Tu contraseña se ha cambiado. Inicia sesión con la nueva.",
+      "emailVerifiedNotice": "Email verificado. Bienvenido."
+    },
+    "verifySent": {
+      "title": "Revisa tu correo",
+      "subtitle": "Te hemos enviado un email a {email} con un enlace para activar tu cuenta.",
+      "resend": "Reenviar email",
+      "resent": "Hemos vuelto a enviarte el email.",
+      "alreadyVerified": "¿Ya verificaste? ",
+      "loginLink": "Inicia sesión"
+    },
+    "verifyToken": {
+      "verifying": "Verificando tu cuenta...",
+      "success": "Cuenta verificada. Te llevamos al panel...",
+      "errorTitle": "Enlace caducado o inválido",
+      "errorBody": "El enlace ya se ha usado o ha caducado. Puedes pedir uno nuevo desde la pantalla de inicio de sesión.",
+      "goToLogin": "Ir al login"
+    },
+    "forgot": {
+      "title": "¿Has olvidado tu contraseña?",
+      "subtitle": "Te enviaremos un enlace para crear una nueva.",
+      "tenantSlug": "Empresa",
+      "email": "Email",
+      "submit": "Enviar enlace",
+      "backToLogin": "Volver al login"
+    },
+    "forgotSent": {
+      "title": "Revisa tu correo",
+      "subtitle": "Si la cuenta existe, te hemos enviado un enlace para restablecer tu contraseña.",
+      "backToLogin": "Volver al login"
+    },
+    "reset": {
+      "title": "Crea tu nueva contraseña",
+      "subtitle": "Tras el cambio cerraremos todas tus sesiones por seguridad.",
+      "password": "Nueva contraseña",
+      "passwordHint": "Al menos 8 caracteres, con mayúsculas, minúsculas y un dígito",
+      "confirmPassword": "Repite la contraseña",
+      "submit": "Cambiar contraseña",
+      "errors": {
+        "tokenInvalid": "El enlace ya se ha usado o ha caducado. Pide uno nuevo desde \"¿Olvidaste tu contraseña?\".",
+        "passwordMismatch": "Las contraseñas no coinciden."
+      }
+    }
+  },
+  "appHeader": {
+    "userMenu": {
+      "settings": "Configuración",
+      "logout": "Cerrar sesión",
+      "logoutAll": "Cerrar todas las sesiones"
+    },
+    "facilitySwitcher": {
+      "placeholder": "Sin locales todavía",
+      "hint": "Podrás añadir locales cuando tengamos la Fase 2."
+    },
+    "trialBanner": {
+      "remaining": "Trial — quedan {days, plural, =0 {hoy es el último día} =1 {1 día} other {# días}}",
+      "ended": "Tu prueba ha terminado."
+    },
+    "theme": {
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema",
+      "toggleLabel": "Cambiar tema"
+    }
+  },
+  "sidebar": {
+    "dashboard": "Resumen",
+    "facilities": "Locales",
+    "customers": "Inquilinos",
+    "billing": "Facturación",
+    "settings": "Configuración"
+  },
+  "dashboard": {
+    "welcome": "Hola, {name}",
+    "subtitle": "Aquí tienes el estado actual de tu empresa.",
+    "cards": {
+      "trial": {
+        "title": "Tu prueba",
+        "remaining": "Quedan {days} días",
+        "endsOn": "Hasta el {date}"
+      },
+      "plan": {
+        "title": "Plan",
+        "current": "{plan}"
+      },
+      "tenant": {
+        "title": "Tu empresa",
+        "slug": "Subdominio: {slug}"
+      },
+      "empty": {
+        "facilities": {
+          "title": "Locales",
+          "value": "0 / {max}",
+          "hint": "Añade tu primer local cuando tengamos la Fase 2."
+        },
+        "customers": {
+          "title": "Inquilinos",
+          "value": "0",
+          "hint": "Importa o crea inquilinos en la Fase 3."
+        }
+      }
+    }
+  }
+}

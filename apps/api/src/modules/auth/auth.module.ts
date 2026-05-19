@@ -6,9 +6,11 @@ import { PassportModule } from '@nestjs/passport';
 import { AuditService } from './audit.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { PasswordResetTokensService } from './password-reset-tokens.service';
 import { SessionsService } from './sessions.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokensService } from './tokens.service';
+import { VerificationTokensService } from './verification-tokens.service';
 
 import type { Env } from '../../config/env.schema';
 
@@ -26,7 +28,15 @@ import type { Env } from '../../config/env.schema';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokensService, SessionsService, AuditService, JwtStrategy],
+  providers: [
+    AuthService,
+    TokensService,
+    SessionsService,
+    AuditService,
+    VerificationTokensService,
+    PasswordResetTokensService,
+    JwtStrategy,
+  ],
   exports: [AuthService, TokensService, SessionsService],
 })
 export class AuthModule {}

@@ -14,9 +14,12 @@ export default [
       '**/.turbo/**',
       '**/build/**',
       '**/coverage/**',
-      '**/*.config.js',
-      '**/*.config.mjs',
-      '**/*.config.ts',
+      // Configs de tooling SOLO en la raíz de cada workspace.
+      // Patrones recursivos (`**/*.config.ts`) capturaban código legítimo
+      // dentro de `src/config/*.config.ts`.
+      '*.config.js',
+      '*.config.mjs',
+      '*.config.ts',
     ],
   },
   js.configs.recommended,

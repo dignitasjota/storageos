@@ -37,7 +37,7 @@ export interface SubscriptionDto {
   cancelAtPeriodEnd: boolean;
 }
 
-/** Cuerpo de respuesta para `POST /auth/register` y `POST /auth/login`. */
+/** Cuerpo de respuesta para `POST /auth/login` y `POST /auth/verify-email`. */
 export interface AuthSuccessResponse {
   user: UserDto;
   tenant: TenantDto;
@@ -45,6 +45,18 @@ export interface AuthSuccessResponse {
   accessToken: string;
   /** Tiempo de vida del access token, en segundos. */
   expiresIn: number;
+}
+
+/**
+ * Cuerpo de respuesta para `POST /auth/register`. NO emite tokens hasta
+ * que el usuario verifique su email; el frontend debe redirigir a la
+ * pantalla "Te hemos enviado un email".
+ */
+export interface RegisterPendingResponse {
+  user: UserDto;
+  tenant: TenantDto;
+  subscription: SubscriptionDto;
+  requiresEmailVerification: true;
 }
 
 /** Cuerpo de respuesta para `POST /auth/refresh`. */

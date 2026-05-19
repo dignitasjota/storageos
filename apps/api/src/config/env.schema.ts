@@ -42,6 +42,14 @@ export const envSchema = z.object({
         .filter(Boolean),
     ),
 
+  // --- SMTP ---
+  SMTP_HOST: z.string().default('localhost'),
+  SMTP_PORT: z.coerce.number().int().positive().default(1026),
+  SMTP_FROM: z.string().email().default('no-reply@storageos.local'),
+  SMTP_FROM_NAME: z.string().default('StorageOS'),
+  /** URL publica del frontend, usada para construir enlaces de los emails. */
+  WEB_BASE_URL: z.string().url().default('http://localhost:3000'),
+
   // --- Logger ---
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_PRETTY: z

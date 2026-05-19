@@ -7,26 +7,38 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { EmailService } from '../email/email.service';
+import { PasswordResetEmail } from '../email/templates/password-reset-email';
+import { VerificationEmail } from '../email/templates/verification-email';
 
 import { AuditService } from './audit.service';
+import { PasswordResetTokensService } from './password-reset-tokens.service';
 import { SessionsService } from './sessions.service';
 import { TokensService } from './tokens.service';
+import { VerificationTokensService } from './verification-tokens.service';
 
+import type { Env } from '../../config/env.schema';
 import type { Tenant, TenantSubscription, User } from '@storageos/database';
 import type {
   AuthSuccessResponse,
+  ForgotPasswordInput,
   LoginInput,
   MeResponse,
   RefreshSuccessResponse,
   RegisterInput,
+  RegisterPendingResponse,
+  ResendVerificationInput,
+  ResetPasswordInput,
   SubscriptionDto,
   TenantDto,
   UserDto,
   UserRole,
+  VerifyEmailInput,
 } from '@storageos/shared';
 
 /** Metadatos opcionales del request, propagados a sessions + audit logs. */
@@ -54,14 +66,15 @@ export class AuthService {
     private readonly tokens: TokensService,
     private readonly sessions: SessionsService,
     private readonly audit: AuditService,
+    private readonly email: EmailService,
+    private readonly verificationTokens: VerificationTokensService,
+    private readonly passwordResetTokens: PasswordResetTokensService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   // ============================ register ===================================
 
-  async register(
-    input: RegisterInput,
-    meta: RequestMeta,
-  ): Promise<AuthFlowResult<AuthSuccessResponse>> {
+  async register(input: RegisterInput, meta: RequestMeta): Promise<RegisterPendingResponse> {
     const slug = await this.resolveSlug(input.tenantName, input.tenantSlug);
 
     const plan = await this.admin.subscriptionPlan.findUnique({
@@ -102,10 +115,15 @@ export class AuthService {
           passwordHash,
           fullName: input.fullName.trim(),
           role: 'owner',
+          // email_verified_at queda NULL hasta que el usuario verifique.
         },
       });
       return { tenant: newTenant, subscription: newSubscription, user: newUser };
     });
+
+    // Token de verificacion + email. Si el envio falla, propaga 500: el
+    // tenant queda creado pero el usuario podra pedir un reenvio luego.
+    await this.sendVerificationEmail(tenant, user);
 
     await this.audit.write({
       tenantId: tenant.id,
@@ -118,7 +136,12 @@ export class AuthService {
       userAgent: meta.userAgent ?? null,
     });
 
-    return this.emitAuthSuccess(user, tenant, subscription, plan.slug, meta);
+    return {
+      user: this.toUserDto(user),
+      tenant: this.toTenantDto(tenant),
+      subscription: this.toSubscriptionDto(subscription, plan.slug),
+      requiresEmailVerification: true,
+    };
   }
 
   // ============================== login ====================================
@@ -133,7 +156,6 @@ export class AuthService {
       where: { tenantId_email: { tenantId: tenant.id, email: input.email } },
     });
     if (!user) {
-      // Login fallido con tenant conocido: audit (sin userId).
       await this.audit.write({
         tenantId: tenant.id,
         userId: null,
@@ -163,7 +185,27 @@ export class AuthService {
     }
 
     if (!user.isActive) {
-      throw new ForbiddenException('Cuenta desactivada');
+      throw new ForbiddenException({
+        message: 'Cuenta desactivada',
+        code: 'account_disabled',
+      });
+    }
+
+    if (!user.emailVerifiedAt) {
+      await this.audit.write({
+        tenantId: tenant.id,
+        userId: user.id,
+        action: 'auth.login.failed',
+        entityType: 'User',
+        entityId: user.id,
+        changes: { reason: 'email_not_verified' },
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+      });
+      throw new ForbiddenException({
+        message: 'Email no verificado',
+        code: 'email_not_verified',
+      });
     }
 
     const subscription = await this.admin.tenantSubscription.findUnique({
@@ -205,10 +247,8 @@ export class AuthService {
       ipAddress: meta.ipAddress,
     });
 
-    // El user puede haber sido desactivado entre tanto.
     const user = await this.admin.user.findUnique({ where: { id: result.userId } });
-    if (!user || !user.isActive) {
-      // Revoca la sesion recien creada para que no quede colgando.
+    if (!user || !user.isActive || !user.emailVerifiedAt) {
       await this.sessions.revoke({
         tenantId: result.tenantId,
         sessionId: result.session.id,
@@ -237,6 +277,125 @@ export class AuthService {
       body: { accessToken, expiresIn },
       refreshToken: result.refreshToken,
     };
+  }
+
+  // ========================= verify email ==================================
+
+  async verifyEmail(
+    input: VerifyEmailInput,
+    meta: RequestMeta,
+  ): Promise<AuthFlowResult<AuthSuccessResponse>> {
+    const record = await this.verificationTokens.consume(input.token);
+    if (!record) {
+      throw new UnauthorizedException('Token de verificacion invalido o caducado');
+    }
+
+    const user = await this.admin.user.update({
+      where: { id: record.userId },
+      data: { emailVerifiedAt: new Date() },
+    });
+
+    await this.audit.write({
+      tenantId: record.tenantId,
+      userId: user.id,
+      action: 'auth.verification.success',
+      entityType: 'User',
+      entityId: user.id,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+
+    const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: record.tenantId } });
+    const subscription = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId: tenant.id },
+      include: { plan: true },
+    });
+    if (!subscription) {
+      throw new InternalServerErrorException('Suscripcion no encontrada');
+    }
+
+    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta);
+  }
+
+  async resendVerification(input: ResendVerificationInput): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
+    if (!tenant) return;
+    const user = await this.admin.user.findUnique({
+      where: { tenantId_email: { tenantId: tenant.id, email: input.email } },
+    });
+    if (!user || user.emailVerifiedAt || !user.isActive) return;
+
+    await this.sendVerificationEmail(tenant, user, { source: 'resend' });
+  }
+
+  // ========================= password reset ================================
+
+  async forgotPassword(input: ForgotPasswordInput, meta: RequestMeta): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
+    if (!tenant) return;
+    const user = await this.admin.user.findUnique({
+      where: { tenantId_email: { tenantId: tenant.id, email: input.email } },
+    });
+    if (!user || !user.isActive) return;
+
+    const { plaintext } = await this.passwordResetTokens.issue({
+      tenantId: tenant.id,
+      userId: user.id,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+    const baseUrl = this.config.get('WEB_BASE_URL', { infer: true });
+    const resetUrl = `${baseUrl}/reset-password/${plaintext}`;
+
+    await this.email.send({
+      to: user.email,
+      subject: 'Restablece tu contrasena de StorageOS',
+      template: PasswordResetEmail({
+        fullName: user.fullName,
+        resetUrl,
+        ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
+      }),
+    });
+
+    await this.audit.write({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: 'auth.password_reset.requested',
+      entityType: 'User',
+      entityId: user.id,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+  }
+
+  async resetPassword(input: ResetPasswordInput, meta: RequestMeta): Promise<void> {
+    const record = await this.passwordResetTokens.consume(input.token);
+    if (!record) {
+      throw new UnauthorizedException('Token invalido o caducado');
+    }
+
+    const newHash = await argonHash(input.password);
+    await this.admin.user.update({
+      where: { id: record.userId },
+      data: { passwordHash: newHash },
+    });
+
+    // Revocar TODAS las sesiones del usuario tras cambiar la contrasena.
+    await this.sessions.revokeAllForUser({
+      tenantId: record.tenantId,
+      userId: record.userId,
+      reason: 'logout_all',
+    });
+
+    await this.audit.write({
+      tenantId: record.tenantId,
+      userId: record.userId,
+      action: 'auth.password_reset.completed',
+      entityType: 'User',
+      entityId: record.userId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
   }
 
   // ============================ logout =====================================
@@ -297,6 +456,34 @@ export class AuthService {
   }
 
   // ========================== helpers privados =============================
+
+  private async sendVerificationEmail(
+    tenant: Tenant,
+    user: User,
+    extra?: { source?: 'register' | 'resend' },
+  ): Promise<void> {
+    const { plaintext } = await this.verificationTokens.issue({
+      tenantId: tenant.id,
+      userId: user.id,
+    });
+    const baseUrl = this.config.get('WEB_BASE_URL', { infer: true });
+    const verifyUrl = `${baseUrl}/verify-email/${plaintext}`;
+
+    await this.email.send({
+      to: user.email,
+      subject: 'Verifica tu cuenta de StorageOS',
+      template: VerificationEmail({ fullName: user.fullName, verifyUrl }),
+    });
+
+    await this.audit.write({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: 'auth.verification.sent',
+      entityType: 'User',
+      entityId: user.id,
+      ...(extra?.source ? { changes: { source: extra.source } } : {}),
+    });
+  }
 
   private async resolveSlug(tenantName: string, requestedSlug?: string): Promise<string> {
     if (requestedSlug) {

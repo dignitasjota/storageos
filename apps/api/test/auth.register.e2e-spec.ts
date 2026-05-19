@@ -1,5 +1,6 @@
 import request from 'supertest';
 
+import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -10,12 +11,14 @@ describe('POST /auth/register (e2e)', () => {
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    await deleteAllMessages();
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
     await cleanupTestTenants();
+    await deleteAllMessages();
   });
 
   function validBody(prefix = 'reg') {
@@ -30,7 +33,7 @@ describe('POST /auth/register (e2e)', () => {
     };
   }
 
-  it('crea tenant + owner, devuelve tokens y setea cookie refresh', async () => {
+  it('crea tenant + owner, devuelve requiresEmailVerification=true sin cookie', async () => {
     const body = validBody();
     const res = await request(app.getHttpServer()).post('/auth/register').send(body);
 
@@ -40,18 +43,9 @@ describe('POST /auth/register (e2e)', () => {
     expect(res.body.tenant.slug).toBe(body.tenantSlug);
     expect(res.body.tenant.status).toBe('trial');
     expect(res.body.subscription.planSlug).toBe('starter');
-    expect(typeof res.body.accessToken).toBe('string');
-    expect(res.body.expiresIn).toBeGreaterThan(0);
-
-    const setCookie = res.headers['set-cookie'];
-    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
-    const refreshCookie = cookies.find((c) => c.startsWith('refresh_token='));
-    expect(refreshCookie).toBeDefined();
-    expect(refreshCookie).toMatch(/HttpOnly/);
-    expect(refreshCookie).toMatch(/Path=\/auth/);
-    // formato tenantId.sessionId.secret
-    const value = refreshCookie?.split(';')[0]?.replace('refresh_token=', '') ?? '';
-    expect(value.split('.')).toHaveLength(3);
+    expect(res.body.requiresEmailVerification).toBe(true);
+    expect(res.body.accessToken).toBeUndefined();
+    expect(res.headers['set-cookie']).toBeUndefined();
   });
 
   it('genera slug automaticamente cuando no se pasa', async () => {

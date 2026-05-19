@@ -41,9 +41,9 @@ export const RegisterSchema = z.object({
     .max(200, 'El nombre no puede tener mas de 200 caracteres'),
   email: z.string().trim().toLowerCase().email('Email no valido').max(254, 'Email demasiado largo'),
   password: passwordSchema,
-  acceptTerms: z.literal(true, {
-    errorMap: () => ({ message: 'Debes aceptar los terminos y condiciones' }),
-  }),
+  acceptTerms: z
+    .boolean()
+    .refine((v) => v === true, { message: 'Debes aceptar los terminos y condiciones' }),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 
@@ -60,3 +60,32 @@ export const LoginSchema = z.object({
   password: z.string().min(1, 'La contrasena es obligatoria'),
 });
 export type LoginInput = z.infer<typeof LoginSchema>;
+
+const tokenRegex = /^[0-9a-f-]{36}\.[A-Za-z0-9_-]{20,}$/;
+
+/** POST /auth/verify-email — body. */
+export const VerifyEmailSchema = z.object({
+  token: z.string().regex(tokenRegex, 'Token de verificacion invalido'),
+});
+export type VerifyEmailInput = z.infer<typeof VerifyEmailSchema>;
+
+/** POST /auth/resend-verification — body. */
+export const ResendVerificationSchema = z.object({
+  tenantSlug: z.string().trim().toLowerCase().min(3).max(63).regex(slugRegex, 'Slug invalido'),
+  email: z.string().trim().toLowerCase().email('Email no valido'),
+});
+export type ResendVerificationInput = z.infer<typeof ResendVerificationSchema>;
+
+/** POST /auth/password/forgot — body. */
+export const ForgotPasswordSchema = z.object({
+  tenantSlug: z.string().trim().toLowerCase().min(3).max(63).regex(slugRegex, 'Slug invalido'),
+  email: z.string().trim().toLowerCase().email('Email no valido'),
+});
+export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
+
+/** POST /auth/password/reset — body. */
+export const ResetPasswordSchema = z.object({
+  token: z.string().regex(tokenRegex, 'Token invalido'),
+  password: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;

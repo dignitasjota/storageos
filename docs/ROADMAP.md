@@ -45,21 +45,30 @@ Subdividida en sub-fases 1A–1F para facilitar revisiones intermedias.
 - [x] Tests unit (19/19) + e2e Supertest (29/29)
 - [x] `docs/API.md` documentado
 
-### 1C — Frontend publico y layout autenticado
+### 1C — Frontend publico y layout autenticado ✅
 
-- [ ] Paginas publicas: landing minima, login, registro
-- [ ] Layout de panel autenticado con sidebar y switcher de facility (placeholder)
-- [ ] Componentes UI base: tabla, formulario, modal, toast, loading states
-- [ ] Auth client (TanStack Query) con manejo de refresh transparente
-- [ ] next-intl + next-themes
+- [x] Paginas publicas: landing, `/login`, `/register` (route groups `(public)` y `(app)`)
+- [x] Layout de panel autenticado con `shadcn/sidebar` oficial + header (FacilitySwitcher placeholder, UserMenu, ThemeToggle, TrialBanner)
+- [x] Componentes UI base instalados (button, input, label, form, card, dropdown-menu, sheet, sidebar, separator, skeleton, avatar, badge, alert, sonner, checkbox, tooltip)
+- [x] Auth client con TanStack Query: store Zustand (access en memoria), fetcher con refresh transparente + cola de requests, hooks (useMe, useLogin, useRegister, useLogout, useLogoutAll)
+- [x] `AuthBootstrap` que recupera el access token desde la cookie al cargar `/dashboard`
+- [x] `middleware.ts` que redirige rutas autenticadas a `/login?next=...` sin cookie
+- [x] react-hook-form + `zodResolver` con los schemas compartidos en `@storageos/shared/auth`
+- [x] next-intl (locale `es-ES`, sin prefijo de URL) + next-themes (light/dark/system)
+- [x] Fuente Geist + paleta neutral con accent azul
+- [x] Dashboard placeholder con datos reales de `/auth/me`
 
-### 1D — Verificacion email + password recovery
+### 1D — Verificacion email + password recovery ✅
 
-- [ ] Tabla `email_verification_tokens` (RLS)
-- [ ] Tabla `password_reset_tokens` (RLS)
-- [ ] Endpoints: `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/password/forgot`, `POST /auth/password/reset`
-- [ ] Email transaccional via Mailpit (dev); plantilla bilingue
-- [ ] Bloqueo de login hasta verificacion exitosa
+- [x] Tabla `email_verification_tokens` (RLS) + `password_reset_tokens` (RLS) + `users.email_verified_at`
+- [x] EmailService con nodemailer (Mailpit en dev) + plantillas React Email (verificacion y reset)
+- [x] Endpoints: `POST /auth/verify-email`, `POST /auth/resend-verification`, `POST /auth/password/forgot`, `POST /auth/password/reset`
+- [x] `register` no emite tokens; envia email de verificacion y devuelve `requiresEmailVerification: true`
+- [x] Login bloqueado con 403 + `code: email_not_verified` hasta verificar
+- [x] Reset de password revoca **todas** las sesiones del usuario
+- [x] Filter de excepciones propaga el campo `code` para distinguir sub-tipos de 403
+- [x] Tests e2e con Mailpit API (37/37 verdes)
+- [x] Frontend: paginas `/verify-email-sent`, `/verify-email/[token]`, `/forgot-password`, `/forgot-password-sent`, `/reset-password/[token]`
 
 ### 1E — User management + invitaciones + audit logs
 

@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { registerVerifiedUser } from './helpers/auth-flow';
+import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -7,31 +9,24 @@ import type { INestApplication } from '@nestjs/common';
 
 describe('POST /auth/login (e2e)', () => {
   let app: INestApplication;
-  const password = 'Secret123';
   let slug: string;
   let email: string;
+  let password: string;
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    await deleteAllMessages();
     app = await createTestApp();
-
-    const ids = uniqueTestIds('login');
-    slug = ids.slug;
-    email = ids.email;
-    const res = await request(app.getHttpServer()).post('/auth/register').send({
-      tenantName: 'Test Login',
-      tenantSlug: slug,
-      fullName: 'Test',
-      email,
-      password,
-      acceptTerms: true,
-    });
-    expect(res.status).toBe(201);
+    const user = await registerVerifiedUser(app, 'login');
+    slug = user.slug;
+    email = user.email;
+    password = user.password;
   });
 
   afterAll(async () => {
     await app.close();
     await cleanupTestTenants();
+    await deleteAllMessages();
   });
 
   it('login con credenciales validas devuelve tokens y cookie', async () => {
@@ -69,6 +64,25 @@ describe('POST /auth/login (e2e)', () => {
       .send({ tenantSlug: slug, email, password: 'WrongPass1' });
     expect(res.status).toBe(401);
     expect(res.body.message).toBe('Credenciales invalidas');
+  });
+
+  it('rechaza con 403 + code email_not_verified si el user aun no verifico', async () => {
+    const ids = uniqueTestIds('login-unverified');
+    const reg = await request(app.getHttpServer()).post('/auth/register').send({
+      tenantName: 'Login Unverified',
+      tenantSlug: ids.slug,
+      fullName: 'Unverified User',
+      email: ids.email,
+      password: 'Secret123',
+      acceptTerms: true,
+    });
+    expect(reg.status).toBe(201);
+
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: ids.slug, email: ids.email, password: 'Secret123' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('email_not_verified');
   });
 
   it.each([

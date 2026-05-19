@@ -12,10 +12,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   type AuthSuccessResponse,
+  ForgotPasswordSchema,
   LoginSchema,
   type MeResponse,
   type RefreshSuccessResponse,
+  type RegisterPendingResponse,
   RegisterSchema,
+  ResendVerificationSchema,
+  ResetPasswordSchema,
+  VerifyEmailSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -38,9 +43,16 @@ import type { Request, Response } from 'express';
 
 class RegisterDto extends createZodDto(RegisterSchema) {}
 class LoginDto extends createZodDto(LoginSchema) {}
+class VerifyEmailDto extends createZodDto(VerifyEmailSchema) {}
+class ResendVerificationDto extends createZodDto(ResendVerificationSchema) {}
+class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) {}
+class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}
 
 const REFRESH_COOKIE_NAME = 'refresh_token';
-const COOKIE_PATH = '/auth';
+// Path raiz: necesario para que el middleware del frontend (otro origen en
+// dev: localhost:3000) pueda leer la presencia de la cookie y proteger las
+// rutas autenticadas.
+const COOKIE_PATH = '/';
 
 @Controller('auth')
 export class AuthController {
@@ -56,11 +68,9 @@ export class AuthController {
   async register(
     @Body() input: RegisterDto,
     @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthSuccessResponse> {
-    const result = await this.authService.register(input, this.extractMeta(req));
-    this.setRefreshCookie(res, result.refreshToken);
-    return result.body;
+  ): Promise<RegisterPendingResponse> {
+    // No setea cookie: el usuario tiene que verificar su email primero.
+    return this.authService.register(input, this.extractMeta(req));
   }
 
   @Public()
@@ -92,6 +102,44 @@ export class AuthController {
     const result = await this.authService.refresh(cookieValue, this.extractMeta(req));
     this.setRefreshCookie(res, result.refreshToken);
     return result.body;
+  }
+
+  @Public()
+  @ThrottleRefresh()
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  async verifyEmail(
+    @Body() input: VerifyEmailDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthSuccessResponse> {
+    const result = await this.authService.verifyEmail(input, this.extractMeta(req));
+    this.setRefreshCookie(res, result.refreshToken);
+    return result.body;
+  }
+
+  @Public()
+  @ThrottleRegister()
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resendVerification(@Body() input: ResendVerificationDto): Promise<void> {
+    await this.authService.resendVerification(input);
+  }
+
+  @Public()
+  @ThrottleRegister()
+  @Post('password/forgot')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async forgotPassword(@Body() input: ForgotPasswordDto, @Req() req: Request): Promise<void> {
+    await this.authService.forgotPassword(input, this.extractMeta(req));
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('password/reset')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resetPassword(@Body() input: ResetPasswordDto, @Req() req: Request): Promise<void> {
+    await this.authService.resetPassword(input, this.extractMeta(req));
   }
 
   @Post('logout')

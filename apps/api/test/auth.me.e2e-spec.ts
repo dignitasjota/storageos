@@ -1,62 +1,43 @@
 import request from 'supertest';
 
-import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
+import { registerVerifiedUser } from './helpers/auth-flow';
+import { deleteAllMessages } from './helpers/mailpit';
+import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
 describe('GET /auth/me (e2e)', () => {
   let app: INestApplication;
-  const password = 'Secret123';
-  let slug: string;
-  let email: string;
+  let slugA: string;
+  let emailA: string;
   let accessTokenA: string;
-  let tenantBSlug: string;
-  let userBAccessToken: string;
-  let userBUserId: string;
   let userAUserId: string;
   let tenantAId: string;
+  let userBAccessToken: string;
+  let userBUserId: string;
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    await deleteAllMessages();
     app = await createTestApp();
 
-    // Tenant A
-    const idsA = uniqueTestIds('me-a');
-    slug = idsA.slug;
-    email = idsA.email;
-    const a = await request(app.getHttpServer()).post('/auth/register').send({
-      tenantName: 'Test Me A',
-      tenantSlug: slug,
-      fullName: 'User A',
-      email,
-      password,
-      acceptTerms: true,
-    });
-    expect(a.status).toBe(201);
-    accessTokenA = a.body.accessToken;
-    userAUserId = a.body.user.id;
-    tenantAId = a.body.tenant.id;
+    const userA = await registerVerifiedUser(app, 'me-a', { fullName: 'User A' });
+    slugA = userA.slug;
+    emailA = userA.email;
+    accessTokenA = userA.accessToken;
+    userAUserId = userA.userId;
+    tenantAId = userA.tenantId;
 
-    // Tenant B (para probar aislamiento RLS)
-    const idsB = uniqueTestIds('me-b');
-    tenantBSlug = idsB.slug;
-    const b = await request(app.getHttpServer()).post('/auth/register').send({
-      tenantName: 'Test Me B',
-      tenantSlug: tenantBSlug,
-      fullName: 'User B',
-      email: idsB.email,
-      password,
-      acceptTerms: true,
-    });
-    expect(b.status).toBe(201);
-    userBAccessToken = b.body.accessToken;
-    userBUserId = b.body.user.id;
+    const userB = await registerVerifiedUser(app, 'me-b', { fullName: 'User B' });
+    userBAccessToken = userB.accessToken;
+    userBUserId = userB.userId;
   });
 
   afterAll(async () => {
     await app.close();
     await cleanupTestTenants();
+    await deleteAllMessages();
   });
 
   it('devuelve user + tenant + subscription del usuario autenticado', async () => {
@@ -65,10 +46,10 @@ describe('GET /auth/me (e2e)', () => {
       .set('Authorization', `Bearer ${accessTokenA}`);
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(userAUserId);
-    expect(res.body.user.email).toBe(email);
+    expect(res.body.user.email).toBe(emailA);
     expect(res.body.user.role).toBe('owner');
     expect(res.body.tenant.id).toBe(tenantAId);
-    expect(res.body.tenant.slug).toBe(slug);
+    expect(res.body.tenant.slug).toBe(slugA);
     expect(res.body.subscription.status).toBe('trial');
     expect(res.body.subscription.planSlug).toBe('starter');
   });

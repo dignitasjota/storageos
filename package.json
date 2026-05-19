@@ -36,14 +36,5 @@
     "turbo": "^2.3.3",
     "typescript": "^5.7.2"
   },
-  "prettier": "@storageos/prettier-config",
-  "lint-staged": {
-    "*.{ts,tsx}": [
-      "eslint --max-warnings=0 --fix",
-      "prettier --write"
-    ],
-    "*.{js,mjs,cjs,json,md,yml,yaml}": [
-      "prettier --write"
-    ]
-  }
+  "prettier": "@storageos/prettier-config"
 }

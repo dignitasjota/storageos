@@ -72,14 +72,18 @@ rotacion + deteccion de reuso, logout (individual y global) y `/me`.
 
 ### Endpoints
 
-| Metodo | Ruta               | Auth | Throttle  | Descripcion                               |
-| ------ | ------------------ | ---- | --------- | ----------------------------------------- |
-| POST   | `/auth/register`   | NO   | 3/hora/IP | Crea tenant + owner, devuelve tokens      |
-| POST   | `/auth/login`      | NO   | 5/min/IP  | Login `(tenantSlug, email, password)`     |
-| POST   | `/auth/refresh`    | NO   | 30/min/IP | Rota refresh y emite nuevo access         |
-| POST   | `/auth/logout`     | SI   | 60/min/IP | Revoca la sesion actual                   |
-| POST   | `/auth/logout-all` | SI   | 60/min/IP | Revoca todas las sesiones del user        |
-| GET    | `/auth/me`         | SI   | 60/min/IP | Devuelve `{ user, tenant, subscription }` |
+| Metodo | Ruta                        | Auth | Throttle  | Descripcion                                             |
+| ------ | --------------------------- | ---- | --------- | ------------------------------------------------------- |
+| POST   | `/auth/register`            | NO   | 3/hora/IP | Crea tenant + owner; envia email; no emite tokens       |
+| POST   | `/auth/login`               | NO   | 5/min/IP  | Login `(tenantSlug, email, password)`                   |
+| POST   | `/auth/refresh`             | NO   | 30/min/IP | Rota refresh y emite nuevo access                       |
+| POST   | `/auth/verify-email`        | NO   | 30/min/IP | Activa la cuenta con el token del email; emite sesion   |
+| POST   | `/auth/resend-verification` | NO   | 3/hora/IP | Reenvia el email de verificacion; 204 generico          |
+| POST   | `/auth/password/forgot`     | NO   | 3/hora/IP | Pide reset; envia email; 204 generico                   |
+| POST   | `/auth/password/reset`      | NO   | 5/min/IP  | Cambia password con el token; revoca todas las sesiones |
+| POST   | `/auth/logout`              | SI   | 60/min/IP | Revoca la sesion actual                                 |
+| POST   | `/auth/logout-all`          | SI   | 60/min/IP | Revoca todas las sesiones del user                      |
+| GET    | `/auth/me`                  | SI   | 60/min/IP | Devuelve `{ user, tenant, subscription }`               |
 
 #### POST `/auth/register`
 

@@ -1,7 +1,9 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
-import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
+import { registerVerifiedUser } from './helpers/auth-flow';
+import { deleteAllMessages } from './helpers/mailpit';
+import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -16,6 +18,7 @@ describe('POST /auth/refresh (e2e)', () => {
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    await deleteAllMessages();
     app = await createTestApp();
     admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
   });
@@ -24,28 +27,17 @@ describe('POST /auth/refresh (e2e)', () => {
     await app.close();
     await admin.$disconnect();
     await cleanupTestTenants();
+    await deleteAllMessages();
   });
 
   async function registerNewTenant() {
-    const ids = uniqueTestIds('ref');
-    const res = await request(app.getHttpServer()).post('/auth/register').send({
-      tenantName: 'Test Refresh',
-      tenantSlug: ids.slug,
-      fullName: 'Test',
-      email: ids.email,
-      password: 'Secret123',
-      acceptTerms: true,
-    });
-    const setCookie = res.headers['set-cookie'];
-    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
-    const cookie = cookies.find((c) => c.startsWith('refresh_token='));
-    if (!cookie) throw new Error('no refresh cookie');
+    const user = await registerVerifiedUser(app, 'ref');
     return {
-      slug: ids.slug,
-      userId: res.body.user.id as string,
-      tenantId: res.body.tenant.id as string,
-      accessToken: res.body.accessToken as string,
-      cookie,
+      slug: user.slug,
+      userId: user.userId,
+      tenantId: user.tenantId,
+      accessToken: user.accessToken,
+      cookie: user.refreshCookie,
     };
   }
 

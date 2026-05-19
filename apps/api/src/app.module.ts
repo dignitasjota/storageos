@@ -10,6 +10,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { AppConfigModule } from './config/env.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from './modules/database/database.module';
+import { EmailModule } from './modules/email/email.module';
 import { HealthModule } from './modules/health/health.module';
 
 import type { Env } from './config/env.schema';
@@ -72,6 +73,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     }),
     AsyncContextModule,
     DatabaseModule,
+    EmailModule,
     HealthModule,
     AuthModule,
   ],
