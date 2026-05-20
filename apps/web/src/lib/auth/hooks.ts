@@ -7,6 +7,7 @@ import type {
   AuthSuccessResponse,
   ForgotPasswordInput,
   LoginInput,
+  LoginRequires2faEnrolmentResponse,
   LoginRequires2faResponse,
   MeResponse,
   RegisterInput,
@@ -16,7 +17,10 @@ import type {
   VerifyEmailInput,
 } from '@storageos/shared';
 
-type LoginResponse = AuthSuccessResponse | LoginRequires2faResponse;
+type LoginResponse =
+  | AuthSuccessResponse
+  | LoginRequires2faResponse
+  | LoginRequires2faEnrolmentResponse;
 
 export const meQueryKey = ['auth', 'me'] as const;
 
@@ -41,7 +45,7 @@ export function useLogin() {
         requiresAuth: false,
       }),
     onSuccess: (data) => {
-      if ('requires2fa' in data) return;
+      if ('requires2fa' in data || 'requires2faEnrolment' in data) return;
       useAuthStore.getState().setAccessToken(data.accessToken);
       queryClient.setQueryData(meQueryKey, {
         user: data.user,

@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
 import { z } from 'zod';
 
@@ -43,6 +44,8 @@ const RevokeBodySchema = z.object({
 
 const P12_MAX_BYTES = 50 * 1024; // 50 KB es holgado para un PKCS#12 FNMT.
 
+@ApiTags('Billing')
+@ApiBearerAuth('jwt')
 @Controller('billing/aeat-credentials')
 export class TenantAeatCredentialsController {
   constructor(private readonly service: TenantAeatCredentialsService) {}

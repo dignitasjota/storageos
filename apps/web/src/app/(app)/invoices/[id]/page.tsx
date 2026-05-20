@@ -16,7 +16,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import type { InvoiceDto, RectificationTypeValue } from '@storageos/shared';
+import type { CorrectionMethodValue, InvoiceDto, RectificationTypeValue } from '@storageos/shared';
 
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -102,6 +102,7 @@ export default function InvoiceDetailPage() {
   const [refundReason, setRefundReason] = useState('');
   const [rectifyOpen, setRectifyOpen] = useState(false);
   const [rectifyType, setRectifyType] = useState<RectificationTypeValue>('R1');
+  const [rectifyMethod, setRectifyMethod] = useState<CorrectionMethodValue>('by_differences');
   const [rectifyReason, setRectifyReason] = useState('');
   const [rectifyItems, setRectifyItems] = useState<RectifyDraftItem[]>([]);
 
@@ -168,9 +169,13 @@ export default function InvoiceDetailPage() {
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              <Link href={`/customers/${i.customerId}`} className="hover:underline">
-                {i.customerName}
-              </Link>
+              {i.customerId ? (
+                <Link href={`/customers/${i.customerId}`} className="hover:underline">
+                  {i.customerName ?? 'Cliente'}
+                </Link>
+              ) : (
+                <span className="italic">Sin destinatario identificado (F2)</span>
+              )}
               {i.contractNumber && ` · contrato ${i.contractNumber}`}
             </p>
           </div>
@@ -229,26 +234,28 @@ export default function InvoiceDetailPage() {
                 <Ban className="mr-1 h-4 w-4" /> Cancelar
               </Button>
             )}
-            {i.invoiceType === 'F1' && RECTIFIABLE_STATUSES.has(i.status) && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRectifyType('R1');
-                  setRectifyReason('');
-                  setRectifyItems(
-                    i.items.map((it) => ({
-                      description: it.description,
-                      quantity: it.quantity,
-                      unitPrice: it.unitPrice,
-                      taxRate: it.taxRate,
-                    })),
-                  );
-                  setRectifyOpen(true);
-                }}
-              >
-                <Receipt className="mr-1 h-4 w-4" /> Rectificar
-              </Button>
-            )}
+            {(i.invoiceType === 'F1' || i.invoiceType === 'F2') &&
+              RECTIFIABLE_STATUSES.has(i.status) && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRectifyType('R1');
+                    setRectifyMethod('by_differences');
+                    setRectifyReason('');
+                    setRectifyItems(
+                      i.items.map((it) => ({
+                        description: it.description,
+                        quantity: it.quantity,
+                        unitPrice: it.unitPrice,
+                        taxRate: it.taxRate,
+                      })),
+                    );
+                    setRectifyOpen(true);
+                  }}
+                >
+                  <Receipt className="mr-1 h-4 w-4" /> Rectificar
+                </Button>
+              )}
             {i.status !== 'draft' && (
               <Button
                 variant="outline"
@@ -480,8 +487,47 @@ export default function InvoiceDetailPage() {
               </div>
             </div>
             <div className="space-y-2">
+              <Label>Metodo de rectificacion</Label>
+              <div className="space-y-2 rounded border p-3 text-sm">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="correctionMethod"
+                    className="mt-1"
+                    checked={rectifyMethod === 'by_differences'}
+                    onChange={() => setRectifyMethod('by_differences')}
+                  />
+                  <span>
+                    <span className="font-medium">Por diferencias</span>
+                    <span className="block text-xs text-muted-foreground">
+                      El total de la rectificativa sera la diferencia entre el nuevo importe y el
+                      original. Usa signos negativos para reducir.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="correctionMethod"
+                    className="mt-1"
+                    checked={rectifyMethod === 'by_substitution'}
+                    onChange={() => setRectifyMethod('by_substitution')}
+                  />
+                  <span>
+                    <span className="font-medium">Por sustitucion</span>
+                    <span className="block text-xs text-muted-foreground">
+                      El nuevo importe sustituye al original. Indica los items con sus importes
+                      finales (positivos).
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label>
-                Lineas (por diferencias: signos negativos reducen importes; positivos los aumentan)
+                {rectifyMethod === 'by_differences'
+                  ? 'Lineas (por diferencias: signos negativos reducen importes; positivos los aumentan)'
+                  : 'Lineas (por sustitucion: importes nuevos absolutos)'}
               </Label>
               <table className="w-full text-sm">
                 <thead>
@@ -576,6 +622,7 @@ export default function InvoiceDetailPage() {
                     id: i.id,
                     input: {
                       rectificationType: rectifyType,
+                      correctionMethod: rectifyMethod,
                       reason: rectifyReason.trim(),
                       items: rectifyItems.map((it) => ({
                         description: it.description,

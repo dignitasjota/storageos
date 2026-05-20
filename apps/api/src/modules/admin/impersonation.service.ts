@@ -7,6 +7,8 @@ import { JwtService } from '@nestjs/jwt';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { SuperAdminAuditService } from './super-admin-audit.service';
+
 import type { Env } from '../../config/env.schema';
 import type { ImpersonationTokenDto } from '@storageos/shared';
 
@@ -40,6 +42,7 @@ export class ImpersonationService {
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly superAdminAudit: SuperAdminAuditService,
   ) {}
 
   async impersonate(args: ImpersonateArgs): Promise<ImpersonationTokenDto> {
@@ -96,6 +99,23 @@ export class ImpersonationService {
       },
       ipAddress: args.ipAddress ?? null,
       userAgent: args.userAgent ?? null,
+    });
+
+    // Log global del super admin tambien (sin tenant context): el audit
+    // tenant queda en `audit_logs` y este queda en `super_admin_audit_logs`
+    // para que un super admin pueda filtrar por su propia actividad.
+    await this.superAdminAudit.record({
+      superAdminId: args.superAdminId,
+      action: 'admin.tenant.impersonate',
+      targetType: 'tenant',
+      targetId: tenant.id,
+      targetTenantId: tenant.id,
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+      changes: {
+        reason: args.reason,
+        expiresAt: expiresAt.toISOString(),
+      },
     });
 
     return {

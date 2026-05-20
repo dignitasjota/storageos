@@ -203,6 +203,33 @@ export interface SecurityEventsListResponseDto {
   nextCursor: string | null;
 }
 
+/**
+ * DTO de una entrada de audit log del super admin (Fase 12A.3).
+ *
+ * `superAdminId` puede ser null si el actor no se llego a autenticar (por
+ * ejemplo `admin.login.failed` con email inexistente). `changes` viaja como
+ * objeto plano (Prisma devuelve `JsonValue`, lo casteamos a record o null).
+ */
+export interface SuperAdminAuditLogDto {
+  id: string;
+  occurredAt: string;
+  superAdminId: string | null;
+  superAdminEmail: string | null;
+  superAdminFullName: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  targetTenantId: string | null;
+  changes: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+export interface SuperAdminAuditLogsListResponseDto {
+  items: SuperAdminAuditLogDto[];
+  nextCursor: string | null;
+}
+
 /** Input para crear/actualizar un plan desde el panel admin. */
 export interface UpsertSubscriptionPlanInput {
   slug: string;

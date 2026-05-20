@@ -299,20 +299,21 @@ enum DataSubjectRequestStatus {
 
 /// Empresas clientes del SaaS.
 model Tenant {
-  id           String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  name         String
-  slug         String       @unique
-  status       TenantStatus @default(trial)
-  trialEndsAt  DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
-  billingEmail String?      @map("billing_email")
-  country      String       @default("ES") @db.Char(2)
-  locale       String       @default("es-ES")
-  currency     String       @default("EUR") @db.Char(3)
-  timezone     String       @default("Europe/Madrid")
-  taxId        String?      @map("tax_id")
-  deletedAt    DateTime?    @map("deleted_at") @db.Timestamptz(6)
-  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                          String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name                        String
+  slug                        String       @unique
+  status                      TenantStatus @default(trial)
+  trialEndsAt                 DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
+  billingEmail                String?      @map("billing_email")
+  country                     String       @default("ES") @db.Char(2)
+  locale                      String       @default("es-ES")
+  currency                    String       @default("EUR") @db.Char(3)
+  timezone                    String       @default("Europe/Madrid")
+  taxId                       String?      @map("tax_id")
+  requireTwoFactorForManagers Boolean      @default(false) @map("require_two_factor_for_managers")
+  deletedAt                   DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt                   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   users                   User[]
   subscription            TenantSubscription?
@@ -360,6 +361,9 @@ model Tenant {
   supportTickets          SupportTicket[]
   impersonationLogs       ImpersonationLog[]
   aeatCredentials         TenantAeatCredential[]
+  apiKeys                 ApiKey[]
+  webhooks                Webhook[]
+  webhookDeliveries       WebhookDelivery[]
 
   @@map("tenants")
 }
@@ -406,6 +410,7 @@ model User {
   supportTicketsCreated    SupportTicket[]          @relation("TicketCreatedBy")
   supportMessagesAuthored  SupportTicketMessage[]   @relation("MessageAuthorUser")
   aeatCredentialsUploaded  TenantAeatCredential[]   @relation("AeatCredentialUploadedBy")
+  apiKeysCreated           ApiKey[]                 @relation("ApiKeyCreatedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -973,7 +978,10 @@ model InvoiceSeries {
 model Invoice {
   id             String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId       String        @map("tenant_id") @db.Uuid
-  customerId     String        @map("customer_id") @db.Uuid
+  /// Nullable desde Fase 13A.3: en F2 (factura simplificada) el destinatario
+  /// puede no identificarse. En F1 sigue siendo obligatorio (validado en
+  /// `InvoicesService.create`, no a nivel de schema).
+  customerId     String?       @map("customer_id") @db.Uuid
   contractId     String?       @map("contract_id") @db.Uuid
   seriesId       String        @map("series_id") @db.Uuid
   sequenceNumber Int           @map("sequence_number")
@@ -1015,7 +1023,7 @@ model Invoice {
   updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
   contract       Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
   series         InvoiceSeries   @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   items          InvoiceItem[]
@@ -2051,6 +2059,7 @@ model SuperAdmin {
   impersonationLogs ImpersonationLog[]       @relation("ImpersonationAdmin")
   recoveryCodes     SuperAdminRecoveryCode[]
   refreshSessions   SuperAdminSession[]
+  auditLogs         SuperAdminAuditLog[]
 
   @@map("super_admins")
 }
@@ -2234,4 +2243,122 @@ model SecurityEvent {
   @@index([eventType, occurredAt(sort: Desc)])
   @@index([emailAttempted, occurredAt(sort: Desc)])
   @@map("security_events")
+}
+
+// ============================================================================
+// Fase 12A.3: audit logs del super admin (sin tenant_id, sin RLS).
+// ============================================================================
+
+/// Audit logs de acciones globales de super admin (login, 2FA, impersonation,
+/// suspend/reactivate de tenants, etc.). Distinto de `audit_logs` porque esa
+/// tabla requiere `tenant_id NOT NULL` y el super admin opera fuera de un
+/// tenant especifico. Distinto de `security_events` porque aqui registramos
+/// ACCIONES exitosas y autorizadas del propio super admin, no intentos
+/// fallidos / anomalias.
+///
+/// Tabla global (sin RLS): solo accesible via `PrismaAdminService`. Visible
+/// unicamente para super admins via `/admin/audit-logs`. La columna
+/// `targetTenantId` permite filtrar acciones que afectan a un tenant
+/// concreto (por ejemplo `admin.tenant.impersonate`).
+model SuperAdminAuditLog {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  superAdminId   String?  @map("super_admin_id") @db.Uuid
+  action         String
+  targetType     String?  @map("target_type")
+  targetId       String?  @map("target_id") @db.Uuid
+  targetTenantId String?  @map("target_tenant_id") @db.Uuid
+  changes        Json?
+  ipAddress      String?  @map("ip_address") @db.Inet
+  userAgent      String?  @map("user_agent")
+
+  superAdmin SuperAdmin? @relation(fields: [superAdminId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([superAdminId, occurredAt(sort: Desc)])
+  @@index([targetTenantId, occurredAt(sort: Desc)])
+  @@index([action, occurredAt(sort: Desc)])
+  @@map("super_admin_audit_logs")
+}
+
+// ============================================================================
+// Fase 14A.3: API keys + webhooks salientes.
+// ============================================================================
+
+/// Tokens de larga duracion para integraciones programaticas. Alternativa
+/// al JWT de usuario. Formato `sk_live_<tenantId>.<secret>`. El plaintext
+/// se devuelve UNA SOLA VEZ al crear o rotar; en BD vive el hash argon2id
+/// del secret. `keyPrefix` ("sk_live_<tenantId>") se guarda en claro solo
+/// para mostrarlo en la UI.
+///
+/// `scopes` es informativo en MVP (todos los tokens tienen acceso completo
+/// a los endpoints que aceptan API key). Se enforcing por permission set
+/// en un sub-bloque posterior.
+model ApiKey {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  keyPrefix       String    @map("key_prefix")
+  keyHash         String    @map("key_hash")
+  scopes          String[]
+  lastUsedAt      DateTime? @map("last_used_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("ApiKeyCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, revokedAt])
+  @@map("api_keys")
+}
+
+/// Webhook saliente registrado por un tenant. Cuando ocurre un evento de
+/// dominio incluido en `events`, el SaaS hace POST a `url` con payload
+/// firmado HMAC SHA-256. El `secret` viaja cifrado AES-256-GCM
+/// (CryptoService) y se devuelve al usuario UNA SOLA VEZ al crear/rotar.
+model Webhook {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  url       String
+  secret    String
+  events    String[]
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId, isActive])
+  @@map("webhooks")
+}
+
+/// Cada intento de entrega de un evento a un webhook. Sirve como audit
+/// trail y permite reintento manual desde la UI. Retry exponencial via
+/// BullMQ (60s, 5min, 30min). Tras `attempts >= 3`, el delivery se marca
+/// como `failed` y no se reintenta automaticamente.
+model WebhookDelivery {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  webhookId    String    @map("webhook_id") @db.Uuid
+  eventType    String    @map("event_type")
+  payload      Json
+  signature    String
+  attempts     Int       @default(0)
+  status       String    @default("pending")
+  statusCode   Int?      @map("status_code")
+  responseBody String?   @map("response_body")
+  errorMessage String?   @map("error_message")
+  scheduledFor DateTime  @map("scheduled_for") @db.Timestamptz(6)
+  deliveredAt  DateTime? @map("delivered_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([webhookId, createdAt(sort: Desc)])
+  @@map("webhook_deliveries")
 }

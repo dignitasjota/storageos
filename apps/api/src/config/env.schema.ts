@@ -64,6 +64,13 @@ export const envSchema = z.object({
   REDIS_PASSWORD: z.string().optional(),
   REDIS_DB: z.coerce.number().int().nonnegative().default(0),
 
+  // --- Workers in API (Sub-bloque 14A.1) ---
+  /** Si `true` (default) el API ejecuta Processors BullMQ y Crons in-process.
+   *  En produccion con `apps/worker` separado, poner a `false` para evitar
+   *  que los crons se disparen dos veces (API + worker) -> duplicados de
+   *  facturas, emails, dunning, etc. Ver `config/workers-enabled.ts`. */
+  ENABLE_WORKERS_IN_API: z.coerce.boolean().default(true),
+
   // --- Stripe ---
   STRIPE_SECRET_KEY: z.string().default('sk_test_dummy'),
   STRIPE_PUBLISHABLE_KEY: z.string().default('pk_test_dummy'),
@@ -155,6 +162,22 @@ export const envSchema = z.object({
   /** TTL del refresh token de super admin (cookie httpOnly). Default 7d. */
   SUPER_ADMIN_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604_800), // 7d
   IMPERSONATION_TTL_SECONDS: z.coerce.number().int().positive().default(3_600), // 1h
+
+  // --- Security alerts (Fase 12A.2) ---
+  /** Numero de fallos en la ventana para disparar alerta de brute-force. */
+  SECURITY_BRUTE_FORCE_THRESHOLD: z.coerce.number().int().positive().default(5),
+  /** Ventana temporal (minutos) sobre la que se cuentan los fallos. */
+  SECURITY_BRUTE_FORCE_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
+  /** Destinatario de las alertas (super admin). Si esta vacio, las alertas
+   *  quedan deshabilitadas (solo se loggean). */
+  SECURITY_ALERT_EMAIL: z.string().email().optional(),
+
+  // --- OpenAPI / Swagger ---
+  /** Activa la documentacion interactiva en `/api/docs`. En produccion el
+   *  default es `false`; cuando lo activamos para inspeccion temporal,
+   *  recuerda exigir auth a nivel de Nginx Proxy Manager. En dev/test
+   *  siempre se monta independientemente del valor (ver `main.ts`). */
+  OPENAPI_ENABLED: z.coerce.boolean().default(false),
 
   // --- Logger ---
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

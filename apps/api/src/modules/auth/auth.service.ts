@@ -29,6 +29,7 @@ import type {
   AuthSuccessResponse,
   ForgotPasswordInput,
   LoginInput,
+  LoginRequires2faEnrolmentResponse,
   LoginRequires2faResponse,
   MeResponse,
   RefreshSuccessResponse,
@@ -160,7 +161,11 @@ export class AuthService {
   async login(
     input: LoginInput,
     meta: RequestMeta,
-  ): Promise<AuthFlowResult<AuthSuccessResponse> | { body: LoginRequires2faResponse }> {
+  ): Promise<
+    | AuthFlowResult<AuthSuccessResponse>
+    | { body: LoginRequires2faResponse }
+    | { body: LoginRequires2faEnrolmentResponse }
+  > {
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
     if (!tenant || tenant.deletedAt) {
       // Sin tenant_id: el evento no puede ir a audit_logs. Lo persistimos
@@ -270,6 +275,35 @@ export class AuthService {
       };
     }
 
+    // Fase 12A.1: politica `requireTwoFactorForManagers`. Si el tenant exige
+    // 2FA y el user es owner|manager pero no lo tiene activo, NO emitimos
+    // tokens; devolvemos un `enrolmentToken` para forzar el setup.
+    if (tenant.requireTwoFactorForManagers && (user.role === 'owner' || user.role === 'manager')) {
+      const role = user.role as UserRole;
+      const { token: enrolmentToken, expiresIn } = await this.tokens.sign2faEnrolmentRequired(
+        user.id,
+        tenant.id,
+        role,
+      );
+      await this.audit.write({
+        tenantId: tenant.id,
+        userId: user.id,
+        action: 'auth.2fa.enrolment_required.issued',
+        entityType: 'User',
+        entityId: user.id,
+        changes: { role },
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+      });
+      return {
+        body: {
+          requires2faEnrolment: true,
+          enrolmentToken,
+          expiresIn,
+        },
+      };
+    }
+
     await this.admin.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -324,6 +358,48 @@ export class AuthService {
       entityType: 'User',
       entityId: user.id,
       changes: { method: '2fa' },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta);
+  }
+
+  /**
+   * Completa el login tras superar el enrolment 2FA forzoso. Reutiliza la
+   * misma logica de carga + audit log que `completeLoginAfter2fa`, pero
+   * con un `action` distinto en el audit log para diferenciar el flujo.
+   */
+  async completeLoginAfterEnrolment(
+    userId: string,
+    tenantId: string,
+    meta: RequestMeta,
+  ): Promise<AuthFlowResult<AuthSuccessResponse>> {
+    const user = await this.admin.user.findUnique({ where: { id: userId } });
+    if (!user || user.tenantId !== tenantId || !user.isActive || !user.emailVerifiedAt) {
+      throw new UnauthorizedException('Credenciales invalidas');
+    }
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new UnauthorizedException('Credenciales invalidas');
+    }
+    const subscription = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: true },
+    });
+    if (!subscription) {
+      throw new InternalServerErrorException('Configuracion del tenant incompleta');
+    }
+    await this.admin.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+    await this.audit.write({
+      tenantId,
+      userId: user.id,
+      action: 'auth.login.success',
+      entityType: 'User',
+      entityId: user.id,
+      changes: { method: '2fa_enrolment_required' },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });

@@ -47,6 +47,20 @@ export type RectificationTypeValue = z.infer<typeof RectificationTypeEnum>;
 export const CorrectionMethodEnum = z.enum(['by_differences', 'by_substitution']);
 export type CorrectionMethodValue = z.infer<typeof CorrectionMethodEnum>;
 
+/**
+ * Justificacion para superar el limite general de 400€ en factura
+ * simplificada F2 (RD 1619/2012 art. 4). Con cualquiera de estas
+ * justificaciones AEAT permite hasta 3000€ total.
+ */
+export const SimplifiedJustificationEnum = z.enum([
+  'reparation',
+  'transport',
+  'restaurant',
+  'parking',
+  'other',
+]);
+export type SimplifiedJustificationValue = z.infer<typeof SimplifiedJustificationEnum>;
+
 export const AeatStatusEnum = z.enum([
   'pending',
   'accepted',
@@ -150,8 +164,23 @@ export const CreateInvoiceItemSchema = z.object({
 });
 export type CreateInvoiceItemInput = z.infer<typeof CreateInvoiceItemSchema>;
 
+/**
+ * Tipos de factura aceptados al CREAR via `POST /invoices`. Las
+ * rectificativas (R1-R5) se emiten via endpoint dedicado
+ * `POST /invoices/:id/rectify` para validar la factura original; aqui
+ * solo se aceptan F1 y F2.
+ */
+export const CreatableInvoiceTypeEnum = z.enum(['F1', 'F2']);
+export type CreatableInvoiceTypeValue = z.infer<typeof CreatableInvoiceTypeEnum>;
+
 export const CreateInvoiceSchema = z.object({
-  customerId: z.string().uuid(),
+  invoiceType: CreatableInvoiceTypeEnum.default('F1'),
+  /**
+   * Obligatorio en F1, opcional en F2 (factura simplificada sin
+   * destinatario identificado). La validacion estricta se hace en
+   * `InvoicesService.create` para devolver el codigo de error apropiado.
+   */
+  customerId: z.string().uuid().optional(),
   contractId: z.string().uuid().optional(),
   seriesId: z.string().uuid().optional(),
   issueDate: dateOnly.optional(),
@@ -161,6 +190,11 @@ export const CreateInvoiceSchema = z.object({
   items: z.array(CreateInvoiceItemSchema).min(1, 'Al menos una linea'),
   notes: optionalText(2000),
   verifactuMode: VerifactuModeEnum.default('verifactu'),
+  /**
+   * Justificacion para superar el limite general de 400€ en F2. Solo
+   * tiene efecto cuando `invoiceType='F2'` y el total supera 400€.
+   */
+  simplifiedJustification: SimplifiedJustificationEnum.optional(),
 });
 export type CreateInvoiceInput = z.infer<typeof CreateInvoiceSchema>;
 
@@ -206,6 +240,17 @@ export type RectifyInvoiceItemInput = z.infer<typeof RectifyInvoiceItemSchema>;
 export const RectifyInvoiceSchema = z.object({
   rectificationType: RectificationTypeEnum,
   reason: z.string().trim().min(1).max(500),
+  /**
+   * `by_differences` (defecto): los items son DIFERENCIAS respecto al
+   * original (pueden ser negativos). El total resultante puede ser
+   * positivo o negativo.
+   *
+   * `by_substitution`: los items representan el NUEVO total absoluto
+   * que sustituye al original. Al emitir, el XML incluye un bloque
+   * `<ImporteRectificacion>` con los totales originales para que AEAT
+   * sepa exactamente que se sustituye.
+   */
+  correctionMethod: CorrectionMethodEnum.default('by_differences'),
   items: z.array(RectifyInvoiceItemSchema).min(1, 'Al menos una linea'),
   issueDate: z.string().datetime().optional(),
 });

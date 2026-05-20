@@ -178,7 +178,8 @@
       "security": "Seguridad",
       "billing": "Facturación",
       "verifactu": "Veri*Factu",
-      "widget": "Widget"
+      "widget": "Widget",
+      "integrations": "Integraciones"
     },
     "billing": {
       "verifactu": {
@@ -419,6 +420,43 @@
     "errors": {
       "wrongPassword": "La contraseña no es correcta.",
       "invalidCode": "El código no es válido."
+    },
+    "policy": {
+      "title": "Política de 2FA del equipo",
+      "description": "Exige verificación en dos pasos a propietarios y administradores del tenant.",
+      "detail": "Cuando activas esta política, los usuarios con rol owner o manager que no tengan 2FA serán redirigidos a una página de configuración obligatoria en su siguiente inicio de sesión. Los usuarios ya conectados seguirán trabajando hasta que cierren sesión o caduque su token.",
+      "on": "Activada",
+      "off": "Desactivada",
+      "enableCta": "Activar política",
+      "disableCta": "Desactivar política",
+      "enabledNotice": "Política activada. Los próximos logins de owners y managers exigirán 2FA.",
+      "disabledNotice": "Política desactivada."
+    }
+  },
+  "enrolment": {
+    "title": "Activa la verificación en dos pasos",
+    "subtitle": "Tu organización exige 2FA para tu rol. Termina esta configuración para acceder a tu cuenta.",
+    "mandatoryTitle": "Paso obligatorio",
+    "mandatoryBody": "No podrás acceder al panel hasta que completes este proceso. Si cierras esta página tendrás que iniciar sesión otra vez.",
+    "scanTitle": "Paso 1 · Escanea el código",
+    "scanBody": "Abre tu app de autenticación (Google Authenticator, 1Password, Authy...) y escanea este QR. Si no puedes escanearlo, copia el secreto manualmente.",
+    "secretLabel": "Secreto",
+    "verifyTitle": "Paso 2 · Introduce el código",
+    "verifyBody": "Para terminar, introduce el código de 6 dígitos que muestra tu app.",
+    "code": "Código",
+    "submit": "Confirmar",
+    "codesTitle": "Paso 3 · Guarda tus códigos de recuperación",
+    "codesBody": "Te los mostramos una sola vez. Guárdalos en un sitio seguro: te permitirán entrar si pierdes el acceso a tu app de autenticación. Cada código sirve una sola vez.",
+    "copy": "Copiar",
+    "download": "Descargar .txt",
+    "copied": "Copiado al portapapeles.",
+    "ack": "He guardado mis códigos de recuperación en un lugar seguro.",
+    "continue": "Ir al panel",
+    "errors": {
+      "invalidCode": "El código no es válido. Inténtalo de nuevo.",
+      "tokenInvalidTitle": "Enlace caducado o no válido",
+      "tokenInvalidBody": "Tu sesión de configuración ha caducado. Vuelve a iniciar sesión para recibir un enlace nuevo.",
+      "backToLogin": "Volver al inicio de sesión"
     }
   },
   "loginChallenge": {

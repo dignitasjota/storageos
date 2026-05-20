@@ -51,8 +51,22 @@ export class VerifactuXmlBuilder {
     const issueDate = formatSpanishDate(invoice.issueDate);
     const description = escapeXml(invoice.description);
     const invoiceType = escapeXml(invoice.invoiceType);
-    const recipientName = escapeXml(recipient.name);
-    const recipientNif = escapeXml(recipient.taxId);
+
+    // F2 sin destinatario: AEAT define el flag
+    // `<FacturaSinIdentifDestinatarioArt61d>S</...>` para indicar que
+    // estamos emitiendo una simplificada sin identificacion del cliente.
+    // El bloque `<Destinatarios>` se omite por completo en ese caso.
+    const isSimplifiedWithoutRecipient = invoice.invoiceType === 'F2' && !recipient;
+    const destinatariosBlock = isSimplifiedWithoutRecipient
+      ? `          <sum1:FacturaSinIdentifDestinatarioArt61d>S</sum1:FacturaSinIdentifDestinatarioArt61d>`
+      : recipient
+        ? `          <sum1:Destinatarios>
+            <sum1:IDDestinatario>
+              <sum1:NombreRazon>${escapeXml(recipient.name)}</sum1:NombreRazon>
+              <sum1:NIF>${escapeXml(recipient.taxId)}</sum1:NIF>
+            </sum1:IDDestinatario>
+          </sum1:Destinatarios>`
+        : `          <sum1:FacturaSinIdentifDestinatarioArt61d>S</sum1:FacturaSinIdentifDestinatarioArt61d>`;
 
     const subtotal = invoice.subtotal.toFixed(2);
     const taxRate = invoice.taxRate.toFixed(2);
@@ -72,10 +86,13 @@ export class VerifactuXmlBuilder {
     // Bloques especificos de rectificativas (R1-R5). Se ubican entre
     // `Destinatarios` y `Desglose` segun el XSD AEAT.
     const isRectification = invoice.invoiceType.startsWith('R');
+    const includeOriginalAmounts =
+      invoice.correctionMethod === 'S' && invoice.originalAmounts !== undefined;
     const rectificationBlocks = isRectification
       ? this.buildRectificationBlocks({
           correctionMethod: invoice.correctionMethod ?? 'I',
           rectifies: invoice.rectifies ?? [],
+          ...(includeOriginalAmounts ? { originalAmounts: invoice.originalAmounts! } : {}),
         })
       : '';
 
@@ -103,12 +120,7 @@ export class VerifactuXmlBuilder {
           <sum1:NombreRazonEmisor>${tenantName}</sum1:NombreRazonEmisor>
           <sum1:TipoFactura>${invoiceType}</sum1:TipoFactura>
           <sum1:DescripcionOperacion>${description}</sum1:DescripcionOperacion>
-          <sum1:Destinatarios>
-            <sum1:IDDestinatario>
-              <sum1:NombreRazon>${recipientName}</sum1:NombreRazon>
-              <sum1:NIF>${recipientNif}</sum1:NIF>
-            </sum1:IDDestinatario>
-          </sum1:Destinatarios>${rectificationBlocks}
+${destinatariosBlock}${rectificationBlocks}
           <sum1:Desglose>
             <sum1:DetalleDesglose>
               <sum1:Impuesto>01</sum1:Impuesto>
@@ -157,16 +169,27 @@ ${encadenamiento}
    *     </IDFacturaAnterior>
    *     ... (puede repetirse; MVP solo emite 1)
    *   </FacturasRectificadas>
+   *   <ImporteRectificacion>  -- solo en sustitucion (S)
+   *     <BaseRectificada>...</BaseRectificada>
+   *     <CuotaRectificada>...</CuotaRectificada>
+   *     <CuotaRecargoRectificado>...</CuotaRecargoRectificado>
+   *   </ImporteRectificacion>
    *
    * NOTA: el `TipoFactura` (R1..R5) se emite siempre en el campo principal
    * del registro; aqui solo emitimos los bloques adicionales que solo
    * aplican a rectificativas. Si `rectifies` viene vacio el bloque
    * `FacturasRectificadas` se omite (XSD lo permite, AEAT puede aceptar
    * sin lista cuando no se identifican concretamente).
+   *
+   * En sustitucion (`correctionMethod='S'`) el campo
+   * `<ImporteRectificacion>` lleva los totales ORIGINALES de la factura
+   * rectificada (no los nuevos): asi AEAT sabe que estamos sustituyendo
+   * esos importes por los del nuevo registro.
    */
   private buildRectificationBlocks(args: {
     correctionMethod: 'I' | 'S';
     rectifies: ReadonlyArray<{ emitterTaxId: string; invoiceNumber: string; issueDate: Date }>;
+    originalAmounts?: { baseRectificada: number; cuotaRectificada: number; recargo?: number };
   }): string {
     const tipoRect = args.correctionMethod === 'S' ? 'S' : 'I';
     const items = args.rectifies
@@ -187,8 +210,26 @@ ${encadenamiento}
 ${items}
             </sum1:FacturasRectificadas>`
       : '';
+
+    // `<ImporteRectificacion>` solo aplica en sustitucion. AEAT exige
+    // BaseRectificada + CuotaRectificada; CuotaRecargoRectificado es
+    // opcional (recargo de equivalencia). El bloque va DESPUES de
+    // FacturasRectificadas y ANTES de Desglose.
+    let importeRectificacion = '';
+    if (args.correctionMethod === 'S' && args.originalAmounts) {
+      const base = args.originalAmounts.baseRectificada.toFixed(2);
+      const cuota = args.originalAmounts.cuotaRectificada.toFixed(2);
+      const recargo = (args.originalAmounts.recargo ?? 0).toFixed(2);
+      importeRectificacion = `
+            <sum1:ImporteRectificacion>
+              <sum1:BaseRectificada>${base}</sum1:BaseRectificada>
+              <sum1:CuotaRectificada>${cuota}</sum1:CuotaRectificada>
+              <sum1:CuotaRecargoRectificado>${recargo}</sum1:CuotaRecargoRectificado>
+            </sum1:ImporteRectificacion>`;
+    }
+
     return `
-          <sum1:TipoRectificativa>${tipoRect}</sum1:TipoRectificativa>${facturasRectificadas}`;
+          <sum1:TipoRectificativa>${tipoRect}</sum1:TipoRectificativa>${facturasRectificadas}${importeRectificacion}`;
   }
 
   private buildRegistroAnterior(args: {
@@ -248,10 +289,21 @@ export interface BuildRegistroAltaArgs {
       issueDate: Date;
     }>;
     /**
-     * Metodo de rectificacion: `I` por diferencias (MVP), `S` por
-     * sustitucion (post-MVP). Default `I` cuando se omite.
+     * Metodo de rectificacion: `I` por diferencias, `S` por sustitucion.
+     * Default `I` cuando se omite.
      */
     correctionMethod?: 'I' | 'S';
+    /**
+     * Importes ORIGINALES de la factura rectificada. Solo se emite el
+     * bloque `<ImporteRectificacion>` cuando `correctionMethod='S'` y
+     * estos importes vienen presentes. `recargo` (recargo de
+     * equivalencia) es opcional; default 0.
+     */
+    originalAmounts?: {
+      baseRectificada: number;
+      cuotaRectificada: number;
+      recargo?: number;
+    };
     subtotal: number;
     /** Porcentaje (ej. 21, 10, 4, 0). */
     taxRate: number;
@@ -269,7 +321,14 @@ export interface BuildRegistroAltaArgs {
      *  permiten facturas por terceros. */
     previousEmitterNif?: string;
   };
-  recipient: {
+  /**
+   * Destinatario de la factura. Obligatorio para F1 y R1-R5; opcional en
+   * F2 (factura simplificada sin destinatario identificado). Cuando se
+   * omite y el tipo es F2, el XML emite el flag
+   * `<FacturaSinIdentifDestinatarioArt61d>S</...>` y omite el bloque
+   * `<Destinatarios>`.
+   */
+  recipient?: {
     taxId: string;
     name: string;
   };

@@ -27,7 +27,7 @@ export function AuthBootstrap({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const res = await fetch(`${env.apiUrl}/auth/refresh`, {
+        const res = await fetch(`${env.apiUrl}/v1/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
         });

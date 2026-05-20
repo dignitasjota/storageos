@@ -84,6 +84,19 @@ export interface LoginRequires2faResponse {
   expiresIn: number;
 }
 
+/**
+ * Respuesta de `POST /auth/login` cuando el tenant tiene
+ * `requireTwoFactorForManagers` activo y el user (owner|manager) no tiene
+ * 2FA configurado. NO emite tokens: el frontend debe redirigir al usuario
+ * a la pagina de enrolment forzoso con este `enrolmentToken`.
+ */
+export interface LoginRequires2faEnrolmentResponse {
+  requires2faEnrolment: true;
+  enrolmentToken: string;
+  /** TTL en segundos del enrolmentToken. */
+  expiresIn: number;
+}
+
 /** Respuesta de `POST /auth/2fa/setup`. El frontend renderiza el QR. */
 export interface Setup2faResponse {
   otpauthUri: string;
@@ -103,4 +116,14 @@ export interface TwoFactorStatusResponse {
   enabled: boolean;
   enrolledAt: string | null;
   recoveryCodesRemaining: number;
+}
+
+/**
+ * Estado de la politica de seguridad del tenant. El owner puede leerlo y
+ * mutarlo desde `/settings/security`. Por ahora solo expone el flag
+ * `requireTwoFactorForManagers`; en el futuro alojaremos aqui otras
+ * politicas (longitud minima de contrasena, etc).
+ */
+export interface TenantSecuritySettingsResponse {
+  requireTwoFactorForManagers: boolean;
 }

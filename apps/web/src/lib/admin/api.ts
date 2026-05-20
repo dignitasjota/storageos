@@ -1,6 +1,25 @@
 import { ApiError, type ApiErrorBody } from '../auth/api';
 import { env } from '../env';
 
+/**
+ * Prefija `/v1` igual que en el cliente tenant (`auth/api.ts`). Mantener
+ * la logica duplicada (en vez de importar) para no acoplar este modulo
+ * a detalles internos del otro y poder cambiar reglas si admin diverge.
+ */
+function withVersion(path: string): string {
+  if (path.startsWith('http')) return path;
+  if (
+    path.startsWith('/v1/') ||
+    path === '/v1' ||
+    path === '/health' ||
+    path.startsWith('/webhooks/') ||
+    path.startsWith('/public/widget/')
+  ) {
+    return path;
+  }
+  return `/v1${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 import { useAdminAuthStore } from './auth-store';
 
 import type { SuperAdminRefreshResponse } from '@storageos/shared';
@@ -22,7 +41,7 @@ async function performAdminRefresh(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${env.apiUrl}/admin/auth/refresh`, {
+      const res = await fetch(`${env.apiUrl}${withVersion('/admin/auth/refresh')}`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -99,7 +118,7 @@ export async function adminApiFetch<T = unknown>(
   path: string,
   options: AdminFetchOptions = {},
 ): Promise<T> {
-  const url = path.startsWith('http') ? path : `${env.apiUrl}${path}`;
+  const url = path.startsWith('http') ? path : `${env.apiUrl}${withVersion(path)}`;
   const init: RequestInit = {
     method: options.method ?? 'GET',
     ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),

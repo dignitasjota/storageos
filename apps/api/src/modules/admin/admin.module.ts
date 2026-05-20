@@ -10,7 +10,10 @@ import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { ImpersonationService } from './impersonation.service';
+import { SecurityAlertsController } from './security-alerts.controller';
 import { SecurityEventsController } from './security-events.controller';
+import { SuperAdminAuditController } from './super-admin-audit.controller';
+import { SuperAdminAuditService } from './super-admin-audit.service';
 import { SuperAdminAuthController } from './super-admin-auth.controller';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
@@ -38,6 +41,8 @@ import { SupportTicketsService } from './support-tickets.service';
     AdminTenantsController,
     AdminMetricsController,
     SecurityEventsController,
+    SecurityAlertsController,
+    SuperAdminAuditController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
   ],
@@ -49,8 +54,9 @@ import { SupportTicketsService } from './support-tickets.service';
     AdminTenantsService,
     AdminMetricsService,
     ImpersonationService,
+    SuperAdminAuditService,
     SupportTicketsService,
   ],
-  exports: [SuperAdminService],
+  exports: [SuperAdminService, SuperAdminAuditService],
 })
 export class AdminModule {}

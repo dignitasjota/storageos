@@ -10,8 +10,21 @@
 
 ## Convenciones
 
-- **Base path actual:** las rutas estan en la raiz (`/auth/...`, `/health`).
-  Cuando montemos el versionado, se moveran a `/api/v1`.
+- **Base path actual:** todas las rutas viven bajo el prefijo `/v1/` —
+  por ejemplo `POST /v1/auth/login`, `GET /v1/invoices`. El servidor
+  responde **308 Permanent Redirect** a la version actual cuando un
+  cliente apunta a una URL sin prefijo, preservando metodo HTTP y body.
+- **Excepciones al versioning** (sirven en su path historico, sin `/v1/`):
+  - `GET /health` — readiness probes / uptime monitors.
+  - `POST /webhooks/*` — Stripe, Resend, GoCardless... URLs registradas
+    en cada dashboard externo.
+  - `GET|POST /public/widget/*` — embeds ya desplegados en sitios del
+    cliente final.
+  - `GET /api/docs` y `GET /api/docs-json` — documentacion interactiva.
+- **OpenAPI / Swagger UI:** disponible en `GET /api/docs` (UI) y
+  `GET /api/docs-json` (schema crudo). En dev/test se monta siempre; en
+  produccion solo si `OPENAPI_ENABLED=true` (y debe quedar detras de auth
+  en Nginx Proxy Manager o VPN).
 - **Auth:** `Authorization: Bearer <access_token>` (JWT HS256). El refresh
   viaja por cookie `httpOnly` (no se accede desde JS).
 - **Tenant:** identificado por el access token; ningun endpoint acepta

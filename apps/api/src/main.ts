@@ -1,14 +1,18 @@
 import 'reflect-metadata';
 
+import { VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import { raw } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
+import { patchNestJsSwagger } from 'nestjs-zod';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { legacyRedirectHandler } from './common/middleware/legacy-redirect.middleware';
 
 import type { Env } from './config/env.schema';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -34,7 +38,50 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // --- Legacy redirect ---
+  // Captura rutas sin prefijo `/v1/` y responde 308 → `/v1/<path>`. Debe
+  // ir ANTES de `enableVersioning` para interceptar antes de que el router
+  // de NestJS devuelva 404 por no matchear el controller versionado.
+  app.use(legacyRedirectHandler);
+
+  // --- Versioning ---
+  // Todas las rutas se sirven bajo `/v1/...`. La compatibilidad con clientes
+  // legacy (sin prefijo) se mantiene via legacyRedirectHandler arriba.
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: '1',
+    prefix: 'v',
+  });
+
   app.useGlobalFilters(new HttpExceptionFilter());
+
+  // --- OpenAPI / Swagger ---
+  // Se monta en dev/test siempre, y en produccion solo si OPENAPI_ENABLED=true.
+  const nodeEnv = config.get('NODE_ENV', { infer: true });
+  const openapiEnabled = config.get('OPENAPI_ENABLED', { infer: true });
+  if (openapiEnabled || nodeEnv !== 'production') {
+    // Hace que @nestjs/swagger entienda los DTOs creados con createZodDto
+    // de nestjs-zod (inyecta los schemas Zod como definiciones OpenAPI).
+    patchNestJsSwagger();
+
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('StorageOS API')
+      .setDescription('SaaS multi-tenant para self-storage')
+      .setVersion('1.0.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'jwt')
+      .addCookieAuth('refresh_token', { type: 'apiKey', in: 'cookie' }, 'refresh')
+      .addCookieAuth('super_admin_refresh', { type: 'apiKey', in: 'cookie' }, 'super_admin_refresh')
+      .addTag('Auth', 'Autenticación tenant')
+      .addTag('Users', 'Gestión de usuarios e invitaciones')
+      .addTag('Admin', 'Super admin panel')
+      .addTag('Billing', 'Facturación Verifactu')
+      .build();
+
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+  }
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port);

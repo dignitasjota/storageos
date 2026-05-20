@@ -11,6 +11,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { SuperAdminAuditService } from './super-admin-audit.service';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
 
@@ -72,6 +73,7 @@ export class SuperAdminService {
     private readonly config: ConfigService<Env, true>,
     private readonly sessions: SuperAdminSessionsService,
     private readonly twoFactor: SuperAdminTwoFactorService,
+    private readonly audit: SuperAdminAuditService,
   ) {}
 
   // =============================== login ===================================
@@ -93,12 +95,27 @@ export class SuperAdminService {
   ): Promise<SuperAdminLoginResult> {
     const record = await this.admin.superAdmin.findUnique({ where: { email: input.email } });
     if (!record) {
+      // No autenticado: superAdminId queda null pero registramos el intento
+      // con el email para auditoria.
+      await this.audit.record({
+        action: 'admin.login.failed',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        changes: { email: input.email, reason: 'email_not_found' },
+      });
       throw new UnauthorizedException({
         code: 'invalid_credentials',
         message: 'Credenciales invalidas',
       });
     }
     if (!record.isActive) {
+      await this.audit.record({
+        superAdminId: record.id,
+        action: 'admin.login.failed',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        changes: { email: input.email, reason: 'account_disabled' },
+      });
       throw new ForbiddenException({
         code: 'account_disabled',
         message: 'Cuenta desactivada',
@@ -106,6 +123,13 @@ export class SuperAdminService {
     }
     const passwordOk = await argonVerify(record.passwordHash, input.password);
     if (!passwordOk) {
+      await this.audit.record({
+        superAdminId: record.id,
+        action: 'admin.login.failed',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        changes: { email: input.email, reason: 'wrong_password' },
+      });
       throw new UnauthorizedException({
         code: 'invalid_credentials',
         message: 'Credenciales invalidas',
@@ -115,6 +139,12 @@ export class SuperAdminService {
     if (record.twoFactorEnabled) {
       const { pendingToken, expiresIn } = await this.twoFactor.issuePendingToken(record.id);
       this.logger.log(`admin.login.requires_2fa adminId=${record.id} ip=${meta.ipAddress ?? '-'}`);
+      await this.audit.record({
+        superAdminId: record.id,
+        action: 'admin.login.requires_2fa',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+      });
       return {
         body: {
           requires2fa: true,
@@ -149,6 +179,12 @@ export class SuperAdminService {
       ...(meta.ipAddress !== undefined ? { ipAddress: meta.ipAddress } : {}),
     });
     this.logger.log(`admin.login.success adminId=${record.id} ip=${meta.ipAddress ?? '-'}`);
+    await this.audit.record({
+      superAdminId: record.id,
+      action: 'admin.login.success',
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
 
     return {
       body: {

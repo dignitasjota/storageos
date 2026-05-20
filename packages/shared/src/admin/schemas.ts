@@ -142,6 +142,27 @@ export const ListSecurityEventsSchema = z.object({
 });
 export type ListSecurityEventsInput = z.infer<typeof ListSecurityEventsSchema>;
 
+// ============================================================================
+// Super admin audit logs (Fase 12A.3)
+// ============================================================================
+
+/**
+ * Filtros para listar audit logs del super admin. `action` es un texto libre
+ * porque añadiremos nuevos prefijos (admin.*) con el tiempo y no queremos
+ * tener que tocar el schema cada vez. La validacion fuerte vive en el
+ * service: cualquier string se acepta como filtro.
+ */
+export const ListSuperAdminAuditLogsSchema = z.object({
+  superAdminId: z.string().uuid().optional(),
+  action: z.string().trim().min(1).max(120).optional(),
+  targetTenantId: z.string().uuid().optional(),
+  fromDate: z.coerce.date().optional(),
+  toDate: z.coerce.date().optional(),
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+export type ListSuperAdminAuditLogsInput = z.infer<typeof ListSuperAdminAuditLogsSchema>;
+
 export const UpsertSubscriptionPlanSchema = z.object({
   slug: z
     .string()

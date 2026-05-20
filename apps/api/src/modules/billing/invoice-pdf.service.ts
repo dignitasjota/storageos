@@ -61,26 +61,43 @@ export class InvoicePdfService implements OnModuleDestroy {
         }),
       tenantId,
     );
-    const customer = await this.prisma.withTenant(
-      (tx) =>
-        tx.customer.findUniqueOrThrow({
-          where: { id: invoice.customerId },
-          select: {
-            firstName: true,
-            lastName: true,
-            companyName: true,
-            customerType: true,
-            documentType: true,
-            documentNumber: true,
-            email: true,
-            address: true,
-            city: true,
-            postalCode: true,
-            country: true,
-          },
-        }),
-      tenantId,
-    );
+    // En F2 puede no haber destinatario: customerId nullable desde
+    // Fase 13A.3. Usamos un placeholder "Cliente sin identificar"
+    // cuando no exista, manteniendo el PDF emitible.
+    const customer = invoice.customerId
+      ? await this.prisma.withTenant(
+          (tx) =>
+            tx.customer.findUniqueOrThrow({
+              where: { id: invoice.customerId as string },
+              select: {
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                customerType: true,
+                documentType: true,
+                documentNumber: true,
+                email: true,
+                address: true,
+                city: true,
+                postalCode: true,
+                country: true,
+              },
+            }),
+          tenantId,
+        )
+      : {
+          firstName: null,
+          lastName: null,
+          companyName: 'Cliente sin identificar (F2)',
+          customerType: 'business' as const,
+          documentType: null,
+          documentNumber: null,
+          email: null,
+          address: null,
+          city: null,
+          postalCode: null,
+          country: 'ES',
+        };
 
     const html = this.renderHtml({ invoice, tenant, customer });
     const browser = await this.getBrowser();

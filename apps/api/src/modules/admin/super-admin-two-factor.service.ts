@@ -17,6 +17,7 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { TotpService } from '../two-factor/totp.service';
 
+import { SuperAdminAuditService } from './super-admin-audit.service';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 
 import type { AuthenticatedSuperAdmin } from './current-super-admin.decorator';
@@ -90,6 +91,7 @@ export class SuperAdminTwoFactorService {
     private readonly jwt: JwtService,
     private readonly sessions: SuperAdminSessionsService,
     private readonly config: ConfigService<Env, true>,
+    private readonly auditService: SuperAdminAuditService,
   ) {}
 
   // ----------------------------- status ------------------------------------
@@ -174,6 +176,12 @@ export class SuperAdminTwoFactorService {
     this.logger.log(
       `admin.2fa.enabled adminId=${adminId} ip=${meta.ipAddress ?? '-'} ua=${meta.userAgent ?? '-'}`,
     );
+    await this.auditService.record({
+      superAdminId: adminId,
+      action: 'admin.2fa.enabled',
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
     return { recoveryCodes };
   }
 
@@ -217,6 +225,12 @@ export class SuperAdminTwoFactorService {
     this.logger.log(
       `admin.2fa.disabled adminId=${adminId} ip=${meta.ipAddress ?? '-'} ua=${meta.userAgent ?? '-'}`,
     );
+    await this.auditService.record({
+      superAdminId: adminId,
+      action: 'admin.2fa.disabled',
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
   }
 
   // ---------------------- regenerate recovery codes ------------------------
@@ -236,6 +250,12 @@ export class SuperAdminTwoFactorService {
     this.logger.log(
       `admin.2fa.recovery_codes_regenerated adminId=${adminId} ip=${meta.ipAddress ?? '-'} ua=${meta.userAgent ?? '-'}`,
     );
+    await this.auditService.record({
+      superAdminId: adminId,
+      action: 'admin.2fa.recovery_codes_regenerated',
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
     return { recoveryCodes };
   }
 
@@ -316,6 +336,13 @@ export class SuperAdminTwoFactorService {
       this.logger.warn(
         `admin.2fa.challenge.failed adminId=${record.id} ip=${meta.ipAddress ?? '-'} ua=${meta.userAgent ?? '-'}`,
       );
+      await this.auditService.record({
+        superAdminId: record.id,
+        action: 'admin.2fa.challenge.failed',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        changes: { method: usedRecovery ? 'recovery_code' : 'totp' },
+      });
       throw new ForbiddenException({
         code: 'invalid_code',
         message: 'Codigo invalido',
@@ -324,6 +351,13 @@ export class SuperAdminTwoFactorService {
     this.logger.log(
       `admin.2fa.challenge.success adminId=${record.id} method=${usedRecovery ? 'recovery_code' : 'totp'} ip=${meta.ipAddress ?? '-'}`,
     );
+    await this.auditService.record({
+      superAdminId: record.id,
+      action: 'admin.2fa.challenge.success',
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes: { method: usedRecovery ? 'recovery_code' : 'totp' },
+    });
 
     await this.admin.superAdmin.update({
       where: { id: record.id },

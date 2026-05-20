@@ -1,4 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ListSecurityEventsSchema,
   type SecurityEventDto,
@@ -21,6 +22,8 @@ class ListSecurityEventsDto extends createZodDto(ListSecurityEventsSchema) {}
  * `@Public()` salta el `JwtAuthGuard` global (que espera tokens de tenant);
  * la autorizacion la hace `AdminGuard` con `SUPER_ADMIN_JWT_SECRET`.
  */
+@ApiTags('Admin')
+@ApiBearerAuth('jwt')
 @Public()
 @UseGuards(AdminGuard)
 @Controller('admin/security-events')

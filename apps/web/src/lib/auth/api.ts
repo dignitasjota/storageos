@@ -33,6 +33,29 @@ interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   formData?: FormData;
 }
 
+/**
+ * Anteponemos `/v1` a cualquier path absoluto que el caller pase, salvo
+ * cuando ya viene versionado o es una ruta excepcionada (`/health`,
+ * `/webhooks/...`, `/public/widget/...`). Mantenemos los URLs absolutos
+ * (`http://...`) sin tocar.
+ *
+ * Asi el resto del frontend sigue escribiendo `/auth/login`, `/contracts`,
+ * etc. sin enterarse del versioning.
+ */
+function withVersion(path: string): string {
+  if (path.startsWith('http')) return path;
+  if (
+    path.startsWith('/v1/') ||
+    path === '/v1' ||
+    path === '/health' ||
+    path.startsWith('/webhooks/') ||
+    path.startsWith('/public/widget/')
+  ) {
+    return path;
+  }
+  return `/v1${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 let refreshInFlight: Promise<string | null> | null = null;
 
 /** Lanza la rotacion del refresh token; deduplica si ya hay una en curso. */
@@ -40,7 +63,7 @@ async function performRefresh(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${env.apiUrl}/auth/refresh`, {
+      const res = await fetch(`${env.apiUrl}${withVersion('/auth/refresh')}`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -106,7 +129,7 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<T> {
-  const url = path.startsWith('http') ? path : `${env.apiUrl}${path}`;
+  const url = path.startsWith('http') ? path : `${env.apiUrl}${withVersion(path)}`;
   const init: RequestInit = {
     method: options.method ?? 'GET',
     ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),

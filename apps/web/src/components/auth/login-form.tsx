@@ -61,6 +61,12 @@ export function LoginForm() {
   async function onSubmit(values: LoginInput) {
     try {
       const result = await login.mutateAsync(values);
+      if ('requires2faEnrolment' in result) {
+        // El tenant exige 2FA y el user no lo tiene activo. Redirigimos a la
+        // pagina publica de enrolment con el token en la URL.
+        router.replace(`/security/enrolment/${result.enrolmentToken}`);
+        return;
+      }
       if ('requires2fa' in result) {
         setPendingToken(result.pendingToken);
         return;

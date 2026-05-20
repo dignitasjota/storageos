@@ -33,6 +33,11 @@ export async function cleanupTestTenants(): Promise<void> {
     if (ids.length === 0) return;
 
     await admin.$transaction([
+      // Fase 14A.3: webhooks + api keys (api_keys FK a users ON DELETE
+      // RESTRICT, hay que borrar antes de users).
+      admin.webhookDelivery.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.webhook.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.apiKey.deleteMany({ where: { tenantId: { in: ids } } }),
       // Fase 8: super admin + support tickets.
       admin.impersonationLog.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.supportTicketMessage.deleteMany({

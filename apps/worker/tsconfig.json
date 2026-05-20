@@ -1,0 +1,30 @@
+{
+  "extends": "@storageos/tsconfig/nestjs.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "types": ["node", "jest"],
+    "outDir": "dist",
+    // Necesario para que tsc acepte los `.tsx` de las plantillas React Email
+    // que el API importa desde dentro de los módulos compartidos (`InvitationsService`,
+    // `PortalService`, etc.). El worker no las renderiza pero las arrastra via DI.
+    "jsx": "react-jsx",
+    // El worker importa modulos del API por path RELATIVO (no por alias),
+    // para que tsc emita los `require()` resueltos y Node los encuentre
+    // en runtime sin un loader de tsconfig-paths. Por eso necesitamos
+    // que `rootDir` cubra ambos arboles -> subimos al padre comun `apps/`.
+    "rootDir": ".."
+  },
+  "include": ["src/**/*", "test/**/*", "../api/src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "../api/node_modules",
+    "../api/dist",
+    "../api/test",
+    "../api/src/**/*.spec.ts",
+    "../api/src/**/__tests__/**"
+  ]
+}

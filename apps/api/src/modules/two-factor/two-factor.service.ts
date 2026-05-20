@@ -21,6 +21,8 @@ import type {
   AuthSuccessResponse,
   Challenge2faInput,
   Disable2faInput,
+  Enrol2faRequiredSetupInput,
+  Enrol2faRequiredVerifyInput,
   Regenerate2faRecoveryCodesInput,
   Setup2faResponse,
   TwoFactorStatusResponse,
@@ -270,6 +272,113 @@ export class TwoFactorService {
       userAgent: meta.userAgent ?? null,
     });
     return this.authService.completeLoginAfter2fa(sub, tenantId, meta);
+  }
+
+  // ========================== enrolment forzoso ============================
+
+  /**
+   * Inicia el setup 2FA forzoso desde un `enrolmentToken` (publico, sin
+   * JwtAuthGuard). El token prueba que el usuario ya supero el password
+   * check del login y es owner|manager bajo politica `requireTwoFactorForManagers`.
+   *
+   * Persiste el secret cifrado en `users.two_factor_pending_secret` y
+   * devuelve el URI otpauth para el QR + el secret base32 para entrada
+   * manual.
+   */
+  async enrolRequiredSetup(input: Enrol2faRequiredSetupInput): Promise<Setup2faResponse> {
+    const { sub: userId } = await this.tokens.verify2faEnrolmentRequired(input.enrolmentToken);
+    const user = await this.admin.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive || !user.emailVerifiedAt) {
+      throw new NotFoundException({
+        message: 'Usuario no encontrado',
+        code: 'user_not_found',
+      });
+    }
+    if (user.twoFactorEnabled) {
+      // El usuario activo 2FA por otra via entre login y setup; volvemos a
+      // empezar para que vaya por el challenge normal.
+      throw new BadRequestException({
+        message: '2FA ya esta activado',
+        code: 'already_enabled',
+      });
+    }
+    const secret = this.totp.generateSecret();
+    const encrypted = this.crypto.encryptString(secret);
+    await this.admin.user.update({
+      where: { id: userId },
+      data: { twoFactorPendingSecret: encrypted },
+    });
+    return {
+      otpauthUri: this.totp.buildOtpAuthUri(secret, user.email),
+      secretBase32: secret,
+    };
+  }
+
+  /**
+   * Verifica el primer codigo TOTP del enrolment forzoso. Si OK: activa
+   * 2FA, emite los 10 recovery codes (una sola vez) y, en la misma
+   * respuesta, abre la sesion (access JWT + refresh cookie). Devuelve
+   * todo lo que el frontend necesita para ir directo al dashboard.
+   */
+  async enrolRequiredVerify(
+    input: Enrol2faRequiredVerifyInput,
+    meta: RequestMeta,
+  ): Promise<AuthFlowResult<AuthSuccessResponse & { recoveryCodes: string[] }>> {
+    const { sub: userId, tenantId } = await this.tokens.verify2faEnrolmentRequired(
+      input.enrolmentToken,
+    );
+    const user = await this.admin.user.findUnique({ where: { id: userId } });
+    if (!user || user.tenantId !== tenantId || !user.isActive || !user.emailVerifiedAt) {
+      throw new NotFoundException({
+        message: 'Usuario no encontrado',
+        code: 'user_not_found',
+      });
+    }
+    if (user.twoFactorEnabled) {
+      throw new BadRequestException({
+        message: '2FA ya esta activado',
+        code: 'already_enabled',
+      });
+    }
+    if (!user.twoFactorPendingSecret) {
+      throw new BadRequestException({
+        message: 'No hay un setup 2FA en curso',
+        code: 'setup_required',
+      });
+    }
+    const secret = this.crypto.decryptString(user.twoFactorPendingSecret);
+    if (!this.totp.verify(secret, input.code)) {
+      throw new ForbiddenException({
+        message: 'Codigo invalido',
+        code: 'invalid_code',
+      });
+    }
+
+    const recoveryCodes = await this.recovery.issueForUser(tenantId, userId);
+    await this.admin.user.update({
+      where: { id: userId },
+      data: {
+        twoFactorSecret: user.twoFactorPendingSecret,
+        twoFactorPendingSecret: null,
+        twoFactorEnabled: true,
+        twoFactorEnrolledAt: new Date(),
+      },
+    });
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'auth.2fa.enrolment_required.completed',
+      entityType: 'User',
+      entityId: userId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+
+    const session = await this.authService.completeLoginAfterEnrolment(userId, tenantId, meta);
+    return {
+      body: { ...session.body, recoveryCodes },
+      refreshToken: session.refreshToken,
+    };
   }
 
   /**

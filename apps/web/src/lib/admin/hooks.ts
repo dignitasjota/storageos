@@ -14,6 +14,7 @@ import type {
   ImpersonationTokenDto,
   SecurityEventTypeValue,
   SecurityEventsListResponseDto,
+  SuperAdminAuditLogsListResponseDto,
   SuperAdminDto,
   SuperAdminLoginInput,
   SuperAdminLoginRequires2faResponse,
@@ -359,6 +360,42 @@ export function useAdminSecurityEvents(filters?: AdminSecurityEventsFilters) {
     queryFn: () =>
       adminApiFetch<SecurityEventsListResponseDto>(
         `/admin/security-events${qs.toString() ? `?${qs}` : ''}`,
+      ),
+    staleTime: 15_000,
+  });
+}
+
+// ============================================================================
+// Super admin audit logs (Fase 12A.3)
+// ============================================================================
+
+export interface AdminAuditLogsFilters {
+  superAdminId?: string | undefined;
+  action?: string | undefined;
+  targetTenantId?: string | undefined;
+  fromDate?: string | undefined;
+  toDate?: string | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export const adminAuditLogsKey = (filters?: AdminAuditLogsFilters) =>
+  ['admin', 'audit-logs', filters ?? {}] as const;
+
+export function useAdminAuditLogs(filters?: AdminAuditLogsFilters) {
+  const qs = new URLSearchParams();
+  if (filters?.superAdminId) qs.set('superAdminId', filters.superAdminId);
+  if (filters?.action) qs.set('action', filters.action);
+  if (filters?.targetTenantId) qs.set('targetTenantId', filters.targetTenantId);
+  if (filters?.fromDate) qs.set('fromDate', filters.fromDate);
+  if (filters?.toDate) qs.set('toDate', filters.toDate);
+  if (filters?.cursor) qs.set('cursor', filters.cursor);
+  if (filters?.limit) qs.set('limit', String(filters.limit));
+  return useQuery({
+    queryKey: adminAuditLogsKey(filters),
+    queryFn: () =>
+      adminApiFetch<SuperAdminAuditLogsListResponseDto>(
+        `/admin/audit-logs${qs.toString() ? `?${qs}` : ''}`,
       ),
     staleTime: 15_000,
   });

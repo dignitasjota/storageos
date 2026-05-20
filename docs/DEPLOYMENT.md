@@ -646,7 +646,66 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-rec
 
 ---
 
-## 12. Observabilidad (mínima)
+## 12. Activar separación API/worker en producción (Sub-bloque 14A.1)
+
+Por defecto, el API y el worker comparten el mismo grafo de módulos, lo que significa que ambos procesos ejecutarían los `@Cron` y los `@Processor` BullMQ. Si esto se deja activo en producción, los crons (facturación recurrente diaria, dunning, alertas de seguridad...) se disparan DOS veces y generan facturas, emails y bloqueos duplicados.
+
+El flag `ENABLE_WORKERS_IN_API` controla este comportamiento.
+
+### 12.1. Configuración
+
+1. **En `.env.prod` del API**, asegurarse de que está:
+
+   ```ini
+   # API HTTP-only: no ejecuta workers BullMQ ni crons.
+   ENABLE_WORKERS_IN_API=false
+   ```
+
+   `docker-compose.prod.yml` ya lo fija defensivamente en el servicio `api` por si se olvida en `.env.prod`. El worker NO necesita esta variable: su `main.ts` la fuerza a `'true'` antes de cualquier import, así que siempre registra Processors y Crons aunque comparta `.env.prod` con el API.
+
+2. **Verificar que `apps/worker` está corriendo**:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml ps worker
+   # Estado esperado: Up (healthy)
+   ```
+
+3. **Comprobar logs**:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml logs -f worker
+   # Debes ver: "StorageOS worker started"
+   ```
+
+### 12.2. Riesgo si el worker está caído
+
+Si `ENABLE_WORKERS_IN_API=false` y el contenedor `worker` está caído, los jobs encolados por el API (facturas a Veri\*Factu, comunicaciones, etc.) se acumulan en Redis SIN procesarse. No se pierden — BullMQ los conserva — pero no se ejecutan hasta que el worker vuelva.
+
+Mitigación: el panel de admin (`/admin`) muestra el contador de jobs `waiting` por cola; pasar de cero a >50 sostenido es señal de worker parado. Como cinturón adicional:
+
+```bash
+# Conexión rapida a Redis para inspeccionar colas BullMQ.
+docker compose -f docker-compose.prod.yml exec redis \
+  redis-cli -a "$REDIS_PASSWORD" LLEN bull:verifactu:wait
+```
+
+### 12.3. Rollback
+
+Si por cualquier motivo necesitas que el API vuelva a ejecutar los workers (por ejemplo, durante una migración en la que el contenedor `worker` no está disponible), basta con:
+
+```bash
+# 1. Editar /opt/storageos/.env.prod -> ENABLE_WORKERS_IN_API=true
+# 2. Recrear solo el API (el worker no se ve afectado, pero conviene
+#    pararlo para no duplicar):
+docker compose -f docker-compose.prod.yml stop worker
+docker compose -f docker-compose.prod.yml up -d api
+```
+
+Cuando se restaure el worker, revertir `ENABLE_WORKERS_IN_API` a `false` y `up -d` ambos servicios.
+
+---
+
+## 13. Observabilidad (mínima)
 
 - **Sentry**: configurar DSN en `apps/api/src/main.ts` (pendiente Fase 8D).
 - **Uptime Kuma**: contenedor adicional monitoreando `https://app.tu-dominio.com` y `https://api.tu-dominio.com/health`.
@@ -654,7 +713,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-rec
 
 ---
 
-## 13. Pendiente (Fase 8D)
+## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.
 - Staging dedicado (`develop` branch → `staging.tu-dominio.com`).

@@ -1,7 +1,6 @@
-import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
-import { Job, Queue } from 'bullmq';
+import { Queue } from 'bullmq';
 
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
@@ -14,14 +13,14 @@ import {
 
 import type { DunningActionType } from '@storageos/database';
 
-interface ProcessInvoiceJobData {
+export interface ProcessInvoiceJobData {
   tenantId: string;
   invoiceId: string;
   /** Días vencidos al momento del enqueue (para idempotencia). */
   daysOverdue: number;
 }
 
-interface ExecuteActionJobData {
+export interface ExecuteActionJobData {
   tenantId: string;
   actionId: string;
 }
@@ -29,8 +28,8 @@ interface ExecuteActionJobData {
 /**
  * Gestion de impagos. Estrategia:
  *
- * 1. **Cron diario** (`@Cron`) marca como `overdue` las invoices con
- *    `due_date < now()` que sigan en `issued`.
+ * 1. **Cron diario** marca como `overdue` las invoices con
+ *    `due_date < now()` que sigan en `issued` (lo dispara `DunningCron`).
  * 2. Encola un job `process-invoice` por cada factura recien overdue.
  * 3. El worker, segun los dias vencidos, programa una o varias
  *    `dunning_actions` en BD (`status = scheduled`, `scheduledFor`).
@@ -40,13 +39,17 @@ interface ExecuteActionJobData {
  *      - dia +14: access_block (bloqueo de acceso al trastero;
  *                 sincroniza con Fase 5)
  *      - dia +30: legal_notice (escalado manual al admin)
- * 4. Un segundo cron diario corre `execute-due` que despacha las
- *    acciones cuyo `scheduledFor <= now()` enviando emails/SMS o
- *    activando los flags correspondientes.
+ * 4. El mismo cron diario despacha las acciones cuyo `scheduledFor <=
+ *    now()` enviando emails/SMS o activando los flags correspondientes.
+ *
+ * NOTA Sub-bloque 14A.1: el `@Cron` y el `@Processor` se han extraido
+ * a `DunningProcessor` (en `dunning.processor.ts`) para registrarlos
+ * solo cuando `ENABLE_WORKERS_IN_API=true`. Este service queda como
+ * logica pura y NO se registra como provider salvo cuando los workers
+ * estan activos (porque no se usa desde ningun controller HTTP).
  */
 @Injectable()
-@Processor(QUEUE_DUNNING)
-export class DunningService extends WorkerHost {
+export class DunningService {
   private readonly logger = new Logger(DunningService.name);
 
   constructor(
@@ -54,15 +57,13 @@ export class DunningService extends WorkerHost {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     @Optional() private readonly access: AccessIntegrationsService | null = null,
-  ) {
-    super();
-  }
+  ) {}
 
   /**
-   * Cron diario 06:00 UTC. Marca overdue + encola process-invoice por
-   * cada factura recien vencida + ejecuta acciones pendientes.
+   * Marca overdue + encola process-invoice por cada factura recien
+   * vencida + ejecuta acciones pendientes. Llamado por `DunningProcessor`
+   * desde el cron diario 06:00 UTC.
    */
-  @Cron('0 6 * * *', { name: 'dunning.daily' })
   async dailyTick(): Promise<void> {
     const justOverdue = await this.admin.invoice.findMany({
       where: {
@@ -90,15 +91,17 @@ export class DunningService extends WorkerHost {
     await this.dispatchDueActions();
   }
 
-  async process(job: Job<ProcessInvoiceJobData | ExecuteActionJobData>): Promise<{ ok: boolean }> {
-    if (job.name === JOB_DUNNING_PROCESS_INVOICE) {
-      const data = job.data as ProcessInvoiceJobData;
-      await this.scheduleActions(data);
+  /** Dispatch del job BullMQ desde `DunningProcessor.process`. */
+  async handleJob(
+    jobName: string,
+    data: ProcessInvoiceJobData | ExecuteActionJobData,
+  ): Promise<{ ok: boolean }> {
+    if (jobName === JOB_DUNNING_PROCESS_INVOICE) {
+      await this.scheduleActions(data as ProcessInvoiceJobData);
       return { ok: true };
     }
-    if (job.name === JOB_DUNNING_EXECUTE_ACTION) {
-      const data = job.data as ExecuteActionJobData;
-      await this.executeAction(data);
+    if (jobName === JOB_DUNNING_EXECUTE_ACTION) {
+      await this.executeAction(data as ExecuteActionJobData);
       return { ok: true };
     }
     return { ok: false };

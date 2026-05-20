@@ -43,12 +43,13 @@ const ALLOWED_TRANSITIONS: Record<InvoiceStatusValue, InvoiceStatusValue[]> = {
 
 type InvoiceWithRelations = Invoice & {
   items: InvoiceItem[];
+  // Nullable desde Fase 13A.3 (F2 sin destinatario identificado).
   customer: {
     firstName: string | null;
     lastName: string | null;
     companyName: string | null;
     customerType: 'individual' | 'business';
-  };
+  } | null;
   contract: { contractNumber: string } | null;
   series: { code: string };
   rectifiesInvoice: { id: string; invoiceNumber: string } | null;
@@ -113,15 +114,45 @@ export class InvoicesService {
     input: CreateInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const created = await this.prisma.withTenant(async (tx) => {
-      const customer = await tx.customer.findFirst({
-        where: { id: args.input.customerId, deletedAt: null },
-      });
-      if (!customer) {
-        throw new NotFoundException({
-          code: 'customer_not_found',
-          message: 'Inquilino no encontrado',
+    const invoiceType: 'F1' | 'F2' = args.input.invoiceType ?? 'F1';
+    const { subtotal, taxAmount, total } = this.computeTotals(args.input.items);
+
+    // Validacion F1 vs F2 (RD 1619/2012 art. 4 + 7).
+    if (invoiceType === 'F1') {
+      if (!args.input.customerId) {
+        throw new BadRequestException({
+          code: 'customer_required',
+          message: 'En F1 el cliente es obligatorio',
         });
+      }
+    } else {
+      // F2: limite 400€ general, hasta 3000€ con justificacion. AEAT no
+      // exige cuantitativamente el motivo pero si que se justifique algo.
+      const F2_DEFAULT_LIMIT = 400;
+      const F2_JUSTIFIED_LIMIT = 3000;
+      const justified = args.input.simplifiedJustification !== undefined;
+      const limit = justified ? F2_JUSTIFIED_LIMIT : F2_DEFAULT_LIMIT;
+      if (total > limit + 0.001) {
+        throw new BadRequestException({
+          code: 'f2_amount_limit_exceeded',
+          message: justified
+            ? `El total ${total.toFixed(2)}€ supera el limite F2 con justificacion (3000€)`
+            : `El total ${total.toFixed(2)}€ supera el limite F2 sin justificacion (400€). Anade una justificacion para llegar a 3000€.`,
+        });
+      }
+    }
+
+    const created = await this.prisma.withTenant(async (tx) => {
+      if (args.input.customerId) {
+        const customer = await tx.customer.findFirst({
+          where: { id: args.input.customerId, deletedAt: null },
+        });
+        if (!customer) {
+          throw new NotFoundException({
+            code: 'customer_not_found',
+            message: 'Inquilino no encontrado',
+          });
+        }
       }
       const series = args.input.seriesId
         ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
@@ -134,18 +165,26 @@ export class InvoicesService {
           message: 'No hay serie por defecto configurada',
         });
       }
-      const { subtotal, taxAmount, total } = this.computeTotals(args.input.items);
       // En draft NO se asigna invoiceNumber; se asigna al issue.
       const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
+      const baseNotes = args.input.notes?.trim();
+      // Si es F2 con justificacion, anotamos el motivo como prefijo del
+      // campo notes para que quede trazable (no anadimos columna nueva,
+      // por decision de modelo: F2 se deriva siempre de `invoice_type`).
+      const finalNotes =
+        invoiceType === 'F2' && args.input.simplifiedJustification
+          ? `[F2:${args.input.simplifiedJustification}]${baseNotes ? ` ${baseNotes}` : ''}`
+          : baseNotes || null;
       return tx.invoice.create({
         data: {
           tenantId: args.tenantId,
-          customerId: args.input.customerId,
+          ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
           ...(args.input.contractId ? { contractId: args.input.contractId } : {}),
           seriesId: series.id,
           sequenceNumber: 0,
           invoiceNumber: placeholderNumber,
           status: 'draft',
+          invoiceType,
           ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
           ...(args.input.dueDate ? { dueDate: new Date(args.input.dueDate) } : {}),
           ...(args.input.periodStart ? { periodStart: new Date(args.input.periodStart) } : {}),
@@ -153,7 +192,7 @@ export class InvoicesService {
           subtotal,
           taxAmount,
           total,
-          notes: args.input.notes?.trim() || null,
+          notes: finalNotes,
           verifactuMode: args.input.verifactuMode,
           items: {
             create: args.input.items.map((item, idx) =>
@@ -410,19 +449,24 @@ export class InvoicesService {
     const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
 
     const updated = await this.prisma.withTenant(async (tx) => {
-      await tx.payment.create({
-        data: {
-          tenantId: args.tenantId,
-          invoiceId: args.invoiceId,
-          customerId: existing.customerId,
-          amount,
-          methodType: args.input.methodType,
-          gateway: 'manual',
-          status: 'succeeded',
-          paidAt,
-          notes: args.input.notes?.trim() || null,
-        },
-      });
+      // En F2 sin destinatario no podemos crear un Payment (la tabla
+      // exige customer_id). Solo actualizamos el contador agregado de
+      // la factura; el cobro queda registrado en `amountPaid`.
+      if (existing.customerId) {
+        await tx.payment.create({
+          data: {
+            tenantId: args.tenantId,
+            invoiceId: args.invoiceId,
+            customerId: existing.customerId,
+            amount,
+            methodType: args.input.methodType,
+            gateway: 'manual',
+            status: 'succeeded',
+            paidAt,
+            notes: args.input.notes?.trim() || null,
+          },
+        });
+      }
       return tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
@@ -542,13 +586,16 @@ export class InvoicesService {
         message: 'Solo se pueden rectificar facturas emitidas',
       });
     }
-    if (original.invoiceType !== 'F1') {
+    // Solo se permite rectificar facturas no-rectificativas. F1 y F2
+    // son rectificables; las R1-R5 no se vuelven a rectificar (MVP).
+    if (original.invoiceType !== 'F1' && original.invoiceType !== 'F2') {
       throw new BadRequestException({
         code: 'invoice_not_rectifiable',
         message: 'No se puede rectificar una factura rectificativa',
       });
     }
 
+    const correctionMethod: CorrectionMethodValue = args.input.correctionMethod ?? 'by_differences';
     const { subtotal, taxAmount, total } = this.computeTotalsRectify(args.input.items);
     const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
 
@@ -557,7 +604,7 @@ export class InvoicesService {
         tx.invoice.create({
           data: {
             tenantId: args.tenantId,
-            customerId: original.customerId,
+            ...(original.customerId ? { customerId: original.customerId } : {}),
             ...(original.contractId ? { contractId: original.contractId } : {}),
             seriesId: original.seriesId,
             sequenceNumber: 0,
@@ -566,7 +613,7 @@ export class InvoicesService {
             invoiceType: args.input.rectificationType as InvoiceType,
             rectifiesInvoiceId: original.id,
             rectificationReason: args.input.reason.trim(),
-            correctionMethod: 'by_differences',
+            correctionMethod,
             verifactuMode: original.verifactuMode,
             ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
             subtotal,
@@ -593,6 +640,7 @@ export class InvoicesService {
         originalInvoiceId: original.id,
         originalInvoiceNumber: original.invoiceNumber,
         rectificationType: args.input.rectificationType,
+        correctionMethod,
         reason: args.input.reason.trim(),
       },
       ipAddress: args.meta.ipAddress ?? null,
@@ -792,11 +840,16 @@ export class InvoicesService {
   }
 
   private toDto(row: InvoiceWithRelations): InvoiceDto {
-    const customerName =
-      row.customer.customerType === 'business'
-        ? (row.customer.companyName ?? 'Empresa')
-        : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ').trim() ||
-          'Sin nombre';
+    // F2 puede no tener customer: el DTO devuelve null para que el front
+    // muestre un placeholder "Sin identificar".
+    let customerName: string | null = null;
+    if (row.customer) {
+      customerName =
+        row.customer.customerType === 'business'
+          ? (row.customer.companyName ?? 'Empresa')
+          : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ').trim() ||
+            'Sin nombre';
+    }
     const total = Number(row.total);
     const amountPaid = Number(row.amountPaid);
     const amountRefunded = Number(row.amountRefunded);

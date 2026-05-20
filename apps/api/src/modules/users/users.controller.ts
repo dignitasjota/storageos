@@ -12,6 +12,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ChangePasswordSchema, UpdateProfileSchema, UpdateUserSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -40,6 +41,8 @@ function extractMeta(req: Request): RequestMeta {
   };
 }
 
+@ApiTags('Users')
+@ApiBearerAuth('jwt')
 @Controller()
 export class UsersController {
   constructor(

@@ -18,6 +18,7 @@ export const QUEUE_EMAIL = 'email';
 export const QUEUE_COMMUNICATIONS = 'communications';
 export const QUEUE_AUTOMATIONS = 'automations';
 export const QUEUE_REPORTS = 'reports';
+export const QUEUE_WEBHOOKS = 'webhooks';
 
 /**
  * Tipos de job conocidos por cada cola. Compartidos entre producer y
@@ -32,6 +33,7 @@ export const JOB_EMAIL_SEND = 'send';
 export const JOB_COMMUNICATIONS_DISPATCH = 'dispatch';
 export const JOB_AUTOMATIONS_RUN = 'run';
 export const JOB_REPORTS_GENERATE = 'generate';
+export const JOB_WEBHOOK_DELIVER = 'deliver';
 
 /**
  * Modulo global que registra Redis + las colas BullMQ + el scheduler.
@@ -76,6 +78,7 @@ export const JOB_REPORTS_GENERATE = 'generate';
       { name: QUEUE_COMMUNICATIONS },
       { name: QUEUE_AUTOMATIONS },
       { name: QUEUE_REPORTS },
+      { name: QUEUE_WEBHOOKS },
     ),
   ],
   exports: [BullModule],

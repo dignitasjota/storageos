@@ -11,6 +11,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   CancelInvoiceSchema,
   CreateInvoiceSchema,
@@ -52,6 +53,8 @@ function extractMeta(req: Request): RequestMeta {
   };
 }
 
+@ApiTags('Billing')
+@ApiBearerAuth('jwt')
 @Controller('invoices')
 export class InvoicesController {
   constructor(

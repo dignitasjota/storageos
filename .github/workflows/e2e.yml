@@ -1,0 +1,162 @@
+name: E2E Playwright
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: storageos
+          POSTGRES_PASSWORD: storageos
+          POSTGRES_DB: storageos
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U storageos -d storageos"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1026:1025
+          - 8026:8025
+        options: >-
+          --health-cmd="wget --quiet --spider http://localhost:8025/livez || exit 1"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://storageos_app:storageos-app@localhost:5433/storageos?schema=public
+      DATABASE_ADMIN_URL: postgresql://storageos:storageos@localhost:5433/storageos?schema=public
+      REDIS_URL: redis://localhost:6380
+      REDIS_HOST: localhost
+      REDIS_PORT: '6380'
+      JWT_ACCESS_SECRET: e2e-test-access-secret-with-32-chars-aaaaaaaaaa
+      JWT_ACCESS_TTL_SECONDS: '900'
+      JWT_REFRESH_TTL_SECONDS: '604800'
+      JWT_2FA_PENDING_SECRET: e2e-test-2fa-pending-32chars-bbbbbbbbbbbbbb
+      JWT_2FA_PENDING_TTL_SECONDS: '300'
+      SUPER_ADMIN_JWT_SECRET: e2e-test-superadmin-32chars-cccccccccccccc
+      SUPER_ADMIN_REFRESH_TTL_SECONDS: '604800'
+      MASTER_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+      COOKIE_DOMAIN: localhost
+      COOKIE_SECURE: 'false'
+      COOKIE_SAMESITE: lax
+      ALLOWED_ORIGINS: http://localhost:3000
+      SMTP_HOST: localhost
+      SMTP_PORT: '1026'
+      SMTP_FROM: no-reply@storageos.local
+      SMTP_FROM_NAME: StorageOS
+      WEB_BASE_URL: http://localhost:3000
+      MAILPIT_API: http://localhost:8026
+      AEAT_MODE: stub
+      LOCK_PROVIDER: stub
+      EMAIL_PROVIDER: smtp
+      LOG_LEVEL: fatal
+      LOG_PRETTY: 'false'
+      MINIO_ACCESS_KEY: ci-minio-access
+      MINIO_SECRET_KEY: ci-minio-secret-dev-only
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build shared package
+        run: pnpm -F @storageos/shared build
+
+      - name: Apply migrations
+        run: pnpm -F @storageos/database migrate:deploy
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
+      - name: Seed demo data
+        run: pnpm db:seed
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
+      - name: Install Playwright browsers
+        run: pnpm -F web exec playwright install --with-deps chromium
+
+      - name: Build API
+        run: pnpm -F api build
+
+      - name: Build web (standalone)
+        run: pnpm -F web build
+
+      - name: Start API in background
+        run: pnpm -F api start &
+        env:
+          NODE_ENV: production
+
+      - name: Wait for API
+        run: |
+          for i in {1..30}; do
+            if curl -fs http://localhost:3001/health; then echo "API up"; break; fi
+            sleep 2
+          done
+
+      - name: Start web in background
+        run: pnpm -F web start &
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+          PORT: '3000'
+
+      - name: Wait for web
+        run: |
+          for i in {1..30}; do
+            if curl -fs http://localhost:3000; then echo "Web up"; break; fi
+            sleep 2
+          done
+
+      - name: Run Playwright tests
+        run: pnpm -F web test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7

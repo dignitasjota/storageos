@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiTags } from '@nestjs/swagger';
 import {
   SuperAdminLoginSchema,
   SuperAdminTwoFactorChallengeSchema,
@@ -65,6 +66,7 @@ const COOKIE_PATH = '/admin';
  *   - Endpoints `2fa/*` montados aqui en lugar de en un controller aparte
  *     para mantener todas las rutas bajo `/admin/auth/*`.
  */
+@ApiTags('Admin')
 @Controller('admin/auth')
 export class SuperAdminAuthController {
   private readonly logger = new Logger(SuperAdminAuthController.name);

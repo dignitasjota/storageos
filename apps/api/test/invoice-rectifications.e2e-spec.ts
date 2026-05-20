@@ -202,6 +202,112 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
     expect(res.body.code).toBe('invoice_not_found');
   });
 
+  it('rectificar con correctionMethod=by_substitution persiste el metodo en la rectificativa', async () => {
+    const owner = await registerVerifiedUser(app, 'rect-sub');
+    const customerId = await createCustomer(app, owner.accessToken);
+    const originalId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    const issued = await request(app.getHttpServer())
+      .post(`/invoices/${originalId}/issue`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(issued.status).toBe(200);
+
+    // Por sustitucion: los items representan el NUEVO total absoluto.
+    const res = await request(app.getHttpServer())
+      .post(`/invoices/${originalId}/rectify`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        rectificationType: 'R4',
+        correctionMethod: 'by_substitution',
+        reason: 'Sustitucion completa por error de importe',
+        items: [
+          {
+            description: 'Cuota mes (corregida)',
+            quantity: 1,
+            unitPrice: 90,
+            taxRate: 21,
+          },
+        ],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('draft');
+    expect(res.body.invoiceType).toBe('R4');
+    expect(res.body.correctionMethod).toBe('by_substitution');
+    // Subtotal y total son los nuevos absolutos, no diferencias.
+    expect(res.body.subtotal).toBeCloseTo(90, 2);
+    expect(res.body.total).toBeCloseTo(108.9, 2);
+  });
+
+  it('issue de rectificativa por sustitucion: aeatResponse refleja correctionMethod', async () => {
+    const owner = await registerVerifiedUser(app, 'rect-sub-issue');
+    const customerId = await createCustomer(app, owner.accessToken);
+    const originalId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    await request(app.getHttpServer())
+      .post(`/invoices/${originalId}/issue`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+
+    const rectifyRes = await request(app.getHttpServer())
+      .post(`/invoices/${originalId}/rectify`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        rectificationType: 'R1',
+        correctionMethod: 'by_substitution',
+        reason: 'Importe corregido',
+        items: [
+          {
+            description: 'Cuota mes corregida',
+            quantity: 1,
+            unitPrice: 80,
+            taxRate: 21,
+          },
+        ],
+      });
+    expect(rectifyRes.status).toBe(201);
+    const rectId = rectifyRes.body.id as string;
+
+    const issuedRect = await request(app.getHttpServer())
+      .post(`/invoices/${rectId}/issue`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(issuedRect.status).toBe(200);
+    expect(issuedRect.body.status).toBe('issued');
+    expect(issuedRect.body.correctionMethod).toBe('by_substitution');
+    expect(issuedRect.body.invoiceType).toBe('R1');
+    expect(issuedRect.body.hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('correctionMethod por defecto sigue siendo by_differences (retrocompat)', async () => {
+    const owner = await registerVerifiedUser(app, 'rect-default-method');
+    const customerId = await createCustomer(app, owner.accessToken);
+    const originalId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    await request(app.getHttpServer())
+      .post(`/invoices/${originalId}/issue`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+
+    // Llamada SIN `correctionMethod`: debe asumir `by_differences`.
+    const res = await request(app.getHttpServer())
+      .post(`/invoices/${originalId}/rectify`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        rectificationType: 'R1',
+        reason: 'NIF erroneo',
+        items: [
+          {
+            description: 'Ajuste',
+            quantity: 1,
+            unitPrice: -10,
+            taxRate: 21,
+          },
+        ],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.correctionMethod).toBe('by_differences');
+  });
+
   it('rol staff no puede rectificar (403)', async () => {
     const owner = await registerVerifiedUser(app, 'rect-staff');
     const customerId = await createCustomer(app, owner.accessToken);

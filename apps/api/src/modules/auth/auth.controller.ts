@@ -10,9 +10,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiTags } from '@nestjs/swagger';
 import {
   type AuthSuccessResponse,
   ForgotPasswordSchema,
+  type LoginRequires2faEnrolmentResponse,
   type LoginRequires2faResponse,
   LoginSchema,
   type MeResponse,
@@ -55,6 +57,7 @@ const REFRESH_COOKIE_NAME = 'refresh_token';
 // rutas autenticadas.
 const COOKIE_PATH = '/';
 
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -82,7 +85,7 @@ export class AuthController {
     @Body() input: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthSuccessResponse | LoginRequires2faResponse> {
+  ): Promise<AuthSuccessResponse | LoginRequires2faResponse | LoginRequires2faEnrolmentResponse> {
     const result = await this.authService.login(input, this.extractMeta(req));
     if ('refreshToken' in result) {
       this.setRefreshCookie(res, result.refreshToken);

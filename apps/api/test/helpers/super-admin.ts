@@ -56,6 +56,9 @@ export async function cleanupSuperAdmins(): Promise<void> {
     await admin.$transaction([
       admin.superAdminRecoveryCode.deleteMany({ where: { superAdminId: { in: ids } } }),
       admin.superAdminSession.deleteMany({ where: { superAdminId: { in: ids } } }),
+      // SuperAdminAuditLog tiene `onDelete: SetNull`, pero borramos las
+      // entradas del prefijo de tests para mantener la BD limpia entre runs.
+      admin.superAdminAuditLog.deleteMany({ where: { superAdminId: { in: ids } } }),
       admin.superAdmin.deleteMany({ where: { id: { in: ids } } }),
     ]);
   } finally {

@@ -154,4 +154,62 @@ export class TokensService {
       throw new UnauthorizedException('Token 2FA invalido o expirado');
     }
   }
+
+  // ----------------- 2FA enrolment forzoso (politica tenant) ---------------
+
+  /**
+   * Token efimero que se devuelve cuando el login es valido pero el tenant
+   * exige 2FA para roles owner/manager y el user no lo tiene activo. NO
+   * autentica: solo prueba que la pareja (tenantSlug, email, password) era
+   * correcta y permite acceder a los endpoints publicos de enrolment
+   * (`/auth/2fa/enrol-required/{setup,verify}`).
+   *
+   * Reutilizamos `JWT_2FA_PENDING_SECRET` porque el riesgo y vida util son
+   * equivalentes a los del `pendingToken`; cambia el `purpose` para que un
+   * token de un flujo no pueda abusarse en el otro.
+   */
+  async sign2faEnrolmentRequired(
+    sub: string,
+    tenantId: string,
+    role: UserRole,
+  ): Promise<{ token: string; expiresIn: number }> {
+    const expiresIn = ENROLMENT_TOKEN_TTL_SECONDS;
+    const token = await this.jwt.signAsync(
+      { tenantId, role, purpose: '2fa_enrolment_required' },
+      {
+        subject: sub,
+        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+        expiresIn,
+      },
+    );
+    return { token, expiresIn };
+  }
+
+  async verify2faEnrolmentRequired(
+    token: string,
+  ): Promise<{ sub: string; tenantId: string; role: UserRole }> {
+    try {
+      const payload = await this.jwt.verifyAsync<{
+        sub: string;
+        tenantId: string;
+        role: UserRole;
+        purpose: string;
+      }>(token, {
+        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+      });
+      if (payload.purpose !== '2fa_enrolment_required') {
+        throw new Error('purpose');
+      }
+      return { sub: payload.sub, tenantId: payload.tenantId, role: payload.role };
+    } catch {
+      throw new UnauthorizedException('Token de enrolment invalido o expirado');
+    }
+  }
 }
+
+/**
+ * TTL del enrolmentToken: 15 minutos. Suficiente para escanear el QR,
+ * abrir la app de autenticacion y verificar el primer codigo. Si el user
+ * tarda mas, simplemente vuelve a hacer login.
+ */
+const ENROLMENT_TOKEN_TTL_SECONDS = 15 * 60;

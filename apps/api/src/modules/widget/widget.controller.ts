@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, VERSION_NEUTRAL } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { WidgetLeadSchema, type WidgetFacilityDto, type LeadDto } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -25,8 +25,11 @@ function extractMeta(req: Request): RequestMeta {
  * Endpoints publicos del widget embebible. Sin auth. Throttle estricto
  * por IP para frenar enumeracion / spam.
  */
+// El widget se embebe en sitios externos del cliente final con la URL
+// `/public/widget/:slug/...`. Esos embeds ya estan desplegados en sitios
+// que no controlamos: lo mantenemos VERSION_NEUTRAL para no romper compat.
 @Public()
-@Controller('public/widget')
+@Controller({ path: 'public/widget', version: VERSION_NEUTRAL })
 export class WidgetController {
   constructor(private readonly service: WidgetService) {}
 

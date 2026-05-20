@@ -144,3 +144,43 @@ export const Challenge2faSchema = z
     path: ['code'],
   });
 export type Challenge2faInput = z.infer<typeof Challenge2faSchema>;
+
+// ============================================================================
+// 2FA enrolment forzoso (politica `requireTwoFactorForManagers`)
+// ============================================================================
+
+/**
+ * POST /auth/2fa/enrol-required/setup — body. El endpoint es publico
+ * (sin JwtAuthGuard); la autenticacion la aporta el `enrolmentToken` JWT
+ * corto que devuelve el login cuando el tenant exige 2FA al user.
+ */
+export const Enrol2faRequiredSetupSchema = z.object({
+  enrolmentToken: z.string().min(20),
+});
+export type Enrol2faRequiredSetupInput = z.infer<typeof Enrol2faRequiredSetupSchema>;
+
+/**
+ * POST /auth/2fa/enrol-required/verify — body. Verifica el primer codigo
+ * TOTP, activa 2FA, emite recovery codes (una sola vez) y la sesion
+ * (access + refresh cookie) en una unica llamada.
+ */
+export const Enrol2faRequiredVerifySchema = z.object({
+  enrolmentToken: z.string().min(20),
+  code: totpCodeSchema,
+});
+export type Enrol2faRequiredVerifyInput = z.infer<typeof Enrol2faRequiredVerifySchema>;
+
+// ============================================================================
+// Politica de seguridad del tenant
+// ============================================================================
+
+/**
+ * PATCH /settings/tenant/security — body. Solo rol `owner`. Activa o
+ * desactiva la obligacion de 2FA para owners y managers. Al activar NO se
+ * cierran sesiones existentes; los usuarios sin 2FA seran redirigidos al
+ * enrolment forzoso en su proximo login.
+ */
+export const UpdateTenantSecuritySettingsSchema = z.object({
+  requireTwoFactorForManagers: z.boolean(),
+});
+export type UpdateTenantSecuritySettingsInput = z.infer<typeof UpdateTenantSecuritySettingsSchema>;

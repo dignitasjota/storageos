@@ -193,6 +193,7 @@ export class ProductSalesService {
         tenantId: args.tenantId,
         userId: args.userId,
         input: {
+          invoiceType: 'F1',
           customerId: args.input.customerId,
           seriesId: resolvedSeriesId,
           items,

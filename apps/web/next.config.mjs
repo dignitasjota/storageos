@@ -10,10 +10,11 @@ const withNextIntl = createNextIntlPlugin('./src/lib/i18n/request.ts');
 /**
  * Content Security Policy.
  *
- * Modo `Report-Only` para no romper UX. Tras 1 semana en produccion sin
- * violaciones inesperadas reportadas en /api/csp-report, cambiar a
- * enforcement renombrando la cabecera a `Content-Security-Policy` (ver
- * directiva enforcement preparada abajo y docs/ARCHITECTURE.md).
+ * Desde Fase 13A.4 corre en modo **enforcement** (`Content-Security-Policy`)
+ * tras pasar la auditoria en Report-Only sin violaciones inesperadas. El
+ * endpoint `/api/csp-report` se mantiene activo: si el navegador bloquea
+ * algun recurso real en produccion, los reportes seguiran llegando y nos
+ * permitiran reaccionar (ver docs/ARCHITECTURE.md).
  *
  * Excepcion: /widget/[slug] mantiene `frame-ancestors *` para permitir
  * el embebido en webs de terceros. Esa cabecera se aplica en
@@ -113,10 +114,10 @@ const nextConfig = {
         // bucles si el report-uri redirige).
         source: '/((?!widget|api/csp-report).*)',
         headers: [
-          // En Fase 11A: modo Report-Only para auditar 1 semana en prod
-          // sin romper nada. Para enforcement: renombrar a
-          // 'Content-Security-Policy'.
-          { key: 'Content-Security-Policy-Report-Only', value: cspHeader },
+          // Fase 13A.4: enforcement activo (`Content-Security-Policy`).
+          // El endpoint `/api/csp-report` sigue recibiendo violaciones
+          // reales gracias a la directiva `report-uri`.
+          { key: 'Content-Security-Policy', value: cspHeader },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

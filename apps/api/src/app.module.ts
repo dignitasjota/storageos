@@ -27,6 +27,7 @@ import { EmailModule } from './modules/email/email.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { OperationsModule } from './modules/operations/operations.module';
@@ -136,6 +137,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AccessModule,
     AdminModule,
     BillingSaasModule,
+    IntegrationsModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
@@ -146,4 +148,11 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
+/**
+ * El `LegacyRedirectMiddleware` se aplica via `app.use()` en `main.ts`
+ * (y en `test-app.factory.ts`) antes de `enableVersioning(URI)` porque
+ * NestJS aplica `consumer.apply().forRoutes('*')` DESPUÉS del router
+ * cuando hay versioning activo, lo que hace que las rutas sin prefijo
+ * devuelvan 404 antes de poder redirigir.
+ */
 export class AppModule {}

@@ -8,6 +8,8 @@ import type {
   AuthSuccessResponse,
   Challenge2faInput,
   Disable2faInput,
+  Enrol2faRequiredSetupInput,
+  Enrol2faRequiredVerifyInput,
   RecoveryCodesResponse,
   Regenerate2faRecoveryCodesInput,
   Setup2faResponse,
@@ -85,6 +87,44 @@ export function useChallenge2fa() {
         json: input,
         requiresAuth: false,
       }),
+    onSuccess: (data) => {
+      useAuthStore.getState().setAccessToken(data.accessToken);
+      qc.setQueryData(meQueryKey, {
+        user: data.user,
+        tenant: data.tenant,
+        subscription: data.subscription,
+      });
+    },
+  });
+}
+
+// ============================================================================
+// Enrolment forzoso (politica `requireTwoFactorForManagers`)
+// ============================================================================
+
+export function useEnrol2faRequiredSetup() {
+  return useMutation({
+    mutationFn: (input: Enrol2faRequiredSetupInput) =>
+      apiFetch<Setup2faResponse>('/auth/2fa/enrol-required/setup', {
+        method: 'POST',
+        json: input,
+        requiresAuth: false,
+      }),
+  });
+}
+
+export function useEnrol2faRequiredVerify() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Enrol2faRequiredVerifyInput) =>
+      apiFetch<AuthSuccessResponse & { recoveryCodes: string[] }>(
+        '/auth/2fa/enrol-required/verify',
+        {
+          method: 'POST',
+          json: input,
+          requiresAuth: false,
+        },
+      ),
     onSuccess: (data) => {
       useAuthStore.getState().setAccessToken(data.accessToken);
       qc.setQueryData(meQueryKey, {

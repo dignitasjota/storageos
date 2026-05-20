@@ -3,6 +3,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { SuperAdminAuditService } from './super-admin-audit.service';
+
 import type { AdminTenantDto } from '@storageos/shared';
 
 interface ActionMeta {
@@ -28,6 +30,7 @@ export class AdminTenantsService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    private readonly superAdminAudit: SuperAdminAuditService,
   ) {}
 
   // =============================== read ====================================
@@ -100,6 +103,16 @@ export class AdminTenantsService {
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: 'admin.tenant.suspended',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes: { reason: meta.reason, previousStatus: tenant.status },
+    });
     return this.detail(tenantId);
   }
 
@@ -131,6 +144,16 @@ export class AdminTenantsService {
       },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: 'admin.tenant.reactivated',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes: { reason: meta.reason, newStatus: targetStatus },
     });
     return this.detail(tenantId);
   }
@@ -165,6 +188,21 @@ export class AdminTenantsService {
       },
       ipAddress: args.ipAddress ?? null,
       userAgent: args.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: args.superAdminId,
+      action: 'admin.tenant.trial_extended',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+      changes: {
+        reason: args.reason,
+        days: args.days,
+        previousTrialEndsAt: tenant.trialEndsAt ? tenant.trialEndsAt.toISOString() : null,
+        newTrialEndsAt: newTrialEndsAt.toISOString(),
+      },
     });
     return this.detail(tenantId);
   }

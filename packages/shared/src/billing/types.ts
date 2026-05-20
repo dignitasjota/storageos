@@ -49,8 +49,12 @@ export interface InvoiceDto {
   seriesId: string;
   seriesCode: string;
   sequenceNumber: number;
-  customerId: string;
-  customerName: string;
+  /**
+   * Nullable a partir de Fase 13A.3: en facturas simplificadas (F2) el
+   * destinatario puede no estar identificado.
+   */
+  customerId: string | null;
+  customerName: string | null;
   contractId: string | null;
   contractNumber: string | null;
   status: InvoiceStatusValue;

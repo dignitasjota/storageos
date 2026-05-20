@@ -1,6 +1,14 @@
 'use client';
 
-import { Activity, BarChart3, Building2, LifeBuoy, LogOut, ShieldCheck } from 'lucide-react';
+import {
+  Activity,
+  BarChart3,
+  Building2,
+  LifeBuoy,
+  LogOut,
+  ScrollText,
+  ShieldCheck,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
@@ -35,6 +43,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
   { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
+  { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
   { href: '/admin/security', label: 'Seguridad', icon: ShieldCheck },
 ];
 
@@ -80,7 +89,7 @@ function AdminGuard({ children }: { children: ReactNode }) {
       try {
         // 1) Si no hay access token en memoria intentamos refresh via cookie.
         if (!useAdminAuthStore.getState().superAdminToken) {
-          const res = await fetch(`${env.apiUrl}/admin/auth/refresh`, {
+          const res = await fetch(`${env.apiUrl}/v1/admin/auth/refresh`, {
             method: 'POST',
             credentials: 'include',
           });

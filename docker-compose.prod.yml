@@ -132,6 +132,12 @@ services:
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: 'false'
+      # Sub-bloque 14A.1: el API queda HTTP-only en produccion. Los
+      # Processors BullMQ y los Crons (@Cron) los ejecuta el servicio
+      # `worker` definido mas abajo. Sin este flag, los crons se
+      # dispararian dos veces (API + worker) y se duplicarian las
+      # facturas recurrentes, emails de dunning, etc.
+      ENABLE_WORKERS_IN_API: 'false'
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,6 +150,48 @@ services:
     # Sin `ports:` => puerto 3001 solo accesible dentro de la red Docker.
     expose:
       - '3001'
+
+  # ---------------------------------------------------------------------------
+  # Worker - Procesador BullMQ + crons (Fase 13A.1).
+  # Mismo grafo DI que la API (modulos billing, communications, automations,
+  # reports, dunning, security-events) pero arranca con
+  # `createApplicationContext` -> sin HTTP server.
+  #
+  # En Fase 13A.1 el API tambien sigue ejecutando los workers/crons en su
+  # propio proceso (deprecation window). Subir o no este servicio es
+  # opcional, pero recomendado en produccion para aislar CPU del HTTP.
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    image: storageos/worker:${RELEASE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      NODE_ENV: production
+      # Mismos overrides defensivos que en `api` para que los hostnames
+      # apunten a la red interna en compose.
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      DATABASE_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - storageos-net
+    # Sin `ports:` ni `expose:`: el worker no expone HTTP. La observabilidad
+    # llega via logs + metricas BullMQ desde el panel de admin del API.
 
   # ---------------------------------------------------------------------------
   # Web - Frontend Next.js 15 standalone.

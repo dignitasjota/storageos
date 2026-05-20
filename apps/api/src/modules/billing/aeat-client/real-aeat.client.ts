@@ -133,14 +133,25 @@ export class RealAeatClient extends AeatClient {
     // 5. Si es una rectificativa, cargar la factura original para construir
     //    el bloque `<FacturasRectificadas>` del XML. Usamos el NIF del propio
     //    tenant como `emitterTaxId` (todas las facturas originales en MVP
-    //    han sido emitidas por el mismo tenant).
+    //    han sido emitidas por el mismo tenant). Si la rectificacion es
+    //    por sustitucion (`by_substitution`), tambien necesitamos los
+    //    totales originales para el bloque `<ImporteRectificacion>`.
     let rectifies:
       | ReadonlyArray<{ emitterTaxId: string; invoiceNumber: string; issueDate: Date }>
+      | undefined;
+    let originalAmounts:
+      | { baseRectificada: number; cuotaRectificada: number; recargo?: number }
       | undefined;
     if (invoice.invoiceType.startsWith('R') && invoice.rectifiesInvoiceId) {
       const originalRow = await this.admin.invoice.findUnique({
         where: { id: invoice.rectifiesInvoiceId },
-        select: { invoiceNumber: true, issueDate: true, tenantId: true },
+        select: {
+          invoiceNumber: true,
+          issueDate: true,
+          tenantId: true,
+          subtotal: true,
+          taxAmount: true,
+        },
       });
       if (originalRow?.invoiceNumber && originalRow.issueDate) {
         rectifies = [
@@ -150,6 +161,12 @@ export class RealAeatClient extends AeatClient {
             issueDate: originalRow.issueDate,
           },
         ];
+        if (invoice.correctionMethod === 'by_substitution') {
+          originalAmounts = {
+            baseRectificada: Number(originalRow.subtotal),
+            cuotaRectificada: Number(originalRow.taxAmount),
+          };
+        }
       }
     }
 
@@ -158,6 +175,15 @@ export class RealAeatClient extends AeatClient {
     const taxAmount = Number(invoice.taxAmount);
     const total = Number(invoice.total);
     const taxRate = subtotal !== 0 ? Math.round((taxAmount / subtotal) * 10_000) / 100 : 0;
+
+    // Para F2 sin customer (factura simplificada) omitimos `recipient`;
+    // el XML emite `<FacturaSinIdentifDestinatarioArt61d>`. Para
+    // rectificativas inferimos el `correctionMethod` (`I` por
+    // diferencias, `S` por sustitucion) del campo persistido.
+    const correctionMethodXml: 'I' | 'S' | undefined =
+      invoice.correctionMethod === 'by_substitution' ? 'S' : rectifies ? 'I' : undefined;
+
+    const hasRecipient = Boolean(invoice.customer);
 
     const xml = this.xmlBuilder.buildRegistroAlta({
       tenant: { name: tenant.name, taxId: tenant.taxId ?? '' },
@@ -176,12 +202,18 @@ export class RealAeatClient extends AeatClient {
         ...(previousInvoiceNumber !== undefined ? { previousInvoiceNumber } : {}),
         ...(previousInvoiceDate !== undefined ? { previousInvoiceDate } : {}),
         previousEmitterNif: tenant.taxId ?? '',
-        ...(rectifies ? { rectifies, correctionMethod: 'I' as const } : {}),
+        ...(rectifies ? { rectifies } : {}),
+        ...(correctionMethodXml ? { correctionMethod: correctionMethodXml } : {}),
+        ...(originalAmounts ? { originalAmounts } : {}),
       },
-      recipient: {
-        taxId: invoice.customer?.documentNumber ?? '',
-        name: this.buildRecipientName(invoice.customer),
-      },
+      ...(hasRecipient
+        ? {
+            recipient: {
+              taxId: invoice.customer?.documentNumber ?? '',
+              name: this.buildRecipientName(invoice.customer),
+            },
+          }
+        : {}),
     });
 
     // 7. PEM cert + key para mTLS.

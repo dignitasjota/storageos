@@ -4,6 +4,8 @@ import {
   type AuthSuccessResponse,
   Challenge2faSchema,
   Disable2faSchema,
+  Enrol2faRequiredSetupSchema,
+  Enrol2faRequiredVerifySchema,
   type RecoveryCodesResponse,
   Regenerate2faRecoveryCodesSchema,
   type Setup2faResponse,
@@ -29,6 +31,8 @@ class Verify2faSetupDto extends createZodDto(Verify2faSetupSchema) {}
 class Disable2faDto extends createZodDto(Disable2faSchema) {}
 class Regenerate2faRecoveryCodesDto extends createZodDto(Regenerate2faRecoveryCodesSchema) {}
 class Challenge2faDto extends createZodDto(Challenge2faSchema) {}
+class Enrol2faRequiredSetupDto extends createZodDto(Enrol2faRequiredSetupSchema) {}
+class Enrol2faRequiredVerifyDto extends createZodDto(Enrol2faRequiredVerifySchema) {}
 
 const REFRESH_COOKIE_NAME = 'refresh_token';
 const COOKIE_PATH = '/';
@@ -100,6 +104,34 @@ export class TwoFactorController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthSuccessResponse> {
     const result = await this.twoFactor.challenge(input, extractMeta(req));
+    this.setRefreshCookie(res, result.refreshToken);
+    return result.body;
+  }
+
+  // ----------------- 2FA enrolment forzoso (politica tenant) ---------------
+  //
+  // Endpoints publicos: la autenticacion la aporta el `enrolmentToken` JWT
+  // corto que devuelve el login cuando el tenant exige 2FA a roles owner|manager
+  // y el user no lo tiene activo. NO se requiere JwtAuthGuard.
+
+  @Public()
+  @Throttle2fa()
+  @Post('enrol-required/setup')
+  @HttpCode(HttpStatus.OK)
+  async enrolRequiredSetup(@Body() input: Enrol2faRequiredSetupDto): Promise<Setup2faResponse> {
+    return this.twoFactor.enrolRequiredSetup(input);
+  }
+
+  @Public()
+  @Throttle2fa()
+  @Post('enrol-required/verify')
+  @HttpCode(HttpStatus.OK)
+  async enrolRequiredVerify(
+    @Body() input: Enrol2faRequiredVerifyDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthSuccessResponse & { recoveryCodes: string[] }> {
+    const result = await this.twoFactor.enrolRequiredVerify(input, extractMeta(req));
     this.setRefreshCookie(res, result.refreshToken);
     return result.body;
   }

@@ -30,6 +30,7 @@ export async function registerVerifiedUser(
 
   const reg = await request(app.getHttpServer())
     .post('/auth/register')
+    .redirects(1)
     .send({
       tenantName: overrides.tenantName ?? `Test ${prefix}`,
       tenantSlug: ids.slug,
@@ -45,7 +46,10 @@ export async function registerVerifiedUser(
   const mail = await waitForEmail(ids.email, { subjectIncludes: 'Verifica' });
   const token = extractToken(mail.Text, '/verify-email');
 
-  const verified = await request(app.getHttpServer()).post('/auth/verify-email').send({ token });
+  const verified = await request(app.getHttpServer())
+    .post('/auth/verify-email')
+    .redirects(1)
+    .send({ token });
   if (verified.status !== 200) {
     throw new Error(`verify-email fallo con HTTP ${verified.status}`);
   }

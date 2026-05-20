@@ -280,6 +280,118 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).not.toContain('<sum1:FacturasRectificadas>');
     });
 
+    it('F2 sin destinatario emite FacturaSinIdentifDestinatarioArt61d y omite Destinatarios', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const base = baseArgs();
+      // F2 simplificada sin destinatario identificado: construimos los
+      // args sin `recipient`.
+      const args: BuildRegistroAltaArgs = {
+        tenant: base.tenant,
+        invoice: { ...base.invoice, invoiceType: 'F2' },
+      };
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+
+      expect(xml).toContain('<sum1:TipoFactura>F2</sum1:TipoFactura>');
+      expect(xml).toContain(
+        '<sum1:FacturaSinIdentifDestinatarioArt61d>S</sum1:FacturaSinIdentifDestinatarioArt61d>',
+      );
+      expect(xml).not.toContain('<sum1:Destinatarios>');
+      expect(xml).not.toContain('<sum1:IDDestinatario>');
+    });
+
+    it('F2 con destinatario emite el bloque Destinatarios normalmente', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'F2';
+      // Mantenemos `recipient` del baseArgs.
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+
+      expect(xml).toContain('<sum1:TipoFactura>F2</sum1:TipoFactura>');
+      expect(xml).toContain('<sum1:Destinatarios>');
+      expect(xml).not.toContain('<sum1:FacturaSinIdentifDestinatarioArt61d>');
+    });
+
+    it('rectificativa por sustitucion emite ImporteRectificacion con totales originales', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'R1';
+      args.invoice.correctionMethod = 'S';
+      args.invoice.rectifies = [
+        {
+          emitterTaxId: 'B12345678',
+          invoiceNumber: 'FA/2026/00001',
+          issueDate: new Date('2026-05-10T00:00:00.000Z'),
+        },
+      ];
+      args.invoice.originalAmounts = {
+        baseRectificada: 100,
+        cuotaRectificada: 21,
+      };
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+
+      expect(xml).toContain('<sum1:TipoRectificativa>S</sum1:TipoRectificativa>');
+      expect(xml).toContain('<sum1:ImporteRectificacion>');
+      expect(xml).toContain('<sum1:BaseRectificada>100.00</sum1:BaseRectificada>');
+      expect(xml).toContain('<sum1:CuotaRectificada>21.00</sum1:CuotaRectificada>');
+      expect(xml).toContain('<sum1:CuotaRecargoRectificado>0.00</sum1:CuotaRecargoRectificado>');
+
+      // El bloque va DESPUES de FacturasRectificadas y ANTES de Desglose.
+      const idxFacturas = xml.indexOf('<sum1:FacturasRectificadas>');
+      const idxImporte = xml.indexOf('<sum1:ImporteRectificacion>');
+      const idxDesglose = xml.indexOf('<sum1:Desglose>');
+      expect(idxFacturas).toBeGreaterThan(-1);
+      expect(idxImporte).toBeGreaterThan(idxFacturas);
+      expect(idxImporte).toBeLessThan(idxDesglose);
+    });
+
+    it('rectificativa por sustitucion sin originalAmounts no emite ImporteRectificacion', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'R1';
+      args.invoice.correctionMethod = 'S';
+      args.invoice.rectifies = [
+        {
+          emitterTaxId: 'B12345678',
+          invoiceNumber: 'FA/2026/00001',
+          issueDate: new Date('2026-05-10T00:00:00.000Z'),
+        },
+      ];
+      // Sin originalAmounts: el XML sigue valido pero omite el bloque.
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+
+      expect(xml).toContain('<sum1:TipoRectificativa>S</sum1:TipoRectificativa>');
+      expect(xml).not.toContain('<sum1:ImporteRectificacion>');
+    });
+
+    it('rectificativa por diferencias NUNCA emite ImporteRectificacion aunque vengan originalAmounts', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'R1';
+      args.invoice.correctionMethod = 'I';
+      args.invoice.rectifies = [
+        {
+          emitterTaxId: 'B12345678',
+          invoiceNumber: 'FA/2026/00001',
+          issueDate: new Date('2026-05-10T00:00:00.000Z'),
+        },
+      ];
+      args.invoice.originalAmounts = { baseRectificada: 100, cuotaRectificada: 21 };
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+
+      expect(xml).toContain('<sum1:TipoRectificativa>I</sum1:TipoRectificativa>');
+      expect(xml).not.toContain('<sum1:ImporteRectificacion>');
+    });
+
     it('respeta el NIF del sistema informatico configurado por env', () => {
       const builder = new VerifactuXmlBuilder(
         createConfig({

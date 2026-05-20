@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 
 interface NavTab {
   href: string;
-  labelKey: 'users' | 'profile' | 'security' | 'billing' | 'verifactu' | 'widget';
+  labelKey: 'users' | 'profile' | 'security' | 'billing' | 'verifactu' | 'widget' | 'integrations';
 }
 
 const TABS: NavTab[] = [
@@ -20,6 +20,7 @@ const TABS: NavTab[] = [
   { href: '/settings/billing', labelKey: 'billing' },
   { href: '/settings/billing/verifactu', labelKey: 'verifactu' },
   { href: '/settings/widget', labelKey: 'widget' },
+  { href: '/settings/integrations', labelKey: 'integrations' },
 ];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {

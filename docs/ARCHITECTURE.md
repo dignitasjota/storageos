@@ -219,16 +219,22 @@ En tiempo de envío, el `RealAeatClient` descifra, extrae el cert PEM + clave pr
 El frontend `apps/web` aplica una **Content Security Policy** definida en
 `apps/web/next.config.mjs` (función `headers()`).
 
-### Modo `Report-Only`
+### Modo `enforcement` (desde Fase 13A.4)
 
-En la Fase 11A se introduce la CSP en modo **`Content-Security-Policy-Report-Only`**
-para auditar violaciones sin romper UX. El navegador respeta la política
-informativamente y envía cada bloqueo simulado al endpoint
+La Fase 11A introdujo la CSP en modo **`Content-Security-Policy-Report-Only`**
+para auditar violaciones sin romper UX: el navegador respetaba la política
+informativamente y enviaba cada bloqueo simulado al endpoint
 `POST /api/csp-report` (logueado a stdout → Loki/Grafana en producción).
 
-Tras **1 semana en producción sin violaciones inesperadas** se cambia a
-enforcement renombrando la cabecera a `Content-Security-Policy`. La
-configuración de directivas no cambia.
+En la **Fase 13A.4**, tras la ventana de auditoría sin violaciones
+inesperadas (incluyendo Fase 12), se cambió la cabecera a
+**`Content-Security-Policy`** (enforcement). La lista de directivas y los
+dominios permitidos **no cambian**: las mismas reglas que se observaban
+ahora bloquean activamente el recurso. El endpoint `/api/csp-report` sigue
+montado y activo (la directiva `report-uri` también funciona en modo
+enforcement), de modo que si en producción aparecen violaciones reales
+quedarán registradas y podremos reaccionar (rollback inmediato volviendo
+a `Content-Security-Policy-Report-Only` si fuese necesario).
 
 ### Directivas y dominios externos permitidos
 
@@ -271,11 +277,12 @@ cambio a enforcement.
 
 ### Roadmap
 
-1. Fase 11A (actual): `Report-Only` desplegado en producción.
-2. Auditoría: 1 semana de logs `[CSP violation]` en Loki para identificar
-   falsos positivos y dominios no contemplados.
-3. Endurecimiento: ajustar directivas según hallazgos y renombrar la
-   cabecera a `Content-Security-Policy` (enforcement).
+1. Fase 11A: `Report-Only` desplegado en producción.
+2. Auditoría (Fases 11–12): logs `[CSP violation]` en Loki para identificar
+   falsos positivos y dominios no contemplados; ninguno requirió ajustes.
+3. **Fase 13A.4 (actual): enforcement activo** (`Content-Security-Policy`).
+   El endpoint `/api/csp-report` permanece desplegado por si aparecen
+   violaciones reales en producción.
 4. Futuro (opcional): migrar `'unsafe-inline'` de `script-src` a nonces
    dinámicos generados en middleware. Queda fuera de scope porque
    requiere recablear todo el render path de Next App Router.

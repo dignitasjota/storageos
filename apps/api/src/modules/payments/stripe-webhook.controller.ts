@@ -7,6 +7,7 @@ import {
   Logger,
   Post,
   Req,
+  VERSION_NEUTRAL,
   forwardRef,
 } from '@nestjs/common';
 
@@ -31,7 +32,9 @@ import type { Request } from 'express';
  *   - setup_intent.succeeded (solo log)
  *   - customer.deleted (limpia payment_methods relacionados)
  */
-@Controller('webhooks')
+// Webhook montado fuera del versioning: Stripe tiene la URL `/webhooks/stripe`
+// registrada en su dashboard. Cambiarla rompe los eventos en produccion.
+@Controller({ path: 'webhooks', version: VERSION_NEUTRAL })
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
 

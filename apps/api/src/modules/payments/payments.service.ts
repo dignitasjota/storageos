@@ -74,6 +74,16 @@ export class PaymentsService {
         message: 'La factura no es cobrable en este estado',
       });
     }
+    // F2 sin destinatario no tiene customer ni metodo de pago: el cobro
+    // automatico via gateway no es posible. El cobro en metalico se
+    // registra via `mark-paid`.
+    if (!invoice.customerId) {
+      throw new BadRequestException({
+        code: 'invoice_without_customer',
+        message: 'La factura no tiene cliente; no se puede cobrar via gateway',
+      });
+    }
+    const invoiceCustomerId: string = invoice.customerId;
     const pending = Number(invoice.total) - Number(invoice.amountPaid);
     const amount = args.input.amount ?? pending;
     if (amount <= 0 || amount > pending + 0.001) {
@@ -90,7 +100,7 @@ export class PaymentsService {
         await this.prisma.withTenant(
           (tx) =>
             tx.paymentMethod.findFirst({
-              where: { customerId: invoice.customerId, isDefault: true, deletedAt: null },
+              where: { customerId: invoiceCustomerId, isDefault: true, deletedAt: null },
             }),
           args.tenantId,
         )
@@ -128,7 +138,7 @@ export class PaymentsService {
         data: {
           tenantId: args.tenantId,
           invoiceId: invoice.id,
-          customerId: invoice.customerId,
+          customerId: invoiceCustomerId,
           paymentMethodId: pm.id,
           amount,
           currency: invoice.currency,
