@@ -1,21 +1,219 @@
 name: storageos-prod
 
-# Placeholder para el despliegue en VPS (Portainer + Nginx Proxy Manager).
-# Se completará en Fase 8 (panel super admin + facturación SaaS), o antes
-# si necesitamos un entorno de staging.
+# =============================================================================
+# docker-compose.prod.yml - Stack de PRODUCCION (Fase 8C).
 #
-# Diferencias previstas frente al docker-compose.yml de desarrollo:
-#   - Imágenes inmutables con tags concretos (no `latest`).
-#   - Variables sensibles desde Docker secrets en lugar de .env.
-#   - Sin exposición de puertos al host: NPM enruta vía red interna.
-#   - Servicios extra: api, web, worker (BullMQ), Uptime Kuma.
-#   - Healthchecks más estrictos y políticas `restart: always`.
-#   - Backups: contenedor de backups cifrados a almacenamiento externo.
+# Diferencias clave frente a docker-compose.yml (dev):
+#   - Imagenes con tags fijos (no `latest`) para postgres/redis/minio.
+#   - Postgres / Redis / MinIO NO exponen puertos al host: solo viven en
+#     la red interna `storageos-net`. La reverse proxy externa (Nginx
+#     Proxy Manager) enruta https://app|api.tu-dominio a `web` y `api`.
+#   - Sin Mailpit (en prod usamos Resend) ni createbuckets (los buckets
+#     se crean idempotentemente al primer despliegue con `mc` manual o
+#     via consola MinIO).
+#   - Healthchecks estrictos + restart: unless-stopped.
+#   - Servicio one-shot `migrate` para `prisma migrate deploy`.
 #
-# Ver `docs/DEPLOYMENT.md` cuando esté redactado.
+# Uso tipico:
+#   1) Primer despliegue:
+#        docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres redis minio
+#        docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm migrate
+#        docker compose -f docker-compose.prod.yml --env-file .env.prod up -d api web
+#   2) Releases posteriores:
+#        git pull && docker compose -f docker-compose.prod.yml --env-file .env.prod build
+#        docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm migrate
+#        docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Ver docs/DEPLOYMENT.md para el procedimiento completo.
+# =============================================================================
 
 services:
-  placeholder:
-    image: alpine:3.21
-    command: ['sh', '-c', 'echo "docker-compose.prod.yml pendiente de Fase 8" && sleep infinity']
-    profiles: ['__never__']
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Base de datos principal.
+  # Volumen `postgres-data` persiste entre redeploys.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Locale es_ES por defecto; comentar si la imagen no lo trae.
+      PGTZ: Europe/Madrid
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - storageos-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 - Cache, sesiones, colas BullMQ.
+  # Configurado con AOF (append-only file) para durabilidad de jobs.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--requirepass',
+        '${REDIS_PASSWORD}',
+        '--maxmemory',
+        '512mb',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    volumes:
+      - redis-data:/data
+    networks:
+      - storageos-net
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # MinIO - S3-compatible object storage (planos, docs, facturas PDF).
+  # Console expuesta solo via NPM (opcional) en una ruta restringida.
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-}
+      MINIO_SERVER_URL: ${MINIO_PUBLIC_URL:-}
+    volumes:
+      - minio-data:/data
+    networks:
+      - storageos-net
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # API - Backend NestJS.
+  # Context = raiz del monorepo (necesario por pnpm workspaces).
+  # No expone puertos al host: NPM enruta api.tu-dominio -> api:3001.
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: storageos/api:${RELEASE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      NODE_ENV: production
+      # Override defensivo: en compose los hostnames son los nombres de
+      # servicio, sobreescribimos cualquier valor de .env.prod que apunte
+      # a localhost.
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      DATABASE_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - storageos-net
+    # Sin `ports:` => puerto 3001 solo accesible dentro de la red Docker.
+    expose:
+      - '3001'
+
+  # ---------------------------------------------------------------------------
+  # Web - Frontend Next.js 15 standalone.
+  # NEXT_PUBLIC_API_URL se embebe en el bundle en build-time.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # URL publica con la que el browser hablara con la API. DEBE ser
+        # el dominio expuesto a internet via NPM (HTTPS), no `http://api`.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    image: storageos/web:${RELEASE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      - api
+    networks:
+      - storageos-net
+    expose:
+      - '3000'
+
+  # ---------------------------------------------------------------------------
+  # Migrate - Servicio one-shot. Aplica las migraciones Prisma pendientes.
+  # No tiene `restart`: termina y sale. Se invoca con:
+  #   docker compose -f docker-compose.prod.yml run --rm migrate
+  # ---------------------------------------------------------------------------
+  migrate:
+    image: storageos/api:${RELEASE_TAG:-latest}
+    profiles: ['tools']
+    # Reusamos la imagen de la API porque ya trae el Prisma client + schema.
+    # El binario `prisma` esta en node_modules/.bin del paquete database.
+    working_dir: /app/node_modules/@storageos/database
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        echo "[migrate] Aplicando migraciones Prisma...";
+        node /app/node_modules/prisma/build/index.js migrate deploy;
+        echo "[migrate] OK";
+    env_file:
+      - .env.prod
+    environment:
+      # Las migraciones se aplican con el rol admin (bypass RLS).
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - storageos-net
+
+# -----------------------------------------------------------------------------
+# Red interna - aisla los servicios del host. NPM se conecta a esta red
+# como cliente externo (declarado en el compose de NPM con `external: true`).
+# -----------------------------------------------------------------------------
+networks:
+  storageos-net:
+    name: storageos-net
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# Volumenes persistentes. Se respaldan con scripts/backup.sh.
+# -----------------------------------------------------------------------------
+volumes:
+  postgres-data:
+    name: storageos-postgres-data
+  redis-data:
+    name: storageos-redis-data
+  minio-data:
+    name: storageos-minio-data

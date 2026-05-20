@@ -350,41 +350,93 @@ Productos accesorios para venta.
 - Borrar un `customer` con contratos activos no está permitido; se hace soft delete.
 - La timezone de las fechas mostradas es la del `facility` correspondiente; las almacenadas siempre UTC.
 
-## Pendiente — Fase 4 — Verifactu (RD 1007/2023)
+## 11. Verifactu (Fase 4 + Fase 10)
 
-España exige Verifactu para sociedades desde el 1 de enero de 2026. El MVP de StorageOS debe ser compliant. Cambios a aplicar cuando se implemente la facturación:
+España exige Verifactu para sociedades desde 2026-07-01. Implementado.
 
-### `invoices` — campos adicionales
+### `invoices` — campos Verifactu
 
-- `hash` (text) — hash de la propia factura, calculado conforme al algoritmo Verifactu.
-- `previous_hash` (text, nullable) — hash de la factura inmediatamente anterior de la misma serie, para encadenamiento criptográfico. `NULL` solo en la primera factura de cada serie.
-- `qr_code_url` (text) — URL del QR obligatorio en la factura (apunta a la AEAT con los datos clave).
-- `verifactu_mode` (enum: `verifactu` | `no_verifactu`) — modalidad declarada por el tenant.
-- `aeat_sent_at` (timestamptz, nullable) — momento de envío.
-- `aeat_status` (enum: `pending` | `accepted` | `accepted_with_warnings` | `rejected` | `error`) — resultado del envío.
-- `aeat_response` (jsonb, nullable) — payload de respuesta para diagnóstico.
-- `aeat_csv` (text, nullable) — Código Seguro de Verificación devuelto por la AEAT cuando aplica.
+- `hash` (text) — SHA-256 de la propia factura.
+- `previous_hash` (text, nullable) — hash de la factura inmediatamente anterior de la misma serie. `NULL` solo en la primera factura de cada serie.
+- `qr_code_url` (text) — URL del QR AEAT embebido en el PDF.
+- `verifactu_mode` (enum: `verifactu` | `no_verifactu`) — modalidad declarada.
+- `aeat_sent_at` (timestamptz, nullable).
+- `aeat_status` (enum: `pending` | `accepted` | `accepted_with_warnings` | `rejected` | `error`).
+- `aeat_response` (jsonb, nullable) — payload de respuesta + diagnóstico (`raw` AEAT + `mode`).
+- `aeat_csv` (text, nullable) — Código Seguro de Verificación devuelto por AEAT.
 
-### `invoice_series` — nueva tabla
-
-Para soportar múltiples series por tenant (p. ej. una por facility o por año):
+### `invoice_series`
 
 - `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `facility_id` (nullable), `is_active`.
 
-### `audit_logs` — convención
+### `tenant_aeat_credentials` (Fase 10)
 
-Toda emisión de factura genera un `audit_log` con el hash y el `aeat_status` final. Sin excepciones.
+Un único PKCS#12 activo por tenant (UNIQUE en `tenant_id` con filtro `revoked_at IS NULL` natural por upsert):
 
-## Pendiente — RGPD
+- `id`, `tenant_id` (UNIQUE), `cert_p12_encrypted` (bytea, AES-256-GCM via `CryptoService` con `MASTER_ENCRYPTION_KEY`), `cert_password_encrypted` (text), `cert_common_name`, `cert_nif`, `cert_issuer`, `cert_valid_from`, `cert_valid_to`, `environment` (`sandbox`|`production`), `uploaded_by_id`, `uploaded_at`, `revoked_at`, `revoked_reason`.
 
-Para cumplir el derecho de acceso, rectificación, supresión y portabilidad:
+### Convención de `audit_logs`
+
+Toda emisión de factura genera un `audit_log` con el hash y el `aeat_status` final.
+
+## 12. RGPD
 
 ### `data_subject_requests`
 
-- `id`, `tenant_id`, `customer_id` (nullable si el sujeto no es cliente registrado), `email`, `request_type` (`access` | `rectification` | `erasure` | `portability` | `restriction`), `status` (`open` | `in_progress` | `fulfilled` | `denied`), `submitted_at`, `due_at` (calculado: 1 mes desde submitted_at), `fulfilled_at`, `notes`, `handled_by_user_id`.
+- `id`, `tenant_id`, `customer_id` (nullable), `email`, `request_type` (`access` | `rectification` | `erasure` | `portability` | `restriction`), `status` (`open` | `in_progress` | `fulfilled` | `denied`), `submitted_at`, `due_at` (1 mes desde submitted_at), `fulfilled_at`, `notes`, `handled_by_user_id`.
 
 ### `consents`
 
-Registra los consentimientos explícitos (marketing, comunicaciones no esenciales, etc.):
+- `id`, `tenant_id`, `customer_id`, `purpose`, `granted` (boolean), `granted_at`, `revoked_at`, `evidence` (jsonb con IP, user-agent, texto exacto).
 
-- `id`, `tenant_id`, `customer_id`, `purpose` (string), `granted` (boolean), `granted_at`, `revoked_at`, `evidence` (jsonb con IP, user-agent, texto exacto del consentimiento).
+## 13. Super admin y soporte (Fase 8 + 9A)
+
+### `super_admins`
+
+Tabla global sin `tenant_id`. RLS deshabilitada (acceso solo via `PrismaAdminService`).
+
+- `id`, `email` (UNIQUE), `password_hash` (argon2id), `name`, `role` (`superadmin` | `support`), `is_active`, `created_at`, `last_login_at`.
+- **Fase 9A** añade: `two_factor_secret` (cifrado AES-256-GCM, nullable), `two_factor_pending_secret`, `two_factor_enabled` (boolean), `two_factor_enrolled_at`.
+
+### `super_admin_sessions` (Fase 9A)
+
+Sesiones refresh del super admin. Token opaco `<sessionId>.<secret>` con hash argon2id.
+
+- `id`, `super_admin_id`, `refresh_token_hash`, `user_agent`, `ip_address`, `expires_at`, `rotated_at`, `revoked_at`, `revoked_reason`, `replaced_by_session_id`.
+
+### `super_admin_recovery_codes` (Fase 9A)
+
+10 códigos `XXXX-XXXX` hashed argon2id, single-use.
+
+- `id`, `super_admin_id`, `code_hash`, `used_at`, `created_at`.
+
+### `impersonation_logs`
+
+- `id`, `super_admin_id`, `tenant_id`, `user_id` (a quien impersona), `started_at`, `expires_at` (TTL 1h), `reason`, `audit_metadata` (jsonb).
+
+### `support_tickets`
+
+State machine `open` → `in_progress` → `waiting_customer` ⇄ `in_progress` → `resolved` → `closed`.
+
+- `id`, `tenant_id`, `subject`, `status`, `priority` (`low` | `medium` | `high` | `urgent`), `category`, `assigned_to_super_admin_id` (nullable), `created_by_user_id`, `created_at`, `resolved_at`, `closed_at`.
+
+### `support_ticket_messages`
+
+- `id`, `ticket_id`, `author_user_id` (nullable, si autor tenant), `author_super_admin_id` (nullable, si autor staff), `body`, `is_internal` (boolean, mensajes privados admin no visibles al tenant), `created_at`.
+
+## 14. SaaS billing (Fase 8)
+
+### `subscription_plans` — campos adicionales (Fase 8)
+
+- `stripe_price_id_monthly`, `stripe_price_id_yearly`, `stripe_product_id`, `is_active`, `features` (jsonb).
+
+### `tenant_subscriptions` — campos adicionales (Fase 8)
+
+- `stripe_customer_id`, `stripe_subscription_id`, `stripe_status` (espejo del status de Stripe), `current_period_start`, `current_period_end`, `cancel_at_period_end` (boolean), `canceled_at`.
+
+## 15. Pendiente / post-MVP
+
+- **Anulación/rectificación Veri\*Factu (F2, R1-R5)**: solo cubrimos `RegistroAlta` (F1).
+- **`tenant_aeat_credentials` historial**: una sola fila activa por tenant; sin tabla de history. Si hace falta auditoría exhaustiva de rotaciones, añadir `tenant_aeat_credentials_history`.
+- **`security_events`**: tabla para login-failed sin tenant context (intentos contra emails inexistentes).
+- **Cache `analytics_snapshots`**: si los 4 KPIs crecen en coste, materializar diariamente.

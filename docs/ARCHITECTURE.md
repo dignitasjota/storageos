@@ -124,6 +124,14 @@ Cada refresh **rota** la sesión actual (la marca `revokedReason: rotated`) y cr
 
 **Por qué:** centraliza la autorización por role; los endpoints solo declaran qué roles los pueden invocar. Las **invariantes de dominio** (único `owner`, transferencia atómica de propiedad, manager no puede asignar manager) se mantienen en `UsersService` con códigos de error específicos (`owner_required`, `insufficient_role`), no en el guard. Esto separa "puedes llamar al endpoint" de "el cambio que pides es válido".
 
+## ADR-020: Cliente AEAT real para Veri\*Factu (ver `adr/008-verifactu-real-client.md`)
+
+**Decisión:** implementar Veri\*Factu (modo verificable, no SII). Cada tenant sube su PKCS#12; el envío se hace por mTLS con `https.Agent` nativo, sin firma XAdES, con cola BullMQ con retry 3× exponencial.
+
+**Por qué:** desde 2026-07-01 toda factura emitida en España debe enviarse al AEAT en tiempo real. El modo verificable (que es el que aplica al sector self-storage) NO requiere firma XAdES, solo encadenamiento de hash + envío inmediato. El tenant es el emisor fiscal real; nosotros operamos solo como software.
+
+**Detalle completo:** ADR independiente en `docs/adr/008-verifactu-real-client.md`.
+
 ## ADR-019: Email transaccional con nodemailer + React Email
 
 **Decisión:** en backend usamos `nodemailer` para enviar y `@react-email/components` para componer las plantillas. En dev apuntamos a **Mailpit** (`localhost:1026`); en prod apuntaremos a Resend o Brevo vía SMTP relay (no autohospedamos SMTP, ver ADR-010).
@@ -157,6 +165,45 @@ Todos los servicios viven en una red Docker interna; solo NPM expone puertos al 
 6. Si el método de pago está guardado, encola job de cobro automático.
 7. Resultado del cobro actualiza `payment.status`; si falla, encola `dunning_action`.
 8. Cada paso queda en `audit_logs`.
+
+## Veri\*Factu: arquitectura del envío AEAT (Fase 10)
+
+A partir del **RD 1007/2023** (entrada en vigor 2026-07-01) cada factura emitida por un tenant español debe enviarse al AEAT en tiempo real (modo "verificable"). StorageOS implementa el envío end-to-end con cliente propio mTLS y certificado por tenant.
+
+### Flujo de envío
+
+```
+InvoicesService.issue
+    ├─ genera hash encadenado (VerifactuService.computeChainedHash)
+    ├─ persiste invoice con aeatStatus = null
+    └─ encola job `send-to-aeat` en la cola BullMQ `verifactu`
+
+VerifactuProcessor (worker, concurrency 2, retry 3× exponencial 60s base)
+    └─ VerifactuService.sendToAeat(invoiceId)
+        ├─ carga el cert del tenant (TenantAeatCredentialsService.getDecrypted)
+        ├─ construye XML (VerifactuXmlBuilder.buildRegistroAlta)
+        ├─ POST mTLS al endpoint AEAT (RealAeatClient.sendInvoice)
+        ├─ parsea respuesta SOAP (EstadoRegistro + CSV + mensaje)
+        ├─ persiste aeat_status / aeat_sent_at / aeat_response en invoice
+        ├─ si error técnico (timeout, 5xx, TLS) → throw → BullMQ retry (1m, 5m, 25m aprox)
+        └─ si rejected (decisión firme AEAT) → no retry, requiere revisión manual
+```
+
+### Modos `AEAT_MODE`
+
+| Mode         | Endpoint                                                 | Comportamiento                                            |
+| ------------ | -------------------------------------------------------- | --------------------------------------------------------- |
+| `stub`       | ninguno                                                  | `StubAeatClient` devuelve `accepted` con CSV sintético    |
+| `sandbox`    | `prewww1.aeat.es/.../SistemaFacturacionV1`               | `RealAeatClient` real contra sandbox AEAT (preproducción) |
+| `production` | `www1.agenciatributaria.gob.es/.../SistemaFacturacionV1` | `RealAeatClient` real contra producción AEAT              |
+
+El cambio entre modos es exclusivamente por variable de entorno (`AEAT_MODE`). El código de negocio (cálculo de hash encadenado, QR, persistencia) es idéntico en los tres modos.
+
+### Almacenamiento de certificados
+
+Cada tenant sube su propio PKCS#12 (`.p12`/`.pfx`) a la tabla `tenant_aeat_credentials`. El binario se codifica base64 y se cifra como string mediante `CryptoService` (AES-256-GCM con `MASTER_ENCRYPTION_KEY`), igual que los tokens Stripe (ADR-007/ADR-015). La password del certificado se cifra con el mismo mecanismo en una columna independiente. La metadata (CN, NIF, issuer, `notBefore`, `notAfter`) se extrae al subir y se persiste en claro para mostrar el estado en `/settings/billing/verifactu` sin tener que descifrar el certificado en cada render.
+
+En tiempo de envío, el `RealAeatClient` descifra, extrae el cert PEM + clave privada PEM con `node-forge`, y crea un `https.Agent` nativo de Node con `cert`/`key`/`passphrase`. No usamos `axios`, `node-soap` ni `xadesjs` (ver ADR-020).
 
 ## Seguridad: defensa en profundidad
 

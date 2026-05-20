@@ -19,6 +19,7 @@
     "studio": "prisma studio",
     "format": "prisma format",
     "seed": "tsx prisma/seed.ts",
+    "seed:superadmin": "tsx prisma/seed-superadmin.ts",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "typecheck": "prisma generate && tsc --noEmit",
     "lint": "eslint . --max-warnings=0",

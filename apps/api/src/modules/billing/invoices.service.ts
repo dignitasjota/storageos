@@ -1,13 +1,20 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@storageos/database';
+import { Queue } from 'bullmq';
 
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
 import { InvoiceSeriesService } from './invoice-series.service';
 import { VerifactuService } from './verifactu.service';
 
+import type { VerifactuSendJobData } from './verifactu.processor';
 import type { RequestMeta } from '../auth/auth.service';
-import type { Invoice, InvoiceItem, InvoiceStatus, Prisma } from '@storageos/database';
+import type { Invoice, InvoiceItem, InvoiceStatus } from '@storageos/database';
 import type {
   CancelInvoiceInput,
   CreateInvoiceInput,
@@ -51,11 +58,23 @@ interface ListFilters {
 
 @Injectable()
 export class InvoicesService {
+  private readonly logger = new Logger(InvoicesService.name);
+
+  /** Opciones de retry para el envio Verifactu: 3 intentos con backoff exponencial. */
+  private static readonly VERIFACTU_JOB_OPTS = {
+    attempts: 3,
+    backoff: { type: 'exponential' as const, delay: 60_000 },
+    removeOnComplete: { age: 86_400 },
+    removeOnFail: false,
+  };
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly series: InvoiceSeriesService,
     private readonly verifactu: VerifactuService,
+    private readonly events: EventEmitter2,
+    @InjectQueue(QUEUE_VERIFACTU) private readonly verifactuQueue: Queue<VerifactuSendJobData>,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -277,8 +296,14 @@ export class InvoicesService {
       });
     }, args.tenantId);
 
-    // Disparar envio (stub o real). Fuera de la transaccion principal.
-    await this.verifactu.sendToAeat(updated.id, args.tenantId);
+    // Encolar el envio AEAT en BullMQ con retry exponencial. El worker
+    // (VerifactuProcessor) consumira el job de forma asincrona. Solo
+    // reintenta cuando AEAT devuelve `status='error'` (fallo tecnico).
+    await this.verifactuQueue.add(
+      JOB_VERIFACTU_SEND,
+      { invoiceId: updated.id, tenantId: args.tenantId },
+      InvoicesService.VERIFACTU_JOB_OPTS,
+    );
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -291,6 +316,45 @@ export class InvoicesService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
+  }
+
+  /**
+   * Reencola el envio a AEAT de una factura ya emitida. Resetea los
+   * campos `aeat_*` para que el worker arranque desde cero. Usado desde
+   * el badge Verifactu del frontend cuando un envio quedo en `error` o
+   * `rejected` y queremos reintentar tras corregir datos.
+   */
+  async resendAeat(
+    invoiceId: string,
+    tenantId: string,
+  ): Promise<{ queued: true; invoiceId: string }> {
+    const existing = await this.findOrThrow(tenantId, invoiceId);
+    if (existing.status === 'draft') {
+      throw new BadRequestException({
+        code: 'invoice_draft_not_sendable',
+        message: 'No se puede reenviar a AEAT una factura en borrador',
+      });
+    }
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            aeatSentAt: null,
+            aeatStatus: null,
+            aeatCsv: null,
+            aeatResponse: Prisma.JsonNull,
+          },
+        }),
+      tenantId,
+    );
+    await this.verifactuQueue.add(
+      JOB_VERIFACTU_SEND,
+      { invoiceId, tenantId },
+      InvoicesService.VERIFACTU_JOB_OPTS,
+    );
+    this.logger.log(`[verifactu] reenvio encolado para invoice ${invoiceId} (tenant ${tenantId})`);
+    return { queued: true, invoiceId };
   }
 
   async cancel(args: {
@@ -386,6 +450,23 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    if (fullyPaid) {
+      const payload: DomainEventPayload = {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: args.invoiceId,
+        customerId: existing.customerId,
+        recipientEmail: null,
+        scope: {
+          invoice: {
+            number: updated.invoiceNumber,
+            total: total.toFixed(2),
+            paidAt: paidAt.toISOString(),
+          },
+        },
+      };
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
+    }
     return this.toDto(updated);
   }
 

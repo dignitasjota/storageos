@@ -1,11 +1,12 @@
 # API
 
-> Estado: **Fase 4** — autenticacion (Fase 1), gestion fisica (Fase 2),
-> operativa de contratos (Fase 3) y \*\*facturacion + pagos + dunning + RGPD
->
-> - portal del inquilino\*\* (Fase 4: invoices con Verifactu hash encadenado,
->   Stripe gateway, BullMQ recurrente, anonimizacion RGPD compatible con
->   obligacion fiscal, magic link login para el cliente final).
+> Estado: **Fase 6** — autenticacion (Fase 1), gestion fisica (Fase 2),
+> operativa de contratos (Fase 3), facturacion + pagos + dunning + RGPD +
+> portal (Fase 4), comunicaciones + automations + CRM + widget (Fase 5) y
+> **operativa (tasks + incidents) + productos accesorios + analytics +
+> reports async** (Fase 6: state machines de tasks e incidents con
+> comentarios, ventas con factura Verifactu inline, 4 KPIs de negocio,
+> generators de informe en PDF/Excel con cola BullMQ).
 
 ## Convenciones
 
@@ -704,6 +705,436 @@ portal mínimo para que el inquilino consulte sus facturas.
 | `0 6 * * *`     | dunning   | `execute-action` (per act.)  | Despacha acciones cuyo `scheduled_for <= now()`                         |
 | (futuro Fase 8) | verifactu | `send-to-aeat`               | Envio real a AEAT sandbox/production                                    |
 
+## Comunicaciones, automations, leads y widget (Fase 5)
+
+Modulos `apps/api/src/modules/{communications,automations,leads,widget}/`.
+
+### Invariantes clave
+
+- **Outbox pattern**: toda comunicacion se persiste en `communications`
+  ANTES de pasar al provider. El worker BullMQ toma `pending`, marca
+  `processing`, llama al provider y marca `sent/failed`. Si el proceso
+  cae, las pending sobreviven y se reintentaran.
+- **EmailProvider abstracto**: `EMAIL_PROVIDER=smtp|resend`. SMTP usa
+  nodemailer (Mailpit en dev). Resend usa la REST API (`RESEND_API_KEY`).
+  Cambiar provider = una variable de entorno.
+- **WhatsAppProvider abstracto**: en Fase 5 solo `whatsapp_stub` (loggea).
+  En Fase 8 se anade `MetaWabaProvider` sin tocar el caller.
+- **Templating Handlebars + whitelist por trigger**: cada trigger tiene
+  una lista de variables permitidas (`TEMPLATE_VARIABLES_BY_TRIGGER`).
+  Cuando una plantilla se renderiza con `trigger`, las variables fuera
+  de la whitelist se ignoran. Defensa contra filtrado accidental.
+- **Plantillas system son inmutables**: `kind='system'` rechaza PATCH/DELETE.
+  Built-ins se crean con `kind='transactional'` (editables) para que el
+  tenant pueda personalizarlas.
+- **Automations event-driven**: services emiten eventos via `EventEmitter2`.
+  `AutomationsService` escucha, matchea reglas activas por trigger y
+  encola `automation_run` en la cola `automations`. El worker resuelve
+  la communication via `CommunicationsService.enqueue`.
+- **Leads state machine**: `new → contacted → qualified → won|lost` (con
+  vuelta atras en transiciones tempranas). Conversion atomic crea
+  customer y, opcionalmente, reservation.
+- **Widget publico**: endpoints sin auth bajo `/public/widget/:slug/*`,
+  con throttle estricto (5/min/IP en POST), honeypot anti-bot
+  (`hp` debe estar vacio), CSP `frame-ancestors *` + `X-Frame-Options:
+ALLOWALL` en la ruta `/widget/[slug]` del Next.
+
+### Endpoints — Communications
+
+| Metodo | Ruta                        | Auth | Roles                 | Descripcion                                             |
+| ------ | --------------------------- | ---- | --------------------- | ------------------------------------------------------- |
+| GET    | `/communications`           | SI   | cualquiera            | Filtros `?status=&channel=&customerId=&leadId=&source=` |
+| GET    | `/communications/:id`       | SI   | cualquiera            | Detalle                                                 |
+| POST   | `/communications`           | SI   | owner, manager, staff | Envio manual (resuelve template + outbox + queue)       |
+| POST   | `/communications/:id/retry` | SI   | owner, manager        | Reintenta una en estado `failed`/`bounced`              |
+
+### Endpoints — Message templates
+
+| Metodo | Ruta                         | Auth | Roles          | Descripcion                                                       |
+| ------ | ---------------------------- | ---- | -------------- | ----------------------------------------------------------------- |
+| GET    | `/message-templates`         | SI   | cualquiera     | Lista plantillas del tenant                                       |
+| GET    | `/message-templates/:id`     | SI   | cualquiera     | Detalle                                                           |
+| POST   | `/message-templates`         | SI   | owner, manager | Crea (409 `message_template_code_taken`)                          |
+| PATCH  | `/message-templates/:id`     | SI   | owner, manager | Edita (409 `message_template_system_readonly` si `kind='system'`) |
+| DELETE | `/message-templates/:id`     | SI   | owner, manager | Soft delete (igual restriccion para system)                       |
+| POST   | `/message-templates/preview` | SI   | cualquiera     | Renderiza una plantilla en memoria con variables de muestra       |
+
+### Endpoints — Automations
+
+| Metodo | Ruta               | Auth | Roles          | Descripcion                                      |
+| ------ | ------------------ | ---- | -------------- | ------------------------------------------------ |
+| GET    | `/automations`     | SI   | cualquiera     | Lista reglas                                     |
+| POST   | `/automations`     | SI   | owner, manager | Crea regla (trigger + actionType + templateId)   |
+| PATCH  | `/automations/:id` | SI   | owner, manager | Edita (toggle isActive, cambiar template, delay) |
+| DELETE | `/automations/:id` | SI   | owner, manager | Borra (cascada de `automation_runs` historicos)  |
+
+### Endpoints — Leads
+
+| Metodo | Ruta                    | Auth | Roles                 | Descripcion                                          |
+| ------ | ----------------------- | ---- | --------------------- | ---------------------------------------------------- |
+| GET    | `/leads`                | SI   | cualquiera            | Filtros `?status=&assignedToUserId=&source=&search=` |
+| GET    | `/leads/:id`            | SI   | cualquiera            | Detalle                                              |
+| POST   | `/leads`                | SI   | owner, manager, staff | Crea (source default `manual`)                       |
+| PATCH  | `/leads/:id`            | SI   | owner, manager, staff | Edita                                                |
+| POST   | `/leads/:id/transition` | SI   | owner, manager, staff | Cambia estado segun state machine                    |
+| POST   | `/leads/:id/convert`    | SI   | owner, manager, staff | Crea customer + (opcional) reservation, marca won    |
+| DELETE | `/leads/:id`            | SI   | owner, manager        | Soft delete                                          |
+
+### Endpoints — Widget publico
+
+| Metodo | Ruta                              | Auth | Throttle  | Descripcion                                     |
+| ------ | --------------------------------- | ---- | --------- | ----------------------------------------------- |
+| GET    | `/public/widget/:slug/facilities` | NO   | 30/min/IP | Lista locales activos del tenant con unit types |
+| POST   | `/public/widget/:slug/leads`      | NO   | 5/min/IP  | Crea lead `source=widget` con honeypot anti-bot |
+
+### Codigos `code` (Fase 5)
+
+| `code`                             | Cuando                                                |
+| ---------------------------------- | ----------------------------------------------------- |
+| `message_template_not_found`       | Template ID/code invalido.                            |
+| `message_template_code_taken`      | Duplicado en `(tenantId, code)`.                      |
+| `message_template_system_readonly` | Intentar editar/borrar una plantilla `kind='system'`. |
+| `communication_not_found`          | Communication ID invalido.                            |
+| `communication_not_retriable`      | Retry sobre algo distinto de `failed`/`bounced`.      |
+| `communication_body_required`      | Send sin template ni `bodyText`.                      |
+| `automation_rule_not_found`        | Rule ID invalido.                                     |
+| `lead_not_found`                   | Lead ID invalido o soft-deleted.                      |
+| `invalid_lead_transition`          | Transicion fuera de la state machine.                 |
+| `lead_already_won`                 | Reintento de convert sobre lead ya cerrado.           |
+| `invalid_payload`                  | Widget: honeypot detectado.                           |
+| `tenant_not_found`                 | Widget: slug invalido o tenant borrado.               |
+
+### BullMQ + colas Fase 5
+
+| Cola             | Job        | Descripcion                                                              |
+| ---------------- | ---------- | ------------------------------------------------------------------------ |
+| `communications` | `dispatch` | Envia una communication via su provider (email/whatsapp/sms)             |
+| `automations`    | `run`      | Aplica una regla a un evento concreto, crea la communication y la encola |
+
+## Operativa, productos, analytics y reports (Fase 6)
+
+Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
+
+### Invariantes clave
+
+- **Tasks vs Incidents**: dos modelos separados con distintos state
+  machines (ver ADR-034). Comentarios en tablas dedicadas
+  (`task_comments`, `incident_comments`) con soft delete.
+- **Tasks**: `open → in_progress → done | cancelled`. Rollback permitido
+  `in_progress → open` y `cancelled → open`. `done` es terminal.
+- **Incidents**: `reported → investigating → resolved | dismissed`.
+  Rollback `dismissed → reported`. `resolved` es terminal. Severity
+  `low|medium|high|critical`. Cuando `severity ≥ high` emite
+  `domain.incident_created` para que las automations notifiquen.
+- **Products**: SKU unico por tenant. Soft delete preserva product_sales
+  historicos. Precio + taxRate snapshot en cada venta.
+- **Stock por facility**: `product_stock(productId, facilityId, quantity)`.
+  Decrement atomic via `updateMany WHERE quantity >= n` (ver ADR-035).
+  No se permite stock negativo: la venta falla con `insufficient_stock`.
+- **ProductSale**: cada venta crea (opcionalmente) un invoice Verifactu
+  reusando `InvoicesService.create + issue` cuando hay customer. Sin
+  customer la venta queda `pending` sin invoice (caso "venta libre").
+- **Analytics on-demand**: los 4 KPIs se calculan en el momento, sin
+  tabla de snapshots (Fase 8 anadira cache diario si hace falta).
+- **Reports async**: todo informe pasa por la cola BullMQ `reports`
+  incluso los ligeros. `report_runs` tiene status + downloadUrl +
+  expiresAt (7 dias). Frontend polling 2s mientras pending/running.
+
+### Endpoints — Tasks
+
+| Metodo | Ruta                    | Auth | Roles                 | Descripcion                                                    |
+| ------ | ----------------------- | ---- | --------------------- | -------------------------------------------------------------- |
+| GET    | `/tasks`                | SI   | cualquiera            | Filtros `?status=&type=&facilityId=&unitId=&assignedToUserId=` |
+| GET    | `/tasks/:id`            | SI   | cualquiera            | Detalle                                                        |
+| POST   | `/tasks`                | SI   | owner, manager, staff | Crea con assignee, due date, priority                          |
+| PATCH  | `/tasks/:id`            | SI   | owner, manager, staff | Edita campos                                                   |
+| POST   | `/tasks/:id/transition` | SI   | owner, manager, staff | State machine. 409 `invalid_task_transition`                   |
+| DELETE | `/tasks/:id`            | SI   | owner, manager        | Soft delete                                                    |
+| GET    | `/tasks/:id/comments`   | SI   | cualquiera            | Lista comentarios cronologica                                  |
+| POST   | `/tasks/:id/comments`   | SI   | owner, manager, staff | Anade comentario                                               |
+
+### Endpoints — Incidents
+
+| Metodo | Ruta                        | Auth | Roles                 | Descripcion                                          |
+| ------ | --------------------------- | ---- | --------------------- | ---------------------------------------------------- |
+| GET    | `/incidents`                | SI   | cualquiera            | Filtros `?status=&severity=&facilityId=&customerId=` |
+| GET    | `/incidents/:id`            | SI   | cualquiera            | Detalle                                              |
+| POST   | `/incidents`                | SI   | owner, manager, staff | Reporta. Si severity≥high emite event automation     |
+| PATCH  | `/incidents/:id`            | SI   | owner, manager, staff | Edita                                                |
+| POST   | `/incidents/:id/transition` | SI   | owner, manager, staff | State machine. 409 `invalid_incident_transition`     |
+| DELETE | `/incidents/:id`            | SI   | owner, manager        | Soft delete                                          |
+| GET    | `/incidents/:id/comments`   | SI   | cualquiera            | Lista                                                |
+| POST   | `/incidents/:id/comments`   | SI   | owner, manager, staff | Anade                                                |
+
+### Endpoints — Products + stock + sales
+
+| Metodo | Ruta                                | Auth | Roles                 | Descripcion                                         |
+| ------ | ----------------------------------- | ---- | --------------------- | --------------------------------------------------- |
+| GET    | `/products`                         | SI   | cualquiera            | Filtros `?isActive=&type=`. Incluye `totalStock`    |
+| GET    | `/products/:id`                     | SI   | cualquiera            | Detalle con totalStock agregado                     |
+| POST   | `/products`                         | SI   | owner, manager        | Crea (409 `product_sku_taken`)                      |
+| PATCH  | `/products/:id`                     | SI   | owner, manager        | Edita                                               |
+| DELETE | `/products/:id`                     | SI   | owner, manager        | Soft delete (preserva ventas historicas)            |
+| GET    | `/products/:productId/stock`        | SI   | cualquiera            | Lista stock por facility                            |
+| POST   | `/products/:productId/stock/adjust` | SI   | owner, manager, staff | Delta (200 OK)                                      |
+| PUT    | `/products/:productId/stock`        | SI   | owner, manager, staff | Set quantity absoluta                               |
+| GET    | `/product-sales`                    | SI   | cualquiera            | Filtros `?customerId=&facilityId=`                  |
+| GET    | `/product-sales/:id`                | SI   | cualquiera            | Detalle con items + invoice                         |
+| POST   | `/product-sales`                    | SI   | owner, manager, staff | Venta atomica. Crea invoice si customer + serie     |
+| POST   | `/product-sales/:id/cancel`         | SI   | owner, manager, staff | Cancela. Restaura stock + cancela invoice si aplica |
+
+### Endpoints — Analytics
+
+| Metodo | Ruta                                | Auth | Descripcion                                                |
+| ------ | ----------------------------------- | ---- | ---------------------------------------------------------- |
+| GET    | `/analytics/occupancy`              | SI   | Fisica + economica + MRR actual vs potencial + perFacility |
+| GET    | `/analytics/churn?from=&to=`        | SI   | Cohort mensual. Default ultimos 6 meses                    |
+| GET    | `/analytics/aging?atDate=`          | SI   | Buckets 0-30/30-60/60-90/+90 + totalOutstanding            |
+| GET    | `/analytics/leads-funnel?from=&to=` | SI   | Totales por estado + ratios + bySource                     |
+
+### Endpoints — Reports
+
+| Metodo | Ruta               | Auth | Roles          | Descripcion                                                 |
+| ------ | ------------------ | ---- | -------------- | ----------------------------------------------------------- |
+| GET    | `/reports/catalog` | SI   | cualquiera     | Lista generators con `paramsSchema` para pintar formularios |
+| GET    | `/reports`         | SI   | cualquiera     | Lista report_runs del tenant (paginacion in-memory 50)      |
+| GET    | `/reports/:id`     | SI   | cualquiera     | Status + downloadUrl si done                                |
+| POST   | `/reports/run`     | SI   | owner, manager | Encola job; devuelve run en `pending`                       |
+
+Generators registrados en Fase 6: `invoices_period`, `contracts_active`,
+`aging_at_date`. Anadir uno = anadir clase implementando `ReportGenerator`
+y declararla en `reports.module.ts`.
+
+### Codigos `code` (Fase 6)
+
+| `code`                         | Cuando                                                         |
+| ------------------------------ | -------------------------------------------------------------- |
+| `task_not_found`               | Task ID invalido.                                              |
+| `invalid_task_transition`      | Transicion fuera del state machine.                            |
+| `incident_not_found`           | Incident ID invalido.                                          |
+| `invalid_incident_transition`  | Transicion fuera del state machine.                            |
+| `product_not_found`            | Product ID invalido.                                           |
+| `product_sku_taken`            | Duplicado `(tenantId, sku)`.                                   |
+| `product_inactive`             | Venta de producto con `isActive=false`.                        |
+| `insufficient_stock`           | Stock por facility insuficiente para la venta solicitada.      |
+| `product_sale_not_found`       | Sale ID invalido.                                              |
+| `product_sale_not_cancellable` | Cancel sobre status distinto de pending/paid.                  |
+| `default_series_required`      | Venta con customer pero sin invoiceSeriesId ni default series. |
+| `report_generator_not_found`   | Generator code desconocido.                                    |
+| `report_format_unsupported`    | Generator no soporta el formato solicitado.                    |
+| `report_run_not_found`         | Report run ID invalido.                                        |
+
+### BullMQ + colas Fase 6
+
+| Cola      | Job        | Descripcion                                                         |
+| --------- | ---------- | ------------------------------------------------------------------- |
+| `reports` | `generate` | Render PDF/Excel del generator y sube a MinIO; status → done/failed |
+
+## Control de accesos fisicos (Fase 7)
+
+Modulo `apps/api/src/modules/access/`.
+
+### Invariantes clave
+
+- **Credenciales** con state machine `pending → active → suspended ⇄ active → revoked`. `revoked` es terminal. Soft delete preservando audit.
+- **Tipos**: `pin` (4-6 digitos), `qr` (string opaco 12-32 chars), `rfid` (UID hexadecimal).
+- **Secret revealed-once**: el `secretHash` argon2id se persiste; el plaintext se devuelve **una sola vez** en el response de create/rotate. Si el cliente lo pierde, hay que rotar.
+- **Suspensiones por dunning**: `revokedReason` empieza por `dunning:` cuando viene del cron de morosidad. Listener `domain.invoice_paid` reactiva automaticamente.
+- **Devices**: `apiKeyHash` argon2id; verify usa header `X-Device-Key`. Devices se vinculan a `facilityId` y opcionalmente a uno o mas `unitId`.
+- **AccessLog**: cada intento queda registrado con `success`, `attemptedValue` sanitizado (PIN last4, QR first8, RFID UID completo), `deviceId`, `credentialId` (si match).
+- **LockProvider abstracto**: `LockProvider` interface + `StubLockProvider` (dev/test, no efecto) + `MqttLockProvider` (publica comandos a broker MQTT). Seleccionable via env `LOCK_PROVIDER=stub|mqtt`.
+
+### Endpoints — Access credentials
+
+| Metodo | Ruta                                 | Auth | Roles          | Descripcion                                               |
+| ------ | ------------------------------------ | ---- | -------------- | --------------------------------------------------------- |
+| GET    | `/access/credentials`                | SI   | cualquiera     | Filtros `?status=&type=&customerId=&unitId=`              |
+| GET    | `/access/credentials/:id`            | SI   | cualquiera     | Detalle sin secret                                        |
+| POST   | `/access/credentials`                | SI   | owner, manager | Crea. Devuelve `revealedSecret` en payload (una sola vez) |
+| POST   | `/access/credentials/:id/rotate`     | SI   | owner, manager | Genera secret nuevo. Devuelve `revealedSecret`            |
+| POST   | `/access/credentials/:id/transition` | SI   | owner, manager | State machine                                             |
+| DELETE | `/access/credentials/:id`            | SI   | owner, manager | Revoke (no hard delete)                                   |
+
+### Endpoints — Access devices
+
+| Metodo | Ruta                             | Auth | Roles          | Descripcion                                      |
+| ------ | -------------------------------- | ---- | -------------- | ------------------------------------------------ |
+| GET    | `/access/devices`                | SI   | cualquiera     | Lista con facility + unitos vinculados           |
+| POST   | `/access/devices`                | SI   | owner, manager | Crea. Devuelve `apiKey` plaintext (una sola vez) |
+| POST   | `/access/devices/:id/rotate-key` | SI   | owner, manager | Rota apiKey. Devuelve plaintext nuevo            |
+| PATCH  | `/access/devices/:id`            | SI   | owner, manager | Edita nombre/unidades vinculadas                 |
+| DELETE | `/access/devices/:id`            | SI   | owner, manager | Soft delete                                      |
+
+### Endpoints — Access logs + verify
+
+| Metodo | Ruta             | Auth           | Descripcion                                                                        |
+| ------ | ---------------- | -------------- | ---------------------------------------------------------------------------------- |
+| GET    | `/access/logs`   | SI             | Filtros `?credentialId=&deviceId=&success=&from=&to=`                              |
+| POST   | `/access/verify` | `X-Device-Key` | Endpoint del device. Body `{ value, type }`. Devuelve `{ granted, reason? }` + log |
+
+### Codigos `code` (Fase 7)
+
+| `code`                          | Cuando                                                 |
+| ------------------------------- | ------------------------------------------------------ |
+| `credential_not_found`          | ID invalido.                                           |
+| `credential_secret_invalid`     | Verify con secret incorrecto.                          |
+| `credential_status_invalid`     | Verify contra credencial `suspended/revoked`.          |
+| `credential_unit_mismatch`      | Credencial no vinculada al unitId del device.          |
+| `invalid_credential_transition` | Fuera del state machine.                               |
+| `device_not_found`              | Device ID invalido.                                    |
+| `device_api_key_invalid`        | Header `X-Device-Key` no matchea ningun device activo. |
+
+## Super admin, soporte y SaaS billing (Fase 8 + 9A)
+
+Modulos `apps/api/src/modules/{admin,billing-saas,support}/`. Para los endpoints de 2FA + cookie refresh ver tambien Fase 9A mas abajo.
+
+### Invariantes clave
+
+- **Super admin desacoplado del tenant**: tabla `super_admins` global (sin `tenant_id`). JWT con `purpose='superadmin'` firmado con `SUPER_ADMIN_JWT_SECRET` independiente del `JWT_SECRET` tenant. `AdminGuard` separado del `JwtAuthGuard`.
+- **Impersonation**: `POST /admin/tenants/:id/impersonate` crea un `impersonation_log` (TTL 1h) y firma un access JWT normal con `purpose='impersonation'` + claim `superAdminId`. El audit log queda asociado al super admin.
+- **Support tickets bidireccionales**: tabla `support_tickets` + `support_ticket_messages`. Mensajes con flag `isInternal` para notas privadas admin no visibles al tenant.
+- **Stripe Billing SaaS**: distinto del Stripe gateway tenant (Fase 4). El gateway Fase 4 cobra a customers; el de Fase 8 cobra a tenants. `mode='subscription'` Checkout + Customer Portal. Webhooks `customer.subscription.{created,updated,deleted}` + `invoice.payment_*` mapean a `tenant_subscriptions.status`.
+
+### Endpoints — Super admin auth
+
+Ver tambien la subseccion **Fase 9A** mas abajo para 2FA, refresh cookie y recovery codes.
+
+| Metodo | Ruta                     | Auth       | Descripcion                                                                                               |
+| ------ | ------------------------ | ---------- | --------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/auth/login`      | Public     | Body `{email, password}`. Si 2FA off → access + cookie refresh. Si 2FA on → `{requires2fa, pendingToken}` |
+| POST   | `/admin/auth/refresh`    | cookie     | Cookie `super_admin_refresh`. Rota cookie. Paranoid reuse                                                 |
+| POST   | `/admin/auth/logout`     | AdminGuard | Revoca sesion actual + borra cookie                                                                       |
+| POST   | `/admin/auth/logout-all` | AdminGuard | Revoca todas las sesiones                                                                                 |
+| GET    | `/admin/auth/me`         | AdminGuard | Datos del super admin                                                                                     |
+
+### Endpoints — Super admin tenants + metrics + impersonation
+
+| Metodo | Ruta                              | Auth       | Descripcion                                     |
+| ------ | --------------------------------- | ---------- | ----------------------------------------------- |
+| GET    | `/admin/tenants`                  | AdminGuard | Listado con filtros `?status=&plan=&search=`    |
+| GET    | `/admin/tenants/:id`              | AdminGuard | Detalle + metricas + usuarios                   |
+| POST   | `/admin/tenants/:id/suspend`      | AdminGuard | Cambia status → suspended                       |
+| POST   | `/admin/tenants/:id/reactivate`   | AdminGuard | Cambia status → active                          |
+| POST   | `/admin/tenants/:id/extend-trial` | AdminGuard | Body `{daysToAdd}`. Mueve `trialEndsAt`         |
+| POST   | `/admin/tenants/:id/impersonate`  | AdminGuard | Devuelve access JWT con purpose='impersonation' |
+| GET    | `/admin/metrics`                  | AdminGuard | KPIs globales (MRR, tenants activos, churn)     |
+
+### Endpoints — Support tickets
+
+| Metodo | Ruta                                    | Auth        | Descripcion                               |
+| ------ | --------------------------------------- | ----------- | ----------------------------------------- |
+| GET    | `/support/tickets`                      | SI (tenant) | Lista del tenant                          |
+| POST   | `/support/tickets`                      | SI (tenant) | Abre ticket                               |
+| GET    | `/support/tickets/:id`                  | SI (tenant) | Detalle + mensajes (sin internal)         |
+| POST   | `/support/tickets/:id/messages`         | SI (tenant) | Anade respuesta                           |
+| GET    | `/admin/support/tickets`                | AdminGuard  | Lista global con filtros                  |
+| GET    | `/admin/support/tickets/:id`            | AdminGuard  | Detalle + mensajes (incluye internal)     |
+| POST   | `/admin/support/tickets/:id/messages`   | AdminGuard  | Anade mensaje, flag `isInternal` opcional |
+| POST   | `/admin/support/tickets/:id/transition` | AdminGuard  | State machine                             |
+| POST   | `/admin/support/tickets/:id/assign`     | AdminGuard  | Asigna a super admin                      |
+
+### Endpoints — SaaS billing (tenant paga el SaaS)
+
+| Metodo | Ruta                              | Auth       | Roles | Descripcion                                         |
+| ------ | --------------------------------- | ---------- | ----- | --------------------------------------------------- |
+| GET    | `/settings/saas-billing`          | SI         | owner | Estado de la suscripcion + plan actual + portal URL |
+| POST   | `/settings/saas-billing/checkout` | SI         | owner | Body `{priceId}`. Devuelve URL Stripe Checkout      |
+| POST   | `/settings/saas-billing/portal`   | SI         | owner | Devuelve URL Customer Portal Stripe                 |
+| POST   | `/webhooks/stripe/saas`           | HMAC       | —     | Webhook Stripe Billing (suscripciones + invoices)   |
+| GET    | `/subscription-plans`             | —          | —     | Catalogo publico                                    |
+| GET    | `/subscription-plans/admin`       | AdminGuard | —     | Gestion admin                                       |
+| POST   | `/subscription-plans/admin`       | AdminGuard | —     | Crea plan                                           |
+| PATCH  | `/subscription-plans/admin/:id`   | AdminGuard | —     | Actualiza plan                                      |
+| DELETE | `/subscription-plans/admin/:id`   | AdminGuard | —     | Archiva plan                                        |
+
+### Codigos `code` (Fase 8)
+
+| `code`                            | Cuando                                                                |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `super_admin_credentials_invalid` | Email o password incorrectos.                                         |
+| `super_admin_not_found`           | ID invalido.                                                          |
+| `super_admin_inactive`            | Cuenta deshabilitada.                                                 |
+| `impersonation_token_expired`     | TTL 1h agotado.                                                       |
+| `support_ticket_not_found`        | ID invalido o tenant ajeno.                                           |
+| `support_ticket_status_invalid`   | Transition fuera del state machine.                                   |
+| `subscription_plan_inactive`      | Checkout sobre plan archivado.                                        |
+| `tenant_subscription_required`    | Llamadas que requieren suscripcion activa con tenant sin suscripcion. |
+
+## Hardening pre-MVP (Fase 9A)
+
+Endpoints anadidos sobre el panel super admin para hardening de seguridad antes de vender. Ver ADR-007.
+
+### Endpoints — 2FA TOTP super admin
+
+| Metodo | Ruta                                        | Auth       | Descripcion                                                           |
+| ------ | ------------------------------------------- | ---------- | --------------------------------------------------------------------- |
+| POST   | `/admin/auth/2fa/setup`                     | AdminGuard | Genera TOTP secret pending + QR data URL                              |
+| POST   | `/admin/auth/2fa/verify`                    | AdminGuard | Body `{code}`. Activa 2FA y devuelve `{recoveryCodes}` (una sola vez) |
+| POST   | `/admin/auth/2fa/disable`                   | AdminGuard | Body `{password}`. Revoca todas las sesiones + borra cookie           |
+| POST   | `/admin/auth/2fa/recovery-codes/regenerate` | AdminGuard | Devuelve `{recoveryCodes}` nuevos (una sola vez)                      |
+| POST   | `/admin/auth/2fa/challenge`                 | Public     | Body `{pendingToken, code}` (TOTP 6 digitos o recovery `XXXX-XXXX`)   |
+| GET    | `/admin/auth/2fa/status`                    | AdminGuard | `{enabled, enrolledAt, recoveryCodesRemaining}`                       |
+
+### Refresh cookie httpOnly
+
+- Cookie `super_admin_refresh` con `path=/admin`, `sameSite=strict`, `httpOnly`, `secure` segun `COOKIE_SECURE`.
+- Rota en cada `POST /admin/auth/refresh`. Reuso de cookie ya rotada revoca **todas** las sesiones del admin.
+- TTL configurable via env `SUPER_ADMIN_REFRESH_TTL_SECONDS` (default 604800 = 7d).
+
+### Codigos `code` (Fase 9A)
+
+| `code`                                  | Cuando                                |
+| --------------------------------------- | ------------------------------------- |
+| `super_admin_2fa_already_enabled`       | Setup sobre admin con 2FA activo.     |
+| `super_admin_2fa_not_enabled`           | Verify/disable sobre admin sin 2FA.   |
+| `super_admin_2fa_code_invalid`          | TOTP o recovery code incorrecto.      |
+| `super_admin_2fa_pending_token_invalid` | pendingToken caducado/firma invalida. |
+| `super_admin_refresh_invalid`           | Cookie ausente, expirada o ya rotada. |
+
+## Veri\*Factu real (Fase 10)
+
+Modulo `apps/api/src/modules/billing/aeat-client/` y `tenant-aeat-credentials.{service,controller}.ts`.
+
+### Invariantes clave
+
+- **Cada tenant** sube su PKCS#12 (FNMT/Camerfirma/ANCERT). Cifrado AES-256-GCM con `MASTER_ENCRYPTION_KEY`.
+- **`AEAT_MODE=stub|sandbox|production`** selecciona implementacion. `stub` devuelve `accepted` sintetico. `sandbox`/`production` usan `RealAeatClient` con mTLS via `https.Agent`.
+- **XML conforme al XSD AEAT**: SOAP envelope con `Cabecera/ObligadoEmision`, `RegistroAlta` (IDFactura, Desglose IVA, Encadenamiento, SistemaInformatico, TipoHuella=01, Huella SHA-256 uppercase).
+- **Retry policy**: cola BullMQ `verifactu` con `attempts: 3, backoff: exponential 60s` (≈1m, 5m, 25m). Reintenta solo si `result.status='error'` (tecnico). `rejected` no reintenta (decision firme AEAT). `removeOnFail: false` para visibilidad manual.
+- **Reenvio manual**: `POST /billing/invoices/:id/resend-aeat` resetea `aeat_*` y reencola.
+
+### Endpoints — Credenciales AEAT del tenant
+
+| Metodo | Ruta                           | Auth | Roles          | Descripcion                                                                          |
+| ------ | ------------------------------ | ---- | -------------- | ------------------------------------------------------------------------------------ |
+| POST   | `/billing/aeat-credentials`    | SI   | owner          | `multipart/form-data` con `file` (.p12/.pfx) + `password` + `environment` (max 50KB) |
+| GET    | `/billing/aeat-credentials/me` | SI   | owner, manager | Metadata: CN, NIF, issuer, validFrom, validTo, environment, uploadedAt               |
+| DELETE | `/billing/aeat-credentials/me` | SI   | owner          | Body `{reason}`. Revoca (`revokedAt`, `revokedReason`)                               |
+
+### Endpoints — Reenvio factura
+
+| Metodo | Ruta                                | Auth | Roles          | Descripcion                           |
+| ------ | ----------------------------------- | ---- | -------------- | ------------------------------------- |
+| POST   | `/billing/invoices/:id/resend-aeat` | SI   | owner, manager | Resetea `aeat_*` + reencola job (202) |
+
+### Codigos `code` (Fase 10)
+
+| `code`                         | Cuando                                             |
+| ------------------------------ | -------------------------------------------------- |
+| `invalid_certificate_password` | PKCS#12 no abre con la contrasena proporcionada.   |
+| `invalid_certificate_format`   | Archivo no parseable como PKCS#12.                 |
+| `certificate_expired`          | `notAfter <= now`.                                 |
+| `certificate_missing_nif`      | No se encontro NIF/CIF/NIE en el subject del cert. |
+| `aeat_credential_not_found`    | GET/DELETE sin credencial activa.                  |
+| `tenant_no_aeat_credential`    | Envio a AEAT sin credencial subida.                |
+| `invoice_draft_not_sendable`   | Resend sobre factura en draft.                     |
+
+### BullMQ + colas Fase 10
+
+| Cola        | Job            | Descripcion                                                               |
+| ----------- | -------------- | ------------------------------------------------------------------------- |
+| `verifactu` | `send-to-aeat` | POST mTLS al endpoint AEAT con cert tenant. Retry 3× exponencial 60s base |
+
 ## Roles Postgres y RLS
 
 La API usa dos conexiones distintas a Postgres:
@@ -780,11 +1211,13 @@ En tests e2e (`NODE_ENV=test`) el throttler aplica `skipIf: () => true`.
 
 ---
 
-## Pendiente
+## Pendiente / Backlog post-MVP
 
 - Versionado en la ruta (`/api/v1/...`).
 - Esquema OpenAPI exportado desde NestJS (`@nestjs/swagger`).
-- Convenciones de paginacion cursor-based con ejemplos.
-- Convenciones de webhooks salientes + firma HMAC.
+- Convenciones de paginacion cursor-based con ejemplos en todos los endpoints (algunos ya la usan).
+- Webhooks salientes con firma HMAC (`webhooks` + `webhook_deliveries` ya existen como esqueleto).
 - Politica de deprecacion de versiones.
-- Tabla `security_events` para login-failed sin tenant (Fase 8).
+- AEAT `getStatus` polling (Veri\*Factu actualmente solo cubre el envio sincrono; consulta de estado queda post-MVP).
+- Anulacion / rectificacion de facturas Veri\*Factu (F2, R1-R5). Actualmente solo `RegistroAlta` (F1).
+- Cache diario de `analytics/*` si la carga crece.

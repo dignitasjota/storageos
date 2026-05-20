@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { VerifactuBadge } from '@/components/verifactu-badge';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCancelInvoice,
@@ -92,12 +93,10 @@ export default function InvoiceDetailPage() {
         </Button>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="font-mono text-2xl font-semibold tracking-tight">{i.invoiceNumber}</h1>
               <InvoiceStatusBadge status={i.status} />
-              {i.aeatStatus && (
-                <span className="text-xs text-muted-foreground">AEAT: {i.aeatStatus}</span>
-              )}
+              <VerifactuBadge invoice={i} />
             </div>
             <p className="text-sm text-muted-foreground">
               <Link href={`/customers/${i.customerId}`} className="hover:underline">

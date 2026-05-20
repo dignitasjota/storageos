@@ -72,6 +72,27 @@ export const envSchema = z.object({
   // --- Verifactu (Fase 4: stub; Fase 8: sandbox/production) ---
   AEAT_MODE: z.enum(['stub', 'sandbox', 'production']).default('stub'),
   AEAT_TENANT_TAX_ID: z.string().default(''),
+  /** NIF del desarrollador / proveedor del sistema informatico (autoconsumo
+   *  en nuestro caso). Veri*Factu lo exige en el bloque `SistemaInformatico`.
+   *  Default solo para dev/test; en produccion debe configurarse. */
+  AEAT_SISTEMA_NIF: z.string().default('B00000000'),
+  AEAT_SISTEMA_NOMBRE: z.string().default('StorageOS'),
+  AEAT_SISTEMA_VERSION: z.string().default('1.0.0'),
+  AEAT_SISTEMA_INSTALACION: z.string().default('001'),
+  /** Endpoint SOAP del entorno sandbox de AEAT (Veri*Factu). */
+  AEAT_SANDBOX_ENDPOINT: z
+    .string()
+    .url()
+    .default('https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1'),
+  /** Endpoint SOAP del entorno productivo de AEAT (Veri*Factu). */
+  AEAT_PRODUCTION_ENDPOINT: z
+    .string()
+    .url()
+    .default(
+      'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1',
+    ),
+  /** Timeout en milisegundos para la request HTTP contra AEAT. */
+  AEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
   // --- MinIO / S3 ---
   MINIO_ENDPOINT: z.string().default('localhost'),
@@ -85,16 +106,55 @@ export const envSchema = z.object({
   MINIO_BUCKET_UPLOADS: z.string().default('storageos-uploads'),
   MINIO_BUCKET_INVOICES: z.string().default('storageos-invoices'),
   MINIO_BUCKET_PLANS: z.string().default('storageos-plans'),
+  MINIO_BUCKET_REPORTS: z.string().default('storageos-reports'),
   /** Base URL publica para servir objetos. En dev = http://localhost:9010. */
   MINIO_PUBLIC_URL: z.string().url().default('http://localhost:9010'),
 
-  // --- SMTP ---
+  // --- Email provider ---
+  /** Selecciona la implementacion. En dev/test = smtp (Mailpit). En prod = resend. */
+  EMAIL_PROVIDER: z.enum(['smtp', 'resend']).default('smtp'),
+  EMAIL_FROM_NAME: z.string().default('StorageOS'),
+  EMAIL_FROM_ADDRESS: z.string().email().default('no-reply@storageos.local'),
+
+  // --- SMTP (provider = smtp / Mailpit en dev) ---
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().positive().default(1026),
+  /** @deprecated alias historico de EMAIL_FROM_ADDRESS. */
   SMTP_FROM: z.string().email().default('no-reply@storageos.local'),
+  /** @deprecated alias historico de EMAIL_FROM_NAME. */
   SMTP_FROM_NAME: z.string().default('StorageOS'),
+
+  // --- Resend (provider = resend) ---
+  RESEND_API_KEY: z.string().default(''),
+
+  // --- WhatsApp (Fase 5: stub; Fase 8: WABA real) ---
+  WHATSAPP_PROVIDER: z.enum(['stub', 'meta_waba']).default('stub'),
+  WHATSAPP_FROM_PHONE_ID: z.string().default(''),
+  WHATSAPP_ACCESS_TOKEN: z.string().default(''),
+
+  // --- Lock provider (Fase 7) ---
+  /** Selecciona la implementacion del control de accesos. `stub` registra
+   *  intentos en BD sin abrir nada fisico (dev/test). `mqtt` publica
+   *  comandos open/close en un broker MQTT comun. */
+  LOCK_PROVIDER: z.enum(['stub', 'mqtt']).default('stub'),
+  MQTT_BROKER_URL: z.string().default('mqtt://localhost:1883'),
+  MQTT_USERNAME: z.string().default(''),
+  MQTT_PASSWORD: z.string().default(''),
+  /** Prefix por tenant: el topic final es `<prefix>/<tenantId>/<deviceTopic>/...`. */
+  MQTT_TOPIC_PREFIX: z.string().default('storageos'),
+
   /** URL publica del frontend, usada para construir enlaces de los emails. */
   WEB_BASE_URL: z.string().url().default('http://localhost:3000'),
+
+  // --- Super admin (Fase 8) ---
+  SUPER_ADMIN_JWT_SECRET: z
+    .string()
+    .min(32, 'SUPER_ADMIN_JWT_SECRET debe tener al menos 32 caracteres')
+    .default('dev-super-admin-secret-change-me-please-32chars'),
+  SUPER_ADMIN_JWT_TTL_SECONDS: z.coerce.number().int().positive().default(28_800), // 8h
+  /** TTL del refresh token de super admin (cookie httpOnly). Default 7d. */
+  SUPER_ADMIN_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604_800), // 7d
+  IMPERSONATION_TTL_SECONDS: z.coerce.number().int().positive().default(3_600), // 1h
 
   // --- Logger ---
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

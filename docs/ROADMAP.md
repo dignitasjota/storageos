@@ -169,36 +169,91 @@ Subdividida en sub-fases 1A–1F para facilitar revisiones intermedias.
 - [x] Frontend público `/portal/login` + `/portal/consume` con lista de facturas del cliente
 - [x] Dashboard con `<BillingMetricsCard>`: MRR, pendiente de cobro, vencidas, cobrado este mes
 
-## Fase 5 — Comunicaciones y CRM básico (1-2 semanas)
+## Fase 5 — Comunicaciones y CRM básico ✅
 
-- [ ] Schema: `leads`, `communications`, `message_templates`, `automation_rules`
-- [ ] Integración con Resend para emails transaccionales
-- [ ] Plantillas con variables: bienvenida, recordatorio de pago, aviso de impago, fin de contrato
-- [ ] Pipeline de leads con kanban
-- [ ] Widget de reserva embebible para la web del cliente
+- [x] Schema: `leads`, `communications` (outbox), `message_templates`, `automation_rules`, `automation_runs` + RLS
+- [x] `EmailProvider` abstracto (`smtp` para Mailpit en dev, `resend` para producción) seleccionado por env `EMAIL_PROVIDER`
+- [x] Templating engine Handlebars con whitelist de variables por trigger (defensa contra fugas)
+- [x] Plantillas built-in (welcome, contract_signed, contract_ending_soon, invoice_issued, invoice_overdue, reservation_confirmed, lead_thanks) seedables vía `MessageTemplatesService.seedBuiltins(tenantId)`
+- [x] `CommunicationsService` con outbox pattern: persistencia BD antes de encolar, BullMQ con backoff exponencial, estados pending → processing → sent/failed, retry manual
+- [x] `WhatsAppProvider` abstracto + stub (Fase 5: log only, sin envío real). Listo para WABA en Fase 8.
+- [x] Endpoints `/message-templates` (CRUD + preview), `/communications` (list + send + retry), `/automations` (CRUD)
+- [x] Motor de automatizaciones con `EventEmitter2`: triggers `customer_created`, `contract_signed`, `contract_ending_soon`, `contract_ended`, `invoice_issued`, `invoice_overdue`, `invoice_paid`, `reservation_confirmed`, `lead_created`. Reglas filtran por trigger + isActive y encolan job.
+- [x] Emisión de eventos de dominio desde `ContractsService.sign`, `CustomersService.create`, `LeadsService.create*` (más triggers se irán añadiendo según necesidad)
+- [x] `LeadsService` con state machine `new → contacted → qualified → won|lost` + conversion atomic a customer (+ opcional reservation)
+- [x] Frontend `/leads` kanban con drag-and-drop nativo HTML5, `/communications`, `/message-templates`, `/automations`
+- [x] Widget público `/widget/[slug]` (iframe-friendly): Next.js layout sin auth, middleware CSP `frame-ancestors *` + `X-Frame-Options: ALLOWALL`, honeypot anti-bot, throttle 5/min/IP en `POST /public/widget/:slug/leads`
+- [x] `/settings/widget` con URL pública + snippet de embed + vista previa
 
-## Fase 6 — Operativa y reporting (1 semana)
+## Fase 6 — Operativa y reporting ✅
 
-- [ ] Schema: `tasks`, `incidents`, `products`, `product_sales`
-- [ ] Gestión de tareas e incidencias
-- [ ] Venta de productos accesorios
-- [ ] Dashboard analítico con KPIs: ocupación física vs económica, MRR, churn, morosidad
-- [ ] Informes exportables a Excel/PDF
+- [x] Schema: `tasks`, `task_comments`, `incidents`, `incident_comments`, `products`, `product_stock`, `product_sales`, `product_sale_items`, `report_runs` + RLS para todas
+- [x] **Tasks** (`/tasks`): trabajo planificado con state machine `open → in_progress → done | cancelled` (con rollbacks limitados), priority `low|normal|high|urgent`, asignación a user del tenant, due date, comentarios en tabla separada
+- [x] **Incidents** (`/incidents`): problemas reportados con state machine `reported → investigating → resolved|dismissed`, severity `low|medium|high|critical`, vínculos a unit/customer/contract, comentarios. Emite `domain.incident_created` con `severity ≥ high` para automations
+- [x] **Products + ventas accesorios**: catálogo por tenant (`/products`), stock por facility con bloqueo de overselling, `ProductSalesService` que crea factura Verifactu inline reusando `InvoicesService.create + issue` cuando hay customer
+- [x] **Analytics** (`/analytics`): 4 KPIs en endpoints separados
+  - Occupancy física y económica con MRR actual vs potencial
+  - Churn mensual con cohort por mes de inicio
+  - Aging buckets (0-30/30-60/60-90/+90) sobre facturas pendientes
+  - Leads funnel (new/contacted/qualified/won/lost) con tasas de conversión y breakdown por source
+- [x] **Reports** (`/reports`): Registry de `ReportGenerator` (invoices_period, contracts_active, aging_at_date). PDF con Puppeteer + Excel con exceljs server-side. Cola BullMQ `reports` con worker async, tabla `report_runs` con polling. Subida a MinIO bucket `storageos-reports` con TTL 7 días
+- [x] Frontend: `/tasks`, `/incidents`, `/products`, `/analytics`, `/reports` + sidebar items
 
-## Fase 7 — Control de accesos físicos (variable)
+## Fase 7 — Control de accesos físicos ✅
 
-Dependiente del hardware que se quiera soportar.
+- [x] Schema: `access_credentials`, `access_devices`, `access_logs` + RLS
+- [x] **Credenciales** con métodos `pin` / `qr` / `rfid`, state machine `pending → active → suspended ⇄ active → revoked` (+ `expired` via fecha). PIN/QR-token hashed con argon2id; revelación solo al crear/rotar. RFID UID en claro.
+- [x] **Devices** (`AccessDevice`) con API key (argon2id) para autenticación HTTP, opcional `mqttTopic`. Endpoint `/access/devices/:id/ping` para test de conectividad.
+- [x] **`LockProvider` abstracto** + `StubLockProvider` (dev/test) + `MqttLockProvider` (publica comandos `<prefix>/<tenantId>/<topic>/open` en broker MQTT). Selector via env `LOCK_PROVIDER=stub|mqtt`.
+- [x] **`/access/verify`** sin auth de user, autenticado por header `X-Device-Key`. Verifica credencial activa contra device, valida facility/unit/horario, registra en `access_logs` (allowed/denied\_\*/error), invoca `LockProvider.open` si allowed.
+- [x] **Audit trail completo**: cada intento (exitoso, denegado, error) queda en `access_logs` con device + credential + customer + método + result + attemptedValue (sanitizado).
+- [x] **Frontend** `/access` con tabs `credentials`/`devices`/`logs`. Crear/rotar credencial muestra `revealedSecret` UNA SOLA VEZ con CTA copy. Devices con regenerate API key + ping. Logs con filtros + PIN enmascarado.
+- [ ] **Dunning gate access_block**: hook desde `DunningProcessor` cuando `action_type='access_block'` invoca `CredentialsService.suspend(customerId)`. Aplazado: pendiente conectar.
 
-- [ ] Schema: `access_credentials`, `access_logs`, `access_devices`
-- [ ] Generación de PINs/QRs
-- [ ] Bloqueo automático por impago
-- [ ] Integración inicial con un proveedor de cerraduras (a elegir)
+## Fase 8 — Super Admin, facturación SaaS y despliegue ✅
 
-## Fase 8 — Super Admin y facturación SaaS (1 semana)
+- [x] Schema `super_admins`, `support_tickets`, `support_ticket_messages`, `impersonation_logs` + RLS para tickets/messages
+- [x] **Panel super admin** (auth separada con JWT purpose='superadmin' + AdminGuard): `/admin/tenants` (list/suspend/reactivate/extend-trial/impersonate), `/admin/metrics`, `/admin/support/tickets` (vista global)
+- [x] **Impersonation** con audit en `impersonation_logs` (super admin abre JWT con `sub` random + `tenantId` + `superAdminId` claim + TTL 1h)
+- [x] **Soporte de tickets**: tenant crea/lista en `/support/tickets`, admin gestiona en `/admin/support/tickets`. State machine + mensajes con flag `isInternal` (notas privadas solo visibles para admin)
+- [x] **Stripe Billing** SaaS (distinto del gateway de Fase 4): extensión schema con `stripe_customer_id`, `stripe_subscription_id @unique`, `cancel_at_period_end`, `stripe_price_id`. `BillingSaasService` con Stripe Checkout (`mode='subscription'`) + Customer Portal. Webhooks para `customer.subscription.{created,updated,deleted}` y `invoice.payment_succeeded/failed`. Stripe SDK 22 (`current_period_*` ahora en `items.data[0]`).
+- [x] **Despliegue VPS**: `docker-compose.prod.yml` (postgres + redis + minio + api + web + migrate one-shot), Dockerfiles multi-stage para api (Chromium del sistema) y web (`output: 'standalone'`). `docs/DEPLOYMENT.md` paso a paso. Scripts `backup.sh` (pg_dump cifrado GPG + mc mirror MinIO a Backblaze B2) y `restore.sh`.
+- [x] **Integraciones aplazadas rescatadas**:
+  - Listener `domain.contract_signed` → `AccessIntegrationsService.onContractSigned` emite PIN + envía email `access_credential_issued_email`
+  - Dunning gate: `DunningService.executeAction(access_block)` invoca `AccessIntegrationsService.suspendForDunning(customerId)`. Listener `domain.invoice_paid` reactiva credenciales suspendidas por dunning (`onlyIfReasonStartsWith: 'dunning:'`)
+- [x] Frontend completo: `/admin/{login,metrics,tenants,tenants/[id],support,support/[id]}`, `/(app)/support/{,[id]}`, `/(app)/settings/saas-billing`
 
-- [ ] Panel super admin: listado de tenants, métricas globales, soporte
-- [ ] Stripe Billing para facturación de los tenants
-- [ ] Onboarding de nuevo tenant con trial
+## Fase 9 — Hardening pre-MVP ✅ (cierre 2026-05-20)
+
+Bloque de cinco bloqueantes anotados al cerrar Fase 8 (super admin sin 2FA, sesion del super admin en localStorage, Verifactu acoplado al stub, ausencia de seed CLI para el super admin, Resend sin instrucciones de produccion). Se cierran en sub-bloques 9A.1 a 9A.8 sin tocar funcionalidad de negocio: solo seguridad y separacion de responsabilidades.
+
+- [x] **9A.1 — Seed CLI super admin** (`packages/database/prisma/seed-superadmin.ts`): CLI idempotente con flags `--email --password --name --role [superadmin|support] --reset-password`. Sin `--reset-password` preserva el password si el admin ya existe; con la flag lo rota.
+- [x] **9A.2 — Schema + migracion 2FA + sessions**: nuevas tablas `super_admin_sessions` (refresh `<sessionId>.<secret>` hashed argon2id, rotacion, `revoked_at/revoked_reason/replaced_by_session_id`) y `super_admin_recovery_codes` (codigos hashed argon2id, `used_at`). En `super_admins` se anaden `two_factor_secret`, `two_factor_pending_secret`, `two_factor_enabled`, `two_factor_enrolled_at`.
+- [x] **9A.3 — `SuperAdminTwoFactorService` + 9 endpoints**: `GET /admin/auth/2fa/status`, `POST /admin/auth/2fa/{setup,verify,disable,recovery-codes/regenerate,challenge}` + login en dos pasos (cuando 2FA esta activo `/admin/auth/login` devuelve `{requires2fa, pendingToken}` y NO emite cookie). Secret TOTP cifrado AES-256-GCM con `MASTER_ENCRYPTION_KEY`. `pendingToken` JWT con secret `JWT_2FA_PENDING_SECRET` y `purpose='superadmin-2fa-pending'`. Reusa `TotpService` ya existente para tenants (un solo motor TOTP en el codigo).
+- [x] **9A.4 — Refresh cookie httpOnly + paranoid reuse**: `super_admin_refresh` con `httpOnly`, `secure` (segun `COOKIE_SECURE`), `sameSite=strict`, `path=/admin`. `POST /admin/auth/refresh` rota la cookie en cada llamada; el reuso de un refresh ya rotado/expirado revoca TODAS las sesiones del admin. `POST /admin/auth/logout` revoca la sesion actual; `POST /admin/auth/logout-all` todas. TTL configurable via `SUPER_ADMIN_REFRESH_TTL_SECONDS` (default 7d).
+- [x] **9A.5 — `AeatClient` abstracto + Stub + Real skeleton**: `apps/api/src/modules/billing/aeat-client/` con `AeatClient` abstract + `StubAeatClient` (devuelve `{ok:true, mode:'stub'}`) + `RealAeatClient` skeleton (lanza `not_implemented` hasta certificacion AEAT). Factory en `BillingModule` selecciona implementacion segun `AEAT_MODE=stub|sandbox|production`. Cambio a sandbox/production no toca codigo de negocio.
+- [x] **9A.6 — Frontend admin 2FA**: `/admin/login` con paso `requires2fa` que muestra input de codigo TOTP/recovery + envia `POST /admin/auth/2fa/challenge`. Nueva ruta `/admin/security` con QR de setup, verify, disable (pide password) y regenerate de recovery codes. Cliente admin (`lib/admin/api.ts`) usa refresh transparente cookie-based + store Zustand para el access JWT en memoria.
+- [x] **9A.7 — Resend en produccion**: documentacion en `docs/DEPLOYMENT.md` para activar `EMAIL_PROVIDER=resend`, alta de dominio en Resend, registros DKIM/SPF/DMARC, generacion de API key con scope minimo.
+- [x] **9A.8 — Tests e2e + docs**:
+  - `apps/api/test/super-admin-2fa.e2e-spec.ts`: login (con y sin 2FA), setup + verify + challenge, recovery codes single-use, refresh cookie + paranoid reuse, disable, regenerate.
+  - `packages/database/tests/seed-superadmin.test.ts` (Vitest): seed idempotente + `--reset-password` + `--role`.
+  - Actualizacion de `docs/ROADMAP.md`, `CLAUDE.md`, `README.md`.
+
+**MVP COMPLETO Y LISTO PARA VENDER.** Tras Fase 9 quedan cerrados los cinco bloqueantes operativos detectados al cierre de Fase 8.
+
+## Fase 10 — Veri\*Factu real ✅ (cierre 2026-05-20)
+
+Cliente AEAT real para Veri*Factu (RD 1007/2023, vigente desde 2026-07-01). Sin Veri*Factu real las facturas no son legalmente válidas a partir de esa fecha, por lo que esta fase es la última pieza bloqueante antes de cobrar a un cliente español.
+
+- [x] **10A.1 — Schema `tenant_aeat_credentials` + cifrado cert**: tabla con `cert_p12_encrypted` (Bytes), `cert_password_encrypted`, metadata (CN, NIF, issuer, valid_from, valid_to, environment), RLS por tenant. `TenantAeatCredentialsService` parsea PKCS#12 con `node-forge`, valida NIF + vigencia, cifra con `CryptoService` (AES-256-GCM). Endpoints `POST/GET/DELETE /billing/aeat-credentials/me` con multipart (límite 50KB). 9/9 tests e2e.
+- [x] **10A.2 — XML builder Veri\*Factu `RegistroAlta`**: `VerifactuXmlBuilder.buildRegistroAlta(args)` conforme al XSD oficial. SOAP envelope completo con `Cabecera/ObligadoEmision`, `RegistroAlta` (IDFactura, NIFs, Desglose con IVA, Encadenamiento con `PrimerRegistro` o `RegistroAnterior`, `SistemaInformatico` configurable via env, `TipoHuella=01` + `Huella` SHA-256 mayúsculas). Helpers `formatSpanishDate` (DD-MM-YYYY), `formatTimestampWithMadridTimezone` (CET/CEST automático), `escapeXml`. 9/9 tests unit.
+- [x] **10A.3 — Cliente HTTP real con mTLS**: `RealAeatClient.sendInvoice` carga cert del tenant, extrae PEM (cert + intermedios + privateKey), construye XML, POST a `AEAT_SANDBOX_ENDPOINT`/`AEAT_PRODUCTION_ENDPOINT` con `https.Agent` mTLS. Parseo SOAP con regex tolerante a namespaces (`<EstadoRegistro>`, `<CSV>`, `<CodigoErrorRegistro>`, `<DescripcionErrorRegistro>`, `<faultstring>`). Mapeo a `SendInvoiceResult`. 7/7 tests unit con `nock`.
+- [x] **10A.4 — Cola BullMQ `verifactu` + retry**: `VerifactuProcessor` (concurrency 2, job `send-to-aeat`). `InvoicesService.issue` encola con `attempts: 3, backoff: exponential 60s, removeOnFail: false`. Worker reintenta solo si `result.status='error'` (técnico); `rejected` no reintenta (decisión firme AEAT). `VerifactuService.sendToAeat` devuelve `SendInvoiceResult | null` para señalizar al worker. `POST /billing/invoices/:id/resend-aeat` resetea `aeat_*` y reencola. 8/8 tests e2e.
+- [x] **10A.5 — UI tenant cert + estado factura**: `/settings/billing/verifactu` con upload de PKCS#12 + password + environment, estado del cert (CN, NIF, issuer, valid_to con banner amarillo a 30 días / rojo si vencido), revoke con motivo. `<VerifactuBadge>` en `/invoices/[id]` con color por status (gris pending, verde accepted, amarillo warnings, rojo rejected/error), tooltip con `aeatSentAt` + mensaje, botón "Reenviar a AEAT" si `aeatStatus in (null, 'error', 'rejected')`, modal "Ver respuesta AEAT" con `aeatResponse` raw para diagnóstico. Sidebar item con role-gating `owner|manager`.
+- [x] **10A.6 — Config AEAT_MODE + docs producción**: env `AEAT_SANDBOX_ENDPOINT`, `AEAT_PRODUCTION_ENDPOINT`, `AEAT_TIMEOUT_MS`, `AEAT_SISTEMA_NIF`, `AEAT_SISTEMA_NOMBRE`, `AEAT_SISTEMA_VERSION`, `AEAT_SISTEMA_INSTALACION`. Sección "11. Activar Veri\*Factu en producción" en `docs/DEPLOYMENT.md` (pre-requisitos del cert, upload UI, env vars, verificación, monitoreo Grafana/Loki, reenvío manual, incidencias conocidas). Diagrama de flujo + tabla de modos en `docs/ARCHITECTURE.md`.
+- [x] **10A.7 — Tests e2e + ADR + cierre**: ADR `docs/adr/008-verifactu-real-client.md` (Veri\*Factu vs SII, cert por tenant vs presentador, mTLS sin XAdES, retry policy, alternativas rechazadas). Actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, nota en vault Obsidian.
+
+**Resultado**: el SaaS puede emitir facturas conformes a Veri\*Factu en sandbox AEAT. Activar producción requiere cambiar `AEAT_MODE=production` (sin tocar código) y que cada tenant haya subido su cert FNMT/Camerfirma/ANCERT desde `/settings/billing/verifactu`.
 
 ## Backlog / Post-MVP
 

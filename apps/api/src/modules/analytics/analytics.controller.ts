@@ -1,0 +1,62 @@
+import { Controller, Get, Query } from '@nestjs/common';
+
+import {
+  type AuthenticatedUser,
+  CurrentUser,
+} from '../../common/decorators/current-user.decorator';
+
+import { AnalyticsService } from './analytics.service';
+
+import type {
+  AgingKpiDto,
+  ChurnKpiDto,
+  LeadsFunnelKpiDto,
+  OccupancyKpiDto,
+} from '@storageos/shared';
+
+@Controller('analytics')
+export class AnalyticsController {
+  constructor(private readonly service: AnalyticsService) {}
+
+  @Get('occupancy')
+  getOccupancy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<OccupancyKpiDto> {
+    return this.service.getOccupancy(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+    });
+  }
+
+  @Get('churn')
+  getChurn(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<ChurnKpiDto> {
+    return this.service.getChurn(user.tenantId, {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+  }
+
+  @Get('aging')
+  getAging(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('atDate') atDate?: string,
+  ): Promise<AgingKpiDto> {
+    return this.service.getAging(user.tenantId, atDate);
+  }
+
+  @Get('leads-funnel')
+  getLeadsFunnel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<LeadsFunnelKpiDto> {
+    return this.service.getLeadsFunnel(user.tenantId, {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+  }
+}

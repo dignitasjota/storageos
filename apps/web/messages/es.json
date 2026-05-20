@@ -158,6 +158,17 @@
     "reservations": "Reservas",
     "invoices": "Facturas",
     "billing": "Facturación",
+    "verifactu": "Veri*Factu",
+    "leads": "Leads",
+    "communications": "Comunicaciones",
+    "messageTemplates": "Plantillas",
+    "automations": "Automatizaciones",
+    "tasks": "Tareas",
+    "incidents": "Incidencias",
+    "access": "Accesos",
+    "products": "Productos",
+    "analytics": "Analítica",
+    "reports": "Informes",
     "settings": "Configuración"
   },
   "settings": {
@@ -165,7 +176,76 @@
       "users": "Usuarios",
       "profile": "Mi perfil",
       "security": "Seguridad",
-      "billing": "Facturación"
+      "billing": "Facturación",
+      "verifactu": "Veri*Factu",
+      "widget": "Widget"
+    },
+    "billing": {
+      "verifactu": {
+        "title": "Veri*Factu — Certificado digital",
+        "subtitle": "Sube el certificado digital de la empresa (FNMT u otro emisor admitido por AEAT). Lo necesitamos para firmar y enviar tus facturas a Hacienda según el Reglamento Veri*Factu.",
+        "current": {
+          "title": "Certificado activo"
+        },
+        "environment": {
+          "sandbox": "Sandbox",
+          "production": "Producción"
+        },
+        "fields": {
+          "commonName": "Titular (CN)",
+          "nif": "NIF",
+          "issuer": "Emisor",
+          "validFrom": "Válido desde",
+          "validTo": "Válido hasta",
+          "uploadedAt": "Subido"
+        },
+        "status": {
+          "expiredTitle": "Certificado vencido",
+          "expiredBody": "Tu certificado ha expirado. Sube uno nuevo para volver a enviar facturas a AEAT.",
+          "expiringSoonTitle": "Tu certificado vence en {days, plural, =0 {hoy} =1 {1 día} other {# días}}",
+          "expiringSoonBody": "Renuévalo cuanto antes para evitar interrupciones en el envío a AEAT."
+        },
+        "empty": {
+          "title": "Aún no has subido un certificado",
+          "body": "Sin certificado digital no podemos enviar tus facturas a AEAT. Es un requisito de Veri*Factu."
+        },
+        "actions": {
+          "upload": "Subir certificado",
+          "uploading": "Subiendo...",
+          "replace": "Reemplazar",
+          "revoke": "Revocar",
+          "confirmRevoke": "Revocar certificado",
+          "cancel": "Cancelar"
+        },
+        "upload": {
+          "title": "Subir certificado digital",
+          "description": "Acepta archivos PKCS#12 (.p12 o .pfx) de hasta 50 KB. La contraseña no se guarda; sólo se usa para abrir el archivo en el servidor.",
+          "file": "Archivo .p12 o .pfx",
+          "fileHint": "Tamaño máximo 50 KB. Formato PKCS#12.",
+          "password": "Contraseña del certificado",
+          "passwordPlaceholder": "La contraseña que pusiste al exportarlo",
+          "environment": "Entorno AEAT",
+          "environmentHint": "Sandbox para pruebas, Producción para envíos reales."
+        },
+        "revoke": {
+          "title": "Revocar certificado",
+          "description": "Después de revocarlo no podrás enviar facturas a AEAT hasta que subas otro. Indica el motivo (queda registrado en el audit log).",
+          "reason": "Motivo",
+          "reasonPlaceholder": "Ej.: certificado comprometido, cambio de titular, ..."
+        },
+        "toasts": {
+          "uploadSuccess": "Certificado guardado correctamente.",
+          "revokeSuccess": "Certificado revocado."
+        },
+        "errors": {
+          "invalidPassword": "La contraseña del certificado es incorrecta.",
+          "expired": "El certificado está expirado.",
+          "missingNif": "El certificado no contiene un NIF válido.",
+          "invalidFormat": "Archivo de certificado inválido o corrupto.",
+          "fileRequired": "Selecciona un archivo .p12 o .pfx.",
+          "generic": "No hemos podido procesar el certificado."
+        }
+      }
     },
     "users": {
       "title": "Usuarios",
@@ -344,6 +424,96 @@
       "expired": "Tu sesión de verificación ha caducado. Vuelve a iniciar sesión."
     }
   },
+  "admin": {
+    "auth": {
+      "loginTitle": "Panel super admin",
+      "loginSubtitle": "Acceso restringido al equipo de StorageOS.",
+      "email": "Email",
+      "password": "Contraseña",
+      "submit": "Iniciar sesión",
+      "submitting": "Iniciando...",
+      "logout": "Cerrar sesión",
+      "challenge": {
+        "title": "Verifica tu identidad",
+        "subtitle": "Verifica tu identidad con el segundo factor.",
+        "codeTotp": "Código de 6 dígitos",
+        "codeRecovery": "Código de recuperación",
+        "placeholderTotp": "123456",
+        "placeholderRecovery": "XXXX-XXXX",
+        "submit": "Verificar",
+        "submitting": "Verificando...",
+        "back": "Volver",
+        "useRecovery": "Usar código de recuperación",
+        "useTotp": "Volver al código TOTP"
+      },
+      "errors": {
+        "invalidCredentials": "Credenciales incorrectas.",
+        "tooManyRequests": "Demasiados intentos. Espera unos segundos.",
+        "invalidCode": "El código no es válido.",
+        "challengeExpired": "Tu sesión de verificación ha caducado. Vuelve a iniciar sesión.",
+        "generic": "Error de la API.",
+        "network": "No hemos podido conectar con el servidor."
+      }
+    },
+    "security": {
+      "title": "Seguridad de tu cuenta admin",
+      "subtitle": "Activa la verificación en dos pasos para proteger el panel super admin.",
+      "status": {
+        "enabled": "Activado",
+        "disabled": "Desactivado",
+        "enabledCardTitle": "Autenticación en dos pasos activada",
+        "disabledCardTitle": "Autenticación en dos pasos desactivada",
+        "enrolledAt": "Activado el {date}",
+        "recoveryRemaining": "Códigos de recuperación: {count} sin usar"
+      },
+      "enable": {
+        "cta": "Activar 2FA",
+        "loading": "Cargando...",
+        "scanTitle": "Paso 1 · Escanea el código",
+        "scanBody": "Abre tu app de autenticación (Google Authenticator, 1Password, Authy...) y escanea este QR. Si no puedes escanearlo, copia el secreto manualmente.",
+        "secretLabel": "Secreto",
+        "verifyTitle": "Paso 2 · Introduce el código",
+        "verifyBody": "Para terminar, introduce el código de 6 dígitos que muestra tu app.",
+        "code": "Código",
+        "submit": "Confirmar",
+        "submitting": "Verificando...",
+        "cancel": "Cancelar"
+      },
+      "codes": {
+        "title": "Guarda estos códigos de recuperación",
+        "body": "Te los mostramos UNA SOLA VEZ. Guárdalos en un lugar seguro: te permitirán entrar si pierdes el acceso a tu app de autenticación. Cada código sirve una sola vez.",
+        "copy": "Copiar",
+        "copied": "Códigos copiados.",
+        "download": "Descargar .txt",
+        "acknowledge": "He guardado los códigos en un lugar seguro.",
+        "done": "Hecho"
+      },
+      "regenerate": {
+        "cta": "Regenerar códigos de recuperación",
+        "dialogTitle": "Regenerar códigos de recuperación",
+        "dialogBody": "Los códigos anteriores dejarán de funcionar. Solo te mostraremos los nuevos una vez — asegúrate de guardarlos en un lugar seguro.",
+        "cancel": "Cancelar",
+        "submit": "Regenerar",
+        "submitting": "Regenerando..."
+      },
+      "disable": {
+        "cta": "Desactivar 2FA",
+        "dialogTitle": "Desactivar 2FA",
+        "dialogBody": "Tu cuenta dejará de pedir el segundo factor al iniciar sesión. Por seguridad, todas tus sesiones admin se cerrarán y tendrás que volver a iniciar sesión.",
+        "currentPassword": "Contraseña actual",
+        "cancel": "Cancelar",
+        "submit": "Desactivar 2FA",
+        "submitting": "Desactivando...",
+        "success": "2FA desactivado. Vuelve a iniciar sesión."
+      },
+      "errors": {
+        "wrongPassword": "Contraseña incorrecta.",
+        "invalidCode": "El código no es válido.",
+        "generic": "Error de la API.",
+        "network": "No hemos podido conectar con el servidor."
+      }
+    }
+  },
   "invite": {
     "title": "Te han invitado a {tenant}",
     "subtitle": "Completa tus datos para crear tu cuenta.",
@@ -357,6 +527,35 @@
     "errors": {
       "invalid": "Esta invitación ya se ha usado, ha sido revocada o ha caducado.",
       "tryAgain": "Pide al administrador que te envíe una nueva."
+    }
+  },
+  "invoices": {
+    "aeat": {
+      "status": {
+        "pending": "Pendiente",
+        "accepted": "Aceptada",
+        "acceptedWithCsv": "Aceptada · CSV {csv}",
+        "acceptedWithWarnings": "Aceptada con avisos",
+        "rejected": "Rechazada",
+        "error": "Error de envío"
+      },
+      "tooltip": {
+        "sentAt": "Enviada a AEAT el {when}",
+        "notSent": "Aún no se ha enviado a AEAT"
+      },
+      "actions": {
+        "resend": "Reenviar a AEAT",
+        "viewResponse": "Ver respuesta"
+      },
+      "toasts": {
+        "resendQueued": "Reenvío encolado.",
+        "resendError": "No hemos podido lanzar el reenvío.",
+        "endpointPending": "El endpoint de reenvío aún no está disponible (llega en Fase 10A.4)."
+      },
+      "responseDialog": {
+        "title": "Respuesta de AEAT",
+        "close": "Cerrar"
+      }
     }
   },
   "dashboard": {

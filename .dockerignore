@@ -1,0 +1,71 @@
+# =============================================================================
+# .dockerignore - Excluye del build context lo que no necesita Docker.
+# Reduce el tamaño del context (acelera builds) y evita que secretos o
+# artefactos locales acaben dentro de las imagenes.
+# =============================================================================
+
+# --- Dependencias instaladas ---
+**/node_modules
+.pnpm-store
+
+# --- Builds previos (cada Dockerfile los regenera dentro del builder) ---
+**/dist
+**/build
+**/.next
+**/out
+**/.turbo
+**/*.tsbuildinfo
+
+# --- Prisma generated client (se regenera en el builder) ---
+**/.prisma
+**/node_modules/.prisma
+packages/database/node_modules/.prisma
+
+# --- Git / VCS ---
+.git
+.gitignore
+.gitattributes
+.github
+
+# --- Variables de entorno (NUNCA dentro de la imagen) ---
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+**/*.log
+**/logs
+
+# --- Tests ---
+**/coverage
+**/.nyc_output
+**/test
+**/__tests__
+**/*.spec.ts
+**/*.test.ts
+
+# --- IDE / OS ---
+.vscode
+.idea
+**/.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# --- Docker / Compose ---
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# --- Documentación ---
+docs
+*.md
+!README.md
+
+# --- Husky / lint-staged (no se ejecutan dentro del contenedor) ---
+.husky
+lint-staged.config.mjs
+
+# --- Backups y scripts host-only ---
+scripts/backups
+backups

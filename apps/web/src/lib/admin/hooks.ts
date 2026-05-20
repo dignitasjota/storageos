@@ -1,0 +1,344 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { adminApiFetch } from './api';
+import { useAdminAuthStore } from './auth-store';
+
+import type {
+  AddTicketMessageInput,
+  AdminMetricsDto,
+  AdminTenantActionInput,
+  AdminTenantDto,
+  AssignTicketInput,
+  ExtendTrialInput,
+  ImpersonateInput,
+  ImpersonationTokenDto,
+  SuperAdminDto,
+  SuperAdminLoginInput,
+  SuperAdminLoginRequires2faResponse,
+  SuperAdminRecoveryCodesResponse,
+  SuperAdminSessionDto,
+  SuperAdminSetup2faResponse,
+  SuperAdminTwoFactorChallengeInput,
+  SuperAdminTwoFactorDisableInput,
+  SuperAdminTwoFactorStatusResponse,
+  SuperAdminTwoFactorVerifyInput,
+  SupportTicketDto,
+  SupportTicketPriorityValue,
+  SupportTicketStatusValue,
+  TransitionTicketInput,
+} from '@storageos/shared';
+
+// ============================================================================
+// Auth — login / refresh / logout / me
+// ============================================================================
+
+export const adminMeKey = ['admin', 'me'] as const;
+
+type AdminLoginResponse = SuperAdminSessionDto | SuperAdminLoginRequires2faResponse;
+
+export function useAdminMe() {
+  const token = useAdminAuthStore((s) => s.superAdminToken);
+  return useQuery({
+    queryKey: adminMeKey,
+    queryFn: () => adminApiFetch<SuperAdminDto>('/admin/auth/me'),
+    enabled: Boolean(token),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useAdminLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SuperAdminLoginInput) =>
+      adminApiFetch<AdminLoginResponse>('/admin/auth/login', {
+        method: 'POST',
+        json: input,
+        requiresAuth: false,
+      }),
+    onSuccess: (data) => {
+      // Si requires2fa la sesion aun no esta abierta — esperamos a que la
+      // pantalla complete el challenge.
+      if ('requires2fa' in data) return;
+      useAdminAuthStore.getState().setSession(data.accessToken, data.admin);
+      qc.setQueryData(adminMeKey, data.admin);
+    },
+  });
+}
+
+export function useAdmin2faChallenge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SuperAdminTwoFactorChallengeInput) =>
+      adminApiFetch<SuperAdminSessionDto>('/admin/auth/2fa/challenge', {
+        method: 'POST',
+        json: input,
+        requiresAuth: false,
+      }),
+    onSuccess: (data) => {
+      useAdminAuthStore.getState().setSession(data.accessToken, data.admin);
+      qc.setQueryData(adminMeKey, data.admin);
+    },
+  });
+}
+
+export function useAdminLogout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      try {
+        await adminApiFetch<void>('/admin/auth/logout', { method: 'POST' });
+      } catch {
+        // Ignoramos: aunque el backend rechace, limpiamos local.
+      }
+    },
+    onSettled: () => {
+      useAdminAuthStore.getState().clear();
+      qc.removeQueries({ queryKey: ['admin'] });
+    },
+  });
+}
+
+// ============================================================================
+// 2FA management
+// ============================================================================
+
+export const admin2faStatusKey = ['admin', '2fa', 'status'] as const;
+
+export function useAdmin2faStatus(enabled = true) {
+  const token = useAdminAuthStore((s) => s.superAdminToken);
+  return useQuery({
+    queryKey: admin2faStatusKey,
+    queryFn: () => adminApiFetch<SuperAdminTwoFactorStatusResponse>('/admin/auth/2fa/status'),
+    enabled: enabled && Boolean(token),
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+export function useAdmin2faSetup() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<SuperAdminSetup2faResponse>('/admin/auth/2fa/setup', { method: 'POST' }),
+  });
+}
+
+export function useAdmin2faVerify() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SuperAdminTwoFactorVerifyInput) =>
+      adminApiFetch<SuperAdminRecoveryCodesResponse>('/admin/auth/2fa/verify', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: admin2faStatusKey });
+    },
+  });
+}
+
+export function useAdmin2faDisable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SuperAdminTwoFactorDisableInput) =>
+      adminApiFetch<void>('/admin/auth/2fa/disable', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      // Backend revoca todas las sesiones del admin tras desactivar 2FA —
+      // limpiamos store; el layout redirige a /admin/login.
+      useAdminAuthStore.getState().clear();
+      qc.removeQueries({ queryKey: ['admin'] });
+    },
+  });
+}
+
+export function useAdmin2faRegenerateRecoveryCodes() {
+  const qc = useQueryClient();
+  return useMutation({
+    // El backend no pide body en este endpoint.
+    mutationFn: () =>
+      adminApiFetch<SuperAdminRecoveryCodesResponse>('/admin/auth/2fa/recovery-codes/regenerate', {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: admin2faStatusKey });
+    },
+  });
+}
+
+// ============================================================================
+// Tenants
+// ============================================================================
+
+export interface AdminTenantsFilters {
+  status?: string | undefined;
+  search?: string | undefined;
+}
+
+export const adminTenantsKey = (filters?: AdminTenantsFilters) =>
+  ['admin', 'tenants', filters ?? {}] as const;
+
+export function useAdminTenants(filters?: AdminTenantsFilters) {
+  const qs = new URLSearchParams();
+  if (filters?.status) qs.set('status', filters.status);
+  if (filters?.search) qs.set('search', filters.search);
+  return useQuery({
+    queryKey: adminTenantsKey(filters),
+    queryFn: () =>
+      adminApiFetch<AdminTenantDto[]>(`/admin/tenants${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+export function useAdminTenant(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id] as const,
+    queryFn: () => adminApiFetch<AdminTenantDto>(`/admin/tenants/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useSuspendTenant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/suspend`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+export function useReactivateTenant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/reactivate`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+export function useExtendTrial() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: ExtendTrialInput }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/extend-trial`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+export function useImpersonateTenant() {
+  return useMutation({
+    mutationFn: (args: { id: string; input: ImpersonateInput }) =>
+      adminApiFetch<ImpersonationTokenDto>(`/admin/tenants/${args.id}/impersonate`, {
+        method: 'POST',
+        json: args.input,
+      }),
+  });
+}
+
+// ============================================================================
+// Metrics
+// ============================================================================
+
+export const adminMetricsKey = ['admin', 'metrics'] as const;
+
+export function useAdminMetrics() {
+  return useQuery({
+    queryKey: adminMetricsKey,
+    queryFn: () => adminApiFetch<AdminMetricsDto>('/admin/metrics'),
+    staleTime: 30_000,
+  });
+}
+
+// ============================================================================
+// Support tickets (admin view)
+// ============================================================================
+
+export interface AdminSupportFilters {
+  status?: SupportTicketStatusValue | undefined;
+  priority?: SupportTicketPriorityValue | undefined;
+  assignedAdminId?: string | undefined;
+}
+
+export const adminSupportTicketsKey = (filters?: AdminSupportFilters) =>
+  ['admin', 'support', 'tickets', filters ?? {}] as const;
+
+export function useAdminSupportTickets(filters?: AdminSupportFilters) {
+  const qs = new URLSearchParams();
+  if (filters?.status) qs.set('status', filters.status);
+  if (filters?.priority) qs.set('priority', filters.priority);
+  if (filters?.assignedAdminId) qs.set('assignedAdminId', filters.assignedAdminId);
+  return useQuery({
+    queryKey: adminSupportTicketsKey(filters),
+    queryFn: () =>
+      adminApiFetch<SupportTicketDto[]>(`/admin/support/tickets${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+export function useAdminSupportTicket(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'support', 'tickets', id] as const,
+    queryFn: () => adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useAddAdminTicketMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: AddTicketMessageInput }) =>
+      adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${args.id}/messages`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+    },
+  });
+}
+
+export function useTransitionTicket() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: TransitionTicketInput }) =>
+      adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${args.id}/transition`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+    },
+  });
+}
+
+export function useAssignTicket() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: AssignTicketInput }) =>
+      adminApiFetch<SupportTicketDto>(`/admin/support/tickets/${args.id}/assign`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+    },
+  });
+}

@@ -11,5 +11,10 @@ export * from './users';
 export * from './facilities';
 export * from './customers';
 export * from './billing';
+export * from './communications';
+export * from './operations';
+export * from './reports';
+export * from './access';
+export * from './admin';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;

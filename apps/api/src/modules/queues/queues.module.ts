@@ -15,6 +15,9 @@ export const QUEUE_DUNNING = 'dunning';
 export const QUEUE_PAYMENTS = 'payments';
 export const QUEUE_VERIFACTU = 'verifactu';
 export const QUEUE_EMAIL = 'email';
+export const QUEUE_COMMUNICATIONS = 'communications';
+export const QUEUE_AUTOMATIONS = 'automations';
+export const QUEUE_REPORTS = 'reports';
 
 /**
  * Tipos de job conocidos por cada cola. Compartidos entre producer y
@@ -26,6 +29,9 @@ export const JOB_DUNNING_EXECUTE_ACTION = 'execute-action';
 export const JOB_PAYMENTS_SYNC = 'sync';
 export const JOB_VERIFACTU_SEND = 'send-to-aeat';
 export const JOB_EMAIL_SEND = 'send';
+export const JOB_COMMUNICATIONS_DISPATCH = 'dispatch';
+export const JOB_AUTOMATIONS_RUN = 'run';
+export const JOB_REPORTS_GENERATE = 'generate';
 
 /**
  * Modulo global que registra Redis + las colas BullMQ + el scheduler.
@@ -67,6 +73,9 @@ export const JOB_EMAIL_SEND = 'send';
       { name: QUEUE_PAYMENTS },
       { name: QUEUE_VERIFACTU },
       { name: QUEUE_EMAIL },
+      { name: QUEUE_COMMUNICATIONS },
+      { name: QUEUE_AUTOMATIONS },
+      { name: QUEUE_REPORTS },
     ),
   ],
   exports: [BullModule],

@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import QRCode from 'qrcode';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+
+import { AEAT_CLIENT, type AeatClient, type SendInvoiceResult } from './aeat-client';
 
 import type { Env } from '../../config/env.schema';
 import type { AeatStatus, Invoice, Prisma } from '@storageos/database';
@@ -34,14 +36,12 @@ import type { AeatStatus, Invoice, Prisma } from '@storageos/database';
 @Injectable()
 export class VerifactuService {
   private readonly logger = new Logger(VerifactuService.name);
-  private readonly mode: 'stub' | 'sandbox' | 'production';
 
   constructor(
     private readonly admin: PrismaAdminService,
-    config: ConfigService<Env, true>,
-  ) {
-    this.mode = config.get('AEAT_MODE', { infer: true });
-  }
+    @Inject(AEAT_CLIENT) private readonly aeat: AeatClient,
+    _config: ConfigService<Env, true>,
+  ) {}
 
   /**
    * Calcula el hash de una factura encadenándolo con la última emitida de
@@ -106,39 +106,69 @@ export class VerifactuService {
   }
 
   /**
-   * Encolar el envio a AEAT. En `stub` mode simulamos un `accepted`
-   * inmediato y registramos. En sandbox/production lanzaremos el job
-   * real con la libreria `node-soap` o equivalente.
+   * Envia una factura a AEAT y actualiza `aeat_*` en BD. Llamado desde el
+   * worker BullMQ `verifactu/send-invoice`. Devuelve el `SendInvoiceResult`
+   * para que el worker pueda decidir si reintentar (lanzar excepcion solo
+   * cuando `status === 'error'`). Para `accepted` / `accepted_with_warnings`
+   * / `rejected` el worker NO reintenta (rejected es decision AEAT, no
+   * un fallo tecnico). Si la factura no es enviable (faltan campos), se
+   * devuelve `null`.
    */
-
-  async sendToAeat(invoiceId: string, _tenantId: string): Promise<void> {
-    if (this.mode === 'stub') {
-      await this.admin.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          aeatSentAt: new Date(),
-          aeatStatus: 'accepted' as AeatStatus,
-          aeatResponse: {
-            mode: 'stub',
-            message: 'Stub mode: no se ha enviado realmente a AEAT',
-          } as Prisma.InputJsonValue,
-        },
-      });
-      this.logger.debug(
-        `[Verifactu STUB] invoice ${invoiceId} marcada como accepted (sin envio real)`,
-      );
-      return;
+  async sendToAeat(invoiceId: string, tenantId: string): Promise<SendInvoiceResult | null> {
+    const invoice = await this.admin.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        issueDate: true,
+        total: true,
+        previousHash: true,
+        hash: true,
+      },
+    });
+    if (!invoice || !invoice.invoiceNumber || !invoice.issueDate || !invoice.hash) {
+      this.logger.warn(`[Verifactu] invoice ${invoiceId} no enviable (campos faltantes)`);
+      return null;
     }
-    // sandbox / production: se conectara al endpoint real en Fase 8.
-    this.logger.warn(
-      `[Verifactu ${this.mode}] envio real no implementado todavia (Fase 8). invoice=${invoiceId}`,
-    );
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { taxId: true },
+    });
+    const result = await this.aeat.sendInvoice({
+      tenantId,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      issueDate: invoice.issueDate,
+      total: Number(invoice.total),
+      previousHash: invoice.previousHash,
+      hash: invoice.hash,
+      emitterTaxId: tenant?.taxId ?? '',
+    });
+    const status: AeatStatus =
+      result.status === 'accepted'
+        ? 'accepted'
+        : result.status === 'accepted_with_warnings'
+          ? 'accepted_with_warnings'
+          : result.status === 'rejected'
+            ? 'rejected'
+            : 'error';
     await this.admin.invoice.update({
       where: { id: invoiceId },
       data: {
-        aeatStatus: 'pending' as AeatStatus,
+        aeatSentAt: new Date(),
+        aeatStatus: status,
+        aeatCsv: result.csv ?? null,
+        aeatResponse: {
+          mode: this.aeat.mode,
+          ...(result.message ? { message: result.message } : {}),
+          ...(result.raw ?? {}),
+        } as Prisma.InputJsonValue,
       },
     });
+    this.logger.debug(
+      `[Verifactu ${this.aeat.mode}] invoice ${invoiceId} → ${status}${result.csv ? ` CSV=${result.csv}` : ''}`,
+    );
+    return result;
   }
 
   /** Comprueba el hash de una factura ya emitida (auditoría). */

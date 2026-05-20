@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.schema';
 
 interface PresignArgs {
-  bucket: 'plans' | 'uploads' | 'invoices';
+  bucket: 'plans' | 'uploads' | 'invoices' | 'reports';
   key: string;
   contentType: string;
   contentLengthRange?: { min: number; max: number };
@@ -49,6 +49,7 @@ export class FilesService implements OnModuleInit {
       uploads: config.get('MINIO_BUCKET_UPLOADS', { infer: true }),
       invoices: config.get('MINIO_BUCKET_INVOICES', { infer: true }),
       plans: config.get('MINIO_BUCKET_PLANS', { infer: true }),
+      reports: config.get('MINIO_BUCKET_REPORTS', { infer: true }),
     };
   }
 

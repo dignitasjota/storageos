@@ -157,6 +157,16 @@ export class StripeGateway extends PaymentGateway {
     };
   }
 
+  /**
+   * Devuelve el cliente Stripe SDK crudo. Solo lo usa `BillingSaasService`
+   * (Fase 8B) para Checkout Sessions y Billing Portal, que NO encajan en la
+   * interfaz `PaymentGateway` (esa abstraccion es para cobrar a inquilinos,
+   * no para gestionar la suscripcion del tenant).
+   */
+  getClient(): Stripe {
+    return this.stripe;
+  }
+
   private mapIntentStatus(status: PaymentIntentStatus): ChargeResult['status'] {
     switch (status) {
       case 'succeeded':

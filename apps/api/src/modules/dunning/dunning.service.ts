@@ -1,8 +1,9 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Job, Queue } from 'bullmq';
 
+import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
@@ -52,6 +53,7 @@ export class DunningService extends WorkerHost {
     @InjectQueue(QUEUE_DUNNING) private readonly queue: Queue,
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    @Optional() private readonly access: AccessIntegrationsService | null = null,
   ) {
     super();
   }
@@ -175,19 +177,36 @@ export class DunningService extends WorkerHost {
       return;
     }
 
-    // En Fase 4 los efectos colaterales son:
-    //   - email_reminder: encolar email (cola `email.send`).
-    //   - access_block: setear flag en `dunning_actions.result` para que
-    //     Fase 5 (control de accesos) lo lea y desactive credenciales.
+    // Fase 8D: efectos colaterales segun action_type:
+    //   - email_reminder: encolar email (TODO conectar template + outbox).
+    //   - access_block: suspender credenciales del customer via
+    //     AccessIntegrationsService.suspendForDunning (Fase 7+8).
     //   - legal_notice: alerta al admin via audit; sin efecto automatico.
-    // El envio real de emails se conectara cuando integremos templates
-    // de dunning (TODO Fase 4/5).
+    let result: Record<string, string | boolean> = { action: action.actionType };
+    try {
+      if (action.actionType === 'access_block' && invoice.customerId && this.access) {
+        await this.access.suspendForDunning({
+          tenantId: action.tenantId,
+          customerId: invoice.customerId,
+          invoiceId: action.invoiceId,
+        });
+        result = { ...result, accessBlocked: true };
+      }
+    } catch (err) {
+      result = {
+        ...result,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      this.logger.warn(
+        `dunning.${action.actionType} fallo lateral pero marcamos executed: ${result.error}`,
+      );
+    }
     await this.admin.dunningAction.update({
       where: { id: action.id },
       data: {
         status: 'executed',
         executedAt: new Date(),
-        result: { simulated: true, action: action.actionType },
+        result,
       },
     });
     await this.audit.write({

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
@@ -10,8 +11,14 @@ import { CryptoModule } from './common/crypto/crypto.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AppConfigModule } from './config/env.config';
+import { AccessModule } from './modules/access/access.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AutomationsModule } from './modules/automations/automations.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
+import { CommunicationsModule } from './modules/communications/communications.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { DatabaseModule } from './modules/database/database.module';
@@ -21,12 +28,17 @@ import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
+import { LeadsModule } from './modules/leads/leads.module';
+import { OperationsModule } from './modules/operations/operations.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PortalModule } from './modules/portal/portal.module';
+import { ProductsModule } from './modules/products/products.module';
 import { QueuesModule } from './modules/queues/queues.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UsersModule } from './modules/users/users.module';
+import { WidgetModule } from './modules/widget/widget.module';
 
 import type { Env } from './config/env.schema';
 import type { Options as PinoHttpOptions } from 'pino-http';
@@ -86,6 +98,12 @@ import type { Options as PinoHttpOptions } from 'pino-http';
         };
       },
     }),
+    EventEmitterModule.forRoot({
+      wildcard: false,
+      delimiter: '.',
+      maxListeners: 20,
+      verboseMemoryLeak: true,
+    }),
     AsyncContextModule,
     CryptoModule,
     DatabaseModule,
@@ -105,6 +123,17 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     DunningModule,
     RgpdModule,
     PortalModule,
+    CommunicationsModule,
+    AutomationsModule,
+    LeadsModule,
+    WidgetModule,
+    OperationsModule,
+    ProductsModule,
+    AnalyticsModule,
+    ReportsModule,
+    AccessModule,
+    AdminModule,
+    BillingSaasModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

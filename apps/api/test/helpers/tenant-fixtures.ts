@@ -21,6 +21,34 @@ export async function cleanupTestTenants(): Promise<void> {
     if (ids.length === 0) return;
 
     await admin.$transaction([
+      // Fase 8: super admin + support tickets.
+      admin.impersonationLog.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.supportTicketMessage.deleteMany({
+        where: { ticket: { tenantId: { in: ids } } },
+      }),
+      admin.supportTicket.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 7: accesos.
+      admin.accessLog.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.accessDevice.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.accessCredential.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 6: operativa, productos, reports.
+      admin.reportRun.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.productSaleItem.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.productSale.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.productStock.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.product.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.incidentComment.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.incident.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.taskComment.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.task.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 5: comunicaciones, automatizaciones, leads.
+      admin.automationRun.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.automationRule.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.communication.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.messageTemplate.deleteMany({ where: { tenantId: { in: ids } } }),
+      admin.lead.deleteMany({ where: { tenantId: { in: ids } } }),
+      // Fase 10A: credenciales AEAT.
+      admin.tenantAeatCredential.deleteMany({ where: { tenantId: { in: ids } } }),
       // Fase 4: facturas, pagos, dunning, rgpd.
       admin.dunningAction.deleteMany({ where: { tenantId: { in: ids } } }),
       admin.payment.deleteMany({ where: { tenantId: { in: ids } } }),

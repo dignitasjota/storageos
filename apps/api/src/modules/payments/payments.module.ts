@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 
 import { PAYMENT_GATEWAY } from './payment-gateway.interface';
 import { PaymentMethodsController } from './payment-methods.controller';
@@ -11,7 +12,10 @@ import { StripeWebhookController } from './stripe-webhook.controller';
 import { StripeGateway } from './stripe.gateway';
 
 @Module({
-  imports: [AuthModule],
+  // forwardRef rompe el ciclo PaymentsModule <-> BillingSaasModule:
+  // BillingSaas depende de StripeGateway (aqui dentro), y el
+  // StripeWebhookController depende de BillingSaasService (alli).
+  imports: [AuthModule, forwardRef(() => BillingSaasModule)],
   controllers: [PaymentMethodsController, PaymentsController, StripeWebhookController],
   providers: [
     StripeGateway,
@@ -19,6 +23,6 @@ import { StripeGateway } from './stripe.gateway';
     PaymentMethodsService,
     PaymentsService,
   ],
-  exports: [PAYMENT_GATEWAY, PaymentMethodsService, PaymentsService],
+  exports: [PAYMENT_GATEWAY, StripeGateway, PaymentMethodsService, PaymentsService],
 })
 export class PaymentsModule {}

@@ -4,13 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { DomainEventPayload } from '../automations/domain-events';
 import type { Contract, ContractStatus, Prisma, UnitStatus } from '@storageos/database';
 import type {
   AddContractNoteInput,
@@ -55,6 +58,7 @@ export class ContractsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly pricing: PricingService,
+    private readonly eventBus: EventEmitter2,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<ContractDto[]> {
@@ -366,6 +370,51 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    const customer = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.findFirst({
+          where: { id: updated.customerId },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            email: true,
+            phone: true,
+            customerType: true,
+          },
+        }),
+      args.tenantId,
+    );
+    const recipientName =
+      customer?.customerType === 'business'
+        ? (customer.companyName ?? 'Empresa')
+        : [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || 'Cliente';
+    const payload: DomainEventPayload = {
+      tenantId: args.tenantId,
+      entityType: 'contract',
+      entityId: updated.id,
+      recipientEmail: customer?.email ?? null,
+      recipientPhone: customer?.phone ?? null,
+      customerId: updated.customerId,
+      scope: {
+        customer: {
+          firstName: customer?.firstName ?? '',
+          lastName: customer?.lastName ?? '',
+          displayName: recipientName,
+          email: customer?.email ?? '',
+        },
+        contract: {
+          number: updated.contractNumber,
+          priceMonthly: Number(updated.priceMonthly).toFixed(2),
+          startDate: updated.startDate.toISOString().slice(0, 10),
+          endDate: updated.endDate?.toISOString().slice(0, 10) ?? '',
+        },
+        unit: { code: updated.unit.code },
+        facility: { name: updated.unit.facility.name },
+      },
+    };
+    this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);
     return this.toDto(updated);
   }
 

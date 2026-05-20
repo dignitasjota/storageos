@@ -26,6 +26,11 @@ interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   requiresAuth?: boolean;
   /** Cualquier objeto serializable a JSON; si se pasa, fija `Content-Type`. */
   json?: unknown;
+  /**
+   * Body multipart/form-data. El navegador fija automáticamente el header
+   * `Content-Type` con el boundary correcto, así que NO lo seteamos a mano.
+   */
+  formData?: FormData;
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
@@ -105,6 +110,7 @@ export async function apiFetch<T = unknown>(
   const init: RequestInit = {
     method: options.method ?? 'GET',
     ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
+    ...(options.formData !== undefined ? { body: options.formData } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   };
 

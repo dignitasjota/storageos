@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { DomainEventPayload } from '../automations/domain-events';
 import type { Customer, Prisma } from '@storageos/database';
 import type {
   CreateCustomerInput,
@@ -31,6 +34,7 @@ export class CustomersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<CustomerDto[]> {
@@ -114,6 +118,24 @@ export class CustomersService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    const payload: DomainEventPayload = {
+      tenantId: args.tenantId,
+      entityType: 'customer',
+      entityId: created.id,
+      recipientEmail: created.email ?? null,
+      recipientPhone: created.phone ?? null,
+      customerId: created.id,
+      scope: {
+        customer: {
+          firstName: created.firstName ?? '',
+          lastName: created.lastName ?? '',
+          displayName: displayName(created),
+          email: created.email ?? '',
+          phone: created.phone ?? '',
+        },
+      },
+    };
+    this.events.emit(DOMAIN_EVENTS.customer_created, payload);
     return this.toDto(created);
   }
 
