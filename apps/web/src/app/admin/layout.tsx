@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, Building2, LifeBuoy, LogOut, ShieldCheck } from 'lucide-react';
+import { Activity, BarChart3, Building2, LifeBuoy, LogOut, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
@@ -34,6 +34,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
+  { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
   { href: '/admin/security', label: 'Seguridad', icon: ShieldCheck },
 ];
 

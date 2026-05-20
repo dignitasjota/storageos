@@ -85,6 +85,18 @@ export class TenantAeatCredentialsController {
     });
   }
 
+  /**
+   * Histórico completo de credenciales del tenant (activas + revocadas).
+   * Read-only; útil para auditar rotaciones desde Ajustes → Veri*Factu.
+   */
+  @Roles('owner', 'manager')
+  @Get('history')
+  async listHistory(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<TenantAeatCredentialMetadata[]> {
+    return this.service.listHistory(user.tenantId);
+  }
+
   @Roles('owner', 'manager')
   @Get('me')
   async getMine(@CurrentUser() user: AuthenticatedUser): Promise<TenantAeatCredentialMetadata> {

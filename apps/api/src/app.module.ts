@@ -36,6 +36,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
+import { SecurityEventsModule } from './modules/security-events/security-events.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UsersModule } from './modules/users/users.module';
 import { WidgetModule } from './modules/widget/widget.module';
@@ -107,6 +108,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AsyncContextModule,
     CryptoModule,
     DatabaseModule,
+    SecurityEventsModule,
     EmailModule,
     HealthModule,
     AuthModule,

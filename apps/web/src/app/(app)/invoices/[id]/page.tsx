@@ -7,15 +7,19 @@ import {
   Download,
   FileText,
   Loader2,
+  Receipt,
   Send,
   Undo2,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import type { InvoiceDto, RectificationTypeValue } from '@storageos/shared';
+
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -34,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { VerifactuBadge } from '@/components/verifactu-badge';
 import { ApiError } from '@/lib/auth/api';
 import {
@@ -43,11 +48,41 @@ import {
   useInvoice,
   useIssueInvoice,
   useMarkInvoicePaid,
+  useRectifyInvoice,
   useRefundInvoice,
 } from '@/lib/billing/hooks';
 
+/**
+ * Etiquetas explicativas para cada tipo de factura rectificativa (RD
+ * 1619/2012 art. 13). Se muestran en el select del modal "Rectificar" y
+ * en el tooltip del badge cuando la factura es rectificativa.
+ */
+const RECTIFICATION_TYPE_LABELS: Record<RectificationTypeValue, string> = {
+  R1: 'R1 - Error fundado en derecho',
+  R2: 'R2 - Concurso de acreedores (art. 80.3 LIVA)',
+  R3: 'R3 - Creditos incobrables (art. 80.4 LIVA)',
+  R4: 'R4 - Rectificativa generica (art. 80.6 LIVA)',
+  R5: 'R5 - Otros (descuentos por volumen, etc.)',
+};
+
+const RECTIFIABLE_STATUSES = new Set<InvoiceDto['status']>([
+  'issued',
+  'paid',
+  'overdue',
+  'refunded',
+  'partially_refunded',
+]);
+
+interface RectifyDraftItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+}
+
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const id = params?.id;
   const invoice = useInvoice(id);
 
@@ -57,6 +92,7 @@ export default function InvoiceDetailPage() {
   const markPaid = useMarkInvoicePaid();
   const charge = useChargeInvoice();
   const generatePdf = useGenerateInvoicePdf();
+  const rectify = useRectifyInvoice();
 
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -64,6 +100,10 @@ export default function InvoiceDetailPage() {
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundAmount, setRefundAmount] = useState(0);
   const [refundReason, setRefundReason] = useState('');
+  const [rectifyOpen, setRectifyOpen] = useState(false);
+  const [rectifyType, setRectifyType] = useState<RectificationTypeValue>('R1');
+  const [rectifyReason, setRectifyReason] = useState('');
+  const [rectifyItems, setRectifyItems] = useState<RectifyDraftItem[]>([]);
 
   if (invoice.isLoading || !invoice.data) {
     return (
@@ -97,6 +137,35 @@ export default function InvoiceDetailPage() {
               <h1 className="font-mono text-2xl font-semibold tracking-tight">{i.invoiceNumber}</h1>
               <InvoiceStatusBadge status={i.status} />
               <VerifactuBadge invoice={i} />
+              {i.invoiceType !== 'F1' && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="secondary" className="gap-1">
+                        <Receipt className="size-3" />
+                        Rectificativa {i.invoiceType}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="space-y-1 text-xs">
+                        <p>
+                          {RECTIFICATION_TYPE_LABELS[i.invoiceType as RectificationTypeValue] ??
+                            i.invoiceType}
+                        </p>
+                        {i.rectificationReason && <p>Motivo: {i.rectificationReason}</p>}
+                        {i.rectifiesInvoiceId && i.rectifiesInvoiceNumber && (
+                          <p>
+                            Rectifica a{' '}
+                            <Link href={`/invoices/${i.rectifiesInvoiceId}`} className="underline">
+                              {i.rectifiesInvoiceNumber}
+                            </Link>
+                          </p>
+                        )}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               <Link href={`/customers/${i.customerId}`} className="hover:underline">
@@ -158,6 +227,26 @@ export default function InvoiceDetailPage() {
                 }
               >
                 <Ban className="mr-1 h-4 w-4" /> Cancelar
+              </Button>
+            )}
+            {i.invoiceType === 'F1' && RECTIFIABLE_STATUSES.has(i.status) && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRectifyType('R1');
+                  setRectifyReason('');
+                  setRectifyItems(
+                    i.items.map((it) => ({
+                      description: it.description,
+                      quantity: it.quantity,
+                      unitPrice: it.unitPrice,
+                      taxRate: it.taxRate,
+                    })),
+                  );
+                  setRectifyOpen(true);
+                }}
+              >
+                <Receipt className="mr-1 h-4 w-4" /> Rectificar
               </Button>
             )}
             {i.status !== 'draft' && (
@@ -349,6 +438,163 @@ export default function InvoiceDetailPage() {
               disabled={paidAmount <= 0}
             >
               Registrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rectifyOpen} onOpenChange={setRectifyOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Emitir factura rectificativa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <Label>Tipo de rectificacion</Label>
+                <Select
+                  value={rectifyType}
+                  onValueChange={(v) => setRectifyType(v as RectificationTypeValue)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(RECTIFICATION_TYPE_LABELS) as RectificationTypeValue[]).map(
+                      (key) => (
+                        <SelectItem key={key} value={key}>
+                          {RECTIFICATION_TYPE_LABELS[key]}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Motivo (max 500)</Label>
+                <Input
+                  value={rectifyReason}
+                  onChange={(e) => setRectifyReason(e.target.value.slice(0, 500))}
+                  placeholder="NIF erroneo, importe equivocado..."
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Lineas (por diferencias: signos negativos reducen importes; positivos los aumentan)
+              </Label>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                    <th className="py-1">Concepto</th>
+                    <th className="py-1 text-right">Cant.</th>
+                    <th className="py-1 text-right">P. unit (€)</th>
+                    <th className="py-1 text-right">IVA %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rectifyItems.map((it, idx) => (
+                    <tr key={idx} className="border-b last:border-0">
+                      <td className="py-1">
+                        <Input
+                          value={it.description}
+                          onChange={(e) =>
+                            setRectifyItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, description: e.target.value } : row,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="py-1 text-right">
+                        <Input
+                          type="number"
+                          step="1"
+                          min="1"
+                          value={it.quantity}
+                          onChange={(e) =>
+                            setRectifyItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, quantity: Number(e.target.value) } : row,
+                              ),
+                            )
+                          }
+                          className="w-20"
+                        />
+                      </td>
+                      <td className="py-1 text-right">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={it.unitPrice}
+                          onChange={(e) =>
+                            setRectifyItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
+                              ),
+                            )
+                          }
+                          className="w-28"
+                        />
+                      </td>
+                      <td className="py-1 text-right">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={it.taxRate}
+                          onChange={(e) =>
+                            setRectifyItems((curr) =>
+                              curr.map((row, i) =>
+                                i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
+                              ),
+                            )
+                          }
+                          className="w-20"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-xs text-muted-foreground">
+                La rectificativa se crea como borrador. Tendras que emitirla manualmente para que se
+                envie a AEAT.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRectifyOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() =>
+                safe(async () => {
+                  const created = await rectify.mutateAsync({
+                    id: i.id,
+                    input: {
+                      rectificationType: rectifyType,
+                      reason: rectifyReason.trim(),
+                      items: rectifyItems.map((it) => ({
+                        description: it.description,
+                        quantity: it.quantity,
+                        unitPrice: it.unitPrice,
+                        taxRate: it.taxRate,
+                      })),
+                    },
+                  });
+                  setRectifyOpen(false);
+                  router.push(`/invoices/${created.id}`);
+                }, 'Factura rectificativa creada como borrador.')
+              }
+              disabled={
+                rectify.isPending || rectifyReason.trim().length === 0 || rectifyItems.length === 0
+              }
+            >
+              {rectify.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Crear rectificativa
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -14,6 +14,7 @@ import type {
   MarkPaidManuallyInput,
   PaymentDto,
   PaymentMethodDto,
+  RectifyInvoiceInput,
   RefundInvoiceInput,
   RegisterPaymentMethodInput,
   SetupIntentResponseDto,
@@ -130,6 +131,25 @@ export const useIssueInvoice = makeInvoiceAction<undefined>('issue');
 export const useCancelInvoice = makeInvoiceAction<CancelInvoiceInput>('cancel');
 export const useRefundInvoice = makeInvoiceAction<RefundInvoiceInput>('refund');
 export const useMarkInvoicePaid = makeInvoiceAction<MarkPaidManuallyInput>('mark-paid');
+
+/**
+ * Crea una factura rectificativa (R1-R5) sobre una factura original ya
+ * emitida. La rectificativa queda en `draft`; el usuario tendra que
+ * emitirla explicitamente.
+ */
+export function useRectifyInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: RectifyInvoiceInput }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.id}/rectify`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
 
 export function useGenerateInvoicePdf() {
   const qc = useQueryClient();

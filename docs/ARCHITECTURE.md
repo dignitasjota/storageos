@@ -213,3 +213,69 @@ En tiempo de envío, el `RealAeatClient` descifra, extrae el cert PEM + clave pr
 - **BBDD:** RLS por tenant_id, usuario Postgres de la app sin permisos DDL.
 - **Secretos:** nunca en repo, gestionados como variables de entorno y montados como Docker secrets en prod.
 - **Backups:** cifrados con gpg antes de subir a almacenamiento externo.
+
+## Seguridad: Content Security Policy (frontend)
+
+El frontend `apps/web` aplica una **Content Security Policy** definida en
+`apps/web/next.config.mjs` (función `headers()`).
+
+### Modo `Report-Only`
+
+En la Fase 11A se introduce la CSP en modo **`Content-Security-Policy-Report-Only`**
+para auditar violaciones sin romper UX. El navegador respeta la política
+informativamente y envía cada bloqueo simulado al endpoint
+`POST /api/csp-report` (logueado a stdout → Loki/Grafana en producción).
+
+Tras **1 semana en producción sin violaciones inesperadas** se cambia a
+enforcement renombrando la cabecera a `Content-Security-Policy`. La
+configuración de directivas no cambia.
+
+### Directivas y dominios externos permitidos
+
+| Directiva         | Valores                                                                   | Por qué                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `default-src`     | `'self'`                                                                  | Por defecto solo recursos propios                                                                                        |
+| `script-src`      | `'self' 'unsafe-inline' https://js.stripe.com` (+ `'unsafe-eval'` en dev) | Next.js inyecta scripts inline (RSC + hydration). Stripe.js queda preparado por si se añade Elements en cliente          |
+| `style-src`       | `'self' 'unsafe-inline'`                                                  | shadcn/ui + Radix usan `style=""` inline en popovers, tooltips, sidebar                                                  |
+| `img-src`         | `'self' data: blob: https:`                                               | `data:` para QR Verifactu, `blob:` para previews de upload, `https:` para signed URLs MinIO/S3 (host arbitrario por env) |
+| `font-src`        | `'self' data:`                                                            | `next/font` (Geist) puede inlinear como data URI                                                                         |
+| `connect-src`     | `'self' https:` (+ `http: ws:` en dev)                                    | Fetch al backend (NEXT_PUBLIC_API_URL, otro origin) + PUT directos a signed URLs MinIO/S3                                |
+| `frame-src`       | `'self' https://js.stripe.com https://hooks.stripe.com`                   | `'self'` para el preview del widget en `/settings/widget`                                                                |
+| `frame-ancestors` | `'none'`                                                                  | Anti-clickjacking: nadie puede embebernos (excepto el widget, ver abajo)                                                 |
+| `form-action`     | `'self'`                                                                  | Impide submits a dominios externos                                                                                       |
+| `base-uri`        | `'self'`                                                                  | Impide `<base href>` a otros origenes                                                                                    |
+| `object-src`      | `'none'`                                                                  | Sin plugins ni flash                                                                                                     |
+| `report-uri`      | `/api/csp-report`                                                         | Endpoint propio para recopilar violaciones                                                                               |
+
+Cabeceras complementarias también aplicadas: `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+
+### Excepción `/widget/[slug]`
+
+El widget público está diseñado para **embeberse en webs de terceros**, por
+lo que necesita `frame-ancestors *`. La CSP estricta del panel **NO** se
+aplica a esta ruta:
+
+- En `next.config.mjs` la regla `source: '/widget/:path*'` solo emite
+  `X-Frame-Options: ALLOWALL` (sin CSP estricta).
+- En `src/middleware.ts` se inyecta la CSP permisiva del widget
+  (`frame-ancestors *; default-src 'self' 'unsafe-inline' data:; ...`).
+
+### Endpoint `/api/csp-report`
+
+`apps/web/src/app/api/csp-report/route.ts`. Recibe POST con el detalle
+de cada violación, lo loguea con `console.warn` y devuelve `204 No Content`.
+En producción los logs se recogen en Loki/Grafana para analizar antes del
+cambio a enforcement.
+
+### Roadmap
+
+1. Fase 11A (actual): `Report-Only` desplegado en producción.
+2. Auditoría: 1 semana de logs `[CSP violation]` en Loki para identificar
+   falsos positivos y dominios no contemplados.
+3. Endurecimiento: ajustar directivas según hallazgos y renombrar la
+   cabecera a `Content-Security-Policy` (enforcement).
+4. Futuro (opcional): migrar `'unsafe-inline'` de `script-src` a nonces
+   dinámicos generados en middleware. Queda fuera de scope porque
+   requiere recablear todo el render path de Next App Router.

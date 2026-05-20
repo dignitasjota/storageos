@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../database/prisma.service';
+import { SecurityEventsService } from '../security-events/security-events.service';
 
 import { TokensService } from './tokens.service';
 
@@ -50,6 +51,7 @@ export class SessionsService {
     private readonly prisma: PrismaService,
     private readonly tokens: TokensService,
     private readonly config: ConfigService<Env, true>,
+    private readonly securityEvents: SecurityEventsService,
   ) {}
 
   async createForLogin(
@@ -122,6 +124,18 @@ export class SessionsService {
       this.logger.warn(
         `Reuso de refresh detectado en sesion ${sessionId} (user ${session.userId}); revocadas ${revokedCount.count} sesiones`,
       );
+      await this.securityEvents.record({
+        eventType: 'refresh_token_reuse',
+        ipAddress: args.ipAddress,
+        userAgent: args.userAgent,
+        reason: isExpired ? 'expired_session' : 'revoked_session',
+        rawMetadata: {
+          tenantId,
+          sessionId,
+          userId: session.userId,
+          revokedSessionsCount: revokedCount.count,
+        },
+      });
       throw new UnauthorizedException('Refresh invalido');
     }
 

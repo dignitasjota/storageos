@@ -10,6 +10,7 @@ import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { ImpersonationService } from './impersonation.service';
+import { SecurityEventsController } from './security-events.controller';
 import { SuperAdminAuthController } from './super-admin-auth.controller';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
@@ -36,6 +37,7 @@ import { SupportTicketsService } from './support-tickets.service';
     SuperAdminAuthController,
     AdminTenantsController,
     AdminMetricsController,
+    SecurityEventsController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
   ],

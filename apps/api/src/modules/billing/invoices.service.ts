@@ -14,15 +14,19 @@ import { VerifactuService } from './verifactu.service';
 
 import type { VerifactuSendJobData } from './verifactu.processor';
 import type { RequestMeta } from '../auth/auth.service';
-import type { Invoice, InvoiceItem, InvoiceStatus } from '@storageos/database';
+import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageos/database';
 import type {
   CancelInvoiceInput,
+  CorrectionMethodValue,
   CreateInvoiceInput,
   CreateInvoiceItemInput,
   InvoiceDto,
   InvoiceItemDto,
   InvoiceStatusValue,
+  InvoiceTypeValue,
   MarkPaidManuallyInput,
+  RectifyInvoiceInput,
+  RectifyInvoiceItemInput,
   RefundInvoiceInput,
   UpdateInvoiceInput,
 } from '@storageos/shared';
@@ -47,6 +51,7 @@ type InvoiceWithRelations = Invoice & {
   };
   contract: { contractNumber: string } | null;
   series: { code: string };
+  rectifiesInvoice: { id: string; invoiceNumber: string } | null;
 };
 
 interface ListFilters {
@@ -91,19 +96,7 @@ export class InvoicesService {
         tx.invoice.findMany({
           where,
           orderBy: [{ updatedAt: 'desc' }],
-          include: {
-            items: { orderBy: { position: 'asc' } },
-            customer: {
-              select: {
-                firstName: true,
-                lastName: true,
-                companyName: true,
-                customerType: true,
-              },
-            },
-            contract: { select: { contractNumber: true } },
-            series: { select: { code: true } },
-          },
+          include: this.includeRelations(),
         }),
       tenantId,
     );
@@ -521,6 +514,116 @@ export class InvoicesService {
     return this.toDto(updated);
   }
 
+  /**
+   * Emite una factura rectificativa (R1-R5) que rectifica una factura
+   * original ya emitida. Metodo soportado: `by_differences` (los items
+   * representan la diferencia respecto a la original; pueden ser
+   * negativos). La rectificativa se crea en estado `draft` — el usuario
+   * debera emitirla explicitamente para que se asigne numero, hash y se
+   * envie a AEAT.
+   *
+   * Restricciones AEAT (RD 1619/2012 art. 13):
+   *   - La factura original debe estar emitida (no draft ni cancelled).
+   *   - No se permite rectificar una rectificativa (MVP).
+   *   - Se hereda customerId + seriesId del original.
+   */
+  async rectify(args: {
+    originalInvoiceId: string;
+    tenantId: string;
+    userId: string;
+    input: RectifyInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const original = await this.findOrThrow(args.tenantId, args.originalInvoiceId);
+
+    if (original.status === 'draft' || original.status === 'cancelled') {
+      throw new BadRequestException({
+        code: 'invoice_not_rectifiable',
+        message: 'Solo se pueden rectificar facturas emitidas',
+      });
+    }
+    if (original.invoiceType !== 'F1') {
+      throw new BadRequestException({
+        code: 'invoice_not_rectifiable',
+        message: 'No se puede rectificar una factura rectificativa',
+      });
+    }
+
+    const { subtotal, taxAmount, total } = this.computeTotalsRectify(args.input.items);
+    const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
+
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.create({
+          data: {
+            tenantId: args.tenantId,
+            customerId: original.customerId,
+            ...(original.contractId ? { contractId: original.contractId } : {}),
+            seriesId: original.seriesId,
+            sequenceNumber: 0,
+            invoiceNumber: placeholderNumber,
+            status: 'draft',
+            invoiceType: args.input.rectificationType as InvoiceType,
+            rectifiesInvoiceId: original.id,
+            rectificationReason: args.input.reason.trim(),
+            correctionMethod: 'by_differences',
+            verifactuMode: original.verifactuMode,
+            ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
+            subtotal,
+            taxAmount,
+            total,
+            items: {
+              create: args.input.items.map((item, idx) =>
+                this.toRectifyItemCreateData(item, args.tenantId, idx),
+              ),
+            },
+          },
+          include: this.includeRelations(),
+        }),
+      args.tenantId,
+    );
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.rectified',
+      entityType: 'Invoice',
+      entityId: created.id,
+      changes: {
+        originalInvoiceId: original.id,
+        originalInvoiceNumber: original.invoiceNumber,
+        rectificationType: args.input.rectificationType,
+        reason: args.input.reason.trim(),
+      },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    // Notificar a automations. La rectificativa esta en draft, pero el
+    // evento permite (p.ej.) avisar al cliente o crear tareas internas.
+    const payload: DomainEventPayload = {
+      tenantId: args.tenantId,
+      entityType: 'invoice',
+      entityId: created.id,
+      customerId: original.customerId,
+      recipientEmail: null,
+      scope: {
+        invoice: {
+          rectificationType: args.input.rectificationType,
+          reason: args.input.reason.trim(),
+          total: total.toFixed(2),
+          original: {
+            id: original.id,
+            number: original.invoiceNumber,
+          },
+        },
+      },
+    };
+    this.events.emit(DOMAIN_EVENTS.invoice_rectified, payload);
+
+    return this.toDto(created);
+  }
+
   /** Persiste la URL del PDF tras generarlo. */
   async attachPdf(args: { tenantId: string; invoiceId: string; pdfUrl: string }): Promise<void> {
     await this.prisma.withTenant(
@@ -589,6 +692,7 @@ export class InvoicesService {
       },
       contract: { select: { contractNumber: true } },
       series: { select: { code: true } },
+      rectifiesInvoice: { select: { id: true, invoiceNumber: true } },
     } as const;
   }
 
@@ -613,6 +717,53 @@ export class InvoicesService {
 
   private toItemCreateData(
     item: CreateInvoiceItemInput,
+    tenantId: string,
+    position: number,
+  ): Prisma.InvoiceItemUncheckedCreateWithoutInvoiceInput {
+    const lineSubtotal = item.quantity * item.unitPrice;
+    const lineTax = (lineSubtotal * item.taxRate) / 100;
+    return {
+      tenantId,
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      taxRate: item.taxRate,
+      taxAmount: Math.round(lineTax * 100) / 100,
+      total: Math.round((lineSubtotal + lineTax) * 100) / 100,
+      ...(item.relatedContractId ? { relatedContractId: item.relatedContractId } : {}),
+      ...(item.relatedUnitId ? { relatedUnitId: item.relatedUnitId } : {}),
+      ...(item.periodStart ? { periodStart: new Date(item.periodStart) } : {}),
+      ...(item.periodEnd ? { periodEnd: new Date(item.periodEnd) } : {}),
+      position,
+    };
+  }
+
+  /**
+   * Variante de `computeTotals` para rectificativas: el `unitPrice` puede
+   * ser negativo (la rectificativa "por diferencias" puede reducir
+   * importes). El total resultante puede tambien ser negativo.
+   */
+  private computeTotalsRectify(items: RectifyInvoiceItemInput[]): {
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+  } {
+    let subtotal = 0;
+    let tax = 0;
+    for (const it of items) {
+      const lineSubtotal = it.quantity * it.unitPrice;
+      const lineTax = (lineSubtotal * it.taxRate) / 100;
+      subtotal += lineSubtotal;
+      tax += lineTax;
+    }
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const sub = round(subtotal);
+    const t = round(tax);
+    return { subtotal: sub, taxAmount: t, total: round(sub + t) };
+  }
+
+  private toRectifyItemCreateData(
+    item: RectifyInvoiceItemInput,
     tenantId: string,
     position: number,
   ): Prisma.InvoiceItemUncheckedCreateWithoutInvoiceInput {
@@ -660,6 +811,11 @@ export class InvoicesService {
       contractId: row.contractId,
       contractNumber: row.contract?.contractNumber ?? null,
       status: row.status as InvoiceStatusValue,
+      invoiceType: row.invoiceType as InvoiceTypeValue,
+      rectifiesInvoiceId: row.rectifiesInvoiceId,
+      rectifiesInvoiceNumber: row.rectifiesInvoice?.invoiceNumber ?? null,
+      rectificationReason: row.rectificationReason,
+      correctionMethod: row.correctionMethod as CorrectionMethodValue | null,
       issueDate: row.issueDate ? row.issueDate.toISOString().slice(0, 10) : null,
       dueDate: row.dueDate ? row.dueDate.toISOString().slice(0, 10) : null,
       periodStart: row.periodStart ? row.periodStart.toISOString().slice(0, 10) : null,

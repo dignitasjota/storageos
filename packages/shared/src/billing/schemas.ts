@@ -29,6 +29,24 @@ export type InvoiceStatusValue = z.infer<typeof InvoiceStatusEnum>;
 export const VerifactuModeEnum = z.enum(['verifactu', 'no_verifactu']);
 export type VerifactuModeValue = z.infer<typeof VerifactuModeEnum>;
 
+/**
+ * Tipo de factura segun spec AEAT Veri*Factu. F1 = normal, F2 = simplificada
+ * (post-MVP), R1-R5 = rectificativas (RD 1619/2012 art. 13).
+ */
+export const InvoiceTypeEnum = z.enum(['F1', 'F2', 'R1', 'R2', 'R3', 'R4', 'R5']);
+export type InvoiceTypeValue = z.infer<typeof InvoiceTypeEnum>;
+
+/**
+ * Subconjunto de `InvoiceTypeEnum` con solo los codigos rectificativos. Se
+ * usa en el endpoint `POST /invoices/:id/rectify` para evitar que el usuario
+ * cree algo distinto a una rectificativa via ese flujo.
+ */
+export const RectificationTypeEnum = z.enum(['R1', 'R2', 'R3', 'R4', 'R5']);
+export type RectificationTypeValue = z.infer<typeof RectificationTypeEnum>;
+
+export const CorrectionMethodEnum = z.enum(['by_differences', 'by_substitution']);
+export type CorrectionMethodValue = z.infer<typeof CorrectionMethodEnum>;
+
 export const AeatStatusEnum = z.enum([
   'pending',
   'accepted',
@@ -167,6 +185,31 @@ export const RefundInvoiceSchema = z.object({
   reason: optionalText(500),
 });
 export type RefundInvoiceInput = z.infer<typeof RefundInvoiceSchema>;
+
+/**
+ * Item de una factura rectificativa "por diferencias": el `unitPrice` puede
+ * ser negativo (el usuario introduce la diferencia respecto al original; si
+ * la rectificativa reduce importes, los signos seran negativos).
+ */
+export const RectifyInvoiceItemSchema = z.object({
+  description: z.string().trim().min(1).max(500),
+  quantity: z.number().int().positive().finite().default(1),
+  unitPrice: z.number().finite(),
+  taxRate: z.number().min(0).max(100).default(21),
+  relatedContractId: z.string().uuid().optional(),
+  relatedUnitId: z.string().uuid().optional(),
+  periodStart: dateOnly.optional(),
+  periodEnd: dateOnly.optional(),
+});
+export type RectifyInvoiceItemInput = z.infer<typeof RectifyInvoiceItemSchema>;
+
+export const RectifyInvoiceSchema = z.object({
+  rectificationType: RectificationTypeEnum,
+  reason: z.string().trim().min(1).max(500),
+  items: z.array(RectifyInvoiceItemSchema).min(1, 'Al menos una linea'),
+  issueDate: z.string().datetime().optional(),
+});
+export type RectifyInvoiceInput = z.infer<typeof RectifyInvoiceSchema>;
 
 // ============================================================================
 // Payment methods + payments

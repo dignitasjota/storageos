@@ -1,8 +1,10 @@
 import type {
   AeatStatusValue,
+  CorrectionMethodValue,
   DataSubjectRequestTypeValue,
   DunningActionTypeValue,
   InvoiceStatusValue,
+  InvoiceTypeValue,
   PaymentGatewayProviderValue,
   PaymentMethodTypeValue,
   PaymentStatusValue,
@@ -52,6 +54,11 @@ export interface InvoiceDto {
   contractId: string | null;
   contractNumber: string | null;
   status: InvoiceStatusValue;
+  invoiceType: InvoiceTypeValue;
+  rectifiesInvoiceId: string | null;
+  rectifiesInvoiceNumber: string | null;
+  rectificationReason: string | null;
+  correctionMethod: CorrectionMethodValue | null;
   issueDate: string | null;
   dueDate: string | null;
   periodStart: string | null;

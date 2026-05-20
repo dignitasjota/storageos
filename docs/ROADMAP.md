@@ -255,6 +255,20 @@ Cliente AEAT real para Veri*Factu (RD 1007/2023, vigente desde 2026-07-01). Sin 
 
 **Resultado**: el SaaS puede emitir facturas conformes a Veri\*Factu en sandbox AEAT. Activar producción requiere cambiar `AEAT_MODE=production` (sin tocar código) y que cada tenant haya subido su cert FNMT/Camerfirma/ANCERT desde `/settings/billing/verifactu`.
 
+## Fase 11 — Compliance + observabilidad post-MVP ✅ (cierre 2026-05-20)
+
+Cuatro brechas detectadas al cerrar Fase 10, todas hardening (no funcionalidad nueva). Se cierran en 5 sub-bloques 11A.1 a 11A.5. Detalle en ADR-044 (`docs/adr/044-compliance-observability-post-mvp.md`).
+
+- [x] **11A.1 — `security_events` global**: nueva tabla **sin `tenant_id`** que persiste `login_failed_tenant_not_found`, `login_failed_email_not_found`, `login_failed_wrong_password` y `refresh_token_reuse` (eventos que no se pueden meter en `audit_logs` porque su `tenant_id` es `NOT NULL`). `SecurityEventsService` invocado desde `AuthService` y `SessionsService`. Endpoint `GET /admin/security-events` con filtros (`eventType`, `email`, `fromDate`, `toDate`) + cursor pagination. Página `/admin/security-events` en el panel super admin. Cron diario `0 3 * * *` que borra eventos > 90 días. 9/9 tests e2e.
+- [x] **11A.2 — `tenant_aeat_credentials` histórico**: drop del UNIQUE en `tenant_id`; ahora la credencial activa se identifica por `revoked_at IS NULL`. `TenantAeatCredentialsService.upload` reescrito como `$transaction` (UPDATE actual con `revoked_reason='rotated'` + INSERT nueva). Nuevo `listHistory(tenantId)` ordenado por `uploaded_at DESC` + endpoint `GET /billing/aeat-credentials/history` (role `owner|manager`). UI colapsable en `/settings/billing/verifactu` con la lista histórica. 3/3 tests e2e.
+- [x] **11A.3 — CSP `Report-Only` en panel autenticado**: cabeceras CSP en `next.config.mjs` (modo `Content-Security-Policy-Report-Only` durante 1 mes antes de enforcement). Directivas: `default-src 'self'; script-src 'self' 'unsafe-inline' https://js.stripe.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'none'; report-uri /api/csp-report;`. Endpoint `POST /api/csp-report` que loggea violaciones a Pino. **Excepción `/widget/:path*`**: el middleware mantiene `frame-ancestors *` + `X-Frame-Options: ALLOWALL` (iframe-friendly desde sites de tenants). Documentado en `docs/ARCHITECTURE.md`.
+- [x] **11A.4 — Rectificativas Veri\*Factu R1-R5**: schema con enums `InvoiceType` (F1, F2, R1-R5) + `CorrectionMethod` (I/S) + columnas `invoice_type`, `rectifies_invoice_id` (FK self), `rectification_reason`, `correction_method`. `InvoicesService.rectify(originalId, args)` crea draft con items (pueden ser negativos). `VerifactuXmlBuilder` añade `<TipoRectificativa>I</TipoRectificativa>` + bloque `<FacturasRectificadas>` cuando `invoiceType` empieza por R. `RealAeatClient` carga la original via Prisma y la pasa al builder. Endpoint `POST /invoices/:id/rectify` (role `owner|manager`). UI: botón "Rectificar" + badge "Rectificativa" en `/invoices/[id]`. Tests: unit 12/12 (incluye 3 cases de rectificativas), e2e 7/7.
+- [x] **11A.5 — ADR-044 + cierre**: `docs/adr/044-compliance-observability-post-mvp.md` con contexto + 4 sub-decisiones + alternativas rechazadas + trade-offs. Actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, vault Obsidian.
+
+**Migraciones aplicadas**: `20260520010000_phase11a_security_events`, `20260520010100_phase11a_aeat_credentials_history`, `20260520010200_phase11a_invoice_rectifications`.
+
+**Resultado**: el MVP cierra cuatro brechas detectadas al cierre de Fase 10. Verificación verde: `pnpm -F api typecheck && pnpm -F api lint && pnpm -F web typecheck && pnpm -F web lint && pnpm -F @storageos/database test`, e2e suites 11A.1 (9/9) + 11A.2 (3/3) + 11A.4 (7/7), unit `verifactu-xml-builder` 12/12.
+
 ## Backlog / Post-MVP
 
 - App móvil (React Native o PWA)

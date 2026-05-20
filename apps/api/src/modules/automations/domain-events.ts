@@ -16,6 +16,7 @@ export const DOMAIN_EVENTS = {
   invoice_issued: 'domain.invoice_issued',
   invoice_overdue: 'domain.invoice_overdue',
   invoice_paid: 'domain.invoice_paid',
+  invoice_rectified: 'domain.invoice_rectified',
   reservation_confirmed: 'domain.reservation_confirmed',
   lead_created: 'domain.lead_created',
   incident_created: 'domain.incident_created',

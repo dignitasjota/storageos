@@ -7,6 +7,7 @@ import { TokensService } from '../tokens.service';
 
 import type { Env } from '../../../config/env.schema';
 import type { PrismaService } from '../../database/prisma.service';
+import type { SecurityEventsService } from '../../security-events/security-events.service';
 import type { Session } from '@storageos/database';
 
 const TEST_JWT_SECRET = 'session-unit-test-secret-xxxxxxxxxxxxxxxxxxxxxx';
@@ -78,13 +79,17 @@ describe('SessionsService', () => {
   let tokens: TokensService;
   let tx: TxMock;
   let prisma: PrismaService;
+  let securityEvents: SecurityEventsService;
   let svc: SessionsService;
 
   beforeEach(() => {
     tokens = new TokensService(new JwtService({}), buildConfig());
     tx = buildTx();
     prisma = buildPrismaMock(tx);
-    svc = new SessionsService(prisma, tokens, buildConfig());
+    securityEvents = {
+      record: jest.fn().mockResolvedValue(undefined),
+    } as unknown as SecurityEventsService;
+    svc = new SessionsService(prisma, tokens, buildConfig(), securityEvents);
   });
 
   describe('createForLogin', () => {

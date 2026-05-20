@@ -1,4 +1,5 @@
 import type {
+  SecurityEventTypeValue,
   SuperAdminRoleValue,
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
@@ -177,6 +178,29 @@ export interface TenantSubscriptionDto {
 /** Respuesta de POST /settings/saas-billing/checkout y .../portal. */
 export interface BillingSessionResponseDto {
   url: string;
+}
+
+/**
+ * DTO de un evento de seguridad para el panel admin (Fase 11A.1).
+ *
+ * Las fechas se serializan como ISO strings y `rawMetadata` viaja como
+ * objeto plano (Prisma devuelve `JsonValue`, lo casteamos a record).
+ */
+export interface SecurityEventDto {
+  id: string;
+  occurredAt: string;
+  eventType: SecurityEventTypeValue;
+  emailAttempted: string | null;
+  tenantSlugAttempted: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  reason: string | null;
+  rawMetadata: Record<string, unknown> | null;
+}
+
+export interface SecurityEventsListResponseDto {
+  items: SecurityEventDto[];
+  nextCursor: string | null;
 }
 
 /** Input para crear/actualizar un plan desde el panel admin. */

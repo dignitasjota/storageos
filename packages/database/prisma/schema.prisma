@@ -154,6 +154,34 @@ enum VerifactuMode {
   @@map("verifactu_mode")
 }
 
+/// Tipo de factura segun spec AEAT Veri*Factu.
+/// - F1: factura completa (normal).
+/// - F2: factura simplificada (declarada en enum, post-MVP).
+/// - R1: rectificativa por error fundado en derecho (mas comun).
+/// - R2: rectificativa art. 80.3 LIVA (concurso de acreedores).
+/// - R3: rectificativa art. 80.4 LIVA (creditos incobrables).
+/// - R4: rectificativa art. 80.6 LIVA (generica).
+/// - R5: rectificativa otros motivos (descuentos por volumen, etc.).
+enum InvoiceType {
+  F1
+  F2
+  R1
+  R2
+  R3
+  R4
+  R5
+
+  @@map("invoice_type")
+}
+
+/// Metodo de rectificacion. En MVP solo soportamos `by_differences`.
+enum CorrectionMethod {
+  by_differences
+  by_substitution
+
+  @@map("correction_method")
+}
+
 enum AeatStatus {
   pending
   accepted
@@ -331,7 +359,7 @@ model Tenant {
   accessLogs              AccessLog[]
   supportTickets          SupportTicket[]
   impersonationLogs       ImpersonationLog[]
-  aeatCredential          TenantAeatCredential?
+  aeatCredentials         TenantAeatCredential[]
 
   @@map("tenants")
 }
@@ -951,6 +979,13 @@ model Invoice {
   sequenceNumber Int           @map("sequence_number")
   invoiceNumber  String        @map("invoice_number")
   status         InvoiceStatus @default(draft)
+  invoiceType    InvoiceType   @default(F1) @map("invoice_type")
+  /// Si es una rectificativa (`invoice_type` en R1..R5), apunta a la
+  /// factura original que se rectifica. ON DELETE RESTRICT para impedir
+  /// borrar la original sin antes resolver la rectificativa.
+  rectifiesInvoiceId  String?           @map("rectifies_invoice_id") @db.Uuid
+  rectificationReason String?           @map("rectification_reason")
+  correctionMethod    CorrectionMethod? @map("correction_method")
   issueDate      DateTime?     @map("issue_date") @db.Date
   dueDate        DateTime?     @map("due_date") @db.Date
   /// Periodo facturado (p.ej. mes natural si es un alquiler mensual).
@@ -987,6 +1022,8 @@ model Invoice {
   payments       Payment[]
   dunningActions DunningAction[]
   productSale    ProductSale?    @relation("ProductSaleInvoice")
+  rectifiesInvoice Invoice?  @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
+  rectifiedBy      Invoice[] @relation("InvoiceRectification")
 
   @@unique([tenantId, seriesId, sequenceNumber])
   @@unique([tenantId, invoiceNumber])
@@ -994,6 +1031,7 @@ model Invoice {
   @@index([tenantId, status])
   @@index([customerId])
   @@index([dueDate])
+  @@index([rectifiesInvoiceId])
   @@map("invoices")
 }
 
@@ -2128,14 +2166,15 @@ model ImpersonationLog {
 /// (o Camerfirma/ANCERT). El SaaS lo cifra con `MASTER_ENCRYPTION_KEY`
 /// (AES-256-GCM via CryptoService) y lo usa para mTLS al endpoint AEAT.
 ///
-/// UNIQUE por tenant_id: solo una credencial activa por tenant. Para
-/// rotar el cert, se reemplaza la fila (upsert) o se revoca primero.
-/// `revoked_at` permite trazabilidad de la revocacion sin perder los
-/// metadatos del cert anterior si quisieramos archivar (en esta fase
-/// se sobreescribe; el campo queda para futura iteracion con historial).
+/// Histórico de credenciales AEAT del tenant (Fase 11A.2). Se guardan
+/// todas las rotaciones: al subir un cert nuevo se revoca el activo
+/// (`revoked_at`/`revoked_reason='replaced_by_new_upload'`) y se inserta
+/// una fila nueva. La "credencial activa" siempre se filtra por
+/// `revoked_at IS NULL` (a nivel aplicación, ordenada por uploaded_at
+/// desc como red de seguridad ante eventuales duplicados).
 model TenantAeatCredential {
   id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId              String    @unique @map("tenant_id") @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
   certP12Encrypted      Bytes     @map("cert_p12_encrypted")
   certPasswordEncrypted String    @map("cert_password_encrypted")
   certCommonName        String    @map("cert_common_name")
@@ -2152,6 +2191,47 @@ model TenantAeatCredential {
   tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   uploadedBy User   @relation("AeatCredentialUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
 
-  @@index([tenantId, revokedAt])
+  @@index([tenantId, revokedAt], map: "tenant_aeat_credentials_tenant_id_active_idx")
   @@map("tenant_aeat_credentials")
+}
+
+// ============================================================================
+// Fase 11A.1: eventos de seguridad globales (sin tenant_id, sin RLS).
+// ============================================================================
+
+/// Eventos de seguridad globales sin contexto de tenant: intentos de login
+/// contra slugs o emails inexistentes, throttles disparados, reuso de
+/// refresh tokens, etc. No se pueden guardar en `audit_logs` porque esa
+/// tabla requiere `tenant_id NOT NULL`.
+///
+/// Tabla global (sin RLS): solo accesible via `PrismaAdminService`. Visible
+/// unicamente para super admins. Retencion 90 dias gestionada por cron.
+enum SecurityEventType {
+  login_failed_email_not_found
+  login_failed_tenant_not_found
+  login_failed_wrong_password
+  login_failed_throttled
+  register_throttled
+  password_reset_throttled
+  invitation_token_invalid
+  refresh_token_reuse
+
+  @@map("security_event_type")
+}
+
+model SecurityEvent {
+  id                  String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  occurredAt          DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  eventType           SecurityEventType @map("event_type")
+  emailAttempted      String?           @map("email_attempted")
+  tenantSlugAttempted String?           @map("tenant_slug_attempted")
+  ipAddress           String?           @map("ip_address") @db.Inet
+  userAgent           String?           @map("user_agent")
+  reason              String?
+  rawMetadata         Json?             @map("raw_metadata")
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([eventType, occurredAt(sort: Desc)])
+  @@index([emailAttempted, occurredAt(sort: Desc)])
+  @@map("security_events")
 }

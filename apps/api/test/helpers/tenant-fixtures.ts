@@ -13,6 +13,18 @@ const ADMIN_URL =
 export async function cleanupTestTenants(): Promise<void> {
   const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
   try {
+    // Fase 11A.1: eventos de seguridad globales. No llevan tenant_id, asi
+    // que limpiamos por marcadores `@e2e.local` / `test-` con independencia
+    // de los tenants restantes.
+    await admin.securityEvent.deleteMany({
+      where: {
+        OR: [
+          { emailAttempted: { contains: '@e2e.local' } },
+          { tenantSlugAttempted: { startsWith: 'test-' } },
+        ],
+      },
+    });
+
     const testTenants = await admin.tenant.findMany({
       where: { slug: { startsWith: 'test-' } },
       select: { id: true },

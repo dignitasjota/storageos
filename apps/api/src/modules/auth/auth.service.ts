@@ -15,6 +15,7 @@ import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { PasswordResetEmail } from '../email/templates/password-reset-email';
 import { VerificationEmail } from '../email/templates/verification-email';
+import { SecurityEventsService } from '../security-events/security-events.service';
 
 import { AuditService } from './audit.service';
 import { PasswordResetTokensService } from './password-reset-tokens.service';
@@ -71,7 +72,16 @@ export class AuthService {
     private readonly verificationTokens: VerificationTokensService,
     private readonly passwordResetTokens: PasswordResetTokensService,
     private readonly config: ConfigService<Env, true>,
+    private readonly securityEvents: SecurityEventsService,
   ) {}
+
+  // TODO Fase 11A.2: persistir tambien `login_failed_throttled`,
+  //   `register_throttled` y `password_reset_throttled` cuando el
+  //   `ThrottlerGuard` global salte. Requiere un custom guard que extienda
+  //   `ThrottlerGuard` para llamar a `SecurityEventsService.record` antes
+  //   de lanzar `ThrottlerException`. Idem para `invitation_token_invalid`
+  //   en `InvitationsService`. Se deja para una sub-fase aparte porque
+  //   altera el orden de guards del bootstrap.
 
   // ============================ register ===================================
 
@@ -153,6 +163,15 @@ export class AuthService {
   ): Promise<AuthFlowResult<AuthSuccessResponse> | { body: LoginRequires2faResponse }> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
     if (!tenant || tenant.deletedAt) {
+      // Sin tenant_id: el evento no puede ir a audit_logs. Lo persistimos
+      // en `security_events` (tabla global) para deteccion de scanning.
+      await this.securityEvents.record({
+        eventType: 'login_failed_tenant_not_found',
+        emailAttempted: input.email,
+        tenantSlugAttempted: input.tenantSlug,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
       throw new UnauthorizedException('Credenciales invalidas');
     }
 
@@ -170,6 +189,13 @@ export class AuthService {
         ipAddress: meta.ipAddress ?? null,
         userAgent: meta.userAgent ?? null,
       });
+      await this.securityEvents.record({
+        eventType: 'login_failed_email_not_found',
+        emailAttempted: input.email,
+        tenantSlugAttempted: input.tenantSlug,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
       throw new UnauthorizedException('Credenciales invalidas');
     }
 
@@ -184,6 +210,13 @@ export class AuthService {
         changes: { reason: 'wrong_password' },
         ipAddress: meta.ipAddress ?? null,
         userAgent: meta.userAgent ?? null,
+      });
+      await this.securityEvents.record({
+        eventType: 'login_failed_wrong_password',
+        emailAttempted: input.email,
+        tenantSlugAttempted: input.tenantSlug,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
       });
       throw new UnauthorizedException('Credenciales invalidas');
     }

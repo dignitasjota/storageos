@@ -4,7 +4,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   FileWarning,
+  History,
   Loader2,
   ShieldCheck,
   Trash2,
@@ -50,6 +53,7 @@ import {
   type AeatCredentialMetadata,
   useRevokeVerifactuCredentialMutation,
   useUploadVerifactuCredentialMutation,
+  useVerifactuCredentialHistoryQuery,
   useVerifactuCredentialQuery,
 } from '@/lib/billing/verifactu-hooks';
 
@@ -113,9 +117,108 @@ export default function VerifactuSettingsPage() {
         <EmptyState onUpload={() => setUploadOpen(true)} />
       )}
 
+      <CredentialHistory />
+
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
       <RevokeDialog open={revokeOpen} onOpenChange={setRevokeOpen} />
     </div>
+  );
+}
+
+/**
+ * Bloque colapsable con el histórico de certificados (activos + revocados).
+ * Cerrado por defecto; la query se dispara solo cuando se abre.
+ */
+function CredentialHistory() {
+  const t = useTranslations('settings.billing.verifactu');
+  const format = useFormatter();
+  const [open, setOpen] = useState(false);
+  const history = useVerifactuCredentialHistoryQuery({ enabled: open });
+
+  return (
+    <Card>
+      <CardHeader>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls="verifactu-history-content"
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <History className="size-5 text-muted-foreground" />
+            <CardTitle className="text-base">{t('history.title')}</CardTitle>
+          </div>
+          {open ? (
+            <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+          ) : (
+            <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+          )}
+        </button>
+      </CardHeader>
+      {open && (
+        <CardContent id="verifactu-history-content">
+          {history.isLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : history.isError ? (
+            <p className="text-sm text-destructive">{t('history.error')}</p>
+          ) : !history.data || history.data.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('history.empty')}</p>
+          ) : (
+            <ul className="divide-y">
+              {history.data.map((row) => {
+                const isActive = row.revokedAt === null;
+                return (
+                  <li key={row.id} className="grid gap-2 py-3 sm:grid-cols-[1fr_auto]">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{row.certCommonName}</span>
+                        <Badge variant={isActive ? 'default' : 'secondary'}>
+                          {isActive ? t('history.badgeActive') : t('history.badgeRevoked')}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {row.environment === 'production'
+                            ? t('environment.production')
+                            : t('environment.sandbox')}
+                        </Badge>
+                      </div>
+                      <p className="font-mono text-xs text-muted-foreground">{row.certNif}</p>
+                      {row.revokedReason && (
+                        <p className="text-xs text-muted-foreground">
+                          {t('history.revokedReasonLabel')}: {row.revokedReason}
+                        </p>
+                      )}
+                    </div>
+                    <dl className="text-xs text-muted-foreground sm:text-right">
+                      <div>
+                        <dt className="inline">{t('history.uploadedAt')}: </dt>
+                        <dd className="inline">
+                          {format.dateTime(new Date(row.uploadedAt), {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}
+                        </dd>
+                      </div>
+                      {row.revokedAt && (
+                        <div>
+                          <dt className="inline">{t('history.revokedAt')}: </dt>
+                          <dd className="inline">
+                            {format.dateTime(new Date(row.revokedAt), {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            })}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      )}
+    </Card>
   );
 }
 

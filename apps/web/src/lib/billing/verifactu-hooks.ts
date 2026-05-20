@@ -22,9 +22,13 @@ export interface AeatCredentialMetadata {
   environment: 'sandbox' | 'production';
   /** ISO-8601. */
   uploadedAt: string;
+  /** ISO-8601 si está revocada, null si está activa. */
+  revokedAt: string | null;
+  revokedReason: string | null;
 }
 
 export const verifactuCredentialKey = ['billing', 'aeat-credential'] as const;
+export const verifactuCredentialHistoryKey = ['billing', 'aeat-credential', 'history'] as const;
 
 export interface UploadVerifactuCredentialInput {
   file: File;
@@ -70,6 +74,7 @@ export function useUploadVerifactuCredentialMutation() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: verifactuCredentialKey });
+      void qc.invalidateQueries({ queryKey: verifactuCredentialHistoryKey });
     },
   });
 }
@@ -85,7 +90,22 @@ export function useRevokeVerifactuCredentialMutation() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: verifactuCredentialKey });
+      void qc.invalidateQueries({ queryKey: verifactuCredentialHistoryKey });
     },
+  });
+}
+
+/**
+ * GET /billing/aeat-credentials/history. Devuelve todas las credenciales
+ * (activas + revocadas) del tenant ordenadas por uploadedAt desc. Lo
+ * consume el panel desplegable "Histórico de certificados".
+ */
+export function useVerifactuCredentialHistoryQuery(options: { enabled?: boolean } = {}) {
+  return useQuery<AeatCredentialMetadata[]>({
+    queryKey: verifactuCredentialHistoryKey,
+    queryFn: () => apiFetch<AeatCredentialMetadata[]>('/billing/aeat-credentials/history'),
+    staleTime: 30_000,
+    enabled: options.enabled ?? true,
   });
 }
 

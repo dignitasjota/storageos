@@ -130,11 +130,34 @@ export class RealAeatClient extends AeatClient {
       previousInvoiceDate = prev?.issueDate ?? undefined;
     }
 
-    // 5. Construir XML.
+    // 5. Si es una rectificativa, cargar la factura original para construir
+    //    el bloque `<FacturasRectificadas>` del XML. Usamos el NIF del propio
+    //    tenant como `emitterTaxId` (todas las facturas originales en MVP
+    //    han sido emitidas por el mismo tenant).
+    let rectifies:
+      | ReadonlyArray<{ emitterTaxId: string; invoiceNumber: string; issueDate: Date }>
+      | undefined;
+    if (invoice.invoiceType.startsWith('R') && invoice.rectifiesInvoiceId) {
+      const originalRow = await this.admin.invoice.findUnique({
+        where: { id: invoice.rectifiesInvoiceId },
+        select: { invoiceNumber: true, issueDate: true, tenantId: true },
+      });
+      if (originalRow?.invoiceNumber && originalRow.issueDate) {
+        rectifies = [
+          {
+            emitterTaxId: tenant.taxId ?? '',
+            invoiceNumber: originalRow.invoiceNumber,
+            issueDate: originalRow.issueDate,
+          },
+        ];
+      }
+    }
+
+    // 6. Construir XML.
     const subtotal = Number(invoice.subtotal);
     const taxAmount = Number(invoice.taxAmount);
     const total = Number(invoice.total);
-    const taxRate = subtotal > 0 ? Math.round((taxAmount / subtotal) * 10_000) / 100 : 0;
+    const taxRate = subtotal !== 0 ? Math.round((taxAmount / subtotal) * 10_000) / 100 : 0;
 
     const xml = this.xmlBuilder.buildRegistroAlta({
       tenant: { name: tenant.name, taxId: tenant.taxId ?? '' },
@@ -143,7 +166,7 @@ export class RealAeatClient extends AeatClient {
         invoiceNumber: invoice.invoiceNumber,
         issueDate: invoice.issueDate,
         description: this.buildDescription(invoice),
-        invoiceType: 'F1',
+        invoiceType: invoice.invoiceType as 'F1' | 'F2' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5',
         subtotal,
         taxRate,
         taxAmount,
@@ -153,6 +176,7 @@ export class RealAeatClient extends AeatClient {
         ...(previousInvoiceNumber !== undefined ? { previousInvoiceNumber } : {}),
         ...(previousInvoiceDate !== undefined ? { previousInvoiceDate } : {}),
         previousEmitterNif: tenant.taxId ?? '',
+        ...(rectifies ? { rectifies, correctionMethod: 'I' as const } : {}),
       },
       recipient: {
         taxId: invoice.customer?.documentNumber ?? '',
@@ -160,7 +184,7 @@ export class RealAeatClient extends AeatClient {
       },
     });
 
-    // 6. PEM cert + key para mTLS.
+    // 7. PEM cert + key para mTLS.
     let pem: { cert: string; key: string };
     try {
       pem = this.extractPem(cred.p12Buffer, cred.password);
@@ -175,7 +199,7 @@ export class RealAeatClient extends AeatClient {
       };
     }
 
-    // 7. POST a AEAT.
+    // 8. POST a AEAT.
     const endpoint =
       this.aeatMode === 'production'
         ? this.config.get('AEAT_PRODUCTION_ENDPOINT', { infer: true })

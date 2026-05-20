@@ -17,6 +17,7 @@ import {
   type InvoiceDto,
   InvoiceStatusEnum,
   MarkPaidManuallySchema,
+  RectifyInvoiceSchema,
   RefundInvoiceSchema,
   UpdateInvoiceSchema,
 } from '@storageos/shared';
@@ -40,6 +41,7 @@ class UpdateInvoiceDto extends createZodDto(UpdateInvoiceSchema) {}
 class CancelInvoiceDto extends createZodDto(CancelInvoiceSchema) {}
 class RefundInvoiceDto extends createZodDto(RefundInvoiceSchema) {}
 class MarkPaidManuallyDto extends createZodDto(MarkPaidManuallySchema) {}
+class RectifyInvoiceDto extends createZodDto(RectifyInvoiceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -180,6 +182,24 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Roles('owner', 'manager')
+  @Post(':id/rectify')
+  @HttpCode(HttpStatus.CREATED)
+  async rectify(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RectifyInvoiceDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.rectify({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      originalInvoiceId: id,
       input,
       meta: extractMeta(req),
     });

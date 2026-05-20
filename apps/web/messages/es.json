@@ -244,6 +244,16 @@
           "invalidFormat": "Archivo de certificado inválido o corrupto.",
           "fileRequired": "Selecciona un archivo .p12 o .pfx.",
           "generic": "No hemos podido procesar el certificado."
+        },
+        "history": {
+          "title": "Histórico de certificados",
+          "empty": "Todavía no hay certificados anteriores.",
+          "error": "No se ha podido cargar el histórico.",
+          "badgeActive": "Activa",
+          "badgeRevoked": "Revocada",
+          "uploadedAt": "Subido",
+          "revokedAt": "Revocado",
+          "revokedReasonLabel": "Motivo"
         }
       }
     },

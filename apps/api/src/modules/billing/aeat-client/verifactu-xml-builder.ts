@@ -69,6 +69,16 @@ export class VerifactuXmlBuilder {
         })
       : `          <sum1:PrimerRegistro>S</sum1:PrimerRegistro>`;
 
+    // Bloques especificos de rectificativas (R1-R5). Se ubican entre
+    // `Destinatarios` y `Desglose` segun el XSD AEAT.
+    const isRectification = invoice.invoiceType.startsWith('R');
+    const rectificationBlocks = isRectification
+      ? this.buildRectificationBlocks({
+          correctionMethod: invoice.correctionMethod ?? 'I',
+          rectifies: invoice.rectifies ?? [],
+        })
+      : '';
+
     const generadoEn = formatTimestampWithMadridTimezone(new Date());
 
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -98,7 +108,7 @@ export class VerifactuXmlBuilder {
               <sum1:NombreRazon>${recipientName}</sum1:NombreRazon>
               <sum1:NIF>${recipientNif}</sum1:NIF>
             </sum1:IDDestinatario>
-          </sum1:Destinatarios>
+          </sum1:Destinatarios>${rectificationBlocks}
           <sum1:Desglose>
             <sum1:DetalleDesglose>
               <sum1:Impuesto>01</sum1:Impuesto>
@@ -133,6 +143,52 @@ ${encadenamiento}
     </sum:RegFactuSistemaFacturacion>
   </soapenv:Body>
 </soapenv:Envelope>`;
+  }
+
+  /**
+   * Bloques especificos para facturas rectificativas (R1-R5):
+   *
+   *   <TipoRectificativa>I|S</TipoRectificativa>
+   *   <FacturasRectificadas>
+   *     <IDFacturaAnterior>
+   *       <IDEmisorFactura>...</IDEmisorFactura>
+   *       <NumSerieFactura>...</NumSerieFactura>
+   *       <FechaExpedicionFactura>DD-MM-YYYY</FechaExpedicionFactura>
+   *     </IDFacturaAnterior>
+   *     ... (puede repetirse; MVP solo emite 1)
+   *   </FacturasRectificadas>
+   *
+   * NOTA: el `TipoFactura` (R1..R5) se emite siempre en el campo principal
+   * del registro; aqui solo emitimos los bloques adicionales que solo
+   * aplican a rectificativas. Si `rectifies` viene vacio el bloque
+   * `FacturasRectificadas` se omite (XSD lo permite, AEAT puede aceptar
+   * sin lista cuando no se identifican concretamente).
+   */
+  private buildRectificationBlocks(args: {
+    correctionMethod: 'I' | 'S';
+    rectifies: ReadonlyArray<{ emitterTaxId: string; invoiceNumber: string; issueDate: Date }>;
+  }): string {
+    const tipoRect = args.correctionMethod === 'S' ? 'S' : 'I';
+    const items = args.rectifies
+      .map((r) => {
+        const nif = escapeXml(r.emitterTaxId);
+        const num = escapeXml(r.invoiceNumber);
+        const fecha = formatSpanishDate(r.issueDate);
+        return `              <sum1:IDFacturaAnterior>
+                <sum1:IDEmisorFactura>${nif}</sum1:IDEmisorFactura>
+                <sum1:NumSerieFactura>${num}</sum1:NumSerieFactura>
+                <sum1:FechaExpedicionFactura>${fecha}</sum1:FechaExpedicionFactura>
+              </sum1:IDFacturaAnterior>`;
+      })
+      .join('\n');
+    const facturasRectificadas = items
+      ? `
+            <sum1:FacturasRectificadas>
+${items}
+            </sum1:FacturasRectificadas>`
+      : '';
+    return `
+          <sum1:TipoRectificativa>${tipoRect}</sum1:TipoRectificativa>${facturasRectificadas}`;
   }
 
   private buildRegistroAnterior(args: {
@@ -174,8 +230,28 @@ export interface BuildRegistroAltaArgs {
     /** Fecha de operacion si distinta a `issueDate`. Reservado para uso futuro. */
     operationDate?: Date;
     description: string;
-    /** F1 = factura completa; F2 = simplificada (post-MVP). */
-    invoiceType: 'F1' | 'F2';
+    /**
+     * F1 = factura completa, F2 = simplificada (post-MVP), R1-R5 =
+     * rectificativa (RD 1619/2012 art. 13). Si `invoiceType` empieza por
+     * `R`, el XML emite los bloques `<TipoRectificativa>` y opcionalmente
+     * `<FacturasRectificadas>` con el contenido de `rectifies`.
+     */
+    invoiceType: 'F1' | 'F2' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
+    /**
+     * Lista de facturas originales que rectifica esta rectificativa. Solo
+     * tiene sentido cuando `invoiceType` es R1..R5. En MVP `InvoicesService`
+     * solo emite 1 entrada (no soportamos rectificativas multi-original).
+     */
+    rectifies?: ReadonlyArray<{
+      emitterTaxId: string;
+      invoiceNumber: string;
+      issueDate: Date;
+    }>;
+    /**
+     * Metodo de rectificacion: `I` por diferencias (MVP), `S` por
+     * sustitucion (post-MVP). Default `I` cuando se omite.
+     */
+    correctionMethod?: 'I' | 'S';
     subtotal: number;
     /** Porcentaje (ej. 21, 10, 4, 0). */
     taxRate: number;

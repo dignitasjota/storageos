@@ -2,10 +2,11 @@
 
 SaaS multi-tenant para la gestión integral de locales de self-storage.
 
-> Estado: **MVP COMPLETO + Veri\*Factu real** — Fases 1 a 10 cerradas. Listo para desplegar, vender y emitir facturas conformes a AEAT.
+> Estado: **MVP COMPLETO + Veri\*Factu real + compliance/observabilidad** — Fases 1 a 11 cerradas. Listo para desplegar, vender, emitir facturas conformes a AEAT y rectificarlas.
 > Fase 8 incluye: panel super admin con impersonation auditada + soporte de tickets + Stripe Billing SaaS (Checkout + Customer Portal) + Docker prod + `docs/DEPLOYMENT.md` paso a paso.
 > Fase 9 (hardening pre-MVP, 2026-05-20): 2FA TOTP super admin + refresh cookie httpOnly `path=/admin` con rotación paranoid + recovery codes single-use + seed CLI super admin idempotente + AeatClient abstracto (`AEAT_MODE=stub|sandbox|production`) + Resend producción documentado.
 > Fase 10 (Veri\*Factu real, 2026-05-20): `tenant_aeat_credentials` cifrado AES-GCM + upload UI de PKCS#12 en `/settings/billing/verifactu` + `VerifactuXmlBuilder` conforme al XSD AEAT + `RealAeatClient` con mTLS via `https.Agent` + cola BullMQ con retry exponencial + `POST /billing/invoices/:id/resend-aeat` + `<VerifactuBadge>` en facturas.
+> Fase 11 (compliance + observabilidad post-MVP, 2026-05-20): tabla global `security_events` + endpoint `/admin/security-events` con cron de limpieza a 90d + histórico de `tenant_aeat_credentials` (drop UNIQUE + rotación via `$transaction` + `GET /billing/aeat-credentials/history`) + CSP `Report-Only` en panel autenticado + endpoint `/api/csp-report` + rectificativas Veri\*Factu R1-R5 (`POST /invoices/:id/rectify` + `<TipoRectificativa>I</TipoRectificativa>` en XML AEAT).
 > Detalle por sub-fase en [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Stack

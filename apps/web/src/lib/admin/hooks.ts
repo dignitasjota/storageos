@@ -12,6 +12,8 @@ import type {
   ExtendTrialInput,
   ImpersonateInput,
   ImpersonationTokenDto,
+  SecurityEventTypeValue,
+  SecurityEventsListResponseDto,
   SuperAdminDto,
   SuperAdminLoginInput,
   SuperAdminLoginRequires2faResponse,
@@ -325,6 +327,40 @@ export function useTransitionTicket() {
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
     },
+  });
+}
+
+// ============================================================================
+// Security events (Fase 11A.1)
+// ============================================================================
+
+export interface AdminSecurityEventsFilters {
+  eventType?: SecurityEventTypeValue | undefined;
+  emailAttempted?: string | undefined;
+  fromDate?: string | undefined;
+  toDate?: string | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+export const adminSecurityEventsKey = (filters?: AdminSecurityEventsFilters) =>
+  ['admin', 'security-events', filters ?? {}] as const;
+
+export function useAdminSecurityEvents(filters?: AdminSecurityEventsFilters) {
+  const qs = new URLSearchParams();
+  if (filters?.eventType) qs.set('eventType', filters.eventType);
+  if (filters?.emailAttempted) qs.set('emailAttempted', filters.emailAttempted);
+  if (filters?.fromDate) qs.set('fromDate', filters.fromDate);
+  if (filters?.toDate) qs.set('toDate', filters.toDate);
+  if (filters?.cursor) qs.set('cursor', filters.cursor);
+  if (filters?.limit) qs.set('limit', String(filters.limit));
+  return useQuery({
+    queryKey: adminSecurityEventsKey(filters),
+    queryFn: () =>
+      adminApiFetch<SecurityEventsListResponseDto>(
+        `/admin/security-events${qs.toString() ? `?${qs}` : ''}`,
+      ),
+    staleTime: 15_000,
   });
 }
 

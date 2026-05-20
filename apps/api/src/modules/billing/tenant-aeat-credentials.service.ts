@@ -93,7 +93,9 @@ export class TenantAeatCredentialsService {
 
   /**
    * Sube y persiste un PKCS#12. Parsea con node-forge, valida vigencia y
-   * NIF, cifra payload + password y hace upsert (UNIQUE por tenant_id).
+   * NIF, cifra payload + password e inserta una fila nueva. Si ya había
+   * una credencial activa, la revoca dentro de la misma transacción para
+   * conservar trazabilidad de la rotación (Fase 11A.2).
    */
   async upload(args: UploadArgs): Promise<TenantAeatCredentialMetadata> {
     const { tenantId, userId, p12Buffer, password, environment } = args;
@@ -175,42 +177,32 @@ export class TenantAeatCredentialsService {
     const certP12Encrypted = Buffer.from(this.crypto.encryptString(p12B64), 'utf8');
     const certPasswordEncrypted = this.crypto.encryptString(password);
 
-    // 7. Upsert por UNIQUE tenant_id. Si ya existe (revoked o no), la
-    // reemplazamos: para esta fase mantenemos una sola fila activa.
-    const record = await this.prisma.withTenant(
-      (tx) =>
-        tx.tenantAeatCredential.upsert({
-          where: { tenantId },
-          create: {
-            tenantId,
-            certP12Encrypted,
-            certPasswordEncrypted,
-            certCommonName: commonName,
-            certNif: nif,
-            certIssuer: issuer,
-            certValidFrom: validFrom,
-            certValidTo: validTo,
-            environment,
-            uploadedById: userId,
-          },
-          update: {
-            certP12Encrypted,
-            certPasswordEncrypted,
-            certCommonName: commonName,
-            certNif: nif,
-            certIssuer: issuer,
-            certValidFrom: validFrom,
-            certValidTo: validTo,
-            environment,
-            uploadedById: userId,
-            uploadedAt: new Date(),
-            // Limpia revocacion previa si la hubo (el upload reemplaza).
-            revokedAt: null,
-            revokedReason: null,
-          },
-        }),
-      tenantId,
-    );
+    // 7. Inserta una fila nueva. Si había una credencial activa, se
+    // revoca primero (`replaced_by_new_upload`) dentro de la misma
+    // transacción de `withTenant`. Así conservamos el histórico.
+    const record = await this.prisma.withTenant(async (tx) => {
+      await tx.tenantAeatCredential.updateMany({
+        where: { tenantId, revokedAt: null },
+        data: {
+          revokedAt: new Date(),
+          revokedReason: 'replaced_by_new_upload',
+        },
+      });
+      return tx.tenantAeatCredential.create({
+        data: {
+          tenantId,
+          certP12Encrypted,
+          certPasswordEncrypted,
+          certCommonName: commonName,
+          certNif: nif,
+          certIssuer: issuer,
+          certValidFrom: validFrom,
+          certValidTo: validTo,
+          environment,
+          uploadedById: userId,
+        },
+      });
+    }, tenantId);
 
     await this.audit.write({
       tenantId,
@@ -239,6 +231,7 @@ export class TenantAeatCredentialsService {
       (tx) =>
         tx.tenantAeatCredential.findFirst({
           where: { tenantId, revokedAt: null },
+          orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
     );
@@ -257,11 +250,28 @@ export class TenantAeatCredentialsService {
       (tx) =>
         tx.tenantAeatCredential.findFirst({
           where: { tenantId, revokedAt: null },
+          orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
     );
     if (!record) return null;
     return this.toMetadata(record);
+  }
+
+  /**
+   * Histórico completo de credenciales del tenant (activas + revocadas),
+   * ordenado por `uploadedAt` desc. Devuelve metadatos sin secretos.
+   */
+  async listHistory(tenantId: string): Promise<TenantAeatCredentialMetadata[]> {
+    const records = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenantAeatCredential.findMany({
+          where: { tenantId },
+          orderBy: { uploadedAt: 'desc' },
+        }),
+      tenantId,
+    );
+    return records.map((r) => this.toMetadata(r));
   }
 
   /** Marca como revocada la credencial activa. Idempotente: si no hay, devuelve false. */
@@ -270,6 +280,7 @@ export class TenantAeatCredentialsService {
       (tx) =>
         tx.tenantAeatCredential.findFirst({
           where: { tenantId, revokedAt: null },
+          orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
     );

@@ -216,6 +216,70 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).not.toContain('Trasteros & Co');
     });
 
+    it('emite TipoFactura R1 + TipoRectificativa I + FacturasRectificadas para una rectificativa', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'R1';
+      args.invoice.correctionMethod = 'I';
+      args.invoice.rectifies = [
+        {
+          emitterTaxId: 'B12345678',
+          invoiceNumber: 'FA/2026/00001',
+          issueDate: new Date('2026-05-10T00:00:00.000Z'),
+        },
+      ];
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+
+      expect(xml).toContain('<sum1:TipoFactura>R1</sum1:TipoFactura>');
+      expect(xml).toContain('<sum1:TipoRectificativa>I</sum1:TipoRectificativa>');
+      expect(xml).toContain('<sum1:FacturasRectificadas>');
+      expect(xml).toContain('<sum1:IDFacturaAnterior>');
+      expect(xml).toContain('<sum1:NumSerieFactura>FA/2026/00001</sum1:NumSerieFactura>');
+      expect(xml).toContain(
+        '<sum1:FechaExpedicionFactura>10-05-2026</sum1:FechaExpedicionFactura>',
+      );
+      // El TipoRectificativa va ANTES de Desglose en el XML.
+      const idxRect = xml.indexOf('<sum1:TipoRectificativa>');
+      const idxDesglose = xml.indexOf('<sum1:Desglose>');
+      expect(idxRect).toBeGreaterThan(-1);
+      expect(idxRect).toBeLessThan(idxDesglose);
+    });
+
+    it('emite TipoRectificativa S cuando correctionMethod=S (sustitucion)', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'R4';
+      args.invoice.correctionMethod = 'S';
+      args.invoice.rectifies = [
+        {
+          emitterTaxId: 'B12345678',
+          invoiceNumber: 'FA/2026/00001',
+          issueDate: new Date('2026-05-10T00:00:00.000Z'),
+        },
+      ];
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+      expect(xml).toContain('<sum1:TipoFactura>R4</sum1:TipoFactura>');
+      expect(xml).toContain('<sum1:TipoRectificativa>S</sum1:TipoRectificativa>');
+    });
+
+    it('rectificativa sin lista de facturas anteriores omite FacturasRectificadas', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const args = baseArgs();
+      args.invoice.invoiceType = 'R5';
+      args.invoice.correctionMethod = 'I';
+      args.invoice.rectifies = [];
+
+      const xml = builder.buildRegistroAlta(args);
+      assertWellFormedXml(xml);
+      expect(xml).toContain('<sum1:TipoFactura>R5</sum1:TipoFactura>');
+      expect(xml).toContain('<sum1:TipoRectificativa>I</sum1:TipoRectificativa>');
+      expect(xml).not.toContain('<sum1:FacturasRectificadas>');
+    });
+
     it('respeta el NIF del sistema informatico configurado por env', () => {
       const builder = new VerifactuXmlBuilder(
         createConfig({

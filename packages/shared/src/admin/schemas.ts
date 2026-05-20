@@ -116,6 +116,32 @@ export const CreatePortalSessionSchema = z.object({
 });
 export type CreatePortalSessionInput = z.infer<typeof CreatePortalSessionSchema>;
 
+// ============================================================================
+// Security events (Fase 11A.1)
+// ============================================================================
+
+export const SecurityEventTypeEnum = z.enum([
+  'login_failed_email_not_found',
+  'login_failed_tenant_not_found',
+  'login_failed_wrong_password',
+  'login_failed_throttled',
+  'register_throttled',
+  'password_reset_throttled',
+  'invitation_token_invalid',
+  'refresh_token_reuse',
+]);
+export type SecurityEventTypeValue = z.infer<typeof SecurityEventTypeEnum>;
+
+export const ListSecurityEventsSchema = z.object({
+  eventType: SecurityEventTypeEnum.optional(),
+  emailAttempted: z.string().trim().toLowerCase().max(320).optional(),
+  fromDate: z.coerce.date().optional(),
+  toDate: z.coerce.date().optional(),
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+export type ListSecurityEventsInput = z.infer<typeof ListSecurityEventsSchema>;
+
 export const UpsertSubscriptionPlanSchema = z.object({
   slug: z
     .string()
