@@ -85,6 +85,7 @@ function fakeInvoice() {
     id: INVOICE_ID,
     tenantId: TENANT_ID,
     invoiceNumber: 'F-2026-0001',
+    invoiceType: 'F1' as const,
     issueDate: new Date('2026-05-20T00:00:00.000Z'),
     subtotal: 100 as unknown as number,
     taxAmount: 21 as unknown as number,
@@ -304,6 +305,66 @@ describe('RealAeatClient', () => {
     const res = await client.sendInvoice(baseSendArgs);
     expect(res.status).toBe('error');
     expect(res.message).toBe('aeat_server_error');
+  });
+
+  describe('getStatus', () => {
+    it('respuesta Correcto -> accepted con csv', async () => {
+      nock(AEAT_HOST)
+        .post(AEAT_PATH)
+        .reply(
+          200,
+          `<?xml version="1.0"?>
+<Envelope>
+  <Body>
+    <EstadoRegistro>Correcto</EstadoRegistro>
+    <CSV>STATUS-CSV-001</CSV>
+  </Body>
+</Envelope>`,
+        );
+
+      const { client } = buildClient({
+        decryptedCert: {
+          p12Buffer: validCert.p12Buffer,
+          password: validCert.password,
+          record: { certValidTo: validCert.notAfter },
+        },
+      });
+      const res = await client.getStatus({ invoiceId: INVOICE_ID });
+      expect(res.status).toBe('accepted');
+      expect(res.csv).toBe('STATUS-CSV-001');
+    });
+
+    it('respuesta NoRegistrado -> pending', async () => {
+      nock(AEAT_HOST)
+        .post(AEAT_PATH)
+        .reply(
+          200,
+          `<?xml version="1.0"?>
+<Envelope>
+  <Body>
+    <EstadoRegistro>NoRegistrado</EstadoRegistro>
+  </Body>
+</Envelope>`,
+        );
+
+      const { client } = buildClient({
+        decryptedCert: {
+          p12Buffer: validCert.p12Buffer,
+          password: validCert.password,
+          record: { certValidTo: validCert.notAfter },
+        },
+      });
+      const res = await client.getStatus({ invoiceId: INVOICE_ID });
+      expect(res.status).toBe('pending');
+      expect(res.message).toBe('aeat_not_registered_yet');
+    });
+
+    it('tenant sin credencial -> error tenant_no_aeat_credential', async () => {
+      const { client } = buildClient({ decryptedCert: null });
+      const res = await client.getStatus({ invoiceId: INVOICE_ID });
+      expect(res.status).toBe('error');
+      expect(res.message).toBe('tenant_no_aeat_credential');
+    });
   });
 
   // Nota: nock no dispara correctamente el `req.setTimeout` del socket, por

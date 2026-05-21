@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
 import { AuthModule } from '../auth/auth.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminMetricsController } from './admin-metrics.controller';
@@ -21,6 +22,7 @@ import { SuperAdminService } from './super-admin.service';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
+import { WebhooksCleanupController } from './webhooks-cleanup.controller';
 
 /**
  * Modulo del panel super admin (Fase 8).
@@ -35,7 +37,7 @@ import { SupportTicketsService } from './support-tickets.service';
  * IMPORTANTE: el wiring en `AppModule` lo hace el desarrollador a mano.
  */
 @Module({
-  imports: [AuthModule, TwoFactorModule, JwtModule.register({})],
+  imports: [AuthModule, TwoFactorModule, JwtModule.register({}), IntegrationsModule],
   controllers: [
     SuperAdminAuthController,
     AdminTenantsController,
@@ -45,6 +47,7 @@ import { SupportTicketsService } from './support-tickets.service';
     SuperAdminAuditController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
+    WebhooksCleanupController,
   ],
   providers: [
     AdminGuard,

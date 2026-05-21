@@ -254,11 +254,144 @@ export class RealAeatClient extends AeatClient {
     }
   }
 
-  async getStatus(_args: GetStatusArgs): Promise<GetStatusResult> {
-    return {
-      status: 'error',
-      message: 'getStatus AEAT real no implementado todavia.',
-    };
+  /**
+   * Consulta a AEAT el estado actual de una factura previamente enviada
+   * (`ConsultaFactuSistemaFacturacion`). Usado por
+   * `VerifactuStatusPollerCron` para recuperar pendientes huerfanos cuyo
+   * `sendInvoice` quedo en `pending` por timeout o por respuesta sin
+   * `EstadoRegistro`.
+   *
+   * Carga el certificado del tenant para mTLS y POSTea al mismo endpoint
+   * SOAP usado por `sendInvoice`. La respuesta se mapea a un
+   * `GetStatusResult` con el mismo set de estados.
+   */
+  async getStatus(args: GetStatusArgs): Promise<GetStatusResult> {
+    const invoice = await this.admin.invoice.findUnique({
+      where: { id: args.invoiceId },
+      select: { tenantId: true, invoiceNumber: true, issueDate: true },
+    });
+    if (!invoice) {
+      return { status: 'error', message: 'invoice_not_found' };
+    }
+    if (!invoice.invoiceNumber || !invoice.issueDate) {
+      return { status: 'error', message: 'invoice_missing_required_fields' };
+    }
+
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: invoice.tenantId },
+      select: { taxId: true },
+    });
+    if (!tenant?.taxId) {
+      return { status: 'error', message: 'tenant_no_tax_id' };
+    }
+
+    const cred = await this.credentials.getDecrypted(invoice.tenantId);
+    if (!cred) {
+      return { status: 'error', message: 'tenant_no_aeat_credential' };
+    }
+
+    let pem: { cert: string; key: string };
+    try {
+      pem = this.extractPem(cred.p12Buffer, cred.password);
+    } catch (err) {
+      return {
+        status: 'error',
+        message: 'invalid_certificate',
+        raw: { err: err instanceof Error ? err.message : String(err) },
+      };
+    }
+
+    const xml = this.xmlBuilder.buildConsultaFactu({
+      emitterTaxId: tenant.taxId,
+      invoiceNumber: invoice.invoiceNumber,
+      issueDate: invoice.issueDate,
+    });
+
+    const endpoint =
+      this.aeatMode === 'production'
+        ? this.config.get('AEAT_PRODUCTION_ENDPOINT', { infer: true })
+        : this.config.get('AEAT_SANDBOX_ENDPOINT', { infer: true });
+    const timeout = this.config.get('AEAT_TIMEOUT_MS', { infer: true });
+
+    try {
+      const response = await this.postSoap(endpoint, xml, pem, timeout);
+      return this.parseStatusResponse(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `[aeat_${this.aeatMode}] fallo en getStatus para invoice ${args.invoiceId}: ${message}`,
+      );
+      return {
+        status: 'error',
+        message: message || 'aeat_status_request_failed',
+        raw: { err: message },
+      };
+    }
+  }
+
+  /**
+   * Parsea la respuesta SOAP de `ConsultaFactuSistemaFacturacion`. Mantiene
+   * la misma estrategia tolerante a prefijos de namespace que
+   * `parseResponse` (alta).
+   *
+   * Mapeo de estados:
+   *   - `Correcto`            -> `accepted` + csv
+   *   - `AceptadoConErrores`  -> `accepted_with_warnings` + csv
+   *   - `Incorrecto`          -> `rejected`
+   *   - `NoRegistrado`        -> `pending` (AEAT aun no ha procesado el alta;
+   *     el cron seguira preguntando)
+   *   - cualquier otro        -> `error` con `aeat_unknown_status`
+   */
+  private parseStatusResponse(response: { status: number; body: string }): GetStatusResult {
+    if (response.status >= 500) {
+      return {
+        status: 'error',
+        message: 'aeat_server_error',
+        raw: { status: response.status },
+      };
+    }
+    const estadoMatch = response.body.match(
+      /<(?:[\w-]+:)?EstadoRegistro>([^<]+)<\/(?:[\w-]+:)?EstadoRegistro>/,
+    );
+    const csvMatch = response.body.match(/<(?:[\w-]+:)?CSV>([^<]+)<\/(?:[\w-]+:)?CSV>/i);
+    const estado = estadoMatch?.[1]?.trim();
+    const csv = csvMatch?.[1]?.trim();
+
+    switch (estado) {
+      case 'Correcto':
+        return {
+          status: 'accepted',
+          csv: csv ?? null,
+          message: 'Correcto',
+          raw: { estado },
+        };
+      case 'AceptadoConErrores':
+      case 'AceptadaConErrores':
+        return {
+          status: 'accepted_with_warnings',
+          csv: csv ?? null,
+          message: estado,
+          raw: { estado },
+        };
+      case 'Incorrecto':
+        return {
+          status: 'rejected',
+          message: 'Incorrecto',
+          raw: { estado },
+        };
+      case 'NoRegistrado':
+        return {
+          status: 'pending',
+          message: 'aeat_not_registered_yet',
+          raw: { estado },
+        };
+      default:
+        return {
+          status: 'error',
+          message: 'aeat_unknown_status',
+          raw: { body: response.body.slice(0, 500) },
+        };
+    }
   }
 
   // --------------------------------------------------------------------------

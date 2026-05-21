@@ -416,6 +416,38 @@ describe('VerifactuXmlBuilder', () => {
     });
   });
 
+  describe('buildConsultaFactu', () => {
+    it('genera XML well-formed con IDEmisorFactura, NumSerieFactura y FechaExpedicionFactura', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const xml = builder.buildConsultaFactu({
+        emitterTaxId: 'B12345678',
+        invoiceNumber: 'F-2026-0001',
+        issueDate: new Date('2026-05-20T00:00:00.000Z'),
+      });
+
+      assertWellFormedXml(xml);
+
+      // Cabecera SOAP + namespace de consulta.
+      expect(xml).toContain('<soapenv:Envelope');
+      expect(xml).toContain('xmlns:con="https://www2.agenciatributaria.gob.es');
+      expect(xml).toContain('<con:ConsultaFactuSistemaFacturacion>');
+      expect(xml).toContain('<con:FiltroConsulta>');
+
+      // Campos clave.
+      expect(xml).toContain('<con:IDEmisorFactura>B12345678</con:IDEmisorFactura>');
+      expect(xml).toContain('<con:NumSerieFactura>F-2026-0001</con:NumSerieFactura>');
+      expect(xml).toContain('<con:FechaExpedicionFactura>20-05-2026</con:FechaExpedicionFactura>');
+
+      // Escape XML: si el numero llevara caracteres especiales tambien.
+      const xml2 = builder.buildConsultaFactu({
+        emitterTaxId: 'B12345678',
+        invoiceNumber: 'F&2026/0001',
+        issueDate: new Date('2026-05-20T00:00:00.000Z'),
+      });
+      expect(xml2).toContain('<con:NumSerieFactura>F&amp;2026/0001</con:NumSerieFactura>');
+    });
+  });
+
   describe('helpers', () => {
     describe('formatSpanishDate', () => {
       it('formatea en DD-MM-YYYY usando componentes UTC', () => {

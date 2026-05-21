@@ -4,6 +4,8 @@ import { ApiError, apiFetch } from '../auth/api';
 
 import { invoiceKey } from './hooks';
 
+import type { InvoiceDto } from '@storageos/shared';
+
 /**
  * Metadata pública del certificado AEAT cargado por el tenant. La definimos
  * local al frontend para evitar acoplar @storageos/shared a un detalle de
@@ -120,6 +122,26 @@ export function useResendVerifactuMutation(invoiceId: string) {
   return useMutation({
     mutationFn: () =>
       apiFetch<unknown>(`/billing/invoices/${invoiceId}/resend-aeat`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: invoiceKey(invoiceId) });
+    },
+  });
+}
+
+/**
+ * POST /billing/invoices/:id/refresh-aeat-status. Consulta sincronamente
+ * el estado actual de la factura en AEAT (`ConsultaFactuSistemaFacturacion`)
+ * y devuelve el DTO actualizado. Lo usa el badge Verifactu cuando el
+ * estado quedo en `pending` o `error` para forzar una re-consulta sin
+ * esperar al cron de polling de 15 min.
+ */
+export function useRefreshAeatStatusMutation(invoiceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<InvoiceDto>(`/billing/invoices/${invoiceId}/refresh-aeat-status`, {
         method: 'POST',
       }),
     onSuccess: () => {

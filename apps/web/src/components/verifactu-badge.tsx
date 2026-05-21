@@ -1,6 +1,6 @@
 'use client';
 
-import { ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -18,7 +18,10 @@ import {
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ApiError } from '@/lib/auth/api';
-import { useResendVerifactuMutation } from '@/lib/billing/verifactu-hooks';
+import {
+  useRefreshAeatStatusMutation,
+  useResendVerifactuMutation,
+} from '@/lib/billing/verifactu-hooks';
 
 /**
  * `aeatResponse` no está tipado todavía en `InvoiceDto` (llega en 10A.4)
@@ -64,6 +67,7 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
   const format = useFormatter();
   const [responseOpen, setResponseOpen] = useState(false);
   const resend = useResendVerifactuMutation(invoice.id);
+  const refresh = useRefreshAeatStatusMutation(invoice.id);
 
   // Las draft no se envían a AEAT; no mostramos badge en ese caso.
   if (invoice.status === 'draft') return null;
@@ -103,6 +107,11 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
     .join(' · ');
 
   const canResend = status === null || status === 'rejected' || status === 'error';
+  // El boton "Consultar AEAT" aparece cuando AEAT no ha dado un veredicto
+  // firme todavia: pending (envio huerfano) o error (fallo de red). En
+  // estos casos consultar puede traer un estado actualizado sin necesidad
+  // de reenviar la factura.
+  const canRefresh = status === 'pending' || status === 'error';
 
   async function handleResend() {
     try {
@@ -114,6 +123,21 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
         return;
       }
       toast.error(err instanceof ApiError ? err.body.message : t('toasts.resendError'));
+    }
+  }
+
+  async function handleRefresh() {
+    try {
+      const updated = await refresh.mutateAsync();
+      // El backend devuelve la factura tras consultar; si AEAT respondio
+      // `NoRegistrado` el aeatStatus sigue siendo `pending` (no tocamos BD).
+      if (updated.aeatStatus === 'pending') {
+        toast.info(t('toasts.refreshPending'));
+      } else {
+        toast.success(t('toasts.refreshSuccess'));
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('toasts.refreshError'));
     }
   }
 
@@ -143,6 +167,22 @@ export function VerifactuBadge({ invoice }: { invoice: InvoiceWithAeatExtras }) 
         >
           <ExternalLink className="mr-1 size-3" />
           {t('actions.viewResponse')}
+        </Button>
+      )}
+      {canRefresh && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 px-2 text-xs"
+          onClick={handleRefresh}
+          disabled={refresh.isPending}
+        >
+          {refresh.isPending ? (
+            <Loader2 className="mr-1 size-3 animate-spin" />
+          ) : (
+            <Search className="mr-1 size-3" />
+          )}
+          {t('actions.refresh')}
         </Button>
       )}
       {canResend && (

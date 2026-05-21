@@ -6,7 +6,12 @@ import QRCode from 'qrcode';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { AEAT_CLIENT, type AeatClient, type SendInvoiceResult } from './aeat-client';
+import {
+  AEAT_CLIENT,
+  type AeatClient,
+  type GetStatusResult,
+  type SendInvoiceResult,
+} from './aeat-client';
 
 import type { Env } from '../../config/env.schema';
 import type { AeatStatus, Invoice, Prisma } from '@storageos/database';
@@ -167,6 +172,65 @@ export class VerifactuService {
     });
     this.logger.debug(
       `[Verifactu ${this.aeat.mode}] invoice ${invoiceId} → ${status}${result.csv ? ` CSV=${result.csv}` : ''}`,
+    );
+    return result;
+  }
+
+  /**
+   * Consulta a AEAT el estado actual de una factura y actualiza `aeat_*`
+   * en BD si el resultado cambia. Usado por el cron de polling para
+   * recuperar pendientes huerfanos y por el endpoint manual del badge UI.
+   *
+   * Devuelve el `GetStatusResult` para que el caller pueda mostrarlo o
+   * loguearlo. Si la respuesta es `pending` (`NoRegistrado` en AEAT), NO
+   * actualizamos la BD: la factura sigue marcada como `pending` con su
+   * `aeatSentAt` original para que el cron pueda re-evaluar mas tarde.
+   */
+  async refreshStatus(invoiceId: string, tenantId: string): Promise<GetStatusResult> {
+    const invoice = await this.admin.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, tenantId: true },
+    });
+    if (!invoice || invoice.tenantId !== tenantId) {
+      return { status: 'error', message: 'invoice_not_found' };
+    }
+
+    const result = await this.aeat.getStatus({ invoiceId });
+
+    // En `pending` no tocamos la BD: la factura sigue siendo huerfana y el
+    // cron volvera a consultarla en la siguiente vuelta.
+    if (result.status === 'pending') {
+      this.logger.debug(
+        `[Verifactu ${this.aeat.mode}] refreshStatus(${invoiceId}) -> pending, no se actualiza BD`,
+      );
+      return result;
+    }
+
+    const status: AeatStatus =
+      result.status === 'accepted'
+        ? 'accepted'
+        : result.status === 'accepted_with_warnings'
+          ? 'accepted_with_warnings'
+          : result.status === 'rejected'
+            ? 'rejected'
+            : 'error';
+
+    await this.admin.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        aeatStatus: status,
+        ...(result.csv ? { aeatCsv: result.csv } : {}),
+        aeatResponse: {
+          mode: this.aeat.mode,
+          source: 'refresh_status',
+          ...(result.message ? { message: result.message } : {}),
+          ...(result.raw ?? {}),
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    this.logger.debug(
+      `[Verifactu ${this.aeat.mode}] refreshStatus(${invoiceId}) -> ${status}${result.csv ? ` CSV=${result.csv}` : ''}`,
     );
     return result;
   }

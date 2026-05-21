@@ -232,6 +232,40 @@ ${items}
           <sum1:TipoRectificativa>${tipoRect}</sum1:TipoRectificativa>${facturasRectificadas}${importeRectificacion}`;
   }
 
+  /**
+   * Construye el SOAP de consulta `ConsultaFactuSistemaFacturacion`. Se
+   * usa para preguntar a AEAT el estado actual de una factura ya enviada
+   * (post-MVP polling). Recibe NIF emisor + numero de factura + fecha de
+   * expedicion; AEAT responde con `EstadoRegistro` y, si aplica, `CSV`.
+   *
+   * El namespace `con` apunta al XSD de consulta de la AEAT, distinto del
+   * que usa el alta (`sum`/`sum1`). Mantenemos el mismo enfoque de escape
+   * exhaustivo via `escapeXml` para todos los strings inyectados.
+   */
+  buildConsultaFactu(args: {
+    emitterTaxId: string;
+    invoiceNumber: string;
+    issueDate: Date;
+  }): string {
+    const emitterTaxId = escapeXml(args.emitterTaxId);
+    const invoiceNumber = escapeXml(args.invoiceNumber);
+    const issueDate = formatSpanishDate(args.issueDate);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:con="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/ConsultaLR.xsd">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <con:ConsultaFactuSistemaFacturacion>
+      <con:FiltroConsulta>
+        <con:IDEmisorFactura>${emitterTaxId}</con:IDEmisorFactura>
+        <con:NumSerieFactura>${invoiceNumber}</con:NumSerieFactura>
+        <con:FechaExpedicionFactura>${issueDate}</con:FechaExpedicionFactura>
+      </con:FiltroConsulta>
+    </con:ConsultaFactuSistemaFacturacion>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+  }
+
   private buildRegistroAnterior(args: {
     previousHash: string;
     previousInvoiceNumber: string;

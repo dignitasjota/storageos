@@ -366,6 +366,35 @@ export function useAdminSecurityEvents(filters?: AdminSecurityEventsFilters) {
 }
 
 // ============================================================================
+// Security dashboard stats
+// ============================================================================
+
+export interface SecurityEventStatsResponse {
+  windowHours: number;
+  bucket: 'hour' | 'day';
+  bruteForceThreshold: number;
+  total: number;
+  byEventType: Array<{ eventType: string; count: number }>;
+  topEmails: Array<{ email: string; count: number; exceedsThreshold: boolean }>;
+  topIps: Array<{ ip: string; count: number; exceedsThreshold: boolean }>;
+  timeseries: Array<{ bucket: string; count: number }>;
+  activeAlerts: Array<{ kind: 'email' | 'ip'; identifier: string; count: number }>;
+}
+
+export const adminSecurityStatsKey = (window: '24h' | '7d' | '30d') =>
+  ['admin', 'security-events', 'stats', window] as const;
+
+export function useAdminSecurityStats(window: '24h' | '7d' | '30d' = '24h') {
+  return useQuery({
+    queryKey: adminSecurityStatsKey(window),
+    queryFn: () =>
+      adminApiFetch<SecurityEventStatsResponse>(`/admin/security-events/stats?window=${window}`),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+// ============================================================================
 // Super admin audit logs (Fase 12A.3)
 // ============================================================================
 
@@ -412,6 +441,46 @@ export function useAssignTicket() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets', vars.id] });
       qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+    },
+  });
+}
+
+// ============================================================================
+// Webhooks cleanup dashboard
+// ============================================================================
+
+export interface WebhookCleanupStatsResponse {
+  total: number;
+  eligibleForCleanup: number;
+  olderThanDays: number;
+  cutoff: string;
+  oldestAt: string | null;
+  newestAt: string | null;
+  byStatus: Array<{ status: string; count: number }>;
+}
+
+export const adminWebhooksCleanupStatsKey = (olderThanDays?: number) =>
+  ['admin', 'webhooks-cleanup', 'stats', olderThanDays ?? 'default'] as const;
+
+export function useAdminWebhooksCleanupStats(olderThanDays?: number) {
+  const qs = olderThanDays ? `?olderThanDays=${olderThanDays}` : '';
+  return useQuery({
+    queryKey: adminWebhooksCleanupStatsKey(olderThanDays),
+    queryFn: () => adminApiFetch<WebhookCleanupStatsResponse>(`/admin/webhooks-cleanup/stats${qs}`),
+    staleTime: 30_000,
+  });
+}
+
+export function useAdminWebhooksCleanupRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { olderThanDays?: number }) =>
+      adminApiFetch<{ deleted: number; olderThanDays: number }>('/admin/webhooks-cleanup/run', {
+        method: 'POST',
+        json: args,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'webhooks-cleanup'] });
     },
   });
 }

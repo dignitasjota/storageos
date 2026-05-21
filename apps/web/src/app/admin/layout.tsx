@@ -4,10 +4,12 @@ import {
   Activity,
   BarChart3,
   Building2,
+  Gauge,
   LifeBuoy,
   LogOut,
   ScrollText,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -42,8 +44,10 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
+  { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
   { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
   { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
+  { href: '/admin/webhooks-cleanup', label: 'Cleanup webhooks', icon: Trash2 },
   { href: '/admin/security', label: 'Seguridad', icon: ShieldCheck },
 ];
 

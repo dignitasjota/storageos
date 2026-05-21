@@ -1,4 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ListSecurityEventsSchema,
@@ -6,15 +7,25 @@ import {
   type SecurityEventsListResponseDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 
 import { Public } from '../../common/decorators/public.decorator';
-import { SecurityEventsService } from '../security-events/security-events.service';
+import {
+  SecurityEventsService,
+  type SecurityEventStatsResult,
+} from '../security-events/security-events.service';
 
 import { AdminGuard } from './admin.guard';
 
+import type { Env } from '../../config/env.schema';
 import type { SecurityEvent } from '@storageos/database';
 
 class ListSecurityEventsDto extends createZodDto(ListSecurityEventsSchema) {}
+
+const StatsQuerySchema = z.object({
+  window: z.enum(['24h', '7d', '30d']).default('24h'),
+});
+class StatsQueryDto extends createZodDto(StatsQuerySchema) {}
 
 /**
  * Endpoints `/admin/security-events` — solo visibles para super admin.
@@ -28,7 +39,18 @@ class ListSecurityEventsDto extends createZodDto(ListSecurityEventsSchema) {}
 @UseGuards(AdminGuard)
 @Controller('admin/security-events')
 export class SecurityEventsController {
-  constructor(private readonly service: SecurityEventsService) {}
+  constructor(
+    private readonly service: SecurityEventsService,
+    private readonly config: ConfigService<Env, true>,
+  ) {}
+
+  @Get('stats')
+  async stats(@Query() query: StatsQueryDto): Promise<SecurityEventStatsResult> {
+    const windowHours = query.window === '24h' ? 24 : query.window === '7d' ? 24 * 7 : 24 * 30;
+    const bucket: 'hour' | 'day' = query.window === '24h' ? 'hour' : 'day';
+    const bruteForceThreshold = this.config.get('SECURITY_BRUTE_FORCE_THRESHOLD', { infer: true });
+    return this.service.stats({ windowHours, bucket, bruteForceThreshold });
+  }
 
   @Get()
   async list(@Query() query: ListSecurityEventsDto): Promise<SecurityEventsListResponseDto> {

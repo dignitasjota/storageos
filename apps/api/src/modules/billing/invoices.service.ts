@@ -389,6 +389,25 @@ export class InvoicesService {
     return { queued: true, invoiceId };
   }
 
+  /**
+   * Consulta a AEAT el estado actual de la factura (sub-bloque 15A.1).
+   * Llama a `VerifactuService.refreshStatus` y devuelve el DTO actualizado
+   * para que la UI pueda refrescar el badge inmediatamente. Usado por el
+   * boton "Consultar AEAT" del badge cuando la factura quedo `pending`
+   * o `error`.
+   */
+  async refreshAeatStatus(invoiceId: string, tenantId: string): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(tenantId, invoiceId);
+    if (existing.status === 'draft') {
+      throw new BadRequestException({
+        code: 'invoice_draft_not_sendable',
+        message: 'No se puede consultar a AEAT una factura en borrador',
+      });
+    }
+    await this.verifactu.refreshStatus(invoiceId, tenantId);
+    return this.toDto(await this.findOrThrow(tenantId, invoiceId));
+  }
+
   async cancel(args: {
     tenantId: string;
     userId: string;

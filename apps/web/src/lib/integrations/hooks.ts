@@ -89,13 +89,50 @@ export function useRotateWebhookSecret() {
   });
 }
 
-export function useWebhookDeliveries(webhookId: string | null) {
+export interface WebhookDeliveriesFilters {
+  status?: 'pending' | 'success' | 'failed';
+  fromDate?: string;
+  toDate?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export function webhookDeliveriesKey(
+  webhookId: string | null,
+  filters: WebhookDeliveriesFilters = {},
+) {
+  return ['settings', 'webhooks', webhookId, 'deliveries', filters] as const;
+}
+
+export function useWebhookDeliveries(
+  webhookId: string | null,
+  filters: WebhookDeliveriesFilters = {},
+) {
   return useQuery({
     enabled: !!webhookId,
-    queryKey: ['settings', 'webhooks', webhookId, 'deliveries'] as const,
-    queryFn: () =>
-      apiFetch<{ items: WebhookDeliveryDto[]; nextCursor: string | null }>(
-        `/settings/webhooks/${webhookId}/deliveries?limit=50`,
-      ),
+    queryKey: webhookDeliveriesKey(webhookId, filters),
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set('limit', String(filters.limit ?? 50));
+      if (filters.status) params.set('status', filters.status);
+      if (filters.fromDate) params.set('fromDate', filters.fromDate);
+      if (filters.toDate) params.set('toDate', filters.toDate);
+      if (filters.cursor) params.set('cursor', filters.cursor);
+      return apiFetch<{ items: WebhookDeliveryDto[]; nextCursor: string | null }>(
+        `/settings/webhooks/${webhookId}/deliveries?${params.toString()}`,
+      );
+    },
+  });
+}
+
+export function useRetryWebhookDelivery(webhookId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (deliveryId: string) =>
+      apiFetch<{ queued: true }>(`/settings/webhooks/${webhookId}/deliveries/${deliveryId}/retry`, {
+        method: 'POST',
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['settings', 'webhooks', webhookId, 'deliveries'] }),
   });
 }

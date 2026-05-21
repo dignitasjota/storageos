@@ -593,12 +593,16 @@
       },
       "actions": {
         "resend": "Reenviar a AEAT",
+        "refresh": "Consultar AEAT",
         "viewResponse": "Ver respuesta"
       },
       "toasts": {
         "resendQueued": "Reenvío encolado.",
         "resendError": "No hemos podido lanzar el reenvío.",
-        "endpointPending": "El endpoint de reenvío aún no está disponible (llega en Fase 10A.4)."
+        "endpointPending": "El endpoint de reenvío aún no está disponible (llega en Fase 10A.4).",
+        "refreshSuccess": "Estado actualizado desde AEAT.",
+        "refreshPending": "AEAT aún no ha procesado la factura.",
+        "refreshError": "No hemos podido consultar AEAT."
       },
       "responseDialog": {
         "title": "Respuesta de AEAT",

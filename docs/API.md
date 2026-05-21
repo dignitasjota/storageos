@@ -1,12 +1,18 @@
 # API
 
-> Estado: **Fase 6** — autenticacion (Fase 1), gestion fisica (Fase 2),
-> operativa de contratos (Fase 3), facturacion + pagos + dunning + RGPD +
-> portal (Fase 4), comunicaciones + automations + CRM + widget (Fase 5) y
-> **operativa (tasks + incidents) + productos accesorios + analytics +
-> reports async** (Fase 6: state machines de tasks e incidents con
-> comentarios, ventas con factura Verifactu inline, 4 KPIs de negocio,
-> generators de informe en PDF/Excel con cola BullMQ).
+> Estado: **MVP cerrado (Fase 14)** — auth + multi-tenant (Fase 1),
+> facilities + units + editor visual (Fase 2), contratos + reservas
+> (Fase 3), facturacion + Verifactu + pagos + dunning + RGPD + portal
+> (Fase 4), comunicaciones + automations + CRM + widget (Fase 5),
+> operativa + productos + analytics + reports (Fase 6), accesos fisicos
+> (Fase 7), super admin + soporte + SaaS billing (Fase 8 + 9A),
+> Veri\*Factu real con mTLS (Fase 10), compliance + observabilidad
+> (Fase 11: `security_events`, historial AEAT, CSP, rectificativas R1-R5
+> por diferencias), hardening operacional (Fase 12: forzar 2FA
+> owner/manager, alertas brute-force, `super_admin_audit_logs`),
+> versionado `/v1/` + OpenAPI + F2 + rectificativas por sustitucion
+> (Fase 13) e integraciones API keys + webhooks salientes HMAC
+> (Fase 14).
 
 ## Convenciones
 
@@ -1148,6 +1154,359 @@ Modulo `apps/api/src/modules/billing/aeat-client/` y `tenant-aeat-credentials.{s
 | ----------- | -------------- | ------------------------------------------------------------------------- |
 | `verifactu` | `send-to-aeat` | POST mTLS al endpoint AEAT con cert tenant. Retry 3× exponencial 60s base |
 
+## Compliance + observabilidad (Fase 11)
+
+Modulos `apps/api/src/modules/{security-events,billing}`. Cierre del MVP en
+materia de trazabilidad sin tenant, rotacion de credenciales AEAT, CSP en
+panel autenticado y rectificativas Veri\*Factu por diferencias.
+
+### Invariantes clave
+
+- **`security_events` global**: tabla SIN `tenant_id` y sin RLS. Almacena
+  intentos de login/registro fallidos cuando todavia no hay tenant context
+  (email no existe, tenant no existe, throttled, etc.). Acceso solo via
+  `PrismaAdminService`. `SecurityEventsService.record()` es **defensivo**:
+  cualquier error al persistir se loguea pero no rompe el flujo de auth.
+- **`tenant_aeat_credentials` historico**: se elimina la restriccion
+  `UNIQUE` sobre `tenant_id`. La credencial activa es la unica fila del
+  tenant con `revoked_at IS NULL`. El upload nuevo hace
+  `updateMany {revokedAt: null}` + `create new` dentro de un
+  `$transaction`. Permite auditar todas las rotaciones.
+- **CSP enforce**: el panel autenticado de `apps/web` envia el header
+  `Content-Security-Policy` (no `Report-Only`) configurado en
+  `next.config.mjs`. Las violaciones se reportan a `POST /api/csp-report`.
+  La ruta `/widget/:path*` mantiene `frame-ancestors *` (embeds externos).
+- **Rectificativas Veri\*Factu R1-R5**: nuevos campos en `invoices`
+  (`invoice_type`, `rectifies_invoice_id`, `rectification_reason`,
+  `correction_method`). El XML AEAT incluye `<TipoRectificativa>I</...>`
+  (`I` = por diferencias, default Fase 11) y `<FacturasRectificadas>` con
+  la lista de IDFactura rectificadas. La sustitucion (`S`) llega en
+  Fase 13.
+
+### Endpoints — Security events (super admin)
+
+| Metodo | Ruta                     | Auth       | Descripcion                                                                          |
+| ------ | ------------------------ | ---------- | ------------------------------------------------------------------------------------ |
+| GET    | `/admin/security-events` | AdminGuard | Filtros `?eventType=&emailAttempted=&fromDate=&toDate=&cursor=&limit=`. Solo lectura |
+
+Eventos registrados (campo `event_type`): `login_failed_email_not_found`,
+`login_failed_tenant_not_found`, `login_failed_wrong_password`,
+`login_failed_throttled`, `register_throttled`,
+`password_reset_throttled`, `invitation_token_invalid`,
+`refresh_token_reuse`.
+
+Cron diario `0 3 * * *` borra eventos con `created_at < now() - interval '90 days'`.
+
+### Endpoints — Historial de credenciales AEAT
+
+| Metodo | Ruta                                | Auth | Roles          | Descripcion                                                                 |
+| ------ | ----------------------------------- | ---- | -------------- | --------------------------------------------------------------------------- |
+| GET    | `/billing/aeat-credentials/history` | SI   | owner, manager | Lista cronologica de todas las credenciales (activa + revocadas) del tenant |
+
+`GET /billing/aeat-credentials/me` sigue existiendo y devuelve la activa.
+
+### Endpoints — CSP report
+
+| Metodo | Ruta              | Auth | Descripcion                                                                       |
+| ------ | ----------------- | ---- | --------------------------------------------------------------------------------- |
+| POST   | `/api/csp-report` | NO   | Recibe violaciones CSP del navegador (formato `application/csp-report`). Logueado |
+
+### Endpoints — Rectificativas Veri\*Factu
+
+| Metodo | Ruta                    | Auth | Roles          | Descripcion                                                                                               |
+| ------ | ----------------------- | ---- | -------------- | --------------------------------------------------------------------------------------------------------- |
+| POST   | `/invoices/:id/rectify` | SI   | owner, manager | Crea factura rectificativa R1-R5 a partir de una emitida. Encadena hash y la envia AEAT en su propia cola |
+
+**Body:**
+
+```json
+{
+  "rectificationType": "R1",
+  "reason": "Error en NIF del destinatario",
+  "items": [{ "description": "...", "quantity": 1, "unitPrice": -50, "taxRate": 21 }],
+  "correctionMethod": "by_differences"
+}
+```
+
+- `rectificationType` ∈ `R1`, `R2`, `R3`, `R4`, `R5` (segun causa AEAT).
+- `correctionMethod` default `by_differences` (Fase 11). La opcion
+  `by_substitution` llega en Fase 13.
+
+### Codigos `code` (Fase 11)
+
+| `code`                              | Cuando                                                        |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `invoice_not_rectifiable`           | La factura origen no esta `issued`/`paid`/`overdue`.          |
+| `invoice_already_rectified`         | La factura ya tiene una rectificativa emitida vigente.        |
+| `rectification_type_invalid`        | `rectificationType` fuera de R1-R5.                           |
+| `rectification_reason_required`     | Falta el motivo (obligatorio AEAT).                           |
+| `correction_method_invalid`         | Valor distinto a `by_differences`/`by_substitution`.          |
+| `aeat_credentials_history_disabled` | Tenant sin credenciales jamas (no hay historial que mostrar). |
+
+## Hardening operacional (Fase 12)
+
+Modulos `apps/api/src/modules/{auth,security-alerts,admin,tenants}/`.
+Refuerzo final pre-deploy: forzar 2FA para roles privilegiados, alertas
+de fuerza bruta y audit log dedicado de acciones del super admin.
+
+### Invariantes clave
+
+- **Forzar 2FA owner/manager**: nueva columna
+  `tenants.require_two_factor_for_managers BOOLEAN DEFAULT false`. Cuando
+  un tenant la activa, los users con role `owner`/`manager` que aun no
+  tengan 2FA quedan **bloqueados** tras login y deben enrolarse antes de
+  recibir tokens. El login devuelve un `enrolmentToken` corto en lugar
+  de access/refresh.
+- **Alertas brute-force**: `SecurityAlertsService.scanAndAlert()` agrega
+  `security_events` y, si encuentra >5 fallos en 15 min para el mismo
+  email o IP, envia un email a `SECURITY_ALERT_EMAIL`. Dedup en memoria
+  para no spamear. Cron `*/5 * * * *`.
+- **`super_admin_audit_logs` global**: tabla sin `tenant_id` y sin RLS.
+  Registra acciones del super admin (login, 2FA, impersonation, suspension
+  de tenants). `SuperAdminAuditService.record()` es defensivo (no rompe
+  flujos si el insert falla).
+
+### Endpoints — Forzar 2FA en enrolment
+
+Los endpoints publicos `/auth/2fa/enrol-required/*` se activan solo cuando
+el login devuelve un `enrolmentToken`. No requieren JWT, lo identifica el
+token.
+
+| Metodo | Ruta                              | Auth | Throttle  | Descripcion                                                                                                            |
+| ------ | --------------------------------- | ---- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/2fa/enrol-required/setup`  | NO   | 60/min/IP | Body `{enrolmentToken}`. Devuelve `{otpauthUri, secretBase32}` (mismo flujo que `/auth/2fa/setup`)                     |
+| POST   | `/auth/2fa/enrol-required/verify` | NO   | 5/min/IP  | Body `{enrolmentToken, code}`. Activa 2FA, emite cookie refresh + access. Devuelve `{recoveryCodes, accessToken, ...}` |
+
+Respuesta de `POST /auth/login` cuando aplica el forzado:
+
+```json
+{
+  "requires2faEnrolment": true,
+  "enrolmentToken": "eyJ...",
+  "expiresIn": 600
+}
+```
+
+### Endpoints — Configuracion de seguridad del tenant
+
+| Metodo | Ruta                        | Auth | Roles | Descripcion                                                                             |
+| ------ | --------------------------- | ---- | ----- | --------------------------------------------------------------------------------------- |
+| GET    | `/settings/tenant/security` | SI   | owner | Lee `{ requireTwoFactorForManagers }`                                                   |
+| PATCH  | `/settings/tenant/security` | SI   | owner | Body `{requireTwoFactorForManagers}`. Emite audit `tenant.security.require_2fa_changed` |
+
+### Endpoints — Brute-force scan + super admin audit log
+
+| Metodo | Ruta                          | Auth       | Descripcion                                                                       |
+| ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------------- |
+| POST   | `/admin/security-alerts/scan` | AdminGuard | Dispara el scan manualmente fuera del cron                                        |
+| GET    | `/admin/audit-logs`           | AdminGuard | Filtros `?superAdminId=&action=&targetTenantId=&fromDate=&toDate=&cursor=&limit=` |
+
+Acciones registradas en `super_admin_audit_logs`:
+`admin.login.success`, `admin.login.failed`, `admin.2fa.enabled`,
+`admin.2fa.disabled`, `admin.2fa.recovery_codes_regenerated`,
+`admin.2fa.challenge.success`, `admin.2fa.challenge.failed`,
+`admin.tenant.impersonate`, `admin.tenant.suspended`,
+`admin.tenant.reactivated`, `admin.tenant.trial_extended`.
+
+### Codigos `code` (Fase 12)
+
+| `code`                                 | Cuando                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------ |
+| `two_factor_enrolment_required`        | Login con rol privilegiado y `require_two_factor_for_managers=true`.     |
+| `enrolment_token_invalid`              | `enrolmentToken` caducado o firma invalida.                              |
+| `enrolment_already_completed`          | El user ya activo 2FA antes de consumir el token.                        |
+| `tenant_security_settings_not_allowed` | Cualquier role distinto de `owner` que toca `/settings/tenant/security`. |
+
+## Robustez tecnica + F2 + sustitucion (Fase 13)
+
+Modulos `apps/api/src/{main.ts, modules/billing}`. Cubre versionado de
+URLs, OpenAPI/Swagger publico (gated), factura simplificada F2 y
+rectificativas por sustitucion.
+
+### Invariantes clave
+
+- **Versionado `/v1/`**: `app.enableVersioning({ type: VersioningType.URI, prefix: 'v', defaultVersion: '1' })`.
+  TODAS las rutas viven bajo `/v1/...`. Las rutas legacy responden
+  **`308 Permanent Redirect`** preservando metodo HTTP y body al destino
+  versionado. Excepciones marcadas `VERSION_NEUTRAL`: `/health`,
+  `/webhooks/*`, `/public/widget/*`, `/api/docs`, `/api/docs-json`,
+  `/api/csp-report`.
+- **OpenAPI + Swagger UI**: montado en `GET /api/docs` (UI) +
+  `GET /api/docs-json` (schema). En produccion solo si
+  `OPENAPI_ENABLED=true` (debe estar detras de auth/VPN en Nginx Proxy
+  Manager).
+- **F2 simplificadas**: `invoices.customer_id` ahora **NULLABLE**. Crear
+  un invoice con `invoiceType='F2'` permite omitir `customerId`. Limites
+  AEAT: total ≤ 400€ por defecto; ≤ 3000€ si se aporta
+  `simplifiedJustification` ∈ `reparation`, `transport`, `restaurant`,
+  `parking`, `other`. El XML emite
+  `<FacturaSinIdentifDestinatarioArt61d>S</...>` cuando no hay recipient.
+- **F1 sigue obligando `customerId`**: ausente devuelve
+  `400 customer_required`.
+- **Rectificativas por sustitucion**: `correctionMethod='by_substitution'`
+  emite XML con `<TipoRectificativa>S</TipoRectificativa>` + bloque
+  `<ImporteRectificacion>` con `BaseRectificada`/`CuotaRectificada`.
+
+### Convencion `/v1/` aplicada a todos los modulos previos
+
+Las tablas de endpoints de Fases 1-12 muestran rutas sin prefijo por
+claridad historica; el servidor sirve cada una bajo `/v1/...`. Ejemplos:
+
+- `POST /auth/login` → `POST /v1/auth/login` (legacy redirige 308).
+- `GET /invoices` → `GET /v1/invoices`.
+- `POST /webhooks/stripe` se queda **sin prefijo** (URL registrada en
+  Stripe dashboard).
+
+### Endpoints — OpenAPI
+
+| Metodo | Ruta             | Auth | Descripcion                     |
+| ------ | ---------------- | ---- | ------------------------------- |
+| GET    | `/api/docs`      | NO\* | Swagger UI                      |
+| GET    | `/api/docs-json` | NO\* | Schema crudo `application/json` |
+
+`*` Gated por `OPENAPI_ENABLED=true` en prod; siempre en dev/test.
+
+### Endpoints — Facturas F2 + rectificativas por sustitucion
+
+`POST /v1/invoices` (Fase 4) ahora acepta el discriminador `invoiceType`:
+
+```json
+{
+  "invoiceType": "F2",
+  "customerId": null,
+  "simplifiedJustification": "parking",
+  "items": [{ "description": "Venta libre", "quantity": 1, "unitPrice": 12, "taxRate": 21 }]
+}
+```
+
+`POST /v1/invoices/:id/rectify` (Fase 11) acepta tambien:
+
+```json
+{
+  "rectificationType": "R1",
+  "reason": "...",
+  "items": [...],
+  "correctionMethod": "by_substitution"
+}
+```
+
+### Codigos `code` (Fase 13)
+
+| `code`                             | Cuando                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `customer_required`                | `invoiceType='F1'` sin `customerId`.                                         |
+| `f2_amount_limit_exceeded`         | F2 con total > 400€ sin justificacion o > 3000€ con justificacion.           |
+| `simplified_justification_invalid` | Valor fuera de la whitelist.                                                 |
+| `correction_method_invalid`        | Tambien aplica aqui: `by_substitution` requiere `invoice_type` rectificable. |
+
+## Integraciones — API keys y webhooks salientes (Fase 14)
+
+Modulos `apps/api/src/modules/{api-keys,webhooks-outgoing,integrations}/`.
+Introduce credenciales programaticas para tenants y notificaciones HTTP
+firmadas a sistemas externos.
+
+### Invariantes clave
+
+- **API keys** (tabla `api_keys`, RLS por tenant): plaintext con formato
+  `sk_live_<tenantId>.<secret>`. Solo el hash argon2id del `secret` se
+  persiste. `key_prefix` guarda los primeros 12 chars para mostrar en UI
+  ("sk_live_abcd..."). `scopes` es `text[]` (whitelist tipo
+  `invoices:read`, `customers:write`, `*`). Soft revoke con `revoked_at`.
+- **`ApiKeyGuard`**: extrae `Authorization: Bearer sk_live_*`, hace lookup
+  por prefix + verify argon2id del secret. Actualiza `last_used_at`. Solo
+  aplicado a `/integrations/*`.
+- **Webhooks** (tabla `webhooks`, RLS por tenant): `url`, `events` (array
+  de strings dentro de la whitelist), `secret` cifrado AES-256-GCM con
+  `CryptoService`, `is_active`. Eventos permitidos: `invoice.created`,
+  `invoice.paid`, `invoice.overdue`, `contract.signed`, `lead.created`.
+- **HMAC**: cada delivery firma `${ts}.${body}` con HMAC-SHA-256. Header
+  `X-Storageos-Signature: t=<unix_ts>,v1=<hmacSha256Hex>`. Headers extra:
+  `X-Storageos-Event: <eventType>`, `X-Storageos-Delivery: <deliveryId>`.
+- **Retry**: cola BullMQ `webhooks` job `deliver` con `attempts: 3,
+backoff: exponential 60s`. Si HTTP retorna 2xx → `status='success'`.
+  Si lanza error tecnico o status ≥ 500 → throw → BullMQ reintenta. Tras
+  3 intentos fallidos → `status='failed'` y no se reintenta hasta
+  reenvio manual.
+- **`webhook_deliveries`** (RLS por tenant): persiste cada intento con
+  `payload`, `signature`, `attempts`, `status`, `status_code`,
+  `response_body`, `error_message`, `scheduled_for`, `delivered_at`.
+  Indices `(tenant_id, status)` y `(webhook_id, created_at desc)`.
+
+### Endpoints — API keys
+
+| Metodo | Ruta                     | Auth | Roles          | Descripcion                                                                                       |
+| ------ | ------------------------ | ---- | -------------- | ------------------------------------------------------------------------------------------------- |
+| GET    | `/settings/api-keys`     | SI   | owner, manager | Lista las API keys del tenant (sin secret; solo `keyPrefix`, `scopes`, `lastUsedAt`, `revokedAt`) |
+| POST   | `/settings/api-keys`     | SI   | owner          | Body `{name, scopes}`. Devuelve `{apiKey}` plaintext **una sola vez**                             |
+| DELETE | `/settings/api-keys/:id` | SI   | owner          | Revoca (soft, `revoked_at`)                                                                       |
+
+### Endpoints — Webhooks salientes
+
+| Metodo | Ruta                                   | Auth | Roles          | Descripcion                                                                |
+| ------ | -------------------------------------- | ---- | -------------- | -------------------------------------------------------------------------- |
+| GET    | `/settings/webhooks`                   | SI   | owner          | Lista webhooks del tenant                                                  |
+| POST   | `/settings/webhooks`                   | SI   | owner          | Body `{name, url, events[]}`. Genera secret y lo devuelve **una sola vez** |
+| PATCH  | `/settings/webhooks/:id`               | SI   | owner          | Edita `name`, `url`, `events`, `isActive`                                  |
+| DELETE | `/settings/webhooks/:id`               | SI   | owner          | Revoca (soft, `revoked_at`)                                                |
+| POST   | `/settings/webhooks/:id/rotate-secret` | SI   | owner          | Genera secret nuevo; devuelve plaintext una sola vez                       |
+| GET    | `/settings/webhooks/:id/deliveries`    | SI   | owner, manager | Filtros `?status=&fromDate=&toDate=&cursor=&limit=`. Lista los intentos    |
+
+### Endpoints — Integrations (autenticadas con API key)
+
+| Metodo | Ruta                   | Auth           | Descripcion                                                   |
+| ------ | ---------------------- | -------------- | ------------------------------------------------------------- |
+| GET    | `/integrations/whoami` | API key Bearer | Devuelve `{ tenantId, apiKeyId, scopes }` del key autenticado |
+
+`/integrations/*` se autentica con `Authorization: Bearer sk_live_*`.
+**No** acepta JWT.
+
+### Formato HMAC del webhook saliente
+
+```
+POST /webhook-url HTTP/1.1
+Content-Type: application/json
+X-Storageos-Event: invoice.paid
+X-Storageos-Delivery: 0193fa01-...-...
+X-Storageos-Signature: t=1716200000,v1=2c5e9a3b...
+
+{ "event": "invoice.paid", "data": { ... } }
+```
+
+Pseudocodigo de verificacion en el receptor:
+
+```ts
+const [tPart, sigPart] = header.split(',');
+const ts = tPart.split('=')[1];
+const sig = sigPart.split('=')[1];
+const expected = hmacSHA256Hex(`${ts}.${rawBody}`, webhookSecret);
+const ok = timingSafeEqual(sig, expected) && Math.abs(now - ts) < 300;
+```
+
+### Codigos `code` (Fase 14)
+
+| `code`                  | Cuando                                                                     |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `api_key_not_found`     | Lookup por id falla o key ya revocada.                                     |
+| `api_key_invalid`       | `Authorization` ausente, formato distinto a `sk_live_*` o secret invalido. |
+| `webhook_not_found`     | ID invalido o tenant ajeno.                                                |
+| `webhook_url_invalid`   | URL no es `https://...` o resuelve a IP privada.                           |
+| `webhook_event_invalid` | Algun item de `events` fuera de la whitelist.                              |
+
+### BullMQ + colas Fase 14
+
+| Cola       | Job       | Descripcion                                                                                  |
+| ---------- | --------- | -------------------------------------------------------------------------------------------- |
+| `webhooks` | `deliver` | POST HTTPS al webhook con HMAC. Retry 3× exponencial 60s. Persiste delivery con cada intento |
+
+## Infra runtime y banderas (Fase 14)
+
+- **`ENABLE_WORKERS_IN_API`** (env, default `true`): cuando `true`, el
+  proceso de `apps/api` registra los providers de las colas BullMQ y
+  procesa jobs in-process. En produccion (`.env.prod=false`) los workers
+  se ejecutan en `apps/worker` separado y la API solo encola.
+- **`OPENAPI_ENABLED`** (env, default no seteado): expone `/api/docs` y
+  `/api/docs-json` en produccion. En dev/test siempre montado.
+
 ## Roles Postgres y RLS
 
 La API usa dos conexiones distintas a Postgres:
@@ -1226,11 +1585,17 @@ En tests e2e (`NODE_ENV=test`) el throttler aplica `skipIf: () => true`.
 
 ## Pendiente / Backlog post-MVP
 
-- Versionado en la ruta (`/api/v1/...`).
-- Esquema OpenAPI exportado desde NestJS (`@nestjs/swagger`).
-- Convenciones de paginacion cursor-based con ejemplos en todos los endpoints (algunos ya la usan).
-- Webhooks salientes con firma HMAC (`webhooks` + `webhook_deliveries` ya existen como esqueleto).
-- Politica de deprecacion de versiones.
-- AEAT `getStatus` polling (Veri\*Factu actualmente solo cubre el envio sincrono; consulta de estado queda post-MVP).
-- Anulacion / rectificacion de facturas Veri\*Factu (F2, R1-R5). Actualmente solo `RegistroAlta` (F1).
-- Cache diario de `analytics/*` si la carga crece.
+Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
+
+- **Politica de deprecacion de versiones**: aun no existe ciclo formal de
+  retirada de `/v1/`. Por ahora todo legacy redirige 308 indefinidamente.
+- **AEAT `getStatus` polling**: Veri\*Factu cubre alta + rectificativas
+  (sincronos). La consulta de estado por CSV queda fuera del MVP.
+- **Cache diario de `analytics/*`**: si la carga crece, materializar
+  `analytics_snapshots`.
+- **WhatsApp real**: `WhatsAppProvider` existe como abstraccion; falta
+  conectar Meta WABA en produccion (stub actual loggea).
+- **GoCardless / Redsys**: `PaymentGateway` esta listo; falta integrar
+  proveedores SEPA y TPV bancario.
+- **Bulk endpoints**: imports masivos de customers/units/contracts.
+- **GraphQL o BFF**: si el frontend crece en complejidad, evaluar.

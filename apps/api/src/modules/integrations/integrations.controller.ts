@@ -179,11 +179,36 @@ export class IntegrationsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query('limit') limitRaw?: string,
     @Query('cursor') cursor?: string,
+    @Query('status') status?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
   ): Promise<{ items: WebhookDeliveryDto[]; nextCursor: string | null }> {
-    const limit = limitRaw ? Math.max(1, Math.min(100, Number(limitRaw) || 50)) : 50;
+    const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw) || 50)) : 50;
+    const normalizedStatus =
+      status === 'pending' || status === 'success' || status === 'failed' ? status : undefined;
+    const parsedFrom = fromDate ? new Date(fromDate) : undefined;
+    const parsedTo = toDate ? new Date(toDate) : undefined;
     return this.webhooks.listDeliveries(user.tenantId, id, {
       limit,
       ...(cursor ? { cursor } : {}),
+      ...(normalizedStatus ? { status: normalizedStatus } : {}),
+      ...(parsedFrom && !Number.isNaN(parsedFrom.getTime()) ? { fromDate: parsedFrom } : {}),
+      ...(parsedTo && !Number.isNaN(parsedTo.getTime()) ? { toDate: parsedTo } : {}),
+    });
+  }
+
+  @Post('webhooks/:webhookId/deliveries/:deliveryId/retry')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.OK)
+  retryWebhookDelivery(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('webhookId', new ParseUUIDPipe()) webhookId: string,
+    @Param('deliveryId', new ParseUUIDPipe()) deliveryId: string,
+  ): Promise<{ queued: true }> {
+    return this.webhooks.retryDelivery({
+      tenantId: user.tenantId,
+      webhookId,
+      deliveryId,
     });
   }
 }

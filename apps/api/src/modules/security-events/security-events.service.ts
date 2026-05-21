@@ -123,4 +123,119 @@ export class SecurityEventsService {
     });
     return { deleted: result.count };
   }
+
+  /**
+   * Agrega los eventos de la ventana indicada para el dashboard admin.
+   * Devuelve KPIs, distribuciones top, timeseries y alertas activas
+   * (grupos que superan `bruteForceThreshold` en la ventana).
+   *
+   * `bucket` controla la granularidad del timeseries:
+   *   - `hour`: 1 punto por hora (usar con `windowHours <= 48`)
+   *   - `day`: 1 punto por día (usar con `windowHours >= 24*7`)
+   */
+  async stats(args: {
+    windowHours: number;
+    bucket: 'hour' | 'day';
+    bruteForceThreshold: number;
+    topLimit?: number;
+  }): Promise<SecurityEventStatsResult> {
+    const since = new Date(Date.now() - args.windowHours * 60 * 60 * 1000);
+    const topLimit = args.topLimit ?? 10;
+
+    const total = await this.admin.securityEvent.count({
+      where: { occurredAt: { gte: since } },
+    });
+
+    const byTypeRaw = await this.admin.securityEvent.groupBy({
+      by: ['eventType'],
+      where: { occurredAt: { gte: since } },
+      _count: { _all: true },
+      orderBy: { _count: { eventType: 'desc' } },
+    });
+    const byEventType = byTypeRaw.map((g) => ({
+      eventType: g.eventType,
+      count: g._count._all,
+    }));
+
+    const topEmailsRaw = await this.admin.securityEvent.groupBy({
+      by: ['emailAttempted'],
+      where: {
+        occurredAt: { gte: since },
+        emailAttempted: { not: null },
+      },
+      _count: { _all: true },
+      orderBy: { _count: { emailAttempted: 'desc' } },
+      take: topLimit,
+    });
+    const topEmails = topEmailsRaw.map((g) => ({
+      email: g.emailAttempted!,
+      count: g._count._all,
+      exceedsThreshold: g._count._all >= args.bruteForceThreshold,
+    }));
+
+    const topIpsRaw = await this.admin.securityEvent.groupBy({
+      by: ['ipAddress'],
+      where: {
+        occurredAt: { gte: since },
+        ipAddress: { not: null },
+      },
+      _count: { _all: true },
+      orderBy: { _count: { ipAddress: 'desc' } },
+      take: topLimit,
+    });
+    const topIps = topIpsRaw.map((g) => ({
+      ip: g.ipAddress!,
+      count: g._count._all,
+      exceedsThreshold: g._count._all >= args.bruteForceThreshold,
+    }));
+
+    // Timeseries: usamos SQL raw porque Prisma no soporta `date_trunc` en groupBy.
+    const truncUnit = args.bucket === 'hour' ? 'hour' : 'day';
+    const timeseriesRows = await this.admin.$queryRawUnsafe<Array<{ bucket: Date; count: bigint }>>(
+      `SELECT date_trunc($1, occurred_at) AS bucket, COUNT(*)::bigint AS count
+       FROM security_events
+       WHERE occurred_at >= $2
+       GROUP BY 1
+       ORDER BY 1 ASC`,
+      truncUnit,
+      since,
+    );
+    const timeseries = timeseriesRows.map((r) => ({
+      bucket: r.bucket.toISOString(),
+      count: Number(r.count),
+    }));
+
+    const activeAlerts: SecurityEventStatsResult['activeAlerts'] = [
+      ...topEmails
+        .filter((t) => t.exceedsThreshold)
+        .map((t) => ({ kind: 'email' as const, identifier: t.email, count: t.count })),
+      ...topIps
+        .filter((t) => t.exceedsThreshold)
+        .map((t) => ({ kind: 'ip' as const, identifier: t.ip, count: t.count })),
+    ];
+
+    return {
+      windowHours: args.windowHours,
+      bucket: args.bucket,
+      bruteForceThreshold: args.bruteForceThreshold,
+      total,
+      byEventType,
+      topEmails,
+      topIps,
+      timeseries,
+      activeAlerts,
+    };
+  }
+}
+
+export interface SecurityEventStatsResult {
+  windowHours: number;
+  bucket: 'hour' | 'day';
+  bruteForceThreshold: number;
+  total: number;
+  byEventType: Array<{ eventType: string; count: number }>;
+  topEmails: Array<{ email: string; count: number; exceedsThreshold: boolean }>;
+  topIps: Array<{ ip: string; count: number; exceedsThreshold: boolean }>;
+  timeseries: Array<{ bucket: string; count: number }>;
+  activeAlerts: Array<{ kind: 'email' | 'ip'; identifier: string; count: number }>;
 }

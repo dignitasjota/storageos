@@ -21,23 +21,23 @@ export type WebhookEventType = (typeof WebhookEventTypes)[number];
 export const WebhookEventTypeEnum = z.enum(WebhookEventTypes);
 
 // ============================================================================
-// API key scopes (informativo en MVP).
+// API key scopes (enforced en `ApiKeyGuard` desde el sub-bloque 15A.3).
 // ============================================================================
 
 /**
- * Scopes documentados para API keys. En MVP NO se enforcing en el guard:
- * cualquier token activo accede a los endpoints `/v1/integrations/*`. La
- * granularidad real llega en el sub-bloque 14B (permission sets).
+ * Scopes ofrecibles al usuario al crear una API key. La autoridad final vive
+ * en `apps/api/src/modules/integrations/api-key-scopes.ts` (`API_KEY_SCOPES`);
+ * esta lista DEBE mantenerse sincronizada con aquella.
+ *
+ * El backend acepta tambien el wildcard interno `'*'` (no listado aqui) para
+ * keys creadas sin scopes explicitos: el cliente nunca lo manda.
  */
 export const ApiKeyScopes = [
   'invoices:read',
   'invoices:write',
-  'customers:read',
-  'customers:write',
   'contracts:read',
-  'contracts:write',
-  'leads:read',
-  'leads:write',
+  'customers:read',
+  'webhooks:trigger',
 ] as const;
 export type ApiKeyScope = (typeof ApiKeyScopes)[number];
 
@@ -47,9 +47,15 @@ export const ApiKeyScopeEnum = z.enum(ApiKeyScopes);
 // API keys
 // ============================================================================
 
+/**
+ * `scopes` es opcional: si el body lo omite o lo manda vacio, el backend
+ * normaliza a `['*']` (acceso total) para mantener compat con integraciones
+ * creadas antes del enforcement. Si se incluye, cada elemento debe estar en
+ * `ApiKeyScopes`.
+ */
 export const CreateApiKeySchema = z.object({
   name: z.string().trim().min(1).max(120),
-  scopes: z.array(ApiKeyScopeEnum).default([]),
+  scopes: z.array(ApiKeyScopeEnum).optional(),
 });
 export type CreateApiKeyInput = z.infer<typeof CreateApiKeySchema>;
 

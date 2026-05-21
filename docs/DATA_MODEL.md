@@ -2,7 +2,7 @@
 
 Modelo de datos completo. Las tablas se implementan con Prisma sobre PostgreSQL 16.
 
-> **Estado de implementación (2026-05-19):** las secciones **1. Núcleo de tenancy** y **1bis. Auth** están implementadas (Fases 1A–1F). Las secciones **2 a 10** son la **especificación de destino** del MVP; sus tablas se irán creando con la migración correspondiente cuando la fase llegue. La fuente de verdad de lo que existe ahora mismo es [`packages/database/prisma/schema.prisma`](../packages/database/prisma/schema.prisma); este documento describe **a dónde vamos**.
+> **Estado de implementación (2026-05-20):** **MVP cerrado (Fases 1-14)**. Todas las tablas descritas en las secciones 1-14 están implementadas. La sección **15. Pendiente / post-MVP** lista lo que queda fuera del MVP. Fuente de verdad: [`packages/database/prisma/schema.prisma`](../packages/database/prisma/schema.prisma); este documento explica el **por qué** de cada tabla y sus invariantes.
 
 ## Convenciones generales
 
@@ -81,6 +81,7 @@ El tercer argumento `true` hace el valor local a la transacción → se descarta
 Empresas clientes del SaaS.
 
 - id, name, slug (único), status (trial/active/suspended/cancelled), trial_ends_at, billing_email, country, locale, currency, timezone, tax_id, created_at
+- **Fase 12A.1**: `require_two_factor_for_managers BOOLEAN DEFAULT false`. Cuando `true`, todos los users con role `owner`/`manager` quedan obligados a tener 2FA activo; el `/auth/login` les devuelve un `enrolmentToken` corto en lugar de access/refresh hasta que se enrolen. Solo el `owner` puede modificar este flag (`PATCH /settings/tenant/security`).
 
 ### `users`
 
@@ -232,7 +233,13 @@ Reservas previas a la firma.
 
 ### `invoices`
 
-- id, tenant_id, customer_id, contract_id (nullable, p.ej. ventas sueltas), invoice_number (único por tenant, secuencial conforme a normativa), issue_date, due_date, status (draft/issued/sent/paid/overdue/cancelled/refunded), subtotal, tax_amount, total, currency, pdf_url, notes, deleted_at
+- id, tenant_id, `customer_id` (**NULLABLE desde Fase 13A.3** para soportar F2 sin destinatario identificado), contract_id (nullable, p.ej. ventas sueltas), invoice_number (único por tenant, secuencial conforme a normativa), issue_date, due_date, status (draft/issued/sent/paid/overdue/cancelled/refunded), subtotal, tax_amount, total, currency, pdf_url, notes, deleted_at
+- **Fase 11A.4 + 13A.3 — Tipo de factura y rectificativas**:
+  - `invoice_type` (enum `F1 | F2 | R1 | R2 | R3 | R4 | R5`, default `F1`). F1 = completa con destinatario; F2 = simplificada (sin destinatario obligatorio, limites AEAT 400€/3000€). R1-R5 = rectificativas según causa AEAT.
+  - `rectifies_invoice_id` (UUID, FK self, nullable). Apunta a la factura que está rectificando (solo en R1-R5).
+  - `rectification_reason` (text, nullable). Obligatorio en R1-R5; queda en el XML AEAT.
+  - `correction_method` (enum `by_differences | by_substitution`, nullable). En el XML AEAT mapea a `<TipoRectificativa>I</TipoRectificativa>` (diferencias, Fase 11A.4) o `<TipoRectificativa>S</TipoRectificativa>` (sustitución, Fase 13A.3) con bloque `<ImporteRectificacion>`.
+  - `simplified_justification` (enum `reparation | transport | restaurant | parking | other`, nullable). Solo en F2 cuando el total excede 400€ (permite hasta 3000€). El XML emite `<FacturaSinIdentifDestinatarioArt61d>S</...>` cuando no hay `customer_id`.
 
 ### `invoice_items`
 
@@ -318,19 +325,46 @@ Productos accesorios para venta.
 
 ### `audit_logs`
 
-- id, tenant_id, user_id (nullable), action, entity_type, entity_id, changes (jsonb con before/after), ip_address, user_agent, occurred_at
+- id, tenant_id, user_id (nullable), action, entity_type, entity_id, changes (jsonb con before/after), ip_address, user_agent, occurred_at.
+- RLS por `tenant_id`.
 
-### `api_keys`
+### `security_events` (Fase 11A.1)
 
-- id, tenant_id, name, key_prefix, key_hash, scopes (array), last_used_at, expires_at, revoked_at, created_by_user_id
+Tabla **global**, sin `tenant_id`, **sin RLS**. Acceso exclusivo via `PrismaAdminService`. Recoge intentos de auth fallidos cuando aún no hay tenant context (email inexistente, tenant inexistente, throttled, etc.) y otros eventos de seguridad transversales.
 
-### `webhooks`
+- `id`, `event_type`, `email_attempted` (nullable), `tenant_slug_attempted` (nullable), `ip_address`, `user_agent`, `metadata` (jsonb, p.ej. `{ reason, route, ... }`), `created_at`.
+- `SecurityEventsService.record()` es **defensivo**: cualquier error al persistir se loguea pero no rompe el flujo de auth.
+- Eventos registrados: `login_failed_email_not_found`, `login_failed_tenant_not_found`, `login_failed_wrong_password`, `login_failed_throttled`, `register_throttled`, `password_reset_throttled`, `invitation_token_invalid`, `refresh_token_reuse`.
+- Cron diario `0 3 * * *` borra eventos con `created_at < now() - interval '90 days'`.
 
-- id, tenant_id, url, events (array), secret, is_active, last_success_at, last_failure_at, failure_count
+### `api_keys` (Fase 14A.3)
 
-### `webhook_deliveries`
+Credenciales programáticas por tenant. RLS por `tenant_id`.
 
-- id, webhook_id, event_type, payload (jsonb), response_status, response_body, attempt_count, delivered_at, failed_at
+- `id`, `tenant_id`, `name`, `key_prefix` (12 primeros chars del plaintext, para mostrar en UI), `key_hash` (argon2id del `secret`), `scopes` (text[]), `last_used_at`, `revoked_at`, `created_at`, `created_by_user_id`.
+- Plaintext del token: `sk_live_<tenantId>.<secret>`. Sólo el hash del `secret` se persiste; el plaintext se devuelve **una sola vez** en `POST /settings/api-keys`.
+- `scopes`: whitelist tipo `invoices:read`, `customers:write`, `*`. La validación de scope la hace el guard del endpoint correspondiente.
+- `ApiKeyGuard` extrae `Authorization: Bearer sk_live_*`, hace lookup por prefix + `argon2.verify` del secret, actualiza `last_used_at` y rellena el request context con `{ tenantId, apiKeyId, scopes }`.
+
+### `webhooks` (Fase 14A.3)
+
+Webhooks salientes por tenant. RLS por `tenant_id`.
+
+- `id`, `tenant_id`, `name`, `url`, `secret` (cifrado AES-256-GCM con `CryptoService` y `MASTER_ENCRYPTION_KEY`), `events` (text[]), `is_active`, `created_at`, `revoked_at`.
+- `events` está restringido a la whitelist: `invoice.created`, `invoice.paid`, `invoice.overdue`, `contract.signed`, `lead.created`. Cualquier valor fuera de ella devuelve `400 webhook_event_invalid`.
+- `url` validada: solo `https://...`, rechazada si resuelve a IPs privadas (defensa contra SSRF interno).
+- `POST /settings/webhooks/:id/rotate-secret` genera un secret nuevo y devuelve plaintext una vez.
+
+### `webhook_deliveries` (Fase 14A.3)
+
+Cada intento de entrega genera una fila. RLS por `tenant_id`.
+
+- `id`, `tenant_id`, `webhook_id`, `event_type`, `payload` (jsonb), `signature`, `attempts`, `status` (`pending | success | failed`), `status_code`, `response_body`, `error_message`, `scheduled_for`, `delivered_at`, `created_at`.
+- Índices: `(tenant_id, status)` para listados y `(webhook_id, created_at desc)` para el histórico del webhook.
+
+**HMAC**: header `X-Storageos-Signature: t=<unix_ts>,v1=<hmacSha256Hex>` sobre `${ts}.${rawBody}`. Headers extra `X-Storageos-Event`, `X-Storageos-Delivery`.
+
+**Retry**: cola BullMQ `webhooks`, job `deliver`, `attempts: 3, backoff: exponential 60s`. Si HTTP retorna 2xx → `status='success'`. Error técnico o status ≥ 500 → throw → BullMQ reintenta. Tras 3 intentos fallidos → `status='failed'` y no se reintenta hasta reenvío manual.
 
 ## Índices clave
 
@@ -369,11 +403,13 @@ España exige Verifactu para sociedades desde 2026-07-01. Implementado.
 
 - `id`, `tenant_id`, `code` (único por tenant), `name`, `prefix`, `year_scope` (boolean), `next_number`, `facility_id` (nullable), `is_active`.
 
-### `tenant_aeat_credentials` (Fase 10)
+### `tenant_aeat_credentials` (Fase 10 + Fase 11A.2)
 
-Un único PKCS#12 activo por tenant (UNIQUE en `tenant_id` con filtro `revoked_at IS NULL` natural por upsert):
+Histórico de PKCS#12 por tenant. **Fase 11A.2 elimina la restricción `UNIQUE` sobre `tenant_id`** para permitir conservar las credenciales revocadas como auditoría de rotaciones.
 
-- `id`, `tenant_id` (UNIQUE), `cert_p12_encrypted` (bytea, AES-256-GCM via `CryptoService` con `MASTER_ENCRYPTION_KEY`), `cert_password_encrypted` (text), `cert_common_name`, `cert_nif`, `cert_issuer`, `cert_valid_from`, `cert_valid_to`, `environment` (`sandbox`|`production`), `uploaded_by_id`, `uploaded_at`, `revoked_at`, `revoked_reason`.
+- `id`, `tenant_id` (sin UNIQUE), `cert_p12_encrypted` (bytea, AES-256-GCM via `CryptoService` con `MASTER_ENCRYPTION_KEY`), `cert_password_encrypted` (text), `cert_common_name`, `cert_nif`, `cert_issuer`, `cert_valid_from`, `cert_valid_to`, `environment` (`sandbox`|`production`), `uploaded_by_id`, `uploaded_at`, `revoked_at`, `revoked_reason`.
+- **Credencial activa**: la única fila del tenant con `revoked_at IS NULL`. El upload nuevo hace `updateMany { revokedAt: null } → set revokedAt: now()` + `create new` dentro de una `$transaction` (atómico). `DELETE /billing/aeat-credentials/me` setea `revoked_at` con motivo, no borra físicamente.
+- Endpoint `GET /billing/aeat-credentials/history` (owner/manager) lista todas las filas (activa + revocadas) cronológicamente.
 
 ### Convención de `audit_logs`
 
@@ -424,6 +460,15 @@ State machine `open` → `in_progress` → `waiting_customer` ⇄ `in_progress` 
 
 - `id`, `ticket_id`, `author_user_id` (nullable, si autor tenant), `author_super_admin_id` (nullable, si autor staff), `body`, `is_internal` (boolean, mensajes privados admin no visibles al tenant), `created_at`.
 
+### `super_admin_audit_logs` (Fase 12A.3)
+
+Tabla **global**, sin `tenant_id`, **sin RLS**. Acceso solo via `PrismaAdminService`. Registra cada acción crítica del super admin para trazabilidad y cumplimiento.
+
+- `id`, `super_admin_id`, `action`, `target_tenant_id` (nullable), `target_user_id` (nullable), `metadata` (jsonb), `ip_address`, `user_agent`, `created_at`.
+- `SuperAdminAuditService.record()` es **defensivo**: errores al insertar se loguean pero no rompen el flujo del super admin.
+- Endpoint `GET /admin/audit-logs` (AdminGuard) con filtros `superAdminId`, `action`, `targetTenantId`, rango de fechas y cursor.
+- Acciones registradas: `admin.login.success`, `admin.login.failed`, `admin.2fa.enabled`, `admin.2fa.disabled`, `admin.2fa.recovery_codes_regenerated`, `admin.2fa.challenge.success`, `admin.2fa.challenge.failed`, `admin.tenant.impersonate`, `admin.tenant.suspended`, `admin.tenant.reactivated`, `admin.tenant.trial_extended`.
+
 ## 14. SaaS billing (Fase 8)
 
 ### `subscription_plans` — campos adicionales (Fase 8)
@@ -436,7 +481,36 @@ State machine `open` → `in_progress` → `waiting_customer` ⇄ `in_progress` 
 
 ## 15. Pendiente / post-MVP
 
-- **Anulación/rectificación Veri\*Factu (F2, R1-R5)**: solo cubrimos `RegistroAlta` (F1).
-- **`tenant_aeat_credentials` historial**: una sola fila activa por tenant; sin tabla de history. Si hace falta auditoría exhaustiva de rotaciones, añadir `tenant_aeat_credentials_history`.
-- **`security_events`**: tabla para login-failed sin tenant context (intentos contra emails inexistentes).
-- **Cache `analytics_snapshots`**: si los 4 KPIs crecen en coste, materializar diariamente.
+Estado tras cerrar Fases 1-14 (MVP completo):
+
+- **Cache `analytics_snapshots`**: si los 4 KPIs crecen en coste, materializar diariamente. Hoy se calculan on-demand sin tabla de snapshots.
+- **AEAT `getStatus` por CSV**: hoy sólo cubrimos envío síncrono de alta + rectificativas. Consultar el estado posterior por CSV queda fuera del MVP.
+- **WhatsAppProvider real (Meta WABA)**: la abstracción y stub existen desde Fase 5; falta integrar el proveedor en producción.
+- **GoCardless (SEPA) y Redsys (TPV)**: el `PaymentGateway` ya tiene la abstracción; falta implementación de proveedores.
+- **Bulk imports**: tablas/endpoints para carga masiva de customers, units y contratos.
+- **`tenant_aeat_credentials_history`** ya no aplica: la propia tabla `tenant_aeat_credentials` actúa como histórico desde Fase 11A.2.
+- **`security_events`** ya no aplica: implementada en Fase 11A.1.
+- **Anulación/rectificación Veri\*Factu (F2, R1-R5)** ya no aplica: implementada en Fases 11A.4 y 13A.3 (diferencias + sustitución).
+- **`api_keys`, `webhooks`, `webhook_deliveries`** ya no aplica: implementadas en Fase 14A.3.
+
+## 16. Infra runtime
+
+Banderas y modelos transversales que afectan al despliegue, no a una tabla concreta.
+
+### Flag `ENABLE_WORKERS_IN_API` (Fase 14A.1)
+
+Variable de entorno booleana (default `true`).
+
+- `true` (dev y test): el proceso de `apps/api` registra los providers de las colas BullMQ y procesa jobs in-process. Cómodo para desarrollar sin levantar un proceso adicional.
+- `false` (producción, `.env.prod`): `apps/api` sólo encola; los workers se ejecutan en `apps/worker` (proceso separado, mismos módulos pero sólo los `Processor`s de BullMQ). Permite escalar API ⇄ worker independientemente y aislar fallos.
+
+### Endpoint OpenAPI gated (Fase 13A.2)
+
+- `GET /api/docs` (Swagger UI) y `GET /api/docs-json` (schema) se montan siempre en dev/test.
+- En producción se exponen sólo si `OPENAPI_ENABLED=true`. Cuando se habilita, debe quedar detrás de auth en Nginx Proxy Manager o accesible solo por VPN: el schema describe rutas internas no destinadas a público.
+
+### Versionado URI (Fase 13A.2)
+
+- `app.enableVersioning({ type: VersioningType.URI, prefix: 'v', defaultVersion: '1' })`.
+- TODAS las rutas viven bajo `/v1/...`. Rutas legacy responden **`308 Permanent Redirect`** preservando método HTTP y body.
+- Excepciones marcadas `VERSION_NEUTRAL`: `/health`, `/webhooks/*`, `/public/widget/*`, `/api/docs`, `/api/docs-json`, `/api/csp-report`.

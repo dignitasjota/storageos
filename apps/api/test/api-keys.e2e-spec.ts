@@ -145,4 +145,113 @@ describe('API keys (e2e)', () => {
     const res3 = await request(app.getHttpServer()).get('/integrations/whoami');
     expect(res3.status).toBe(401);
   });
+
+  // ============================================================================
+  // Sub-bloque 15A.3 — Enforcement de scopes en `ApiKeyGuard`.
+  // ============================================================================
+
+  describe('scopes enforcement (15A.3)', () => {
+    it('crea API key sin scopes => normaliza a wildcard [*] y pasa cualquier @RequireScope', async () => {
+      const owner = await registerVerifiedUser(app, 'apikey-scopes-default');
+
+      const create = await request(app.getHttpServer())
+        .post('/settings/api-keys')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'No scopes' });
+      expect(create.status).toBe(201);
+      expect(create.body.scopes).toEqual(['*']);
+
+      const whoami = await request(app.getHttpServer())
+        .get('/integrations/whoami')
+        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
+      expect(whoami.status).toBe(200);
+      expect(whoami.body.tenantId).toBe(owner.tenantId);
+    });
+
+    it('crea API key con scopes=[] => tambien normaliza a wildcard [*]', async () => {
+      const owner = await registerVerifiedUser(app, 'apikey-scopes-empty');
+
+      const create = await request(app.getHttpServer())
+        .post('/settings/api-keys')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Empty scopes', scopes: [] });
+      expect(create.status).toBe(201);
+      expect(create.body.scopes).toEqual(['*']);
+
+      const whoami = await request(app.getHttpServer())
+        .get('/integrations/whoami')
+        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
+      expect(whoami.status).toBe(200);
+    });
+
+    it('crea API key con scope incluyendo invoices:read => /whoami devuelve 200', async () => {
+      const owner = await registerVerifiedUser(app, 'apikey-scopes-ok');
+
+      const create = await request(app.getHttpServer())
+        .post('/settings/api-keys')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Read invoices', scopes: ['invoices:read'] });
+      expect(create.status).toBe(201);
+      expect(create.body.scopes).toEqual(['invoices:read']);
+
+      const whoami = await request(app.getHttpServer())
+        .get('/integrations/whoami')
+        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
+      expect(whoami.status).toBe(200);
+    });
+
+    it('crea API key sin invoices:read => /whoami responde 403 insufficient_scope', async () => {
+      const owner = await registerVerifiedUser(app, 'apikey-scopes-denied');
+
+      const create = await request(app.getHttpServer())
+        .post('/settings/api-keys')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Customers only', scopes: ['customers:read'] });
+      expect(create.status).toBe(201);
+      expect(create.body.scopes).toEqual(['customers:read']);
+
+      const whoami = await request(app.getHttpServer())
+        .get('/integrations/whoami')
+        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
+      expect(whoami.status).toBe(403);
+      expect(whoami.body.code).toBe('insufficient_scope');
+      expect(whoami.body.details?.requiredScope).toBe('invoices:read');
+    });
+
+    it('rechaza con 400 invalid_scope si el body trae un scope desconocido', async () => {
+      const owner = await registerVerifiedUser(app, 'apikey-scopes-invalid');
+
+      const create = await request(app.getHttpServer())
+        .post('/settings/api-keys')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Bad scope', scopes: ['nope:read'] });
+      // El Zod schema ya rechaza valores fuera del enum publico => 400.
+      expect(create.status).toBe(400);
+    });
+
+    it('crear con los 5 scopes publicos => backend comprime a [*]', async () => {
+      const owner = await registerVerifiedUser(app, 'apikey-scopes-all5');
+
+      const create = await request(app.getHttpServer())
+        .post('/settings/api-keys')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({
+          name: 'All five',
+          scopes: [
+            'invoices:read',
+            'invoices:write',
+            'contracts:read',
+            'customers:read',
+            'webhooks:trigger',
+          ],
+        });
+      expect(create.status).toBe(201);
+      expect(create.body.scopes).toEqual(['*']);
+
+      const whoami = await request(app.getHttpServer())
+        .get('/integrations/whoami')
+        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
+      expect(whoami.status).toBe(200);
+    });
+  });
 });

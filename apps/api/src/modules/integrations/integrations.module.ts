@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ApiKeysService } from './api-keys.service';
 import { IntegrationsApiController } from './integrations-api.controller';
 import { IntegrationsController } from './integrations.controller';
+import { WebhooksCleanupService } from './webhooks-cleanup.service';
 import { WebhooksDispatcherService } from './webhooks-dispatcher.service';
 import { WebhooksProcessor } from './webhooks.processor';
 import { WebhooksService } from './webhooks.service';
@@ -31,7 +32,7 @@ import { WebhooksService } from './webhooks.service';
     ApiKeyGuard,
     WebhooksService,
     WebhooksDispatcherService,
-    ...(WORKERS_ENABLED_IN_API ? [WebhooksProcessor] : []),
+    ...(WORKERS_ENABLED_IN_API ? [WebhooksProcessor, WebhooksCleanupService] : []),
   ],
   exports: [ApiKeysService, WebhooksService],
 })

@@ -50,11 +50,17 @@ export interface SendInvoiceResult {
 
 export interface GetStatusArgs {
   invoiceId: string;
-  csv: string;
+  /**
+   * CSV devuelto por AEAT en el alta, si se tenia. AEAT acepta consultas
+   * tambien sin CSV (con NIF + numero + fecha) por lo que es opcional.
+   */
+  csv?: string;
 }
 
 export interface GetStatusResult {
   status: 'pending' | 'accepted' | 'accepted_with_warnings' | 'rejected' | 'error';
+  /** CSV definitivo devuelto por AEAT cuando la factura ya esta registrada. */
+  csv?: string | null;
   message?: string;
   raw?: Record<string, unknown>;
 }

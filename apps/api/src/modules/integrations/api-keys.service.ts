@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+
+import { API_KEY_SCOPES, API_KEY_WILDCARD_SCOPE, isKnownApiKeyScope } from './api-key-scopes';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { ApiKey, Prisma } from '@storageos/database';
@@ -55,6 +57,7 @@ export function parseApiKey(token: string): { tenantId: string; secret: string }
 export interface ApiKeyVerifyResult {
   tenantId: string;
   apiKeyId: string;
+  scopes: string[];
 }
 
 @Injectable()
@@ -85,12 +88,13 @@ export class ApiKeysService {
     const secret = generateSecret();
     const keyHash = await argonHash(secret);
     const keyPrefix = buildKeyPrefix(args.tenantId);
+    const normalizedScopes = this.normalizeScopes(args.input.scopes);
     const data: Prisma.ApiKeyUncheckedCreateInput = {
       tenantId: args.tenantId,
       name: args.input.name,
       keyPrefix,
       keyHash,
-      scopes: args.input.scopes,
+      scopes: normalizedScopes,
       createdByUserId: args.userId,
     };
     const created = await this.prisma.withTenant((tx) => tx.apiKey.create({ data }), args.tenantId);
@@ -144,7 +148,11 @@ export class ApiKeysService {
         this.admin.apiKey
           .update({ where: { id: candidate.id }, data: { lastUsedAt: new Date() } })
           .catch(() => undefined);
-        return { tenantId: candidate.tenantId, apiKeyId: candidate.id };
+        return {
+          tenantId: candidate.tenantId,
+          apiKeyId: candidate.id,
+          scopes: candidate.scopes,
+        };
       } catch {
         continue;
       }
@@ -187,11 +195,39 @@ export class ApiKeysService {
       id: k.id,
       name: k.name,
       keyPrefix: k.keyPrefix,
+      // El backend puede persistir `'*'` (wildcard interno) ademas de los
+      // scopes publicos. Lo exponemos tal cual para que la UI pueda
+      // distinguir "acceso total" del listado granular.
       scopes: k.scopes as ApiKeyScope[],
       lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
       revokedAt: k.revokedAt?.toISOString() ?? null,
       createdAt: k.createdAt.toISOString(),
       createdByUserId: k.createdByUserId,
     };
+  }
+
+  /**
+   * Normaliza los scopes recibidos del body:
+   *   - `undefined` o `[]` -> `['*']` (acceso total, compat con keys creadas
+   *     antes del enforcement del sub-bloque 15A.3).
+   *   - array con valores -> valida que cada uno este en `API_KEY_SCOPES`;
+   *     si alguno no esta, 400 `invalid_scope`. Si el cliente envia los 5
+   *     scopes publicos, comprime a `['*']` para que un endpoint nuevo con
+   *     scope futuro siga funcionando sin tener que rotar la key.
+   */
+  private normalizeScopes(scopes: readonly string[] | undefined): string[] {
+    if (!scopes || scopes.length === 0) return [API_KEY_WILDCARD_SCOPE];
+    const unknown = scopes.filter((s) => !isKnownApiKeyScope(s));
+    if (unknown.length > 0) {
+      throw new BadRequestException({
+        code: 'invalid_scope',
+        message: `Scope no reconocido: ${unknown.join(', ')}`,
+        invalidScopes: unknown,
+        allowedScopes: API_KEY_SCOPES,
+      });
+    }
+    const unique = Array.from(new Set(scopes));
+    if (unique.length === API_KEY_SCOPES.length) return [API_KEY_WILDCARD_SCOPE];
+    return unique;
   }
 }

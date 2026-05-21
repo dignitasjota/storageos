@@ -172,6 +172,12 @@ export const envSchema = z.object({
    *  quedan deshabilitadas (solo se loggean). */
   SECURITY_ALERT_EMAIL: z.string().email().optional(),
 
+  // --- Webhooks (Fase 16A.1) ---
+  /** Retencion de `webhook_deliveries` en dias. Cron diario a las 04:00
+   *  borra entradas anteriores. Default 30. La tabla crece sin tope; con
+   *  un tenant que dispara 1000 events/dia, 30d = 30k filas. */
+  WEBHOOK_DELIVERIES_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+
   // --- OpenAPI / Swagger ---
   /** Activa la documentacion interactiva en `/api/docs`. En produccion el
    *  default es `false`; cuando lo activamos para inspeccion temporal,

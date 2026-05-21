@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 import type {
@@ -33,19 +34,15 @@ import {
   useRevokeApiKey,
   useRevokeWebhook,
   useRotateWebhookSecret,
-  useWebhookDeliveries,
   useWebhooks,
 } from '@/lib/integrations/hooks';
 
 const SCOPES: ApiKeyScope[] = [
   'invoices:read',
   'invoices:write',
-  'customers:read',
-  'customers:write',
   'contracts:read',
-  'contracts:write',
-  'leads:read',
-  'leads:write',
+  'customers:read',
+  'webhooks:trigger',
 ];
 
 const EVENT_TYPES: WebhookEventType[] = [
@@ -140,9 +137,9 @@ function ApiKeyRow({ item, onRevoke }: { item: ApiKeyDto; onRevoke: () => void }
         <code className="text-xs text-muted-foreground">{item.keyPrefix}.***</code>
         {item.scopes.length > 0 ? (
           <div className="flex flex-wrap gap-1 pt-1">
-            {item.scopes.map((s) => (
-              <Badge key={s} variant="outline" className="text-[10px]">
-                {s}
+            {(item.scopes as readonly string[]).map((s) => (
+              <Badge key={s} variant={s === '*' ? 'secondary' : 'outline'} className="text-[10px]">
+                {s === '*' ? 'acceso total' : s}
               </Badge>
             ))}
           </div>
@@ -174,14 +171,17 @@ function CreateApiKeyDialog({
 }) {
   const create = useCreateApiKey();
   const [name, setName] = useState('');
-  const [scopes, setScopes] = useState<ApiKeyScope[]>([]);
+  // Por defecto todos los scopes marcados. El backend comprime los 5 a
+  // `['*']` (wildcard) al persistir, asi que si el user no toca nada la
+  // key creada tiene acceso total.
+  const [scopes, setScopes] = useState<ApiKeyScope[]>([...SCOPES]);
 
   const submit = async () => {
     if (!name.trim()) return;
     const k = await create.mutateAsync({ name: name.trim(), scopes });
     onCreated(k);
     setName('');
-    setScopes([]);
+    setScopes([...SCOPES]);
     onOpenChange(false);
   };
 
@@ -221,8 +221,8 @@ function CreateApiKeyDialog({
               })}
             </div>
             <p className="text-xs text-muted-foreground">
-              MVP: los scopes son informativos. Todas las API keys activas tienen acceso completo a
-              los endpoints `/integrations/*`.
+              Cada endpoint de `/integrations/*` declara el scope que requiere. Una API key sin
+              ningun scope marcado se crea con acceso total (wildcard) por compatibilidad.
             </p>
           </div>
         </div>
@@ -286,7 +286,6 @@ function WebhooksSection() {
   const rotate = useRotateWebhookSecret();
   const [creating, setCreating] = useState(false);
   const [revealed, setRevealed] = useState<WebhookWithSecretDto | null>(null);
-  const [showingDeliveries, setShowingDeliveries] = useState<string | null>(null);
 
   return (
     <Card>
@@ -313,7 +312,6 @@ function WebhooksSection() {
                   const r = await rotate.mutateAsync(w.id);
                   setRevealed(r);
                 }}
-                onShowDeliveries={() => setShowingDeliveries(w.id)}
               />
             ))}
           </div>
@@ -329,8 +327,6 @@ function WebhooksSection() {
       />
 
       <RevealedWebhookDialog item={revealed} onClose={() => setRevealed(null)} />
-
-      <DeliveriesDialog webhookId={showingDeliveries} onClose={() => setShowingDeliveries(null)} />
     </Card>
   );
 }
@@ -339,12 +335,10 @@ function WebhookRow({
   item,
   onRevoke,
   onRotate,
-  onShowDeliveries,
 }: {
   item: WebhookDto;
   onRevoke: () => void;
   onRotate: () => void;
-  onShowDeliveries: () => void;
 }) {
   return (
     <div className="flex items-center justify-between rounded-md border p-3 text-sm">
@@ -363,8 +357,8 @@ function WebhookRow({
         </div>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button variant="outline" size="sm" onClick={onShowDeliveries}>
-          Deliveries
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/settings/webhooks/${item.id}`}>Ver</Link>
         </Button>
         {item.isActive ? (
           <>
@@ -493,61 +487,6 @@ function RevealedWebhookDialog({
         </div>
         <DialogFooter>
           <Button onClick={onClose}>Hecho</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function DeliveriesDialog({
-  webhookId,
-  onClose,
-}: {
-  webhookId: string | null;
-  onClose: () => void;
-}) {
-  const { data, isLoading } = useWebhookDeliveries(webhookId);
-  return (
-    <Dialog open={!!webhookId} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Últimos intentos de entrega</DialogTitle>
-        </DialogHeader>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Cargando…</p>
-        ) : data && data.items.length > 0 ? (
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
-            {data.items.map((d) => (
-              <div key={d.id} className="rounded-md border p-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <code>{d.eventType}</code>
-                  <Badge
-                    variant={
-                      d.status === 'success'
-                        ? 'default'
-                        : d.status === 'failed'
-                          ? 'destructive'
-                          : 'outline'
-                    }
-                  >
-                    {d.status}
-                    {d.statusCode ? ` · ${d.statusCode}` : ''}
-                  </Badge>
-                </div>
-                <div className="mt-1 text-muted-foreground">
-                  intentos: {d.attempts} · creado {new Date(d.createdAt).toLocaleString('es-ES')}
-                </div>
-                {d.errorMessage ? (
-                  <div className="mt-1 text-destructive">{d.errorMessage}</div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No hay entregas registradas todavía.</p>
-        )}
-        <DialogFooter>
-          <Button onClick={onClose}>Cerrar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

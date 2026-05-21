@@ -8,6 +8,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 
 import { InvoicesService } from './invoices.service';
 
+import type { InvoiceDto } from '@storageos/shared';
+
 /**
  * Endpoints especificos del flujo Verifactu/AEAT que conviven con el
  * controller principal de `/invoices` pero bajo el prefijo `/billing/...`
@@ -30,5 +32,21 @@ export class VerifactuAeatController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ queued: true; invoiceId: string }> {
     return this.invoices.resendAeat(id, user.tenantId);
+  }
+
+  /**
+   * Consulta el estado actual de la factura en AEAT
+   * (`ConsultaFactuSistemaFacturacion`). Actualiza `aeat_*` con la
+   * respuesta y devuelve el DTO actualizado para que la UI pueda
+   * refrescar el badge sin esperar al cron de polling.
+   */
+  @Roles('owner', 'manager')
+  @Post(':id/refresh-aeat-status')
+  @HttpCode(HttpStatus.OK)
+  async refreshAeatStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<InvoiceDto> {
+    return this.invoices.refreshAeatStatus(id, user.tenantId);
   }
 }

@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -163,14 +163,28 @@ export class WebhooksService {
   async listDeliveries(
     tenantId: string,
     webhookId: string,
-    args: { limit?: number; cursor?: string } = {},
+    args: {
+      limit?: number;
+      cursor?: string;
+      status?: 'pending' | 'success' | 'failed';
+      fromDate?: Date;
+      toDate?: Date;
+    } = {},
   ): Promise<{ items: WebhookDeliveryDto[]; nextCursor: string | null }> {
     await this.findOrThrow(tenantId, webhookId);
-    const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
+    const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
+    const where: Prisma.WebhookDeliveryWhereInput = { webhookId };
+    if (args.status) where.status = args.status;
+    if (args.fromDate || args.toDate) {
+      where.createdAt = {
+        ...(args.fromDate ? { gte: args.fromDate } : {}),
+        ...(args.toDate ? { lte: args.toDate } : {}),
+      };
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.webhookDelivery.findMany({
-          where: { webhookId },
+          where,
           orderBy: [{ createdAt: 'desc' }],
           take: limit + 1,
           ...(args.cursor ? { cursor: { id: args.cursor }, skip: 1 } : {}),
@@ -184,6 +198,67 @@ export class WebhooksService {
       items: items.map((d) => this.toDeliveryDto(d)),
       nextCursor: hasMore && last ? last.id : null,
     };
+  }
+
+  /**
+   * Reintento manual de un delivery que quedo en `failed` (3 intentos
+   * agotados). Resetea contador, vuelve a pending y encola un nuevo job
+   * BullMQ con la misma politica de retry (3 intentos exponenciales).
+   *
+   * Solo es valido para deliveries `failed`: si esta `pending` ya hay un
+   * job en cola y reintentar lo duplicaria; si esta `success` no hay nada
+   * que reintentar.
+   */
+  async retryDelivery(args: {
+    tenantId: string;
+    webhookId: string;
+    deliveryId: string;
+  }): Promise<{ queued: true }> {
+    // Verificar webhook -> tenant.
+    await this.findOrThrow(args.tenantId, args.webhookId);
+    const delivery = await this.prisma.withTenant(
+      (tx) =>
+        tx.webhookDelivery.findFirst({
+          where: { id: args.deliveryId, webhookId: args.webhookId },
+        }),
+      args.tenantId,
+    );
+    if (!delivery) {
+      throw new NotFoundException({
+        code: 'delivery_not_found',
+        message: 'Delivery no encontrada',
+      });
+    }
+    if (delivery.status !== 'failed') {
+      throw new BadRequestException({
+        code: 'delivery_not_retryable',
+        message: 'Solo se pueden reintentar deliveries con estado failed',
+      });
+    }
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.webhookDelivery.update({
+          where: { id: args.deliveryId },
+          data: {
+            status: 'pending',
+            attempts: 0,
+            errorMessage: null,
+            statusCode: null,
+            scheduledFor: new Date(),
+            deliveredAt: null,
+          },
+        }),
+      args.tenantId,
+    );
+    await this.queue.add(
+      JOB_WEBHOOK_DELIVER,
+      { deliveryId: args.deliveryId, tenantId: args.tenantId } satisfies DeliverJobData,
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+      },
+    );
+    return { queued: true };
   }
 
   /**
@@ -362,6 +437,82 @@ export class WebhooksService {
       createdAt: d.createdAt.toISOString(),
     };
   }
+
+  // ---------------------------------------------------------------
+  // Cleanup (Fase 16A.1)
+
+  /**
+   * Borra `webhook_deliveries` con `created_at` anterior al cutoff. La tabla
+   * crece sin tope porque cada `dispatch` genera una fila, y un tenant
+   * activo puede generar miles al mes. Mantenemos los últimos N días para
+   * dashboard + retry manual; el resto se purga. NO se borran los
+   * `webhooks` ni los `api_keys` — esos son configuración del tenant.
+   *
+   * Devuelve el número de filas borradas. No throwea: si falla, el cron
+   * lo loggea pero el sistema sigue funcionando (la cola sigue procesando
+   * deliveries nuevos).
+   */
+  async cleanupDeliveries(olderThanDays = 30): Promise<{ deleted: number }> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    const result = await this.admin.webhookDelivery.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
+   * Stats agregadas del estado actual de `webhook_deliveries` (global,
+   * cross-tenant) para el dashboard admin del cleanup. Devuelve totales,
+   * cuántos son elegibles para purga con el cutoff indicado, edad de la
+   * entrada más vieja y más nueva, y breakdown por status.
+   */
+  async getCleanupStats(olderThanDays = 30): Promise<WebhookCleanupStats> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+
+    const total = await this.admin.webhookDelivery.count();
+    const eligibleForCleanup = await this.admin.webhookDelivery.count({
+      where: { createdAt: { lt: cutoff } },
+    });
+
+    const oldest = await this.admin.webhookDelivery.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+    const newest = await this.admin.webhookDelivery.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+
+    const byStatusRaw = await this.admin.webhookDelivery.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+      orderBy: { _count: { status: 'desc' } },
+    });
+    const byStatus = byStatusRaw.map((g) => ({
+      status: g.status,
+      count: g._count._all,
+    }));
+
+    return {
+      total,
+      eligibleForCleanup,
+      olderThanDays,
+      cutoff: cutoff.toISOString(),
+      oldestAt: oldest?.createdAt.toISOString() ?? null,
+      newestAt: newest?.createdAt.toISOString() ?? null,
+      byStatus,
+    };
+  }
+}
+
+export interface WebhookCleanupStats {
+  total: number;
+  eligibleForCleanup: number;
+  olderThanDays: number;
+  cutoff: string;
+  oldestAt: string | null;
+  newestAt: string | null;
+  byStatus: Array<{ status: string; count: number }>;
 }
 
 export type { DeliverJobData };

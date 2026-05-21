@@ -22,6 +22,7 @@ import { PricingRulesService } from './pricing-rules.service';
 import { TenantAeatCredentialsController } from './tenant-aeat-credentials.controller';
 import { TenantAeatCredentialsService } from './tenant-aeat-credentials.service';
 import { VerifactuAeatController } from './verifactu-aeat.controller';
+import { VerifactuStatusPollerCron } from './verifactu-status-poller.cron';
 import { VerifactuProcessor } from './verifactu.processor';
 import { VerifactuService } from './verifactu.service';
 
@@ -64,7 +65,9 @@ import type { Env } from '../../config/env.schema';
         config.get('AEAT_MODE', { infer: true }) === 'stub' ? stub : real,
       inject: [ConfigService, StubAeatClient, RealAeatClient],
     },
-    ...(WORKERS_ENABLED_IN_API ? [VerifactuProcessor, BillingRecurringProcessor] : []),
+    ...(WORKERS_ENABLED_IN_API
+      ? [VerifactuProcessor, BillingRecurringProcessor, VerifactuStatusPollerCron]
+      : []),
   ],
   exports: [
     InvoicesService,
