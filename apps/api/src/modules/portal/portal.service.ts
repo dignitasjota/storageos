@@ -1,15 +1,18 @@
 import { randomBytes } from 'node:crypto';
 
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
 import { PaymentsService } from '../payments/payments.service';
+import { QUEUE_EMAIL } from '../queues/queues.module';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -24,33 +27,37 @@ import type {
 
 const PORTAL_TOKEN_PREFIX_REGEX = /^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/;
 
+const MAGIC_LINK_TTL_SECONDS = 30 * 60;
+const MAGIC_LINK_KEY_PREFIX = 'portal:magiclink:';
+
+interface MagicLinkEntry {
+  secretHash: string;
+  customerId: string;
+  tenantId: string;
+}
+
 /**
- * Portal del inquilino: acceso de lectura via magic link al email.
+ * Portal del inquilino: acceso via magic link al email.
  *
  * Flujo:
  *   1. Cliente final visita `/portal/login`, mete `(tenantSlug, email)`.
- *   2. Backend genera un token `<recordId>.<secret>` (formato identico
- *      al de invitaciones), hashed argon2id en la BD (reuso conceptual
- *      de `consents` table no aplica; usamos `data_subject_requests`
- *      NO porque cambiarian su semantica. En Fase 4 generamos un token
- *      efimero in-memory que se manda al email del customer; el cliente
- *      lo intercambia por un JWT de portal corto).
+ *   2. Backend genera un token `<tokenId>.<secret>` (formato identico al
+ *      de invitaciones) y guarda `{secretHash argon2id, customerId,
+ *      tenantId}` en Redis con TTL 30 min (clave `portal:magiclink:<id>`).
+ *   3. El cliente lo canjea por un JWT de portal corto. Single-use via
+ *      GETDEL atomico.
  *
- * Para MVP no persistimos el magic link en BD (cambio minimo de schema).
- * Si lo necesitamos en Fase 8 (auditoria, multi-uso), creamos una tabla
- * `portal_login_tokens`.
+ * Redis (la misma conexion ioredis de BullMQ, via `queue.client` — mismo
+ * precedente que el ping de `/health/ready`) en lugar de un Map in-memory:
+ * los enlaces sobreviven a deploys/restarts del API y funcionan con
+ * multiples replicas. No persistimos en Postgres: son efimeros y sin
+ * valor de auditoria (el login exitoso ya queda en el JWT emitido).
  *
  * El JWT del portal NO comparte secret con el access JWT del staff:
  * usa `JWT_2FA_PENDING_SECRET` con `purpose: 'portal'` (TTL 30 min).
  */
 @Injectable()
 export class PortalService {
-  /** Cache in-memory: tokenId → { secretHash, customerId, tenantId, expiresAt }. */
-  private readonly magicLinkCache = new Map<
-    string,
-    { secretHash: string; customerId: string; tenantId: string; expiresAt: number }
-  >();
-
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
@@ -58,7 +65,31 @@ export class PortalService {
     private readonly config: ConfigService<Env, true>,
     private readonly paymentMethods: PaymentMethodsService,
     private readonly payments: PaymentsService,
+    // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
+    @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
+
+  private async storeMagicLink(tokenId: string, entry: MagicLinkEntry): Promise<void> {
+    const client = await this.emailQueue.client;
+    await client.set(
+      `${MAGIC_LINK_KEY_PREFIX}${tokenId}`,
+      JSON.stringify(entry),
+      'EX',
+      MAGIC_LINK_TTL_SECONDS,
+    );
+  }
+
+  /** Lee Y borra el magic link en un solo paso atomico (single-use). */
+  private async takeMagicLink(tokenId: string): Promise<MagicLinkEntry | null> {
+    const client = await this.emailQueue.client;
+    const raw = await client.getdel(`${MAGIC_LINK_KEY_PREFIX}${tokenId}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as MagicLinkEntry;
+    } catch {
+      return null;
+    }
+  }
 
   async requestMagicLink(input: PortalRequestMagicLinkInput): Promise<void> {
     const tenant = await this.admin.tenant.findUnique({
@@ -73,13 +104,11 @@ export class PortalService {
     const tokenId = randomBytes(16).toString('hex');
     const secret = randomBytes(24).toString('base64url');
     const secretHash = await argonHash(secret);
-    this.magicLinkCache.set(tokenId, {
+    await this.storeMagicLink(tokenId, {
       secretHash,
       customerId: customer.id,
       tenantId: tenant.id,
-      expiresAt: Date.now() + 30 * 60 * 1000,
     });
-    this.cleanupExpired();
 
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     const link = `${webBase}/portal/consume?token=${tokenId}.${secret}`;
@@ -105,9 +134,10 @@ export class PortalService {
     if (!tokenId || !secret) {
       throw new UnauthorizedException({ code: 'portal_token_invalid', message: 'Enlace invalido' });
     }
-    this.cleanupExpired();
-    const entry = this.magicLinkCache.get(tokenId);
-    if (!entry || entry.expiresAt < Date.now()) {
+    // GETDEL atomico: el primer consume se lleva la entrada; un replay (o
+    // un token caducado, que Redis ya expiro por TTL) recibe null.
+    const entry = await this.takeMagicLink(tokenId);
+    if (!entry) {
       throw new UnauthorizedException({
         code: 'portal_token_expired',
         message: 'Enlace caducado',
@@ -120,8 +150,6 @@ export class PortalService {
         message: 'Enlace invalido',
       });
     }
-    // Single-use.
-    this.magicLinkCache.delete(tokenId);
 
     const customer = await this.admin.customer.findUniqueOrThrow({
       where: { id: entry.customerId },
@@ -293,13 +321,6 @@ export class PortalService {
     });
     if (!customer) {
       throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
-    }
-  }
-
-  private cleanupExpired(): void {
-    const now = Date.now();
-    for (const [k, v] of this.magicLinkCache.entries()) {
-      if (v.expiresAt < now) this.magicLinkCache.delete(k);
     }
   }
 }

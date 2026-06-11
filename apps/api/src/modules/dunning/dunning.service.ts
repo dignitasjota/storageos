@@ -1,9 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
@@ -58,6 +60,7 @@ export class DunningService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
+    private readonly events: EventEmitter2,
     @Optional() private readonly access: AccessIntegrationsService | null = null,
   ) {}
 
@@ -72,7 +75,14 @@ export class DunningService {
         status: 'issued',
         dueDate: { lt: new Date() },
       },
-      select: { id: true, tenantId: true, dueDate: true },
+      select: {
+        id: true,
+        tenantId: true,
+        dueDate: true,
+        customerId: true,
+        invoiceNumber: true,
+        total: true,
+      },
     });
     if (justOverdue.length > 0) {
       await this.admin.invoice.updateMany({
@@ -86,6 +96,24 @@ export class DunningService {
           invoiceId: inv.id,
           daysOverdue,
         } satisfies ProcessInvoiceJobData);
+        // Evento de dominio: dispara automations y los webhooks salientes
+        // `invoice.overdue` (declarados desde Fase 14 pero sin emisor hasta
+        // ahora, igual que le pasaba a invoice_issued).
+        const payload: DomainEventPayload = {
+          tenantId: inv.tenantId,
+          entityType: 'invoice',
+          entityId: inv.id,
+          customerId: inv.customerId,
+          recipientEmail: null,
+          scope: {
+            invoice: {
+              number: inv.invoiceNumber,
+              total: Number(inv.total).toFixed(2),
+              dueDate: inv.dueDate ? inv.dueDate.toISOString() : null,
+            },
+          },
+        };
+        this.events.emit(DOMAIN_EVENTS.invoice_overdue, payload);
       }
       this.logger.log(`Marcadas ${justOverdue.length} facturas como overdue`);
     }
