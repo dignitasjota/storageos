@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
   JOB_DUNNING_EXECUTE_ACTION,
@@ -11,7 +12,7 @@ import {
   QUEUE_DUNNING,
 } from '../queues/queues.module';
 
-import type { DunningActionType } from '@storageos/database';
+import type { CustomerType, DunningActionType, Prisma } from '@storageos/database';
 
 export interface ProcessInvoiceJobData {
   tenantId: string;
@@ -56,6 +57,7 @@ export class DunningService {
     @InjectQueue(QUEUE_DUNNING) private readonly queue: Queue,
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    private readonly communications: CommunicationsService,
     @Optional() private readonly access: AccessIntegrationsService | null = null,
   ) {}
 
@@ -170,7 +172,24 @@ export class DunningService {
     if (!action || action.status !== 'scheduled') return;
     const invoice = await this.admin.invoice.findUnique({
       where: { id: action.invoiceId },
-      select: { status: true, customerId: true, invoiceNumber: true },
+      select: {
+        status: true,
+        customerId: true,
+        invoiceNumber: true,
+        total: true,
+        amountPaid: true,
+        amountRefunded: true,
+        dueDate: true,
+        customer: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            customerType: true,
+          },
+        },
+      },
     });
     if (!invoice || invoice.status === 'paid' || invoice.status === 'cancelled') {
       await this.admin.dunningAction.update({
@@ -181,12 +200,16 @@ export class DunningService {
     }
 
     // Fase 8D: efectos colaterales segun action_type:
-    //   - email_reminder: encolar email (TODO conectar template + outbox).
+    //   - email_reminder: encolar email via CommunicationsService (outbox).
     //   - access_block: suspender credenciales del customer via
     //     AccessIntegrationsService.suspendForDunning (Fase 7+8).
     //   - legal_notice: alerta al admin via audit; sin efecto automatico.
     let result: Record<string, string | boolean> = { action: action.actionType };
     try {
+      if (action.actionType === 'email_reminder') {
+        const sent = await this.sendReminderEmail(action.tenantId, action.invoiceId, invoice);
+        result = { ...result, emailEnqueued: sent };
+      }
       if (action.actionType === 'access_block' && invoice.customerId && this.access) {
         await this.access.suspendForDunning({
           tenantId: action.tenantId,
@@ -220,6 +243,87 @@ export class DunningService {
       changes: { invoiceId: action.invoiceId, invoiceNumber: invoice.invoiceNumber },
     });
     this.logger.log(`Dunning ${action.actionType} ejecutada para invoice ${action.invoiceId}`);
+  }
+
+  /**
+   * Encola el recordatorio de pago en el outbox de comunicaciones usando la
+   * plantilla `invoice_overdue_email` (trigger `invoice_overdue`, que aplica
+   * su whitelist de variables). Devuelve `false` sin lanzar cuando no hay
+   * customer o email — un impago de una factura simplificada (F2) sin
+   * destinatario es valido y no debe romper la ejecucion de la accion.
+   */
+  private async sendReminderEmail(
+    tenantId: string,
+    invoiceId: string,
+    invoice: {
+      invoiceNumber: string;
+      total: Prisma.Decimal;
+      amountPaid: Prisma.Decimal;
+      amountRefunded: Prisma.Decimal;
+      dueDate: Date | null;
+      customerId: string | null;
+      customer: {
+        email: string | null;
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+        customerType: CustomerType;
+      } | null;
+    },
+  ): Promise<boolean> {
+    const customer = invoice.customer;
+    if (!invoice.customerId || !customer?.email) {
+      this.logger.warn(
+        `dunning.email_reminder: factura ${invoice.invoiceNumber} sin customer/email; no se envia recordatorio`,
+      );
+      return false;
+    }
+
+    const amountPending =
+      Number(invoice.total) - Number(invoice.amountPaid) - Number(invoice.amountRefunded);
+    const daysOverdue = invoice.dueDate ? this.daysBetween(invoice.dueDate, new Date()) : 0;
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+
+    await this.communications.enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: customer.email,
+      templateCode: 'invoice_overdue_email',
+      trigger: 'invoice_overdue',
+      variables: {
+        customer: {
+          firstName: customer.firstName ?? '',
+          displayName: this.customerDisplayName(customer),
+        },
+        invoice: {
+          number: invoice.invoiceNumber,
+          total: Number(invoice.total).toFixed(2),
+          amountPending: amountPending.toFixed(2),
+          dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
+          daysOverdue,
+        },
+        tenant: { name: tenant?.name ?? '' },
+      },
+      customerId: invoice.customerId,
+      source: 'dunning.email_reminder',
+    });
+    this.logger.log(
+      `dunning.email_reminder: recordatorio encolado para invoice ${invoiceId} -> ${customer.email}`,
+    );
+    return true;
+  }
+
+  private customerDisplayName(c: {
+    customerType: CustomerType;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+  }): string {
+    if (c.customerType === 'business') return c.companyName ?? 'Empresa sin nombre';
+    return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Sin nombre';
   }
 
   private daysBetween(a: Date, b: Date): number {

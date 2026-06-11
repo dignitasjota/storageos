@@ -1028,15 +1028,16 @@ Ver tambien la subseccion **Fase 9A** mas abajo para 2FA, refresh cookie y recov
 
 ### Endpoints — Super admin tenants + metrics + impersonation
 
-| Metodo | Ruta                              | Auth       | Descripcion                                     |
-| ------ | --------------------------------- | ---------- | ----------------------------------------------- |
-| GET    | `/admin/tenants`                  | AdminGuard | Listado con filtros `?status=&plan=&search=`    |
-| GET    | `/admin/tenants/:id`              | AdminGuard | Detalle + metricas + usuarios                   |
-| POST   | `/admin/tenants/:id/suspend`      | AdminGuard | Cambia status → suspended                       |
-| POST   | `/admin/tenants/:id/reactivate`   | AdminGuard | Cambia status → active                          |
-| POST   | `/admin/tenants/:id/extend-trial` | AdminGuard | Body `{daysToAdd}`. Mueve `trialEndsAt`         |
-| POST   | `/admin/tenants/:id/impersonate`  | AdminGuard | Devuelve access JWT con purpose='impersonation' |
-| GET    | `/admin/metrics`                  | AdminGuard | KPIs globales (MRR, tenants activos, churn)     |
+| Metodo | Ruta                              | Auth       | Descripcion                                                                                                       |
+| ------ | --------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| GET    | `/admin/tenants`                  | AdminGuard | Listado con filtros `?status=&plan=&search=`                                                                      |
+| GET    | `/admin/tenants/:id`              | AdminGuard | Detalle + metricas + usuarios                                                                                     |
+| POST   | `/admin/tenants/:id/suspend`      | AdminGuard | Cambia status → suspended                                                                                         |
+| POST   | `/admin/tenants/:id/reactivate`   | AdminGuard | Cambia status → active                                                                                            |
+| POST   | `/admin/tenants/:id/extend-trial` | AdminGuard | Body `{daysToAdd}`. Mueve `trialEndsAt`                                                                           |
+| POST   | `/admin/tenants/:id/impersonate`  | AdminGuard | Devuelve access JWT con purpose='impersonation'                                                                   |
+| POST   | `/admin/tenants/:id/anonymize`    | AdminGuard | RGPD: anonimiza customers + staff + PII del tenant, preserva invoices, marca cancelled+deletedAt. Body `{reason}` |
+| GET    | `/admin/metrics`                  | AdminGuard | KPIs globales (MRR, tenants activos, churn)                                                                       |
 
 ### Endpoints — Support tickets
 

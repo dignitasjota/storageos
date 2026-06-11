@@ -85,6 +85,13 @@ export interface AdminTenantDto {
   } | null;
 }
 
+/** Resumen devuelto por `POST /admin/tenants/:id/anonymize` (RGPD). */
+export interface AnonymizeTenantResultDto {
+  tenantId: string;
+  anonymizedCustomers: number;
+  anonymizedUsers: number;
+}
+
 export interface ImpersonationTokenDto {
   /** Access token JWT con tenantId del target y adminUserId para auditoría. */
   accessToken: string;

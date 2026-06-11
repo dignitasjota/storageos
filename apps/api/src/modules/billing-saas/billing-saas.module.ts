@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 
+import { AdminGuard } from '../admin/admin.guard';
 import { AuthModule } from '../auth/auth.module';
 import { PaymentsModule } from '../payments/payments.module';
 
@@ -25,11 +27,17 @@ import { SubscriptionPlansService } from './subscription-plans.service';
  *   - `BillingSaasModule` necesita el `StripeGateway` (cliente Stripe SDK)
  *     que vive en `PaymentsModule`.
  *   Resolvemos con `forwardRef` en ambos lados; ver `payments.module.ts`.
+ *
+ * `JwtModule.register({})` + `AdminGuard` como provider: los endpoints de
+ * gestion de planes en `SubscriptionPlansController` se protegen con
+ * `AdminGuard` (super admin). El guard depende de `JwtService` (que no es
+ * global) y `ConfigService` (global); registramos el JwtModule vacio aqui
+ * igual que hace `AdminModule`, sin acoplar este modulo a todo `AdminModule`.
  */
 @Module({
-  imports: [AuthModule, forwardRef(() => PaymentsModule)],
+  imports: [AuthModule, forwardRef(() => PaymentsModule), JwtModule.register({})],
   controllers: [BillingSaasController, SubscriptionPlansController],
-  providers: [BillingSaasService, SubscriptionPlansService],
+  providers: [BillingSaasService, SubscriptionPlansService, AdminGuard],
   exports: [BillingSaasService, SubscriptionPlansService],
 })
 export class BillingSaasModule {}

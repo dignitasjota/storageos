@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
 
@@ -10,6 +10,7 @@ import { AsyncContextModule } from './common/async-context/async-context.module'
 import { CryptoModule } from './common/crypto/crypto.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -143,7 +144,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     { provide: APP_PIPE, useClass: ZodValidationPipe },
     // Orden importante: throttler -> jwt -> roles. Cada uno se ejecuta
     // solo si el anterior dejo pasar el request.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: SecurityThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],

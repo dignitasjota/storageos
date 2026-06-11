@@ -32,8 +32,10 @@ import type { Env } from '../../../config/env.schema';
  * Veri*Factu (modo verificable) NO requiere firma XAdES adicional: la
  * confianza viene del hash encadenado y la autenticacion TLS de cliente.
  *
- * `getStatus` queda como TODO post-MVP (AEAT publica un endpoint de
- * consulta independiente que aun no necesitamos).
+ * `getStatus` (Fase 15A.1) consulta el estado de una factura ya enviada con
+ * el SOAP `ConsultaFactuSistemaFacturacion` (filtro por NIF emisor + numero +
+ * fecha). Lo usan el `VerifactuStatusPollerCron` y el endpoint manual del
+ * badge para reconciliar invoices `pending` huerfanas.
  */
 @Injectable()
 export class RealAeatClient extends AeatClient {

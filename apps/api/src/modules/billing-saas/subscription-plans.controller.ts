@@ -9,12 +9,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { UpsertSubscriptionPlanSchema, type SubscriptionPlanDto } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { AdminGuard } from '../admin/admin.guard';
 
 import { SubscriptionPlansService } from './subscription-plans.service';
 
@@ -26,10 +27,11 @@ class UpdateSubscriptionPlanDto extends createZodDto(UpsertSubscriptionPlanSchem
  *
  * - `GET /subscription-plans` es PUBLICO porque la landing / pricing publica
  *   lo necesita para listar tarifas sin sesion.
- * - `GET /subscription-plans/admin` y mutaciones requieren un super admin.
- *   Como `AdminGuard` aun no existe (su modulo llega en otro entregable de
- *   Fase 8), marcamos esos endpoints con `@Roles('owner')` como apaño
- *   temporal. TODO Fase 8: reemplazar por `AdminGuard` del super admin.
+ * - `GET /subscription-plans/admin` y las mutaciones gestionan el catalogo de
+ *   planes de la PLATAFORMA, por lo que solo un super admin debe tocarlos. Se
+ *   protegen con `@UseGuards(AdminGuard)` (JWT `purpose='superadmin'`). El
+ *   `@Public()` por endpoint salta el `JwtAuthGuard` global de tenant; el
+ *   caller no es un user de tenant sino un super admin con su propio token.
  */
 @Controller('subscription-plans')
 export class SubscriptionPlansController {
@@ -41,21 +43,23 @@ export class SubscriptionPlansController {
     return this.service.list();
   }
 
-  // TODO Fase 8: cambiar @Roles('owner') por @UseGuards(AdminGuard) cuando exista.
-  @Roles('owner')
+  @Public()
+  @UseGuards(AdminGuard)
   @Get('admin')
   async listAll(): Promise<SubscriptionPlanDto[]> {
     return this.service.listAll();
   }
 
-  @Roles('owner')
+  @Public()
+  @UseGuards(AdminGuard)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() input: UpsertSubscriptionPlanDto): Promise<SubscriptionPlanDto> {
     return this.service.create(input);
   }
 
-  @Roles('owner')
+  @Public()
+  @UseGuards(AdminGuard)
   @Patch(':id')
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -67,7 +71,8 @@ export class SubscriptionPlansController {
     return this.service.update(id, input as Parameters<typeof this.service.update>[1]);
   }
 
-  @Roles('owner')
+  @Public()
+  @UseGuards(AdminGuard)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deactivate(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {

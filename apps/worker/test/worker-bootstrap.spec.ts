@@ -23,15 +23,14 @@ import type { INestApplicationContext } from '@nestjs/common';
  *
  * El init de BullMQ se hace lazy en `onModuleInit`, por lo que el test se
  * cierra rapido (`compile()` sin `init()`).
+ *
+ * Nota (15A follow-up): el grafo DI requeria `FilesModule` (provider global
+ * `FilesService` que `InvoicePdfService` inyecta en `BillingModule`). En el
+ * API lo aporta `AppModule` por ser `@Global()`; el worker no lo importaba,
+ * asi que el contexto de Test no lo resolvia. Anadido a `WorkerModule` y la
+ * suite pasa a verde.
  */
-// TODO(14A.2 follow-up): el grafo DI del worker requiere FilesModule y otras
-// dependencias transitivas que `WorkerModule` no importa explícitamente. En
-// runtime Nest las resuelve a través de imports anidados, pero el contexto
-// de Test no resuelve igual. Hay que añadir las imports faltantes al
-// WorkerModule (FilesModule, ContractsModule, CustomersModule) o crear un
-// `WorkerTestModule` que las incluya. `ioredis-mock` ya está configurado
-// via moduleNameMapper. El build runtime (`pnpm -F worker build`) pasa.
-describe.skip('Worker bootstrap', () => {
+describe('Worker bootstrap', () => {
   // Variables minimas para que `envSchema` no falle en validate().
   const ORIGINAL_ENV = process.env;
 

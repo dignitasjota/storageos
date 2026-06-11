@@ -10,7 +10,7 @@ import {
   type ImpersonateInput,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -35,9 +35,11 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   useAdminTenant,
+  useAnonymizeTenant,
   useExtendTrial,
   useImpersonateTenant,
   useReactivateTenant,
@@ -61,7 +63,7 @@ export default function AdminTenantDetailPage() {
   const tenant = useAdminTenant(id);
 
   const [dialog, setDialog] = useState<
-    'suspend' | 'reactivate' | 'extendTrial' | 'impersonate' | null
+    'suspend' | 'reactivate' | 'extendTrial' | 'impersonate' | 'anonymize' | null
   >(null);
 
   if (tenant.isLoading) {
@@ -106,6 +108,9 @@ export default function AdminTenantDetailPage() {
           </Button>
           <Button variant="outline" onClick={() => setDialog('impersonate')}>
             Impersonar
+          </Button>
+          <Button variant="destructive" onClick={() => setDialog('anonymize')}>
+            Anonimizar (RGPD)
           </Button>
         </div>
       </div>
@@ -186,6 +191,12 @@ export default function AdminTenantDetailPage() {
       <ImpersonateDialog
         open={dialog === 'impersonate'}
         tenantId={t.id}
+        onClose={() => setDialog(null)}
+      />
+      <AnonymizeDialog
+        open={dialog === 'anonymize'}
+        tenantId={t.id}
+        tenantSlug={t.slug}
         onClose={() => setDialog(null)}
       />
     </div>
@@ -501,6 +512,110 @@ function ImpersonateDialog({
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 Iniciar impersonación
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AnonymizeDialog({
+  open,
+  tenantId,
+  tenantSlug,
+  onClose,
+}: {
+  open: boolean;
+  tenantId: string;
+  tenantSlug: string;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const anonymize = useAnonymizeTenant();
+  const [confirmSlug, setConfirmSlug] = useState('');
+  const form = useForm<AdminTenantActionInput>({
+    resolver: zodResolver(AdminTenantActionSchema),
+    defaultValues: { reason: '' },
+  });
+
+  const slugMatches = confirmSlug.trim() === tenantSlug;
+
+  function close() {
+    setConfirmSlug('');
+    form.reset();
+    onClose();
+  }
+
+  async function onSubmit(values: AdminTenantActionInput) {
+    if (!slugMatches) return;
+    try {
+      const result = await anonymize.mutateAsync({ id: tenantId, input: values });
+      toast.success(
+        `Tenant anonimizado: ${result.anonymizedCustomers} inquilino(s) y ${result.anonymizedUsers} usuario(s).`,
+      );
+      close();
+      // El tenant queda con deletedAt; ya no es accesible en el detalle.
+      router.push('/admin/tenants');
+    } catch (err) {
+      if (err instanceof ApiError) toast.error(err.body.message);
+      else toast.error('Error de red.');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && close()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Anonimizar tenant (RGPD)</DialogTitle>
+          <DialogDescription>
+            Acción <strong>irreversible</strong>. Se anonimizan todos los inquilinos y usuarios del
+            tenant, se borran sus documentos y métodos de pago, se revocan las sesiones y la cuenta
+            queda cancelada. Las facturas se conservan por obligación fiscal.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <FormField
+              control={form.control}
+              name="reason"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Motivo</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      rows={3}
+                      placeholder="Solicitud de baja y derecho al olvido del cliente"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <div className="space-y-2">
+              <Label htmlFor="confirm-slug">
+                Escribe <span className="font-mono text-xs">{tenantSlug}</span> para confirmar
+              </Label>
+              <Input
+                id="confirm-slug"
+                value={confirmSlug}
+                onChange={(e) => setConfirmSlug(e.target.value)}
+                autoComplete="off"
+                placeholder={tenantSlug}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={close}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={!slugMatches || form.formState.isSubmitting}
+              >
+                Anonimizar definitivamente
               </Button>
             </DialogFooter>
           </form>

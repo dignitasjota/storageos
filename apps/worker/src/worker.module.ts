@@ -14,6 +14,7 @@ import { CommunicationsModule } from '../../api/src/modules/communications/commu
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
+import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
@@ -102,6 +103,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AsyncContextModule,
     CryptoModule,
     DatabaseModule,
+    FilesModule,
     SecurityEventsModule,
     EmailModule,
     QueuesModule,

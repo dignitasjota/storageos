@@ -76,13 +76,11 @@ export class AuthService {
     private readonly securityEvents: SecurityEventsService,
   ) {}
 
-  // TODO Fase 11A.2: persistir tambien `login_failed_throttled`,
-  //   `register_throttled` y `password_reset_throttled` cuando el
-  //   `ThrottlerGuard` global salte. Requiere un custom guard que extienda
-  //   `ThrottlerGuard` para llamar a `SecurityEventsService.record` antes
-  //   de lanzar `ThrottlerException`. Idem para `invitation_token_invalid`
-  //   en `InvitationsService`. Se deja para una sub-fase aparte porque
-  //   altera el orden de guards del bootstrap.
+  // Nota: `login_failed_throttled`, `register_throttled` y
+  //   `password_reset_throttled` los persiste `SecurityThrottlerGuard`
+  //   (extiende `ThrottlerGuard`) cuando el rate-limit corta el request,
+  //   no este service. `invitation_token_invalid` sigue pendiente de
+  //   instrumentar en `InvitationsService`.
 
   // ============================ register ===================================
 

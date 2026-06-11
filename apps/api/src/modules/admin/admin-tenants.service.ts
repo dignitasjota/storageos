@@ -1,4 +1,7 @@
+import { randomBytes } from 'node:crypto';
+
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { hash as argonHash } from '@node-rs/argon2';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -17,6 +20,16 @@ interface ActionMeta {
 interface ExtendTrialArgs extends ActionMeta {
   days: number;
 }
+
+/** Resumen de lo anonimizado, devuelto al super admin. */
+export interface AnonymizeTenantResult {
+  tenantId: string;
+  anonymizedCustomers: number;
+  anonymizedUsers: number;
+}
+
+/** Placeholder con el que se sustituye cada campo de texto personal. */
+const ANON = '*** ANONIMIZADO ***';
 
 /**
  * Operaciones de super admin sobre tenants: lectura cross-tenant + acciones
@@ -208,16 +221,120 @@ export class AdminTenantsService {
   }
 
   /**
-   * TODO Fase 8: anonimizacion completa de un tenant (RGPD). Debe:
-   *   - reutilizar la logica de `RgpdService.anonymizeCustomer` aplicada
-   *     a todos los customers del tenant,
-   *   - anonimizar staff users (email/fullName) preservando audit_logs,
-   *   - marcar el tenant como cancelled + deletedAt,
-   *   - dejar audit log y `data_subject_requests` entry.
-   * Placeholder por ahora.
+   * Anonimizacion completa de un tenant (RGPD, derecho al olvido al darse de
+   * baja). Irreversible. En una sola `$transaction` (bypass RLS porque es
+   * cross-tenant):
+   *   1. Anonimiza TODOS los customers del tenant con los mismos placeholders
+   *      que `RgpdService.anonymizeCustomer` (sin la guarda de contrato activo:
+   *      el tenant entero se da de baja). Preserva sus `invoices` por
+   *      obligacion fiscal (Veri*Factu + Ley 58/2003).
+   *   2. Borra `customer_documents` y `payment_methods` (no obligatorios
+   *      fiscalmente).
+   *   3. Anonimiza el staff (`users`): email unico irreversible — lo exige el
+   *      `@@unique([tenantId, email])` —, `fullName`/`phone` borrados, 2FA
+   *      desactivado y `passwordHash` sustituido por el hash de un secreto
+   *      aleatorio irrecuperable (defensa adicional sobre `isActive=false`).
+   *   4. Revoca todas las `sessions` activas del tenant.
+   *   5. Marca el tenant `cancelled` + `deletedAt` y borra su PII de contacto
+   *      (`billingEmail`, `taxId`).
+   *
+   * Se preservan `audit_logs` (registro legal de la operativa) y la propia
+   * fila del tenant (no se borra fisicamente: la FK de invoices/audit_logs es
+   * `NOT NULL`). Deja rastro en `audit_logs` del tenant + `super_admin_audit_logs`.
    */
-  async anonymize(_tenantId: string, _meta: ActionMeta): Promise<void> {
-    throw new Error('admin.tenant.anonymize aun no implementado (Fase 8 pendiente)');
+  async anonymize(tenantId: string, meta: ActionMeta): Promise<AnonymizeTenantResult> {
+    await this.findOrThrow(tenantId);
+
+    // Hash de un secreto aleatorio que nadie conoce: invalida la credencial
+    // sin dejar un `passwordHash` mal formado que rompa `argon2.verify`.
+    const placeholderHash = await argonHash(randomBytes(32).toString('hex'));
+    const now = new Date();
+
+    const counts = await this.admin.$transaction(async (tx) => {
+      const customers = await tx.customer.updateMany({
+        where: { tenantId },
+        data: {
+          firstName: ANON,
+          lastName: '',
+          companyName: ANON,
+          email: null,
+          phone: null,
+          address: null,
+          city: null,
+          postalCode: null,
+          documentNumber: null,
+          emergencyContactName: null,
+          emergencyContactPhone: null,
+          notes: null,
+          tags: [],
+          portalAccessEnabled: false,
+          portalPasswordHash: null,
+          deletedAt: now,
+        },
+      });
+
+      await tx.customerDocument.deleteMany({ where: { tenantId } });
+      await tx.paymentMethod.deleteMany({ where: { tenantId } });
+
+      const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });
+      for (const user of users) {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            email: `anon-${user.id}@anonymized.invalid`,
+            fullName: ANON,
+            phone: null,
+            passwordHash: placeholderHash,
+            twoFactorSecret: null,
+            twoFactorPendingSecret: null,
+            twoFactorEnabled: false,
+            twoFactorEnrolledAt: null,
+            isActive: false,
+          },
+        });
+      }
+
+      await tx.session.deleteMany({ where: { tenantId } });
+
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { status: 'cancelled', deletedAt: now, billingEmail: null, taxId: null },
+      });
+
+      return { customers: customers.count, users: users.length };
+    });
+
+    const changes = {
+      reason: meta.reason,
+      anonymizedCustomers: counts.customers,
+      anonymizedUsers: counts.users,
+    };
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'admin.tenant.anonymized',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { superAdminId: meta.superAdminId, ...changes },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: 'admin.tenant.anonymized',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes,
+    });
+
+    return {
+      tenantId,
+      anonymizedCustomers: counts.customers,
+      anonymizedUsers: counts.users,
+    };
   }
 
   // ============================== helpers ==================================

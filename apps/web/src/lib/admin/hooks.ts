@@ -8,6 +8,7 @@ import type {
   AdminMetricsDto,
   AdminTenantActionInput,
   AdminTenantDto,
+  AnonymizeTenantResultDto,
   AssignTicketInput,
   ExtendTrialInput,
   ImpersonateInput,
@@ -251,6 +252,20 @@ export function useImpersonateTenant() {
         method: 'POST',
         json: args.input,
       }),
+  });
+}
+
+export function useAnonymizeTenant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+      adminApiFetch<AnonymizeTenantResultDto>(`/admin/tenants/${args.id}/anonymize`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
   });
 }
 

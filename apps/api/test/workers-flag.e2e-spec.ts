@@ -1,5 +1,4 @@
 import { getQueueToken } from '@nestjs/bullmq';
-import { Test } from '@nestjs/testing';
 
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
@@ -30,15 +29,17 @@ import type { Queue } from 'bullmq';
  * `Test.compile()` que NO arranca listeners. BullMQ conecta a Redis
  * lazy en `onModuleInit` (que `compile()` no dispara), asi que no
  * necesitamos Redis arriba.
+ *
+ * IMPORTANTE: `Test` (de `@nestjs/testing`) se importa DENTRO del bloque
+ * aislado, no a nivel top. `jest.isolateModulesAsync` carga copias frescas
+ * de `@nestjs/core` y `@nestjs/event-emitter` para reevaluar el flag; si el
+ * `Test` proviniese del registro externo, su `@nestjs/core` y el del
+ * `AppModule` aislado serian instancias distintas y el `EventSubscribersLoader`
+ * de la copia aislada pediria un `ModuleRef` que el injector externo no
+ * reconoce ("Nest can't resolve dependencies of the EventSubscribersLoader").
+ * Importandolo dentro, todo comparte el mismo registro de modulos.
  */
-// TODO(14A.1 follow-up): bootstrap del AppModule en Test.createTestingModule
-// falla con "Nest can't resolve dependencies of the EventSubscribersLoader"
-// (ModuleRef no se inyecta). Posiblemente un quirk de Nest 11 +
-// jest.isolateModulesAsync. El comportamiento del flag se verifica en runtime
-// (typecheck + build OK; el worker arranca con ENABLE_WORKERS_IN_API=true via
-// main.ts; el API en prod con flag=false no registra processors). Reabrir
-// cuando se arregle el DI test del AppModule completo.
-describe.skip('Workers flag (ENABLE_WORKERS_IN_API)', () => {
+describe('Workers flag (ENABLE_WORKERS_IN_API)', () => {
   const ORIGINAL_FLAG = process.env.ENABLE_WORKERS_IN_API;
 
   afterEach(() => {
@@ -69,6 +70,7 @@ describe.skip('Workers flag (ENABLE_WORKERS_IN_API)', () => {
     let BillingRecurringProcessor!: Type<unknown>;
 
     await jest.isolateModulesAsync(async () => {
+      const { Test } = await import('@nestjs/testing');
       const { AppModule } = await import('../src/app.module');
       const verifactuMod = await import('../src/modules/billing/verifactu.processor');
       const billingJobsMod = await import('../src/modules/billing/billing-jobs.service');

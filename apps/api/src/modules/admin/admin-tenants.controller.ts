@@ -22,7 +22,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
-import { AdminTenantsService } from './admin-tenants.service';
+import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { ImpersonationService } from './impersonation.service';
@@ -117,6 +117,23 @@ export class AdminTenantsController {
       superAdminId: admin.sub,
       reason: input.reason,
       days: input.days,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  @Post(':id/anonymize')
+  @HttpCode(HttpStatus.OK)
+  async anonymize(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: AdminTenantActionDto,
+    @Req() req: Request,
+  ): Promise<AnonymizeTenantResult> {
+    const meta = extractMeta(req);
+    return this.tenants.anonymize(id, {
+      superAdminId: admin.sub,
+      reason: input.reason,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
