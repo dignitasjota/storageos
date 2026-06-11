@@ -31,9 +31,18 @@ export interface CreateSetupIntentResult {
   setupIntentId: string;
 }
 
+/** Tipos de payment method cobrables via gateway (los demas son manuales). */
+export type ChargeablePaymentMethodType = 'card' | 'sepa_debit';
+
 export interface ChargeParams {
   gatewayCustomerId: string;
   paymentMethodToken: string;
+  /**
+   * Tipo del payment method guardado. Stripe exige que el PaymentIntent
+   * declare `payment_method_types` compatible (su default es solo
+   * `['card']`, asi que un cobro SEPA sin esto falla).
+   */
+  paymentMethodType: ChargeablePaymentMethodType;
   amountCents: number;
   currency: string;
   /** Texto descriptivo (factura, contrato). Aparece en el extracto del cliente. */
@@ -61,6 +70,12 @@ export interface RefundResult {
 }
 
 export interface PaymentMethodDetails {
+  /**
+   * Tipo real del payment method segun el gateway (`null` si es un tipo
+   * que no mapeamos). El registro DEBE preferir esto al `type` que mande
+   * el cliente: es la fuente de verdad.
+   */
+  type: ChargeablePaymentMethodType | null;
   last4: string | null;
   brand: string | null;
   expMonth: number | null;

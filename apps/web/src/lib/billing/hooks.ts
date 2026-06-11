@@ -229,6 +229,17 @@ export function useRegisterPaymentMethod() {
   });
 }
 
+export function useRemovePaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; customerId: string }) =>
+      apiFetch<void>(`/payment-methods/${args.id}`, { method: 'DELETE' }),
+    onSuccess: (_d, args) => {
+      void qc.invalidateQueries({ queryKey: paymentMethodsKey(args.customerId) });
+    },
+  });
+}
+
 // ============================================================================
 // Dunning + RGPD
 // ============================================================================

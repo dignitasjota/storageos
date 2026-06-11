@@ -11,21 +11,31 @@ const INVOICE_ID = '019e3d20-cccc-7c2f-bf37-6511065b9fc5';
 const GATEWAY_PAYMENT_ID = 'pi_3QxTest123';
 
 interface TxMock {
-  payment: { findFirst: jest.Mock; update: jest.Mock };
-  invoice: { findUniqueOrThrow: jest.Mock; update: jest.Mock };
+  payment: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock };
+  invoice: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock; update: jest.Mock };
+  paymentMethod: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
 }
 
 function buildTx(): TxMock {
   return {
-    payment: { findFirst: jest.fn(), update: jest.fn().mockResolvedValue(undefined) },
+    payment: {
+      findFirst: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn(),
+    },
     invoice: {
+      findFirst: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
     },
+    paymentMethod: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn() },
   };
 }
 
-function buildService(tx: TxMock) {
+function buildService(
+  tx: TxMock,
+  deps: { gateway?: { charge: jest.Mock }; paymentMethods?: { decryptToken: jest.Mock } } = {},
+) {
   const prisma = {
     withTenant: jest.fn((fn: (tx: TxMock) => unknown) => fn(tx)),
   } as unknown as PrismaService;
@@ -33,8 +43,8 @@ function buildService(tx: TxMock) {
   return new PaymentsService(
     prisma,
     audit,
-    null as unknown as PaymentMethodsService,
-    null as unknown as PaymentGateway,
+    (deps.paymentMethods ?? null) as unknown as PaymentMethodsService,
+    (deps.gateway ?? null) as unknown as PaymentGateway,
   );
 }
 
@@ -257,5 +267,191 @@ describe('PaymentsService.syncRefundFromWebhook (charge.refunded)', () => {
         data: expect.objectContaining({ amountRefunded: 100, status: 'refunded' }),
       }),
     );
+  });
+});
+
+describe('PaymentsService.chargeInvoice (SEPA)', () => {
+  const PM_ID = '019e3d20-eeee-7c2f-bf37-6511065b9fc5';
+  const CUSTOMER_ID = '019e3d20-ffff-7c2f-bf37-6511065b9fc5';
+  const meta = {};
+
+  function issuedInvoice() {
+    return {
+      id: INVOICE_ID,
+      customerId: CUSTOMER_ID,
+      customer: { id: CUSTOMER_ID },
+      status: 'issued',
+      invoiceNumber: 'FA/2026/00001',
+      total: 100,
+      amountPaid: 0,
+      currency: 'EUR',
+    };
+  }
+
+  function createdPaymentRow(status: string) {
+    return {
+      id: PAYMENT_ID,
+      invoiceId: INVOICE_ID,
+      customerId: CUSTOMER_ID,
+      paymentMethodId: PM_ID,
+      amount: 100,
+      currency: 'EUR',
+      status,
+      methodType: 'sepa_debit',
+      gateway: 'stripe',
+      gatewayPaymentId: GATEWAY_PAYMENT_ID,
+      paidAt: null,
+      refundedAt: null,
+      refundedAmount: 0,
+      failureReason: null,
+      createdAt: new Date('2026-06-11T10:00:00.000Z'),
+      invoice: { invoiceNumber: 'FA/2026/00001' },
+      customer: {
+        firstName: 'Ana',
+        lastName: 'García',
+        companyName: null,
+        customerType: 'individual',
+      },
+    };
+  }
+
+  it('PM sepa_debit: pasa paymentMethodType al gateway y deja el payment processing sin tocar la invoice', async () => {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      id: PM_ID,
+      type: 'sepa_debit',
+      gateway: 'stripe',
+      gatewayCustomerId: 'cus_123',
+    });
+    tx.payment.create.mockResolvedValue(createdPaymentRow('processing'));
+    const gateway = {
+      charge: jest.fn().mockResolvedValue({
+        gatewayPaymentId: GATEWAY_PAYMENT_ID,
+        status: 'processing', // SEPA: el banco liquida en dias, no en el request
+      }),
+    };
+    const paymentMethods = { decryptToken: jest.fn().mockResolvedValue('pm_sepa_token') };
+    const service = buildService(tx, { gateway, paymentMethods });
+
+    const dto = await service.chargeInvoice({
+      tenantId: TENANT,
+      userId: 'user-1',
+      invoiceId: INVOICE_ID,
+      input: { paymentMethodId: PM_ID },
+      meta,
+    });
+
+    expect(gateway.charge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentMethodType: 'sepa_debit',
+        paymentMethodToken: 'pm_sepa_token',
+        amountCents: 10_000,
+        offSession: true,
+      }),
+    );
+    expect(tx.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'processing', methodType: 'sepa_debit' }),
+      }),
+    );
+    // processing NO suma a amountPaid: eso llega via webhook al liquidar.
+    expect(tx.invoice.update).not.toHaveBeenCalled();
+    expect(dto.status).toBe('processing');
+  });
+
+  it('PM no cobrable (cash) devuelve 400 payment_method_not_chargeable sin llamar al gateway', async () => {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      id: PM_ID,
+      type: 'cash',
+      gateway: 'manual',
+      gatewayCustomerId: null,
+    });
+    const gateway = { charge: jest.fn() };
+    const service = buildService(tx, {
+      gateway,
+      paymentMethods: { decryptToken: jest.fn() },
+    });
+
+    await expect(
+      service.chargeInvoice({
+        tenantId: TENANT,
+        userId: 'user-1',
+        invoiceId: INVOICE_ID,
+        input: { paymentMethodId: PM_ID },
+        meta,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'payment_method_not_chargeable' }),
+    });
+    expect(gateway.charge).not.toHaveBeenCalled();
+  });
+});
+
+describe('PaymentsService.syncDisputeFromWebhook (devoluciones SEPA)', () => {
+  it('revierte un payment succeeded: failed + resta amountPaid y la invoice paid vuelve a overdue', async () => {
+    const tx = buildTx();
+    tx.payment.findFirst.mockResolvedValue(paymentRow({ status: 'succeeded', amount: 100 }));
+    tx.invoice.findUniqueOrThrow.mockResolvedValue({
+      id: INVOICE_ID,
+      status: 'paid',
+      total: 100,
+      amountPaid: 100,
+      dueDate: new Date('2026-05-01T00:00:00.000Z'), // ya vencida
+    });
+    const service = buildService(tx);
+
+    await service.syncDisputeFromWebhook({
+      tenantId: TENANT,
+      gatewayPaymentId: GATEWAY_PAYMENT_ID,
+      reason: 'debit_not_authorized',
+    });
+
+    expect(tx.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: PAYMENT_ID },
+        data: expect.objectContaining({
+          status: 'failed',
+          failureReason: 'disputed: debit_not_authorized',
+        }),
+      }),
+    );
+    expect(tx.invoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: INVOICE_ID },
+        data: expect.objectContaining({ amountPaid: 0, status: 'overdue', paidAt: null }),
+      }),
+    );
+  });
+
+  it('dispute duplicado (payment ya failed) es no-op: no resta dos veces', async () => {
+    const tx = buildTx();
+    tx.payment.findFirst.mockResolvedValue(paymentRow({ status: 'failed' }));
+    const service = buildService(tx);
+
+    await service.syncDisputeFromWebhook({
+      tenantId: TENANT,
+      gatewayPaymentId: GATEWAY_PAYMENT_ID,
+    });
+
+    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(tx.invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('payment desconocido es no-op (solo warn)', async () => {
+    const tx = buildTx();
+    tx.payment.findFirst.mockResolvedValue(null);
+    const service = buildService(tx);
+
+    await expect(
+      service.syncDisputeFromWebhook({
+        tenantId: TENANT,
+        gatewayPaymentId: 'pi_desconocido',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(tx.payment.update).not.toHaveBeenCalled();
   });
 });

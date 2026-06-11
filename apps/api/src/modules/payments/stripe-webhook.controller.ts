@@ -30,7 +30,8 @@ import type { Request } from 'express';
  *
  * Eventos manejados:
  *   - payment_intent.succeeded / payment_intent.payment_failed
- *   - charge.refunded
+ *   - charge.refunded (refunds hechos en el dashboard de Stripe)
+ *   - charge.dispute.created (devoluciones SEPA / chargebacks)
  *   - setup_intent.succeeded (solo log)
  *   - customer.deleted (limpia payment_methods relacionados)
  */
@@ -151,6 +152,29 @@ export class StripeWebhookController {
         });
         break;
       }
+      case 'charge.dispute.created': {
+        // Devolucion bancaria SEPA (R-transaction) o chargeback de tarjeta:
+        // revierte un payment ya succeeded + su invoice.
+        const dispute = (event.data as { object: StripeDisputeLike }).object;
+        const intentId = stringId(dispute.payment_intent);
+        if (!intentId) {
+          this.logger.warn(`charge.dispute.created sin payment_intent (event ${event.id})`);
+          break;
+        }
+        const resolvedTenantId = tenantId ?? (await this.lookupTenantByPaymentIntent(intentId));
+        if (!resolvedTenantId) {
+          this.logger.warn(
+            `charge.dispute.created sin tenant resoluble (event ${event.id}, intent ${intentId})`,
+          );
+          break;
+        }
+        await this.payments.syncDisputeFromWebhook({
+          tenantId: resolvedTenantId,
+          gatewayPaymentId: intentId,
+          ...(dispute.reason ? { reason: dispute.reason } : {}),
+        });
+        break;
+      }
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
@@ -243,6 +267,13 @@ interface StripeSubscriptionLike {
       current_period_end?: number;
     }>;
   };
+}
+
+interface StripeDisputeLike {
+  id: string;
+  payment_intent: string | { id: string } | null;
+  reason?: string;
+  metadata?: Record<string, string>;
 }
 
 interface StripeChargeLike {

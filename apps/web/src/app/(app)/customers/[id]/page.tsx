@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { CustomerContractsTab } from './contracts-tab';
 import { CustomerDocumentsTab } from './documents-tab';
+import { CustomerPaymentMethodsTab } from './payment-methods-tab';
 import { CustomerReservationsTab } from './reservations-tab';
 
 import { Badge } from '@/components/ui/badge';
@@ -81,6 +82,7 @@ export default function CustomerDetailPage() {
           <TabsTrigger value="contracts">Contratos</TabsTrigger>
           <TabsTrigger value="reservations">Reservas</TabsTrigger>
           <TabsTrigger value="documents">Documentos</TabsTrigger>
+          <TabsTrigger value="payments">Pagos</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>
         </TabsList>
         <TabsContent value="contracts" className="mt-6">
@@ -91,6 +93,9 @@ export default function CustomerDetailPage() {
         </TabsContent>
         <TabsContent value="documents" className="mt-6">
           <CustomerDocumentsTab customerId={c.id} />
+        </TabsContent>
+        <TabsContent value="payments" className="mt-6">
+          <CustomerPaymentMethodsTab customerId={c.id} />
         </TabsContent>
         <TabsContent value="info" className="mt-6">
           <Card>

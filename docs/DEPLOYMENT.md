@@ -705,6 +705,23 @@ Cuando se restaure el worker, revertir `ENABLE_WORKERS_IN_API` a `false` y `up -
 
 ---
 
+## 12B. Verificar cobros SEPA (Stripe test mode)
+
+El cobro por domiciliación SEPA usa el mismo `StripeGateway` que tarjeta (payment method `sepa_debit`). Antes de pasar a claves live, validar el ciclo completo en test mode:
+
+1. **Claves test**: `STRIPE_SECRET_KEY=sk_test_...` + `STRIPE_PUBLISHABLE_KEY=pk_test_...` en el `.env` del API.
+2. **Webhook local**: `stripe listen --forward-to localhost:4000/webhooks/stripe` (Stripe CLI); copiar el `whsec_...` que imprime a `STRIPE_WEBHOOK_SECRET`.
+3. **Registrar IBAN**: en el panel, ficha del cliente → pestaña **Pagos** → "Añadir método de pago" → pestaña SEPA del formulario. IBANs de test de Stripe para España (doc oficial: https://docs.stripe.com/payments/sepa-debit/accept-a-payment):
+   - `ES0700120345030000067890` — el cobro **liquida OK** (en segundos en test mode).
+   - `ES9121000418450200051332` — el cobro **falla** al liquidar (`payment_intent.payment_failed`).
+   - `ES5000120345030000067892` — **dispute inmediato** (`charge.dispute.created`), que debe revertir el pago y devolver la factura a `overdue`.
+4. **Cobrar**: factura `issued` → "Cobrar (auto)". El toast debe avisar "Cobro SEPA iniciado…" y el payment quedar `processing`.
+5. **Confirmar**: al llegar el webhook, la factura pasa a `paid` (o el payment a `failed`). Con el IBAN de chargeback, verificar que el payment vuelve a `failed` con `failureReason: disputed: ...` y la factura a `overdue`.
+
+El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en el flujo staff v1 el operador debe tener el mandato firmado por el cliente (papel o contrato) antes de registrar el IBAN.
+
+---
+
 ## 13. Observabilidad (mínima)
 
 - **Sentry**: definir `SENTRY_DSN` en `.env.prod` (misma variable para `api` y `worker`; ambos la leen en su `instrument.ts`). Sin DSN, Sentry es un no-op. El API reporta los errores 5xx desde `HttpExceptionFilter`; el worker captura unhandled rejections/exceptions. Opcional: `SENTRY_TRACES_SAMPLE_RATE` (default `0`, solo errores).

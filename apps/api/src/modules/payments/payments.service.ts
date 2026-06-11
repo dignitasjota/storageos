@@ -116,10 +116,19 @@ export class PaymentsService {
     // exfiltrar.
     const { paymentRow, chargeResult } = await this.prisma.withTenant(async (tx) => {
       const pm = await tx.paymentMethod.findUniqueOrThrow({ where: { id: pmId } });
+      // Solo card y sepa_debit son cobrables via gateway; bank_transfer,
+      // cash y other se registran a mano con mark-paid.
+      if (pm.type !== 'card' && pm.type !== 'sepa_debit') {
+        throw new BadRequestException({
+          code: 'payment_method_not_chargeable',
+          message: 'El metodo de pago no admite cobro automatico',
+        });
+      }
       const tokenPlain = await this.paymentMethods.decryptToken(tx, pm.id);
       const result = await this.gateway.charge({
         gatewayCustomerId: pm.gatewayCustomerId ?? '',
         paymentMethodToken: tokenPlain,
+        paymentMethodType: pm.type,
         amountCents: Math.round(amount * 100),
         currency: invoice.currency,
         description: `Factura ${invoice.invoiceNumber}`,
@@ -321,6 +330,77 @@ export class PaymentsService {
     }, args.tenantId);
     this.logger.log(
       `charge.refunded sincronizado: payment ${existing.id} refundedAmount=${args.amountRefunded} (delta ${delta.toFixed(2)})`,
+    );
+  }
+
+  /**
+   * Sincroniza una disputa del gateway (webhook `charge.dispute.created`).
+   * Para SEPA esto es la via por la que llegan las devoluciones bancarias
+   * post-liquidacion (R-transactions): el banco del cliente revierte un
+   * cargo que ya estaba `succeeded`, hasta 8 semanas despues.
+   *
+   * Idempotente: solo actua sobre payments en `succeeded`; un dispute
+   * duplicado (el primero ya dejo el payment en `failed`) es no-op, asi
+   * que nunca se resta dos veces de la invoice.
+   */
+  async syncDisputeFromWebhook(args: {
+    tenantId: string;
+    gatewayPaymentId: string;
+    reason?: string;
+  }): Promise<void> {
+    const existing = await this.prisma.withTenant(
+      (tx) =>
+        tx.payment.findFirst({
+          where: { gatewayPaymentId: args.gatewayPaymentId },
+        }),
+      args.tenantId,
+    );
+    if (!existing) {
+      this.logger.warn(
+        `charge.dispute para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
+      );
+      return;
+    }
+    if (existing.status !== 'succeeded') {
+      this.logger.log(
+        `charge.dispute ignorado para payment ${existing.id}: status ${existing.status} (solo se revierte succeeded)`,
+      );
+      return;
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await tx.payment.update({
+        where: { id: existing.id },
+        data: {
+          status: 'failed',
+          failureReason: `disputed: ${args.reason ?? 'unknown'}`,
+        },
+      });
+      if (existing.invoiceId) {
+        const invoice = await tx.invoice.findUniqueOrThrow({
+          where: { id: existing.invoiceId },
+        });
+        const newPaid = Math.max(0, Number(invoice.amountPaid) - Number(existing.amount));
+        // Si la factura estaba cobrada del todo, vuelve a estar pendiente:
+        // overdue si ya vencio (lo normal, el dispute llega semanas despues),
+        // issued si por lo que sea aun no.
+        const revertedStatus =
+          invoice.status === 'paid'
+            ? invoice.dueDate && invoice.dueDate.getTime() < Date.now()
+              ? 'overdue'
+              : 'issued'
+            : invoice.status;
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            amountPaid: newPaid,
+            status: revertedStatus,
+            ...(invoice.status === 'paid' ? { paidAt: null } : {}),
+          },
+        });
+      }
+    }, args.tenantId);
+    this.logger.warn(
+      `charge.dispute sincronizado: payment ${existing.id} revertido (${Number(existing.amount)} EUR, reason=${args.reason ?? 'unknown'})`,
     );
   }
 

@@ -79,6 +79,11 @@ export class StripeGateway extends PaymentGateway {
         currency: args.currency.toLowerCase(),
         customer: args.gatewayCustomerId,
         payment_method: args.paymentMethodToken,
+        // Sin esto Stripe asume ['card'] y rechaza el confirm con un PM
+        // sepa_debit. Un cobro SEPA queda en 'processing' hasta que el
+        // banco liquida (2-5 dias habiles); el resultado final llega por
+        // webhook payment_intent.succeeded/payment_failed.
+        payment_method_types: [args.paymentMethodType],
         description: args.description,
         metadata: args.metadata,
         off_session: args.offSession,
@@ -121,6 +126,7 @@ export class StripeGateway extends PaymentGateway {
     const pm = await this.stripe.paymentMethods.retrieve(token);
     if (pm.type === 'card' && pm.card) {
       return {
+        type: 'card',
         last4: pm.card.last4 ?? null,
         brand: pm.card.brand ?? null,
         expMonth: pm.card.exp_month ?? null,
@@ -130,6 +136,7 @@ export class StripeGateway extends PaymentGateway {
     }
     if (pm.type === 'sepa_debit' && pm.sepa_debit) {
       return {
+        type: 'sepa_debit',
         last4: pm.sepa_debit.last4 ?? null,
         brand: 'sepa',
         expMonth: null,
@@ -138,6 +145,7 @@ export class StripeGateway extends PaymentGateway {
       };
     }
     return {
+      type: null,
       last4: null,
       brand: pm.type,
       expMonth: null,

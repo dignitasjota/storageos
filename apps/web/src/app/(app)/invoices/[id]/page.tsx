@@ -124,6 +124,27 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  async function handleCharge(): Promise<void> {
+    try {
+      const payment = await charge.mutateAsync({ invoiceId: i.id, input: {} });
+      if (payment.status === 'processing') {
+        // SEPA: el banco liquida en 2-5 dias habiles; el estado final llega
+        // por webhook y la factura se marcara pagada sola.
+        toast.info('Cobro SEPA iniciado: el banco lo confirmará en 2-5 días hábiles.');
+      } else if (payment.status === 'succeeded') {
+        toast.success('Cobro realizado.');
+      } else {
+        toast.error(
+          payment.failureReason
+            ? `El cobro no se completó: ${payment.failureReason}`
+            : 'El cobro no se completó.',
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   return (
     <div className="space-y-6 px-6 py-6">
       <div>
@@ -191,9 +212,8 @@ export default function InvoiceDetailPage() {
               <>
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    safe(() => charge.mutateAsync({ invoiceId: i.id, input: {} }), 'Cobro lanzado.')
-                  }
+                  onClick={() => void handleCharge()}
+                  disabled={charge.isPending}
                 >
                   Cobrar (auto)
                 </Button>

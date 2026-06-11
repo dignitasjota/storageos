@@ -93,6 +93,10 @@ export class PaymentMethodsService {
     meta: RequestMeta;
   }): Promise<PaymentMethodDto> {
     const details = await this.gateway.getPaymentMethodDetails(args.input.gatewayToken);
+    // El tipo real lo dicta el gateway (un PM sepa_debit registrado como
+    // 'card' rompería el cobro posterior); el input es solo fallback para
+    // tipos que el gateway no mapea.
+    const resolvedType = details.type ?? args.input.type;
     const encrypted = this.crypto.encryptString(args.input.gatewayToken);
     const created = await this.prisma.withTenant(async (tx) => {
       if (args.input.isDefault) {
@@ -105,7 +109,7 @@ export class PaymentMethodsService {
         data: {
           tenantId: args.tenantId,
           customerId: args.input.customerId,
-          type: args.input.type,
+          type: resolvedType,
           gateway: this.gateway.providerName,
           gatewayTokenEncrypted: encrypted,
           ...(args.input.gatewayCustomerId
@@ -126,7 +130,7 @@ export class PaymentMethodsService {
       action: 'payment_method.added',
       entityType: 'PaymentMethod',
       entityId: created.id,
-      changes: { customerId: args.input.customerId, type: args.input.type },
+      changes: { customerId: args.input.customerId, type: resolvedType },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
