@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
 import {
+  type TenantBillingSettingsResponse,
   type TenantSecuritySettingsResponse,
+  UpdateTenantBillingSettingsSchema,
   UpdateTenantSecuritySettingsSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -17,6 +19,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class UpdateTenantSecuritySettingsDto extends createZodDto(UpdateTenantSecuritySettingsSchema) {}
+class UpdateTenantBillingSettingsDto extends createZodDto(UpdateTenantBillingSettingsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -60,6 +63,32 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantSecuritySettingsResponse> {
     return this.settings.updateSecurity({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Get('billing')
+  async getBilling(@CurrentUser() user: AuthenticatedUser): Promise<TenantBillingSettingsResponse> {
+    return this.settings.getBilling(user.tenantId);
+  }
+
+  /**
+   * Activa o desactiva el cobro automatico al emitir factura. Con el flag
+   * activo, cada factura emitida encola un cobro al metodo de pago
+   * predeterminado del cliente; las facturas sin metodo (o F2 sin
+   * destinatario) quedan pendientes sin error.
+   */
+  @Roles('owner')
+  @Patch('billing')
+  async updateBilling(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateTenantBillingSettingsDto,
+    @Req() req: Request,
+  ): Promise<TenantBillingSettingsResponse> {
+    return this.settings.updateBilling({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,

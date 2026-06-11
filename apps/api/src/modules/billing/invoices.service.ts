@@ -347,6 +347,23 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // Evento de dominio: dispara automations, webhooks salientes
+    // (invoice.issued) y el auto-charge opt-in del tenant.
+    const issuedPayload: DomainEventPayload = {
+      tenantId: args.tenantId,
+      entityType: 'invoice',
+      entityId: updated.id,
+      customerId: updated.customerId,
+      recipientEmail: null,
+      scope: {
+        invoice: {
+          number: updated.invoiceNumber,
+          total: Number(updated.total).toFixed(2),
+          issueDate: updated.issueDate ? updated.issueDate.toISOString() : null,
+        },
+      },
+    };
+    this.events.emit(DOMAIN_EVENTS.invoice_issued, issuedPayload);
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
   }
 

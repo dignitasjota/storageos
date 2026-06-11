@@ -1294,10 +1294,12 @@ Respuesta de `POST /auth/login` cuando aplica el forzado:
 
 ### Endpoints — Configuracion de seguridad del tenant
 
-| Metodo | Ruta                        | Auth | Roles | Descripcion                                                                             |
-| ------ | --------------------------- | ---- | ----- | --------------------------------------------------------------------------------------- |
-| GET    | `/settings/tenant/security` | SI   | owner | Lee `{ requireTwoFactorForManagers }`                                                   |
-| PATCH  | `/settings/tenant/security` | SI   | owner | Body `{requireTwoFactorForManagers}`. Emite audit `tenant.security.require_2fa_changed` |
+| Metodo | Ruta                        | Auth | Roles | Descripcion                                                                                                |
+| ------ | --------------------------- | ---- | ----- | ---------------------------------------------------------------------------------------------------------- |
+| GET    | `/settings/tenant/security` | SI   | owner | Lee `{ requireTwoFactorForManagers }`                                                                      |
+| PATCH  | `/settings/tenant/security` | SI   | owner | Body `{requireTwoFactorForManagers}`. Emite audit `tenant.security.require_2fa_changed`                    |
+| GET    | `/settings/tenant/billing`  | SI   | —     | Lee `{ autoChargeOnIssue }`                                                                                |
+| PATCH  | `/settings/tenant/billing`  | SI   | owner | Body `{autoChargeOnIssue}`. Cobro automatico al emitir factura. Audit `tenant.billing.auto_charge_changed` |
 
 ### Endpoints — Brute-force scan + super admin audit log
 

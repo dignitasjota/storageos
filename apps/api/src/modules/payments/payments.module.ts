@@ -4,6 +4,8 @@ import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 
+import { AutoChargeProcessor } from './auto-charge.processor';
+import { AutoChargeService } from './auto-charge.service';
 import { PAYMENT_GATEWAY } from './payment-gateway.interface';
 import { PaymentMethodsController } from './payment-methods.controller';
 import { PaymentMethodsService } from './payment-methods.service';
@@ -26,7 +28,10 @@ import { StripeGateway } from './stripe.gateway';
     PaymentMethodsService,
     PaymentsService,
     StripeEventsService,
-    ...(WORKERS_ENABLED_IN_API ? [StripeEventsCleanupCron] : []),
+    // Listener de domain.invoice_issued: SIEMPRE en el API (encola); el
+    // processor de la cola `payments` solo con workers activos.
+    AutoChargeService,
+    ...(WORKERS_ENABLED_IN_API ? [StripeEventsCleanupCron, AutoChargeProcessor] : []),
   ],
   exports: [PAYMENT_GATEWAY, StripeGateway, PaymentMethodsService, PaymentsService],
 })

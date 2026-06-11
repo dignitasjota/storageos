@@ -184,3 +184,14 @@ export const UpdateTenantSecuritySettingsSchema = z.object({
   requireTwoFactorForManagers: z.boolean(),
 });
 export type UpdateTenantSecuritySettingsInput = z.infer<typeof UpdateTenantSecuritySettingsSchema>;
+
+/**
+ * PATCH /settings/tenant/billing — body. Solo rol `owner`. Activa o
+ * desactiva el cobro automatico al emitir factura: con el flag activo,
+ * cada factura emitida encola un cobro al metodo de pago predeterminado
+ * del cliente (las facturas sin metodo quedan pendientes sin error).
+ */
+export const UpdateTenantBillingSettingsSchema = z.object({
+  autoChargeOnIssue: z.boolean(),
+});
+export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;

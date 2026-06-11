@@ -5,7 +5,9 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  TenantBillingSettingsResponse,
   TenantSecuritySettingsResponse,
+  UpdateTenantBillingSettingsInput,
   UpdateTenantSecuritySettingsInput,
 } from '@storageos/shared';
 
@@ -60,5 +62,49 @@ export class TenantSettingsService {
     });
 
     return { requireTwoFactorForManagers: updated.requireTwoFactorForManagers };
+  }
+
+  async getBilling(tenantId: string): Promise<TenantBillingSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    return { autoChargeOnIssue: tenant.autoChargeOnIssue };
+  }
+
+  async updateBilling(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateTenantBillingSettingsInput;
+    meta: RequestMeta;
+  }): Promise<TenantBillingSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    const prev = tenant.autoChargeOnIssue;
+    const next = args.input.autoChargeOnIssue;
+
+    if (prev === next) {
+      return { autoChargeOnIssue: next };
+    }
+
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: { autoChargeOnIssue: next },
+    });
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.billing.auto_charge_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { from: prev, to: next },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return { autoChargeOnIssue: updated.autoChargeOnIssue };
   }
 }

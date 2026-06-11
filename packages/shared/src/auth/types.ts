@@ -127,3 +127,11 @@ export interface TwoFactorStatusResponse {
 export interface TenantSecuritySettingsResponse {
   requireTwoFactorForManagers: boolean;
 }
+
+/**
+ * Ajustes de facturacion del tenant gestionables por el owner desde
+ * `/settings/billing`.
+ */
+export interface TenantBillingSettingsResponse {
+  autoChargeOnIssue: boolean;
+}

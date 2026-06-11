@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -34,7 +35,12 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
+import { useMe } from '@/lib/auth/hooks';
 import { useCreateInvoiceSeries, useInvoiceSeries } from '@/lib/billing/hooks';
+import {
+  useTenantBillingSettings,
+  useUpdateTenantBillingSettings,
+} from '@/lib/tenant-settings/hooks';
 
 export default function BillingSettingsPage() {
   const series = useInvoiceSeries();
@@ -122,6 +128,8 @@ export default function BillingSettingsPage() {
           inmutable que exige Verifactu.
         </p>
       </div>
+
+      <AutoChargeCard />
 
       <DataTable
         columns={columns}
@@ -227,5 +235,64 @@ export default function BillingSettingsPage() {
         emptyText="Aún no has creado ninguna serie. Crea al menos una antes de emitir facturas."
       />
     </div>
+  );
+}
+
+/**
+ * Cobro automático al emitir factura. Solo visible para owners (el GET es
+ * accesible a cualquier user autenticado, pero el PATCH exige owner).
+ */
+function AutoChargeCard() {
+  const me = useMe();
+  const settings = useTenantBillingSettings(me.data?.user.role === 'owner');
+  const update = useUpdateTenantBillingSettings();
+
+  if (me.data?.user.role !== 'owner') return null;
+  if (settings.isLoading || !settings.data) return null;
+
+  const enabled = settings.data.autoChargeOnIssue;
+
+  async function toggle() {
+    try {
+      await update.mutateAsync({ autoChargeOnIssue: !enabled });
+      toast.success(
+        enabled
+          ? 'Cobro automático desactivado.'
+          : 'Cobro automático activado: cada factura emitida se cobrará al método predeterminado.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Cobro automático</CardTitle>
+          <Badge variant={enabled ? 'default' : 'outline'}>
+            {enabled ? 'Activado' : 'Desactivado'}
+          </Badge>
+        </div>
+        <CardDescription>
+          Al emitir una factura se intenta cobrar automáticamente al método de pago predeterminado
+          del cliente (tarjeta o domiciliación SEPA).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Las facturas de clientes sin método de pago guardado (o las simplificadas F2) quedan
+          pendientes como hasta ahora, sin error. Los cobros SEPA tardan 2-5 días hábiles en
+          confirmarse; el estado de la factura se actualiza solo.
+        </p>
+        <Button
+          onClick={toggle}
+          variant={enabled ? 'destructive' : 'default'}
+          disabled={update.isPending}
+        >
+          {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar cobro automático'}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

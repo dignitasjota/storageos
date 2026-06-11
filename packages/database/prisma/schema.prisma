@@ -311,6 +311,9 @@ model Tenant {
   timezone                    String       @default("Europe/Madrid")
   taxId                       String?      @map("tax_id")
   requireTwoFactorForManagers Boolean      @default(false) @map("require_two_factor_for_managers")
+  /// Si true, al emitir una factura se intenta cobrar automaticamente al
+  /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
+  autoChargeOnIssue           Boolean      @default(false) @map("auto_charge_on_issue")
   deletedAt                   DateTime?    @map("deleted_at") @db.Timestamptz(6)
   createdAt                   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)

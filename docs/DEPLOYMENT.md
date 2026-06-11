@@ -722,6 +722,8 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 
 **Self-service desde el portal**: el inquilino puede registrar su propio IBAN/tarjeta y pagar facturas pendientes desde el portal (magic link → card "Método de pago" → "Añadir IBAN o tarjeta"; el mandato SEPA lo acepta online el propio pagador en el formulario). Para validarlo en test mode: pedir magic link con el email del customer de prueba, añadir un IBAN de test y pulsar "Pagar" en una factura `issued` — debe quedar `processing` y resolverse vía webhook igual que el flujo staff.
 
+**Cobro automático al emitir** (opt-in por tenant): activar el switch "Cobro automático" en `/settings/billing` (solo owner). Para validarlo en test mode: con el flag activo y un customer con IBAN de test guardado, emitir una factura — sin tocar ningún botón debe aparecer un payment `processing` (cola BullMQ `payments`; en producción la consume el worker, así que el worker debe estar arriba). Las facturas de customers sin método quedan `issued` sin error (skip con log `[auto-charge] skip`).
+
 ---
 
 ## 13. Observabilidad (mínima)
