@@ -52,7 +52,8 @@ export class PaymentsService {
 
   async chargeInvoice(args: {
     tenantId: string;
-    userId: string;
+    /** `null` cuando el cobro lo lanza el inquilino desde el portal. */
+    userId: string | null;
     invoiceId: string;
     input: ChargeInvoiceInput;
     meta: RequestMeta;

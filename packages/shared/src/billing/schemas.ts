@@ -356,5 +356,17 @@ export const PortalConsumeMagicLinkSchema = z.object({
 });
 export type PortalConsumeMagicLinkInput = z.infer<typeof PortalConsumeMagicLinkSchema>;
 
+/**
+ * Registro de payment method desde el portal del inquilino. A diferencia
+ * de `RegisterPaymentMethodSchema` (staff), NO acepta `customerId` ni
+ * `type`: el customer sale del JWT de portal y el tipo real lo deriva el
+ * backend del gateway.
+ */
+export const PortalRegisterPaymentMethodSchema = z.object({
+  gatewayToken: z.string().min(1),
+  gatewayCustomerId: z.string().optional(),
+});
+export type PortalRegisterPaymentMethodInput = z.infer<typeof PortalRegisterPaymentMethodSchema>;
+
 // Re-utilizado del shared/customers
 export { nonNegativeDecimal };

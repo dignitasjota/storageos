@@ -7,6 +7,8 @@ export interface ApiErrorBody {
   error: string;
   message: string;
   details?: unknown;
+  /** Codigo semantico que emite HttpExceptionFilter (p.ej. `no_payment_method`). */
+  code?: string;
 }
 
 export class ApiError extends Error {

@@ -682,11 +682,15 @@ portal mínimo para que el inquilino consulte sus facturas.
 
 ### Endpoints — Portal del cliente
 
-| Metodo | Ruta                    | Auth | Throttle  | Descripcion                                   |
-| ------ | ----------------------- | ---- | --------- | --------------------------------------------- |
-| POST   | `/portal/login/request` | NO   | 5/min/IP  | Envia magic link al email (204 silencioso)    |
-| POST   | `/portal/login/consume` | NO   | 5/min/IP  | Intercambia token por JWT corto (single-use)  |
-| GET    | `/portal/me/invoices`   | NO   | 60/min/IP | Bearer JWT portal; lista facturas del cliente |
+| Metodo | Ruta                                      | Auth | Throttle  | Descripcion                                                                                                                                          |
+| ------ | ----------------------------------------- | ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/portal/login/request`                   | NO   | 5/min/IP  | Envia magic link al email (204 silencioso)                                                                                                           |
+| POST   | `/portal/login/consume`                   | NO   | 5/min/IP  | Intercambia token por JWT corto (single-use)                                                                                                         |
+| GET    | `/portal/me/invoices`                     | NO   | 60/min/IP | Bearer JWT portal; lista facturas del cliente                                                                                                        |
+| GET    | `/portal/me/payment-methods`              | NO   | 60/min/IP | Bearer JWT portal; lista metodos de pago del cliente                                                                                                 |
+| POST   | `/portal/me/payment-methods/setup-intent` | NO   | 5/min/IP  | Bearer JWT portal; crea SetupIntent Stripe (self-service IBAN/tarjeta)                                                                               |
+| POST   | `/portal/me/payment-methods`              | NO   | 5/min/IP  | Bearer JWT portal; registra el PM confirmado (pasa a predeterminado; tipo derivado del gateway)                                                      |
+| POST   | `/portal/me/invoices/:id/charge`          | NO   | 5/min/IP  | Bearer JWT portal; cobra el pendiente con el PM predeterminado. 404 si la invoice no es del customer del token; 400 `no_payment_method` si no hay PM |
 
 ### Codigos `code` (Fase 4)
 

@@ -8,12 +8,18 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
+import { PaymentMethodsService } from '../payments/payment-methods.service';
+import { PaymentsService } from '../payments/payments.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
+  PaymentMethodDto,
+  PortalChargeResultDto,
   PortalInvoiceDto,
+  PortalRegisterPaymentMethodInput,
   PortalRequestMagicLinkInput,
   PortalSessionDto,
+  SetupIntentResponseDto,
 } from '@storageos/shared';
 
 const PORTAL_TOKEN_PREFIX_REGEX = /^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/;
@@ -50,6 +56,8 @@ export class PortalService {
     private readonly email: EmailService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService<Env, true>,
+    private readonly paymentMethods: PaymentMethodsService,
+    private readonly payments: PaymentsService,
   ) {}
 
   async requestMagicLink(input: PortalRequestMagicLinkInput): Promise<void> {
@@ -198,6 +206,94 @@ export class PortalService {
         pdfUrl: r.pdfUrl,
       };
     });
+  }
+
+  // ==========================================================================
+  // Self-service de metodos de pago (SEPA / tarjeta) desde el portal.
+  // El customerId y tenantId vienen SIEMPRE del JWT de portal verificado;
+  // ningun id del body se usa para resolver al cliente.
+  // ==========================================================================
+
+  async listMyPaymentMethods(tenantId: string, customerId: string): Promise<PaymentMethodDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    return this.paymentMethods.list(tenantId, customerId);
+  }
+
+  async createMySetupIntent(tenantId: string, customerId: string): Promise<SetupIntentResponseDto> {
+    await this.requireCustomer(tenantId, customerId);
+    return this.paymentMethods.createSetupIntent(tenantId, { customerId });
+  }
+
+  /**
+   * Registra el payment method confirmado por el propio inquilino. El
+   * mandato SEPA lo acepta online el pagador (Stripe lo muestra en el
+   * PaymentElement), que es el flujo legalmente limpio. El metodo nuevo
+   * pasa SIEMPRE a predeterminado: es el que usara el cobro del portal y
+   * el staff.
+   */
+  async registerMyPaymentMethod(
+    tenantId: string,
+    customerId: string,
+    input: PortalRegisterPaymentMethodInput,
+  ): Promise<PaymentMethodDto> {
+    await this.requireCustomer(tenantId, customerId);
+    return this.paymentMethods.register({
+      tenantId,
+      userId: null,
+      input: {
+        customerId,
+        // Fallback: el tipo real (card/sepa_debit) lo deriva register() del
+        // gateway via getPaymentMethodDetails.
+        type: 'card',
+        gatewayToken: input.gatewayToken,
+        ...(input.gatewayCustomerId ? { gatewayCustomerId: input.gatewayCustomerId } : {}),
+        isDefault: true,
+      },
+      meta: {},
+    });
+  }
+
+  /**
+   * Cobra el pendiente de una factura del propio inquilino con su metodo
+   * predeterminado. Verifica propiedad ANTES de delegar: una invoice de
+   * otro customer (aunque sea del mismo tenant) devuelve 404 sin filtrar
+   * su existencia.
+   */
+  async chargeMyInvoice(
+    tenantId: string,
+    customerId: string,
+    invoiceId: string,
+  ): Promise<PortalChargeResultDto> {
+    const invoice = await this.admin.invoice.findFirst({
+      where: { id: invoiceId, tenantId, customerId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!invoice) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    const payment = await this.payments.chargeInvoice({
+      tenantId,
+      userId: null,
+      invoiceId,
+      input: {},
+      meta: {},
+    });
+    return {
+      paymentId: payment.id,
+      status: payment.status,
+      failureReason: payment.failureReason,
+    };
+  }
+
+  /** Customer vivo del tenant o 404 (mismo guard que `listMyInvoices`). */
+  private async requireCustomer(tenantId: string, customerId: string): Promise<void> {
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
+    }
   }
 
   private cleanupExpired(): void {

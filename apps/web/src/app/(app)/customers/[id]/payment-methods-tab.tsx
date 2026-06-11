@@ -1,14 +1,12 @@
 'use client';
 
-import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { CreditCard, Landmark, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import type { PaymentMethodDto, SetupIntentResponseDto } from '@storageos/shared';
-import type * as React from 'react';
 
+import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,19 +25,6 @@ import {
   useRegisterPaymentMethod,
   useRemovePaymentMethod,
 } from '@/lib/billing/hooks';
-
-// Cache del cliente Stripe por publishable key (cada tenant puede tener la
-// suya en el futuro; hoy es una global del deployment).
-const stripeClients = new Map<string, Promise<Stripe | null>>();
-
-function getStripe(publishableKey: string): Promise<Stripe | null> {
-  let client = stripeClients.get(publishableKey);
-  if (!client) {
-    client = loadStripe(publishableKey);
-    stripeClients.set(publishableKey, client);
-  }
-  return client;
-}
 
 export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }) {
   const methods = useCustomerPaymentMethods(customerId);
@@ -144,19 +129,14 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
             </DialogDescription>
           </DialogHeader>
           {setupIntent && (
-            <Elements
-              stripe={getStripe(setupIntent.publishableKey)}
-              options={{ clientSecret: setupIntent.clientSecret, locale: 'es' }}
-            >
-              <AddPaymentMethodForm
-                customerId={customerId}
-                gatewayCustomerId={setupIntent.customerId}
-                onDone={() => {
-                  setDialogOpen(false);
-                  setSetupIntent(null);
-                }}
-              />
-            </Elements>
+            <AddPaymentMethodForm
+              customerId={customerId}
+              setupIntent={setupIntent}
+              onDone={() => {
+                setDialogOpen(false);
+                setSetupIntent(null);
+              }}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -165,72 +145,47 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
 }
 
 /**
- * Formulario interno del dialog. Vive en un componente aparte porque
- * `useStripe()` / `useElements()` solo funcionan dentro de `<Elements>`.
- * `<PaymentElement>` renderiza tarjeta + IBAN SEPA (con el texto legal del
- * mandato) según los `payment_method_types` del SetupIntent del backend.
+ * Alta de método de pago (staff): `StripeSetupForm` compartido + checkbox
+ * de predeterminado. `type: 'card'` es solo fallback — el backend deriva
+ * el tipo real (card / sepa_debit) consultando el payment method en Stripe.
  */
 function AddPaymentMethodForm({
   customerId,
-  gatewayCustomerId,
+  setupIntent,
   onDone,
 }: {
   customerId: string;
-  gatewayCustomerId: string;
+  setupIntent: SetupIntentResponseDto;
   onDone: () => void;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
   const register = useRegisterPaymentMethod();
   const [isDefault, setIsDefault] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-    setSubmitting(true);
-    try {
-      const result = await stripe.confirmSetup({ elements, redirect: 'if_required' });
-      if (result.error) {
-        toast.error(result.error.message ?? 'No se pudo confirmar el método de pago.');
-        return;
-      }
-      const pm = result.setupIntent.payment_method;
-      const gatewayToken = typeof pm === 'string' ? pm : (pm?.id ?? null);
-      if (!gatewayToken) {
-        toast.error('Stripe no devolvió el método de pago.');
-        return;
-      }
-      // `type` es solo fallback: el backend deriva el tipo real (card /
-      // sepa_debit) consultando el payment method en Stripe.
-      await register.mutateAsync({
-        customerId,
-        type: 'card',
-        gatewayToken,
-        gatewayCustomerId,
-        isDefault,
-      });
-      toast.success('Método de pago guardado.');
-      onDone();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-      <PaymentElement />
+    <StripeSetupForm
+      clientSecret={setupIntent.clientSecret}
+      publishableKey={setupIntent.publishableKey}
+      onConfirmed={async (gatewayToken) => {
+        try {
+          await register.mutateAsync({
+            customerId,
+            type: 'card',
+            gatewayToken,
+            gatewayCustomerId: setupIntent.customerId,
+            isDefault,
+          });
+          toast.success('Método de pago guardado.');
+          onDone();
+        } catch (err) {
+          toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+        }
+      }}
+    >
       <label className="flex items-center gap-2 text-sm">
         <Checkbox checked={isDefault} onCheckedChange={(v) => setIsDefault(v === true)} />
         Usar como método de pago predeterminado
       </label>
-      <Button type="submit" className="w-full" disabled={!stripe || submitting}>
-        {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-        Guardar método de pago
-      </Button>
-    </form>
+    </StripeSetupForm>
   );
 }
 

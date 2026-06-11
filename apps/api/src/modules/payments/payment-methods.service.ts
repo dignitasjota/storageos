@@ -88,7 +88,8 @@ export class PaymentMethodsService {
 
   async register(args: {
     tenantId: string;
-    userId: string;
+    /** `null` cuando el alta la hace el inquilino desde el portal. */
+    userId: string | null;
     input: RegisterPaymentMethodInput;
     meta: RequestMeta;
   }): Promise<PaymentMethodDto> {

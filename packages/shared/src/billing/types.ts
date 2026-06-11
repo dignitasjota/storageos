@@ -227,3 +227,10 @@ export interface PortalSessionDto {
   accessToken: string;
   expiresIn: number;
 }
+
+/** Resultado del cobro lanzado desde el portal (`POST /portal/me/invoices/:id/charge`). */
+export interface PortalChargeResultDto {
+  paymentId: string;
+  status: PaymentStatusValue;
+  failureReason: string | null;
+}

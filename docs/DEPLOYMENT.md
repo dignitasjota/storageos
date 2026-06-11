@@ -718,7 +718,9 @@ El cobro por domiciliación SEPA usa el mismo `StripeGateway` que tarjeta (payme
 4. **Cobrar**: factura `issued` → "Cobrar (auto)". El toast debe avisar "Cobro SEPA iniciado…" y el payment quedar `processing`.
 5. **Confirmar**: al llegar el webhook, la factura pasa a `paid` (o el payment a `failed`). Con el IBAN de chargeback, verificar que el payment vuelve a `failed` con `failureReason: disputed: ...` y la factura a `overdue`.
 
-El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en el flujo staff v1 el operador debe tener el mandato firmado por el cliente (papel o contrato) antes de registrar el IBAN.
+El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en el flujo staff el operador debe tener el mandato firmado por el cliente (papel o contrato) antes de registrar el IBAN.
+
+**Self-service desde el portal**: el inquilino puede registrar su propio IBAN/tarjeta y pagar facturas pendientes desde el portal (magic link → card "Método de pago" → "Añadir IBAN o tarjeta"; el mandato SEPA lo acepta online el propio pagador en el formulario). Para validarlo en test mode: pedir magic link con el email del customer de prueba, añadir un IBAN de test y pulsar "Pagar" en una factura `issued` — debe quedar `processing` y resolverse vía webhook igual que el flujo staff.
 
 ---
 
