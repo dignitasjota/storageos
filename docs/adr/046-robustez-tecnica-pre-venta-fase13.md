@@ -45,7 +45,7 @@ Nuevo paquete `apps/worker` en el monorepo (pnpm workspace). Estructura:
 
 **F2 (factura simplificada sin destinatario)** — RD 1619/2012 art. 4:
 
-- Migración `20260520030000_phase13a_invoice_f2`: `invoices.customer_id` pasa a `NULL` (drop `NOT NULL`).
+- Migración `20260529020000_phase13a_invoice_f2`: `invoices.customer_id` pasa a `NULL` (drop `NOT NULL`).
 - `CreateInvoiceSchema` añade campos opcionales: `invoiceType: 'F1' | 'F2'` (default `'F1'`), `simplifiedJustification`. `customerId` pasa a `.optional()`.
 - Validación en `InvoicesService.create`:
   - F1 sin `customerId` → 400 `customer_required`.
@@ -163,7 +163,7 @@ Mailpit deletea emails al inicio de cada suite (`deleteAllMessages` en helper `m
 
 ### 13A.3 — F2 + rectificativas por sustitución
 
-- `packages/database/prisma/migrations/20260520030000_phase13a_invoice_f2/migration.sql` (drop NOT NULL en `invoices.customer_id`)
+- `packages/database/prisma/migrations/20260529020000_phase13a_invoice_f2/migration.sql` (drop NOT NULL en `invoices.customer_id`)
 - `packages/database/prisma/schema.prisma` (`customer Customer?` en Invoice)
 - `packages/shared/src/billing/invoice.schema.ts`:
   - `CreateInvoiceSchema` añade `invoiceType: 'F1' | 'F2'`, `customerId.optional()`, `simplifiedJustification`

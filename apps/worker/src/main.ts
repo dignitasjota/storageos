@@ -7,6 +7,10 @@
 // import, asi que este override DEBE ir en primera linea.
 process.env.ENABLE_WORKERS_IN_API = 'true';
 
+// Sentry: tras el override de env (es solo lectura de process.env) y antes
+// de cargar cualquier modulo, para que la instrumentacion parchee primero.
+import './instrument';
+
 import 'reflect-metadata';
 
 import { NestFactory } from '@nestjs/core';

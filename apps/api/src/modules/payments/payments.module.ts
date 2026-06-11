@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 
+import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 
@@ -8,6 +9,8 @@ import { PaymentMethodsController } from './payment-methods.controller';
 import { PaymentMethodsService } from './payment-methods.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { StripeEventsCleanupCron } from './stripe-events-cleanup.cron';
+import { StripeEventsService } from './stripe-events.service';
 import { StripeWebhookController } from './stripe-webhook.controller';
 import { StripeGateway } from './stripe.gateway';
 
@@ -22,6 +25,8 @@ import { StripeGateway } from './stripe.gateway';
     { provide: PAYMENT_GATEWAY, useExisting: StripeGateway },
     PaymentMethodsService,
     PaymentsService,
+    StripeEventsService,
+    ...(WORKERS_ENABLED_IN_API ? [StripeEventsCleanupCron] : []),
   ],
   exports: [PAYMENT_GATEWAY, StripeGateway, PaymentMethodsService, PaymentsService],
 })

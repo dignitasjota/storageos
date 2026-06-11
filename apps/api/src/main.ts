@@ -1,3 +1,6 @@
+// Sentry: debe ser el primer import (parchea http/express antes de cargarse).
+import './instrument';
+
 import 'reflect-metadata';
 
 import { VersioningType } from '@nestjs/common';

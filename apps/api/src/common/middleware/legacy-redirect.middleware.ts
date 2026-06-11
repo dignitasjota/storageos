@@ -49,6 +49,7 @@ export const legacyRedirectHandler: RequestHandler = (req, res, next) => {
     url === '/v1' ||
     url === '/health' ||
     url.startsWith('/health?') ||
+    url.startsWith('/health/') ||
     url.startsWith('/api/docs') ||
     url.startsWith('/webhooks/') ||
     url.startsWith('/public/widget/')

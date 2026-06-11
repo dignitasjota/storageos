@@ -138,7 +138,7 @@ Este ADR + actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, vault Obsid
 
 ### 12A.1 — Forzar 2FA owner/manager
 
-- `packages/database/prisma/migrations/20260520020000_phase12a_force_2fa/` (columna `require_two_factor_for_managers` en `tenants`).
+- `packages/database/prisma/migrations/20260529010000_phase12a_force_2fa/` (columna `require_two_factor_for_managers` en `tenants`).
 - `packages/database/prisma/schema.prisma` (campo `requireTwoFactorForManagers` en `Tenant`).
 - `apps/api/src/modules/auth/auth.service.ts` (flow `requires2faEnrolment` en `login`).
 - `apps/api/src/modules/auth/two-factor.controller.ts` (`enrol-required/setup`, `enrol-required/verify`).
@@ -159,7 +159,7 @@ Este ADR + actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, vault Obsid
 
 ### 12A.3 — `super_admin_audit_logs`
 
-- `packages/database/prisma/migrations/20260520020100_phase12a_super_admin_audit_logs/`.
+- `packages/database/prisma/migrations/20260529010100_phase12a_super_admin_audit_logs/`.
 - `packages/database/prisma/schema.prisma` (modelo `SuperAdminAuditLog`).
 - `apps/api/src/modules/admin/super-admin-audit.service.ts`.
 - `apps/api/src/modules/admin/super-admin-audit.controller.ts` (`GET /admin/audit-logs`).

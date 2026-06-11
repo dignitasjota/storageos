@@ -1,7 +1,11 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
+import {
+  createDraftInvoice,
+  ensureDefaultSeries,
+  waitForAeatStatus,
+} from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -57,7 +61,9 @@ describe('Invoices state machine + Verifactu hash (e2e)', () => {
     expect(issued1.body.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(issued1.body.previousHash).toBeNull();
     expect(issued1.body.qrCodeUrl).toMatch(/^data:image\/png/);
-    expect(issued1.body.aeatStatus).toBe('accepted');
+    // El envio AEAT es asincrono (cola BullMQ `verifactu`): el body del issue
+    // puede traer `pending`. Polling hasta que el processor lo resuelva.
+    expect(await waitForAeatStatus(app, owner.accessToken, id1)).toBe('accepted');
 
     const id2 = await createDraftInvoice(app, owner.accessToken, customerId, {
       unitPrice: 75,

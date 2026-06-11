@@ -13,9 +13,11 @@ import {
 
 import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway.interface';
+import { PAYMENT_GATEWAY, PaymentGateway, WebhookEvent } from './payment-gateway.interface';
 import { PaymentsService } from './payments.service';
+import { StripeEventsService } from './stripe-events.service';
 
 import type { Request } from 'express';
 
@@ -43,6 +45,8 @@ export class StripeWebhookController {
     private readonly payments: PaymentsService,
     @Inject(forwardRef(() => BillingSaasService))
     private readonly saasBilling: BillingSaasService,
+    private readonly stripeEvents: StripeEventsService,
+    private readonly adminPrisma: PrismaAdminService,
   ) {}
 
   @Public()
@@ -67,6 +71,27 @@ export class StripeWebhookController {
       throw new BadRequestException('Firma invalida');
     }
 
+    // Dedup: Stripe entrega at-least-once, asi que reintentos y duplicados
+    // (incluso concurrentes) son normales. Solo la primera entrega de cada
+    // `event.id` procesa; el resto se descarta aqui.
+    const firstDelivery = await this.stripeEvents.markProcessed(event.id, event.type);
+    if (!firstDelivery) {
+      this.logger.log(`Evento Stripe duplicado descartado: ${event.id} (${event.type})`);
+      return { received: true };
+    }
+
+    try {
+      await this.dispatch(event);
+    } catch (err) {
+      // Liberar el event.id para que el retry de Stripe no sea descartado
+      // como duplicado y pueda reprocesar.
+      await this.stripeEvents.release(event.id);
+      throw err;
+    }
+    return { received: true };
+  }
+
+  private async dispatch(event: WebhookEvent): Promise<void> {
     // El metadata.tenantId fue setado al crear el PaymentIntent.
     const tenantId = this.extractTenantId(event.data);
 
@@ -102,9 +127,28 @@ export class StripeWebhookController {
         break;
       }
       case 'charge.refunded': {
-        // Sincronizacion mas detallada se hace via endpoint refund manual;
-        // aqui solo logueamos.
-        this.logger.log(`charge.refunded recibido (event ${event.id})`);
+        // Refund hecho en el gateway (tipicamente dashboard de Stripe):
+        // sincronizamos payment + invoice para que no queden como `paid`.
+        const charge = (event.data as { object: StripeChargeLike }).object;
+        const intentId = stringId(charge.payment_intent);
+        if (!intentId) {
+          this.logger.warn(`charge.refunded sin payment_intent (event ${event.id})`);
+          break;
+        }
+        // El metadata del charge hereda el del PaymentIntent, pero por si
+        // acaso resolvemos el tenant buscando el payment por gateway id.
+        const resolvedTenantId = tenantId ?? (await this.lookupTenantByPaymentIntent(intentId));
+        if (!resolvedTenantId) {
+          this.logger.warn(
+            `charge.refunded sin tenant resoluble (event ${event.id}, intent ${intentId})`,
+          );
+          break;
+        }
+        await this.payments.syncRefundFromWebhook({
+          tenantId: resolvedTenantId,
+          gatewayPaymentId: intentId,
+          amountRefunded: (charge.amount_refunded ?? 0) / 100,
+        });
         break;
       }
       case 'customer.subscription.created':
@@ -154,13 +198,25 @@ export class StripeWebhookController {
       default:
         this.logger.debug(`Evento Stripe sin handler: ${event.type}`);
     }
-    return { received: true };
   }
 
   /** Saca tenantId del `metadata` del objeto Stripe si esta presente. */
   private extractTenantId(data: Record<string, unknown>): string | null {
     const obj = (data as { object?: { metadata?: Record<string, string> } }).object;
     return obj?.metadata?.tenantId ?? null;
+  }
+
+  /**
+   * Fallback cuando el objeto Stripe no trae `metadata.tenantId`: resuelve
+   * el tenant buscando el payment por `gatewayPaymentId`. Necesita el
+   * cliente admin (bypass RLS) porque aqui aun no hay tenant context.
+   */
+  private async lookupTenantByPaymentIntent(intentId: string): Promise<string | null> {
+    const payment = await this.adminPrisma.payment.findFirst({
+      where: { gatewayPaymentId: intentId },
+      select: { tenantId: true },
+    });
+    return payment?.tenantId ?? null;
   }
 }
 
@@ -187,6 +243,14 @@ interface StripeSubscriptionLike {
       current_period_end?: number;
     }>;
   };
+}
+
+interface StripeChargeLike {
+  id: string;
+  payment_intent: string | { id: string } | null;
+  /** Acumulado reembolsado en centimos (Stripe siempre manda el total). */
+  amount_refunded?: number;
+  metadata?: Record<string, string>;
 }
 
 interface StripeInvoiceLike {

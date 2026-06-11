@@ -707,8 +707,8 @@ Cuando se restaure el worker, revertir `ENABLE_WORKERS_IN_API` a `false` y `up -
 
 ## 13. Observabilidad (mínima)
 
-- **Sentry**: configurar DSN en `apps/api/src/main.ts` (pendiente Fase 8D).
-- **Uptime Kuma**: contenedor adicional monitoreando `https://app.tu-dominio.com` y `https://api.tu-dominio.com/health`.
+- **Sentry**: definir `SENTRY_DSN` en `.env.prod` (misma variable para `api` y `worker`; ambos la leen en su `instrument.ts`). Sin DSN, Sentry es un no-op. El API reporta los errores 5xx desde `HttpExceptionFilter`; el worker captura unhandled rejections/exceptions. Opcional: `SENTRY_TRACES_SAMPLE_RATE` (default `0`, solo errores).
+- **Uptime Kuma**: contenedor adicional monitoreando `https://app.tu-dominio.com` y `https://api.tu-dominio.com/health/ready`. Usar `/health/ready` (no `/health`): comprueba Postgres + Redis de verdad y devuelve 503 con `details: { database, redis }` si alguna dependencia está caída. `/health` es solo liveness (el proceso responde HTTP).
 - **Logs**: `docker compose ... logs -f api` para inspección puntual. En Fase 8D se añade Loki + Grafana.
 
 ---

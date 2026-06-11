@@ -197,6 +197,13 @@ export class PaymentsService {
   /**
    * Sincroniza un payment con el estado real del gateway (llamado desde
    * el webhook handler).
+   *
+   * Idempotencia: Stripe reintenta webhooks (duplicados garantizados) y puede
+   * entregarlos desordenados; ademas `chargeInvoice` ya deja el payment en
+   * `succeeded` y suma a `invoice.amountPaid` cuando el cargo off-session se
+   * confirma en sincrono. Solo la PRIMERA transicion a `succeeded` debe sumar
+   * al `amountPaid`; un evento repetido o uno que llegue tras un estado
+   * terminal (succeeded/refunded) es no-op.
    */
   async syncFromWebhook(args: {
     tenantId: string;
@@ -215,6 +222,13 @@ export class PaymentsService {
     if (!existing) {
       this.logger.warn(
         `Webhook recibido para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
+      );
+      return;
+    }
+    const terminalStatuses: PaymentStatus[] = ['succeeded', 'refunded', 'partially_refunded'];
+    if (existing.status === args.newStatus || terminalStatuses.includes(existing.status)) {
+      this.logger.log(
+        `Webhook ignorado para payment ${existing.id}: status ${existing.status} -> ${args.newStatus} (duplicado o estado terminal)`,
       );
       return;
     }
@@ -242,6 +256,72 @@ export class PaymentsService {
         });
       }
     }, args.tenantId);
+  }
+
+  /**
+   * Sincroniza un refund hecho en el gateway (p.ej. desde el dashboard de
+   * Stripe) a partir del webhook `charge.refunded`. Stripe manda
+   * `amount_refunded` ACUMULADO, asi que la sincronizacion es por delta
+   * contra `payment.refundedAmount`: un webhook repetido o atrasado
+   * (delta <= 0) es no-op, lo que la hace idempotente por construccion.
+   * Propaga el delta a la invoice asociada con los mismos estados que el
+   * refund manual (`InvoicesService.refund`), capando en `total`.
+   */
+  async syncRefundFromWebhook(args: {
+    tenantId: string;
+    gatewayPaymentId: string;
+    /** Acumulado reembolsado segun el gateway, en unidades de moneda (EUR). */
+    amountRefunded: number;
+  }): Promise<void> {
+    const existing = await this.prisma.withTenant(
+      (tx) =>
+        tx.payment.findFirst({
+          where: { gatewayPaymentId: args.gatewayPaymentId },
+        }),
+      args.tenantId,
+    );
+    if (!existing) {
+      this.logger.warn(
+        `charge.refunded para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
+      );
+      return;
+    }
+    const delta = args.amountRefunded - Number(existing.refundedAmount);
+    if (delta <= 0.001) {
+      this.logger.log(
+        `charge.refunded ignorado para payment ${existing.id}: acumulado ${args.amountRefunded} <= registrado ${Number(existing.refundedAmount)}`,
+      );
+      return;
+    }
+    const fullyRefunded = args.amountRefunded >= Number(existing.amount) - 0.001;
+    await this.prisma.withTenant(async (tx) => {
+      await tx.payment.update({
+        where: { id: existing.id },
+        data: {
+          refundedAmount: args.amountRefunded,
+          refundedAt: new Date(),
+          status: fullyRefunded ? 'refunded' : 'partially_refunded',
+        },
+      });
+      if (existing.invoiceId) {
+        const invoice = await tx.invoice.findUniqueOrThrow({
+          where: { id: existing.invoiceId },
+        });
+        const total = Number(invoice.total);
+        const newInvoiceRefunded = Math.min(Number(invoice.amountRefunded) + delta, total);
+        const invoiceFully = newInvoiceRefunded >= total - 0.001;
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            amountRefunded: newInvoiceRefunded,
+            status: invoiceFully ? 'refunded' : 'partially_refunded',
+          },
+        });
+      }
+    }, args.tenantId);
+    this.logger.log(
+      `charge.refunded sincronizado: payment ${existing.id} refundedAmount=${args.amountRefunded} (delta ${delta.toFixed(2)})`,
+    );
   }
 
   private toDto(

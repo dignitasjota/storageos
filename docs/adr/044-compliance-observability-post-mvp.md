@@ -119,7 +119,7 @@ Este ADR + actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, vault Obsid
 
 ### 11A.1 — `security_events`
 
-- `packages/database/prisma/migrations/20260520010000_phase11a_security_events/`
+- `packages/database/prisma/migrations/20260529000000_phase11a_security_events/`
 - `apps/api/src/modules/security/security-events.service.ts`
 - `apps/api/src/modules/security/security-events.admin.controller.ts`
 - `apps/api/src/modules/security/security-events.cleanup.processor.ts`
@@ -127,7 +127,7 @@ Este ADR + actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, vault Obsid
 
 ### 11A.2 — `tenant_aeat_credentials` histórico
 
-- `packages/database/prisma/migrations/20260520010100_phase11a_aeat_credentials_history/` (drop UNIQUE, añade índice parcial `WHERE revoked_at IS NULL`).
+- `packages/database/prisma/migrations/20260529000100_phase11a_aeat_credentials_history/` (drop UNIQUE, añade índice parcial `WHERE revoked_at IS NULL`).
 - `apps/api/src/modules/billing/aeat/tenant-aeat-credentials.service.ts` (upload via `$transaction`, listHistory).
 - `apps/api/src/modules/billing/aeat/tenant-aeat-credentials.controller.ts` (`GET /billing/aeat-credentials/history`).
 - `apps/web/src/app/(app)/settings/billing/verifactu/page.tsx` (acordeón histórico).
@@ -141,7 +141,7 @@ Este ADR + actualización de `ROADMAP.md`, `CLAUDE.md`, `README.md`, vault Obsid
 
 ### 11A.4 — Rectificativas
 
-- `packages/database/prisma/migrations/20260520010200_phase11a_invoice_rectifications/`.
+- `packages/database/prisma/migrations/20260529000200_phase11a_invoice_rectifications/`.
 - `apps/api/src/modules/billing/invoices.service.ts` (`rectify`).
 - `apps/api/src/modules/billing/invoices.controller.ts` (`POST /invoices/:id/rectify`).
 - `apps/api/src/modules/billing/aeat-client/verifactu-xml-builder.ts` (`TipoRectificativa` + `FacturasRectificadas`).

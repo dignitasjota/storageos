@@ -185,6 +185,14 @@ export const envSchema = z.object({
    *  siempre se monta independientemente del valor (ver `main.ts`). */
   OPENAPI_ENABLED: z.coerce.boolean().default(false),
 
+  // --- Sentry ---
+  /** DSN del proyecto Sentry. Sin valor, Sentry es un no-op total (dev/test
+   *  no necesitan cuenta). Se lee en `instrument.ts` via `process.env`
+   *  directamente (corre antes del ConfigService); aqui solo se valida. */
+  SENTRY_DSN: z.string().url().optional(),
+  /** Sample rate de tracing APM (0 = solo errores, sin transacciones). */
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+
   // --- Logger ---
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_PRETTY: z

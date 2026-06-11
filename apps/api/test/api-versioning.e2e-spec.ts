@@ -59,6 +59,13 @@ describe('API versioning + legacy redirect (e2e)', () => {
     expect(res.body.status).toBe('ok');
   });
 
+  it('GET /health/ready responde 200 con checks de Postgres + Redis', async () => {
+    const res = await request(app.getHttpServer()).get('/health/ready').redirects(0);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.checks).toEqual({ database: 'up', redis: 'up' });
+  });
+
   // /v1/health y /api/docs-json son responsabilidad del bootstrap (main.ts)
   // y no del helper createTestApp. No se cubren aqui.
 

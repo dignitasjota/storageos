@@ -29,6 +29,7 @@
     "@node-rs/argon2": "^2.0.2",
     "@react-email/components": "^0.0.32",
     "@react-email/render": "^1.0.4",
+    "@sentry/nestjs": "^10.57.0",
     "@storageos/database": "workspace:*",
     "@storageos/shared": "workspace:*",
     "bullmq": "^5.76.10",

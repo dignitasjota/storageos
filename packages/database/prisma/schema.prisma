@@ -2282,6 +2282,29 @@ model SuperAdminAuditLog {
 }
 
 // ============================================================================
+// Dedup de webhooks Stripe entrantes (sin tenant_id, sin RLS).
+// ============================================================================
+
+/// Registro de eventos Stripe ya procesados. Stripe garantiza entrega
+/// at-least-once: reintentos y duplicados (incluso concurrentes) son
+/// normales. El `StripeWebhookController` inserta el `event.id` ANTES de
+/// procesar; un duplicado choca con la PK y se descarta. Si el handler
+/// falla, la fila se borra para que el retry de Stripe vuelva a entrar.
+///
+/// Tabla global (sin RLS): el webhook llega antes de resolver tenant
+/// context; solo se accede via `PrismaAdminService`. Limpieza a 30 dias
+/// (cron diario) — Stripe deja de reintentar mucho antes.
+model ProcessedStripeEvent {
+  /// `event.id` de Stripe (`evt_...`).
+  id         String   @id
+  eventType  String   @map("event_type")
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([receivedAt])
+  @@map("processed_stripe_events")
+}
+
+// ============================================================================
 // Fase 14A.3: API keys + webhooks salientes.
 // ============================================================================
 

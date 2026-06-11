@@ -29,6 +29,34 @@ export async function ensureDefaultSeries(
   return res.body.id as string;
 }
 
+/**
+ * Espera (polling) a que el job BullMQ `verifactu` procese el envio AEAT de
+ * la factura. El `issue` deja `aeatStatus='pending'` y encola el job; el
+ * processor in-process lo resuelve milisegundos despues, pero la respuesta
+ * HTTP del issue puede ganarle la carrera. Los asserts sobre `aeatStatus`
+ * deben pasar por aqui, nunca leerse del body del issue.
+ */
+export async function waitForAeatStatus(
+  app: INestApplication,
+  accessToken: string,
+  invoiceId: string,
+  opts: Partial<{ timeoutMs: number; intervalMs: number }> = {},
+): Promise<string> {
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const intervalMs = opts.intervalMs ?? 200;
+  const deadline = Date.now() + timeoutMs;
+  let last = 'pending';
+  while (Date.now() < deadline) {
+    const res = await request(app.getHttpServer())
+      .get(`/invoices/${invoiceId}`)
+      .set('Authorization', `Bearer ${accessToken}`);
+    last = res.body.aeatStatus as string;
+    if (last && last !== 'pending') return last;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`aeatStatus sigue '${last}' tras ${timeoutMs}ms (invoice ${invoiceId})`);
+}
+
 export async function createDraftInvoice(
   app: INestApplication,
   accessToken: string,

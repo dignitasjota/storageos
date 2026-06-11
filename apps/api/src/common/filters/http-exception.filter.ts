@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { ZodError } from 'zod';
 
 import type { Request, Response } from 'express';
@@ -63,6 +64,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `${request.method} ${request.url} -> ${normalized.statusCode}: ${normalized.message}`,
         exception instanceof Error ? exception.stack : undefined,
       );
+      // Errores inesperados a Sentry (no-op sin SENTRY_DSN). Los 4xx son
+      // flujo de negocio y no se reportan.
+      Sentry.captureException(exception, {
+        extra: { method: request.method, url: request.url },
+      });
     }
 
     response.status(normalized.statusCode).json({
