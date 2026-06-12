@@ -116,8 +116,11 @@ export class InvitationsController {
 
   @Public()
   @Get('token/:token')
-  async findByToken(@Param('token') token: string): Promise<PublicInvitationDto> {
-    return this.invitations.findByToken(token);
+  async findByToken(
+    @Param('token') token: string,
+    @Req() req: Request,
+  ): Promise<PublicInvitationDto> {
+    return this.invitations.findByToken(token, extractMeta(req));
   }
 
   @Public()

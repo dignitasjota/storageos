@@ -729,7 +729,8 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 ## 13. Observabilidad (mínima)
 
 - **Sentry**: definir `SENTRY_DSN` en `.env.prod` (misma variable para `api` y `worker`; ambos la leen en su `instrument.ts`). Sin DSN, Sentry es un no-op. El API reporta los errores 5xx desde `HttpExceptionFilter`; el worker captura unhandled rejections/exceptions. Opcional: `SENTRY_TRACES_SAMPLE_RATE` (default `0`, solo errores).
-- **Uptime Kuma**: contenedor adicional monitoreando `https://app.tu-dominio.com` y `https://api.tu-dominio.com/health/ready`. Usar `/health/ready` (no `/health`): comprueba Postgres + Redis de verdad y devuelve 503 con `details: { database, redis }` si alguna dependencia está caída. `/health` es solo liveness (el proceso responde HTTP).
+- **Uptime Kuma**: contenedor adicional monitoreando `https://app.tu-dominio.com`, `https://api.tu-dominio.com/health/ready` y `https://api.tu-dominio.com/health/worker`. `/health/ready` comprueba Postgres + Redis (503 con `details` si algo cae); `/health/worker` comprueba el heartbeat que el proceso de workers escribe en Redis cada minuto (503 `worker_stale` si lleva >3 min sin latir — worker caído o colgado, los crons no corren). `/health` es solo liveness.
+- **Colas BullMQ**: página `/admin/queues` del panel super admin con counts por cola (waiting/active/failed/...) y los últimos jobs fallidos con su motivo. Los failed se retienen 30 días en Redis.
 - **Logs**: `docker compose ... logs -f api` para inspección puntual. En Fase 8D se añade Loki + Grafana.
 
 ---

@@ -15,6 +15,8 @@ interface TxMock {
   customer: { updateMany: jest.Mock };
   customerDocument: { deleteMany: jest.Mock };
   paymentMethod: { deleteMany: jest.Mock };
+  lead: { updateMany: jest.Mock };
+  communication: { updateMany: jest.Mock };
   user: { findMany: jest.Mock; update: jest.Mock };
   session: { deleteMany: jest.Mock };
   tenant: { update: jest.Mock };
@@ -25,6 +27,8 @@ function buildTx(): TxMock {
     customer: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) },
     customerDocument: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     paymentMethod: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    lead: { updateMany: jest.fn().mockResolvedValue({ count: 4 }) },
+    communication: { updateMany: jest.fn().mockResolvedValue({ count: 7 }) },
     user: {
       findMany: jest.fn().mockResolvedValue([{ id: USER_A }, { id: USER_B }]),
       update: jest.fn().mockResolvedValue(undefined),
@@ -88,6 +92,19 @@ describe('AdminTenantsService.anonymize', () => {
     expect(firstUserData.twoFactorEnabled).toBe(false);
     expect(typeof firstUserData.passwordHash).toBe('string');
     expect(firstUserData.passwordHash).not.toBe('');
+
+    // Leads anonimizados (PII fuera de customers) + soft delete.
+    const leadData = tx.lead.updateMany.mock.calls[0][0].data;
+    expect(leadData.email).toBeNull();
+    expect(leadData.firstName).toBe('*** ANONIMIZADO ***');
+    expect(leadData.deletedAt).toBeInstanceOf(Date);
+
+    // Communications: recipient + cuerpos renderizados + variables purgados.
+    const commData = tx.communication.updateMany.mock.calls[0][0].data;
+    expect(commData.recipient).toBe('*** ANONIMIZADO ***');
+    expect(commData.bodyText).toBe('*** ANONIMIZADO ***');
+    expect(commData.bodyHtml).toBeNull();
+    expect(commData.variables).toEqual({});
 
     // Sesiones revocadas.
     expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { tenantId: TENANT } });

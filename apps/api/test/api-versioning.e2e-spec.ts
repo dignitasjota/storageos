@@ -66,6 +66,15 @@ describe('API versioning + legacy redirect (e2e)', () => {
     expect(res.body.checks).toEqual({ database: 'up', redis: 'up' });
   });
 
+  it('GET /health/worker responde 200 con el heartbeat de los workers', async () => {
+    // En test ENABLE_WORKERS_IN_API=true: el propio app escribe el latido
+    // en el onApplicationBootstrap del cron.
+    const res = await request(app.getHttpServer()).get('/health/worker').redirects(0);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(typeof res.body.lastHeartbeat).toBe('string');
+  });
+
   // /v1/health y /api/docs-json son responsabilidad del bootstrap (main.ts)
   // y no del helper createTestApp. No se cubren aqui.
 

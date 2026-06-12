@@ -15,6 +15,7 @@ import { TokensService } from '../auth/tokens.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { InvitationEmail } from '../email/templates/invitation-email';
+import { SecurityEventsService } from '../security-events/security-events.service';
 
 import { InvitationTokensService } from './invitation-tokens.service';
 
@@ -45,6 +46,7 @@ export class InvitationsService {
     private readonly audit: AuditService,
     private readonly email: EmailService,
     private readonly config: ConfigService<Env, true>,
+    private readonly securityEvents: SecurityEventsService,
   ) {}
 
   // ============================ list/create ================================
@@ -215,9 +217,17 @@ export class InvitationsService {
 
   // ============================== public ===================================
 
-  async findByToken(token: string): Promise<PublicInvitationDto> {
+  async findByToken(token: string, meta: RequestMeta = {}): Promise<PublicInvitationDto> {
     const record = await this.invitationTokens.lookup(token);
     if (!record) {
+      // Era la ultima traza de seguridad sin registrar: los bots que
+      // prueban tokens de invitacion quedan ahora en security_events.
+      await this.securityEvents.record({
+        eventType: 'invitation_token_invalid',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        reason: 'lookup_failed',
+      });
       throw new NotFoundException('Token invalido o caducado');
     }
     const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: record.tenantId } });
@@ -240,6 +250,12 @@ export class InvitationsService {
   ): Promise<AuthFlowResult<AuthSuccessResponse>> {
     const record = await this.invitationTokens.lookup(token);
     if (!record) {
+      await this.securityEvents.record({
+        eventType: 'invitation_token_invalid',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        reason: 'accept_failed',
+      });
       throw new NotFoundException('Token invalido o caducado');
     }
 

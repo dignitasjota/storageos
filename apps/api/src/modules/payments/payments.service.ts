@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
+import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -85,9 +86,9 @@ export class PaymentsService {
       });
     }
     const invoiceCustomerId: string = invoice.customerId;
-    const pending = Number(invoice.total) - Number(invoice.amountPaid);
+    const pending = subtractAmounts(invoice.total, invoice.amountPaid);
     const amount = args.input.amount ?? pending;
-    if (amount <= 0 || amount > pending + 0.001) {
+    if (amount <= 0 || isGreaterThan(amount, pending)) {
       throw new BadRequestException({
         code: 'invalid_amount',
         message: 'Importe invalido',
@@ -173,8 +174,8 @@ export class PaymentsService {
       });
       // Sincronizar invoice si succeeded (la final llega del webhook tambien).
       if (status === 'succeeded') {
-        const newPaid = Number(invoice.amountPaid) + amount;
-        const fully = newPaid >= Number(invoice.total) - 0.001;
+        const newPaid = addAmounts(invoice.amountPaid, amount);
+        const fully = isAtLeast(newPaid, invoice.total);
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
@@ -255,8 +256,8 @@ export class PaymentsService {
         const invoice = await tx.invoice.findUniqueOrThrow({
           where: { id: existing.invoiceId },
         });
-        const newPaid = Number(invoice.amountPaid) + Number(existing.amount);
-        const fully = newPaid >= Number(invoice.total) - 0.001;
+        const newPaid = addAmounts(invoice.amountPaid, existing.amount);
+        const fully = isAtLeast(newPaid, invoice.total);
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
@@ -296,14 +297,14 @@ export class PaymentsService {
       );
       return;
     }
-    const delta = args.amountRefunded - Number(existing.refundedAmount);
-    if (delta <= 0.001) {
+    const delta = subtractAmounts(args.amountRefunded, existing.refundedAmount);
+    if (delta <= 0) {
       this.logger.log(
         `charge.refunded ignorado para payment ${existing.id}: acumulado ${args.amountRefunded} <= registrado ${Number(existing.refundedAmount)}`,
       );
       return;
     }
-    const fullyRefunded = args.amountRefunded >= Number(existing.amount) - 0.001;
+    const fullyRefunded = isAtLeast(args.amountRefunded, existing.amount);
     await this.prisma.withTenant(async (tx) => {
       await tx.payment.update({
         where: { id: existing.id },
@@ -318,8 +319,8 @@ export class PaymentsService {
           where: { id: existing.invoiceId },
         });
         const total = Number(invoice.total);
-        const newInvoiceRefunded = Math.min(Number(invoice.amountRefunded) + delta, total);
-        const invoiceFully = newInvoiceRefunded >= total - 0.001;
+        const newInvoiceRefunded = Math.min(addAmounts(invoice.amountRefunded, delta), total);
+        const invoiceFully = isAtLeast(newInvoiceRefunded, total);
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
@@ -380,7 +381,7 @@ export class PaymentsService {
         const invoice = await tx.invoice.findUniqueOrThrow({
           where: { id: existing.invoiceId },
         });
-        const newPaid = Math.max(0, Number(invoice.amountPaid) - Number(existing.amount));
+        const newPaid = Math.max(0, subtractAmounts(invoice.amountPaid, existing.amount));
         // Si la factura estaba cobrada del todo, vuelve a estar pendiente:
         // overdue si ya vencio (lo normal, el dispute llega semanas despues),
         // issued si por lo que sea aun no.

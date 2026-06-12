@@ -276,6 +276,34 @@ export class AdminTenantsService {
       await tx.customerDocument.deleteMany({ where: { tenantId } });
       await tx.paymentMethod.deleteMany({ where: { tenantId } });
 
+      // PII fuera de customers: leads (nombre/email/telefono/mensaje) y
+      // communications (recipient + cuerpos renderizados + variables, que
+      // arrastran datos personales del snapshot Handlebars).
+      const leads = await tx.lead.updateMany({
+        where: { tenantId },
+        data: {
+          firstName: ANON,
+          lastName: '',
+          companyName: ANON,
+          email: null,
+          phone: null,
+          message: null,
+          metadata: {},
+          deletedAt: now,
+        },
+      });
+      const communications = await tx.communication.updateMany({
+        where: { tenantId },
+        data: {
+          recipient: ANON,
+          subject: ANON,
+          bodyText: ANON,
+          bodyHtml: null,
+          variables: {},
+          errorMessage: null,
+        },
+      });
+
       const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });
       for (const user of users) {
         await tx.user.update({
@@ -301,13 +329,20 @@ export class AdminTenantsService {
         data: { status: 'cancelled', deletedAt: now, billingEmail: null, taxId: null },
       });
 
-      return { customers: customers.count, users: users.length };
+      return {
+        customers: customers.count,
+        users: users.length,
+        leads: leads.count,
+        communications: communications.count,
+      };
     });
 
     const changes = {
       reason: meta.reason,
       anonymizedCustomers: counts.customers,
       anonymizedUsers: counts.users,
+      anonymizedLeads: counts.leads,
+      anonymizedCommunications: counts.communications,
     };
     await this.audit.write({
       tenantId,

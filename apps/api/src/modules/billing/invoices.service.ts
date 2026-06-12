@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
+import { addAmounts, isAtLeast, isGreaterThan } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -132,7 +133,7 @@ export class InvoicesService {
       const F2_JUSTIFIED_LIMIT = 3000;
       const justified = args.input.simplifiedJustification !== undefined;
       const limit = justified ? F2_JUSTIFIED_LIMIT : F2_DEFAULT_LIMIT;
-      if (total > limit + 0.001) {
+      if (isGreaterThan(total, limit)) {
         throw new BadRequestException({
           code: 'f2_amount_limit_exceeded',
           message: justified
@@ -473,15 +474,14 @@ export class InvoicesService {
     }
     const amount = args.input.amount;
     const total = Number(existing.total);
-    const alreadyPaid = Number(existing.amountPaid);
-    const newPaid = alreadyPaid + amount;
-    if (newPaid > total + 0.001) {
+    const newPaid = addAmounts(existing.amountPaid, amount);
+    if (isGreaterThan(newPaid, total)) {
       throw new BadRequestException({
         code: 'overpayment',
         message: 'El importe excede el pendiente',
       });
     }
-    const fullyPaid = newPaid >= total - 0.001;
+    const fullyPaid = isAtLeast(newPaid, total);
     const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
 
     const updated = await this.prisma.withTenant(async (tx) => {
@@ -558,16 +558,15 @@ export class InvoicesService {
       });
     }
     const amount = args.input.amount;
-    const alreadyRefunded = Number(existing.amountRefunded);
     const total = Number(existing.total);
-    const newRefunded = alreadyRefunded + amount;
-    if (newRefunded > total + 0.001) {
+    const newRefunded = addAmounts(existing.amountRefunded, amount);
+    if (isGreaterThan(newRefunded, total)) {
       throw new BadRequestException({
         code: 'over_refund',
         message: 'El importe excede el cobrado',
       });
     }
-    const fullyRefunded = newRefunded >= total - 0.001;
+    const fullyRefunded = isAtLeast(newRefunded, total);
 
     const updated = await this.prisma.withTenant(
       (tx) =>

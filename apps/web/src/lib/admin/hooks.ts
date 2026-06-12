@@ -499,3 +499,33 @@ export function useAdminWebhooksCleanupRun() {
     },
   });
 }
+
+// ============================================================================
+// Colas BullMQ
+// ============================================================================
+
+export interface AdminQueueStatus {
+  name: string;
+  counts: {
+    waiting: number;
+    active: number;
+    delayed: number;
+    failed: number;
+    completed: number;
+  };
+  recentFailed: Array<{
+    id: string;
+    name: string;
+    failedReason: string | null;
+    attemptsMade: number;
+    timestamp: string | null;
+  }>;
+}
+
+export function useAdminQueues() {
+  return useQuery({
+    queryKey: ['admin', 'queues'],
+    queryFn: () => adminApiFetch<AdminQueueStatus[]>('/admin/queues'),
+    refetchInterval: 15_000,
+  });
+}

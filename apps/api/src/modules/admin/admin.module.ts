@@ -7,6 +7,7 @@ import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
+import { AdminQueuesController } from './admin-queues.controller';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
@@ -42,6 +43,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SuperAdminAuthController,
     AdminTenantsController,
     AdminMetricsController,
+    AdminQueuesController,
     SecurityEventsController,
     SecurityAlertsController,
     SuperAdminAuditController,

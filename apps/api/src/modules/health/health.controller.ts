@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { QUEUE_BILLING } from '../queues/queues.module';
+import { WORKERS_HEARTBEAT_KEY } from '../queues/workers-heartbeat.cron';
 
 /**
  * Endpoints de health. Se montan como `VERSION_NEUTRAL` para que tanto
@@ -62,6 +63,35 @@ export class HealthController {
     return {
       status: 'ok',
       checks,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Latido del proceso de workers (crons + processors). `WorkersHeartbeatCron`
+   * escribe `workers:heartbeat` cada minuto con TTL 3 min desde el proceso
+   * que ejecuta los workers; si la clave falta, los crons llevan >3 min sin
+   * correr (proceso caido o colgado) y devolvemos 503 para que Uptime Kuma
+   * alerte.
+   */
+  @Get('worker')
+  async worker() {
+    let lastHeartbeat: string | null = null;
+    try {
+      const client = await this.queue.client;
+      lastHeartbeat = await client.get(WORKERS_HEARTBEAT_KEY);
+    } catch {
+      // Redis caido: el heartbeat tampoco es legible.
+    }
+    if (!lastHeartbeat) {
+      throw new ServiceUnavailableException({
+        code: 'worker_stale',
+        message: 'Sin heartbeat de los workers en los ultimos 3 minutos',
+      });
+    }
+    return {
+      status: 'ok',
+      lastHeartbeat,
       timestamp: new Date().toISOString(),
     };
   }

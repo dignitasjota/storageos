@@ -5,6 +5,7 @@ import {
   BarChart3,
   Building2,
   Gauge,
+  Layers,
   LifeBuoy,
   LogOut,
   ScrollText,
@@ -47,6 +48,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
   { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
   { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
+  { href: '/admin/queues', label: 'Colas', icon: Layers },
   { href: '/admin/webhooks-cleanup', label: 'Cleanup webhooks', icon: Trash2 },
   { href: '/admin/security', label: 'Seguridad', icon: ShieldCheck },
 ];

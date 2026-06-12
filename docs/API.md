@@ -1307,6 +1307,7 @@ Respuesta de `POST /auth/login` cuando aplica el forzado:
 | ------ | ----------------------------- | ---------- | --------------------------------------------------------------------------------- |
 | POST   | `/admin/security-alerts/scan` | AdminGuard | Dispara el scan manualmente fuera del cron                                        |
 | GET    | `/admin/audit-logs`           | AdminGuard | Filtros `?superAdminId=&action=&targetTenantId=&fromDate=&toDate=&cursor=&limit=` |
+| GET    | `/admin/queues`               | AdminGuard | Counts por cola BullMQ + ultimos 10 jobs fallidos por cola (motivo, intentos)     |
 
 Acciones registradas en `super_admin_audit_logs`:
 `admin.login.success`, `admin.login.failed`, `admin.2fa.enabled`,

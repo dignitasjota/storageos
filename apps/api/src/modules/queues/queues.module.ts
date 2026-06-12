@@ -3,22 +3,39 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 
+import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+
+import {
+  QUEUE_AUTOMATIONS,
+  QUEUE_BILLING,
+  QUEUE_COMMUNICATIONS,
+  QUEUE_DUNNING,
+  QUEUE_EMAIL,
+  QUEUE_PAYMENTS,
+  QUEUE_REPORTS,
+  QUEUE_VERIFACTU,
+  QUEUE_WEBHOOKS,
+} from './queue-names';
+import { WorkersHeartbeatCron } from './workers-heartbeat.cron';
+
 import type { Env } from '../../config/env.schema';
 
 /**
- * Identificadores de las colas BullMQ usadas por el backend. Las
- * declaramos aqui como constantes para evitar typos al inyectar con
- * `@InjectQueue(QUEUE_X)`.
+ * Identificadores de las colas BullMQ. Viven en `queue-names.ts` (sin
+ * imports) para que los providers registrados en este modulo puedan
+ * usarlos sin ciclo; se re-exportan aqui para el resto del codigo.
  */
-export const QUEUE_BILLING = 'billing';
-export const QUEUE_DUNNING = 'dunning';
-export const QUEUE_PAYMENTS = 'payments';
-export const QUEUE_VERIFACTU = 'verifactu';
-export const QUEUE_EMAIL = 'email';
-export const QUEUE_COMMUNICATIONS = 'communications';
-export const QUEUE_AUTOMATIONS = 'automations';
-export const QUEUE_REPORTS = 'reports';
-export const QUEUE_WEBHOOKS = 'webhooks';
+export {
+  QUEUE_AUTOMATIONS,
+  QUEUE_BILLING,
+  QUEUE_COMMUNICATIONS,
+  QUEUE_DUNNING,
+  QUEUE_EMAIL,
+  QUEUE_PAYMENTS,
+  QUEUE_REPORTS,
+  QUEUE_VERIFACTU,
+  QUEUE_WEBHOOKS,
+} from './queue-names';
 
 /**
  * Tipos de job conocidos por cada cola. Compartidos entre producer y
@@ -82,6 +99,10 @@ export const JOB_WEBHOOK_DELIVER = 'deliver';
       { name: QUEUE_WEBHOOKS },
     ),
   ],
+  // Heartbeat de los workers: lo escribe el proceso que los ejecuta (el
+  // worker en prod, el API en dev/test). QueuesModule esta en el grafo DI
+  // de AMBOS procesos, por eso vive aqui y no en HealthModule (HTTP-only).
+  providers: [...(WORKERS_ENABLED_IN_API ? [WorkersHeartbeatCron] : [])],
   exports: [BullModule],
 })
 export class QueuesModule {}
