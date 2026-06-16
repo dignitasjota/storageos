@@ -131,9 +131,19 @@ export class AuthService {
       return { tenant: newTenant, subscription: newSubscription, user: newUser };
     });
 
-    // Token de verificacion + email. Si el envio falla, propaga 500: el
-    // tenant queda creado pero el usuario podra pedir un reenvio luego.
-    await this.sendVerificationEmail(tenant, user);
+    // Token de verificacion + email. El tenant + usuario YA estan creados
+    // (commit de la $transaction de arriba), asi que un fallo de email NO debe
+    // tumbar el alta con 500 ni dejar la cuenta huerfana: lo registramos y
+    // seguimos. El usuario puede pedir el reenvio en POST /auth/resend-verification
+    // una vez el proveedor de email este operativo.
+    try {
+      await this.sendVerificationEmail(tenant, user);
+    } catch (err) {
+      this.logger.error(
+        `[register] tenant ${tenant.slug} creado pero fallo el email de verificacion ` +
+          `(${err instanceof Error ? err.message : String(err)}); el usuario podra reenviar`,
+      );
+    }
 
     await this.audit.write({
       tenantId: tenant.id,
