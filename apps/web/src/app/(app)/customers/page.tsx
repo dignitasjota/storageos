@@ -174,7 +174,7 @@ export default function CustomersPage() {
   ];
 
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Inquilinos</h1>
         <p className="text-sm text-muted-foreground">
@@ -211,7 +211,7 @@ export default function CustomersPage() {
               <Form {...form}>
                 <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
                   {type === 'individual' ? (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <FormField
                         control={form.control}
                         name="firstName"
@@ -254,7 +254,7 @@ export default function CustomersPage() {
                       )}
                     />
                   )}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="documentType"
@@ -291,7 +291,7 @@ export default function CustomersPage() {
                       )}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="email"

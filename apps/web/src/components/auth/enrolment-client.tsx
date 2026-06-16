@@ -230,7 +230,7 @@ export function EnrolmentClient({ enrolmentToken }: EnrolmentClientProps) {
             <h2 className="text-lg font-medium">{t('codesTitle')}</h2>
             <p className="text-sm text-muted-foreground">{t('codesBody')}</p>
           </div>
-          <ul className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-4 font-mono text-sm">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border bg-muted/30 p-4 font-mono text-sm">
             {recoveryCodes.map((code) => (
               <li key={code}>{code}</li>
             ))}

@@ -51,7 +51,7 @@ export default function SupportTicketPage() {
 
   if (!ticket.data) {
     return (
-      <div className="px-6 py-6 text-sm text-muted-foreground">
+      <div className="px-4 py-4 sm:px-6 sm:py-6 text-sm text-muted-foreground">
         No hemos podido cargar el ticket.
       </div>
     );
@@ -63,7 +63,7 @@ export default function SupportTicketPage() {
   const visible = (t.messages ?? []).filter((m) => !m.isInternal);
 
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <Link href="/support" className="text-xs text-muted-foreground hover:underline">
           ← Volver a soporte

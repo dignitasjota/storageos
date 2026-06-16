@@ -55,7 +55,7 @@ export default function AdminTenantsPage() {
   });
 
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Tenants</h1>
         <p className="text-sm text-muted-foreground">
@@ -108,7 +108,7 @@ export default function AdminTenantsPage() {
                 <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>{t.status}</Badge>
               </div>
               <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
-              <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-muted-foreground">
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-muted-foreground">
                 <span>Usuarios: {t.userCount}</span>
                 <span>Inquilinos: {t.customerCount}</span>
                 <span>Contratos: {t.contractCount}</span>

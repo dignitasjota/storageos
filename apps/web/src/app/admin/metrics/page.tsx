@@ -18,7 +18,7 @@ export default function AdminMetricsPage() {
 
   if (!metrics.data) {
     return (
-      <div className="px-6 py-6 text-sm text-muted-foreground">
+      <div className="px-4 py-4 sm:px-6 sm:py-6 text-sm text-muted-foreground">
         No hemos podido cargar las métricas.
       </div>
     );
@@ -29,7 +29,7 @@ export default function AdminMetricsPage() {
     n.toLocaleString('es-ES', { style: 'currency', currency });
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Métricas</h1>
         <p className="text-sm text-muted-foreground">
@@ -39,7 +39,7 @@ export default function AdminMetricsPage() {
 
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Tenants</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:grid-cols-5">
           <MetricCard label="Total" value={m.tenants.total} />
           <MetricCard label="Trial" value={m.tenants.trial} />
           <MetricCard label="Activos" value={m.tenants.active} />

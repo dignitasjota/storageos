@@ -22,7 +22,7 @@ export default function AccessLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="flex flex-col gap-4 px-6 py-6">
+    <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Control de accesos</h1>
         <p className="text-sm text-muted-foreground">

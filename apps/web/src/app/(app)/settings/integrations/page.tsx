@@ -203,7 +203,7 @@ function CreateApiKeyDialog({
           </div>
           <div className="space-y-2">
             <Label>Scopes</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {SCOPES.map((s) => {
                 const checked = scopes.includes(s);
                 return (
@@ -421,7 +421,7 @@ function CreateWebhookDialog({
           </div>
           <div className="space-y-2">
             <Label>Eventos suscritos</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {EVENT_TYPES.map((e) => {
                 const checked = events.includes(e);
                 return (

@@ -57,7 +57,7 @@ export default function NewContractWizardPage() {
   }
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <Button variant="ghost" size="sm" asChild className="-ml-2">
         <Link href="/contracts">
           <ArrowLeft className="mr-1 h-4 w-4" /> Contratos
@@ -274,7 +274,7 @@ function StepEconomics(props: {
         <CardTitle>Paso 3 · Fechas y precio</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label>Fecha de inicio</Label>
             <Input
@@ -292,7 +292,7 @@ function StepEconomics(props: {
             />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <Label>Cuota mensual (€)</Label>
             <Input
@@ -365,7 +365,7 @@ function StepReview(props: {
         <CardTitle>Paso 4 · Revisar y crear</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <dl className="grid grid-cols-2 gap-3 text-sm">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <dt className="text-muted-foreground">Inquilino</dt>
             <dd className="font-medium">{props.customer.displayName}</dd>

@@ -58,7 +58,7 @@ export default function WebhooksCleanupPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <header>
         <h1 className="text-2xl font-bold">Cleanup webhook_deliveries</h1>
         <p className="text-muted-foreground text-sm">

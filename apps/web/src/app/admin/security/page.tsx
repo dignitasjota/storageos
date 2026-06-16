@@ -137,7 +137,7 @@ export default function AdminSecurityPage() {
   const enabled = status.data.enabled;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Seguridad de tu cuenta admin</h1>
         <p className="text-sm text-muted-foreground">
@@ -267,7 +267,7 @@ export default function AdminSecurityPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <ul className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-4 font-mono text-sm">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border bg-muted/30 p-4 font-mono text-sm">
               {showCodes.map((code) => (
                 <li key={code}>{code}</li>
               ))}

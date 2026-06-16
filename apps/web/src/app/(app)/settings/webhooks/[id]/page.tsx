@@ -118,7 +118,7 @@ export default function WebhookDetailPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{webhook.name}</h1>
           <p className="text-sm text-muted-foreground">
@@ -291,7 +291,7 @@ function DeliveryDetailDialog({
         </DialogHeader>
         {delivery ? (
           <div className="max-h-[60vh] space-y-3 overflow-y-auto text-sm">
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               <Field label="Evento" value={delivery.eventType} />
               <Field label="Estado" value={delivery.status} />
               <Field label="HTTP" value={String(delivery.statusCode ?? '—')} />

@@ -146,7 +146,7 @@ export default function InvoiceDetailPage() {
   }
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <Button variant="ghost" size="sm" asChild className="-ml-2">
           <Link href="/invoices">
@@ -301,7 +301,7 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-normal text-muted-foreground">Total</CardTitle>

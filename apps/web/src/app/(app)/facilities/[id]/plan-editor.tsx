@@ -1,10 +1,12 @@
 'use client';
 
-import { Calendar, FileText, Loader2, Save, Upload } from 'lucide-react';
+import { Calendar, FileText, Loader2, Maximize, Minus, Plus, Save, Upload } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Rect, Stage, Text } from 'react-konva';
 import { toast } from 'sonner';
+
+import type Konva from 'konva';
 
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +26,8 @@ interface Props {
 const GRID = 20;
 const DEFAULT_W = 80;
 const DEFAULT_H = 60;
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 5;
 
 interface UnitRect {
   id: string;
@@ -48,6 +52,10 @@ function snap(value: number): number {
   return Math.round(value / GRID) * GRID;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 export function PlanEditor({ facilityId, floorId }: Props) {
   const floors = useFloors(facilityId);
   const units = useUnits({ facilityId, floorId });
@@ -59,6 +67,16 @@ export function PlanEditor({ facilityId, floorId }: Props) {
   const [dirty, setDirty] = useState(false);
   const [rects, setRects] = useState<UnitRect[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Viewport (tamaño en px del contenedor) + transform (zoom/pan) del Stage.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<Konva.Stage>(null);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [scale, setScale] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const lastDist = useRef(0);
+  const lastCenter = useRef<{ x: number; y: number } | null>(null);
+  const didFit = useRef('');
 
   const floor = floors.data?.find((f) => f.id === floorId);
 
@@ -169,12 +187,99 @@ export function PlanEditor({ facilityId, floorId }: Props) {
     }
   }
 
-  const stageSize = useMemo(() => {
+  const sceneSize = useMemo(() => {
     if (planImage) {
       return { width: planImage.naturalWidth, height: planImage.naturalHeight };
     }
     return { width: 800, height: 600 };
   }, [planImage]);
+
+  // Medir el contenedor (responsive) con ResizeObserver.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setViewport({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Encaja la escena en el viewport (centrada, sin ampliar más del 100%).
+  const fitToViewport = useCallback(() => {
+    const { width: vw, height: vh } = viewport;
+    if (vw === 0 || vh === 0) return;
+    const s = Math.min(vw / sceneSize.width, vh / sceneSize.height);
+    const next = Number.isFinite(s) && s > 0 ? Math.min(s, 1) : 1;
+    setScale(next);
+    setPos({
+      x: (vw - sceneSize.width * next) / 2,
+      y: (vh - sceneSize.height * next) / 2,
+    });
+  }, [viewport, sceneSize.width, sceneSize.height]);
+
+  // Auto-encaje al medir por primera vez o al cambiar el plano de fondo.
+  useEffect(() => {
+    if (viewport.width === 0) return;
+    const key = `${sceneSize.width}x${sceneSize.height}`;
+    if (didFit.current === key) return;
+    didFit.current = key;
+    fitToViewport();
+  }, [viewport.width, viewport.height, sceneSize.width, sceneSize.height, fitToViewport]);
+
+  function zoomTo(newScaleRaw: number, center?: { x: number; y: number }) {
+    const c = center ?? { x: viewport.width / 2, y: viewport.height / 2 };
+    const newScale = clamp(newScaleRaw, MIN_SCALE, MAX_SCALE);
+    const pointTo = { x: (c.x - pos.x) / scale, y: (c.y - pos.y) / scale };
+    setScale(newScale);
+    setPos({ x: c.x - pointTo.x * newScale, y: c.y - pointTo.y * newScale });
+  }
+
+  function handleWheel(e: Konva.KonvaEventObject<WheelEvent>) {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    const pointer = stage?.getPointerPosition();
+    const factor = 1.08;
+    const next = e.evt.deltaY > 0 ? scale / factor : scale * factor;
+    zoomTo(next, pointer ?? undefined);
+  }
+
+  function handleTouchMove(e: Konva.KonvaEventObject<TouchEvent>) {
+    const t1 = e.evt.touches[0];
+    const t2 = e.evt.touches[1];
+    if (!t1 || !t2) return;
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (stage.isDragging()) stage.stopDrag();
+    const rect = stage.container().getBoundingClientRect();
+    const p1 = { x: t1.clientX - rect.left, y: t1.clientY - rect.top };
+    const p2 = { x: t2.clientX - rect.left, y: t2.clientY - rect.top };
+    const newCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (!lastDist.current || !lastCenter.current) {
+      lastDist.current = dist;
+      lastCenter.current = newCenter;
+      return;
+    }
+    const oldScale = scale;
+    const newScale = clamp(oldScale * (dist / lastDist.current), MIN_SCALE, MAX_SCALE);
+    const pointTo = { x: (newCenter.x - pos.x) / oldScale, y: (newCenter.y - pos.y) / oldScale };
+    const dx = newCenter.x - lastCenter.current.x;
+    const dy = newCenter.y - lastCenter.current.y;
+    setScale(newScale);
+    setPos({
+      x: newCenter.x - pointTo.x * newScale + dx,
+      y: newCenter.y - pointTo.y * newScale + dy,
+    });
+    lastDist.current = dist;
+    lastCenter.current = newCenter;
+  }
+
+  function handleTouchEnd() {
+    lastDist.current = 0;
+    lastCenter.current = null;
+  }
 
   if (units.isLoading) {
     return (
@@ -209,28 +314,48 @@ export function PlanEditor({ facilityId, floorId }: Props) {
         <Button onClick={saveLayout} disabled={!dirty || updateLayout.isPending}>
           <Save className="mr-1 h-4 w-4" /> Guardar layout
         </Button>
-        <span className="text-sm text-muted-foreground">
-          Arrastra los rectángulos para colocarlos sobre el plano. Snap a {GRID}px.
+        <span className="hidden text-sm text-muted-foreground sm:inline">
+          Arrastra los rectángulos para colocarlos. Snap a {GRID}px.
         </span>
       </div>
 
-      <div className="rounded-md border bg-muted/30 p-2 overflow-auto">
-        <Stage width={stageSize.width} height={stageSize.height}>
-          <Layer>
-            {planImage && (
-              <KonvaImage
-                image={planImage}
-                width={planImage.naturalWidth}
-                height={planImage.naturalHeight}
-                listening={false}
-              />
-            )}
-          </Layer>
-          <Layer>
-            {rects.map((r) => {
-              const isSelected = r.id === selectedId;
-              return (
-                <>
+      <div
+        ref={containerRef}
+        className="relative h-[55vh] w-full touch-none overflow-hidden rounded-md border bg-muted/30 sm:h-[65vh]"
+      >
+        {viewport.width > 0 && (
+          <Stage
+            ref={stageRef}
+            width={viewport.width}
+            height={viewport.height}
+            scaleX={scale}
+            scaleY={scale}
+            x={pos.x}
+            y={pos.y}
+            draggable
+            onWheel={handleWheel}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onDragEnd={(e) => {
+              if (e.target === stageRef.current) {
+                setPos({ x: e.target.x(), y: e.target.y() });
+              }
+            }}
+          >
+            <Layer>
+              {planImage && (
+                <KonvaImage
+                  image={planImage}
+                  width={planImage.naturalWidth}
+                  height={planImage.naturalHeight}
+                  listening={false}
+                />
+              )}
+            </Layer>
+            <Layer>
+              {rects.map((r) => {
+                const isSelected = r.id === selectedId;
+                return (
                   <Rect
                     key={r.id}
                     x={r.x}
@@ -252,20 +377,56 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                       setDirty(true);
                     }}
                   />
-                  <Text
-                    key={`label-${r.id}`}
-                    x={r.x + 4}
-                    y={r.y + 4}
-                    text={r.code}
-                    fontSize={11}
-                    fill="#fff"
-                    listening={false}
-                  />
-                </>
-              );
-            })}
-          </Layer>
-        </Stage>
+                );
+              })}
+              {rects.map((r) => (
+                <Text
+                  key={`label-${r.id}`}
+                  x={r.x + 4}
+                  y={r.y + 4}
+                  text={r.code}
+                  fontSize={11}
+                  fill="#fff"
+                  listening={false}
+                />
+              ))}
+            </Layer>
+          </Stage>
+        )}
+
+        {/* Controles de zoom flotantes (táctiles). */}
+        <div className="absolute bottom-2 right-2 flex flex-col gap-1">
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className="size-9 shadow"
+            onClick={() => zoomTo(scale * 1.2)}
+            aria-label="Acercar"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className="size-9 shadow"
+            onClick={() => zoomTo(scale / 1.2)}
+            aria-label="Alejar"
+          >
+            <Minus className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className="size-9 shadow"
+            onClick={fitToViewport}
+            aria-label="Ajustar a la pantalla"
+          >
+            <Maximize className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {selectedId &&
@@ -283,7 +444,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                     {fullUnit.basePriceMonthly.toFixed(2)} €
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={fullUnit.status} />
                   {fullUnit.status === 'available' && (
                     <>

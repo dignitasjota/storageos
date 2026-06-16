@@ -30,8 +30,8 @@ export default function SecurityDashboardPage() {
   const { data, isLoading, error } = useAdminSecurityStats(windowSel);
 
   return (
-    <div className="space-y-6 p-6">
-      <header className="flex items-center justify-between">
+    <div className="space-y-6 p-4 sm:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Dashboard de seguridad</h1>
           <p className="text-muted-foreground text-sm">
@@ -65,7 +65,7 @@ export default function SecurityDashboardPage() {
       {data && (
         <>
           {/* KPI cards */}
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
             <KpiCard label="Eventos totales" value={data.total} />
             <KpiCard label="Tipos distintos" value={data.byEventType.length} />
             <KpiCard label="IPs únicas" value={data.topIps.length} />

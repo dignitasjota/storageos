@@ -204,7 +204,7 @@ export default function TasksPage() {
   }
 
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Tareas</h1>
         <p className="text-sm text-muted-foreground">
@@ -311,7 +311,7 @@ export default function TasksPage() {
                       </FormItem>
                     )}
                   />
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="type"
@@ -359,7 +359,7 @@ export default function TasksPage() {
                       )}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="facilityId"
@@ -504,7 +504,7 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div>
                 <div className="text-muted-foreground">Estado</div>
                 <Badge variant={STATUS_LABELS[task.data.status].variant}>

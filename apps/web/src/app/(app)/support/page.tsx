@@ -67,7 +67,7 @@ export default function SupportPage() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Soporte</h1>

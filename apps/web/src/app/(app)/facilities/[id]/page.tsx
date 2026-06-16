@@ -32,7 +32,7 @@ export default function FacilityDetailPage() {
       : Math.round((facility.data.unitsOccupied / facility.data.unitsTotal) * 100);
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
           <Button variant="ghost" size="sm" asChild className="-ml-2">

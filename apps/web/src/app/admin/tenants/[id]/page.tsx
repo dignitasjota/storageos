@@ -76,7 +76,7 @@ export default function AdminTenantDetailPage() {
 
   if (!tenant.data) {
     return (
-      <div className="px-6 py-6 text-sm text-muted-foreground">
+      <div className="px-4 py-4 sm:px-6 sm:py-6 text-sm text-muted-foreground">
         No hemos podido cargar el tenant.
       </div>
     );
@@ -85,7 +85,7 @@ export default function AdminTenantDetailPage() {
   const t = tenant.data;
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -169,7 +169,7 @@ export default function AdminTenantDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Uso</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-3 gap-3 text-sm">
+          <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
             <Stat label="Usuarios" value={t.userCount} />
             <Stat label="Inquilinos" value={t.customerCount} />
             <Stat label="Contratos" value={t.contractCount} />

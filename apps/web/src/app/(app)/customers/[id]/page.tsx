@@ -47,7 +47,7 @@ export default function CustomerDetailPage() {
   const c = customer.data;
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <Button variant="ghost" size="sm" asChild className="-ml-2">
           <Link href="/customers">
@@ -102,7 +102,7 @@ export default function CustomerDetailPage() {
             <CardHeader>
               <CardTitle>Datos personales</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-3 text-sm">
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div>
                 <p className="text-muted-foreground">Email</p>
                 <p>{c.email ?? '—'}</p>

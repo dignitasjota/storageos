@@ -148,7 +148,7 @@ export default function BillingSettingsPage() {
               </DialogHeader>
               <Form {...form}>
                 <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="code"

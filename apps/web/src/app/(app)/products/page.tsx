@@ -78,7 +78,7 @@ const SALE_STATUS_LABELS: Record<
 
 export default function ProductsPage() {
   return (
-    <div className="space-y-4 px-6 py-6">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Productos</h1>
         <p className="text-sm text-muted-foreground">
@@ -230,7 +230,7 @@ function CatalogTab() {
             </DialogHeader>
             <Form {...form}>
               <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name="sku"
@@ -294,7 +294,7 @@ function CatalogTab() {
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name="price"
@@ -505,7 +505,7 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
   return (
     <Form {...form}>
       <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField
             control={form.control}
             name="facilityId"

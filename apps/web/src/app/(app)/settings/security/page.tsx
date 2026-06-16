@@ -262,7 +262,7 @@ export default function SecuritySettingsPage() {
             <CardDescription>{t('codesBody')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <ul className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-4 font-mono text-sm">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border bg-muted/30 p-4 font-mono text-sm">
               {showCodes.map((code) => (
                 <li key={code}>{code}</li>
               ))}
