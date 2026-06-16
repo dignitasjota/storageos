@@ -242,102 +242,33 @@ openssl rand -base64 24    # BACKUP_GPG_PASSPHRASE
 
 ### 5.2 Crear `/opt/storageos/.env.prod`
 
-`chmod 600` obligatorio. Plantilla mínima:
-
-```dotenv
-# ---------- Releases ----------
-RELEASE_TAG=v0.4.0
-
-# ---------- Dominios ----------
-WEB_BASE_URL=https://app.tu-dominio.com
-NEXT_PUBLIC_API_URL=https://api.tu-dominio.com
-ALLOWED_ORIGINS=https://app.tu-dominio.com
-
-# ---------- Postgres ----------
-POSTGRES_USER=storageos
-POSTGRES_PASSWORD=<openssl-1>
-POSTGRES_DB=storageos
-POSTGRES_APP_USER=storageos_app
-POSTGRES_APP_PASSWORD=<openssl-2>
-# Las DATABASE_URL definitivas las construye docker-compose.prod.yml,
-# pero las dejamos aqui por si necesitas conectarte desde un cliente.
-DATABASE_URL=postgresql://storageos_app:<openssl-2>@postgres:5432/storageos?schema=public
-DATABASE_ADMIN_URL=postgresql://storageos:<openssl-1>@postgres:5432/storageos?schema=public
-
-# ---------- Redis ----------
-REDIS_PASSWORD=<openssl-3>
-REDIS_DB=0
-
-# ---------- MinIO ----------
-MINIO_ROOT_USER=storageos
-MINIO_ROOT_PASSWORD=<openssl-4>
-MINIO_ACCESS_KEY=storageos
-MINIO_SECRET_KEY=<openssl-4>
-MINIO_BUCKET_UPLOADS=storageos-uploads
-MINIO_BUCKET_INVOICES=storageos-invoices
-MINIO_BUCKET_PLANS=storageos-plans
-MINIO_BUCKET_REPORTS=storageos-reports
-MINIO_PUBLIC_URL=https://files.tu-dominio.com
-MINIO_USE_SSL=true
-
-# ---------- JWT ----------
-JWT_ACCESS_SECRET=<openssl-jwt-1>
-JWT_ACCESS_TTL_SECONDS=900
-JWT_REFRESH_TTL_SECONDS=604800
-JWT_2FA_PENDING_SECRET=<openssl-jwt-2>
-JWT_2FA_PENDING_TTL_SECONDS=300
-SUPER_ADMIN_JWT_SECRET=<openssl-jwt-3>
-SUPER_ADMIN_JWT_TTL_SECONDS=28800
-IMPERSONATION_TTL_SECONDS=3600
-
-# ---------- Cifrado simétrico AES-256-GCM ----------
-MASTER_ENCRYPTION_KEY=<openssl-base64-32-bytes>
-
-# ---------- Cookies ----------
-COOKIE_DOMAIN=.tu-dominio.com
-COOKIE_SECURE=true
-COOKIE_SAMESITE=lax
-
-# ---------- Stripe ----------
-STRIPE_SECRET_KEY=sk_live_xxxxxxxx
-STRIPE_PUBLISHABLE_KEY=pk_live_xxxxxxxx
-STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxx
-
-# ---------- Verifactu ----------
-AEAT_MODE=sandbox          # sandbox para piloto, production cuando esté listo
-AEAT_TENANT_TAX_ID=B12345678
-
-# ---------- Email (Resend) ----------
-EMAIL_PROVIDER=resend
-EMAIL_FROM_NAME=StorageOS
-EMAIL_FROM_ADDRESS=no-reply@tu-dominio.com
-RESEND_API_KEY=re_xxxxxxxx
-
-# ---------- WhatsApp (Fase 5 stub hasta WABA) ----------
-WHATSAPP_PROVIDER=stub
-
-# ---------- Locks (Fase 7 stub) ----------
-LOCK_PROVIDER=stub
-
-# ---------- Logger ----------
-LOG_LEVEL=info
-LOG_PRETTY=false
-
-# ---------- Backups ----------
-BACKUP_GPG_PASSPHRASE=<openssl-backup>
-BACKUP_LOCAL_DIR=/opt/storageos/backups
-BACKUP_RETENTION_DAYS=30
-B2_BUCKET=storageos-backups
-B2_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
-B2_REGION=eu-central-003
-B2_ACCESS_KEY_ID=<keyID>
-B2_SECRET_ACCESS_KEY=<applicationKey>
-```
+La **plantilla completa y mantenida** vive en la raíz del repo como
+[`.env.prod.example`](../.env.prod.example) — es la fuente única de verdad
+(derivada de `apps/api/src/config/env.schema.ts`, el compose de prod y los
+scripts de backup). Cópiala y rellena cada `<PLACEHOLDER>`:
 
 ```bash
+cd /opt/storageos
+cp .env.prod.example .env.prod
+$EDITOR .env.prod   # pega los secretos generados en 5.1
+
 chmod 600 /opt/storageos/.env.prod
 chown deploy:deploy /opt/storageos/.env.prod
 ```
+
+Notas:
+
+- Variables marcadas `[OBLIGATORIO]` en la plantilla: el API valida el entorno
+  con Zod al arrancar y **no levanta** si falta o es inválida alguna.
+- `RELEASE_TAG` etiqueta las imágenes; ponlo al tag de git que despliegas
+  (o `main`).
+- Para el **primer arranque** puedes empezar con `AEAT_MODE=stub` y claves
+  **Stripe test** (`sk_test_`/`pk_test_`), validar todo, y luego cambiar a
+  `sandbox`/`production` y claves `live`.
+- El compose sobreescribe `DATABASE_URL`, `DATABASE_ADMIN_URL`, `REDIS_*`,
+  `MINIO_ENDPOINT/PORT/USE_SSL` y `ENABLE_WORKERS_IN_API` con los hostnames
+  internos; aun así déjalas coherentes en el fichero (las usan el servicio
+  `migrate`, los backups y clientes manuales).
 
 ---
 
@@ -408,11 +339,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f api web
 
 ## 7. Tenant inicial y super admin
 
-El registro público crea un tenant + owner, pero el primer super admin se inyecta manualmente. Hasta tener un script dedicado en Fase 8D:
+El registro público crea un tenant + owner, pero el primer super admin se inyecta manualmente.
+
+> ⚠️ El script `pnpm --filter @storageos/database seed:superadmin` usa `tsx` +
+> los fuentes TypeScript, que **no existen en la imagen de producción**
+> (compilada). En el VPS usa el `node -e` de abajo, que se apoya en el cliente
+> Prisma ya compilado dentro de la imagen del API.
 
 ```bash
-# Crear super admin desde psql (el seed lo hará automáticamente si lo invocas con
-# SEED_SUPERADMIN_EMAIL/PASSWORD definidos en .env.prod en Fase 8D).
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
   node -e "
     const argon2 = require('@node-rs/argon2');
@@ -422,15 +356,20 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
       const hash = await argon2.hash('CAMBIAR_INMEDIATAMENTE', { algorithm: argon2.Algorithm.Argon2id });
       await prisma.superAdmin.upsert({
         where: { email: 'tu@correo.com' },
-        update: { passwordHash: hash },
-        create: { email: 'tu@correo.com', passwordHash: hash, name: 'Owner' },
+        update: { passwordHash: hash, role: 'superadmin', isActive: true },
+        create: { email: 'tu@correo.com', passwordHash: hash, fullName: 'Owner', role: 'superadmin' },
       });
       console.log('Super admin OK');
+      await prisma.\$disconnect();
     })();
   "
 ```
 
-Luego entrar en `https://app.tu-dominio.com/super-admin/login`, cambiar la contraseña y activar 2FA.
+> Campos del modelo `SuperAdmin`: `fullName` (no `name`) y `role` con default
+> `support`. Para el primer admin **debe** ser `role: 'superadmin'`, o no podrá
+> gestionar la plataforma.
+
+Luego entrar en `https://app.tu-dominio.com/admin/login`, cambiar la contraseña y activar 2FA.
 
 ---
 
