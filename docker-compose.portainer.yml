@@ -19,7 +19,12 @@ name: storageos-prod
 #     - Compose path: docker-compose.portainer.yml
 #     - Environment variables: define las del bloque de abajo marcadas ${...}
 #       (genera los secretos con el bloque openssl del README de deploy).
-#   Deploy. Para actualizar: "Pull and redeploy".
+#   Deploy. Para actualizar: "Pull and redeploy" (re-clona el repo y
+#   reconstruye; marca "re-build" si Portainer lo ofrece).
+#
+# NOTA: api/worker/web/migrate se CONSTRUYEN localmente (sin `image:`), no se
+# descargan de ningun registry. Por eso `docker compose pull` los ignora y no
+# falla con "pull access denied" (solo baja postgres/redis/minio).
 #
 # Requiere Docker Compose v2.20+ (service_completed_successfully).
 # =============================================================================
@@ -179,8 +184,13 @@ services:
     restart: 'no'
 
   # Aplica migraciones Prisma con el rol admin (bypass RLS) y sale. Idempotente.
+  # Build propio (mismo Dockerfile que la API, con el CLI prisma): asi NO hay
+  # `image:` que Portainer intente descargar de un registry inexistente. La
+  # cache de capas reusa el build de la API, asi que es casi instantaneo.
   migrate:
-    image: storageos/api:${RELEASE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     working_dir: /app/node_modules/@storageos/database
     entrypoint: ['/bin/sh', '-c']
     command:
@@ -201,7 +211,6 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    image: storageos/api:${RELEASE_TAG:-latest}
     restart: unless-stopped
     environment:
       <<: *app-env
@@ -228,7 +237,6 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
-    image: storageos/worker:${RELEASE_TAG:-latest}
     restart: unless-stopped
     environment:
       <<: *app-env
@@ -250,7 +258,6 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-    image: storageos/web:${RELEASE_TAG:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
