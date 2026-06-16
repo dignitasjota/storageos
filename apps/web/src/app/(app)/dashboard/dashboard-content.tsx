@@ -100,20 +100,6 @@ export function DashboardContent() {
       <BillingMetricsCard />
 
       <OccupancyCard />
-
-      <section className="grid gap-4 md:grid-cols-2">
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">{t('cards.empty.customers.title')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <p className="text-3xl font-semibold tabular-nums">
-              {t('cards.empty.customers.value')}
-            </p>
-            <p className="text-xs text-muted-foreground">{t('cards.empty.customers.hint')}</p>
-          </CardContent>
-        </Card>
-      </section>
     </div>
   );
 }

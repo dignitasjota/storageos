@@ -626,18 +626,6 @@
       "tenant": {
         "title": "Tu empresa",
         "slug": "Subdominio: {slug}"
-      },
-      "empty": {
-        "facilities": {
-          "title": "Locales",
-          "value": "0 / {max}",
-          "hint": "Añade tu primer local cuando tengamos la Fase 2."
-        },
-        "customers": {
-          "title": "Inquilinos",
-          "value": "0",
-          "hint": "Importa o crea inquilinos en la Fase 3."
-        }
       }
     }
   }

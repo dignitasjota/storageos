@@ -355,16 +355,26 @@ Bloque construido tras Fase 16 al preparar el despliegue real: el medio de pago 
 
 **Resultado**: el SaaS cobra por SEPA (medio dominante en España) y tarjeta, deja que el inquilino pague desde su portal, puede auto-cobrar al emitir, es idempotente frente a reintentos de Stripe, reporta errores a Sentry, expone un readiness probe real y un health del worker, y arranca limpio en una BD desde cero. **Sigue sin haber TODOs ni tests skipped.** Pendiente: alerta Grafana sobre `/api/csp-report` (externo). Lo único que queda para facturar de verdad es **operativo, no código**: desplegar el VPS + dry-run AEAT sandbox con cert FNMT real.
 
+## Despliegue en producción ✅ (2026-06-16)
+
+Primer despliegue real sobre **VPS con Portainer + Nginx Proxy Manager** (stack de tipo Repository: Portainer clona el repo y construye las imágenes con `docker-compose.portainer.yml`). Se sanearon los Dockerfiles de producción (que nunca se habían construido end-to-end) y se añadió `apps/api/src/scripts/bootstrap.ts` (siembra de planes + super admin, idempotente). App viva sobre un dominio de prueba. Detalle en `docs/DEPLOYMENT.md` (§6B Portainer, §7 bootstrap). **Pendiente para el primer cliente real (operativo, no código):** Resend con dominio definitivo (hoy `RESEND_API_KEY` inválida), Stripe live + webhook, cert FNMT + `AEAT_MODE` sandbox→production, Uptime Kuma a `/health/ready` y `/health/worker`, y cron de backups a Backblaze B2.
+
 ## Backlog / Post-MVP
 
 - App móvil (React Native o PWA)
-- WhatsApp Business API
+- WhatsApp Business API real (hoy `WHATSAPP_PROVIDER=stub`)
+- Control de accesos físico real en producción (proveedor MQTT; hoy `LOCK_PROVIDER=stub`)
+- KPI de inquilinos en el dashboard (la tarjeta placeholder se eliminó; falta el KPI real)
+- Apps separadas: portal del inquilino y panel super admin (hoy son rutas dentro de `apps/web`)
+- Dashboards Grafana/Loki sobre `security_events` y `super_admin_audit_logs` + alerta sobre `/api/csp-report`
+- Más endpoints públicos `/v1/integrations/*` (la API pública + webhooks HMAC ya existe desde Fase 14-15; falta ampliar catálogo según el primer integrador)
 - Marketplace público de trasteros
-- API pública + webhooks
 - IA: predicción de churn, recomendación de precios
-- Multi-idioma completo
+- Multi-idioma completo (i18n ya montado con next-intl; hoy solo `es-ES`)
 - Firma biométrica en tablet
 - Integración con software contable español (Holded, A3)
+
+> Nota: **API pública + webhooks** ya NO es backlog — se implementó en las Fases 14 (API keys + webhooks HMAC salientes) y 15 (scopes enforced + retry manual + dashboard de deliveries). La limpieza de `webhook_deliveries` también es ya un cron (`WebhooksCleanupService`).
 
 ## Criterio de "MVP listo para vender"
 
