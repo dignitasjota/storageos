@@ -337,6 +337,54 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f api web
 
 ---
 
+## 6B. Despliegue alternativo: Portainer (Git stack, 100% automático)
+
+Si prefieres no usar SSH, `docker-compose.portainer.yml` está pensado para
+desplegarse desde Portainer como **stack de tipo Repository**, con las
+variables en la sección _Environment variables_ de Portainer (no `.env.prod`).
+Automatiza los tres pasos imperativos del arranque:
+
+- **Rol Postgres + extensiones + default privileges** → `scripts/pg-init-prod.sh`
+  (init de Postgres, solo en BD virgen). Gracias al `ALTER DEFAULT PRIVILEGES`,
+  las tablas que cree `migrate` (rol admin) heredan los permisos del rol app
+  automáticamente — sin paso de grants manual.
+- **Migraciones** → servicio `migrate`; `api`/`worker` esperan con
+  `service_completed_successfully`.
+- **Buckets MinIO** → init-container `createbuckets`.
+
+### Pasos
+
+1. **Commitea y pushea** `docker-compose.portainer.yml` y `scripts/pg-init-prod.sh`
+   (Portainer clona el repo; los lee de ahí).
+2. En Portainer: **Stacks → Add stack → Repository**.
+   - Repository URL: tu repo. Reference: `refs/heads/main` (o el tag).
+   - Compose path: `docker-compose.portainer.yml`.
+3. **Environment variables**: añade las del bloque `x-app-env`/servicios marcadas
+   `${...}` sin default — como mínimo: `POSTGRES_USER/PASSWORD/DB`,
+   `POSTGRES_APP_USER/PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER/PASSWORD`,
+   `JWT_ACCESS_SECRET`, `JWT_2FA_PENDING_SECRET`, `MASTER_ENCRYPTION_KEY`,
+   `SUPER_ADMIN_JWT_SECRET`, `NEXT_PUBLIC_API_URL`, `WEB_BASE_URL`,
+   `ALLOWED_ORIGINS`, `COOKIE_DOMAIN`. Las demás tienen default (las cambias
+   cuando actives Stripe/Resend/AEAT). **No** definas `SENTRY_DSN` ni
+   `SECURITY_ALERT_EMAIL` vacías (validación de formato estricta: o un valor
+   válido, o ausentes).
+4. **Deploy**. Portainer construye las imágenes (api/worker/web), levanta la
+   infra, corre el init de Postgres + `migrate` + `createbuckets`, y arranca
+   api/web/worker. `migrate` y `createbuckets` quedan en `exited (0)`: es normal.
+5. Conecta NPM a la red (la otra app sigue en `npm-net`):
+   `docker network connect storageos-net <contenedor-npm>`.
+
+### Notas
+
+- Los secretos viven en Portainer (su BD), **nunca** en el repo.
+- Para actualizar: **Pull and redeploy**. Si cambias `NEXT_PUBLIC_API_URL`
+  (build-arg del frontend) marca la opción de **re-build**.
+- Construir 3 imágenes en un CX22 (4 GB) tira de swap; ten el swapfile de la
+  sección 1.6 activo.
+- El `migrate dev` nunca; aquí solo corre `migrate deploy` (idempotente).
+
+---
+
 ## 7. Tenant inicial y super admin
 
 El registro público crea un tenant + owner, pero el primer super admin se inyecta manualmente.
