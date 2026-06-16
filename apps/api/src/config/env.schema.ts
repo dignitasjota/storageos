@@ -69,7 +69,10 @@ export const envSchema = z.object({
    *  En produccion con `apps/worker` separado, poner a `false` para evitar
    *  que los crons se disparen dos veces (API + worker) -> duplicados de
    *  facturas, emails, dunning, etc. Ver `config/workers-enabled.ts`. */
-  ENABLE_WORKERS_IN_API: z.coerce.boolean().default(true),
+  ENABLE_WORKERS_IN_API: z
+    .union([z.literal('true'), z.literal('false')])
+    .default('true')
+    .transform((v) => v === 'true'),
 
   // --- Stripe ---
   STRIPE_SECRET_KEY: z.string().default('sk_test_dummy'),
@@ -183,7 +186,10 @@ export const envSchema = z.object({
    *  default es `false`; cuando lo activamos para inspeccion temporal,
    *  recuerda exigir auth a nivel de Nginx Proxy Manager. En dev/test
    *  siempre se monta independientemente del valor (ver `main.ts`). */
-  OPENAPI_ENABLED: z.coerce.boolean().default(false),
+  OPENAPI_ENABLED: z
+    .union([z.literal('true'), z.literal('false')])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   // --- Sentry ---
   /** DSN del proyecto Sentry. Sin valor, Sentry es un no-op total (dev/test
