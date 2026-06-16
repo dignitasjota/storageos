@@ -83,7 +83,14 @@ RUN pnpm --filter @storageos/shared build \
  && pnpm --filter worker build
 
 # Pruning: dejamos solo dependencias de produccion del workspace worker.
-RUN pnpm --filter worker --prod deploy /out
+RUN pnpm --filter worker --prod deploy /out \
+ # `pnpm deploy` NO incluye de forma fiable el Prisma client generado
+ # (.prisma/client) — deja el stub -> "@prisma/client did not initialize".
+ # Copiamos el client ya generado por el build de database al /out.
+ && PRISMA_SRC="$(find /repo/node_modules/.pnpm -type d -path '*@prisma+client@*/node_modules/.prisma' | head -1)" \
+ && PRISMA_DST="$(find /out/node_modules/.pnpm -type d -path '*@prisma+client@*/node_modules' | head -1)/.prisma" \
+ && rm -rf "$PRISMA_DST" && cp -r "$PRISMA_SRC" "$PRISMA_DST" \
+ && echo "[prisma] client generado copiado a /out"
 
 # -----------------------------------------------------------------------------
 # Stage 3: runner - Imagen final.
