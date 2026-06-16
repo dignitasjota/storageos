@@ -22,6 +22,11 @@ export class MqttLockProvider extends LockProvider implements OnModuleInit, OnMo
   private readonly username: string;
   private readonly password: string;
   private readonly topicPrefix: string;
+  /** Solo conectamos al broker si MQTT es el provider activo. El módulo
+   *  instancia este provider aunque `LOCK_PROVIDER=stub` (lo necesita el
+   *  factory de `LOCK_PROVIDER`); sin esto se conectaría igual y haría spam
+   *  de reintentos contra un broker inexistente. */
+  private readonly enabled: boolean;
 
   constructor(config: ConfigService<Env, true>) {
     super();
@@ -29,6 +34,7 @@ export class MqttLockProvider extends LockProvider implements OnModuleInit, OnMo
     this.username = config.get('MQTT_USERNAME', { infer: true });
     this.password = config.get('MQTT_PASSWORD', { infer: true });
     this.topicPrefix = config.get('MQTT_TOPIC_PREFIX', { infer: true });
+    this.enabled = config.get('LOCK_PROVIDER', { infer: true }) === 'mqtt';
   }
 
   get name(): string {
@@ -36,6 +42,10 @@ export class MqttLockProvider extends LockProvider implements OnModuleInit, OnMo
   }
 
   async onModuleInit(): Promise<void> {
+    if (!this.enabled) {
+      this.logger.log('[mqtt] LOCK_PROVIDER != mqtt; no se conecta al broker');
+      return;
+    }
     await this.start();
   }
 
