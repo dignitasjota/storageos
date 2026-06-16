@@ -67,9 +67,11 @@
 
 ## Salud
 
-| Metodo | Ruta      | Auth | Descripcion                              |
-| ------ | --------- | ---- | ---------------------------------------- |
-| GET    | `/health` | NO   | Liveness probe. `{ status, timestamp }`. |
+| Metodo | Ruta             | Auth | Descripcion                                                                                                                                               |
+| ------ | ---------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/health`        | NO   | Liveness probe. `{ status, timestamp }`.                                                                                                                  |
+| GET    | `/health/ready`  | NO   | Readiness: `SELECT 1` a Postgres + `PING` a Redis. 503 con `details: { database, redis }` si algo cae. **Uptime Kuma debe apuntar aquí**, no a `/health`. |
+| GET    | `/health/worker` | NO   | Heartbeat del worker (`workers:heartbeat` en Redis, TTL 3 min). 503 `worker_stale` si falta el latido.                                                    |
 
 ---
 
