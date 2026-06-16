@@ -207,6 +207,31 @@ services:
       - storageos-net
     restart: 'no'
 
+  # Siembra datos iniciales (planes free/starter/pro siempre; super admin si
+  # defines BOOTSTRAP_SUPERADMIN_EMAIL/PASSWORD). Idempotente, corre tras
+  # migrate y sale. Equivale al `pnpm db:seed` que no puede correr en prod.
+  bootstrap:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    working_dir: /app
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - node dist/scripts/bootstrap.js
+    environment:
+      DATABASE_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      BOOTSTRAP_SUPERADMIN_EMAIL: ${BOOTSTRAP_SUPERADMIN_EMAIL:-}
+      BOOTSTRAP_SUPERADMIN_PASSWORD: ${BOOTSTRAP_SUPERADMIN_PASSWORD:-}
+      BOOTSTRAP_SUPERADMIN_NAME: ${BOOTSTRAP_SUPERADMIN_NAME:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - storageos-net
+    restart: 'no'
+
   api:
     build:
       context: .

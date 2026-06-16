@@ -385,39 +385,48 @@ Automatiza los tres pasos imperativos del arranque:
 
 ---
 
-## 7. Tenant inicial y super admin
+## 7. Bootstrap: planes de suscripción + super admin
 
-El registro público crea un tenant + owner, pero el primer super admin se inyecta manualmente.
+`pnpm db:seed` (que crea planes y datos demo) **no puede correr en producción**:
+usa `tsx` + los fuentes TS, que no están en la imagen compilada. En su lugar
+hay un script de bootstrap idempotente, `apps/api/src/scripts/bootstrap.ts`,
+que se compila a `dist/scripts/bootstrap.js` dentro de la imagen del API y:
 
-> ⚠️ El script `pnpm --filter @storageos/database seed:superadmin` usa `tsx` +
-> los fuentes TypeScript, que **no existen en la imagen de producción**
-> (compilada). En el VPS usa el `node -e` de abajo, que se apoya en el cliente
-> Prisma ya compilado dentro de la imagen del API.
+1. Siembra los planes `free`/`starter`/`pro`. **Imprescindible**: el registro
+   de un tenant exige el plan `starter`; sin él, falla con
+   _"Configuracion de planes incompleta"_.
+2. Crea el super admin inicial **si** defines `BOOTSTRAP_SUPERADMIN_EMAIL` y
+   `BOOTSTRAP_SUPERADMIN_PASSWORD` (no resetea la password si el admin ya
+   existe).
 
-```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec api \
-  node -e "
-    const argon2 = require('@node-rs/argon2');
-    const { PrismaClient } = require('@prisma/client');
-    (async () => {
-      const prisma = new PrismaClient();
-      const hash = await argon2.hash('CAMBIAR_INMEDIATAMENTE', { algorithm: argon2.Algorithm.Argon2id });
-      await prisma.superAdmin.upsert({
-        where: { email: 'tu@correo.com' },
-        update: { passwordHash: hash, role: 'superadmin', isActive: true },
-        create: { email: 'tu@correo.com', passwordHash: hash, fullName: 'Owner', role: 'superadmin' },
-      });
-      console.log('Super admin OK');
-      await prisma.\$disconnect();
-    })();
-  "
+### 7.1 Automático (recomendado, Portainer)
+
+`docker-compose.portainer.yml` incluye un servicio one-shot `bootstrap` que
+corre tras `migrate` en cada deploy. Define en las _Environment variables_ de
+Portainer (ver `.env.prod.example`):
+
+```ini
+BOOTSTRAP_SUPERADMIN_EMAIL=tu@correo.com
+BOOTSTRAP_SUPERADMIN_PASSWORD=<contraseña fuerte>
+BOOTSTRAP_SUPERADMIN_NAME=Owner
 ```
 
-> Campos del modelo `SuperAdmin`: `fullName` (no `name`) y `role` con default
-> `support`. Para el primer admin **debe** ser `role: 'superadmin'`, o no podrá
-> gestionar la plataforma.
+En el redeploy verás en sus logs `[bootstrap] planes OK: free, starter, pro` y
+`[bootstrap] super admin OK: ...`. Es idempotente: correr de nuevo no duplica.
 
-Luego entrar en `https://app.tu-dominio.com/admin/login`, cambiar la contraseña y activar 2FA.
+### 7.2 Manual (CLI / consola del contenedor)
+
+```bash
+docker exec \
+  -e BOOTSTRAP_SUPERADMIN_EMAIL=tu@correo.com \
+  -e BOOTSTRAP_SUPERADMIN_PASSWORD='contraseña fuerte' \
+  $(docker ps -qf name=api | head -1) node dist/scripts/bootstrap.js
+```
+
+(Sin las dos env de super admin, solo siembra los planes.)
+
+Luego entra en `https://app.tu-dominio.com/admin/login`, cambia la contraseña y
+**activa el 2FA**.
 
 ---
 
