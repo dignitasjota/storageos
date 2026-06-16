@@ -24,6 +24,9 @@ FROM node:${NODE_VERSION}-bookworm-slim AS deps
 ARG PNPM_VERSION
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Puppeteer usa el Chromium del sistema (instalado en el runner); evita que su
+# postinstall descargue uno durante `pnpm install` (falla en la imagen slim).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Habilita corepack y fija la version de pnpm declarada en package.json.
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
@@ -47,6 +50,7 @@ COPY turbo.json tsconfig.json ./
 # Manifests de cada workspace (sin codigo fuente todavia).
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY apps/worker/package.json ./apps/worker/
 COPY packages/database/package.json ./packages/database/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/ui/package.json ./packages/ui/
@@ -126,13 +130,10 @@ COPY --from=builder --chown=api:nodejs /out/node_modules ./node_modules
 COPY --from=builder --chown=api:nodejs /out/package.json ./package.json
 COPY --from=builder --chown=api:nodejs /repo/apps/api/dist ./dist
 
-# Prisma client + engines (binarios necesarios en runtime).
-# pnpm deploy normalmente los copia, pero los duplicamos por si el
-# pruning agresivo los hubiera dejado fuera del closure de produccion.
-COPY --from=builder --chown=api:nodejs /repo/packages/database/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=api:nodejs /repo/packages/database/dist ./node_modules/@storageos/database/dist
-COPY --from=builder --chown=api:nodejs /repo/packages/database/package.json ./node_modules/@storageos/database/package.json
-COPY --from=builder --chown=api:nodejs /repo/packages/database/prisma ./node_modules/@storageos/database/prisma
+# Nota: el Prisma client + engines, el dist de @storageos/database, su
+# schema y las migraciones YA vienen en /out/node_modules via `pnpm deploy`
+# (verificado). El CLI `prisma` tambien (es dependency de @storageos/database),
+# para que el servicio `migrate` pueda correr `migrate deploy` con esta imagen.
 
 USER api
 

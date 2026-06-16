@@ -21,6 +21,9 @@ FROM node:${NODE_VERSION}-bookworm-slim AS deps
 ARG PNPM_VERSION
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Puppeteer (dependencia del workspace) usa el Chromium del sistema; evita que
+# su postinstall descargue uno durante `pnpm install` (falla en la imagen slim).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 
@@ -40,6 +43,7 @@ COPY turbo.json tsconfig.json ./
 
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY apps/worker/package.json ./apps/worker/
 COPY packages/database/package.json ./packages/database/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/ui/package.json ./packages/ui/

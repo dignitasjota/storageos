@@ -26,6 +26,9 @@ FROM node:${NODE_VERSION}-bookworm-slim AS deps
 ARG PNPM_VERSION
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+# Puppeteer usa el Chromium del sistema (instalado en el runner); evita que su
+# postinstall descargue uno durante `pnpm install` (falla en la imagen slim).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 
@@ -110,11 +113,8 @@ COPY --from=builder --chown=worker:nodejs /out/node_modules ./node_modules
 COPY --from=builder --chown=worker:nodejs /out/package.json ./package.json
 COPY --from=builder --chown=worker:nodejs /repo/apps/worker/dist ./dist
 
-# Prisma client + engines (binarios necesarios en runtime).
-COPY --from=builder --chown=worker:nodejs /repo/packages/database/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=worker:nodejs /repo/packages/database/dist ./node_modules/@storageos/database/dist
-COPY --from=builder --chown=worker:nodejs /repo/packages/database/package.json ./node_modules/@storageos/database/package.json
-COPY --from=builder --chown=worker:nodejs /repo/packages/database/prisma ./node_modules/@storageos/database/prisma
+# Nota: Prisma client + engines + dist/schema/migraciones de @storageos/database
+# ya vienen en /out/node_modules via `pnpm deploy` (verificado).
 
 USER worker
 
