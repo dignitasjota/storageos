@@ -43,6 +43,11 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Playwright (output generado)
+playwright-report/
+test-results/
+.playwright/
+
 # Docker volumes (locales)
 docker/volumes/
 

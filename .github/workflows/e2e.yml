@@ -12,6 +12,7 @@ concurrency:
 
 jobs:
   playwright:
+    name: Smoke E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -114,6 +115,15 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
 
+      # El smoke test 04 (super admin + impersonación) necesita un super admin
+      # precreado. Sin esto el gate sería rojo permanentemente.
+      - name: Seed super admin
+        run: >-
+          pnpm --filter @storageos/database seed:superadmin --
+          --email admin@storageos.local --password 'Admin69!' --name 'Admin E2E'
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
       - name: Install Playwright browsers
         run: pnpm -F web exec playwright install --with-deps chromium
 
@@ -123,35 +133,43 @@ jobs:
       - name: Build web (standalone)
         run: pnpm -F web build
 
-      - name: Start API in background
-        run: pnpm -F api start &
-        env:
-          NODE_ENV: production
-
-      - name: Wait for API
+      # Arrancamos API + web en background con logs a fichero. Las esperas
+      # FALLAN (exit 1) si el servicio no responde a tiempo: como gate
+      # bloqueante, preferimos un fallo claro a un Playwright con errores
+      # confusos de conexión.
+      - name: Start servers (background)
         run: |
-          for i in {1..30}; do
-            if curl -fs http://localhost:3001/health; then echo "API up"; break; fi
-            sleep 2
-          done
+          NODE_ENV=production pnpm -F api start > /tmp/api.log 2>&1 &
+          NEXT_PUBLIC_API_URL=http://localhost:3001 PORT=3000 pnpm -F web start > /tmp/web.log 2>&1 &
 
-      - name: Start web in background
-        run: pnpm -F web start &
-        env:
-          NEXT_PUBLIC_API_URL: http://localhost:3001
-          PORT: '3000'
-
-      - name: Wait for web
+      - name: Wait for API + web (fail fast)
         run: |
-          for i in {1..30}; do
-            if curl -fs http://localhost:3000; then echo "Web up"; break; fi
-            sleep 2
-          done
+          wait_for() {
+            local name="$1" url="$2" log="$3"
+            for i in $(seq 1 60); do
+              if curl -fs "$url" >/dev/null 2>&1; then echo "$name up"; return 0; fi
+              sleep 2
+            done
+            echo "::error::$name no arrancó tras 120s"; echo "--- $log ---"; cat "$log" || true
+            return 1
+          }
+          wait_for API http://localhost:3001/health /tmp/api.log
+          wait_for Web http://localhost:3000 /tmp/web.log
 
       - name: Run Playwright tests
         run: pnpm -F web test:e2e
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:3000
+          PLAYWRIGHT_API_URL: http://localhost:3001
+          MAILPIT_API_URL: http://localhost:8026/api/v1
+          E2E_ADMIN_EMAIL: admin@storageos.local
+          E2E_ADMIN_PASSWORD: 'Admin69!'
+
+      - name: Server logs (on failure)
+        if: failure()
+        run: |
+          echo "=== API log ==="; cat /tmp/api.log || true
+          echo "=== Web log ==="; cat /tmp/web.log || true
 
       - name: Upload Playwright report
         if: always()
