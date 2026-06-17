@@ -176,19 +176,9 @@ jobs:
           --health-timeout=3s
           --health-retries=10
 
-      # bitnami/minio arranca el server automáticamente (MinIO oficial no se
-      # puede usar como `services:` porque requiere `command: server /data`,
-      # que la sintaxis de services no soporta). El test de reports sube un
-      # xlsx real al bucket `storageos-reports`. Mapeado a 9010 para casar con
-      # los defaults de env.schema (MINIO_ENDPOINT=localhost, MINIO_PORT=9010).
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: ci-minio-access
-          MINIO_ROOT_PASSWORD: ci-minio-secret-dev-only
-          MINIO_DEFAULT_BUCKETS: storageos-uploads,storageos-invoices,storageos-plans,storageos-reports
-        ports:
-          - 9010:9000
+      # MinIO se arranca con `docker run` en un step (no como service): la
+      # imagen oficial requiere `command: server /data`, que la sintaxis de
+      # `services:` no soporta. Ver step "Start MinIO" abajo.
 
     env:
       # Secrets en CI no son sensibles (son tests); estos valores reproducen
@@ -268,16 +258,21 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
 
-      # bitnami/minio no expone health-cmd fiable; esperamos desde el runner.
-      - name: Wait for MinIO
+      # MinIO oficial vía docker run (control del command). FilesService crea
+      # los buckets al arrancar la app, así que solo necesita estar accesible.
+      - name: Start MinIO
         run: |
+          docker run -d --name minio -p 9010:9000 \
+            -e MINIO_ROOT_USER=ci-minio-access \
+            -e MINIO_ROOT_PASSWORD=ci-minio-secret-dev-only \
+            minio/minio:latest server /data
           for i in $(seq 1 30); do
             if curl -fs http://localhost:9010/minio/health/live >/dev/null 2>&1; then
               echo "MinIO up"; exit 0
             fi
             sleep 2
           done
-          echo "::error::MinIO no respondió en 60s"; exit 1
+          echo "::error::MinIO no respondió en 60s"; docker logs minio || true; exit 1
 
       # El script `test:e2e` ya incluye `--runInBand`; pasar `-- --runInBand`
       # extra hacía que jest lo tratara como patrón de ruta → "No tests found".
