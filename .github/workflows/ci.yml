@@ -68,6 +68,12 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          # `NEXT_PUBLIC_*` se inyecta en build-time; varias páginas (p. ej.
+          # /units/import, /contracts/import) leen NEXT_PUBLIC_API_URL al cargar
+          # el módulo y el prerender falla si no está. Valor dummy: solo se
+          # valida que exista; en prod la inyecta el build de Docker.
+          NEXT_PUBLIC_API_URL: http://localhost:3001
 
   test-database:
     name: Tests database (Vitest)
@@ -112,6 +118,13 @@ jobs:
 
       - name: Apply migrations (admin role + storageos_app + RLS)
         run: pnpm -F @storageos/database migrate:deploy
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
+      # seed.test.ts y rls.test.ts (subscription_plans) leen datos sembrados;
+      # sin esto fallan con tablas vacías.
+      - name: Seed demo data
+        run: pnpm db:seed
         env:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
 
@@ -221,10 +234,24 @@ jobs:
       - name: Build shared package
         run: pnpm -F @storageos/shared build
 
+      # Jest resuelve `@storageos/database` por node (→ dist/), así que el
+      # paquete debe estar compilado (el tsconfig raíz mapea a src solo para
+      # typecheck, no para el runtime de jest).
+      - name: Build database package
+        run: pnpm -F @storageos/database build
+
       - name: Apply migrations (crea storageos_app + RLS)
         run: pnpm -F @storageos/database migrate:deploy
         env:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
 
+      # `register` exige el plan `starter`; sin seed devuelve 500.
+      - name: Seed demo data
+        run: pnpm db:seed
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
+      # El script `test:e2e` ya incluye `--runInBand`; pasar `-- --runInBand`
+      # extra hacía que jest lo tratara como patrón de ruta → "No tests found".
       - name: Run API e2e tests
-        run: pnpm -F api test:e2e -- --runInBand
+        run: pnpm -F api test:e2e
