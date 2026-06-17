@@ -36,6 +36,7 @@ import { LeadsModule } from './modules/leads/leads.module';
 import { MoveInModule } from './modules/move-in/move-in.module';
 import { OperationsModule } from './modules/operations/operations.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { RedsysModule } from './modules/payments/redsys/redsys.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ProductsModule } from './modules/products/products.module';
 import { QueuesModule } from './modules/queues/queues.module';
@@ -145,6 +146,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ImportsModule,
     MoveInModule,
     AccountingModule,
+    RedsysModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

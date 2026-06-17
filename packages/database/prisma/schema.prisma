@@ -366,6 +366,8 @@ model Tenant {
   impersonationLogs       ImpersonationLog[]
   aeatCredentials         TenantAeatCredential[]
   holdedSettings          HoldedSettings?
+  redsysSettings          RedsysSettings?
+  redsysOrders            RedsysOrder[]
   apiKeys                 ApiKey[]
   webhooks                Webhook[]
   webhookDeliveries       WebhookDelivery[]
@@ -1070,6 +1072,7 @@ model Invoice {
   payments       Payment[]
   dunningActions DunningAction[]
   productSale    ProductSale?    @relation("ProductSaleInvoice")
+  redsysOrders   RedsysOrder[]
   rectifiesInvoice Invoice?  @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
   rectifiedBy      Invoice[] @relation("InvoiceRectification")
 
@@ -2269,6 +2272,45 @@ model HoldedSettings {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("holded_settings")
+}
+
+/// Configuración Redsys (TPV bancario) por tenant. Clave secreta cifrada.
+model RedsysSettings {
+  id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String   @unique @map("tenant_id") @db.Uuid
+  merchantCode       String   @map("merchant_code")
+  terminal           String   @default("1")
+  secretKeyEncrypted String   @map("secret_key_encrypted")
+  /// "test" (sis-t) | "live" (sis).
+  environment        String   @default("test")
+  enabled            Boolean  @default(false)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("redsys_settings")
+}
+
+/// Pedido Redsys: mapea el `Ds_Merchant_Order` (12 chars) a una factura para
+/// poder resolver la notificación servidor-a-servidor del banco.
+model RedsysOrder {
+  order       String    @id
+  tenantId    String    @map("tenant_id") @db.Uuid
+  invoiceId   String    @map("invoice_id") @db.Uuid
+  amountCents Int       @map("amount_cents")
+  /// "pending" | "paid" | "failed"
+  status      String    @default("pending")
+  dsResponse  String?   @map("ds_response")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("redsys_orders")
 }
 
 // ============================================================================

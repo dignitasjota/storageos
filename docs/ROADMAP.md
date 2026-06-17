@@ -381,7 +381,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 ### Pagos y finanzas (mercado español)
 
-- **Redsys** (TPV bancario): **pendiente** (Plan 4 fase 2). Enfoque confirmado: pasarela alojada (formulario firmado HMAC → página del banco → webhook de notificación marca la factura pagada). No encaja en `charge(token)` estilo Stripe; es un camino de pago paralelo.
+- ~~**Redsys** (TPV bancario)~~ ✅ **Implementado** (Plan 4 fase 2): pasarela alojada. Config por tenant cifrada (`redsys_settings`); `redsys_orders` mapea el `Ds_Merchant_Order` → factura. Util de firma `HMAC_SHA256_V1` (3DES-CBC + HMAC) con tests; `createRedirect` genera el formulario firmado y el webhook público `/webhooks/redsys` verifica la firma y marca la factura pagada (idempotente). Pago desde el portal del inquilino y el panel + páginas OK/KO. Tests `redsys-signature` 5/5 + `redsys.e2e` 4/4. Requiere la env `API_BASE_URL` (URL de notificación).
 - **GoCardless** para SEPA recurrente (más barato que Stripe para domiciliación).
 - ~~**Integración contable Holded**~~ ✅ **Implementado** (Plan 4): export por tenant con API key cifrada (`holded_settings`). `HoldedSyncService` escucha `domain.invoice_issued` y empuja la factura best-effort (crea/asocia contacto + documento), guarda `invoices.holded_document_id`. Config en `/settings/billing` (guardar key + activar + probar conexión + "exportar pendientes"/backfill) + botón "Exportar a Holded" por factura + sync manual. Tests `holded-client` 5/5 + `holded.e2e` 4/4. (A3/Sage siguen pendientes.)
 - **Conciliación bancaria** (norma 43): casar cobros con el extracto.
@@ -417,7 +417,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 | 1        | Importador CSV/Excel                         | Sin esto migrar un cliente desde otro software es un muro. Permite vender ya. |
 | 2        | WhatsApp real (dunning + avisos)             | Mayor ROI inmediato: cobra más con lo ya construido a medias.                 |
 | ~~3~~ ✅ | Move-in self-service + firma electrónica     | Hecho (Plan 3): `/book/[slug]` + `/sign/[token]` + firma simple con rastro.   |
-| 4 (½) ✅ | Holded hecho · Redsys pendiente              | Holded export contable listo; Redsys (pasarela alojada) queda pendiente.      |
+| 4 ✅     | Redsys + Holded                              | Hecho: Holded (export contable) + Redsys (TPV bancario, pasarela alojada).    |
 | 5        | Control de accesos real + PWA inquilino      | Completa la experiencia desatendida.                                          |
 | 6        | Revenue management (KPIs + pricing dinámico) | Aumenta ingresos del cliente → justifica el precio del SaaS.                  |
 

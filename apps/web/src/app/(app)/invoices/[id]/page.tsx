@@ -52,6 +52,7 @@ import {
   useRectifyInvoice,
   useRefundInvoice,
 } from '@/lib/billing/hooks';
+import { fetchRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
 /**
  * Etiquetas explicativas para cada tipo de factura rectificativa (RD
@@ -297,6 +298,20 @@ export default function InvoiceDetailPage() {
                 <a href={i.pdfUrl} target="_blank" rel="noreferrer">
                   <Download className="mr-1 h-4 w-4" /> Descargar
                 </a>
+              </Button>
+            )}
+            {(i.status === 'issued' || i.status === 'overdue') && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    submitRedsysForm(await fetchRedsysRedirect(i.id));
+                  } catch (err) {
+                    toast.error(err instanceof ApiError ? err.body.message : 'Error');
+                  }
+                }}
+              >
+                Pagar con Redsys
               </Button>
             )}
             {(i.status === 'issued' || i.status === 'paid' || i.status === 'overdue') &&

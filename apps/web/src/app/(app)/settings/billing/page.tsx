@@ -13,6 +13,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { HoldedCard } from './holded-card';
+import { RedsysCard } from './redsys-card';
 
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -134,6 +135,8 @@ export default function BillingSettingsPage() {
       <AutoChargeCard />
 
       <HoldedCard />
+
+      <RedsysCard />
 
       <DataTable
         columns={columns}

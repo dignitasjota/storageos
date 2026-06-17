@@ -235,3 +235,20 @@ export interface PortalChargeResultDto {
   status: PaymentStatusValue;
   failureReason: string | null;
 }
+
+export interface RedsysSettingsDto {
+  merchantCode: string;
+  terminal: string;
+  environment: 'test' | 'live';
+  enabled: boolean;
+  /** true si hay clave secreta guardada (nunca se devuelve). */
+  hasSecretKey: boolean;
+}
+
+/** Parámetros del formulario que el navegador auto-envía a Redsys. */
+export interface RedsysRedirectDto {
+  url: string;
+  signatureVersion: string;
+  merchantParameters: string;
+  signature: string;
+}

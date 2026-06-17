@@ -18,12 +18,14 @@ import {
   PortalRegisterPaymentMethodSchema,
   PortalRequestMagicLinkSchema,
   type PortalSessionDto,
+  type RedsysRedirectDto,
   type SetupIntentResponseDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
+import { RedsysService } from '../payments/redsys/redsys.service';
 
 import { PortalService } from './portal.service';
 
@@ -33,7 +35,10 @@ class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentM
 
 @Controller('portal')
 export class PortalController {
-  constructor(private readonly portal: PortalService) {}
+  constructor(
+    private readonly portal: PortalService,
+    private readonly redsys: RedsysService,
+  ) {}
 
   @Public()
   @ThrottleLogin()
@@ -101,6 +106,18 @@ export class PortalController {
   ): Promise<PortalChargeResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.chargeMyInvoice(tenantId, customerId, invoiceId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/invoices/:id/redsys-redirect')
+  @HttpCode(HttpStatus.OK)
+  async redsysRedirect(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', ParseUUIDPipe) invoiceId: string,
+  ): Promise<RedsysRedirectDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.redsys.createRedirect(tenantId, invoiceId, customerId);
   }
 
   /**

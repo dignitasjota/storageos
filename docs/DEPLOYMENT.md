@@ -765,6 +765,19 @@ Export automático de facturas a Holded por tenant (no requiere variables de ent
 
 ---
 
+## 17. Pago con tarjeta — Redsys (TPV bancario)
+
+Permite a los inquilinos pagar facturas con tarjeta vía la pasarela alojada del banco. Config por tenant (no requiere variables salvo `API_BASE_URL`).
+
+1. **`API_BASE_URL`** (variable de entorno del API): URL pública del API, p. ej. `https://api.tu-dominio.com`. Redsys envía ahí la notificación servidor-a-servidor (`/webhooks/redsys`).
+2. En StorageOS: **Ajustes → Facturación → Pago con tarjeta — Redsys** → introducir **código de comercio (FUC)**, **terminal**, **clave secreta** del comercio (la da el banco), **entorno** (Pruebas/Producción) y activar. La clave se guarda **cifrada** (AES-256-GCM).
+3. El inquilino paga desde su **portal** ("Pagar con tarjeta") o el staff desde la factura ("Pagar con Redsys"): se genera un formulario firmado (`HMAC_SHA256_V1`) y el navegador se redirige a la pasarela del banco.
+4. Al completar el pago, Redsys hace POST a `/webhooks/redsys`; StorageOS **verifica la firma** y marca la factura pagada (idempotente). El cliente vuelve a `/pay/redsys/ok` o `/pay/redsys/ko`.
+
+> En el panel del banco/Redsys hay que configurar la **clave secreta del comercio** y, si aplica, la URL de notificación. Entorno de pruebas: `sis-t.redsys.es`; producción: `sis.redsys.es` (lo elige el campo "entorno"). Verificación de firma + flujo testeados (`redsys-signature` 5/5, `redsys.e2e` 4/4); el pago real se valida en el entorno de pruebas del banco.
+
+---
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.

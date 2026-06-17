@@ -460,7 +460,7 @@ export class InvoicesService {
   /** Marca una factura como pagada manualmente (cobro en efectivo, transferencia...). */
   async markPaidManually(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     invoiceId: string;
     input: MarkPaidManuallyInput;
     meta: RequestMeta;

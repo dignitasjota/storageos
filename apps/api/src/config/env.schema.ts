@@ -155,6 +155,8 @@ export const envSchema = z.object({
 
   /** URL publica del frontend, usada para construir enlaces de los emails. */
   WEB_BASE_URL: z.string().url().default('http://localhost:3000'),
+  /** URL pública del API (para callbacks server-a-servidor, p. ej. notificación Redsys). */
+  API_BASE_URL: z.string().url().default('http://localhost:3001'),
 
   // --- Super admin (Fase 8) ---
   SUPER_ADMIN_JWT_SECRET: z

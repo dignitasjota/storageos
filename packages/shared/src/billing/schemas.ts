@@ -92,6 +92,23 @@ export type PaymentMethodTypeValue = z.infer<typeof PaymentMethodTypeEnum>;
 export const PaymentGatewayProviderEnum = z.enum(['stripe', 'gocardless', 'redsys', 'manual']);
 export type PaymentGatewayProviderValue = z.infer<typeof PaymentGatewayProviderEnum>;
 
+// ============================================================================
+// Redsys (TPV bancario, pasarela alojada)
+// ============================================================================
+
+export const RedsysEnvironmentEnum = z.enum(['test', 'live']);
+export type RedsysEnvironmentValue = z.infer<typeof RedsysEnvironmentEnum>;
+
+export const UpdateRedsysSettingsSchema = z.object({
+  merchantCode: z.string().trim().min(1).max(20),
+  terminal: z.string().trim().min(1).max(3).default('1'),
+  /** Clave secreta del comercio. Si se omite, se conserva la existente. */
+  secretKey: z.string().trim().min(10).max(200).optional(),
+  environment: RedsysEnvironmentEnum.default('test'),
+  enabled: z.boolean(),
+});
+export type UpdateRedsysSettingsInput = z.infer<typeof UpdateRedsysSettingsSchema>;
+
 export const DunningActionTypeEnum = z.enum([
   'email_reminder',
   'sms_reminder',

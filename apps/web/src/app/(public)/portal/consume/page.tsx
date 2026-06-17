@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
 function PortalConsumeContent() {
   const params = useSearchParams();
@@ -227,6 +228,24 @@ function PortalConsumeContent() {
                       <Button onClick={() => void handlePay(i)} disabled={payingId !== null}>
                         {payingId === i.id && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                         Pagar
+                      </Button>
+                    )}
+                    {i.amountPending > 0 && (
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            submitRedsysForm(
+                              await fetchPortalRedsysRedirect(session.accessToken, i.id),
+                            );
+                          } catch (err) {
+                            toast.error(
+                              err instanceof ApiError ? err.body.message : 'Redsys no disponible',
+                            );
+                          }
+                        }}
+                      >
+                        Pagar con tarjeta
                       </Button>
                     )}
                     {i.pdfUrl && (
