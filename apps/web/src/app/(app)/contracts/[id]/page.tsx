@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { ContractStatusBadge } from '@/components/contract-status-badge';
+import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -77,6 +78,9 @@ export default function ContractDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [note, setNote] = useState('');
+  const [signOpen, setSignOpen] = useState(false);
+  const [signName, setSignName] = useState('');
+  const [signDrawn, setSignDrawn] = useState<string | null>(null);
 
   if (contract.isLoading || !contract.data) {
     return (
@@ -130,9 +134,7 @@ export default function ContractDetailPage() {
           <div className="flex flex-wrap gap-2">
             {c.status === 'draft' && (
               <>
-                <Button
-                  onClick={() => handle(() => sign.mutateAsync({ id: c.id }), 'Contrato firmado.')}
-                >
+                <Button onClick={() => setSignOpen(true)}>
                   <PenTool className="mr-1 h-4 w-4" /> Firmar
                 </Button>
                 <Button
@@ -387,6 +389,64 @@ export default function ContractDetailPage() {
               }
             >
               Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={signOpen} onOpenChange={setSignOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Firmar contrato</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Captura la firma del inquilino en una tablet (firma en el local) o firma sin
+              manuscrita.
+            </p>
+            <div className="space-y-1">
+              <Label>Nombre del firmante</Label>
+              <Input
+                value={signName}
+                onChange={(e) => setSignName(e.target.value)}
+                placeholder="Nombre y apellidos"
+              />
+            </div>
+            <SignaturePad onChange={setSignDrawn} />
+          </div>
+          <DialogFooter className="flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() =>
+                handle(() => sign.mutateAsync({ id: c.id }), 'Contrato firmado.').then(() =>
+                  setSignOpen(false),
+                )
+              }
+            >
+              Firmar sin manuscrita
+            </Button>
+            <Button
+              disabled={!signDrawn}
+              onClick={() =>
+                handle(
+                  () =>
+                    sign.mutateAsync({
+                      id: c.id,
+                      body: {
+                        method: 'drawn',
+                        signerName: signName || undefined,
+                        signatureImage: signDrawn ?? undefined,
+                      },
+                    }),
+                  'Contrato firmado.',
+                ).then(() => {
+                  setSignOpen(false);
+                  setSignDrawn(null);
+                  setSignName('');
+                })
+              }
+            >
+              Firmar con esta firma
             </Button>
           </DialogFooter>
         </DialogContent>

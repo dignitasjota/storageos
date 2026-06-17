@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
 export default function SignPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -105,15 +106,40 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
               ¡Gracias! Tu contrato <strong>{view.contractNumber}</strong> queda firmado y tu acceso
               al trastero <strong>{view.unitCode}</strong> se activará en breve.
             </p>
-            {pending.length > 0 && (
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="font-medium">Primera factura pendiente</p>
-                <p className="text-muted-foreground">
-                  Recibirás un email con el enlace para pagarla desde tu portal. Importe pendiente:{' '}
-                  {pending
-                    .reduce((s, i) => s + i.amountPending, 0)
-                    .toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
-                  .
+            {pending.length > 0 && result?.portalToken && (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <p className="font-medium">Paga ya tu primera factura</p>
+                {pending.map((inv) => (
+                  <div key={inv.id} className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">
+                      {inv.invoiceNumber} —{' '}
+                      {inv.amountPending.toLocaleString('es-ES', {
+                        style: 'currency',
+                        currency: 'EUR',
+                      })}
+                    </span>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          submitRedsysForm(
+                            await fetchPortalRedsysRedirect(result.portalToken!, inv.id),
+                          );
+                        } catch (err) {
+                          toast.error(
+                            err instanceof ApiError
+                              ? err.body.message
+                              : 'El pago con tarjeta no está disponible',
+                          );
+                        }
+                      }}
+                    >
+                      Pagar con tarjeta
+                    </Button>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  También recibirás un email con el enlace a tu portal para pagarla más tarde.
                 </p>
               </div>
             )}

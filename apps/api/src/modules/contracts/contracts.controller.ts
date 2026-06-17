@@ -19,6 +19,7 @@ import {
   type ContractEventDto,
   ContractStatusEnum,
   CreateContractSchema,
+  SignContractSchema,
   UpdateContractSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -37,6 +38,7 @@ import type { Request } from 'express';
 class CreateContractDto extends createZodDto(CreateContractSchema) {}
 class UpdateContractDto extends createZodDto(UpdateContractSchema) {}
 class ChangeContractPriceDto extends createZodDto(ChangeContractPriceSchema) {}
+class SignContractDto extends createZodDto(SignContractSchema) {}
 class AddContractNoteDto extends createZodDto(AddContractNoteSchema) {}
 class CancelContractDto extends createZodDto(CancelContractSchema) {}
 
@@ -124,6 +126,7 @@ export class ContractsController {
   async sign(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SignContractDto,
     @Req() req: Request,
   ): Promise<ContractDto> {
     return this.contracts.sign({
@@ -131,6 +134,18 @@ export class ContractsController {
       userId: user.sub,
       contractId: id,
       meta: extractMeta(req),
+      // Firma asistida en el local (opcional): si el staff captura la firma.
+      ...(body.method
+        ? {
+            signature: {
+              signerName: body.signerName?.trim() || 'Firma en el local',
+              method: body.method,
+              signatureImage: body.method === 'drawn' ? (body.signatureImage ?? null) : null,
+              typedSignature: body.method === 'typed' ? (body.typedSignature ?? null) : null,
+              channel: 'in_person',
+            },
+          }
+        : {}),
     });
   }
 

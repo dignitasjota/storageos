@@ -165,6 +165,18 @@ export const UpdateContractSchema = z
   });
 export type UpdateContractInput = z.infer<typeof UpdateContractSchema>;
 
+/** Firma del contrato por el staff (opcional: firma asistida en el local). */
+export const SignContractSchema = z
+  .object({
+    signerName: optionalText(160),
+    method: z.enum(['drawn', 'typed']).optional(),
+    signatureImage: z.string().max(2_000_000).optional(),
+    typedSignature: optionalText(160),
+  })
+  // El cuerpo es opcional: firmar sin firma manuscrita envía body vacío.
+  .default({});
+export type SignContractInput = z.infer<typeof SignContractSchema>;
+
 export const ChangeContractPriceSchema = z.object({
   priceMonthly: positiveDecimal,
   reason: z.string().trim().min(1).max(500),

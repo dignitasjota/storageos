@@ -13,6 +13,7 @@ import type {
   ConvertReservationInput,
   CreateContractInput,
   RequestSignatureResultDto,
+  SignContractInput,
   CreateCustomerInput,
   CreateReservationInput,
   CustomerDocumentDto,
@@ -245,7 +246,7 @@ function makeContractAction<T>(action: string) {
   };
 }
 
-export const useSignContract = makeContractAction<undefined>('sign');
+export const useSignContract = makeContractAction<SignContractInput | undefined>('sign');
 export const useRequestEndContract = makeContractAction<undefined>('request-end');
 export const useEndContract = makeContractAction<undefined>('end');
 export const useCancelContract = makeContractAction<CancelContractInput>('cancel');
