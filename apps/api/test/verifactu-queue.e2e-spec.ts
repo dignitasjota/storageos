@@ -79,12 +79,22 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
     expect(resend.status).toBe(202);
     expect(resend.body).toEqual({ queued: true, invoiceId: id });
 
-    const after = await request(app.getHttpServer())
-      .get(`/invoices/${id}`)
-      .set('Authorization', `Bearer ${owner.accessToken}`);
-    expect(after.body.aeatStatus).toBeNull();
-    expect(after.body.aeatSentAt).toBeNull();
-    expect(after.body.aeatCsv).toBeNull();
+    // El endpoint resetea aeat_* de forma síncrona y encola un re-envío. Como
+    // el worker BullMQ corre in-process (ENABLE_WORKERS_IN_API=true), re-procesa
+    // la cola y vuelve a dejar la factura 'accepted' (stub) — observar el estado
+    // null es una carrera. Verificamos el ciclo completo: tras el resend la
+    // factura se re-envía y acaba de nuevo 'accepted' con un aeat_sent_at nuevo.
+    let after: { aeatStatus: string | null; aeatSentAt: string | null } | undefined;
+    for (let i = 0; i < 30; i++) {
+      const res = await request(app.getHttpServer())
+        .get(`/invoices/${id}`)
+        .set('Authorization', `Bearer ${owner.accessToken}`);
+      after = res.body;
+      if (after?.aeatStatus === 'accepted' && after.aeatSentAt !== before.body.aeatSentAt) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(after?.aeatStatus).toBe('accepted');
+    expect(after?.aeatSentAt).not.toBe(before.body.aeatSentAt);
   });
 
   it('resendAeat sobre factura en draft devuelve 400', async () => {
