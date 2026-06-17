@@ -731,6 +731,23 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 
 ---
 
+## 15. Activar WhatsApp Business (Meta Cloud API)
+
+El envío de WhatsApp (recordatorios de dunning, avisos) usa el `WhatsAppProvider` abstracto. En dev/test el provider es `stub` (solo loggea). Para enviar de verdad:
+
+1. **Alta en Meta**: crear una app en [Meta for Developers](https://developers.facebook.com/) con el producto **WhatsApp**, asociar un **número de teléfono de empresa** y obtener su `Phone number ID`.
+2. **Token permanente**: generar un _System User_ con un token de acceso permanente con permisos `whatsapp_business_messaging`.
+3. **Variables** (Portainer / `.env.prod`):
+   - `WHATSAPP_PROVIDER=meta_waba`
+   - `WHATSAPP_FROM_PHONE_ID=<phone number id>`
+   - `WHATSAPP_ACCESS_TOKEN=<token permanente>`
+   - Redeploy del `api` (y `worker`).
+4. **Plantillas aprobadas (clave)**: los mensajes **iniciados por el negocio** (dunning, avisos proactivos) SOLO se pueden enviar con una **plantilla aprobada** por Meta — el texto libre únicamente vale dentro de la ventana de 24h tras un mensaje del cliente. Da de alta y aprueba las plantillas en _WhatsApp Manager → Plantillas_ antes de usarlas. El `MetaWabaProvider` ya soporta envío por plantilla (`templateName` + `templateLanguage` + variables posicionales) y por texto libre.
+
+> Estado: el provider real (`MetaWabaProvider`) y la selección por `WHATSAPP_PROVIDER` están implementados y testeados (`meta-waba-provider.spec` 4/4). Pendiente (follow-up): mapear el nombre de la plantilla WABA aprobada en `message_templates` para que el dunning proactivo la use automáticamente (hoy el outbox envía el cuerpo renderizado como texto).
+
+---
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.

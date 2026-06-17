@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
@@ -8,8 +9,11 @@ import { CommunicationsProcessor } from './communications.processor';
 import { CommunicationsService } from './communications.service';
 import { MessageTemplatesController } from './message-templates.controller';
 import { MessageTemplatesService } from './message-templates.service';
+import { MetaWabaProvider } from './providers/meta-waba.provider';
 import { WHATSAPP_PROVIDER } from './providers/whatsapp-provider';
 import { WhatsAppStubProvider } from './providers/whatsapp-stub.provider';
+
+import type { Env } from '../../config/env.schema';
 
 /**
  * Modulo global de comunicaciones. Exporta `CommunicationsService` y
@@ -28,9 +32,16 @@ import { WhatsAppStubProvider } from './providers/whatsapp-stub.provider';
     CommunicationsService,
     MessageTemplatesService,
     WhatsAppStubProvider,
+    MetaWabaProvider,
     {
+      // `stub` por defecto (dev/test); `meta_waba` en producción.
       provide: WHATSAPP_PROVIDER,
-      useExisting: WhatsAppStubProvider,
+      useFactory: (
+        config: ConfigService<Env, true>,
+        stub: WhatsAppStubProvider,
+        meta: MetaWabaProvider,
+      ) => (config.get('WHATSAPP_PROVIDER', { infer: true }) === 'meta_waba' ? meta : stub),
+      inject: [ConfigService, WhatsAppStubProvider, MetaWabaProvider],
     },
     ...(WORKERS_ENABLED_IN_API ? [CommunicationsProcessor] : []),
   ],
