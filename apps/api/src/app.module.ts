@@ -13,6 +13,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
+import { AccountingModule } from './modules/accounting/accounting.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -143,6 +144,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     IntegrationsModule,
     ImportsModule,
     MoveInModule,
+    AccountingModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

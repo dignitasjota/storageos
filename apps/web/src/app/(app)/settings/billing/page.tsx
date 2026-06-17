@@ -12,6 +12,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { HoldedCard } from './holded-card';
+
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -130,6 +132,8 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoChargeCard />
+
+      <HoldedCard />
 
       <DataTable
         columns={columns}

@@ -753,6 +753,18 @@ El envío de WhatsApp (recordatorios de dunning, avisos) usa el `WhatsAppProvide
 
 ---
 
+## 16. Integración contable Holded
+
+Export automático de facturas a Holded por tenant (no requiere variables de entorno; la API key se configura por tenant desde el panel).
+
+1. En Holded: **Ajustes → Desarrolladores → API** → copiar la API key.
+2. En StorageOS: **Ajustes → Facturación → Contabilidad — Holded** → pegar la API key, marcar "Exportar facturas automáticamente", **Guardar** y **Probar conexión**.
+3. A partir de ahí, cada factura **emitida** se exporta a Holded (crea/asocia el contacto por NIF/email + crea el documento). El estado y los errores se ven en esa misma tarjeta; "Exportar pendientes" hace backfill de las facturas emitidas aún sin exportar, y cada factura tiene un botón "Exportar a Holded" para reintento manual.
+
+> La API key se guarda **cifrada** (AES-256-GCM) en `holded_settings`. El export es best-effort sobre `domain.invoice_issued`; los fallos quedan registrados y se reintentan con el backfill / botón manual. Las facturas F2 (sin cliente) no se exportan.
+
+---
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.

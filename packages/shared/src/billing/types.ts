@@ -83,6 +83,7 @@ export interface InvoiceDto {
   aeatSentAt: string | null;
   aeatStatus: AeatStatusValue | null;
   aeatCsv: string | null;
+  holdedDocumentId: string | null;
   paidAt: string | null;
   cancelledAt: string | null;
   items: InvoiceItemDto[];

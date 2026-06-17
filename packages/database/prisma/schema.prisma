@@ -365,6 +365,7 @@ model Tenant {
   supportTickets          SupportTicket[]
   impersonationLogs       ImpersonationLog[]
   aeatCredentials         TenantAeatCredential[]
+  holdedSettings          HoldedSettings?
   apiKeys                 ApiKey[]
   webhooks                Webhook[]
   webhookDeliveries       WebhookDelivery[]
@@ -1053,6 +1054,8 @@ model Invoice {
   aeatStatus     AeatStatus?   @map("aeat_status")
   aeatResponse   Json?         @map("aeat_response")
   aeatCsv        String?       @map("aeat_csv")
+  /// Id del documento en Holded si se ha exportado (integración contable).
+  holdedDocumentId String?     @map("holded_document_id")
   paidAt         DateTime?     @map("paid_at") @db.Timestamptz(6)
   cancelledAt    DateTime?     @map("cancelled_at") @db.Timestamptz(6)
   deletedAt      DateTime?     @map("deleted_at") @db.Timestamptz(6)
@@ -2250,6 +2253,22 @@ model TenantAeatCredential {
 
   @@index([tenantId, revokedAt], map: "tenant_aeat_credentials_tenant_id_active_idx")
   @@map("tenant_aeat_credentials")
+}
+
+/// Integración contable con Holded por tenant (API key cifrada AES-GCM).
+model HoldedSettings {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @unique @map("tenant_id") @db.Uuid
+  apiKeyEncrypted String    @map("api_key_encrypted")
+  enabled         Boolean   @default(false)
+  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastError       String?   @map("last_error")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("holded_settings")
 }
 
 // ============================================================================

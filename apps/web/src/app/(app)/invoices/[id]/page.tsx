@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { VerifactuBadge } from '@/components/verifactu-badge';
+import { useSyncInvoiceHolded } from '@/lib/accounting/hooks';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCancelInvoice,
@@ -92,6 +93,7 @@ export default function InvoiceDetailPage() {
   const markPaid = useMarkInvoicePaid();
   const charge = useChargeInvoice();
   const generatePdf = useGenerateInvoicePdf();
+  const holdedSync = useSyncInvoiceHolded();
   const rectify = useRectifyInvoice();
 
   const [paidOpen, setPaidOpen] = useState(false);
@@ -297,6 +299,28 @@ export default function InvoiceDetailPage() {
                 </a>
               </Button>
             )}
+            {(i.status === 'issued' || i.status === 'paid' || i.status === 'overdue') &&
+              i.customerId &&
+              (i.holdedDocumentId ? (
+                <span className="self-center text-xs text-muted-foreground">
+                  Exportada a Holded
+                </span>
+              ) : (
+                <Button
+                  variant="outline"
+                  disabled={holdedSync.isPending}
+                  onClick={async () => {
+                    try {
+                      await holdedSync.mutateAsync(i.id);
+                      toast.success('Factura exportada a Holded.');
+                    } catch (err) {
+                      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+                    }
+                  }}
+                >
+                  Exportar a Holded
+                </Button>
+              ))}
           </div>
         </div>
       </div>

@@ -924,6 +924,7 @@ export class InvoicesService {
       aeatSentAt: row.aeatSentAt ? row.aeatSentAt.toISOString() : null,
       aeatStatus: row.aeatStatus,
       aeatCsv: row.aeatCsv,
+      holdedDocumentId: row.holdedDocumentId,
       paidAt: row.paidAt ? row.paidAt.toISOString() : null,
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
       items: row.items.map((it) => this.toItemDto(it)),
