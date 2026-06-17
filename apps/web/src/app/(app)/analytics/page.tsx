@@ -2,10 +2,13 @@
 
 import { Loader2 } from 'lucide-react';
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -34,6 +37,7 @@ import {
   useLeadsFunnel,
   useOccupancy,
   usePricingSuggestions,
+  useRevenueForecast,
 } from '@/lib/analytics/hooks';
 
 function formatPercent(value: number): string {
@@ -63,6 +67,7 @@ export default function AnalyticsPage() {
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
           <TabsTrigger value="pricing">Precio dinámico</TabsTrigger>
+          <TabsTrigger value="forecast">Previsión</TabsTrigger>
         </TabsList>
         <TabsContent value="occupancy" className="mt-4">
           <OccupancyPanel />
@@ -81,6 +86,9 @@ export default function AnalyticsPage() {
         </TabsContent>
         <TabsContent value="pricing" className="mt-4">
           <PricingSuggestionsPanel />
+        </TabsContent>
+        <TabsContent value="forecast" className="mt-4">
+          <ForecastPanel />
         </TabsContent>
       </Tabs>
     </div>
@@ -539,6 +547,102 @@ function PricingSuggestionsPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================================
+// Previsión (forecasting de ocupación e ingresos)
+// ============================================================================
+
+function ForecastPanel() {
+  const forecast = useRevenueForecast({ months: 6 });
+
+  if (forecast.isLoading || !forecast.data) {
+    return <PanelLoader />;
+  }
+
+  const d = forecast.data;
+  const chartData = [
+    {
+      month: 'Actual',
+      MRR: Number(d.current.mrr.toFixed(2)),
+      Ocupación: Number((d.current.occupancy * 100).toFixed(1)),
+    },
+    ...d.points.map((p) => ({
+      month: p.yearMonth,
+      MRR: Number(p.projectedMrr.toFixed(2)),
+      Ocupación: Number((p.projectedOccupancy * 100).toFixed(1)),
+    })),
+  ];
+  const lastPoint = d.points[d.points.length - 1];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard title="MRR actual" value={formatCurrency(d.current.mrr)}>
+          {d.current.activeContracts} contratos activos
+        </KpiCard>
+        <KpiCard
+          title={`MRR previsto (+${d.points.length}m)`}
+          value={lastPoint ? formatCurrency(lastPoint.projectedMrr) : '—'}
+        >
+          {lastPoint ? `${lastPoint.projectedActiveContracts} contratos proyectados` : '—'}
+        </KpiCard>
+        <KpiCard
+          title="Churn medio mensual"
+          value={`${(d.assumptions.monthlyChurnRate * 100).toFixed(1)}%`}
+        >
+          Media de los últimos {d.assumptions.trailingMonths} meses
+        </KpiCard>
+        <KpiCard title="Altas medias / mes" value={d.assumptions.avgMonthlyNewContracts.toFixed(1)}>
+          Valor medio {formatCurrency(d.assumptions.avgContractValue)}/contrato
+        </KpiCard>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Proyección a {d.points.length} meses</CardTitle>
+          <CardDescription>
+            Estimación heurística basada en la tendencia reciente (churn y altas medias). No es una
+            garantía: cuanto más histórico, más fiable.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ left: 8, right: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis yAxisId="mrr" tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+              <YAxis yAxisId="occ" orientation="right" unit="%" domain={[0, 100]} />
+              <Tooltip
+                formatter={(value, name) =>
+                  name === 'MRR' ? formatCurrency(Number(value) || 0) : `${Number(value) || 0}%`
+                }
+              />
+              <Legend />
+              <Area
+                yAxisId="mrr"
+                type="monotone"
+                dataKey="MRR"
+                stroke="#2563eb"
+                fill="#2563eb"
+                fillOpacity={0.15}
+                strokeWidth={2}
+              />
+              <Area
+                yAxisId="occ"
+                type="monotone"
+                dataKey="Ocupación"
+                stroke="#16a34a"
+                fill="#16a34a"
+                fillOpacity={0.1}
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

@@ -142,3 +142,38 @@ export interface PricingSuggestionItemDto {
 export interface PricingSuggestionsDto {
   items: PricingSuggestionItemDto[];
 }
+
+// ============================================================================
+// Forecasting de ocupación e ingresos (proyección heurística por tendencia)
+// ============================================================================
+
+export interface RevenueForecastPointDto {
+  /** Mes proyectado (YYYY-MM). */
+  yearMonth: string;
+  projectedActiveContracts: number;
+  projectedMrr: number;
+  /** Ocupación física proyectada (0-1). */
+  projectedOccupancy: number;
+}
+
+export interface RevenueForecastDto {
+  current: {
+    activeContracts: number;
+    mrr: number;
+    totalUnits: number;
+    /** Ocupación física actual (0-1). */
+    occupancy: number;
+  };
+  /** Supuestos del modelo, derivados de los meses recientes. */
+  assumptions: {
+    /** Tasa media de baja mensual (0-1). */
+    monthlyChurnRate: number;
+    /** Altas medias de contratos al mes. */
+    avgMonthlyNewContracts: number;
+    /** Valor medio por contrato (€/mes). */
+    avgContractValue: number;
+    /** Nº de meses de histórico usados para las medias. */
+    trailingMonths: number;
+  };
+  points: RevenueForecastPointDto[];
+}

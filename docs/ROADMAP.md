@@ -397,7 +397,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 ### Analítica e IA
 
 - ~~**Predicción de churn** + **precio dinámico** por ocupación (yield management)~~ ✅ **Implementado** (heurístico, sin ML): `InsightsService` en `AnalyticsModule`. **Churn risk** (`GET /analytics/churn-risk`): puntúa 0-100 cada contrato `active|ending` por señales (facturas vencidas, deuda > 1 mensualidad, cobros fallidos, dunning ejecutado, vencimiento ≤60d sin auto-renovación, sin método de pago) → niveles high/medium/low + factores legibles; el detalle omite `low` y ordena por riesgo. **Precio dinámico** (`GET /analytics/pricing-suggestions`): yield management por ocupación de cada tipo de trastero (≥90% +10%, ≥80% +5%, ≤60% -5%, ≤40% -10%, resto mantener) — recomendaciones read-only, no muta pricing rules. UI: pestañas "Riesgo de baja" + "Precio dinámico" en `/analytics`. Tests: unit `insights.service` 4/4 + e2e `insights` 3/3.
-- **Forecasting** de ocupación e ingresos.
+- ~~**Forecasting** de ocupación e ingresos~~ ✅ **Implementado** (heurístico): `InsightsService.getRevenueForecast` + `GET /analytics/forecast?months=` (1-24, default 6). Proyecta MRR + contratos activos + ocupación mes a mes a partir de la tendencia reciente (tasa media de baja + altas medias de los últimos N meses cerrados + valor medio por contrato). Devuelve `current`, `assumptions` (transparenta el modelo) y `points`. UI: pestaña "Previsión" en `/analytics` con `AreaChart` doble eje (MRR + ocupación). Tests: unit `insights.service` 6/6 + e2e `insights` 4/4.
 - **Asistente IA para staff** (resúmenes de cliente, redacción de comunicaciones).
 
 ### Plataforma y robustez técnica

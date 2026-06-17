@@ -10,6 +10,7 @@ import type {
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
+  RevenueForecastDto,
   RevenueKpiDto,
 } from '@storageos/shared';
 
@@ -22,7 +23,8 @@ export const analyticsKey = (
     | 'customers'
     | 'revenue'
     | 'churn-risk'
-    | 'pricing-suggestions',
+    | 'pricing-suggestions'
+    | 'forecast',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -91,5 +93,17 @@ export function usePricingSuggestions() {
   return useQuery({
     queryKey: analyticsKey('pricing-suggestions'),
     queryFn: () => apiFetch<PricingSuggestionsDto>('/analytics/pricing-suggestions'),
+  });
+}
+
+export function useRevenueForecast(params: { months?: number } = {}) {
+  const qs = new URLSearchParams();
+  if (params.months) qs.set('months', String(params.months));
+  return useQuery({
+    queryKey: analyticsKey('forecast', {
+      months: params.months ? String(params.months) : undefined,
+    }),
+    queryFn: () =>
+      apiFetch<RevenueForecastDto>(`/analytics/forecast${qs.toString() ? `?${qs}` : ''}`),
   });
 }

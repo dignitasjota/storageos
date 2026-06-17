@@ -12,7 +12,7 @@ interface TxMock {
   dunningAction: { findMany: jest.Mock };
   paymentMethod: { findMany: jest.Mock };
   unitType: { findMany: jest.Mock };
-  unit: { groupBy: jest.Mock };
+  unit: { groupBy: jest.Mock; count: jest.Mock };
 }
 
 function buildTx(): TxMock {
@@ -23,7 +23,7 @@ function buildTx(): TxMock {
     dunningAction: { findMany: jest.fn().mockResolvedValue([]) },
     paymentMethod: { findMany: jest.fn().mockResolvedValue([]) },
     unitType: { findMany: jest.fn().mockResolvedValue([]) },
-    unit: { groupBy: jest.fn().mockResolvedValue([]) },
+    unit: { groupBy: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
   };
 }
 
@@ -146,5 +146,47 @@ describe('InsightsService.getPricingSuggestions', () => {
 
     // El primero ordenado es el de mayor ocupación.
     expect(res.items[0]!.unitTypeId).toBe('ut-high');
+  });
+});
+
+describe('InsightsService.getRevenueForecast', () => {
+  it('proyecta MRR y ocupación a N meses según churn y altas medias', async () => {
+    const tx = buildTx();
+    // 10 unidades, 8 ocupadas.
+    tx.unit.count.mockImplementation(({ where }: { where?: { status?: string } } = {}) =>
+      Promise.resolve(where?.status === 'occupied' ? 8 : 10),
+    );
+    // 8 contratos activos a 100€ efectivos cada uno → MRR 800, valor medio 100.
+    tx.contract.findMany.mockImplementation(({ where }: { where?: Record<string, unknown> }) => {
+      if (where && 'status' in where) {
+        return Promise.resolve(
+          Array.from({ length: 8 }, () => ({ priceMonthly: 100, discountAmount: 0 })),
+        );
+      }
+      // Histórico: sin altas ni bajas → churn 0, altas 0.
+      return Promise.resolve([]);
+    });
+
+    const service = buildService(tx);
+    const res = await service.getRevenueForecast(TENANT, { months: 3 });
+
+    expect(res.current.activeContracts).toBe(8);
+    expect(res.current.mrr).toBe(800);
+    expect(res.current.occupancy).toBe(0.8);
+    expect(res.assumptions.avgContractValue).toBe(100);
+    expect(res.assumptions.monthlyChurnRate).toBe(0);
+    expect(res.points).toHaveLength(3);
+    // Sin churn ni altas, el MRR se mantiene plano.
+    expect(res.points.every((p) => p.projectedMrr === 800)).toBe(true);
+    expect(res.points.every((p) => p.projectedActiveContracts === 8)).toBe(true);
+    expect(res.points[0]!.yearMonth).toMatch(/^\d{4}-\d{2}$/);
+  });
+
+  it('limita el horizonte a 24 meses', async () => {
+    const tx = buildTx();
+    tx.unit.count.mockResolvedValue(0);
+    const service = buildService(tx);
+    const res = await service.getRevenueForecast(TENANT, { months: 100 });
+    expect(res.points).toHaveLength(24);
   });
 });

@@ -16,6 +16,7 @@ import type {
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
+  RevenueForecastDto,
   RevenueKpiDto,
 } from '@storageos/shared';
 
@@ -86,5 +87,16 @@ export class AnalyticsController {
   @Get('pricing-suggestions')
   getPricingSuggestions(@CurrentUser() user: AuthenticatedUser): Promise<PricingSuggestionsDto> {
     return this.insights.getPricingSuggestions(user.tenantId);
+  }
+
+  @Get('forecast')
+  getForecast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+  ): Promise<RevenueForecastDto> {
+    const parsed = months ? Number.parseInt(months, 10) : undefined;
+    return this.insights.getRevenueForecast(user.tenantId, {
+      ...(parsed && Number.isFinite(parsed) ? { months: parsed } : {}),
+    });
   }
 }

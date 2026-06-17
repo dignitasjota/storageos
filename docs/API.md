@@ -918,6 +918,7 @@ Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
 | GET    | `/analytics/leads-funnel?from=&to=` | SI   | Totales por estado + ratios + bySource                                  |
 | GET    | `/analytics/churn-risk`             | SI   | Riesgo de baja heurístico por contrato (score 0-100 + nivel + factores) |
 | GET    | `/analytics/pricing-suggestions`    | SI   | Sugerencias de precio por ocupación (yield management, read-only)       |
+| GET    | `/analytics/forecast?months=`       | SI   | Previsión de MRR + ocupación a N meses (1-24, default 6) por tendencia  |
 
 ### Endpoints — Reports
 

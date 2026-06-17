@@ -10,6 +10,8 @@ import type {
   PricingAction,
   PricingSuggestionItemDto,
   PricingSuggestionsDto,
+  RevenueForecastDto,
+  RevenueForecastPointDto,
 } from '@storageos/shared';
 
 function toNumber(value: Prisma.Decimal | number | null | undefined): number {
@@ -260,6 +262,102 @@ export class InsightsService {
 
       items.sort((a, b) => b.occupancy - a.occupancy);
       return { items };
+    }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Forecasting de ocupación e ingresos (proyección por tendencia, sin ML).
+  // ---------------------------------------------------------------------------
+  async getRevenueForecast(
+    tenantId: string,
+    opts: { months?: number; trailingMonths?: number } = {},
+  ): Promise<RevenueForecastDto> {
+    const horizon = Math.min(24, Math.max(1, opts.months ?? 6));
+    const trailing = Math.min(24, Math.max(1, opts.trailingMonths ?? 6));
+
+    return this.prisma.withTenant(async (tx) => {
+      const [totalUnits, occupiedUnits, activeContracts, history] = await Promise.all([
+        tx.unit.count(),
+        tx.unit.count({ where: { status: 'occupied' } }),
+        tx.contract.findMany({
+          where: { status: { in: ['active', 'ending'] }, deletedAt: null },
+          select: { priceMonthly: true, discountAmount: true },
+        }),
+        tx.contract.findMany({
+          where: { signedAt: { not: null } },
+          select: { signedAt: true, endedAt: true },
+        }),
+      ]);
+
+      const mrr = round2(
+        activeContracts.reduce(
+          (sum, c) => sum + (toNumber(c.priceMonthly) - toNumber(c.discountAmount)),
+          0,
+        ),
+      );
+      const activeCount = activeContracts.length;
+      const avgContractValue = activeCount > 0 ? round2(mrr / activeCount) : 0;
+      const currentOccupancy = totalUnits > 0 ? round2(occupiedUnits / totalUnits) : 0;
+
+      // Medias móviles de los `trailing` meses cerrados (excluye el mes en curso).
+      const now = new Date();
+      let churnRateSum = 0;
+      let churnRateCount = 0;
+      let addsSum = 0;
+      for (let i = 1; i <= trailing; i++) {
+        const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+        const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
+        const startMs = monthStart.getTime();
+        const endMs = monthEnd.getTime();
+
+        let activeAtStart = 0;
+        let ended = 0;
+        let adds = 0;
+        for (const c of history) {
+          const signed = c.signedAt!.getTime();
+          const endedAt = c.endedAt?.getTime() ?? null;
+          if (signed < startMs && (endedAt === null || endedAt >= startMs)) activeAtStart += 1;
+          if (endedAt !== null && endedAt >= startMs && endedAt < endMs) ended += 1;
+          if (signed >= startMs && signed < endMs) adds += 1;
+        }
+        if (activeAtStart > 0) {
+          churnRateSum += ended / activeAtStart;
+          churnRateCount += 1;
+        }
+        addsSum += adds;
+      }
+      const monthlyChurnRate = churnRateCount > 0 ? round2(churnRateSum / churnRateCount) : 0;
+      const avgMonthlyNewContracts = round2(addsSum / trailing);
+
+      // Proyección mes a mes: decae por churn, crece por altas medias.
+      const points: RevenueForecastPointDto[] = [];
+      let prevActive = activeCount;
+      for (let m = 1; m <= horizon; m++) {
+        const projected = Math.max(
+          0,
+          Math.round(prevActive - prevActive * monthlyChurnRate + avgMonthlyNewContracts),
+        );
+        const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + m, 1));
+        const yearMonth = `${monthDate.getUTCFullYear()}-${String(monthDate.getUTCMonth() + 1).padStart(2, '0')}`;
+        points.push({
+          yearMonth,
+          projectedActiveContracts: projected,
+          projectedMrr: round2(projected * avgContractValue),
+          projectedOccupancy: totalUnits > 0 ? round2(Math.min(1, projected / totalUnits)) : 0,
+        });
+        prevActive = projected;
+      }
+
+      return {
+        current: { activeContracts: activeCount, mrr, totalUnits, occupancy: currentOccupancy },
+        assumptions: {
+          monthlyChurnRate,
+          avgMonthlyNewContracts,
+          avgContractValue,
+          trailingMonths: trailing,
+        },
+        points,
+      };
     }, tenantId);
   }
 }

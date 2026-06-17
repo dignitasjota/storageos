@@ -117,4 +117,39 @@ describe('Insights: churn risk + pricing suggestions (e2e)', () => {
     expect(item.changePct).toBe(-5);
     expect(item.suggestedPrice).toBe(76);
   });
+
+  it('forecast: refleja el MRR actual y proyecta el horizonte solicitado', async () => {
+    const owner = await registerVerifiedUser(app, 'ins-forecast');
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 2,
+      pricePerUnit: 120,
+    });
+    const customerId = await createCustomer(app, owner.accessToken);
+
+    const create = await request(app.getHttpServer())
+      .post('/contracts')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        customerId,
+        unitId: unitIds[0]!,
+        startDate: isoDate(-5),
+        priceMonthly: 120,
+      });
+    expect(create.status).toBe(201);
+    await request(app.getHttpServer())
+      .post(`/contracts/${create.body.id}/sign`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({});
+
+    const res = await request(app.getHttpServer())
+      .get('/analytics/forecast?months=4')
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.current.activeContracts).toBe(1);
+    expect(res.body.current.mrr).toBe(120);
+    expect(res.body.current.totalUnits).toBe(2);
+    expect(res.body.points).toHaveLength(4);
+    expect(res.body.assumptions.avgContractValue).toBe(120);
+    expect(res.body.points[0].yearMonth).toMatch(/^\d{4}-\d{2}$/);
+  });
 });
