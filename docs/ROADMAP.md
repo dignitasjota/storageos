@@ -373,8 +373,8 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 ### Diferenciadores estratégicos (self-storage específico)
 
-- **Move-in 100% self-service online**: el cliente reserva + firma + paga + recibe su código de acceso sin staff. Encadena widget → reservations → contracts → portal de pago → access credentials. Habilita el **local desatendido** (gran argumento del sector).
-- **Firma electrónica del contrato**: hoy `sign` es solo transición de estado + PDF. Falta firma real (signature pad / firma por email con sello de tiempo) con rastro en `contract_events`.
+- ~~**Move-in 100% self-service online**~~ ✅ **Implementado** (Plan 3): página pública `/book/[slug]` (disponibilidad por local/tipo → datos → crea cliente + contrato draft + token de firma) → `/sign/[token]` (firma) → contrato activo → acceso emitido por `domain.contract_signed` → 1ª factura emitida best-effort + token de portal para pagar. Endpoints `POST /public/move-in/book/:slug` + `/availability`, anti-abuso (honeypot + throttle). Habilita el **local desatendido**.
+- ~~**Firma electrónica del contrato**~~ ✅ **Implementado** (Plan 3): firma electrónica simple in-house. Tabla `contract_signatures` (firmante, método drawn/typed, imagen, **hash SHA-256 del documento**, IP, user-agent, canal). Flujo remoto por enlace (`POST /contracts/:id/request-signature` → email con token TTL 7d → `/sign/[token]`) y self-service. `<SignaturePad>` (canvas) o nombre tecleado. Registro probatorio en `GET /contracts/:id/signatures`. Pendiente menor: firma asistida con pad en local (staff) y pago inline en la confirmación (hoy vía portal).
 - **Integración real de control de accesos**: `LockProvider` está en stub/MQTT. Controladores reales (PTI/Noke/Sensata o controlador de puerta) + acceso del inquilino por QR/PIN desde el móvil.
 - **Overlock + flujo de impago físico → subasta**: ya hay `access_block` + `suspendForDunning`; falta el workflow operativo (candado físico, avisos legales escalados, disposición/subasta del contenido con sus particularidades legales en España).
 - **App PWA del inquilino**: pago, acceso (QR/PIN), facturas, incidencias.
@@ -412,14 +412,14 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 ### Prioridad recomendada
 
-| #   | Iniciativa                                   | Por qué                                                                       |
-| --- | -------------------------------------------- | ----------------------------------------------------------------------------- |
-| 1   | Importador CSV/Excel                         | Sin esto migrar un cliente desde otro software es un muro. Permite vender ya. |
-| 2   | WhatsApp real (dunning + avisos)             | Mayor ROI inmediato: cobra más con lo ya construido a medias.                 |
-| 3   | Move-in self-service + firma electrónica     | El diferenciador del sector (local desatendido).                              |
-| 4   | Redsys + Holded                              | Quitan objeciones de compra típicas en España.                                |
-| 5   | Control de accesos real + PWA inquilino      | Completa la experiencia desatendida.                                          |
-| 6   | Revenue management (KPIs + pricing dinámico) | Aumenta ingresos del cliente → justifica el precio del SaaS.                  |
+| #        | Iniciativa                                   | Por qué                                                                       |
+| -------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| 1        | Importador CSV/Excel                         | Sin esto migrar un cliente desde otro software es un muro. Permite vender ya. |
+| 2        | WhatsApp real (dunning + avisos)             | Mayor ROI inmediato: cobra más con lo ya construido a medias.                 |
+| ~~3~~ ✅ | Move-in self-service + firma electrónica     | Hecho (Plan 3): `/book/[slug]` + `/sign/[token]` + firma simple con rastro.   |
+| 4        | Redsys + Holded                              | Quitan objeciones de compra típicas en España.                                |
+| 5        | Control de accesos real + PWA inquilino      | Completa la experiencia desatendida.                                          |
+| 6        | Revenue management (KPIs + pricing dinámico) | Aumenta ingresos del cliente → justifica el precio del SaaS.                  |
 
 > **Antes que cualquier feature**: terminar la configuración operativa del despliegue (Resend, Stripe live, AEAT producción) — sin eso el producto no opera de verdad con un cliente.
 

@@ -9,8 +9,10 @@ import type {
   ChangeContractPriceInput,
   ContractDto,
   ContractEventDto,
+  ContractSignatureDto,
   ConvertReservationInput,
   CreateContractInput,
+  RequestSignatureResultDto,
   CreateCustomerInput,
   CreateReservationInput,
   CustomerDocumentDto,
@@ -203,6 +205,23 @@ export function useUpdateContract() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['contracts'] });
     },
+  });
+}
+
+export const contractSignaturesKey = (id: string) => ['contracts', id, 'signatures'] as const;
+
+export function useContractSignatures(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? contractSignaturesKey(id) : ['contract', 'none', 'signatures'],
+    queryFn: () => apiFetch<ContractSignatureDto[]>(`/contracts/${id}/signatures`),
+    enabled: !!id,
+  });
+}
+
+export function useRequestSignature() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<RequestSignatureResultDto>(`/contracts/${id}/request-signature`, { method: 'POST' }),
   });
 }
 

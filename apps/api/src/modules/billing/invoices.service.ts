@@ -111,7 +111,7 @@ export class InvoicesService {
 
   async create(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     input: CreateInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
@@ -278,7 +278,7 @@ export class InvoicesService {
    */
   async issue(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     invoiceId: string;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {

@@ -333,6 +333,7 @@ model Tenant {
   customerDocuments       CustomerDocument[]
   contracts               Contract[]
   contractEvents          ContractEvent[]
+  contractSignatures      ContractSignature[]
   reservations            Reservation[]
   invoiceSeries           InvoiceSeries[]
   invoices                Invoice[]
@@ -857,6 +858,9 @@ model Contract {
   depositAmount          Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
   depositStatus          ContractDepositStatus @default(none) @map("deposit_status")
   signedPdfUrl           String?               @map("signed_pdf_url")
+  /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
+  signingTokenHash       String?               @map("signing_token_hash")
+  signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)
   autoRenew              Boolean               @default(true) @map("auto_renew")
   cancellationNoticeDays Int                   @default(15) @map("cancellation_notice_days")
   notes                  String?
@@ -868,6 +872,7 @@ model Contract {
   customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
   unit           Unit            @relation(fields: [unitId], references: [id], onDelete: Restrict)
   events         ContractEvent[]
+  signatures     ContractSignature[]
   invoices       Invoice[]
   invoiceItems   InvoiceItem[]
   leadsConverted Lead[]          @relation("LeadConvertedContract")
@@ -880,6 +885,35 @@ model Contract {
   @@index([customerId])
   @@index([unitId])
   @@map("contracts")
+}
+
+/// Firma electrónica simple de un contrato: registro probatorio (firmante,
+/// método, imagen/typed, hash del documento firmado, IP y user-agent).
+model ContractSignature {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  contractId     String   @map("contract_id") @db.Uuid
+  signerName     String   @map("signer_name")
+  signerEmail    String?  @map("signer_email")
+  /// "drawn" (firma dibujada en pad) | "typed" (nombre tecleado + aceptación)
+  method         String
+  /// Data URL PNG de la firma dibujada (si method=drawn).
+  signatureImage String?  @map("signature_image")
+  typedSignature String?  @map("typed_signature")
+  /// SHA-256 de los términos firmados (huella de qué se firmó).
+  documentHash   String   @map("document_hash")
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  /// Canal de firma: "remote" (enlace) | "in_person" (pad asistido) | "self_service" (move-in público)
+  channel        String   @default("remote")
+  signedAt       DateTime @default(now()) @map("signed_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([contractId])
+  @@map("contract_signatures")
 }
 
 /// Historial inmutable de eventos de un contrato. Se inserta cada vez

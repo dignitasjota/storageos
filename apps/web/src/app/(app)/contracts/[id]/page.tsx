@@ -8,6 +8,7 @@ import {
   Loader2,
   Pause,
   PenTool,
+  Send,
   Square,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -38,6 +39,7 @@ import {
   useEndContract,
   useGenerateContractPdf,
   useRequestEndContract,
+  useRequestSignature,
   useSignContract,
 } from '@/lib/customers/hooks';
 
@@ -61,6 +63,7 @@ export default function ContractDetailPage() {
   const events = useContractEvents(id);
 
   const sign = useSignContract();
+  const requestSignature = useRequestSignature();
   const requestEnd = useRequestEndContract();
   const end = useEndContract();
   const cancel = useCancelContract();
@@ -126,11 +129,32 @@ export default function ContractDetailPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {c.status === 'draft' && (
-              <Button
-                onClick={() => handle(() => sign.mutateAsync({ id: c.id }), 'Contrato firmado.')}
-              >
-                <PenTool className="mr-1 h-4 w-4" /> Firmar
-              </Button>
+              <>
+                <Button
+                  onClick={() => handle(() => sign.mutateAsync({ id: c.id }), 'Contrato firmado.')}
+                >
+                  <PenTool className="mr-1 h-4 w-4" /> Firmar
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={requestSignature.isPending}
+                  onClick={async () => {
+                    try {
+                      const res = await requestSignature.mutateAsync(c.id);
+                      await navigator.clipboard?.writeText(res.signingUrl).catch(() => undefined);
+                      toast.success(
+                        res.emailed
+                          ? 'Enlace de firma enviado al inquilino y copiado al portapapeles.'
+                          : 'Enlace de firma copiado al portapapeles.',
+                      );
+                    } catch (err) {
+                      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+                    }
+                  }}
+                >
+                  <Send className="mr-1 h-4 w-4" /> Solicitar firma
+                </Button>
+              </>
             )}
             {c.status === 'active' && (
               <Button

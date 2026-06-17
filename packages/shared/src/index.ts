@@ -18,5 +18,6 @@ export * from './access';
 export * from './admin';
 export * from './integrations';
 export * from './imports';
+export * from './move-in';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;

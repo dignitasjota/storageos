@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -10,6 +12,7 @@ import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
+import { buildContractTermsText } from './contract-terms';
 import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -123,7 +126,7 @@ export class ContractsService {
 
   async create(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     input: CreateContractInput;
     meta: RequestMeta;
   }): Promise<ContractDto> {
@@ -293,9 +296,18 @@ export class ContractsService {
 
   async sign(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     contractId: string;
     meta: RequestMeta;
+    /** Firma electrónica simple (remota, asistida o self-service). */
+    signature?: {
+      signerName: string;
+      signerEmail?: string | null;
+      method: 'drawn' | 'typed';
+      signatureImage?: string | null;
+      typedSignature?: string | null;
+      channel?: string;
+    };
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId);
     this.assertTransition(existing.status, 'active');
@@ -321,6 +333,9 @@ export class ContractsService {
         data: {
           status: 'active',
           signedAt,
+          // La firma consume el token remoto (si lo había).
+          signingTokenHash: null,
+          signingTokenExpiresAt: null,
         },
         include: {
           customer: {
@@ -357,6 +372,39 @@ export class ContractsService {
         'occupied',
         `Contrato ${row.contractNumber} firmado`,
       );
+
+      // Registro probatorio de la firma electrónica simple.
+      if (args.signature) {
+        const termsText = buildContractTermsText({
+          contractNumber: row.contractNumber,
+          customerName:
+            row.customer.customerType === 'business'
+              ? (row.customer.companyName ?? '')
+              : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' '),
+          unitCode: row.unit.code,
+          facilityName: row.unit.facility.name,
+          priceMonthly: Number(row.priceMonthly),
+          depositAmount: Number(row.depositAmount),
+          billingCycle: row.billingCycle,
+          startDate: row.startDate.toISOString().slice(0, 10),
+        });
+        const documentHash = createHash('sha256').update(termsText).digest('hex');
+        await tx.contractSignature.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            signerName: args.signature.signerName,
+            signerEmail: args.signature.signerEmail ?? null,
+            method: args.signature.method,
+            signatureImage: args.signature.signatureImage ?? null,
+            typedSignature: args.signature.typedSignature ?? null,
+            documentHash,
+            ipAddress: args.meta.ipAddress ?? null,
+            userAgent: args.meta.userAgent ?? null,
+            channel: args.signature.channel ?? 'remote',
+          },
+        });
+      }
       return row;
     }, args.tenantId);
 
@@ -851,7 +899,7 @@ export class ContractsService {
    */
   private async syncUnitStatus(
     tx: Prisma.TransactionClient,
-    ctx: { tenantId: string; userId: string; meta: RequestMeta },
+    ctx: { tenantId: string; userId: string | null; meta: RequestMeta },
     unitId: string,
     from: UnitStatus,
     to: UnitStatus,

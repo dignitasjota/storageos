@@ -32,6 +32,7 @@ import { ImportsModule } from './modules/imports/imports.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { LeadsModule } from './modules/leads/leads.module';
+import { MoveInModule } from './modules/move-in/move-in.module';
 import { OperationsModule } from './modules/operations/operations.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PortalModule } from './modules/portal/portal.module';
@@ -141,6 +142,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     BillingSaasModule,
     IntegrationsModule,
     ImportsModule,
+    MoveInModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
