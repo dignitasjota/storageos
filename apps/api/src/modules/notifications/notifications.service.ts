@@ -113,6 +113,18 @@ export class NotificationsService {
     });
   }
 
+  @OnEvent(DOMAIN_EVENTS.contract_ending_soon, { async: true, promisify: true })
+  async onContractEndingSoon(p: DomainEventPayload): Promise<void> {
+    const num = nested(p.scope, 'contract', 'number');
+    const endDate = nested(p.scope, 'contract', 'endDate');
+    await this.safe(p.tenantId, {
+      type: 'contract.ending_soon',
+      title: num ? `Contrato ${num} vence pronto` : 'Contrato vence pronto',
+      ...(endDate ? { body: `Fecha de fin: ${endDate}` } : {}),
+      link: `/contracts/${p.entityId}`,
+    });
+  }
+
   @OnEvent(DOMAIN_EVENTS.incident_created, { async: true, promisify: true })
   async onIncidentCreated(p: DomainEventPayload): Promise<void> {
     const title = nested(p.scope, 'incident', 'title') ?? nested(p.scope, 'incident', 'subject');

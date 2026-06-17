@@ -865,6 +865,8 @@ model Contract {
   /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
   signingTokenHash       String?               @map("signing_token_hash")
   signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)
+  /// Marca cuándo se emitió el aviso "vence pronto" (idempotencia del cron).
+  endingSoonNotifiedAt   DateTime?             @map("ending_soon_notified_at") @db.Timestamptz(6)
   autoRenew              Boolean               @default(true) @map("auto_renew")
   cancellationNoticeDays Int                   @default(15) @map("cancellation_notice_days")
   notes                  String?

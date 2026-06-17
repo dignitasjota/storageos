@@ -11,11 +11,13 @@ import { AuthModule } from '../../api/src/modules/auth/auth.module';
 import { AutomationsModule } from '../../api/src/modules/automations/automations.module';
 import { BillingModule } from '../../api/src/modules/billing/billing.module';
 import { CommunicationsModule } from '../../api/src/modules/communications/communications.module';
+import { ContractsModule } from '../../api/src/modules/contracts/contracts.module';
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
 import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
+import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
@@ -116,6 +118,9 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     DunningModule,
     AccessModule,
     IntegrationsModule,
+    // CRM: cron `contract_ending_soon` + feed de notificaciones in-app.
+    ContractsModule,
+    NotificationsModule,
   ],
 })
 export class WorkerModule {}
