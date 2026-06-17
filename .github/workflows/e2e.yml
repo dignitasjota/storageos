@@ -143,9 +143,12 @@ jobs:
       # FALLAN (exit 1) si el servicio no responde a tiempo: como gate
       # bloqueante, preferimos un fallo claro a un Playwright con errores
       # confusos de conexión.
+      # La API hereda NODE_ENV=test del env del job: así el ThrottlerModule
+      # aplica `skipIf: () => true` y los smoke tests pueden registrar varios
+      # tenants sin chocar con el rate-limit (3/h) de /auth/register.
       - name: Start servers (background)
         run: |
-          NODE_ENV=production pnpm -F api start > /tmp/api.log 2>&1 &
+          pnpm -F api start > /tmp/api.log 2>&1 &
           NEXT_PUBLIC_API_URL=http://localhost:3001 PORT=3000 pnpm -F web start > /tmp/web.log 2>&1 &
 
       - name: Wait for API + web (fail fast)

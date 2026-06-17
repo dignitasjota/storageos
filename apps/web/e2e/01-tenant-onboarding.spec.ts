@@ -64,8 +64,11 @@ test.describe('Onboarding de tenant', () => {
     await page.getByLabel(/^Código$/i).fill(code);
     await page.getByRole('button', { name: /^Confirmar$/i }).click();
 
-    // Tras verificar, aparecen los recovery codes (paso 3).
-    await expect(page.getByText(/códigos de recuperación/i)).toBeVisible({
+    // Tras verificar, aparecen los recovery codes (paso 3). Usamos el título
+    // del paso ("Guarda tus códigos de recuperación") para no chocar con el
+    // texto del checkbox de confirmación, que también menciona "códigos de
+    // recuperación" (strict mode violation si usamos el match genérico).
+    await expect(page.getByText(/Guarda tus códigos de recuperación/i)).toBeVisible({
       timeout: 10_000,
     });
 
