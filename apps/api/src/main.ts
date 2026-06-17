@@ -59,10 +59,14 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // --- OpenAPI / Swagger ---
-  // Se monta en dev/test siempre, y en produccion solo si OPENAPI_ENABLED=true.
+  // Se monta en `development` siempre, y en cualquier entorno si
+  // `OPENAPI_ENABLED=true`. En `test` NO se monta: el servidor e2e real corre
+  // con NODE_ENV=test (para desactivar el throttler) y `patchNestJsSwagger`
+  // de nestjs-zod peta al arrancar contra la versión instalada de
+  // @nestjs/swagger; además los tests no necesitan la UI de docs.
   const nodeEnv = config.get('NODE_ENV', { infer: true });
   const openapiEnabled = config.get('OPENAPI_ENABLED', { infer: true });
-  if (openapiEnabled || nodeEnv !== 'production') {
+  if (openapiEnabled || nodeEnv === 'development') {
     // Hace que @nestjs/swagger entienda los DTOs creados con createZodDto
     // de nestjs-zod (inyecta los schemas Zod como definiciones OpenAPI).
     patchNestJsSwagger();
