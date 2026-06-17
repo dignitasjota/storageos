@@ -105,6 +105,12 @@ jobs:
       - name: Build shared package
         run: pnpm -F @storageos/shared build
 
+      # `@storageos/database` expone sus tipos desde dist/ (./dist/index.d.ts).
+      # Sin compilarlo, `nest build` no resuelve `@storageos/database` y la
+      # build de la API falla con cientos de errores TS en cascada.
+      - name: Build database package
+        run: pnpm -F @storageos/database build
+
       - name: Apply migrations
         run: pnpm -F @storageos/database migrate:deploy
         env:
