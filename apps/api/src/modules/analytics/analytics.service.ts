@@ -6,6 +6,7 @@ import type { Prisma } from '@storageos/database';
 import type {
   AgingKpiDto,
   ChurnKpiDto,
+  CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
 } from '@storageos/shared';
@@ -355,6 +356,25 @@ export class AnalyticsService {
           .map((r) => ({ source: r.source as string, count: r._count._all }))
           .sort((a, b) => b.count - a.count),
       };
+    }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. Inquilinos (recuentos)
+  // ---------------------------------------------------------------------------
+  async getCustomerStats(tenantId: string): Promise<CustomerStatsKpiDto> {
+    const now = new Date();
+    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+    return this.prisma.withTenant(async (tx) => {
+      const [total, withActiveContract, newThisMonth] = await Promise.all([
+        tx.customer.count({ where: { deletedAt: null } }),
+        tx.customer.count({
+          where: { deletedAt: null, contracts: { some: { status: 'active' } } },
+        }),
+        tx.customer.count({ where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
+      ]);
+      return { total, withActiveContract, newThisMonth };
     }, tenantId);
   }
 }

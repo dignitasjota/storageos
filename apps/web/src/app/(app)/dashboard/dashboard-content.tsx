@@ -4,6 +4,7 @@ import { Calendar, CreditCard, Sparkles } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 
 import { BillingMetricsCard } from './billing-metrics-card';
+import { CustomersKpiCard } from './customers-kpi-card';
 import { OccupancyCard } from './occupancy-card';
 
 import { Badge } from '@/components/ui/badge';
@@ -98,6 +99,8 @@ export function DashboardContent() {
       </section>
 
       <BillingMetricsCard />
+
+      <CustomersKpiCard />
 
       <OccupancyCard />
     </div>

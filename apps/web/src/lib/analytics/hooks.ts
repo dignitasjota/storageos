@@ -5,14 +5,22 @@ import { apiFetch } from '../auth/api';
 import type {
   AgingKpiDto,
   ChurnKpiDto,
+  CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
-  scope: 'occupancy' | 'churn' | 'aging' | 'leads-funnel',
+  scope: 'occupancy' | 'churn' | 'aging' | 'leads-funnel' | 'customers',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
+
+export function useCustomerStats() {
+  return useQuery({
+    queryKey: analyticsKey('customers'),
+    queryFn: () => apiFetch<CustomerStatsKpiDto>('/analytics/customers'),
+  });
+}
 
 export function useOccupancy(params: { facilityId?: string } = {}) {
   const qs = new URLSearchParams();

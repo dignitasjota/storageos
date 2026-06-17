@@ -10,6 +10,7 @@ import { AnalyticsService } from './analytics.service';
 import type {
   AgingKpiDto,
   ChurnKpiDto,
+  CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
 } from '@storageos/shared';
@@ -26,6 +27,11 @@ export class AnalyticsController {
     return this.service.getOccupancy(user.tenantId, {
       ...(facilityId ? { facilityId } : {}),
     });
+  }
+
+  @Get('customers')
+  getCustomerStats(@CurrentUser() user: AuthenticatedUser): Promise<CustomerStatsKpiDto> {
+    return this.service.getCustomerStats(user.tenantId);
   }
 
   @Get('churn')

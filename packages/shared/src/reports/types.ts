@@ -70,3 +70,12 @@ export interface LeadsFunnelKpiDto {
   };
   bySource: { source: string; count: number }[];
 }
+
+export interface CustomerStatsKpiDto {
+  /** Inquilinos activos (no anonimizados ni soft-deleted). */
+  total: number;
+  /** Inquilinos con al menos un contrato activo (generan ingresos). */
+  withActiveContract: number;
+  /** Altas desde el día 1 del mes actual. */
+  newThisMonth: number;
+}
