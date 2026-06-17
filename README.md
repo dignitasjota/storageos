@@ -105,6 +105,57 @@ Los e2e del backend asumen que `pnpm docker:up` está corriendo (Postgres, Mailp
 
 Ver `docs/DATA_MODEL.md` para detalles de RLS y el helper `withTenantContext`.
 
+## Flujo de contribución (PR + gate de CI)
+
+`main` está protegida: solo avanza vía **Pull Request** y únicamente si el gate
+de smoke tests **`Smoke E2E (Playwright)`** está verde. Así, lo que despliega
+Portainer (que hace `pull` de `main`) nunca incluye un cambio que rompa el
+registro, la facturación, el panel admin o el widget.
+
+### Ciclo por cada cambio
+
+```bash
+# 1. Rama nueva desde main
+git checkout main && git pull
+git checkout -b feat/lo-que-sea        # o fix/..., chore/...
+
+# 2. Commit(s) en la rama (Conventional Commits)
+git add -A
+git commit -m "feat: ..."
+
+# 3. Push de la RAMA (no de main)
+git push -u origin feat/lo-que-sea
+```
+
+Después, con la GitHub CLI (`gh`):
+
+```bash
+gh pr create --fill --base main        # crea el PR con título/cuerpo del commit
+gh pr checks --watch                    # espera y muestra el gate en vivo (~3-5 min)
+gh pr merge --squash --delete-branch    # mergea cuando esté verde + borra la rama
+
+# 4. Sincroniza tu local
+git checkout main && git pull
+```
+
+> Alternativa "fire-and-forget": `gh pr merge --squash --auto --delete-branch`
+> (requiere _Allow auto-merge_ en Settings → General) deja el PR programado para
+> mergearse **solo** en cuanto el gate pase.
+
+### Qué dispara el despliegue
+
+El merge a `main` es lo que mueve la rama → Portainer hace `pull` (igual que
+antes lo hacía el `push` directo). Si redespliegas a mano desde Portainer, lo
+haces **después del merge**. El gate garantiza que ese `main` está verde.
+
+### Reglas de la branch protection (GitHub → Settings → Branches → `main`)
+
+- ✅ **Require status checks to pass before merging** → check `Smoke E2E (Playwright)`.
+- ✅ **Require a pull request before merging** (sin esto, los `push` directos a
+  `main` se saltan el gate).
+- ✅ **Do not allow bypassing** (opcional pero recomendado en solo-dev: te frena
+  también a ti como admin).
+
 ## Funcionalidad disponible
 
 Resumen de lo implementado al cierre de Fase 1F. La especificación completa, incluyendo bodies y códigos de error, está en [`docs/API.md`](docs/API.md).
