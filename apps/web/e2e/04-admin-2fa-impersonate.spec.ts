@@ -69,8 +69,11 @@ test.describe('Super admin + impersonación', () => {
     const popupPromise = page.waitForEvent('popup');
     await page.getByRole('button', { name: /Iniciar impersonación/i }).click();
     const popup = await popupPromise;
-    // El popup va a /dashboard; nos basta con que se abra (la consume del
-    // token vive en el panel del tenant y no está cubierta por este smoke).
-    expect(popup.url()).toMatch(/\/dashboard/);
+    // El popup hace window.open('/dashboard'). La consumición del token de
+    // impersonación (desde localStorage) NO está cubierta por este smoke, así
+    // que el guard del panel puede redirigir a /login?next=%2Fdashboard antes
+    // de que se establezca la sesión. Nos basta con verificar que el popup se
+    // abrió apuntando al dashboard (ruta directa o vía el parámetro `next`).
+    expect(popup.url()).toMatch(/dashboard/i);
   });
 });
