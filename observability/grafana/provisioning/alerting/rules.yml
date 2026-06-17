@@ -1,0 +1,63 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: storageos
+    folder: StorageOS
+    interval: 1m
+    rules:
+      # Pico de violaciones CSP: posible inyección o un cambio de CSP roto.
+      - uid: csp-spike
+        title: Pico de violaciones CSP
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: Más de 50 violaciones CSP en los últimos 5 minutos
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service="web", evt="csp_violation"}[5m]))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [50] }
+
+      # Pico de errores en API/worker (5xx, excepciones no controladas).
+      - uid: app-error-spike
+        title: Pico de errores en API/worker
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: Más de 20 logs de error en API/worker en los últimos 5 minutos
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service=~"api|worker", level=~"error|fatal"}[5m]))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [20] }

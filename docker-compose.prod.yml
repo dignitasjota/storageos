@@ -246,6 +246,77 @@ services:
     networks:
       - storageos-net
 
+  # ---------------------------------------------------------------------------
+  # Observabilidad (perfil `observability`) - Loki + Promtail + Grafana.
+  # Stack opcional de logs agregados + dashboards + alertas. Se activa con:
+  #   docker compose -f docker-compose.prod.yml --profile observability up -d
+  # (o COMPOSE_PROFILES=observability). Apagado por defecto para no consumir
+  # RAM si no se usa. Detalle en docs/DEPLOYMENT.md §13.
+  # ---------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.2.1
+    profiles: ['observability']
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/loki-config.yml']
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    networks:
+      - storageos-net
+    expose:
+      - '3100'
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    profiles: ['observability']
+    restart: unless-stopped
+    command: ['-config.file=/etc/promtail/promtail-config.yml']
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Lectura del socket de Docker para descubrir contenedores + sus logs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+    networks:
+      - storageos-net
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    profiles: ['observability']
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      # Datasource Postgres (solo lectura desde los dashboards).
+      GF_POSTGRES_USER: ${POSTGRES_USER}
+      GF_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      GF_POSTGRES_DB: ${POSTGRES_DB}
+      # Email de alertas (contact point provisionado).
+      GF_ALERT_EMAIL: ${GF_ALERT_EMAIL:-${SECURITY_ALERT_EMAIL:-}}
+      # SMTP para que Grafana envíe los emails de alerta.
+      GF_SMTP_ENABLED: ${GF_SMTP_ENABLED:-false}
+      GF_SMTP_HOST: ${GF_SMTP_HOST:-}
+      GF_SMTP_USER: ${GF_SMTP_USER:-}
+      GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:-}
+      GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:-}
+      GF_SMTP_FROM_NAME: StorageOS Alerts
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+    networks:
+      - storageos-net
+    # Exponer via NPM (Proxy Host → grafana:3000) con su propio subdominio.
+    expose:
+      - '3000'
+
 # -----------------------------------------------------------------------------
 # Red interna - aisla los servicios del host. NPM se conecta a esta red
 # como cliente externo (declarado en el compose de NPM con `external: true`).
@@ -265,3 +336,7 @@ volumes:
     name: storageos-redis-data
   minio-data:
     name: storageos-minio-data
+  loki-data:
+    name: storageos-loki-data
+  grafana-data:
+    name: storageos-grafana-data

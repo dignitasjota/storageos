@@ -1,0 +1,29 @@
+apiVersion: 1
+
+datasources:
+  # Logs agregados (api/worker/web) vía Promtail.
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    jsonData:
+      maxLines: 1000
+
+  # Postgres para dashboards sobre tablas globales (security_events,
+  # super_admin_audit_logs). Solo lectura desde Grafana (los paneles solo
+  # ejecutan SELECT). Credenciales por variables de entorno del servicio.
+  - name: Postgres
+    type: postgres
+    uid: postgres
+    access: proxy
+    url: postgres:5432
+    user: ${GF_POSTGRES_USER}
+    secureJsonData:
+      password: ${GF_POSTGRES_PASSWORD}
+    jsonData:
+      database: ${GF_POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false

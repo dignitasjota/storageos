@@ -404,7 +404,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 - **Multi-idioma EN/CA/FR** (i18n con next-intl ya montado; hoy solo `es-ES`).
 - **Permisos más finos** + 2FA obligatorio configurable por más roles.
-- **Observabilidad**: dashboards Grafana/Loki sobre `security_events`/colas + alerta sobre `/api/csp-report`.
+- ~~**Observabilidad**: dashboards Grafana/Loki sobre `security_events`/colas + alerta sobre `/api/csp-report`~~ ✅ **Implementado** (autohospedado, perfil `observability`): stack Loki + Promtail + Grafana en `observability/` + servicios en ambos composes (apagados por defecto). Promtail descubre contenedores por el socket Docker y etiqueta logs por servicio; Grafana provisiona datasources (Loki + Postgres), el dashboard **StorageOS — Overview** (volumen de logs, errores API/worker, violaciones CSP, login fallidos desde `security_events`, top emails/IP) y **alertas por email** (pico CSP > 50/5m, pico errores > 20/5m). El endpoint `/api/csp-report` emite ahora JSON estructurado (`evt=csp_violation`) con dedup TTL para que Loki lo grafique/alerte. Detalle en `docs/DEPLOYMENT.md §13.1` + `observability/README.md`. (El brute-force ya lo alertaba `SecurityAlertsService`.)
 - **Playwright en CI bloqueante** + más cobertura e2e de los flujos de dinero.
 - **Apps separadas** portal e admin (hoy rutas en `apps/web`).
 - **Marketplace público de trasteros**.

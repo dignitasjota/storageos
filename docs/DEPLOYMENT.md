@@ -727,7 +727,24 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 - **Sentry**: definir `SENTRY_DSN` en `.env.prod` (misma variable para `api` y `worker`; ambos la leen en su `instrument.ts`). Sin DSN, Sentry es un no-op. El API reporta los errores 5xx desde `HttpExceptionFilter`; el worker captura unhandled rejections/exceptions. Opcional: `SENTRY_TRACES_SAMPLE_RATE` (default `0`, solo errores).
 - **Uptime Kuma**: contenedor adicional monitoreando `https://app.tu-dominio.com`, `https://api.tu-dominio.com/health/ready` y `https://api.tu-dominio.com/health/worker`. `/health/ready` comprueba Postgres + Redis (503 con `details` si algo cae); `/health/worker` comprueba el heartbeat que el proceso de workers escribe en Redis cada minuto (503 `worker_stale` si lleva >3 min sin latir — worker caído o colgado, los crons no corren). `/health` es solo liveness.
 - **Colas BullMQ**: página `/admin/queues` del panel super admin con counts por cola (waiting/active/failed/...) y los últimos jobs fallidos con su motivo. Los failed se retienen 30 días en Redis.
-- **Logs**: `docker compose ... logs -f api` para inspección puntual. En Fase 8D se añade Loki + Grafana.
+- **Logs**: `docker compose ... logs -f api` para inspección puntual, o el stack Loki + Grafana de abajo para agregación + dashboards + alertas.
+
+### 13.1 Loki + Grafana + Promtail (logs agregados + dashboards + alertas)
+
+Stack **autohospedado y opcional** (perfil `observability`, apagado por defecto). Los logs no salen del VPS. Config versionada en [`observability/`](../observability/) (ver su `README.md`).
+
+- **Qué hace**: Promtail descubre los contenedores por el socket de Docker y envía sus logs a Loki, etiquetados por servicio (`api`/`worker`/`web`). Grafana provisiona automáticamente datasources (Loki + Postgres), el dashboard **StorageOS — Overview** y dos reglas de alerta.
+- **Dashboard**: volumen de logs por servicio, errores API/worker (24h), violaciones CSP (24h), intentos de login fallidos (sobre `security_events`), top emails/IP con login fallido, y logs de errores + violaciones CSP recientes.
+- **Alertas por email** (contact point provisionado, reutiliza tu SMTP):
+  - _Pico de violaciones CSP_ — > 50 en 5 min.
+  - _Pico de errores API/worker_ — > 20 logs de error en 5 min.
+  - El brute-force de login ya lo alerta `SecurityAlertsService` por separado; Grafana añade visibilidad histórica.
+- **Activar**:
+  - Compose directo: `docker compose -f docker-compose.prod.yml --profile observability up -d`.
+  - Portainer: añade `COMPOSE_PROFILES=observability` en la sección Environment del stack y vuelve a desplegar.
+- **Exponer Grafana**: Proxy Host en NPM (`grafana.tu-dominio.com` → `grafana:3000`). **No** publiques Loki ni Promtail.
+- **Variables nuevas** (Portainer / `.env.prod`): `GF_ADMIN_PASSWORD` (obligatoria), `GF_SERVER_ROOT_URL`, `GF_ALERT_EMAIL` (cae a `SECURITY_ALERT_EMAIL`), y para que envíe emails `GF_SMTP_ENABLED=true` + `GF_SMTP_HOST` + `GF_SMTP_USER` + `GF_SMTP_PASSWORD` + `GF_SMTP_FROM_ADDRESS`. El datasource Postgres reutiliza `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` (solo `SELECT`).
+- **Coste**: ~300-500 MB RAM extra. Si el VPS va justo, deja el perfil apagado y usa `logs -f` puntual.
 
 ---
 
@@ -782,6 +799,6 @@ Permite a los inquilinos pagar facturas con tarjeta vía la pasarela alojada del
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.
 - Staging dedicado (`develop` branch → `staging.tu-dominio.com`).
-- Loki + Grafana para logs agregados.
+- ~~Loki + Grafana para logs agregados.~~ ✅ Implementado — perfil `observability` (ver §13.1).
 - Política formal de rotación de secretos cada 90 días.
 - Runbook de recuperación ante desastre (RTO/RPO documentados).
