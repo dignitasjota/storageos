@@ -17,3 +17,13 @@ export const ImportCustomersCommitSchema = z.object({
   onDuplicate: ImportDuplicatePolicyEnum.default('skip'),
 });
 export type ImportCustomersCommitInput = z.infer<typeof ImportCustomersCommitSchema>;
+
+/** Schemas genéricos reutilizables por cualquier entidad importable (trasteros, contratos…). */
+export const ImportPreviewSchema = z.object({ csv: csvText });
+export type ImportPreviewInput = z.infer<typeof ImportPreviewSchema>;
+
+export const ImportCommitSchema = z.object({
+  csv: csvText,
+  onDuplicate: ImportDuplicatePolicyEnum.default('skip'),
+});
+export type ImportCommitInput = z.infer<typeof ImportCommitSchema>;

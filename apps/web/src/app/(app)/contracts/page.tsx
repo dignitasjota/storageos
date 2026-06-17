@@ -2,7 +2,7 @@
 
 import { type ContractDto, type ContractStatusValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -145,11 +145,18 @@ export default function ContractsPage() {
         isLoading={contracts.isLoading}
         searchPlaceholder="Buscar..."
         toolbarRight={
-          <Button asChild>
-            <Link href="/contracts/new">
-              <Plus className="mr-1 h-4 w-4" /> Nuevo contrato
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/contracts/import">
+                <Upload className="mr-1 h-4 w-4" /> Importar
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/contracts/new">
+                <Plus className="mr-1 h-4 w-4" /> Nuevo contrato
+              </Link>
+            </Button>
+          </>
         }
         emptyText="No hay contratos que coincidan con los filtros."
       />

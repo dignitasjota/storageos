@@ -2,7 +2,7 @@
 
 import { type UnitDto, type UnitStatusValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -170,11 +170,18 @@ export default function UnitsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Trasteros</h1>
-        <p className="text-sm text-muted-foreground">
-          Vista global de todos tus trasteros con filtros.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Trasteros</h1>
+          <p className="text-sm text-muted-foreground">
+            Vista global de todos tus trasteros con filtros.
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/units/import">
+            <Upload className="mr-1 h-4 w-4" /> Importar
+          </Link>
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-2">

@@ -44,3 +44,15 @@ export interface ImportCustomersCommitDto {
   summary: ImportCommitSummary;
   rows: ImportCommitRowResult[];
 }
+
+/** Alias genéricos: la forma de preview/commit es idéntica para todas las entidades. */
+export interface ImportPreviewDto {
+  columns: string[];
+  summary: ImportPreviewSummary;
+  rows: ImportPreviewRowDto[];
+}
+
+export interface ImportCommitDto {
+  summary: ImportCommitSummary;
+  rows: ImportCommitRowResult[];
+}

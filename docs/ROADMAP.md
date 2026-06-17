@@ -365,7 +365,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 ### Quick wins (alto impacto / esfuerzo bajo-medio)
 
-- **Importador de datos (CSV/Excel)** para onboarding: migrar clientes/contratos/trasteros desde el sistema del competidor. Sin esto, cambiarse de software es un muro. Reutiliza `customers`/`contracts`/`units`. _(plan de implementación detallado más abajo)_
+- ~~**Importador de datos (CSV/Excel)** para onboarding~~ ✅ **Implementado**: `ImportsModule` con preview (dry-run) + commit + plantilla para **inquilinos, trasteros y contratos** (`/imports/{customers,units,contracts}/...`). Parser papaparse + alias de cabeceras ES/EN + validación con los schemas existentes + dedup; resuelve referencias por nombre (local/tipo) y email/documento/código (cliente/trastero). Los contratos se importan como borradores. Wizard en `/{customers,units,contracts}/import`. Opcional pendiente: formato `.xlsx` (hoy solo CSV).
 - **WhatsApp Business API real** para dunning y avisos: hoy `WhatsAppProvider` es stub. En España WhatsApp se lee, el email no → más cobro con lo ya construido (outbox + automations). _(plan de implementación detallado más abajo)_
 - **Automations infrautilizadas activadas**: confirmación de pago, aviso de renovación, subida de precio con antelación legal (motor `EventEmitter2` + communications ya existe).
 - **Centro de notificaciones in-app** + badge en el header (sobre `EventEmitter2`): impagos, incidencias y leads sin depender del email.

@@ -29,5 +29,6 @@ import { UnitsService } from './units.service';
     FacilityFloorsService,
     DashboardService,
   ],
+  exports: [UnitsService],
 })
 export class FacilitiesModule {}
