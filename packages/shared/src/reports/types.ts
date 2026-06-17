@@ -92,3 +92,53 @@ export interface RevenueKpiDto {
   /** LTV medio: total facturado (pagado) por inquilino con facturación. */
   avgCustomerLtv: number;
 }
+
+// ============================================================================
+// Insights: churn risk + dynamic pricing (heurísticos, read-only)
+// ============================================================================
+
+export type ChurnRiskLevel = 'low' | 'medium' | 'high';
+
+export interface ChurnRiskItemDto {
+  contractId: string;
+  contractNumber: string;
+  customerId: string;
+  customerName: string;
+  unitCode: string;
+  facilityName: string;
+  priceMonthly: number;
+  /** Puntuación 0-100 (mayor = más riesgo de baja). */
+  score: number;
+  level: ChurnRiskLevel;
+  /** Señales legibles que contribuyen al riesgo. */
+  factors: string[];
+}
+
+export interface ChurnRiskKpiDto {
+  summary: { high: number; medium: number; low: number; total: number };
+  /** Contratos ordenados por riesgo descendente (los `low` se omiten del detalle). */
+  items: ChurnRiskItemDto[];
+}
+
+export type PricingAction = 'raise' | 'lower' | 'hold';
+
+export interface PricingSuggestionItemDto {
+  unitTypeId: string;
+  unitTypeName: string;
+  totalUnits: number;
+  occupiedUnits: number;
+  /** % ocupación física de este tipo (0-100). */
+  occupancy: number;
+  /** Precio mensual de referencia (default del unit type). */
+  currentPrice: number;
+  /** Precio sugerido según la ocupación. */
+  suggestedPrice: number;
+  /** Variación sugerida en % (+/-). */
+  changePct: number;
+  action: PricingAction;
+  rationale: string;
+}
+
+export interface PricingSuggestionsDto {
+  items: PricingSuggestionItemDto[];
+}

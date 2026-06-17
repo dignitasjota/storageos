@@ -396,7 +396,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 ### Analítica e IA
 
-- **Predicción de churn** + **precio dinámico** por ocupación (yield management): empezar por reglas heurísticas sobre `pricing_rules` antes de ML.
+- ~~**Predicción de churn** + **precio dinámico** por ocupación (yield management)~~ ✅ **Implementado** (heurístico, sin ML): `InsightsService` en `AnalyticsModule`. **Churn risk** (`GET /analytics/churn-risk`): puntúa 0-100 cada contrato `active|ending` por señales (facturas vencidas, deuda > 1 mensualidad, cobros fallidos, dunning ejecutado, vencimiento ≤60d sin auto-renovación, sin método de pago) → niveles high/medium/low + factores legibles; el detalle omite `low` y ordena por riesgo. **Precio dinámico** (`GET /analytics/pricing-suggestions`): yield management por ocupación de cada tipo de trastero (≥90% +10%, ≥80% +5%, ≤60% -5%, ≤40% -10%, resto mantener) — recomendaciones read-only, no muta pricing rules. UI: pestañas "Riesgo de baja" + "Precio dinámico" en `/analytics`. Tests: unit `insights.service` 4/4 + e2e `insights` 3/3.
 - **Forecasting** de ocupación e ingresos.
 - **Asistente IA para staff** (resúmenes de cliente, redacción de comunicaciones).
 

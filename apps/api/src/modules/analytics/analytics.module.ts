@@ -4,11 +4,12 @@ import { AuthModule } from '../auth/auth.module';
 
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { InsightsService } from './insights.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [AnalyticsController],
-  providers: [AnalyticsService],
-  exports: [AnalyticsService],
+  providers: [AnalyticsService, InsightsService],
+  exports: [AnalyticsService, InsightsService],
 })
 export class AnalyticsModule {}

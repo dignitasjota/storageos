@@ -6,19 +6,25 @@ import {
 } from '../../common/decorators/current-user.decorator';
 
 import { AnalyticsService } from './analytics.service';
+import { InsightsService } from './insights.service';
 
 import type {
   AgingKpiDto,
   ChurnKpiDto,
+  ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
+  PricingSuggestionsDto,
   RevenueKpiDto,
 } from '@storageos/shared';
 
 @Controller('analytics')
 export class AnalyticsController {
-  constructor(private readonly service: AnalyticsService) {}
+  constructor(
+    private readonly service: AnalyticsService,
+    private readonly insights: InsightsService,
+  ) {}
 
   @Get('occupancy')
   getOccupancy(
@@ -70,5 +76,15 @@ export class AnalyticsController {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     });
+  }
+
+  @Get('churn-risk')
+  getChurnRisk(@CurrentUser() user: AuthenticatedUser): Promise<ChurnRiskKpiDto> {
+    return this.insights.getChurnRisk(user.tenantId);
+  }
+
+  @Get('pricing-suggestions')
+  getPricingSuggestions(@CurrentUser() user: AuthenticatedUser): Promise<PricingSuggestionsDto> {
+    return this.insights.getPricingSuggestions(user.tenantId);
   }
 }

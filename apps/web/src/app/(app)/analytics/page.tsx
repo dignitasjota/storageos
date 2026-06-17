@@ -14,9 +14,27 @@ import {
   YAxis,
 } from 'recharts';
 
+import type { ChurnRiskLevel, PricingAction } from '@storageos/shared';
+
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAging, useChurn, useLeadsFunnel, useOccupancy } from '@/lib/analytics/hooks';
+import {
+  useAging,
+  useChurn,
+  useChurnRisk,
+  useLeadsFunnel,
+  useOccupancy,
+  usePricingSuggestions,
+} from '@/lib/analytics/hooks';
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -32,16 +50,19 @@ export default function AnalyticsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Analítica</h1>
         <p className="text-sm text-muted-foreground">
-          KPIs clave del negocio: ocupación, churn, morosidad y funnel de leads.
+          KPIs clave del negocio: ocupación, churn, morosidad, leads e insights (riesgo de baja y
+          precio dinámico).
         </p>
       </div>
 
       <Tabs defaultValue="occupancy" className="w-full">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="occupancy">Ocupación</TabsTrigger>
           <TabsTrigger value="churn">Churn</TabsTrigger>
           <TabsTrigger value="aging">Morosidad</TabsTrigger>
           <TabsTrigger value="leads">Leads</TabsTrigger>
+          <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
+          <TabsTrigger value="pricing">Precio dinámico</TabsTrigger>
         </TabsList>
         <TabsContent value="occupancy" className="mt-4">
           <OccupancyPanel />
@@ -54,6 +75,12 @@ export default function AnalyticsPage() {
         </TabsContent>
         <TabsContent value="leads" className="mt-4">
           <LeadsPanel />
+        </TabsContent>
+        <TabsContent value="churn-risk" className="mt-4">
+          <ChurnRiskPanel />
+        </TabsContent>
+        <TabsContent value="pricing" className="mt-4">
+          <PricingSuggestionsPanel />
         </TabsContent>
       </Tabs>
     </div>
@@ -336,6 +363,182 @@ function LeadsPanel() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ============================================================================
+// Riesgo de baja (churn risk heurístico)
+// ============================================================================
+
+const RISK_BADGE: Record<ChurnRiskLevel, { label: string; className: string }> = {
+  high: { label: 'Alto', className: 'bg-red-100 text-red-700 hover:bg-red-100' },
+  medium: { label: 'Medio', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
+  low: { label: 'Bajo', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
+};
+
+function ChurnRiskPanel() {
+  const risk = useChurnRisk();
+
+  if (risk.isLoading || !risk.data) {
+    return <PanelLoader />;
+  }
+
+  const d = risk.data;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <KpiCard title="Riesgo alto" value={String(d.summary.high)}>
+          Contratos que requieren acción inmediata
+        </KpiCard>
+        <KpiCard title="Riesgo medio" value={String(d.summary.medium)}>
+          Vigilar de cerca
+        </KpiCard>
+        <KpiCard title="Contratos activos" value={String(d.summary.total)}>
+          Analizados en total
+        </KpiCard>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Contratos en riesgo</CardTitle>
+          <CardDescription>
+            Puntuación heurística (0-100) basada en impagos, cobros fallidos, reclamaciones,
+            vencimiento sin renovación y ausencia de método de pago.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {d.items.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No hay contratos con señales de riesgo. ¡Buena retención!
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Contrato</TableHead>
+                  <TableHead>Inquilino</TableHead>
+                  <TableHead>Trastero</TableHead>
+                  <TableHead className="text-right">Cuota</TableHead>
+                  <TableHead>Riesgo</TableHead>
+                  <TableHead>Señales</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {d.items.map((item) => (
+                  <TableRow key={item.contractId}>
+                    <TableCell className="font-medium">{item.contractNumber}</TableCell>
+                    <TableCell>{item.customerName}</TableCell>
+                    <TableCell>
+                      {item.unitCode}
+                      <span className="block text-xs text-muted-foreground">
+                        {item.facilityName}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(item.priceMonthly)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={RISK_BADGE[item.level].className} variant="secondary">
+                        {RISK_BADGE[item.level].label} · {item.score}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {item.factors.join(' · ')}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// Precio dinámico (sugerencias por ocupación)
+// ============================================================================
+
+const PRICING_BADGE: Record<PricingAction, { label: string; className: string }> = {
+  raise: { label: 'Subir', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
+  lower: { label: 'Bajar', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
+  hold: { label: 'Mantener', className: 'bg-slate-100 text-slate-600 hover:bg-slate-100' },
+};
+
+function PricingSuggestionsPanel() {
+  const pricing = usePricingSuggestions();
+
+  if (pricing.isLoading || !pricing.data) {
+    return <PanelLoader />;
+  }
+
+  const items = pricing.data.items;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Sugerencias de precio</CardTitle>
+        <CardDescription>
+          Recomendaciones de yield management según la ocupación de cada tipo de trastero. Son
+          orientativas: no modifican tus precios ni reglas automáticamente.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Aún no hay tipos de trastero con datos suficientes.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tipo</TableHead>
+                <TableHead className="text-right">Ocupación</TableHead>
+                <TableHead className="text-right">Precio actual</TableHead>
+                <TableHead className="text-right">Sugerido</TableHead>
+                <TableHead>Acción</TableHead>
+                <TableHead>Motivo</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item) => (
+                <TableRow key={item.unitTypeId}>
+                  <TableCell className="font-medium">
+                    {item.unitTypeName}
+                    <span className="block text-xs text-muted-foreground">
+                      {item.occupiedUnits}/{item.totalUnits} ocupados
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">{item.occupancy.toFixed(0)}%</TableCell>
+                  <TableCell className="text-right">{formatCurrency(item.currentPrice)}</TableCell>
+                  <TableCell className="text-right font-medium">
+                    {formatCurrency(item.suggestedPrice)}
+                    {item.changePct !== 0 && (
+                      <span
+                        className={`ml-1 text-xs ${
+                          item.changePct > 0 ? 'text-emerald-600' : 'text-amber-600'
+                        }`}
+                      >
+                        ({item.changePct > 0 ? '+' : ''}
+                        {item.changePct}%)
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={PRICING_BADGE[item.action].className} variant="secondary">
+                      {PRICING_BADGE[item.action].label}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{item.rationale}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

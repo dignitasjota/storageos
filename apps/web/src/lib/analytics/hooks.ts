@@ -5,14 +5,24 @@ import { apiFetch } from '../auth/api';
 import type {
   AgingKpiDto,
   ChurnKpiDto,
+  ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
+  PricingSuggestionsDto,
   RevenueKpiDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
-  scope: 'occupancy' | 'churn' | 'aging' | 'leads-funnel' | 'customers' | 'revenue',
+  scope:
+    | 'occupancy'
+    | 'churn'
+    | 'aging'
+    | 'leads-funnel'
+    | 'customers'
+    | 'revenue'
+    | 'churn-risk'
+    | 'pricing-suggestions',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -67,5 +77,19 @@ export function useLeadsFunnel(params: { from?: string; to?: string } = {}) {
     queryKey: analyticsKey('leads-funnel', params as Record<string, string | undefined>),
     queryFn: () =>
       apiFetch<LeadsFunnelKpiDto>(`/analytics/leads-funnel${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+export function useChurnRisk() {
+  return useQuery({
+    queryKey: analyticsKey('churn-risk'),
+    queryFn: () => apiFetch<ChurnRiskKpiDto>('/analytics/churn-risk'),
+  });
+}
+
+export function usePricingSuggestions() {
+  return useQuery({
+    queryKey: analyticsKey('pricing-suggestions'),
+    queryFn: () => apiFetch<PricingSuggestionsDto>('/analytics/pricing-suggestions'),
   });
 }
