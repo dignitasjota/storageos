@@ -359,22 +359,71 @@ Bloque construido tras Fase 16 al preparar el despliegue real: el medio de pago 
 
 Primer despliegue real sobre **VPS con Portainer + Nginx Proxy Manager** (stack de tipo Repository: Portainer clona el repo y construye las imágenes con `docker-compose.portainer.yml`). Se sanearon los Dockerfiles de producción (que nunca se habían construido end-to-end) y se añadió `apps/api/src/scripts/bootstrap.ts` (siembra de planes + super admin, idempotente). App viva sobre un dominio de prueba. Detalle en `docs/DEPLOYMENT.md` (§6B Portainer, §7 bootstrap). **Pendiente para el primer cliente real (operativo, no código):** Resend con dominio definitivo (hoy `RESEND_API_KEY` inválida), Stripe live + webhook, cert FNMT + `AEAT_MODE` sandbox→production, Uptime Kuma a `/health/ready` y `/health/worker`, y cron de backups a Backblaze B2.
 
-## Backlog / Post-MVP
+## Backlog de valor añadido (post-MVP)
 
-- App móvil (React Native o PWA)
-- WhatsApp Business API real (hoy `WHATSAPP_PROVIDER=stub`)
-- Control de accesos físico real en producción (proveedor MQTT; hoy `LOCK_PROVIDER=stub`)
-- KPI de inquilinos en el dashboard (la tarjeta placeholder se eliminó; falta el KPI real)
-- Apps separadas: portal del inquilino y panel super admin (hoy son rutas dentro de `apps/web`)
-- Dashboards Grafana/Loki sobre `security_events` y `super_admin_audit_logs` + alerta sobre `/api/csp-report`
-- Más endpoints públicos `/v1/integrations/*` (la API pública + webhooks HMAC ya existe desde Fase 14-15; falta ampliar catálogo según el primer integrador)
-- Marketplace público de trasteros
-- IA: predicción de churn, recomendación de precios
-- Multi-idioma completo (i18n ya montado con next-intl; hoy solo `es-ES`)
-- Firma biométrica en tablet
-- Integración con software contable español (Holded, A3)
+Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado por su impacto para un operador de self-storage en España. La lente: **(a)** reducir trabajo manual del staff (local desatendido), **(b)** cobrar más y mejor (menos morosidad, mejor precio/trastero), **(c)** captar y migrar clientes.
 
-> Nota: **API pública + webhooks** ya NO es backlog — se implementó en las Fases 14 (API keys + webhooks HMAC salientes) y 15 (scopes enforced + retry manual + dashboard de deliveries). La limpieza de `webhook_deliveries` también es ya un cron (`WebhooksCleanupService`).
+### Quick wins (alto impacto / esfuerzo bajo-medio)
+
+- **Importador de datos (CSV/Excel)** para onboarding: migrar clientes/contratos/trasteros desde el sistema del competidor. Sin esto, cambiarse de software es un muro. Reutiliza `customers`/`contracts`/`units`. _(plan de implementación detallado más abajo)_
+- **WhatsApp Business API real** para dunning y avisos: hoy `WhatsAppProvider` es stub. En España WhatsApp se lee, el email no → más cobro con lo ya construido (outbox + automations). _(plan de implementación detallado más abajo)_
+- **Automations infrautilizadas activadas**: confirmación de pago, aviso de renovación, subida de precio con antelación legal (motor `EventEmitter2` + communications ya existe).
+- **Centro de notificaciones in-app** + badge en el header (sobre `EventEmitter2`): impagos, incidencias y leads sin depender del email.
+- **KPIs de revenue management** en el dashboard: RevPAU (ingreso por trastero disponible), tendencia de ocupación, length-of-stay medio, LTV. Base en `AnalyticsService`.
+
+### Diferenciadores estratégicos (self-storage específico)
+
+- **Move-in 100% self-service online**: el cliente reserva + firma + paga + recibe su código de acceso sin staff. Encadena widget → reservations → contracts → portal de pago → access credentials. Habilita el **local desatendido** (gran argumento del sector).
+- **Firma electrónica del contrato**: hoy `sign` es solo transición de estado + PDF. Falta firma real (signature pad / firma por email con sello de tiempo) con rastro en `contract_events`.
+- **Integración real de control de accesos**: `LockProvider` está en stub/MQTT. Controladores reales (PTI/Noke/Sensata o controlador de puerta) + acceso del inquilino por QR/PIN desde el móvil.
+- **Overlock + flujo de impago físico → subasta**: ya hay `access_block` + `suspendForDunning`; falta el workflow operativo (candado físico, avisos legales escalados, disposición/subasta del contenido con sus particularidades legales en España).
+- **App PWA del inquilino**: pago, acceso (QR/PIN), facturas, incidencias.
+
+### Pagos y finanzas (mercado español)
+
+- **Redsys** (TPV bancario): la abstracción `PaymentGateway` ya lo permite. Muchos operadores lo exigen.
+- **GoCardless** para SEPA recurrente (más barato que Stripe para domiciliación).
+- **Integración contable Holded / A3 / Sage**: exportar facturas/cobros. Argumento de cierre para PYME española.
+- **Conciliación bancaria** (norma 43): casar cobros con el extracto.
+- **Informes fiscales** más allá de Veri\*Factu: libro registro de IVA, soporte 303/347.
+
+### Crecimiento y CRM
+
+- **Landing pública por local con disponibilidad + "reservar ahora"** (SEO): extiende el widget actual.
+- **Reviews / NPS** post-contratación automatizado.
+- **Campañas segmentadas** (email/WhatsApp) sobre el módulo communications: reactivación de leads, upsell de seguro/productos.
+- **Programa de referidos** + promociones avanzadas (`promotions` ya existe).
+
+### Analítica e IA
+
+- **Predicción de churn** + **precio dinámico** por ocupación (yield management): empezar por reglas heurísticas sobre `pricing_rules` antes de ML.
+- **Forecasting** de ocupación e ingresos.
+- **Asistente IA para staff** (resúmenes de cliente, redacción de comunicaciones).
+
+### Plataforma y robustez técnica
+
+- **Multi-idioma EN/CA/FR** (i18n con next-intl ya montado; hoy solo `es-ES`).
+- **Permisos más finos** + 2FA obligatorio configurable por más roles.
+- **Observabilidad**: dashboards Grafana/Loki sobre `security_events`/colas + alerta sobre `/api/csp-report`.
+- **Playwright en CI bloqueante** + más cobertura e2e de los flujos de dinero.
+- **Apps separadas** portal e admin (hoy rutas en `apps/web`).
+- **Marketplace público de trasteros**.
+- Más endpoints públicos `/v1/integrations/*` según el primer integrador.
+
+### Prioridad recomendada
+
+| #   | Iniciativa                                   | Por qué                                                                       |
+| --- | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| 1   | Importador CSV/Excel                         | Sin esto migrar un cliente desde otro software es un muro. Permite vender ya. |
+| 2   | WhatsApp real (dunning + avisos)             | Mayor ROI inmediato: cobra más con lo ya construido a medias.                 |
+| 3   | Move-in self-service + firma electrónica     | El diferenciador del sector (local desatendido).                              |
+| 4   | Redsys + Holded                              | Quitan objeciones de compra típicas en España.                                |
+| 5   | Control de accesos real + PWA inquilino      | Completa la experiencia desatendida.                                          |
+| 6   | Revenue management (KPIs + pricing dinámico) | Aumenta ingresos del cliente → justifica el precio del SaaS.                  |
+
+> **Antes que cualquier feature**: terminar la configuración operativa del despliegue (Resend, Stripe live, AEAT producción) — sin eso el producto no opera de verdad con un cliente.
+
+> Nota: **API pública + webhooks** ya NO es backlog (Fases 14-15: API keys + webhooks HMAC + scopes + retry + dashboard). La limpieza de `webhook_deliveries` ya es un cron (`WebhooksCleanupService`). El **KPI de inquilinos** se implementó (`GET /analytics/customers` + `<CustomersKpiCard>`).
 
 ## Criterio de "MVP listo para vender"
 
