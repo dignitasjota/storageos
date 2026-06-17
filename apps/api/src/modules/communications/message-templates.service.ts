@@ -60,6 +60,9 @@ export class MessageTemplatesService {
               bodyHtml: args.input.bodyHtml ?? null,
               locale: args.input.locale,
               variables: args.input.variables,
+              whatsappTemplateName: args.input.whatsappTemplateName?.trim() || null,
+              whatsappTemplateLanguage: args.input.whatsappTemplateLanguage?.trim() || null,
+              whatsappTemplateVariables: args.input.whatsappTemplateVariables,
               metadata: args.input.metadata as Prisma.InputJsonValue,
             },
           }),
@@ -108,6 +111,12 @@ export class MessageTemplatesService {
     if (args.input.bodyHtml !== undefined) data.bodyHtml = args.input.bodyHtml || null;
     if (args.input.locale !== undefined) data.locale = args.input.locale;
     if (args.input.variables !== undefined) data.variables = args.input.variables;
+    if (args.input.whatsappTemplateName !== undefined)
+      data.whatsappTemplateName = args.input.whatsappTemplateName || null;
+    if (args.input.whatsappTemplateLanguage !== undefined)
+      data.whatsappTemplateLanguage = args.input.whatsappTemplateLanguage || null;
+    if (args.input.whatsappTemplateVariables !== undefined)
+      data.whatsappTemplateVariables = args.input.whatsappTemplateVariables;
     if (args.input.metadata !== undefined)
       data.metadata = args.input.metadata as Prisma.InputJsonValue;
     if (args.input.isActive !== undefined) data.isActive = args.input.isActive;
@@ -256,6 +265,9 @@ export class MessageTemplatesService {
       locale: t.locale,
       isActive: t.isActive,
       variables: t.variables,
+      whatsappTemplateName: t.whatsappTemplateName,
+      whatsappTemplateLanguage: t.whatsappTemplateLanguage,
+      whatsappTemplateVariables: t.whatsappTemplateVariables,
       metadata: (t.metadata ?? {}) as Record<string, unknown>,
       createdAt: t.createdAt.toISOString(),
       updatedAt: t.updatedAt.toISOString(),

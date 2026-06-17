@@ -1422,6 +1422,12 @@ model MessageTemplate {
   isActive  Boolean              @default(true) @map("is_active")
   /// Variables Handlebars permitidas (informativo para UI: ["customerName", "contractNumber", ...])
   variables String[]             @default([])
+  /// Plantilla aprobada en Meta WhatsApp Business (solo channel=whatsapp).
+  whatsappTemplateName      String?  @map("whatsapp_template_name")
+  /// Idioma de la plantilla WABA (e.g. "es"); al enviar usa "es" si es null.
+  whatsappTemplateLanguage  String?  @map("whatsapp_template_language")
+  /// Nombres de variables, en orden, que mapean a los parámetros posicionales {{1}}, {{2}}... de la plantilla WABA.
+  whatsappTemplateVariables String[] @default([]) @map("whatsapp_template_variables")
   /// JSONB con metadatos: trigger asociado (informativo), tags, etc.
   metadata  Json                 @default("{}")
   deletedAt DateTime?            @map("deleted_at") @db.Timestamptz(6)
@@ -1457,6 +1463,11 @@ model Communication {
   bodyHtml          String?                @map("body_html")
   /// Variables resueltas al renderizar, guardadas para auditoria.
   variables         Json                   @default("{}")
+  /// Snapshot de la plantilla WABA a usar al enviar (solo whatsapp por plantilla).
+  whatsappTemplateName     String? @map("whatsapp_template_name")
+  whatsappTemplateLanguage String? @map("whatsapp_template_language")
+  /// Parámetros posicionales resueltos para la plantilla WABA: { "1": "...", "2": "..." }.
+  whatsappTemplateParams   Json?   @map("whatsapp_template_params")
   /// ID del provider (Resend message_id, WhatsApp wamid, etc.) si se envio.
   providerMessageId String?                @map("provider_message_id")
   provider          String? // "resend", "mailpit", "whatsapp_stub"

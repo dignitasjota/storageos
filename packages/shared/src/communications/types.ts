@@ -54,6 +54,9 @@ export interface MessageTemplateDto {
   locale: string;
   isActive: boolean;
   variables: string[];
+  whatsappTemplateName: string | null;
+  whatsappTemplateLanguage: string | null;
+  whatsappTemplateVariables: string[];
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

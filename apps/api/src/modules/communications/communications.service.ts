@@ -10,6 +10,7 @@ import { JOB_COMMUNICATIONS_DISPATCH, QUEUE_COMMUNICATIONS } from '../queues/que
 import { MessageTemplatesService } from './message-templates.service';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './providers/whatsapp-provider';
 import { renderTemplate, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
+import { buildWhatsappTemplateParams } from './whatsapp-template.util';
 
 import type { Communication, Prisma } from '@storageos/database';
 import type {
@@ -89,6 +90,11 @@ export class CommunicationsService {
     let templateId: string | null = args.templateId ?? null;
     let templateName: string | null = null;
     let provider: string | null = null;
+    // Snapshot de plantilla WABA (solo cuando el canal es whatsapp y la
+    // plantilla tiene una plantilla aprobada de Meta configurada).
+    let whatsappTemplateName: string | null = null;
+    let whatsappTemplateLanguage: string | null = null;
+    let whatsappTemplateParams: Record<string, string> | null = null;
 
     if ((args.templateCode || args.templateId) && !bodyText) {
       const tpl = args.templateId
@@ -108,6 +114,15 @@ export class CommunicationsService {
       subject = renderTemplate(tpl.subject ?? '', args.variables ?? {}, allowed);
       bodyText = renderTemplate(tpl.bodyText, args.variables ?? {}, allowed);
       bodyHtml = tpl.bodyHtml ? renderTemplate(tpl.bodyHtml, args.variables ?? {}, allowed) : null;
+
+      if (args.channel === 'whatsapp' && tpl.whatsappTemplateName) {
+        whatsappTemplateName = tpl.whatsappTemplateName;
+        whatsappTemplateLanguage = tpl.whatsappTemplateLanguage ?? null;
+        whatsappTemplateParams = buildWhatsappTemplateParams(
+          tpl.whatsappTemplateVariables,
+          args.variables ?? {},
+        );
+      }
     }
     if (!bodyText) {
       throw new ConflictException({
@@ -132,6 +147,11 @@ export class CommunicationsService {
       bodyText,
       bodyHtml,
       variables: (args.variables ?? {}) as Prisma.InputJsonValue,
+      whatsappTemplateName,
+      whatsappTemplateLanguage,
+      ...(whatsappTemplateParams
+        ? { whatsappTemplateParams: whatsappTemplateParams as Prisma.InputJsonValue }
+        : {}),
       provider,
       source: args.source ?? null,
       scheduledFor: args.scheduledFor ?? null,
@@ -184,9 +204,17 @@ export class CommunicationsService {
         });
         providerMessageId = res.providerMessageId;
       } else if (comm.channel === 'whatsapp') {
+        // Envío por plantilla aprobada (proactivo); si no hay, texto libre.
         const res = await this.whatsapp.send({
           to: comm.recipient,
           body: comm.bodyText,
+          ...(comm.whatsappTemplateName ? { templateName: comm.whatsappTemplateName } : {}),
+          ...(comm.whatsappTemplateLanguage
+            ? { templateLanguage: comm.whatsappTemplateLanguage }
+            : {}),
+          ...(comm.whatsappTemplateParams
+            ? { templateVariables: comm.whatsappTemplateParams as Record<string, string> }
+            : {}),
         });
         providerMessageId = res.providerMessageId;
       } else if (comm.channel === 'sms') {

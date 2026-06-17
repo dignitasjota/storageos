@@ -742,9 +742,14 @@ El envío de WhatsApp (recordatorios de dunning, avisos) usa el `WhatsAppProvide
    - `WHATSAPP_FROM_PHONE_ID=<phone number id>`
    - `WHATSAPP_ACCESS_TOKEN=<token permanente>`
    - Redeploy del `api` (y `worker`).
-4. **Plantillas aprobadas (clave)**: los mensajes **iniciados por el negocio** (dunning, avisos proactivos) SOLO se pueden enviar con una **plantilla aprobada** por Meta — el texto libre únicamente vale dentro de la ventana de 24h tras un mensaje del cliente. Da de alta y aprueba las plantillas en _WhatsApp Manager → Plantillas_ antes de usarlas. El `MetaWabaProvider` ya soporta envío por plantilla (`templateName` + `templateLanguage` + variables posicionales) y por texto libre.
+4. **Plantillas aprobadas (clave)**: los mensajes **iniciados por el negocio** (dunning, avisos proactivos) SOLO se pueden enviar con una **plantilla aprobada** por Meta — el texto libre únicamente vale dentro de la ventana de 24h tras un mensaje del cliente. Da de alta y aprueba las plantillas en _WhatsApp Manager → Plantillas_ antes de usarlas.
+5. **Conectar la plantilla WABA a una `message_template`** (Layer B): en la plantilla de StorageOS del canal `whatsapp`, rellena por API (`PATCH /v1/message-templates/:id`):
+   - `whatsappTemplateName`: nombre exacto de la plantilla aprobada en Meta.
+   - `whatsappTemplateLanguage`: código de idioma (e.g. `es`).
+   - `whatsappTemplateVariables`: lista **ordenada** de nombres de variable que mapean a los parámetros posicionales `{{1}}`, `{{2}}`… de la plantilla.
+     Al encolar un envío `whatsapp` con esa plantilla, el outbox snapshotea nombre/idioma y resuelve los parámetros posicionales, y `MetaWabaProvider` envía por plantilla. Sin `whatsappTemplateName` se envía como texto libre (solo válido dentro de la ventana de 24h).
 
-> Estado: el provider real (`MetaWabaProvider`) y la selección por `WHATSAPP_PROVIDER` están implementados y testeados (`meta-waba-provider.spec` 4/4). Pendiente (follow-up): mapear el nombre de la plantilla WABA aprobada en `message_templates` para que el dunning proactivo la use automáticamente (hoy el outbox envía el cuerpo renderizado como texto).
+> Estado: provider real (`MetaWabaProvider`) + selección por `WHATSAPP_PROVIDER` + envío por plantilla aprobada conectado al outbox y a `message_templates` (Layer B). Tests: `meta-waba-provider.spec` 4/4 + `whatsapp-template-util.spec` 3/3. Pendiente menor: editor de plantillas en el panel (hoy los campos WABA se fijan por API/seed; el catálogo del frontend es de solo lectura).
 
 ---
 

@@ -130,6 +130,11 @@ export const CreateMessageTemplateSchema = z.object({
   bodyHtml: optionalText(50000),
   locale: z.string().trim().min(2).max(10).default('es-ES'),
   variables: z.array(z.string().trim().min(1).max(60)).default([]),
+  /** Plantilla aprobada en Meta WABA (solo channel=whatsapp para envíos proactivos). */
+  whatsappTemplateName: optionalText(200),
+  whatsappTemplateLanguage: optionalText(10),
+  /** Nombres de variables, en orden, mapeadas a los parámetros posicionales {{1}}, {{2}}… */
+  whatsappTemplateVariables: z.array(z.string().trim().min(1).max(60)).default([]),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateMessageTemplateInput = z.infer<typeof CreateMessageTemplateSchema>;
