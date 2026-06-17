@@ -1,3 +1,4 @@
+import { permissionsForRole } from '@storageos/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from './api';
@@ -10,6 +11,7 @@ import type {
   LoginRequires2faEnrolmentResponse,
   LoginRequires2faResponse,
   MeResponse,
+  Permission,
   RegisterInput,
   RegisterPendingResponse,
   ResendVerificationInput,
@@ -34,6 +36,21 @@ export function useMe(options: { enabled?: boolean } = {}) {
   });
 }
 
+/** Permisos efectivos del usuario actual (derivados de su rol). */
+export function usePermissions(): Permission[] {
+  const { data } = useMe();
+  return data?.permissions ?? [];
+}
+
+/**
+ * ¿El usuario actual tiene el permiso indicado? Úsalo para mostrar/ocultar o
+ * deshabilitar acciones en la UI. La autorización REAL la impone el backend
+ * (`PermissionsGuard`); esto es solo cosmético.
+ */
+export function useHasPermission(permission: Permission): boolean {
+  return usePermissions().includes(permission);
+}
+
 /** POST /auth/login con email/password/tenantSlug. */
 export function useLogin() {
   const queryClient = useQueryClient();
@@ -47,10 +64,11 @@ export function useLogin() {
     onSuccess: (data) => {
       if ('requires2fa' in data || 'requires2faEnrolment' in data) return;
       useAuthStore.getState().setAccessToken(data.accessToken);
-      queryClient.setQueryData(meQueryKey, {
+      queryClient.setQueryData<MeResponse>(meQueryKey, {
         user: data.user,
         tenant: data.tenant,
         subscription: data.subscription,
+        permissions: permissionsForRole(data.user.role),
       });
     },
   });
@@ -83,10 +101,11 @@ export function useVerifyEmail() {
       }),
     onSuccess: (data) => {
       useAuthStore.getState().setAccessToken(data.accessToken);
-      queryClient.setQueryData(meQueryKey, {
+      queryClient.setQueryData<MeResponse>(meQueryKey, {
         user: data.user,
         tenant: data.tenant,
         subscription: data.subscription,
+        permissions: permissionsForRole(data.user.role),
       });
     },
   });

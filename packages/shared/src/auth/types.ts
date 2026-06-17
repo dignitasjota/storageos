@@ -1,4 +1,5 @@
 import type { SubscriptionStatus, TenantStatus, UserRole } from './enums';
+import type { Permission } from './permissions';
 
 /**
  * Representacion publica de un usuario para el frontend. Nunca incluye
@@ -70,6 +71,8 @@ export interface MeResponse {
   user: UserDto;
   tenant: TenantDto;
   subscription: SubscriptionDto;
+  /** Permisos efectivos del usuario (derivados de su rol). */
+  permissions: Permission[];
 }
 
 /**

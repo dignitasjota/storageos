@@ -42,6 +42,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { VerifactuBadge } from '@/components/verifactu-badge';
 import { useSyncInvoiceHolded } from '@/lib/accounting/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCancelInvoice,
   useChargeInvoice,
@@ -96,6 +97,7 @@ export default function InvoiceDetailPage() {
   const generatePdf = useGenerateInvoicePdf();
   const holdedSync = useSyncInvoiceHolded();
   const rectify = useRectifyInvoice();
+  const canRefund = useHasPermission('invoices:refund');
 
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -232,7 +234,7 @@ export default function InvoiceDetailPage() {
                 </Button>
               </>
             )}
-            {(i.status === 'paid' || i.status === 'partially_refunded') && (
+            {canRefund && (i.status === 'paid' || i.status === 'partially_refunded') && (
               <Button
                 variant="outline"
                 onClick={() => {

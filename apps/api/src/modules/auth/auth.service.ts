@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import { permissionsForRole } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -630,6 +631,7 @@ export class AuthService {
         user: this.toUserDto(user),
         tenant: this.toTenantDto(tenant),
         subscription: this.toSubscriptionDto(subscription, subscription.plan.slug),
+        permissions: permissionsForRole(user.role),
       };
     }, args.tenantId);
   }

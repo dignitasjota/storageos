@@ -227,10 +227,23 @@ Revoca **todas** las sesiones activas del usuario autenticado.
 
 #### GET `/auth/me`
 
-Devuelve `{ user, tenant, subscription }` del usuario autenticado.
+Devuelve `{ user, tenant, subscription, permissions }` del usuario autenticado.
+`permissions` es la lista de permisos finos efectivos derivados del rol (ver
+"Permisos finos" abajo); el frontend la usa para mostrar/ocultar acciones.
 
 - `200 OK`.
 - `401 Unauthorized` sin token o con token invalido/expirado.
+
+### Permisos finos (RBAC de grano fino)
+
+Además del `RolesGuard` (`@Roles(...)`), existe una capa de permisos discretos
+`recurso:acción` (`PermissionsGuard` + `@RequirePermission(...)`, cuarto guard
+global tras Roles). El catálogo y el mapa rol→permisos viven en
+`@storageos/shared` (`permissions.ts`). Un handler usa `@Roles` o
+`@RequirePermission` según el grano que necesite; si falta el permiso devuelve
+`403 { code: insufficient_permission, details: { requiredPermissions } }`.
+Ejemplo de regla más fina que el rol no podía expresar: `POST /invoices/:id/refund`
+exige `invoices:refund`, que solo tiene `owner` (aunque `manager` pueda emitir).
 
 ## Users
 

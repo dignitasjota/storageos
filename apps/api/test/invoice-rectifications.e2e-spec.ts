@@ -340,6 +340,7 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
         items: [{ description: 'x', quantity: 1, unitPrice: -5, taxRate: 21 }],
       });
     expect(res.status).toBe(403);
-    expect(['insufficient_role', 'forbidden']).toContain(res.body.code);
+    // rectify migró a @RequirePermission('invoices:manage'); staff no lo tiene.
+    expect(['insufficient_permission', 'insufficient_role', 'forbidden']).toContain(res.body.code);
   });
 });

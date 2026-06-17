@@ -28,7 +28,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { BillingJobsService } from './billing-jobs.service';
 import { InvoicePdfService } from './invoice-pdf.service';
@@ -88,7 +88,7 @@ export class InvoicesController {
     return this.invoices.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('invoices:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -103,7 +103,7 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('invoices:write')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -120,7 +120,7 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post(':id/issue')
   @HttpCode(HttpStatus.OK)
   async issue(
@@ -136,7 +136,7 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(
@@ -154,7 +154,8 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  // Devolución: acción sensible, solo `owner` (más fino que el rol).
+  @RequirePermission('invoices:refund')
   @Post(':id/refund')
   @HttpCode(HttpStatus.OK)
   async refund(
@@ -172,7 +173,7 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('invoices:write')
   @Post(':id/mark-paid')
   @HttpCode(HttpStatus.OK)
   async markPaid(
@@ -190,7 +191,7 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post(':id/rectify')
   @HttpCode(HttpStatus.CREATED)
   async rectify(
@@ -208,7 +209,7 @@ export class InvoicesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post(':id/generate-pdf')
   @HttpCode(HttpStatus.OK)
   async generatePdf(
@@ -218,7 +219,7 @@ export class InvoicesController {
     return this.pdf.generate(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post('jobs/run-recurring')
   @HttpCode(HttpStatus.OK)
   async runRecurring(@CurrentUser() user: AuthenticatedUser): Promise<{ jobId: string }> {
