@@ -22,7 +22,8 @@ test.describe('Widget público de leads', () => {
     await page.goto(`/widget/${tenant.slug}`);
 
     // Form visible (espera explícita porque facilities se cargan async).
-    await expect(page.getByRole('heading', { name: /Reservar trastero/i })).toBeVisible({
+    // `CardTitle` de shadcn renderiza un <div>, no un heading: usamos getByText.
+    await expect(page.getByText(/Reservar trastero/i)).toBeVisible({
       timeout: 10_000,
     });
 
@@ -36,8 +37,8 @@ test.describe('Widget público de leads', () => {
 
     await page.getByRole('button', { name: /Enviar solicitud/i }).click();
 
-    // Pantalla de éxito
-    await expect(page.getByRole('heading', { name: /¡Gracias!/i })).toBeVisible({
+    // Pantalla de éxito (CardTitle = <div>, usamos getByText).
+    await expect(page.getByText(/¡Gracias!/i)).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText(/contactaremos/i)).toBeVisible();
