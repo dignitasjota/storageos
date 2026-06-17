@@ -9,6 +9,7 @@ import type {
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
+  RevenueKpiDto,
 } from '@storageos/shared';
 
 type AgingBucketRange = '0-30' | '30-60' | '60-90' | '+90';
@@ -375,6 +376,57 @@ export class AnalyticsService {
         tx.customer.count({ where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
       ]);
       return { total, withActiveContract, newThisMonth };
+    }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 6. Revenue management (RevPAU, length-of-stay, LTV)
+  // ---------------------------------------------------------------------------
+  async getRevenue(tenantId: string): Promise<RevenueKpiDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const [totalUnits, occupiedUnits, activeContracts, stayRows, ltvRows] = await Promise.all([
+        tx.unit.count(),
+        tx.unit.count({ where: { status: 'occupied' } }),
+        tx.contract.findMany({
+          where: { status: { in: ['active', 'ending'] }, deletedAt: null },
+          select: { priceMonthly: true, discountAmount: true },
+        }),
+        tx.contract.findMany({
+          where: { signedAt: { not: null } },
+          select: { signedAt: true, endedAt: true },
+        }),
+        tx.invoice.groupBy({
+          by: ['customerId'],
+          where: { customerId: { not: null }, deletedAt: null },
+          _sum: { amountPaid: true },
+        }),
+      ]);
+
+      const mrr = activeContracts.reduce(
+        (sum, c) => sum + (Number(c.priceMonthly) - Number(c.discountAmount)),
+        0,
+      );
+      const revPau = totalUnits > 0 ? mrr / totalUnits : 0;
+
+      const stayDays = stayRows.map((c) => {
+        const start = c.signedAt!.getTime();
+        const end = (c.endedAt ?? new Date()).getTime();
+        return Math.max(0, (end - start) / 86_400_000);
+      });
+      const avgLengthOfStayDays =
+        stayDays.length > 0 ? stayDays.reduce((a, b) => a + b, 0) / stayDays.length : 0;
+
+      const ltvs = ltvRows.map((r) => Number(r._sum.amountPaid ?? 0)).filter((v) => v > 0);
+      const avgCustomerLtv = ltvs.length > 0 ? ltvs.reduce((a, b) => a + b, 0) / ltvs.length : 0;
+
+      return {
+        mrr: Math.round(mrr * 100) / 100,
+        totalUnits,
+        occupiedUnits,
+        revPau: Math.round(revPau * 100) / 100,
+        avgLengthOfStayDays: Math.round(avgLengthOfStayDays),
+        avgCustomerLtv: Math.round(avgCustomerLtv * 100) / 100,
+      };
     }, tenantId);
   }
 }

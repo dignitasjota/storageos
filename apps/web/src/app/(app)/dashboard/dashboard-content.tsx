@@ -6,6 +6,7 @@ import { useFormatter, useTranslations } from 'next-intl';
 import { BillingMetricsCard } from './billing-metrics-card';
 import { CustomersKpiCard } from './customers-kpi-card';
 import { OccupancyCard } from './occupancy-card';
+import { RevenueKpiCard } from './revenue-kpi-card';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -101,6 +102,8 @@ export function DashboardContent() {
       <BillingMetricsCard />
 
       <CustomersKpiCard />
+
+      <RevenueKpiCard />
 
       <OccupancyCard />
     </div>

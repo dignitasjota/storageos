@@ -368,6 +368,7 @@ model Tenant {
   holdedSettings          HoldedSettings?
   redsysSettings          RedsysSettings?
   redsysOrders            RedsysOrder[]
+  notifications           Notification[]
   apiKeys                 ApiKey[]
   webhooks                Webhook[]
   webhookDeliveries       WebhookDelivery[]
@@ -2272,6 +2273,27 @@ model HoldedSettings {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("holded_settings")
+}
+
+/// Notificación in-app del panel (feed de actividad del tenant). Bandeja
+/// compartida por el equipo: `readAt` marca leída para todo el tenant.
+model Notification {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  /// e.g. "lead.created", "invoice.overdue", "incident.created", "invoice.paid"
+  type      String
+  title     String
+  body      String?
+  /// Ruta del panel a la que lleva (e.g. "/leads", "/invoices/<id>").
+  link      String?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, readAt])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
 }
 
 /// Configuración Redsys (TPV bancario) por tenant. Clave secreta cifrada.

@@ -8,10 +8,11 @@ import type {
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
+  RevenueKpiDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
-  scope: 'occupancy' | 'churn' | 'aging' | 'leads-funnel' | 'customers',
+  scope: 'occupancy' | 'churn' | 'aging' | 'leads-funnel' | 'customers' | 'revenue',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -19,6 +20,13 @@ export function useCustomerStats() {
   return useQuery({
     queryKey: analyticsKey('customers'),
     queryFn: () => apiFetch<CustomerStatsKpiDto>('/analytics/customers'),
+  });
+}
+
+export function useRevenueKpis() {
+  return useQuery({
+    queryKey: analyticsKey('revenue'),
+    queryFn: () => apiFetch<RevenueKpiDto>('/analytics/revenue'),
   });
 }
 

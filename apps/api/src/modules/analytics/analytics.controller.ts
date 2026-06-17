@@ -13,6 +13,7 @@ import type {
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
   OccupancyKpiDto,
+  RevenueKpiDto,
 } from '@storageos/shared';
 
 @Controller('analytics')
@@ -32,6 +33,11 @@ export class AnalyticsController {
   @Get('customers')
   getCustomerStats(@CurrentUser() user: AuthenticatedUser): Promise<CustomerStatsKpiDto> {
     return this.service.getCustomerStats(user.tenantId);
+  }
+
+  @Get('revenue')
+  getRevenue(@CurrentUser() user: AuthenticatedUser): Promise<RevenueKpiDto> {
+    return this.service.getRevenue(user.tenantId);
   }
 
   @Get('churn')

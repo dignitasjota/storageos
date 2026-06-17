@@ -1,6 +1,7 @@
 'use client';
 
 import { FacilitySwitcher } from './facility-switcher';
+import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from './theme-toggle';
 import { UserMenu } from './user-menu';
 
@@ -12,6 +13,7 @@ export function AppHeader() {
       <SidebarTrigger />
       <FacilitySwitcher />
       <div className="ml-auto flex items-center gap-2">
+        <NotificationBell />
         <ThemeToggle />
         <UserMenu />
       </div>

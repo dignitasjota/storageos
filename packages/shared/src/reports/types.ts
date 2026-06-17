@@ -79,3 +79,16 @@ export interface CustomerStatsKpiDto {
   /** Altas desde el día 1 del mes actual. */
   newThisMonth: number;
 }
+
+export interface RevenueKpiDto {
+  /** MRR real (suma de cuotas efectivas de contratos activos/ending). */
+  mrr: number;
+  totalUnits: number;
+  occupiedUnits: number;
+  /** Revenue Per Available Unit: MRR / total de trasteros. */
+  revPau: number;
+  /** Duración media de estancia en días (contratos firmados). */
+  avgLengthOfStayDays: number;
+  /** LTV medio: total facturado (pagado) por inquilino con facturación. */
+  avgCustomerLtv: number;
+}

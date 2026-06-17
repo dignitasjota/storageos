@@ -20,5 +20,6 @@ export * from './integrations';
 export * from './imports';
 export * from './move-in';
 export * from './accounting';
+export * from './notifications';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;
