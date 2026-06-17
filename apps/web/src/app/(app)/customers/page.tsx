@@ -7,7 +7,7 @@ import {
   type CustomerDto,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal, Plus } from 'lucide-react';
+import { MoreHorizontal, Plus, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -188,36 +188,70 @@ export default function CustomersPage() {
         isLoading={customers.isLoading}
         searchPlaceholder="Buscar por nombre, email, documento..."
         toolbarRight={
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-1 h-4 w-4" /> Nuevo inquilino
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Nuevo inquilino</DialogTitle>
-              </DialogHeader>
-              <Tabs value={type} onValueChange={(v) => setType(v as 'individual' | 'business')}>
-                <TabsList className="w-full">
-                  <TabsTrigger value="individual" className="flex-1">
-                    Particular
-                  </TabsTrigger>
-                  <TabsTrigger value="business" className="flex-1">
-                    Empresa
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <Form {...form}>
-                <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                  {type === 'individual' ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <>
+            <Button asChild variant="outline">
+              <Link href="/customers/import">
+                <Upload className="mr-1 h-4 w-4" /> Importar
+              </Link>
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" /> Nuevo inquilino
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Nuevo inquilino</DialogTitle>
+                </DialogHeader>
+                <Tabs value={type} onValueChange={(v) => setType(v as 'individual' | 'business')}>
+                  <TabsList className="w-full">
+                    <TabsTrigger value="individual" className="flex-1">
+                      Particular
+                    </TabsTrigger>
+                    <TabsTrigger value="business" className="flex-1">
+                      Empresa
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <Form {...form}>
+                  <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                    {type === 'individual' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name="firstName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nombre</FormLabel>
+                              <FormControl>
+                                <Input {...field} value={field.value ?? ''} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="lastName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Apellidos</FormLabel>
+                              <FormControl>
+                                <Input {...field} value={field.value ?? ''} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    ) : (
                       <FormField
                         control={form.control}
-                        name="firstName"
+                        name="companyName"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Nombre</FormLabel>
+                            <FormLabel>Empresa</FormLabel>
                             <FormControl>
                               <Input {...field} value={field.value ?? ''} />
                             </FormControl>
@@ -225,12 +259,36 @@ export default function CustomersPage() {
                           </FormItem>
                         )}
                       />
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <FormField
                         control={form.control}
-                        name="lastName"
+                        name="documentType"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Apellidos</FormLabel>
+                            <FormLabel>Tipo doc.</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value ?? 'DNI'}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="DNI">DNI</SelectItem>
+                                <SelectItem value="NIE">NIE</SelectItem>
+                                <SelectItem value="CIF">CIF</SelectItem>
+                                <SelectItem value="Pasaporte">Pasaporte</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="documentNumber"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Número</FormLabel>
                             <FormControl>
                               <Input {...field} value={field.value ?? ''} />
                             </FormControl>
@@ -239,98 +297,47 @@ export default function CustomersPage() {
                         )}
                       />
                     </div>
-                  ) : (
-                    <FormField
-                      control={form.control}
-                      name="companyName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Empresa</FormLabel>
-                          <FormControl>
-                            <Input {...field} value={field.value ?? ''} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="documentType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Tipo doc.</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value ?? 'DNI'}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
                             <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
+                              <Input {...field} value={field.value ?? ''} type="email" />
                             </FormControl>
-                            <SelectContent>
-                              <SelectItem value="DNI">DNI</SelectItem>
-                              <SelectItem value="NIE">NIE</SelectItem>
-                              <SelectItem value="CIF">CIF</SelectItem>
-                              <SelectItem value="Pasaporte">Pasaporte</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="documentNumber"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Número</FormLabel>
-                          <FormControl>
-                            <Input {...field} value={field.value ?? ''} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email</FormLabel>
-                          <FormControl>
-                            <Input {...field} value={field.value ?? ''} type="email" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="phone"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Teléfono</FormLabel>
-                          <FormControl>
-                            <Input {...field} value={field.value ?? ''} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={form.formState.isSubmitting}>
-                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Teléfono</FormLabel>
+                            <FormControl>
+                              <Input {...field} value={field.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </>
         }
         emptyText="No hay inquilinos todavía. Crea el primero para empezar a firmar contratos."
       />

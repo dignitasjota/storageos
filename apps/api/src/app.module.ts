@@ -28,6 +28,7 @@ import { EmailModule } from './modules/email/email.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
+import { ImportsModule } from './modules/imports/imports.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { LeadsModule } from './modules/leads/leads.module';
@@ -139,6 +140,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AdminModule,
     BillingSaasModule,
     IntegrationsModule,
+    ImportsModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
