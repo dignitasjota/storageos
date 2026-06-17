@@ -45,10 +45,15 @@ test.describe('Super admin + impersonación', () => {
     // Dashboard admin: /admin/metrics
     await expect(page).toHaveURL(/\/admin\/(metrics|tenants)/, { timeout: 15_000 });
 
-    // Vamos directos al detalle del tenant recién creado. Evitamos depender
-    // de la lista de /admin/tenants: en la BD compartida de CI se acumulan
-    // muchos tenants de otras corridas y el nuevo puede no estar en la vista.
-    await page.goto(`/admin/tenants/${tenant.tenantId}`);
+    // Navegación DENTRO de la SPA (clic en el nav), no `page.goto`: una recarga
+    // dura pierde el token admin en memoria y el bootstrap redirige a
+    // /admin/login. El endpoint de tenants no está capado y ordena por
+    // createdAt desc, así que el tenant recién creado sale el primero.
+    await page.getByRole('link', { name: 'Tenants' }).click();
+    await expect(page).toHaveURL(/\/admin\/tenants$/, { timeout: 10_000 });
+    const tenantCard = page.locator('button', { hasText: tenant.slug });
+    await expect(tenantCard.first()).toBeVisible({ timeout: 10_000 });
+    await tenantCard.first().click();
 
     // Botón "Impersonar"
     await expect(page).toHaveURL(/\/admin\/tenants\/[a-f0-9-]+/);
