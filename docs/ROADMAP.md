@@ -389,7 +389,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 ### Crecimiento y CRM
 
-- **Landing pública por local con disponibilidad + "reservar ahora"** (SEO): extiende el widget actual.
+- ~~**Landing pública con disponibilidad + "reservar ahora"** (SEO)~~ ✅ **Implementado** (v1, landing del tenant con sección por local): página SSR indexable `/s/[slug]` (`(public)/s/[slug]/page.tsx`, server component con `generateMetadata` SEO + OpenGraph + canonical + JSON-LD `SelfStorage` por local) que muestra la empresa + cada local (dirección, contacto) con sus tipos + precio "desde" + plazas disponibles y CTA **"Reservar ahora"** → flujo `/book/[slug]` existente. Endpoint público `GET /public/landing/:slug` (`LandingModule`, VERSION_NEUTRAL + @Public + throttle 60/min, exento del legacy-redirect como el widget). e2e `landing` 2/2. **Pendiente** (opcional): páginas SEO por local con slug propio de facility (hoy una landing por tenant) + sitemap/robots.
 - **Reviews / NPS** post-contratación automatizado.
 - **Campañas segmentadas** (email/WhatsApp) sobre el módulo communications: reactivación de leads, upsell de seguro/productos.
 - **Programa de referidos** + promociones avanzadas (`promotions` ya existe).

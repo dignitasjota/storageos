@@ -33,6 +33,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
+import { LandingModule } from './modules/landing/landing.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { MoveInModule } from './modules/move-in/move-in.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -149,6 +150,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     IntegrationsModule,
     ImportsModule,
     MoveInModule,
+    LandingModule,
     AccountingModule,
     RedsysModule,
     NotificationsModule,

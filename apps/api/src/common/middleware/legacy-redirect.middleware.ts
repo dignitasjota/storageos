@@ -52,7 +52,8 @@ export const legacyRedirectHandler: RequestHandler = (req, res, next) => {
     url.startsWith('/health/') ||
     url.startsWith('/api/docs') ||
     url.startsWith('/webhooks/') ||
-    url.startsWith('/public/widget/')
+    url.startsWith('/public/widget/') ||
+    url.startsWith('/public/landing/')
   ) {
     return next();
   }

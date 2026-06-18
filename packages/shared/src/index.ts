@@ -19,6 +19,7 @@ export * from './admin';
 export * from './integrations';
 export * from './imports';
 export * from './move-in';
+export * from './landing';
 export * from './accounting';
 export * from './notifications';
 
