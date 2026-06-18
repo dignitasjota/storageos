@@ -28,7 +28,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { TasksService } from './tasks.service';
 
@@ -54,6 +54,7 @@ export class TasksController {
   constructor(private readonly service: TasksService) {}
 
   @Get()
+  @RequirePermission('tasks:read')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
@@ -72,6 +73,7 @@ export class TasksController {
   }
 
   @Get(':id')
+  @RequirePermission('tasks:read')
   detail(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -80,7 +82,7 @@ export class TasksController {
   }
 
   @Post()
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('tasks:write')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateTaskDto,
@@ -95,7 +97,7 @@ export class TasksController {
   }
 
   @Patch(':id')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('tasks:write')
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -112,7 +114,7 @@ export class TasksController {
   }
 
   @Post(':id/transition')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('tasks:write')
   transition(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -129,7 +131,7 @@ export class TasksController {
   }
 
   @Delete(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('tasks:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthenticatedUser,
@@ -145,6 +147,7 @@ export class TasksController {
   }
 
   @Get(':id/comments')
+  @RequirePermission('tasks:read')
   listComments(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -153,7 +156,7 @@ export class TasksController {
   }
 
   @Post(':id/comments')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('tasks:write')
   addComment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,

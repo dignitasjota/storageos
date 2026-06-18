@@ -24,7 +24,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ReservationsService } from './reservations.service';
 
@@ -48,6 +48,7 @@ function extractMeta(req: Request): RequestMeta {
 export class ReservationsController {
   constructor(private readonly reservations: ReservationsService) {}
 
+  @RequirePermission('reservations:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -65,6 +66,7 @@ export class ReservationsController {
     });
   }
 
+  @RequirePermission('reservations:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -73,7 +75,7 @@ export class ReservationsController {
     return this.reservations.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('reservations:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -88,7 +90,7 @@ export class ReservationsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('reservations:write')
   @Post(':id/confirm')
   @HttpCode(HttpStatus.OK)
   async confirm(
@@ -104,7 +106,7 @@ export class ReservationsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('reservations:write')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(
@@ -122,7 +124,7 @@ export class ReservationsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:write')
   @Post(':id/convert-to-contract')
   @HttpCode(HttpStatus.OK)
   async convert(
@@ -140,7 +142,7 @@ export class ReservationsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('reservations:write')
   @Post('expire-due')
   @HttpCode(HttpStatus.OK)
   async expireDue(@CurrentUser() user: AuthenticatedUser): Promise<{ expired: number }> {
