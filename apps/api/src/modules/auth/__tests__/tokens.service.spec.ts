@@ -29,6 +29,7 @@ describe('TokensService', () => {
         sub: 'user-1',
         tenantId: 'tenant-1',
         role: 'owner',
+        permissions: ['invoices:read'],
       });
       expect(typeof token).toBe('string');
       expect(expiresIn).toBe(ACCESS_TTL);
@@ -37,19 +38,30 @@ describe('TokensService', () => {
       expect(decoded.sub).toBe('user-1');
       expect(decoded.tenantId).toBe('tenant-1');
       expect(decoded.role).toBe('owner');
+      expect(decoded.permissions).toEqual(['invoices:read']);
       expect(decoded.exp).toBeGreaterThan(decoded.iat);
     });
 
     it('verifyAccess rechaza un token firmado con secret distinto', async () => {
       const a = createService('secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
       const b = createService('secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
-      const { token } = await a.signAccess({ sub: 'u', tenantId: 't', role: 'staff' });
+      const { token } = await a.signAccess({
+        sub: 'u',
+        tenantId: 't',
+        role: 'staff',
+        permissions: [],
+      });
       await expect(b.verifyAccess(token)).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
     it('verifyAccess rechaza un token expirado', async () => {
       const svc = createService(TEST_SECRET, -10);
-      const { token } = await svc.signAccess({ sub: 'u', tenantId: 't', role: 'staff' });
+      const { token } = await svc.signAccess({
+        sub: 'u',
+        tenantId: 't',
+        role: 'staff',
+        permissions: [],
+      });
       await expect(svc.verifyAccess(token)).rejects.toBeInstanceOf(UnauthorizedException);
     });
 

@@ -7,6 +7,16 @@ import { PERMISSION_KEY } from '../decorators/require-permission.decorator';
 import type { AuthenticatedUser } from '../decorators/current-user.decorator';
 import type { Permission } from '@storageos/shared';
 
+function hasAll(user: AuthenticatedUser, required: Permission[]): boolean {
+  // Si el token trae permisos efectivos (rol custom o enum resueltos al
+  // emitirse), los usamos. Para tokens antiguos sin el claim, caemos al
+  // mapa estático del rol enum (backwards-compat durante el TTL del access).
+  if (user.permissions) {
+    return required.every((p) => user.permissions!.includes(p));
+  }
+  return roleHasAllPermissions(user.role, required);
+}
+
 /**
  * Guard de autorización por permiso fino. Se evalúa DESPUÉS del `JwtAuthGuard`
  * (que garantiza `request.user`) y junto al `RolesGuard`. Si el handler no
@@ -32,7 +42,7 @@ export class PermissionsGuard implements CanActivate {
         code: 'forbidden',
       });
     }
-    if (!roleHasAllPermissions(role, required)) {
+    if (!hasAll(request.user!, required)) {
       throw new ForbiddenException({
         message: 'Tu rol no tiene permiso para esta accion',
         code: 'insufficient_permission',

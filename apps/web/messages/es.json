@@ -174,6 +174,7 @@
   "settings": {
     "nav": {
       "users": "Usuarios",
+      "roles": "Roles",
       "profile": "Mi perfil",
       "security": "Seguridad",
       "billing": "Facturación",

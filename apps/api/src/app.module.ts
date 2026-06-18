@@ -45,6 +45,7 @@ import { QueuesModule } from './modules/queues/queues.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
 import { SecurityEventsModule } from './modules/security-events/security-events.module';
+import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UsersModule } from './modules/users/users.module';
 import { WidgetModule } from './modules/widget/widget.module';
@@ -121,6 +122,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     HealthModule,
     AuthModule,
     UsersModule,
+    TenantRolesModule,
     InvitationsModule,
     TwoFactorModule,
     FilesModule,

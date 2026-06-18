@@ -327,6 +327,7 @@ export class UsersService {
       fullName: user.fullName,
       phone: user.phone,
       role: user.role as UserRole,
+      tenantRoleId: user.tenantRoleId,
       isActive: user.isActive,
       emailVerifiedAt: user.emailVerifiedAt ? user.emailVerifiedAt.toISOString() : null,
       twoFactorEnabled: user.twoFactorEnabled,

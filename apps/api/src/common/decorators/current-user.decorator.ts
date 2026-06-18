@@ -1,6 +1,6 @@
 import { type ExecutionContext, createParamDecorator } from '@nestjs/common';
 
-import type { UserRole } from '@storageos/shared';
+import type { Permission, UserRole } from '@storageos/shared';
 
 /**
  * Payload del access token, inyectado en `request.user` por `JwtStrategy`.
@@ -11,6 +11,8 @@ export interface AuthenticatedUser {
   sub: string;
   tenantId: string;
   role: UserRole;
+  /** Permisos efectivos del usuario (del JWT). Opcional para tokens antiguos. */
+  permissions?: Permission[];
 }
 
 /**

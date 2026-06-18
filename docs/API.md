@@ -245,6 +245,22 @@ global tras Roles). El catálogo y el mapa rol→permisos viven en
 Ejemplo de regla más fina que el rol no podía expresar: `POST /invoices/:id/refund`
 exige `invoices:refund`, que solo tiene `owner` (aunque `manager` pueda emitir).
 
+#### Roles personalizados por tenant (RBAC v1)
+
+El `owner` puede definir roles a medida (`tenant_roles`) con un conjunto de
+permisos + un `baseRole` enum de respaldo, y asignarlos a usuarios. Los permisos
+efectivos de un usuario (rol custom si lo tiene, si no el enum) viajan en el
+access JWT y los devuelve `/auth/me` en `permissions`. Editar/asignar un rol
+aplica al siguiente refresh del access token (≤15 min).
+
+| Metodo | Ruta                                  | Auth | Role  | Descripcion                                              |
+| ------ | ------------------------------------- | ---- | ----- | -------------------------------------------------------- |
+| GET    | `/settings/roles`                     | SI   | owner | Lista los roles custom (con `userCount`)                 |
+| POST   | `/settings/roles`                     | SI   | owner | Crea rol `{name, description?, permissions[], baseRole}` |
+| PATCH  | `/settings/roles/:id`                 | SI   | owner | Actualiza un rol (parcial)                               |
+| DELETE | `/settings/roles/:id`                 | SI   | owner | Borra el rol (los usuarios vuelven a su rol enum)        |
+| PATCH  | `/settings/users/:userId/tenant-role` | SI   | owner | Asigna/quita rol custom `{tenantRoleId: uuid\|null}`     |
+
 ## Users
 
 Modulo `apps/api/src/modules/users/`. Gestiona el equipo del tenant: los

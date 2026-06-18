@@ -33,6 +33,7 @@ import type {
   LoginRequires2faEnrolmentResponse,
   LoginRequires2faResponse,
   MeResponse,
+  Permission,
   RefreshSuccessResponse,
   RegisterInput,
   RegisterPendingResponse,
@@ -451,6 +452,7 @@ export class AuthService {
       sub: user.id,
       tenantId: result.tenantId,
       role: user.role,
+      permissions: await this.resolvePermissions(result.tenantId, user),
     });
 
     return {
@@ -631,12 +633,31 @@ export class AuthService {
         user: this.toUserDto(user),
         tenant: this.toTenantDto(tenant),
         subscription: this.toSubscriptionDto(subscription, subscription.plan.slug),
-        permissions: permissionsForRole(user.role),
+        permissions: await this.resolvePermissions(args.tenantId, user),
       };
     }, args.tenantId);
   }
 
   // ========================== helpers privados =============================
+
+  /**
+   * Permisos efectivos de un usuario: si tiene un rol custom asignado
+   * (`tenantRoleId`), sus permisos; si no, los del rol enum. Se resuelve al
+   * emitir el access token y en `/auth/me`.
+   */
+  private async resolvePermissions(
+    tenantId: string,
+    user: { role: UserRole; tenantRoleId: string | null },
+  ): Promise<Permission[]> {
+    if (user.tenantRoleId) {
+      const customRole = await this.prisma.withTenant(
+        (tx) => tx.tenantRole.findUnique({ where: { id: user.tenantRoleId! } }),
+        tenantId,
+      );
+      if (customRole) return customRole.permissions as Permission[];
+    }
+    return permissionsForRole(user.role);
+  }
 
   private async sendVerificationEmail(
     tenant: Tenant,
@@ -703,6 +724,7 @@ export class AuthService {
       sub: user.id,
       tenantId: tenant.id,
       role: user.role,
+      permissions: await this.resolvePermissions(tenant.id, user),
     });
 
     return {

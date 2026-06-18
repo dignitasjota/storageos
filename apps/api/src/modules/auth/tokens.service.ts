@@ -6,7 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
 import type { Env } from '../../config/env.schema';
-import type { UserRole } from '@storageos/shared';
+import type { Permission, UserRole } from '@storageos/shared';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -15,6 +15,8 @@ export interface AccessTokenPayload {
   sub: string;
   tenantId: string;
   role: UserRole;
+  /** Permisos efectivos (del rol custom si lo hay, si no del rol enum). */
+  permissions: Permission[];
 }
 
 /** Payload + claims estandar al verificar. */
@@ -51,7 +53,7 @@ export class TokensService {
   async signAccess(payload: AccessTokenPayload): Promise<{ token: string; expiresIn: number }> {
     const expiresIn = this.config.get('JWT_ACCESS_TTL_SECONDS', { infer: true });
     const token = await this.jwt.signAsync(
-      { tenantId: payload.tenantId, role: payload.role },
+      { tenantId: payload.tenantId, role: payload.role, permissions: payload.permissions },
       {
         subject: payload.sub,
         secret: this.config.get('JWT_ACCESS_SECRET', { infer: true }),

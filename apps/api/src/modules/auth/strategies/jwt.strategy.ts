@@ -5,12 +5,13 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 
 import type { AuthenticatedUser } from '../../../common/decorators/current-user.decorator';
 import type { Env } from '../../../config/env.schema';
-import type { UserRole } from '@storageos/shared';
+import type { Permission, UserRole } from '@storageos/shared';
 
 interface RawAccessPayload {
   sub: string;
   tenantId: string;
   role: UserRole;
+  permissions?: Permission[];
   iat: number;
   exp: number;
 }
@@ -34,6 +35,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       sub: payload.sub,
       tenantId: payload.tenantId,
       role: payload.role,
+      ...(payload.permissions ? { permissions: payload.permissions } : {}),
     };
   }
 }

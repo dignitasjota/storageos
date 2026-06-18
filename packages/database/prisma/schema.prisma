@@ -319,6 +319,7 @@ model Tenant {
   updatedAt                   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   users                   User[]
+  tenantRoles             TenantRole[]
   subscription            TenantSubscription?
   auditLogs               AuditLog[]
   sessions                Session[]
@@ -385,6 +386,10 @@ model User {
   fullName               String    @map("full_name")
   phone                  String?
   role                   UserRole  @default(staff)
+  /// Rol personalizado del tenant (opcional). Si está, sus permisos sustituyen
+  /// a los del `role` enum para los endpoints @RequirePermission y la UI; el
+  /// `role` enum se mantiene como base para los endpoints @Roles. Ver ADR-RBAC.
+  tenantRoleId           String?   @map("tenant_role_id") @db.Uuid
   emailVerifiedAt        DateTime? @map("email_verified_at") @db.Timestamptz(6)
   twoFactorSecret        String?   @map("two_factor_secret")
   twoFactorPendingSecret String?   @map("two_factor_pending_secret")
@@ -396,6 +401,7 @@ model User {
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant                   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenantRole               TenantRole?              @relation("UserTenantRole", fields: [tenantRoleId], references: [id], onDelete: SetNull)
   auditLogs                AuditLog[]
   sessions                 Session[]
   emailVerificationTokens  EmailVerificationToken[]
@@ -423,6 +429,30 @@ model User {
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
+}
+
+/// Rol personalizado por tenant (RBAC de grano fino, v1). Define un conjunto
+/// de permisos `recurso:accion` (ver `packages/shared/src/auth/permissions.ts`)
+/// y un `base_role` enum de respaldo para los endpoints que aún autorizan por
+/// `@Roles`. Se asigna a usuarios vía `users.tenant_role_id`.
+model TenantRole {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  /// Lista de permisos del catálogo (`Permission[]`).
+  permissions String[] @default([])
+  /// Rol enum de respaldo para los endpoints `@Roles`.
+  baseRole    UserRole @default(staff) @map("base_role")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users  User[] @relation("UserTenantRole")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tenant_roles")
 }
 
 /// Codigos de recuperacion para 2FA. Se generan 10 al activar 2FA; solo se
