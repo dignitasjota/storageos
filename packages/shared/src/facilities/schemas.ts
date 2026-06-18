@@ -24,6 +24,8 @@ const optionalShortText = z.string().trim().max(200).optional().or(z.literal('')
 
 export const CreateFacilitySchema = z.object({
   name: facilityName,
+  /** Slug público opcional para la landing SEO; si se omite, se genera del nombre. */
+  publicSlug: z.string().trim().max(60).optional().or(z.literal('')),
   address: optionalShortText,
   city: optionalShortText,
   postalCode: z.string().trim().max(20).optional().or(z.literal('')),

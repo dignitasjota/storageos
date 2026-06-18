@@ -205,6 +205,8 @@ services:
         # URL publica con la que el browser hablara con la API. DEBE ser
         # el dominio expuesto a internet via NPM (HTTPS), no `http://api`.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        # URL publica del frontend (sitemap/robots/canonicals SEO).
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
     image: storageos/web:${RELEASE_TAG:-latest}
     restart: unless-stopped
     environment:

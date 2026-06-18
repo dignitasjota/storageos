@@ -639,6 +639,9 @@ model Facility {
   id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId     String    @map("tenant_id") @db.Uuid
   name         String
+  /// Slug público para la landing SEO por local (`/s/<tenant>/<slug>`). Único
+  /// por tenant. Se genera del nombre al crear; null en casos sin slug válido.
+  publicSlug   String?   @map("public_slug")
   address      String?
   city         String?
   postalCode   String?   @map("postal_code")
@@ -664,6 +667,7 @@ model Facility {
   productSales   ProductSale[]   @relation("ProductSaleFacility")
   accessDevices  AccessDevice[]  @relation("DeviceFacility")
 
+  @@unique([tenantId, publicSlug])
   @@index([tenantId])
   @@index([tenantId, isActive, deletedAt])
   @@map("facilities")

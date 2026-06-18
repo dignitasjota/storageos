@@ -3,6 +3,8 @@ import type { UnitStatusValue } from './schemas';
 export interface FacilityDto {
   id: string;
   name: string;
+  /** Slug público para la landing SEO (`/s/<tenant>/<slug>`). */
+  publicSlug: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;
