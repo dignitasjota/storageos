@@ -1,0 +1,18 @@
+{
+  "id": "/portal",
+  "name": "StorageOS — Mi trastero",
+  "short_name": "Mi trastero",
+  "description": "Accede a tu trastero: facturas, pago y tu código de acceso (QR/PIN).",
+  "lang": "es-ES",
+  "start_url": "/portal/login",
+  "scope": "/portal",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
