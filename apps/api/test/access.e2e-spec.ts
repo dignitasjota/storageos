@@ -129,6 +129,48 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     expect([200, 201]).toContain(ping.status);
   });
 
+  it('devices: controlUrl/secret + apertura remota (stub → dispatched)', async () => {
+    const owner = await registerVerifiedUser(app, 'access-open');
+    const facility = await request(app.getHttpServer())
+      .post('/facilities')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Local HTTP' });
+    expect(facility.status).toBe(201);
+
+    const dev = await request(app.getHttpServer())
+      .post('/access/devices')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        facilityId: facility.body.id,
+        type: 'door',
+        name: 'Puerta HTTP',
+        hardwareId: 'http-door-001',
+        controlUrl: 'https://controller.example/open',
+        controlSecret: 'secreto-hmac-largo',
+      });
+    expect(dev.status).toBe(201);
+    // El secreto NO se expone; sí un flag de que existe + la URL.
+    expect(dev.body.controlUrl).toBe('https://controller.example/open');
+    expect(dev.body.hasControlSecret).toBe(true);
+    expect(dev.body.controlSecret).toBeUndefined();
+
+    // Apertura remota: en test LOCK_PROVIDER=stub → dispatched true.
+    const open = await request(app.getHttpServer())
+      .post(`/access/devices/${dev.body.id}/open`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send();
+    expect([200, 201]).toContain(open.status);
+    expect(open.body.dispatched).toBe(true);
+
+    // Queda registrado en el audit trail de accesos (remote).
+    const logs = await request(app.getHttpServer())
+      .get('/access/logs')
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(logs.status).toBe(200);
+    const items = (logs.body.items ?? logs.body) as { reason: string | null }[];
+    expect(items.some((l) => l.reason === 'remote_open_by_staff')).toBe(true);
+  });
+
   it('verify: PIN correcto → allowed; PIN incorrecto → denied + audit log', async () => {
     const owner = await registerVerifiedUser(app, 'access-verify');
     const facility = await request(app.getHttpServer())

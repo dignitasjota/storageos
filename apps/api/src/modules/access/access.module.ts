@@ -11,6 +11,7 @@ import { AccessIntegrationsService } from './access-integrations.service';
 import { AccessLogsController } from './access-logs.controller';
 import { AccessVerifyController } from './access-verify.controller';
 import { AccessVerifyService } from './access-verify.service';
+import { HttpLockProvider } from './providers/http-lock.provider';
 import { LOCK_PROVIDER } from './providers/lock-provider';
 import { MqttLockProvider } from './providers/mqtt-lock.provider';
 import { StubLockProvider } from './providers/stub-lock.provider';
@@ -32,14 +33,21 @@ import type { Env } from '../../config/env.schema';
     AccessIntegrationsService,
     StubLockProvider,
     MqttLockProvider,
+    HttpLockProvider,
     {
       provide: LOCK_PROVIDER,
       useFactory: (
         config: ConfigService<Env, true>,
         stub: StubLockProvider,
         mqtt: MqttLockProvider,
-      ) => (config.get('LOCK_PROVIDER', { infer: true }) === 'mqtt' ? mqtt : stub),
-      inject: [ConfigService, StubLockProvider, MqttLockProvider],
+        http: HttpLockProvider,
+      ) => {
+        const provider = config.get('LOCK_PROVIDER', { infer: true });
+        if (provider === 'mqtt') return mqtt;
+        if (provider === 'http') return http;
+        return stub;
+      },
+      inject: [ConfigService, StubLockProvider, MqttLockProvider, HttpLockProvider],
     },
   ],
   exports: [AccessCredentialsService, AccessIntegrationsService],

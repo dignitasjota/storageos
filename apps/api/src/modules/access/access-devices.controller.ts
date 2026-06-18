@@ -165,4 +165,21 @@ export class AccessDevicesController {
       meta: extractMeta(req),
     });
   }
+
+  // Apertura remota disparada por el staff (server → controlador).
+  @Post(':id/open')
+  @Roles('owner', 'manager')
+  @HttpCode(HttpStatus.OK)
+  open(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ dispatched: boolean; message?: string }> {
+    return this.service.remoteOpen({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      meta: extractMeta(req),
+    });
+  }
 }
