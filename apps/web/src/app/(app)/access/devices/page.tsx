@@ -61,6 +61,7 @@ import {
 import {
   useCreateDevice,
   useDeleteDevice,
+  useOpenDevice,
   useDevices,
   usePingDevice,
   useRegenerateApiKey,
@@ -96,6 +97,7 @@ export default function DevicesPage() {
     ...(type ? { type } : {}),
   });
   const ping = usePingDevice();
+  const openDevice = useOpenDevice();
 
   const filteredDevices = (devices.data ?? []).filter((d) => {
     if (onlineFilter === 'online') return d.isOnline;
@@ -109,6 +111,16 @@ export default function DevicesPage() {
       toast.success(
         res.isOnline ? `${device.name} está online.` : `${device.name} no responde (offline).`,
       );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function handleOpen(device: AccessDeviceDto) {
+    try {
+      const res = await openDevice.mutateAsync(device.id);
+      if (res.dispatched) toast.success(`Comando de apertura enviado a ${device.name}.`);
+      else toast.error(`No se pudo abrir ${device.name}${res.message ? `: ${res.message}` : ''}.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -189,6 +201,10 @@ export default function DevicesPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleOpen(device)} disabled={openDevice.isPending}>
+                <DoorOpen className="mr-2 h-4 w-4" />
+                Abrir (remoto)
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handlePing(device)} disabled={ping.isPending}>
                 <Signal className="mr-2 h-4 w-4" />
                 Hacer ping
@@ -348,6 +364,8 @@ function CreateDeviceDialog({
       name: '',
       hardwareId: '',
       mqttTopic: '',
+      controlUrl: '',
+      controlSecret: '',
       metadata: {},
     },
   });
@@ -362,6 +380,8 @@ function CreateDeviceDialog({
         metadata: values.metadata ?? {},
         ...(values.unitId ? { unitId: values.unitId } : {}),
         ...(values.mqttTopic ? { mqttTopic: values.mqttTopic } : {}),
+        ...(values.controlUrl ? { controlUrl: values.controlUrl } : {}),
+        ...(values.controlSecret ? { controlSecret: values.controlSecret } : {}),
       };
       const dto = await create.mutateAsync(payload);
       toast.success('Dispositivo creado.');
@@ -467,6 +487,41 @@ function CreateDeviceDialog({
                       {...field}
                       value={field.value ?? ''}
                       placeholder="storageos/devices/door-01"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="controlUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>URL de control HTTP (opcional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ''}
+                      placeholder="https://controlador.local/open"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="controlSecret"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Secreto HMAC del controlador (opcional)</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type="password"
+                      value={field.value ?? ''}
+                      placeholder="mínimo 8 caracteres"
                     />
                   </FormControl>
                   <FormMessage />

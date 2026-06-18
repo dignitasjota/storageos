@@ -25,6 +25,9 @@ export interface OpenLockArgs {
   deviceId: string;
   /** Topic MQTT si el provider lo necesita. */
   mqttTopic?: string | null;
+  /** Provider HTTP: URL del controlador y secreto HMAC (ya descifrado). */
+  controlUrl?: string | null;
+  controlSecret?: string | null;
   /** Customer id (para logging del provider, opcional). */
   customerId?: string;
 }

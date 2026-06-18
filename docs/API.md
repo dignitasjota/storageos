@@ -1016,13 +1016,17 @@ Modulo `apps/api/src/modules/access/`.
 
 ### Endpoints — Access devices
 
-| Metodo | Ruta                             | Auth | Roles          | Descripcion                                      |
-| ------ | -------------------------------- | ---- | -------------- | ------------------------------------------------ |
-| GET    | `/access/devices`                | SI   | cualquiera     | Lista con facility + unitos vinculados           |
-| POST   | `/access/devices`                | SI   | owner, manager | Crea. Devuelve `apiKey` plaintext (una sola vez) |
-| POST   | `/access/devices/:id/rotate-key` | SI   | owner, manager | Rota apiKey. Devuelve plaintext nuevo            |
-| PATCH  | `/access/devices/:id`            | SI   | owner, manager | Edita nombre/unidades vinculadas                 |
-| DELETE | `/access/devices/:id`            | SI   | owner, manager | Soft delete                                      |
+| Metodo | Ruta                             | Auth | Roles               | Descripcion                                                                            |
+| ------ | -------------------------------- | ---- | ------------------- | -------------------------------------------------------------------------------------- |
+| GET    | `/access/devices`                | SI   | cualquiera          | Lista con facility + unitos vinculados                                                 |
+| POST   | `/access/devices`                | SI   | owner, manager      | Crea. Devuelve `apiKey` plaintext (una sola vez)                                       |
+| POST   | `/access/devices/:id/rotate-key` | SI   | owner, manager      | Rota apiKey. Devuelve plaintext nuevo                                                  |
+| PATCH  | `/access/devices/:id`            | SI   | owner, manager      | Edita nombre/unidades vinculadas                                                       |
+| DELETE | `/access/devices/:id`            | SI   | owner, manager      | Soft delete                                                                            |
+| POST   | `/access/devices/:id/ping`       | SI   | owner/manager/staff | Comprueba conectividad (open de prueba)                                                |
+| POST   | `/access/devices/:id/open`       | SI   | owner, manager      | Apertura remota (server→controlador). Registra `access_logs`. `{dispatched, message?}` |
+
+> Crear/editar device acepta `controlUrl` + `controlSecret` (HMAC) para el provider `LOCK_PROVIDER=http`; el secreto se guarda cifrado y el DTO solo expone `controlUrl` + `hasControlSecret`.
 
 ### Endpoints — Access logs + verify
 

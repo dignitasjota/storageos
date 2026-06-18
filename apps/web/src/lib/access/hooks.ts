@@ -214,6 +214,18 @@ export function usePingDevice() {
   });
 }
 
+/** Apertura remota disparada por el staff (server → controlador). */
+export function useOpenDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ dispatched: boolean; message?: string }>(`/access/devices/${id}/open`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'devices'] }),
+  });
+}
+
 // ============================================================================
 // Access logs
 // ============================================================================

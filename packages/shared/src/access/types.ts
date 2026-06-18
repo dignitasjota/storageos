@@ -49,6 +49,10 @@ export interface AccessDeviceDto {
   hardwareId: string;
   apiKeyPreview: string | null;
   mqttTopic: string | null;
+  /** URL del controlador HTTP (sin el secreto). */
+  controlUrl: string | null;
+  /** Si tiene secreto HMAC configurado (sin exponerlo). */
+  hasControlSecret: boolean;
   isOnline: boolean;
   lastSeenAt: string | null;
   isActive: boolean;

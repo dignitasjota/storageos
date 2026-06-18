@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { verify as argonVerify } from '@node-rs/argon2';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { LOCK_PROVIDER, type LockProvider } from './providers/lock-provider';
@@ -72,6 +73,7 @@ export class AccessVerifyService {
 
   constructor(
     private readonly admin: PrismaAdminService,
+    private readonly crypto: CryptoService,
     @Inject(LOCK_PROVIDER) private readonly lock: LockProvider,
   ) {}
 
@@ -185,6 +187,10 @@ export class AccessVerifyService {
       tenantId,
       deviceId: device.id,
       mqttTopic: device.mqttTopic,
+      controlUrl: device.controlUrl,
+      controlSecret: device.controlSecretEncrypted
+        ? this.crypto.decryptString(device.controlSecretEncrypted)
+        : null,
       customerId: credentialRow.customerId,
     });
 

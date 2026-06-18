@@ -104,6 +104,9 @@ export const CreateDeviceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   hardwareId: z.string().trim().min(1).max(120),
   mqttTopic: optionalText(200),
+  /** Provider HTTP: URL del controlador + secreto HMAC (se guarda cifrado). */
+  controlUrl: z.string().url().max(500).optional(),
+  controlSecret: z.string().trim().min(8).max(200).optional(),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateDeviceInput = z.infer<typeof CreateDeviceSchema>;
