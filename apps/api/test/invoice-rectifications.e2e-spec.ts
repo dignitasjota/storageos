@@ -100,8 +100,10 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
     expect(issuedRect.body.previousHash).toBe(originalIssued.body.hash);
     // Desde Fase 10A.4 el envio a AEAT pasa a ser asincrono via BullMQ; tras
     // issue la factura queda con aeatStatus=null/pending hasta que el worker
-    // la procesa. La validacion del envio real vive en verifactu-queue.e2e.
-    expect(['pending', null]).toContain(issuedRect.body.aeatStatus);
+    // la procesa. Aceptamos tambien 'accepted' porque el worker in-process
+    // puede haberla procesado ya (carrera; el estado exacto no es lo que
+    // valida este test). La validacion del envio real vive en verifactu-queue.e2e.
+    expect(['pending', null, 'accepted']).toContain(issuedRect.body.aeatStatus);
   });
 
   it('rechaza rectificar un draft (400 invoice_not_rectifiable)', async () => {
