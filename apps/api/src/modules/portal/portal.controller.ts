@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  type PortalAccessCredentialDto,
   PortalConsumeMagicLinkSchema,
   type PaymentMethodDto,
   type PortalChargeResultDto,
@@ -25,6 +26,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
+import { AccessCredentialsService } from '../access/access-credentials.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 
 import { PortalService } from './portal.service';
@@ -38,6 +40,7 @@ export class PortalController {
   constructor(
     private readonly portal: PortalService,
     private readonly redsys: RedsysService,
+    private readonly access: AccessCredentialsService,
   ) {}
 
   @Public()
@@ -63,6 +66,29 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  // ----------------------- acceso por QR/PIN -------------------------------
+
+  @Public()
+  @Get('me/access')
+  async myAccess(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalAccessCredentialDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.access.listForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/access/:id/regenerate')
+  @HttpCode(HttpStatus.OK)
+  async regenerateAccess(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalAccessCredentialDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.access.regenerateForCustomer(tenantId, customerId, id);
   }
 
   @Public()

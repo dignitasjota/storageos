@@ -86,3 +86,19 @@ export interface VerifyAccessResultDto {
   /** Motivo cuando denied. */
   reason?: string;
 }
+
+/**
+ * Credencial de acceso vista desde el portal del inquilino: incluye el valor
+ * (PIN o token QR) descifrado para mostrarlo/presentarlo en el lector. Solo
+ * `pin` y `qr` (la RFID es una tarjeta física). `value` es null en credenciales
+ * antiguas sin copia cifrada → el inquilino puede regenerarla para obtener una.
+ */
+export interface PortalAccessCredentialDto {
+  id: string;
+  method: 'pin' | 'qr';
+  label: string | null;
+  status: AccessCredentialStatusValue;
+  value: string | null;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+}

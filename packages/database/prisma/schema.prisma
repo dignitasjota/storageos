@@ -2005,6 +2005,10 @@ model AccessCredential {
   label              String?
   secretHash         String?                @map("secret_hash")
   secretPreview      String?                @map("secret_preview")
+  /// Copia cifrada (AES-256-GCM) del secreto pin/qr para que el inquilino
+  /// pueda volver a verlo en su portal (el hash no es reversible). Null en
+  /// credenciales antiguas (anteriores a esta feature) y en RFID.
+  secretEncrypted    String?                @map("secret_encrypted")
   rfidUid            String?                @map("rfid_uid")
   allowedFacilityIds String[]               @default([]) @map("allowed_facility_ids")
   allowedUnitIds     String[]               @default([]) @map("allowed_unit_ids")
