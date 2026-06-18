@@ -163,10 +163,14 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
               )}
 
               <Link
-                href={`/book/${data.tenantSlug}`}
+                href={
+                  f.publicSlug
+                    ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                    : `/book/${data.tenantSlug}`
+                }
                 className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
               >
-                Reservar en {f.name}
+                {f.publicSlug ? `Ver ${f.name}` : `Reservar en ${f.name}`}
               </Link>
             </section>
           ))}

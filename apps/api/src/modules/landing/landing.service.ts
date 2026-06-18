@@ -2,7 +2,12 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import type { PublicLandingDto } from '@storageos/shared';
+import type {
+  PublicFacilityLandingDto,
+  PublicLandingDto,
+  PublicLandingFacilityDto,
+  PublicSitemapDto,
+} from '@storageos/shared';
 
 /**
  * Datos públicos para la landing por tenant (`/s/[slug]`). Sin auth ni RLS:
@@ -25,6 +30,7 @@ export class LandingService {
         where: { tenantId: tenant.id, deletedAt: null, isActive: true },
         select: {
           id: true,
+          publicSlug: true,
           name: true,
           address: true,
           city: true,
@@ -56,6 +62,7 @@ export class LandingService {
       tenantSlug: tenant.slug,
       facilities: facilities.map((f) => ({
         id: f.id,
+        publicSlug: f.publicSlug,
         name: f.name,
         address: f.address,
         city: f.city,
@@ -71,6 +78,55 @@ export class LandingService {
             priceMonthly: Number(t.defaultPriceMonthly),
           }))
           .filter((t) => t.available > 0),
+      })),
+    };
+  }
+
+  /** Landing de un único local por su `publicSlug`. */
+  async getFacilityBySlug(
+    tenantSlug: string,
+    facilitySlug: string,
+  ): Promise<PublicFacilityLandingDto> {
+    const full = await this.getBySlug(tenantSlug);
+    const facility = full.facilities.find(
+      (f: PublicLandingFacilityDto) => f.publicSlug === facilitySlug,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'No encontrado' });
+    }
+    return { tenantName: full.tenantName, tenantSlug: full.tenantSlug, facility };
+  }
+
+  /**
+   * URLs indexables para el sitemap: tenants activos (con suscripción no
+   * cancelada) + los slugs de sus locales activos. Nota: expone los slugs
+   * públicos de todos los tenants en el dominio compartido (las landings ya
+   * son públicas); si se quiere por dominio propio, filtrar aquí.
+   */
+  async sitemap(): Promise<PublicSitemapDto> {
+    const tenants = await this.admin.tenant.findMany({
+      where: { deletedAt: null, status: { in: ['trial', 'active'] } },
+      select: { slug: true, updatedAt: true },
+    });
+    if (tenants.length === 0) return { entries: [] };
+
+    const facilities = await this.admin.facility.findMany({
+      where: { deletedAt: null, isActive: true, publicSlug: { not: null } },
+      select: { publicSlug: true, tenant: { select: { slug: true } } },
+    });
+    const bySlug = new Map<string, string[]>();
+    for (const f of facilities) {
+      if (!f.publicSlug) continue;
+      const list = bySlug.get(f.tenant.slug) ?? [];
+      list.push(f.publicSlug);
+      bySlug.set(f.tenant.slug, list);
+    }
+
+    return {
+      entries: tenants.map((t) => ({
+        tenantSlug: t.slug,
+        updatedAt: t.updatedAt.toISOString(),
+        facilitySlugs: bySlug.get(t.slug) ?? [],
       })),
     };
   }

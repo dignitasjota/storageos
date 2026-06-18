@@ -43,4 +43,41 @@ describe('Landing pública por tenant (e2e)', () => {
     const res = await request(app.getHttpServer()).get('/public/landing/no-existe-xyz');
     expect(res.status).toBe(404);
   });
+
+  it('página por local: GET /public/landing/:slug/:facilitySlug devuelve el local', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-fac');
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Norte',
+      unitsCount: 2,
+      pricePerUnit: 50,
+    });
+
+    // El publicSlug se autogenera del nombre: "Local Norte" → "local-norte".
+    const res = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/local-norte`);
+    expect(res.status).toBe(200);
+    expect(res.body.facility.name).toBe('Local Norte');
+    expect(res.body.facility.publicSlug).toBe('local-norte');
+    expect(res.body.facility.unitTypes.length).toBeGreaterThanOrEqual(1);
+
+    const missing = await request(app.getHttpServer()).get(
+      `/public/landing/${owner.slug}/no-existe`,
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  it('sitemap: incluye el tenant y los slugs de sus locales', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-sitemap');
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Sur',
+      unitsCount: 1,
+    });
+
+    const res = await request(app.getHttpServer()).get('/public/landing/sitemap');
+    expect(res.status).toBe(200);
+    const entry = (res.body.entries as { tenantSlug: string; facilitySlugs: string[] }[]).find(
+      (e) => e.tenantSlug === owner.slug,
+    );
+    expect(entry).toBeTruthy();
+    expect(entry!.facilitySlugs).toContain('local-sur');
+  });
 });

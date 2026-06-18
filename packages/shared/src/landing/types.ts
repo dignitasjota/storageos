@@ -11,6 +11,8 @@ export interface PublicLandingUnitTypeDto {
 
 export interface PublicLandingFacilityDto {
   id: string;
+  /** Slug público del local para su página SEO (`/s/<tenant>/<slug>`). */
+  publicSlug: string | null;
   name: string;
   address: string | null;
   city: string | null;
@@ -25,4 +27,21 @@ export interface PublicLandingDto {
   tenantName: string;
   tenantSlug: string;
   facilities: PublicLandingFacilityDto[];
+}
+
+/** Landing de un único local (`/s/<tenant>/<facilitySlug>`). */
+export interface PublicFacilityLandingDto {
+  tenantName: string;
+  tenantSlug: string;
+  facility: PublicLandingFacilityDto;
+}
+
+/** Entradas del sitemap público (para `app/sitemap.ts`). */
+export interface PublicSitemapEntryDto {
+  tenantSlug: string;
+  updatedAt: string;
+  facilitySlugs: string[];
+}
+export interface PublicSitemapDto {
+  entries: PublicSitemapEntryDto[];
 }

@@ -838,11 +838,13 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 
 ### Endpoints — Widget publico
 
-| Metodo | Ruta                              | Auth | Throttle  | Descripcion                                                                                       |
-| ------ | --------------------------------- | ---- | --------- | ------------------------------------------------------------------------------------------------- |
-| GET    | `/public/widget/:slug/facilities` | NO   | 30/min/IP | Lista locales activos del tenant con unit types                                                   |
-| POST   | `/public/widget/:slug/leads`      | NO   | 5/min/IP  | Crea lead `source=widget` con honeypot anti-bot                                                   |
-| GET    | `/public/landing/:slug`           | NO   | 60/min/IP | Landing SEO: empresa + locales (dirección/contacto) + disponibilidad/precio. Alimenta `/s/[slug]` |
+| Metodo | Ruta                                  | Auth | Throttle  | Descripcion                                                                                       |
+| ------ | ------------------------------------- | ---- | --------- | ------------------------------------------------------------------------------------------------- |
+| GET    | `/public/widget/:slug/facilities`     | NO   | 30/min/IP | Lista locales activos del tenant con unit types                                                   |
+| POST   | `/public/widget/:slug/leads`          | NO   | 5/min/IP  | Crea lead `source=widget` con honeypot anti-bot                                                   |
+| GET    | `/public/landing/:slug`               | NO   | 60/min/IP | Landing SEO: empresa + locales (dirección/contacto) + disponibilidad/precio. Alimenta `/s/[slug]` |
+| GET    | `/public/landing/:slug/:facilitySlug` | NO   | 60/min/IP | Landing SEO de un local concreto (por `publicSlug`). Alimenta `/s/[slug]/[facility]`              |
+| GET    | `/public/landing/sitemap`             | NO   | 30/min/IP | URLs indexables (tenants activos + slugs de locales). Alimenta `app/sitemap.ts`                   |
 
 ### Codigos `code` (Fase 5)
 

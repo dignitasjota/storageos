@@ -74,6 +74,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # como --build-arg en el compose para que queden embebidas en el bundle.
 ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# URL pública del sitio (URLs absolutas de sitemap/robots/canonicals SEO).
+ARG NEXT_PUBLIC_SITE_URL=
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
