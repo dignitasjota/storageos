@@ -68,6 +68,12 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          # `NEXT_PUBLIC_*` se inyecta en build-time; varias páginas (p. ej.
+          # /units/import, /contracts/import) leen NEXT_PUBLIC_API_URL al cargar
+          # el módulo y el prerender falla si no está. Valor dummy: solo se
+          # valida que exista; en prod la inyecta el build de Docker.
+          NEXT_PUBLIC_API_URL: http://localhost:3001
 
   test-database:
     name: Tests database (Vitest)
@@ -112,6 +118,13 @@ jobs:
 
       - name: Apply migrations (admin role + storageos_app + RLS)
         run: pnpm -F @storageos/database migrate:deploy
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
+      # seed.test.ts y rls.test.ts (subscription_plans) leen datos sembrados;
+      # sin esto fallan con tablas vacías.
+      - name: Seed demo data
+        run: pnpm db:seed
         env:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
 
@@ -163,6 +176,10 @@ jobs:
           --health-timeout=3s
           --health-retries=10
 
+      # MinIO se arranca con `docker run` en un step (no como service): la
+      # imagen oficial requiere `command: server /data`, que la sintaxis de
+      # `services:` no soporta. Ver step "Start MinIO" abajo.
+
     env:
       # Secrets en CI no son sensibles (son tests); estos valores reproducen
       # un .env de desarrollo. NUNCA reutilizar en producción.
@@ -191,9 +208,12 @@ jobs:
       EMAIL_PROVIDER: smtp
       LOG_LEVEL: fatal
       LOG_PRETTY: 'false'
-      # MinIO no se levanta en CI (los tests e2e no hacen PUT real al bucket;
-      # generan signed URLs pero no las consumen). Si se añade en el futuro,
-      # convertir estos valores en el access/secret del service container.
+      # MinIO real (service `minio` arriba): el test de reports sube un xlsx al
+      # bucket. El access/secret deben coincidir con MINIO_ROOT_USER/PASSWORD.
+      MINIO_ENDPOINT: localhost
+      MINIO_PORT: '9010'
+      MINIO_USE_SSL: 'false'
+      MINIO_PUBLIC_URL: http://localhost:9010
       MINIO_ACCESS_KEY: ci-minio-access
       MINIO_SECRET_KEY: ci-minio-secret-dev-only
 
@@ -221,10 +241,40 @@ jobs:
       - name: Build shared package
         run: pnpm -F @storageos/shared build
 
+      # Jest resuelve `@storageos/database` por node (→ dist/), así que el
+      # paquete debe estar compilado (el tsconfig raíz mapea a src solo para
+      # typecheck, no para el runtime de jest).
+      - name: Build database package
+        run: pnpm -F @storageos/database build
+
       - name: Apply migrations (crea storageos_app + RLS)
         run: pnpm -F @storageos/database migrate:deploy
         env:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
 
+      # `register` exige el plan `starter`; sin seed devuelve 500.
+      - name: Seed demo data
+        run: pnpm db:seed
+        env:
+          DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
+
+      # MinIO oficial vía docker run (control del command). FilesService crea
+      # los buckets al arrancar la app, así que solo necesita estar accesible.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9010:9000 \
+            -e MINIO_ROOT_USER=ci-minio-access \
+            -e MINIO_ROOT_PASSWORD=ci-minio-secret-dev-only \
+            minio/minio:latest server /data
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:9010/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::MinIO no respondió en 60s"; docker logs minio || true; exit 1
+
+      # El script `test:e2e` ya incluye `--runInBand`; pasar `-- --runInBand`
+      # extra hacía que jest lo tratara como patrón de ruta → "No tests found".
       - name: Run API e2e tests
-        run: pnpm -F api test:e2e -- --runInBand
+        run: pnpm -F api test:e2e

@@ -92,7 +92,7 @@ Los apps separados `portal/` (inquilino final) y `admin/` (super admin) están p
 - Errores: usar excepciones de NestJS (`BadRequestException`, etc.) con mensajes traducibles.
 - Tests: Jest para unit, Supertest para e2e backend, Playwright para e2e frontend.
 - Commits: **Conventional Commits** (`feat:`, `fix:`, `chore:`, `refactor:`...).
-- Branches: trabajamos sobre `main` hasta tener un entorno de staging. Cuando lo montemos, se creará `develop`. Para cambios sustanciales se usan ramas `feat/...` o `fix/...`.
+- Branches: `main` está protegida (branch protection) — solo avanza vía **Pull Request** con el gate `Smoke E2E (Playwright)` en verde. El flujo por cambio es rama `feat/...`|`fix/...`|`chore/...` → push de la rama → PR → merge cuando el gate pase (cheat-sheet en `README.md` → "Flujo de contribución"). El merge a `main` es lo que dispara el pull de Portainer.
 
 ## Seguridad
 
@@ -243,7 +243,7 @@ Lo construido hasta hoy: **Fase 1** (auth + multi-tenant), **Fase 2** (facilitie
 
 ### Notas operativas
 
-- Branch único `main` (sin develop hasta que tengamos staging).
+- `main` protegida con gate de CI; cambios vía PR (sin `develop` hasta que tengamos staging). Ver flujo en `README.md`.
 - Runtime Node 20.18.1 vía fnm (`.nvmrc`). Siempre `eval "$(fnm env --use-on-cd --version-file-strategy=recursive)"` antes de pnpm si se ejecuta desde scripts no-interactivos.
 - `pnpm db:seed` crea un tenant demo `demo-storage` con owner `jota@storageos.local` / `Jota69` (configurable en `packages/database/.env`).
 - Editor: el usuario usa **Google Antigravity IDE**, no VSCode. No generar config `.vscode/`.
