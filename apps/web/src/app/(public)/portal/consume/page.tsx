@@ -2,13 +2,15 @@
 
 import {
   type PaymentMethodDto,
+  type PortalAccessCredentialDto,
   type PortalChargeResultDto,
   type PortalInvoiceDto,
   type PortalSessionDto,
   type SetupIntentResponseDto,
 } from '@storageos/shared';
-import { CreditCard, Download, Landmark, Loader2, Plus } from 'lucide-react';
+import { CreditCard, Download, KeyRound, Landmark, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -32,6 +34,8 @@ function PortalConsumeContent() {
   const [session, setSession] = useState<PortalSessionDto | null>(null);
   const [invoices, setInvoices] = useState<PortalInvoiceDto[] | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
+  const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
@@ -69,13 +73,15 @@ function PortalConsumeContent() {
         });
         if (cancelled) return;
         setSession(s);
-        const [inv, pms] = await Promise.all([
+        const [inv, pms, acc] = await Promise.all([
           portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
           portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
+          portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
         ]);
         if (cancelled) return;
         setInvoices(inv);
         setPaymentMethods(pms);
+        setAccess(acc);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.body.message : 'Enlace inválido o caducado');
@@ -88,6 +94,24 @@ function PortalConsumeContent() {
     };
     // portalFetch es estable (no captura estado), solo depende del token.
   }, [token]);
+
+  async function regenerateAccess(id: string) {
+    if (!session) return;
+    setRegeneratingId(id);
+    try {
+      const updated = await portalFetch<PortalAccessCredentialDto>(
+        session,
+        `/portal/me/access/${id}/regenerate`,
+        { method: 'POST' },
+      );
+      setAccess((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
+      toast.success('Código regenerado');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo regenerar.');
+    } finally {
+      setRegeneratingId(null);
+    }
+  }
 
   async function openAddDialog() {
     if (!session) return;
@@ -256,6 +280,68 @@ function PortalConsumeContent() {
                       </Button>
                     )}
                   </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4" /> Tu acceso
+          </CardTitle>
+          <CardDescription>
+            Presenta tu código QR o teclea tu PIN en el lector de la puerta.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {access === null ? (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : access.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No tienes credenciales de acceso activas. Pídeselas a tu operador.
+            </p>
+          ) : (
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {access.map((c) => (
+                <li key={c.id} className="rounded-md border p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {c.label ?? (c.method === 'qr' ? 'Código QR' : 'PIN')}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Regenerar"
+                      disabled={regeneratingId === c.id}
+                      onClick={() => void regenerateAccess(c.id)}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${regeneratingId === c.id ? 'animate-spin' : ''}`}
+                      />
+                    </Button>
+                  </div>
+                  {c.value === null ? (
+                    <p className="text-xs text-muted-foreground">
+                      Esta credencial es antigua y no se puede mostrar. Pulsa regenerar para obtener
+                      un código nuevo.
+                    </p>
+                  ) : c.method === 'qr' ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="rounded bg-white p-2">
+                        <QRCodeSVG value={c.value} size={148} />
+                      </div>
+                      <span className="break-all text-center font-mono text-[10px] text-muted-foreground">
+                        {c.value}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <span className="font-mono text-3xl tracking-[0.3em]">{c.value}</span>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

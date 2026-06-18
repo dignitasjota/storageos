@@ -3,6 +3,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -21,6 +22,7 @@ import type {
   AccessCredentialWithSecretDto,
   AccessMethodValue,
   CreateCredentialInput,
+  PortalAccessCredentialDto,
   RotateCredentialInput,
   SuspendCredentialInput,
   UpdateCredentialInput,
@@ -70,6 +72,7 @@ export class AccessCredentialsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly crypto: CryptoService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<AccessCredentialDto[]> {
@@ -106,15 +109,18 @@ export class AccessCredentialsService {
     let rfidUid: string | null = null;
     let revealedSecret: string | null = null;
 
+    let secretEncrypted: string | null = null;
     if (input.method === 'pin') {
       const pin = input.pin ?? generateRandomPin();
       secretHash = await argonHash(pin);
       secretPreview = pin.slice(-4);
+      secretEncrypted = this.crypto.encryptString(pin);
       revealedSecret = pin;
     } else if (input.method === 'qr') {
       const token = generateQrToken();
       secretHash = await argonHash(token);
       secretPreview = token.slice(0, 4);
+      secretEncrypted = this.crypto.encryptString(token);
       revealedSecret = token;
     } else {
       // rfid (schema garantiza rfidUid presente)
@@ -136,6 +142,7 @@ export class AccessCredentialsService {
       label: input.label?.trim() || null,
       secretHash,
       secretPreview,
+      secretEncrypted,
       rfidUid,
       allowedFacilityIds: input.allowedFacilityIds,
       allowedUnitIds: input.allowedUnitIds,
@@ -206,11 +213,13 @@ export class AccessCredentialsService {
       const pin = args.input.pin ?? generateRandomPin();
       data.secretHash = await argonHash(pin);
       data.secretPreview = pin.slice(-4);
+      data.secretEncrypted = this.crypto.encryptString(pin);
       revealedSecret = pin;
     } else if (existing.method === ('qr' as AccessMethod)) {
       const token = generateQrToken();
       data.secretHash = await argonHash(token);
       data.secretPreview = token.slice(0, 4);
+      data.secretEncrypted = this.crypto.encryptString(token);
       revealedSecret = token;
     } else {
       // rfid
@@ -370,6 +379,99 @@ export class AccessCredentialsService {
     );
     await this.writeAudit('access.credential_revoked', args, args.id);
     return this.toDto(updated);
+  }
+
+  // ===================== portal del inquilino =============================
+
+  /**
+   * Credenciales pin/qr ACTIVAS del inquilino, con el valor descifrado para
+   * que pueda mostrarlas/presentarlas en el lector. RFID excluido (es física).
+   */
+  async listForCustomer(
+    tenantId: string,
+    customerId: string,
+  ): Promise<PortalAccessCredentialDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            customerId,
+            status: 'active' as AccessCredentialStatus,
+            method: { in: ['pin', 'qr'] as AccessMethod[] },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      method: r.method as 'pin' | 'qr',
+      label: r.label,
+      status: r.status,
+      value: r.secretEncrypted ? this.crypto.decryptString(r.secretEncrypted) : null,
+      expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+      lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+    }));
+  }
+
+  /**
+   * El inquilino regenera el secreto de SU credencial (p. ej. si lo cree
+   * comprometido, o para obtener un valor visible en una credencial antigua).
+   * Verifica la propiedad por `customerId` antes de rotar.
+   */
+  async regenerateForCustomer(
+    tenantId: string,
+    customerId: string,
+    credentialId: string,
+  ): Promise<PortalAccessCredentialDto> {
+    const existing = await this.prisma.withTenant(
+      (tx) => tx.accessCredential.findFirst({ where: { id: credentialId, customerId } }),
+      tenantId,
+    );
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'credential_not_found',
+        message: 'Credencial no encontrada',
+      });
+    }
+    if (existing.status !== ('active' as AccessCredentialStatus)) {
+      throw new ConflictException({
+        code: 'credential_not_active',
+        message: 'Solo se puede regenerar una credencial activa',
+      });
+    }
+    if (existing.method !== ('pin' as AccessMethod) && existing.method !== ('qr' as AccessMethod)) {
+      throw new ConflictException({
+        code: 'credential_not_regenerable',
+        message: 'Solo PIN o QR son regenerables desde el portal',
+      });
+    }
+
+    const data: Prisma.AccessCredentialUncheckedUpdateInput = {};
+    if (existing.method === ('pin' as AccessMethod)) {
+      const pin = generateRandomPin();
+      data.secretHash = await argonHash(pin);
+      data.secretPreview = pin.slice(-4);
+      data.secretEncrypted = this.crypto.encryptString(pin);
+    } else {
+      const token = generateQrToken();
+      data.secretHash = await argonHash(token);
+      data.secretPreview = token.slice(0, 4);
+      data.secretEncrypted = this.crypto.encryptString(token);
+    }
+    const updated = await this.prisma.withTenant(
+      (tx) => tx.accessCredential.update({ where: { id: credentialId }, data }),
+      tenantId,
+    );
+    return {
+      id: updated.id,
+      method: updated.method as 'pin' | 'qr',
+      label: updated.label,
+      status: updated.status,
+      value: updated.secretEncrypted ? this.crypto.decryptString(updated.secretEncrypted) : null,
+      expiresAt: updated.expiresAt ? updated.expiresAt.toISOString() : null,
+      lastUsedAt: updated.lastUsedAt ? updated.lastUsedAt.toISOString() : null,
+    };
   }
 
   private async findOrThrow(tenantId: string, id: string): Promise<CredentialWithCustomer> {

@@ -54,3 +54,6 @@ docker/volumes/
 # Misc
 *.pid
 *.seed
+
+# Duplicados accidentales tipo "archivo 2.ext" (copias de macOS/sync)
+*\ 2.*
