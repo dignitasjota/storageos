@@ -62,6 +62,7 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
         url.startsWith('/api/docs') ||
         url.startsWith('/webhooks/') ||
         url.startsWith('/public/widget/') ||
+        url.startsWith('/public/landing/') ||
         url === '/' ||
         url === '/favicon.ico';
       if (!isExempt) {
