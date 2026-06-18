@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="StorageOS">
+  <!-- Maskable: el contenido vive en la zona segura central (~80%); fondo a sangre. -->
+  <rect width="512" height="512" fill="#0f172a"/>
+  <rect x="176" y="168" width="160" height="176" rx="12" fill="#1e293b" stroke="#334155" stroke-width="6"/>
+  <g fill="#3b82f6">
+    <rect x="192" y="192" width="128" height="14" rx="4"/>
+    <rect x="192" y="218" width="128" height="14" rx="4"/>
+    <rect x="192" y="244" width="128" height="14" rx="4"/>
+    <rect x="192" y="270" width="128" height="14" rx="4"/>
+  </g>
+  <rect x="232" y="306" width="48" height="16" rx="8" fill="#94a3b8"/>
+</svg>

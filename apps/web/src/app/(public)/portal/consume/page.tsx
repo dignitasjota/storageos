@@ -15,6 +15,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
+import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -205,11 +206,14 @@ function PortalConsumeContent() {
 
   return (
     <div className="container max-w-3xl space-y-6 py-10">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Hola, {session.customerName}</h1>
-        <p className="text-sm text-muted-foreground">
-          {session.tenantName} · {session.email}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Hola, {session.customerName}</h1>
+          <p className="text-sm text-muted-foreground">
+            {session.tenantName} · {session.email}
+          </p>
+        </div>
+        <InstallPwaButton />
       </div>
 
       <Card>
