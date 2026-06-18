@@ -7,6 +7,8 @@ export interface UserDetailDto {
   fullName: string;
   phone: string | null;
   role: UserRole;
+  /** Rol personalizado del tenant asignado (null = solo rol enum). */
+  tenantRoleId: string | null;
   isActive: boolean;
   emailVerifiedAt: string | null;
   twoFactorEnabled: boolean;

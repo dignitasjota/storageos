@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash } from '@node-rs/argon2';
+import { permissionsForRole } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { type AuthFlowResult, type RequestMeta } from '../auth/auth.service';
@@ -328,7 +329,9 @@ export class InvitationsService {
     const { token: accessToken, expiresIn } = await this.tokens.signAccess({
       sub: user.id,
       tenantId: record.tenantId,
+      // Usuario recién aceptado: nunca tiene rol custom todavía → permisos del enum.
       role: user.role,
+      permissions: permissionsForRole(user.role),
     });
 
     const userDto: UserDto = {

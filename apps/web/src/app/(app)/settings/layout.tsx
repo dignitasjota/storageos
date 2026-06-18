@@ -10,11 +10,20 @@ import { cn } from '@/lib/utils';
 
 interface NavTab {
   href: string;
-  labelKey: 'users' | 'profile' | 'security' | 'billing' | 'verifactu' | 'widget' | 'integrations';
+  labelKey:
+    | 'users'
+    | 'roles'
+    | 'profile'
+    | 'security'
+    | 'billing'
+    | 'verifactu'
+    | 'widget'
+    | 'integrations';
 }
 
 const TABS: NavTab[] = [
   { href: '/settings/users', labelKey: 'users' },
+  { href: '/settings/roles', labelKey: 'roles' },
   { href: '/settings/profile', labelKey: 'profile' },
   { href: '/settings/security', labelKey: 'security' },
   { href: '/settings/billing', labelKey: 'billing' },

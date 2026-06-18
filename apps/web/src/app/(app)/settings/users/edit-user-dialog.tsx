@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type UpdateUserInput, UpdateUserSchema, type UserDetailDto } from '@storageos/shared';
 import { useTranslations } from 'next-intl';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -33,9 +33,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useMe } from '@/lib/auth/hooks';
+import { useAssignTenantRole, useTenantRoles } from '@/lib/tenant-roles/hooks';
 import { useUpdateUser } from '@/lib/users/hooks';
 
 const ROLES = ['manager', 'staff', 'readonly'] as const;
+const NO_CUSTOM_ROLE = '__none__';
 
 interface Props {
   user: UserDetailDto | null;
@@ -46,6 +49,11 @@ export function EditUserDialog({ user, onClose }: Props) {
   const t = useTranslations('settings.users');
   const tCommon = useTranslations('common');
   const update = useUpdateUser();
+  const me = useMe();
+  const isCurrentOwner = me.data?.user.role === 'owner';
+  const tenantRoles = useTenantRoles();
+  const assignRole = useAssignTenantRole();
+  const [customRoleId, setCustomRoleId] = useState<string>(NO_CUSTOM_ROLE);
 
   const form = useForm<UpdateUserInput>({
     resolver: zodResolver(UpdateUserSchema),
@@ -60,6 +68,7 @@ export function EditUserDialog({ user, onClose }: Props) {
         ...(user.role === 'owner' ? {} : { role: user.role }),
         isActive: user.isActive,
       });
+      setCustomRoleId(user.tenantRoleId ?? NO_CUSTOM_ROLE);
     }
   }, [user, form]);
 
@@ -70,6 +79,11 @@ export function EditUserDialog({ user, onClose }: Props) {
     if (!user) return;
     try {
       await update.mutateAsync({ id: user.id, input: values });
+      // Asignación de rol custom (solo owner; endpoint separado).
+      const desired = customRoleId === NO_CUSTOM_ROLE ? null : customRoleId;
+      if (isCurrentOwner && user.role !== 'owner' && desired !== (user.tenantRoleId ?? null)) {
+        await assignRole.mutateAsync({ userId: user.id, input: { tenantRoleId: desired } });
+      }
       toast.success(t('editDialog.success'));
       onClose();
     } catch (err) {
@@ -149,6 +163,27 @@ export function EditUserDialog({ user, onClose }: Props) {
                   </FormItem>
                 )}
               />
+            )}
+            {!isOwner && isCurrentOwner && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Rol personalizado</label>
+                <Select value={customRoleId} onValueChange={setCustomRoleId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_CUSTOM_ROLE}>— Sin rol personalizado —</SelectItem>
+                    {(tenantRoles.data ?? []).map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Si asignas un rol personalizado, sus permisos rigen sobre el rol base.
+                </p>
+              </div>
             )}
             {!isOwner && (
               <FormField
