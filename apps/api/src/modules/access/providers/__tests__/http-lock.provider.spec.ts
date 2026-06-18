@@ -37,7 +37,7 @@ describe('HttpLockProvider', () => {
     expect(capturedUrl).toBe(baseArgs.controlUrl);
 
     const headers = capturedInit?.headers as Record<string, string>;
-    const sig = headers['x-storageos-signature'];
+    const sig = headers['x-storageos-signature'] ?? '';
     expect(sig).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
 
     // La firma debe verificar contra HMAC(secret, "<ts>.<body>").
