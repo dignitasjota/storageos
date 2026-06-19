@@ -38,6 +38,7 @@ export const Permissions = [
   'payments:refund', // devolución (sensible)
   'leads:read',
   'leads:write',
+  'leads:manage', // borrar (owner/manager)
   'communications:read',
   'communications:send',
   'templates:read',
@@ -46,8 +47,10 @@ export const Permissions = [
   'automations:manage',
   'tasks:read',
   'tasks:write',
+  'tasks:manage', // borrar (owner/manager)
   'incidents:read',
   'incidents:write',
+  'incidents:manage', // borrar (owner/manager)
   'products:read',
   'products:write',
   'products:manage',

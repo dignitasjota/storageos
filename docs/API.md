@@ -245,6 +245,17 @@ global tras Roles). El catálogo y el mapa rol→permisos viven en
 Ejemplo de regla más fina que el rol no podía expresar: `POST /invoices/:id/refund`
 exige `invoices:refund`, que solo tiene `owner` (aunque `manager` pueda emitir).
 
+**Migración RBAC v2 (en curso):** los módulos se están migrando de `@Roles(...)`
+a `@RequirePermission(...)` para que los roles personalizados controlen toda la
+app (no solo facturas). Ya migrados: **invoices** y la **operativa diaria**
+(customers, customer-documents, contracts, reservations, contract-signatures,
+contract-pdf, leads, tasks, incidents). La autorización pasa a seguir el catálogo
+`ROLE_PERMISSIONS`: p. ej. `staff` gana las escrituras de operativa diaria que el
+catálogo ya le concedía (crear/editar customers, firmar/convertir contratos…) y
+`manager` pierde lo que el catálogo le excluye (p. ej. `customers:delete`, que es
+solo `owner`). Los `DELETE` de leads/tasks/incidents usan `recurso:manage`
+(owner+manager). Pendiente: billing/pagos/accesos y admin/settings.
+
 #### Roles personalizados por tenant (RBAC v1)
 
 El `owner` puede definir roles a medida (`tenant_roles`) con un conjunto de

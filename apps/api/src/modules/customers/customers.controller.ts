@@ -24,7 +24,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { CustomersService } from './customers.service';
 
@@ -48,6 +48,7 @@ function extractMeta(req: Request): RequestMeta {
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
 
+  @RequirePermission('customers:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -56,6 +57,7 @@ export class CustomersController {
     return this.customers.list(user.tenantId, { ...(search ? { search } : {}) });
   }
 
+  @RequirePermission('customers:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -64,7 +66,7 @@ export class CustomersController {
     return this.customers.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('customers:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -79,7 +81,7 @@ export class CustomersController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('customers:write')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -96,7 +98,7 @@ export class CustomersController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('customers:delete')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
@@ -112,7 +114,7 @@ export class CustomersController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('customers:write')
   @Post(':id/kyc')
   async setKyc(
     @CurrentUser() user: AuthenticatedUser,

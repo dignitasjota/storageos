@@ -4,7 +4,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { SignaturesService } from './signatures.service';
 
@@ -15,7 +15,7 @@ import type { ContractSignatureDto, RequestSignatureResultDto } from '@storageos
 export class ContractSignaturesController {
   constructor(private readonly signatures: SignaturesService) {}
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('contracts:write')
   @Post(':id/request-signature')
   requestSignature(
     @CurrentUser() user: AuthenticatedUser,
@@ -24,6 +24,7 @@ export class ContractSignaturesController {
     return this.signatures.requestSignature(user.tenantId, id);
   }
 
+  @RequirePermission('contracts:read')
   @Get(':id/signatures')
   listSignatures(
     @CurrentUser() user: AuthenticatedUser,

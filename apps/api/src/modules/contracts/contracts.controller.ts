@@ -28,7 +28,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ContractsService } from './contracts.service';
 
@@ -55,6 +55,7 @@ function extractMeta(req: Request): RequestMeta {
 export class ContractsController {
   constructor(private readonly contracts: ContractsService) {}
 
+  @RequirePermission('contracts:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -72,6 +73,7 @@ export class ContractsController {
     });
   }
 
+  @RequirePermission('contracts:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -80,6 +82,7 @@ export class ContractsController {
     return this.contracts.detail(user.tenantId, id);
   }
 
+  @RequirePermission('contracts:read')
   @Get(':id/events')
   async events(
     @CurrentUser() user: AuthenticatedUser,
@@ -88,7 +91,7 @@ export class ContractsController {
     return this.contracts.events(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('contracts:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -103,7 +106,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('contracts:write')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -120,7 +123,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:write')
   @Post(':id/sign')
   @HttpCode(HttpStatus.OK)
   async sign(
@@ -149,7 +152,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:manage')
   @Post(':id/request-end')
   @HttpCode(HttpStatus.OK)
   async requestEnd(
@@ -165,7 +168,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:manage')
   @Post(':id/end')
   @HttpCode(HttpStatus.OK)
   async end(
@@ -181,7 +184,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:manage')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(
@@ -199,7 +202,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:manage')
   @Post(':id/change-price')
   @HttpCode(HttpStatus.OK)
   async changePrice(
@@ -217,7 +220,7 @@ export class ContractsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('contracts:write')
   @Post(':id/notes')
   async addNote(
     @CurrentUser() user: AuthenticatedUser,

@@ -4,7 +4,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ContractPdfService } from './contract-pdf.service';
 
@@ -24,7 +24,7 @@ function extractMeta(req: Request): RequestMeta {
 export class ContractPdfController {
   constructor(private readonly pdf: ContractPdfService) {}
 
-  @Roles('owner', 'manager')
+  @RequirePermission('contracts:manage')
   @Post(':id/generate-pdf')
   @HttpCode(HttpStatus.OK)
   async generate(

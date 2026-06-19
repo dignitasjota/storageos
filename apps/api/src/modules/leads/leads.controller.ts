@@ -27,7 +27,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { LeadsService } from './leads.service';
 
@@ -53,6 +53,7 @@ export class LeadsController {
   constructor(private readonly service: LeadsService) {}
 
   @Get()
+  @RequirePermission('leads:read')
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
@@ -69,6 +70,7 @@ export class LeadsController {
   }
 
   @Get(':id')
+  @RequirePermission('leads:read')
   detail(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -77,7 +79,7 @@ export class LeadsController {
   }
 
   @Post()
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('leads:write')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateLeadDto,
@@ -92,7 +94,7 @@ export class LeadsController {
   }
 
   @Patch(':id')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('leads:write')
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -109,7 +111,7 @@ export class LeadsController {
   }
 
   @Post(':id/transition')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('leads:write')
   transition(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -126,7 +128,7 @@ export class LeadsController {
   }
 
   @Post(':id/convert')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('leads:write')
   convert(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -143,7 +145,7 @@ export class LeadsController {
   }
 
   @Delete(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('leads:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthenticatedUser,

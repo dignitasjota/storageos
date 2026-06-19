@@ -22,7 +22,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { CustomerDocumentsService } from './customer-documents.service';
 
@@ -45,6 +45,7 @@ function extractMeta(req: Request): RequestMeta {
 export class CustomerDocumentsController {
   constructor(private readonly docs: CustomerDocumentsService) {}
 
+  @RequirePermission('customers:read')
   @Get('customers/:customerId/documents')
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -53,7 +54,7 @@ export class CustomerDocumentsController {
     return this.docs.list(user.tenantId, customerId);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('customers:write')
   @Post('customers/:customerId/documents/upload-url')
   @HttpCode(HttpStatus.OK)
   async requestUploadUrl(
@@ -64,7 +65,7 @@ export class CustomerDocumentsController {
     return this.docs.requestUploadUrl(user.tenantId, customerId, input);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('customers:write')
   @Post('customers/:customerId/documents')
   async register(
     @CurrentUser() user: AuthenticatedUser,
@@ -81,7 +82,7 @@ export class CustomerDocumentsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('customers:write')
   @Delete('documents/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(

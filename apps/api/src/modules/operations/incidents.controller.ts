@@ -30,7 +30,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { IncidentsService } from './incidents.service';
 
@@ -67,6 +67,7 @@ function parseSeverity(value: string | undefined): IncidentSeverityValue | undef
 export class IncidentsController {
   constructor(private readonly incidents: IncidentsService) {}
 
+  @RequirePermission('incidents:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -91,6 +92,7 @@ export class IncidentsController {
     });
   }
 
+  @RequirePermission('incidents:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -99,7 +101,7 @@ export class IncidentsController {
     return this.incidents.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('incidents:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -114,7 +116,7 @@ export class IncidentsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('incidents:write')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -131,7 +133,7 @@ export class IncidentsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('incidents:write')
   @Post(':id/transition')
   async transition(
     @CurrentUser() user: AuthenticatedUser,
@@ -148,7 +150,7 @@ export class IncidentsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('incidents:manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
@@ -164,6 +166,7 @@ export class IncidentsController {
     });
   }
 
+  @RequirePermission('incidents:read')
   @Get(':id/comments')
   async listComments(
     @CurrentUser() user: AuthenticatedUser,
@@ -172,6 +175,7 @@ export class IncidentsController {
     return this.incidents.listComments(user.tenantId, id);
   }
 
+  @RequirePermission('incidents:write')
   @Post(':id/comments')
   async addComment(
     @CurrentUser() user: AuthenticatedUser,
