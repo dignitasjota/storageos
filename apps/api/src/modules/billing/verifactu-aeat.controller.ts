@@ -4,7 +4,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { InvoicesService } from './invoices.service';
 
@@ -24,7 +24,7 @@ export class VerifactuAeatController {
    * Reencola el envio de la factura a AEAT. Resetea `aeat_*` y mete un
    * nuevo job en la cola `verifactu` con 3 intentos + backoff exponencial.
    */
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post(':id/resend-aeat')
   @HttpCode(HttpStatus.ACCEPTED)
   async resendAeat(
@@ -40,7 +40,7 @@ export class VerifactuAeatController {
    * respuesta y devuelve el DTO actualizado para que la UI pueda
    * refrescar el badge sin esperar al cron de polling.
    */
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post(':id/refresh-aeat-status')
   @HttpCode(HttpStatus.OK)
   async refreshAeatStatus(

@@ -263,7 +263,19 @@ estructural, owner+manager); units → `units:read`, write/change-status
 `units:write`, delete `units:manage`; products (catálogo) → `products:read|manage`;
 stock y ventas → `products:read|write`; communications → `communications:read|send`;
 message-templates → `templates:read|manage`; automations → `automations:read|manage`.
-Pendiente: billing/pagos/accesos (PR3) y admin/settings (PR4).
+**PR3** migra **billing/pagos/accesos** (payments, payment-methods, redsys,
+invoice-series, tenant-aeat-credentials, verifactu-aeat, holded, access-credentials,
+access-devices) con el principio **configuración (owner) vs operación
+(manager/staff)**: cobros y métodos de pago → `payments:read`/`payments:charge`
+(`staff` gana cobrar facturas, registrar/borrar métodos de pago y el redirect de
+Redsys); configuración de integraciones (series, PUT de Holded/Redsys, upload/revoke
+de credenciales AEAT) → `billing:configure` (owner-only, `manager` pierde crear/editar
+series); operaciones y lecturas de billing (resend/refresh AEAT + GET de credenciales AEAT
+history/me, Holded test/backfill/sync) → `invoices:manage` (owner+manager); lecturas
+de settings de pasarela (GET de Holded/Redsys) → `settings:read`; accesos →
+`access:read` (GET + device ping) y `access:manage`
+(mutaciones de credenciales y devices, owner+manager; `staff` no gestiona accesos).
+Pendiente: admin/settings (PR4).
 
 #### Roles personalizados por tenant (RBAC v1)
 

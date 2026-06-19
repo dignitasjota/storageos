@@ -20,7 +20,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { HoldedSettingsService } from './holded-settings.service';
 import { HoldedSyncService } from './holded-sync.service';
@@ -34,12 +34,13 @@ export class HoldedController {
     private readonly sync: HoldedSyncService,
   ) {}
 
+  @RequirePermission('settings:read')
   @Get()
   get(@CurrentUser() user: AuthenticatedUser): Promise<HoldedSettingsDto> {
     return this.settings.get(user.tenantId);
   }
 
-  @Roles('owner')
+  @RequirePermission('billing:configure')
   @Put()
   update(
     @CurrentUser() user: AuthenticatedUser,
@@ -48,20 +49,20 @@ export class HoldedController {
     return this.settings.update(user.tenantId, body);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post('test')
   @HttpCode(HttpStatus.OK)
   test(@CurrentUser() user: AuthenticatedUser): Promise<HoldedTestResultDto> {
     return this.settings.test(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post('backfill')
   backfill(@CurrentUser() user: AuthenticatedUser): Promise<{ synced: number }> {
     return this.sync.backfill(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Post('invoices/:id/sync')
   @HttpCode(HttpStatus.OK)
   async syncInvoice(

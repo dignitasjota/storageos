@@ -20,7 +20,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../../common/decorators/current-user.decorator';
-import { Roles } from '../../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
 
 import { RedsysSettingsService } from './redsys-settings.service';
 import { RedsysService } from './redsys.service';
@@ -34,12 +34,13 @@ export class RedsysController {
     private readonly redsys: RedsysService,
   ) {}
 
+  @RequirePermission('settings:read')
   @Get()
   get(@CurrentUser() user: AuthenticatedUser): Promise<RedsysSettingsDto> {
     return this.settings.get(user.tenantId);
   }
 
-  @Roles('owner')
+  @RequirePermission('billing:configure')
   @Put()
   update(
     @CurrentUser() user: AuthenticatedUser,
@@ -48,7 +49,7 @@ export class RedsysController {
     return this.settings.update(user.tenantId, body);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('payments:charge')
   @Post('invoices/:id/redirect')
   @HttpCode(HttpStatus.OK)
   redirect(

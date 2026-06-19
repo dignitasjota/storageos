@@ -190,4 +190,57 @@ describe('Permisos finos (e2e)', () => {
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('insufficient_permission');
   });
+
+  // --- RBAC v2 PR3 (billing / pagos / accesos a @RequirePermission) ---
+
+  it('staff: pasa el guard de cobrar una factura (payments:charge — antes owner/manager)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-pay-charge');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    const res = await request(app.getHttpServer())
+      .post(`/payments/invoices/${RANDOM_UUID}/charge`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    // Guard pasa (staff tiene payments:charge) → 4xx por factura inexistente, no 403.
+    expect(res.status).not.toBe(403);
+  });
+
+  it('manager: NO puede crear series de facturación (billing:configure es owner → 403)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-series-cfg');
+    const managerToken = await inviteAndAccept(app, owner.accessToken, 'manager');
+
+    const asManager = await request(app.getHttpServer())
+      .post('/invoice-series')
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({});
+    expect(asManager.status).toBe(403);
+    expect(asManager.body.code).toBe('insufficient_permission');
+
+    // owner sí pasa el guard (4xx por validación de body, no 403).
+    const asOwner = await request(app.getHttpServer())
+      .post('/invoice-series')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({});
+    expect(asOwner.status).not.toBe(403);
+  });
+
+  it('staff: NO puede crear credenciales de acceso (access:manage → 403); manager sí pasa', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-access-manage');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+    const managerToken = await inviteAndAccept(app, owner.accessToken, 'manager');
+
+    const asStaff = await request(app.getHttpServer())
+      .post('/access/credentials')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    expect(asStaff.status).toBe(403);
+    expect(asStaff.body.code).toBe('insufficient_permission');
+
+    // manager tiene access:manage → pasa el guard (4xx por body, no 403).
+    const asManager = await request(app.getHttpServer())
+      .post('/access/credentials')
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({});
+    expect(asManager.status).not.toBe(403);
+  });
 });

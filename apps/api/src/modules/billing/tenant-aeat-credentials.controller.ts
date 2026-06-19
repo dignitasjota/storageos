@@ -20,7 +20,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import {
   type AeatEnvironment,
@@ -50,7 +50,7 @@ const P12_MAX_BYTES = 50 * 1024; // 50 KB es holgado para un PKCS#12 FNMT.
 export class TenantAeatCredentialsController {
   constructor(private readonly service: TenantAeatCredentialsService) {}
 
-  @Roles('owner')
+  @RequirePermission('billing:configure')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
@@ -92,7 +92,7 @@ export class TenantAeatCredentialsController {
    * Histórico completo de credenciales del tenant (activas + revocadas).
    * Read-only; útil para auditar rotaciones desde Ajustes → Veri*Factu.
    */
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Get('history')
   async listHistory(
     @CurrentUser() user: AuthenticatedUser,
@@ -100,7 +100,7 @@ export class TenantAeatCredentialsController {
     return this.service.listHistory(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('invoices:manage')
   @Get('me')
   async getMine(@CurrentUser() user: AuthenticatedUser): Promise<TenantAeatCredentialMetadata> {
     const meta = await this.service.getMetadata(user.tenantId);
@@ -113,7 +113,7 @@ export class TenantAeatCredentialsController {
     return meta;
   }
 
-  @Roles('owner')
+  @RequirePermission('billing:configure')
   @Delete('me')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revoke(

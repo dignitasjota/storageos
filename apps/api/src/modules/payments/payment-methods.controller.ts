@@ -22,7 +22,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { PaymentMethodsService } from './payment-methods.service';
 
@@ -45,6 +45,7 @@ function extractMeta(req: Request): RequestMeta {
 export class PaymentMethodsController {
   constructor(private readonly pms: PaymentMethodsService) {}
 
+  @RequirePermission('payments:read')
   @Get('customers/:customerId/payment-methods')
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -53,7 +54,7 @@ export class PaymentMethodsController {
     return this.pms.list(user.tenantId, customerId);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('payments:charge')
   @Post('payment-methods/setup-intent')
   @HttpCode(HttpStatus.OK)
   async setupIntent(
@@ -63,7 +64,7 @@ export class PaymentMethodsController {
     return this.pms.createSetupIntent(user.tenantId, input);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('payments:charge')
   @Post('payment-methods')
   async register(
     @CurrentUser() user: AuthenticatedUser,
@@ -78,7 +79,7 @@ export class PaymentMethodsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('payments:charge')
   @Delete('payment-methods/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(

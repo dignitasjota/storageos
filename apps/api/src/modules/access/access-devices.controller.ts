@@ -26,7 +26,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AccessDevicesService } from './access-devices.service';
 
@@ -62,6 +62,7 @@ function parseBool(value: string | undefined): boolean | undefined {
 export class AccessDevicesController {
   constructor(private readonly service: AccessDevicesService) {}
 
+  @RequirePermission('access:read')
   @Get()
   list(
     @CurrentUser() user: AuthenticatedUser,
@@ -78,6 +79,7 @@ export class AccessDevicesController {
     });
   }
 
+  @RequirePermission('access:read')
   @Get(':id')
   detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -87,7 +89,7 @@ export class AccessDevicesController {
   }
 
   @Post()
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateDeviceDto,
@@ -102,7 +104,7 @@ export class AccessDevicesController {
   }
 
   @Patch(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -119,7 +121,7 @@ export class AccessDevicesController {
   }
 
   @Delete(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthenticatedUser,
@@ -135,7 +137,7 @@ export class AccessDevicesController {
   }
 
   @Post(':id/regenerate-api-key')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   regenerateApiKey(
     @CurrentUser() user: AuthenticatedUser,
@@ -151,7 +153,7 @@ export class AccessDevicesController {
   }
 
   @Post(':id/ping')
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('access:read')
   @HttpCode(HttpStatus.OK)
   ping(
     @CurrentUser() user: AuthenticatedUser,
@@ -168,7 +170,7 @@ export class AccessDevicesController {
 
   // Apertura remota disparada por el staff (server → controlador).
   @Post(':id/open')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   open(
     @CurrentUser() user: AuthenticatedUser,
