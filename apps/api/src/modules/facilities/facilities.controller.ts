@@ -18,7 +18,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { FacilitiesService } from './facilities.service';
 
@@ -41,11 +41,13 @@ function extractMeta(req: Request): RequestMeta {
 export class FacilitiesController {
   constructor(private readonly facilities: FacilitiesService) {}
 
+  @RequirePermission('facilities:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<FacilityDto[]> {
     return this.facilities.list(user.tenantId);
   }
 
+  @RequirePermission('facilities:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -54,7 +56,7 @@ export class FacilitiesController {
     return this.facilities.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -69,7 +71,7 @@ export class FacilitiesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -86,7 +88,7 @@ export class FacilitiesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(

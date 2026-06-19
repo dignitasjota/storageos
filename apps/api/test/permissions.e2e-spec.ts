@@ -128,4 +128,66 @@ describe('Permisos finos (e2e)', () => {
     const customerId = await createCustomer(app, staffToken);
     expect(customerId).toBeTruthy();
   });
+
+  // --- RBAC v2 PR2 (inventario / catálogo / comms a @RequirePermission) ---
+
+  it('staff: pasa el guard de crear units (units:write — antes owner/manager)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-unit-write');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    // El guard de permisos corre antes de la validación del body: si staff
+    // tiene units:write no recibe 403 (sí 400 por payload vacío).
+    const res = await request(app.getHttpServer())
+      .post('/units')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    expect(res.status).not.toBe(403);
+  });
+
+  it('staff: NO puede gestionar el catálogo de productos (products:manage → 403)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-prod-manage');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    const res = await request(app.getHttpServer())
+      .post('/products')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('insufficient_permission');
+  });
+
+  it('staff: pasa el guard de vender productos (products:write)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-prod-sale');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    const res = await request(app.getHttpServer())
+      .post('/product-sales')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    expect(res.status).not.toBe(403);
+  });
+
+  it('staff: pasa el guard de reintentar comunicaciones (communications:send — antes owner/manager)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-comms-retry');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    const res = await request(app.getHttpServer())
+      .post(`/communications/${RANDOM_UUID}/retry`)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    // Guard pasa (communications:send) → 404 por comunicación inexistente, no 403.
+    expect(res.status).not.toBe(403);
+  });
+
+  it('staff: NO puede crear automations (automations:manage → 403)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-auto-manage');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    const res = await request(app.getHttpServer())
+      .post('/automations')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('insufficient_permission');
+  });
 });

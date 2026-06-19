@@ -23,7 +23,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { MessageTemplatesService } from './message-templates.service';
 
@@ -47,11 +47,13 @@ function extractMeta(req: Request): RequestMeta {
 export class MessageTemplatesController {
   constructor(private readonly service: MessageTemplatesService) {}
 
+  @RequirePermission('templates:read')
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<MessageTemplateDto[]> {
     return this.service.list(user.tenantId);
   }
 
+  @RequirePermission('templates:read')
   @Get(':id')
   detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -61,7 +63,7 @@ export class MessageTemplatesController {
   }
 
   @Post()
-  @Roles('owner', 'manager')
+  @RequirePermission('templates:manage')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateMessageTemplateDto,
@@ -76,7 +78,7 @@ export class MessageTemplatesController {
   }
 
   @Patch(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('templates:manage')
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -93,7 +95,7 @@ export class MessageTemplatesController {
   }
 
   @Delete(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('templates:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthenticatedUser,
@@ -109,6 +111,7 @@ export class MessageTemplatesController {
   }
 
   @Post('preview')
+  @RequirePermission('templates:read')
   @HttpCode(HttpStatus.OK)
   preview(@Body() body: PreviewMessageTemplateDto): {
     subject: string;

@@ -22,7 +22,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ProductSalesService } from './product-sales.service';
 
@@ -49,6 +49,7 @@ function extractMeta(req: Request): RequestMeta {
 export class ProductSalesController {
   constructor(private readonly sales: ProductSalesService) {}
 
+  @RequirePermission('products:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -64,6 +65,7 @@ export class ProductSalesController {
     });
   }
 
+  @RequirePermission('products:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -72,7 +74,7 @@ export class ProductSalesController {
     return this.sales.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('products:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -87,7 +89,7 @@ export class ProductSalesController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('products:write')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(

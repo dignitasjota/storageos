@@ -247,14 +247,23 @@ exige `invoices:refund`, que solo tiene `owner` (aunque `manager` pueda emitir).
 
 **Migración RBAC v2 (en curso):** los módulos se están migrando de `@Roles(...)`
 a `@RequirePermission(...)` para que los roles personalizados controlen toda la
-app (no solo facturas). Ya migrados: **invoices** y la **operativa diaria**
+app (no solo facturas). Ya migrados: **invoices** y la **operativa diaria** — PR1
 (customers, customer-documents, contracts, reservations, contract-signatures,
-contract-pdf, leads, tasks, incidents). La autorización pasa a seguir el catálogo
-`ROLE_PERMISSIONS`: p. ej. `staff` gana las escrituras de operativa diaria que el
-catálogo ya le concedía (crear/editar customers, firmar/convertir contratos…) y
-`manager` pierde lo que el catálogo le excluye (p. ej. `customers:delete`, que es
-solo `owner`). Los `DELETE` de leads/tasks/incidents usan `recurso:manage`
-(owner+manager). Pendiente: billing/pagos/accesos y admin/settings.
+contract-pdf, leads, tasks, incidents) — y el **inventario/catálogo/comms** — PR2
+(facilities, facility-floors, unit-types, units, products, product-stock,
+product-sales, communications, message-templates, automations). La autorización
+pasa a seguir el catálogo `ROLE_PERMISSIONS`: p. ej. `staff` gana las escrituras
+que el catálogo ya le concedía (crear/editar customers, firmar/convertir
+contratos…; en PR2 además crear/editar units con `units:write` y reintentar
+comunicaciones con `communications:send`) y `manager` pierde lo que el catálogo le
+excluye (p. ej. `customers:delete`, que es solo `owner`). Los `DELETE` de
+leads/tasks/incidents usan `recurso:manage` (owner+manager). Mapeo PR2: facilities
+y floors → `facilities:read|manage`; unit-types → `units:read|manage` (config
+estructural, owner+manager); units → `units:read`, write/change-status
+`units:write`, delete `units:manage`; products (catálogo) → `products:read|manage`;
+stock y ventas → `products:read|write`; communications → `communications:read|send`;
+message-templates → `templates:read|manage`; automations → `automations:read|manage`.
+Pendiente: billing/pagos/accesos (PR3) y admin/settings (PR4).
 
 #### Roles personalizados por tenant (RBAC v1)
 

@@ -21,7 +21,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { CommunicationsService, type ListFilters } from './communications.service';
 
@@ -31,6 +31,7 @@ class SendCommunicationDto extends createZodDto(SendCommunicationSchema) {}
 export class CommunicationsController {
   constructor(private readonly service: CommunicationsService) {}
 
+  @RequirePermission('communications:read')
   @Get()
   list(
     @CurrentUser() user: AuthenticatedUser,
@@ -49,6 +50,7 @@ export class CommunicationsController {
     return this.service.list(user.tenantId, filters);
   }
 
+  @RequirePermission('communications:read')
   @Get(':id')
   detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -58,7 +60,7 @@ export class CommunicationsController {
   }
 
   @Post()
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('communications:send')
   send(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: SendCommunicationDto,
@@ -67,7 +69,7 @@ export class CommunicationsController {
   }
 
   @Post(':id/retry')
-  @Roles('owner', 'manager')
+  @RequirePermission('communications:send')
   @HttpCode(HttpStatus.OK)
   retry(
     @CurrentUser() user: AuthenticatedUser,

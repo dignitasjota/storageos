@@ -17,7 +17,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ProductStockService } from './product-stock.service';
 
@@ -36,11 +36,11 @@ function extractMeta(req: Request): RequestMeta {
   };
 }
 
-@Roles('owner', 'manager', 'staff')
 @Controller('products/:productId/stock')
 export class ProductStockController {
   constructor(private readonly stock: ProductStockService) {}
 
+  @RequirePermission('products:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -49,6 +49,7 @@ export class ProductStockController {
     return this.stock.listByProduct(user.tenantId, productId);
   }
 
+  @RequirePermission('products:write')
   @Post('adjust')
   @HttpCode(HttpStatus.OK)
   async adjust(
@@ -66,6 +67,7 @@ export class ProductStockController {
     });
   }
 
+  @RequirePermission('products:write')
   @Put()
   async set(
     @CurrentUser() user: AuthenticatedUser,

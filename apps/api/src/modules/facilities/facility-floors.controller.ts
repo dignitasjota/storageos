@@ -26,7 +26,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { FilesService } from '../files/files.service';
 
 import { FacilityFloorsService } from './facility-floors.service';
@@ -56,6 +56,7 @@ export class FacilityFloorsController {
     private readonly files: FilesService,
   ) {}
 
+  @RequirePermission('facilities:read')
   @Get('facilities/:facilityId/floors')
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -64,7 +65,7 @@ export class FacilityFloorsController {
     return this.floors.list(user.tenantId, facilityId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Post('facilities/:facilityId/floors')
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -75,7 +76,7 @@ export class FacilityFloorsController {
     return this.floors.create(user.tenantId, user.sub, facilityId, input, extractMeta(req));
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Patch('floors/:id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -86,7 +87,7 @@ export class FacilityFloorsController {
     return this.floors.update(user.tenantId, user.sub, id, input, extractMeta(req));
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Delete('floors/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
@@ -97,7 +98,7 @@ export class FacilityFloorsController {
     await this.floors.delete(user.tenantId, user.sub, id, extractMeta(req));
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Post('floors/:id/plan-upload-url')
   @HttpCode(HttpStatus.OK)
   async requestPlanUploadUrl(
@@ -127,7 +128,7 @@ export class FacilityFloorsController {
     };
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Patch('floors/:id/plan')
   async setPlan(
     @CurrentUser() user: AuthenticatedUser,
@@ -138,7 +139,7 @@ export class FacilityFloorsController {
     return this.floors.setPlan(user.tenantId, user.sub, id, input, extractMeta(req));
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('facilities:manage')
   @Patch('floors/:id/units-layout')
   @HttpCode(HttpStatus.OK)
   async updateLayout(

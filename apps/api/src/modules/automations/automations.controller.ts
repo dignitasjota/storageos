@@ -22,7 +22,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AutomationsService } from './automations.service';
 
@@ -45,13 +45,14 @@ function extractMeta(req: Request): RequestMeta {
 export class AutomationsController {
   constructor(private readonly service: AutomationsService) {}
 
+  @RequirePermission('automations:read')
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<AutomationRuleDto[]> {
     return this.service.list(user.tenantId);
   }
 
   @Post()
-  @Roles('owner', 'manager')
+  @RequirePermission('automations:manage')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateAutomationRuleDto,
@@ -66,7 +67,7 @@ export class AutomationsController {
   }
 
   @Patch(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('automations:manage')
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -83,7 +84,7 @@ export class AutomationsController {
   }
 
   @Delete(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('automations:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthenticatedUser,

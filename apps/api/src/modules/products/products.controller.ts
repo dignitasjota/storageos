@@ -24,7 +24,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ProductsService } from './products.service';
 
@@ -47,6 +47,7 @@ function extractMeta(req: Request): RequestMeta {
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
+  @RequirePermission('products:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -61,6 +62,7 @@ export class ProductsController {
     });
   }
 
+  @RequirePermission('products:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -69,7 +71,7 @@ export class ProductsController {
     return this.products.detail(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('products:manage')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -84,7 +86,7 @@ export class ProductsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('products:manage')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -101,7 +103,7 @@ export class ProductsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('products:manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
