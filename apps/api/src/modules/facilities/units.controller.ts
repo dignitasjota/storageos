@@ -26,7 +26,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { UnitsService } from './units.service';
 
@@ -50,6 +50,7 @@ function extractMeta(req: Request): RequestMeta {
 export class UnitsController {
   constructor(private readonly units: UnitsService) {}
 
+  @RequirePermission('units:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -73,6 +74,7 @@ export class UnitsController {
     });
   }
 
+  @RequirePermission('units:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -81,6 +83,7 @@ export class UnitsController {
     return this.units.detail(user.tenantId, id);
   }
 
+  @RequirePermission('units:read')
   @Get(':id/history')
   async history(
     @CurrentUser() user: AuthenticatedUser,
@@ -89,7 +92,7 @@ export class UnitsController {
     return this.units.history(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('units:write')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -104,7 +107,7 @@ export class UnitsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('units:write')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -121,7 +124,7 @@ export class UnitsController {
     });
   }
 
-  @Roles('owner', 'manager', 'staff')
+  @RequirePermission('units:write')
   @Post(':id/change-status')
   @HttpCode(HttpStatus.OK)
   async changeStatus(
@@ -139,7 +142,7 @@ export class UnitsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('units:manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(

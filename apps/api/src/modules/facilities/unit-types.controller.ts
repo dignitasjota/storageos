@@ -18,7 +18,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { UnitTypesService } from './unit-types.service';
 
@@ -41,12 +41,13 @@ function extractMeta(req: Request): RequestMeta {
 export class UnitTypesController {
   constructor(private readonly unitTypes: UnitTypesService) {}
 
+  @RequirePermission('units:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<UnitTypeDto[]> {
     return this.unitTypes.list(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('units:manage')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -61,7 +62,7 @@ export class UnitTypesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('units:manage')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -78,7 +79,7 @@ export class UnitTypesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('units:manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
