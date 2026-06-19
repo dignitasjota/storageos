@@ -10,7 +10,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { InvoiceSeriesService } from './invoice-series.service';
 
@@ -33,12 +33,13 @@ function extractMeta(req: Request): RequestMeta {
 export class InvoiceSeriesController {
   constructor(private readonly series: InvoiceSeriesService) {}
 
+  @RequirePermission('invoices:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<InvoiceSeriesDto[]> {
     return this.series.list(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('billing:configure')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -53,7 +54,7 @@ export class InvoiceSeriesController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('billing:configure')
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,

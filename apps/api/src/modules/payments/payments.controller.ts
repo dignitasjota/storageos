@@ -17,7 +17,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { PaymentsService } from './payments.service';
 
@@ -39,6 +39,7 @@ function extractMeta(req: Request): RequestMeta {
 export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
+  @RequirePermission('payments:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -51,7 +52,7 @@ export class PaymentsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('payments:charge')
   @Post('invoices/:invoiceId/charge')
   @HttpCode(HttpStatus.OK)
   async charge(

@@ -29,7 +29,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AccessCredentialsService } from './access-credentials.service';
 
@@ -66,6 +66,7 @@ function parseMethod(value: string | undefined): AccessMethodValue | undefined {
 export class AccessCredentialsController {
   constructor(private readonly service: AccessCredentialsService) {}
 
+  @RequirePermission('access:read')
   @Get()
   list(
     @CurrentUser() user: AuthenticatedUser,
@@ -82,6 +83,7 @@ export class AccessCredentialsController {
     });
   }
 
+  @RequirePermission('access:read')
   @Get(':id')
   detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -91,7 +93,7 @@ export class AccessCredentialsController {
   }
 
   @Post()
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateCredentialDto,
@@ -106,7 +108,7 @@ export class AccessCredentialsController {
   }
 
   @Patch(':id')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -123,7 +125,7 @@ export class AccessCredentialsController {
   }
 
   @Post(':id/rotate')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   rotate(
     @CurrentUser() user: AuthenticatedUser,
@@ -141,7 +143,7 @@ export class AccessCredentialsController {
   }
 
   @Post(':id/suspend')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   async suspend(
     @CurrentUser() user: AuthenticatedUser,
@@ -160,7 +162,7 @@ export class AccessCredentialsController {
   }
 
   @Post(':id/resume')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   async resume(
     @CurrentUser() user: AuthenticatedUser,
@@ -177,7 +179,7 @@ export class AccessCredentialsController {
   }
 
   @Post(':id/revoke')
-  @Roles('owner', 'manager')
+  @RequirePermission('access:manage')
   @HttpCode(HttpStatus.OK)
   revoke(
     @CurrentUser() user: AuthenticatedUser,
