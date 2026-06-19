@@ -63,18 +63,20 @@ describe('Users (e2e)', () => {
     }
   });
 
-  it('manager no puede asignar role manager (solo owner)', async () => {
+  it('manager no puede editar usuarios (users:manage es owner-only → 403)', async () => {
     const owner = await registerVerifiedUser(app, 'usr-mgr');
     await deleteAllMessages();
     const mgr = await inviteAndAccept(app, owner.accessToken, 'manager', 'm');
     const staff = await inviteAndAccept(app, owner.accessToken, 'staff', 's2');
 
+    // RBAC v2 (PR4): la gestión de usuarios es owner-only (`users:manage`).
+    // El manager queda rechazado en el PermissionsGuard, antes del servicio.
     const res = await request(app.getHttpServer())
       .patch(`/users/${staff.userId}`)
       .set('Authorization', `Bearer ${mgr.accessToken}`)
       .send({ role: 'manager' });
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('insufficient_role');
+    expect(res.body.code).toBe('insufficient_permission');
   });
 
   it('no se puede degradar al owner directamente; se transfiere', async () => {

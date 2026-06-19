@@ -54,6 +54,7 @@ export const Permissions = [
   'products:read',
   'products:write',
   'products:manage',
+  'imports:manage', // alta masiva CSV (owner+manager)
   'access:read',
   'access:manage',
   'analytics:read',

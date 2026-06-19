@@ -20,7 +20,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TokensService } from '../auth/tokens.service';
 
 import { UsersService } from './users.service';
@@ -52,11 +52,13 @@ export class UsersController {
 
   // ============================ list/detail =================================
 
+  @RequirePermission('users:read')
   @Get('users')
   async list(@CurrentUser() user: AuthenticatedUser) {
     return this.users.list(user.tenantId);
   }
 
+  @RequirePermission('users:read')
   @Get('users/:id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -67,7 +69,7 @@ export class UsersController {
 
   // ============================ mutations ===================================
 
-  @Roles('owner', 'manager')
+  @RequirePermission('users:manage')
   @Patch('users/:id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
@@ -85,7 +87,7 @@ export class UsersController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('users:manage')
   @Delete('users/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deactivate(
@@ -101,7 +103,7 @@ export class UsersController {
     });
   }
 
-  @Roles('owner')
+  @RequirePermission('users:manage')
   @Post('users/:id/transfer-ownership')
   @HttpCode(HttpStatus.NO_CONTENT)
   async transferOwnership(

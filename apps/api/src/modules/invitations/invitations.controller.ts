@@ -25,7 +25,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -58,13 +58,13 @@ export class InvitationsController {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  @Roles('owner', 'manager')
+  @RequirePermission('users:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<InvitationDto[]> {
     return this.invitations.list(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('users:manage')
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -81,7 +81,7 @@ export class InvitationsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('users:manage')
   @Post(':id/revoke')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revoke(
@@ -95,7 +95,7 @@ export class InvitationsController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('users:manage')
   @Post(':id/resend')
   async resend(
     @CurrentUser() user: AuthenticatedUser,
