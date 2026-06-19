@@ -243,4 +243,59 @@ describe('Permisos finos (e2e)', () => {
       .send({});
     expect(asManager.status).not.toBe(403);
   });
+
+  // --- RBAC v2 PR4 (admin / settings a @RequirePermission) ---
+
+  it('manager: NO puede invitar usuarios (users:manage es owner-only → 403); owner sí pasa', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-invite');
+    const managerToken = await inviteAndAccept(app, owner.accessToken, 'manager');
+
+    const asManager = await request(app.getHttpServer())
+      .post('/invitations')
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ email: `x-${Date.now()}@e2e.local`, role: 'staff' });
+    expect(asManager.status).toBe(403);
+    expect(asManager.body.code).toBe('insufficient_permission');
+
+    // owner sí invita (201).
+    const asOwner = await request(app.getHttpServer())
+      .post('/invitations')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ email: `y-${Date.now()}@e2e.local`, role: 'staff' });
+    expect(asOwner.status).toBe(201);
+  });
+
+  it('manager: NO puede ver API keys (integrations:manage es owner-only → 403)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-integrations');
+    const managerToken = await inviteAndAccept(app, owner.accessToken, 'manager');
+
+    const res = await request(app.getHttpServer())
+      .get('/settings/api-keys')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('insufficient_permission');
+  });
+
+  it('manager: NO puede listar solicitudes RGPD (rgpd:manage es owner-only → 403)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-rgpd');
+    const managerToken = await inviteAndAccept(app, owner.accessToken, 'manager');
+
+    const res = await request(app.getHttpServer())
+      .get('/rgpd/requests')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('insufficient_permission');
+  });
+
+  it('staff: pasa el guard de ejecutar reports (reports:run — antes owner/manager)', async () => {
+    const owner = await registerVerifiedUser(app, 'perm-reports-run');
+    const staffToken = await inviteAndAccept(app, owner.accessToken, 'staff');
+
+    const res = await request(app.getHttpServer())
+      .post('/reports/run')
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({});
+    // staff tiene reports:run → guard pasa (4xx por body, no 403).
+    expect(res.status).not.toBe(403);
+  });
 });

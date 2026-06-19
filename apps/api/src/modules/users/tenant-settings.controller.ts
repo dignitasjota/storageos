@@ -11,7 +11,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { TenantSettingsService } from './tenant-settings.service';
 
@@ -40,6 +40,7 @@ function extractMeta(req: Request): RequestMeta {
 export class TenantSettingsController {
   constructor(private readonly settings: TenantSettingsService) {}
 
+  @RequirePermission('settings:read')
   @Get('security')
   async getSecurity(
     @CurrentUser() user: AuthenticatedUser,
@@ -55,7 +56,7 @@ export class TenantSettingsController {
    * con el access token actual; cuando expire y el refresh rote, o cuando
    * vuelvan a hacer login, seran redirigidos al enrolment forzoso.
    */
-  @Roles('owner')
+  @RequirePermission('settings:manage')
   @Patch('security')
   async updateSecurity(
     @CurrentUser() user: AuthenticatedUser,
@@ -70,6 +71,7 @@ export class TenantSettingsController {
     });
   }
 
+  @RequirePermission('settings:read')
   @Get('billing')
   async getBilling(@CurrentUser() user: AuthenticatedUser): Promise<TenantBillingSettingsResponse> {
     return this.settings.getBilling(user.tenantId);
@@ -81,7 +83,7 @@ export class TenantSettingsController {
    * predeterminado del cliente; las facturas sin metodo (o F2 sin
    * destinatario) quedan pendientes sin error.
    */
-  @Roles('owner')
+  @RequirePermission('billing:configure')
   @Patch('billing')
   async updateBilling(
     @CurrentUser() user: AuthenticatedUser,

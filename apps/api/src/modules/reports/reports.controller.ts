@@ -10,7 +10,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ReportsService } from './reports.service';
 
@@ -20,16 +20,19 @@ class RunReportDto extends createZodDto(RunReportSchema) {}
 export class ReportsController {
   constructor(private readonly service: ReportsService) {}
 
+  @RequirePermission('reports:read')
   @Get('catalog')
   catalog(): ReportGeneratorCatalogEntry[] {
     return this.service.catalog();
   }
 
+  @RequirePermission('reports:read')
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<ReportRunDto[]> {
     return this.service.list(user.tenantId);
   }
 
+  @RequirePermission('reports:read')
   @Get(':id')
   detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -39,7 +42,7 @@ export class ReportsController {
   }
 
   @Post('run')
-  @Roles('owner', 'manager')
+  @RequirePermission('reports:run')
   run(@CurrentUser() user: AuthenticatedUser, @Body() body: RunReportDto): Promise<ReportRunDto> {
     return this.service.run({
       tenantId: user.tenantId,

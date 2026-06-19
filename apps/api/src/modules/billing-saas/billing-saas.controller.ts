@@ -11,7 +11,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { BillingSaasService } from './billing-saas.service';
 
@@ -42,7 +42,7 @@ function extractMeta(req: Request): RequestMeta {
  * de pago hacia nosotros.
  */
 @Controller('settings/saas-billing')
-@Roles('owner')
+@RequirePermission('billing:configure')
 export class BillingSaasController {
   constructor(private readonly service: BillingSaasService) {}
 

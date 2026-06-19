@@ -17,7 +17,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { RgpdService } from './rgpd.service';
 
@@ -39,13 +39,13 @@ function extractMeta(req: Request): RequestMeta {
 export class RgpdController {
   constructor(private readonly rgpd: RgpdService) {}
 
-  @Roles('owner', 'manager')
+  @RequirePermission('rgpd:manage')
   @Get('requests')
   async list(@CurrentUser() user: AuthenticatedUser): Promise<DataSubjectRequestDto[]> {
     return this.rgpd.list(user.tenantId);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('rgpd:manage')
   @Post('requests')
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -60,7 +60,7 @@ export class RgpdController {
     });
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('rgpd:manage')
   @Get('customers/:id/export')
   async exportCustomer(
     @CurrentUser() user: AuthenticatedUser,
@@ -69,7 +69,7 @@ export class RgpdController {
     return this.rgpd.exportCustomerData(user.tenantId, id);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('rgpd:manage')
   @Post('customers/:id/anonymize')
   @HttpCode(HttpStatus.NO_CONTENT)
   async anonymize(

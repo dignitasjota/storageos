@@ -23,7 +23,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { TenantRolesService } from './tenant-roles.service';
 
@@ -34,7 +34,7 @@ class AssignTenantRoleDto extends createZodDto(AssignTenantRoleSchema) {}
 @ApiTags('Settings')
 @ApiBearerAuth('jwt')
 @Controller('settings')
-@Roles('owner')
+@RequirePermission('settings:manage')
 export class TenantRolesController {
   constructor(private readonly service: TenantRolesService) {}
 

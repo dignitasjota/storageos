@@ -275,7 +275,19 @@ history/me, Holded test/backfill/sync) → `invoices:manage` (owner+manager); le
 de settings de pasarela (GET de Holded/Redsys) → `settings:read`; accesos →
 `access:read` (GET + device ping) y `access:manage`
 (mutaciones de credenciales y devices, owner+manager; `staff` no gestiona accesos).
-Pendiente: admin/settings (PR4).
+**PR4** cierra la migración con **admin/settings** (users, tenant-settings,
+invitations, tenant-roles, billing-saas, integrations, rgpd, imports, reports) y
+**retira `@Roles` de todos los controllers de tenant**: gestión de usuarios e
+invitaciones → `users:read` (lecturas) + `users:manage` (editar/desactivar/transferir/
+invitar, owner-only → `manager` pierde la gestión de usuarios); settings del tenant →
+`settings:read`/`settings:manage`/`billing:configure`; roles custom → `settings:manage`;
+suscripción SaaS → `billing:configure`; API keys + webhooks → `integrations:manage`
+(owner-only → `manager` pierde); RGPD → `rgpd:manage` (owner-only → `manager` pierde);
+importación CSV → nuevo permiso `imports:manage` (owner+manager); reports →
+`reports:read` (lecturas) + `reports:run` (`staff` gana ejecutar informes). Los
+endpoints `/me` (perfil propio) siguen sin permiso (self-service autenticado). Con esto
+la autorización de toda la API la decide `@RequirePermission` + el catálogo, y los roles
+personalizados por tenant controlan la app completa.
 
 #### Roles personalizados por tenant (RBAC v1)
 

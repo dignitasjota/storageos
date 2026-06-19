@@ -163,7 +163,9 @@ describe('Invitations (e2e)', () => {
       .set('Authorization', `Bearer ${staffAccess}`)
       .send({ email: `nope-${Date.now()}@e2e.local`, role: 'staff' });
     expect(res.status).toBe(403);
-    expect(['insufficient_role', 'forbidden']).toContain(res.body.code);
+    // RBAC v2 (PR4): invitar exige `users:manage` (owner-only) → el rechazo lo
+    // emite ahora el PermissionsGuard con `insufficient_permission`.
+    expect(['insufficient_permission', 'insufficient_role', 'forbidden']).toContain(res.body.code);
 
     // Sanity: la invitacion creada esta en la lista.
     void inv;

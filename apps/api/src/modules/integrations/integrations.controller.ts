@@ -28,7 +28,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ApiKeysService } from './api-keys.service';
 import { WebhooksService } from './webhooks.service';
@@ -51,8 +51,8 @@ function extractMeta(req: Request): RequestMeta {
 
 /**
  * Endpoints de panel para gestionar API keys y webhooks salientes del
- * tenant. Solo roles `owner` y `manager` pueden listar; las acciones
- * destructivas (revoke, rotate-secret) requieren `owner`.
+ * tenant. Todo el módulo exige `integrations:manage` (owner-only en el
+ * catálogo): listar, crear, revocar, rotar secreto y consultar deliveries.
  */
 @Controller('settings')
 export class IntegrationsController {
@@ -64,13 +64,13 @@ export class IntegrationsController {
   // ---------------------- API keys ----------------------
 
   @Get('api-keys')
-  @Roles('owner', 'manager')
+  @RequirePermission('integrations:manage')
   listApiKeys(@CurrentUser() user: AuthenticatedUser): Promise<ApiKeyDto[]> {
     return this.apiKeys.list(user.tenantId);
   }
 
   @Post('api-keys')
-  @Roles('owner')
+  @RequirePermission('integrations:manage')
   createApiKey(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateApiKeyDto,
@@ -85,7 +85,7 @@ export class IntegrationsController {
   }
 
   @Delete('api-keys/:id')
-  @Roles('owner')
+  @RequirePermission('integrations:manage')
   @HttpCode(HttpStatus.OK)
   revokeApiKey(
     @CurrentUser() user: AuthenticatedUser,
@@ -103,13 +103,13 @@ export class IntegrationsController {
   // ---------------------- Webhooks ----------------------
 
   @Get('webhooks')
-  @Roles('owner', 'manager')
+  @RequirePermission('integrations:manage')
   listWebhooks(@CurrentUser() user: AuthenticatedUser): Promise<WebhookDto[]> {
     return this.webhooks.list(user.tenantId);
   }
 
   @Post('webhooks')
-  @Roles('owner')
+  @RequirePermission('integrations:manage')
   createWebhook(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateWebhookDto,
@@ -124,7 +124,7 @@ export class IntegrationsController {
   }
 
   @Patch('webhooks/:id')
-  @Roles('owner')
+  @RequirePermission('integrations:manage')
   updateWebhook(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -141,7 +141,7 @@ export class IntegrationsController {
   }
 
   @Delete('webhooks/:id')
-  @Roles('owner')
+  @RequirePermission('integrations:manage')
   @HttpCode(HttpStatus.OK)
   revokeWebhook(
     @CurrentUser() user: AuthenticatedUser,
@@ -157,7 +157,7 @@ export class IntegrationsController {
   }
 
   @Post('webhooks/:id/rotate-secret')
-  @Roles('owner')
+  @RequirePermission('integrations:manage')
   @HttpCode(HttpStatus.OK)
   rotateWebhookSecret(
     @CurrentUser() user: AuthenticatedUser,
@@ -173,7 +173,7 @@ export class IntegrationsController {
   }
 
   @Get('webhooks/:id/deliveries')
-  @Roles('owner', 'manager')
+  @RequirePermission('integrations:manage')
   async listWebhookDeliveries(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -198,7 +198,7 @@ export class IntegrationsController {
   }
 
   @Post('webhooks/:webhookId/deliveries/:deliveryId/retry')
-  @Roles('owner', 'manager')
+  @RequirePermission('integrations:manage')
   @HttpCode(HttpStatus.OK)
   retryWebhookDelivery(
     @CurrentUser() user: AuthenticatedUser,

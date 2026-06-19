@@ -11,7 +11,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ContractsImportService } from './contracts-import.service';
 import { ImportsService } from './imports.service';
@@ -47,7 +47,7 @@ export class ImportsController {
     return { csv: this.imports.customersTemplate() };
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('imports:manage')
   @Post('customers/preview')
   previewCustomers(
     @CurrentUser() user: AuthenticatedUser,
@@ -56,7 +56,7 @@ export class ImportsController {
     return this.imports.previewCustomers(user.tenantId, body.csv);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('imports:manage')
   @Post('customers/commit')
   commitCustomers(
     @CurrentUser() user: AuthenticatedUser,
@@ -79,7 +79,7 @@ export class ImportsController {
     return { csv: this.unitsImport.template() };
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('imports:manage')
   @Post('units/preview')
   previewUnits(
     @CurrentUser() user: AuthenticatedUser,
@@ -88,7 +88,7 @@ export class ImportsController {
     return this.unitsImport.preview(user.tenantId, body.csv);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('imports:manage')
   @Post('units/commit')
   commitUnits(
     @CurrentUser() user: AuthenticatedUser,
@@ -111,7 +111,7 @@ export class ImportsController {
     return { csv: this.contractsImport.template() };
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('imports:manage')
   @Post('contracts/preview')
   previewContracts(
     @CurrentUser() user: AuthenticatedUser,
@@ -120,7 +120,7 @@ export class ImportsController {
     return this.contractsImport.preview(user.tenantId, body.csv);
   }
 
-  @Roles('owner', 'manager')
+  @RequirePermission('imports:manage')
   @Post('contracts/commit')
   commitContracts(
     @CurrentUser() user: AuthenticatedUser,
