@@ -25,6 +25,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
+import type { Permission } from '@storageos/shared';
+
 import {
   Sidebar,
   SidebarContent,
@@ -36,15 +38,15 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { useMe } from '@/lib/auth/hooks';
+import { useHasPermission } from '@/lib/auth/hooks';
 
 interface NavItem {
   href: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   enabled: boolean;
-  /** Si se define, sólo los roles incluidos verán el item. */
-  roles?: ReadonlyArray<'owner' | 'manager' | 'staff' | 'readonly'>;
+  /** Si se define, sólo quien tenga el permiso verá el item (RBAC v2). */
+  permission?: Permission;
 }
 
 const NAV: NavItem[] = [
@@ -60,7 +62,7 @@ const NAV: NavItem[] = [
     labelKey: 'verifactu',
     icon: ShieldCheck,
     enabled: true,
-    roles: ['owner', 'manager'],
+    permission: 'invoices:manage',
   },
   { href: '/leads', labelKey: 'leads', icon: Sparkles, enabled: true },
   { href: '/communications', labelKey: 'communications', icon: Mail, enabled: true },
@@ -78,8 +80,8 @@ export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations('sidebar');
   const common = useTranslations('common');
-  const me = useMe();
-  const role = me.data?.user.role;
+  // RBAC v2: el único item gateado es Veri*Factu (invoices:manage = owner+manager).
+  const canManageInvoices = useHasPermission('invoices:manage');
 
   return (
     <Sidebar collapsible="icon">
@@ -92,34 +94,35 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV.filter((item) => !item.roles || (role && item.roles.includes(role))).map(
-                (item) => {
-                  const Icon = item.icon;
-                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={item.enabled ? undefined : common('comingSoon')}
-                        disabled={!item.enabled}
-                      >
-                        {item.enabled ? (
-                          <Link href={item.href}>
-                            <Icon />
-                            <span>{t(item.labelKey)}</span>
-                          </Link>
-                        ) : (
-                          <span aria-disabled="true" className="cursor-not-allowed opacity-60">
-                            <Icon />
-                            <span>{t(item.labelKey)}</span>
-                          </span>
-                        )}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                },
-              )}
+              {NAV.filter(
+                (item) =>
+                  !item.permission || (item.permission === 'invoices:manage' && canManageInvoices),
+              ).map((item) => {
+                const Icon = item.icon;
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={active}
+                      tooltip={item.enabled ? undefined : common('comingSoon')}
+                      disabled={!item.enabled}
+                    >
+                      {item.enabled ? (
+                        <Link href={item.href}>
+                          <Icon />
+                          <span>{t(item.labelKey)}</span>
+                        </Link>
+                      ) : (
+                        <span aria-disabled="true" className="cursor-not-allowed opacity-60">
+                          <Icon />
+                          <span>{t(item.labelKey)}</span>
+                        </span>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

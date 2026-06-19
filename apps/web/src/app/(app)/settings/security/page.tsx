@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useMe } from '@/lib/auth/hooks';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useTenantSecuritySettings,
   useUpdateTenantSecuritySettings,
@@ -316,11 +316,11 @@ export default function SecuritySettingsPage() {
 function TenantSecurityPolicyCard() {
   const t = useTranslations('security.policy');
   const tCommon = useTranslations('common');
-  const me = useMe();
-  const settings = useTenantSecuritySettings(me.data?.user.role === 'owner');
+  const canManage = useHasPermission('settings:manage');
+  const settings = useTenantSecuritySettings(canManage);
   const update = useUpdateTenantSecuritySettings();
 
-  if (me.data?.user.role !== 'owner') return null;
+  if (!canManage) return null;
   if (settings.isLoading || !settings.data) {
     return (
       <Card>

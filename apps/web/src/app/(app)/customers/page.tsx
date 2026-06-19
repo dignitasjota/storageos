@@ -48,12 +48,15 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useCreateCustomer, useCustomers, useDeleteCustomer } from '@/lib/customers/hooks';
 
 export default function CustomersPage() {
   const customers = useCustomers();
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
+  // RBAC v2 (PR1): borrar inquilinos es owner-only (`customers:delete`).
+  const canDelete = useHasPermission('customers:delete');
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<'individual' | 'business'>('individual');
 
@@ -161,12 +164,14 @@ export default function CustomersPage() {
             <DropdownMenuItem asChild>
               <Link href={`/customers/${row.original.id}`}>Abrir</Link>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => handleDelete(row.original.id)}
-            >
-              Borrar
-            </DropdownMenuItem>
+            {canDelete && (
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => handleDelete(row.original.id)}
+              >
+                Borrar
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),

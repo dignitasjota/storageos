@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
-import { useMe } from '@/lib/auth/hooks';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useCreateInvoiceSeries, useInvoiceSeries } from '@/lib/billing/hooks';
 import {
   useTenantBillingSettings,
@@ -250,11 +250,11 @@ export default function BillingSettingsPage() {
  * accesible a cualquier user autenticado, pero el PATCH exige owner).
  */
 function AutoChargeCard() {
-  const me = useMe();
-  const settings = useTenantBillingSettings(me.data?.user.role === 'owner');
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
   const update = useUpdateTenantBillingSettings();
 
-  if (me.data?.user.role !== 'owner') return null;
+  if (!canConfigure) return null;
   if (settings.isLoading || !settings.data) return null;
 
   const enabled = settings.data.autoChargeOnIssue;

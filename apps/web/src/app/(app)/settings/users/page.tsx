@@ -36,7 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ApiError } from '@/lib/auth/api';
-import { useMe } from '@/lib/auth/hooks';
+import { useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useInvitations, useResendInvitation, useRevokeInvitation } from '@/lib/invitations/hooks';
 import {
   useDeactivateUser,
@@ -145,7 +145,9 @@ export default function UsersSettingsPage() {
     }
   }
 
-  const canManage = meRole === 'owner' || meRole === 'manager';
+  // RBAC v2 (PR4): la gestión de usuarios e invitaciones es owner-only
+  // (`users:manage`). El backend lo impone; aquí ocultamos las acciones.
+  const canManage = useHasPermission('users:manage');
 
   const pendingInvitations = invitations.data?.filter((i) => i.status === 'pending') ?? [];
 
