@@ -98,6 +98,9 @@ export default function InvoiceDetailPage() {
   const holdedSync = useSyncInvoiceHolded();
   const rectify = useRectifyInvoice();
   const canRefund = useHasPermission('invoices:refund');
+  const canManageInv = useHasPermission('invoices:manage');
+  const canWriteInv = useHasPermission('invoices:write');
+  const canCharge = useHasPermission('payments:charge');
 
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
@@ -206,7 +209,7 @@ export default function InvoiceDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {i.status === 'draft' && (
+            {i.status === 'draft' && canManageInv && (
               <Button
                 onClick={() => safe(() => issue.mutateAsync({ id: i.id }), 'Factura emitida.')}
               >
@@ -215,23 +218,27 @@ export default function InvoiceDetailPage() {
             )}
             {(i.status === 'issued' || i.status === 'overdue') && (
               <>
-                <Button
-                  variant="outline"
-                  onClick={() => void handleCharge()}
-                  disabled={charge.isPending}
-                >
-                  Cobrar (auto)
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setPaidAmount(i.amountPending);
-                    setPaidMethod('cash');
-                    setPaidOpen(true);
-                  }}
-                >
-                  <CheckCircle2 className="mr-1 h-4 w-4" /> Marcar pagada
-                </Button>
+                {canCharge && (
+                  <Button
+                    variant="outline"
+                    onClick={() => void handleCharge()}
+                    disabled={charge.isPending}
+                  >
+                    Cobrar (auto)
+                  </Button>
+                )}
+                {canWriteInv && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setPaidAmount(i.amountPending);
+                      setPaidMethod('cash');
+                      setPaidOpen(true);
+                    }}
+                  >
+                    <CheckCircle2 className="mr-1 h-4 w-4" /> Marcar pagada
+                  </Button>
+                )}
               </>
             )}
             {canRefund && (i.status === 'paid' || i.status === 'partially_refunded') && (
@@ -246,20 +253,24 @@ export default function InvoiceDetailPage() {
                 <Undo2 className="mr-1 h-4 w-4" /> Reembolsar
               </Button>
             )}
-            {i.status !== 'paid' && i.status !== 'cancelled' && i.status !== 'refunded' && (
-              <Button
-                variant="destructive"
-                onClick={() =>
-                  safe(
-                    () => cancel.mutateAsync({ id: i.id, body: { reason: 'manual' } }),
-                    'Factura cancelada.',
-                  )
-                }
-              >
-                <Ban className="mr-1 h-4 w-4" /> Cancelar
-              </Button>
-            )}
-            {(i.invoiceType === 'F1' || i.invoiceType === 'F2') &&
+            {canManageInv &&
+              i.status !== 'paid' &&
+              i.status !== 'cancelled' &&
+              i.status !== 'refunded' && (
+                <Button
+                  variant="destructive"
+                  onClick={() =>
+                    safe(
+                      () => cancel.mutateAsync({ id: i.id, body: { reason: 'manual' } }),
+                      'Factura cancelada.',
+                    )
+                  }
+                >
+                  <Ban className="mr-1 h-4 w-4" /> Cancelar
+                </Button>
+              )}
+            {canManageInv &&
+              (i.invoiceType === 'F1' || i.invoiceType === 'F2') &&
               RECTIFIABLE_STATUSES.has(i.status) && (
                 <Button
                   variant="outline"
@@ -281,7 +292,7 @@ export default function InvoiceDetailPage() {
                   <Receipt className="mr-1 h-4 w-4" /> Rectificar
                 </Button>
               )}
-            {i.status !== 'draft' && (
+            {i.status !== 'draft' && canManageInv && (
               <Button
                 variant="outline"
                 onClick={() => safe(() => generatePdf.mutateAsync(i.id), 'PDF generado.')}
@@ -302,7 +313,7 @@ export default function InvoiceDetailPage() {
                 </a>
               </Button>
             )}
-            {(i.status === 'issued' || i.status === 'overdue') && (
+            {canCharge && (i.status === 'issued' || i.status === 'overdue') && (
               <Button
                 variant="outline"
                 onClick={async () => {
@@ -316,7 +327,8 @@ export default function InvoiceDetailPage() {
                 Pagar con Redsys
               </Button>
             )}
-            {(i.status === 'issued' || i.status === 'paid' || i.status === 'overdue') &&
+            {canManageInv &&
+              (i.status === 'issued' || i.status === 'paid' || i.status === 'overdue') &&
               i.customerId &&
               (i.holdedDocumentId ? (
                 <span className="self-center text-xs text-muted-foreground">

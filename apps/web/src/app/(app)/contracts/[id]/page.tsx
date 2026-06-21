@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useAddContractNote,
   useCancelContract,
@@ -71,6 +72,8 @@ export default function ContractDetailPage() {
   const changePrice = useChangeContractPrice();
   const addNote = useAddContractNote();
   const generatePdf = useGenerateContractPdf();
+  const canWriteC = useHasPermission('contracts:write');
+  const canManageC = useHasPermission('contracts:manage');
 
   const [priceOpen, setPriceOpen] = useState(false);
   const [priceValue, setPriceValue] = useState(0);
@@ -132,7 +135,7 @@ export default function ContractDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {c.status === 'draft' && (
+            {c.status === 'draft' && canWriteC && (
               <>
                 <Button onClick={() => setSignOpen(true)}>
                   <PenTool className="mr-1 h-4 w-4" /> Firmar
@@ -158,7 +161,7 @@ export default function ContractDetailPage() {
                 </Button>
               </>
             )}
-            {c.status === 'active' && (
+            {c.status === 'active' && canManageC && (
               <Button
                 variant="outline"
                 onClick={() =>
@@ -168,7 +171,7 @@ export default function ContractDetailPage() {
                 <Pause className="mr-1 h-4 w-4" /> Solicitar baja
               </Button>
             )}
-            {(c.status === 'active' || c.status === 'ending') && (
+            {(c.status === 'active' || c.status === 'ending') && canManageC && (
               <Button
                 variant="outline"
                 onClick={() => handle(() => end.mutateAsync({ id: c.id }), 'Contrato finalizado.')}
@@ -176,7 +179,7 @@ export default function ContractDetailPage() {
                 <Square className="mr-1 h-4 w-4" /> Finalizar
               </Button>
             )}
-            {(c.status === 'active' || c.status === 'ending') && (
+            {(c.status === 'active' || c.status === 'ending') && canManageC && (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -188,7 +191,7 @@ export default function ContractDetailPage() {
                 Cambiar precio
               </Button>
             )}
-            {c.status !== 'ended' && c.status !== 'cancelled' && (
+            {c.status !== 'ended' && c.status !== 'cancelled' && canManageC && (
               <Button
                 variant="destructive"
                 onClick={() => {
@@ -199,18 +202,20 @@ export default function ContractDetailPage() {
                 <CircleSlash className="mr-1 h-4 w-4" /> Cancelar
               </Button>
             )}
-            <Button
-              variant="outline"
-              onClick={() => handle(() => generatePdf.mutateAsync(c.id), 'PDF generado.')}
-              disabled={generatePdf.isPending}
-            >
-              {generatePdf.isPending ? (
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="mr-1 h-4 w-4" />
-              )}
-              {c.signedPdfUrl ? 'Regenerar PDF' : 'Generar PDF'}
-            </Button>
+            {canManageC && (
+              <Button
+                variant="outline"
+                onClick={() => handle(() => generatePdf.mutateAsync(c.id), 'PDF generado.')}
+                disabled={generatePdf.isPending}
+              >
+                {generatePdf.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-1 h-4 w-4" />
+                )}
+                {c.signedPdfUrl ? 'Regenerar PDF' : 'Generar PDF'}
+              </Button>
+            )}
             {c.signedPdfUrl && (
               <Button asChild variant="outline">
                 <a href={c.signedPdfUrl} target="_blank" rel="noreferrer">

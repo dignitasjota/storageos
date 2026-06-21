@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useChangeUnitStatus, useFacilities, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
 import { useFacilityStore } from '@/lib/facilities/store';
 
@@ -62,6 +64,7 @@ export default function UnitsPage() {
   });
 
   const changeStatus = useChangeUnitStatus();
+  const canWrite = useHasPermission('units:write');
   const [target, setTarget] = useState<UnitDto | null>(null);
   const [newStatus, setNewStatus] = useState<UnitStatusValue>('available');
   const [reason, setReason] = useState('');
@@ -148,15 +151,17 @@ export default function UnitsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => {
-                  setTarget(row.original);
-                  setNewStatus('available');
-                  setReason('');
-                }}
-              >
-                Cambiar estado
-              </DropdownMenuItem>
+              {canWrite && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setTarget(row.original);
+                    setNewStatus('available');
+                    setReason('');
+                  }}
+                >
+                  Cambiar estado
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <Link href={`/units/${row.original.id}`}>Ver historial</Link>
               </DropdownMenuItem>
@@ -165,7 +170,7 @@ export default function UnitsPage() {
         ),
       },
     ],
-    [],
+    [canWrite],
   );
 
   return (
@@ -177,11 +182,13 @@ export default function UnitsPage() {
             Vista global de todos tus trasteros con filtros.
           </p>
         </div>
-        <Button asChild variant="outline">
-          <Link href="/units/import">
-            <Upload className="mr-1 h-4 w-4" /> Importar
-          </Link>
-        </Button>
+        <Can permission="imports:manage">
+          <Button asChild variant="outline">
+            <Link href="/units/import">
+              <Upload className="mr-1 h-4 w-4" /> Importar
+            </Link>
+          </Button>
+        </Can>
       </div>
 
       <div className="flex flex-wrap gap-2">

@@ -10,7 +10,6 @@ import { AsyncContextModule } from './common/async-context/async-context.module'
 import { CryptoModule } from './common/crypto/crypto.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
-import { RolesGuard } from './common/guards/roles.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
@@ -157,13 +156,12 @@ import type { Options as PinoHttpOptions } from 'pino-http';
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
-    // Orden importante: throttler -> jwt -> roles -> permisos. Cada uno se
-    // ejecuta solo si el anterior dejo pasar el request. RolesGuard y
-    // PermissionsGuard son complementarios (un handler usa @Roles o
-    // @RequirePermission segun el grano que necesite).
+    // Orden importante: throttler -> jwt -> permisos. Cada uno se ejecuta
+    // solo si el anterior dejo pasar el request. La autorizacion fina la
+    // decide PermissionsGuard via @RequirePermission (la antigua capa @Roles
+    // se retiro al completarse la migracion a permisos en RBAC v2).
     { provide: APP_GUARD, useClass: SecurityThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })

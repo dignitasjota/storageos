@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -286,178 +287,180 @@ export default function TasksPage() {
         searchPlaceholder="Buscar por título..."
         emptyText="No hay tareas. Crea la primera para empezar."
         toolbarRight={
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-1 h-4 w-4" /> Nueva tarea
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Nueva tarea</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Título</FormLabel>
-                        <FormControl>
-                          <Input {...field} value={field.value ?? ''} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Can permission="tasks:write">
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" /> Nueva tarea
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Nueva tarea</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
                     <FormField
                       control={form.control}
-                      name="type"
+                      name="title"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Tipo</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {(Object.keys(TYPE_LABELS) as TaskTypeValue[]).map((t) => (
-                                <SelectItem key={t} value={t}>
-                                  {TYPE_LABELS[t]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <FormLabel>Título</FormLabel>
+                          <FormControl>
+                            <Input {...field} value={field.value ?? ''} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="type"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tipo</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {(Object.keys(TYPE_LABELS) as TaskTypeValue[]).map((t) => (
+                                  <SelectItem key={t} value={t}>
+                                    {TYPE_LABELS[t]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="priority"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Prioridad</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value ?? 'normal'}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {(Object.keys(PRIORITY_LABELS) as TaskPriorityValue[]).map((p) => (
+                                  <SelectItem key={p} value={p}>
+                                    {PRIORITY_LABELS[p].label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="facilityId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Local</FormLabel>
+                            <Select
+                              onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
+                              value={field.value ?? 'none'}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="(sin local)" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">(sin local)</SelectItem>
+                                {(facilities.data ?? []).map((f) => (
+                                  <SelectItem key={f.id} value={f.id}>
+                                    {f.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="assignedToUserId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Asignar a</FormLabel>
+                            <Select
+                              onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
+                              value={field.value ?? 'none'}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="(sin asignar)" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">(sin asignar)</SelectItem>
+                                {(users.data ?? []).map((u) => (
+                                  <SelectItem key={u.id} value={u.id}>
+                                    {u.fullName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="dueDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Fecha límite</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="date"
+                              {...field}
+                              value={field.value ?? ''}
+                              onChange={(e) => field.onChange(e.target.value || undefined)}
+                            />
+                          </FormControl>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
                     <FormField
                       control={form.control}
-                      name="priority"
+                      name="description"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Prioridad</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value ?? 'normal'}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {(Object.keys(PRIORITY_LABELS) as TaskPriorityValue[]).map((p) => (
-                                <SelectItem key={p} value={p}>
-                                  {PRIORITY_LABELS[p].label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <FormLabel>Descripción</FormLabel>
+                          <FormControl>
+                            <Textarea {...field} value={field.value ?? ''} rows={3} />
+                          </FormControl>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="facilityId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Local</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
-                            value={field.value ?? 'none'}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="(sin local)" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">(sin local)</SelectItem>
-                              {(facilities.data ?? []).map((f) => (
-                                <SelectItem key={f.id} value={f.id}>
-                                  {f.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="assignedToUserId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Asignar a</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
-                            value={field.value ?? 'none'}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="(sin asignar)" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">(sin asignar)</SelectItem>
-                              {(users.data ?? []).map((u) => (
-                                <SelectItem key={u.id} value={u.id}>
-                                  {u.fullName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <FormField
-                    control={form.control}
-                    name="dueDate"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Fecha límite</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="date"
-                            {...field}
-                            value={field.value ?? ''}
-                            onChange={(e) => field.onChange(e.target.value || undefined)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Descripción</FormLabel>
-                        <FormControl>
-                          <Textarea {...field} value={field.value ?? ''} rows={3} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={form.formState.isSubmitting}>
-                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </Can>
         }
       />
 

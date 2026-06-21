@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCancelReservation,
   useConfirmReservation,
@@ -63,6 +64,7 @@ export default function ReservationsPage() {
   const confirm = useConfirmReservation();
   const cancel = useCancelReservation();
   const convert = useConvertReservation();
+  const canWrite = useHasPermission('reservations:write');
 
   const [target, setTarget] = useState<ReservationDto | null>(null);
   const [convertOpen, setConvertOpen] = useState(false);
@@ -106,6 +108,7 @@ export default function ReservationsPage() {
       header: '',
       cell: ({ row }) => {
         const r = row.original;
+        if (!canWrite) return null;
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

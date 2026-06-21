@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Button } from '@/components/ui/button';
@@ -162,17 +163,19 @@ export default function InvoicesPage() {
             emitir.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setNewType('F1');
-            setNewCustomerId('');
-            setNewJustification('');
-            setNewItems([{ description: '', quantity: 1, unitPrice: 0, taxRate: 21 }]);
-            setCreateOpen(true);
-          }}
-        >
-          <Plus className="mr-1 h-4 w-4" /> Nueva factura
-        </Button>
+        <Can permission="invoices:write">
+          <Button
+            onClick={() => {
+              setNewType('F1');
+              setNewCustomerId('');
+              setNewJustification('');
+              setNewItems([{ description: '', quantity: 1, unitPrice: 0, taxRate: 21 }]);
+              setCreateOpen(true);
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Nueva factura
+          </Button>
+        </Can>
       </div>
 
       <div className="flex flex-wrap gap-2">

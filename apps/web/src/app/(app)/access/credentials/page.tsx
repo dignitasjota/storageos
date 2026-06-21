@@ -76,6 +76,7 @@ import {
   useSuspendCredential,
 } from '@/lib/access/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
@@ -94,6 +95,7 @@ const STATUS_LABELS: Record<AccessCredentialStatusValue, { label: string; classN
 };
 
 export default function CredentialsPage() {
+  const canManage = useHasPermission('access:manage');
   const [status, setStatus] = useState<AccessCredentialStatusValue | undefined>();
   const [method, setMethod] = useState<AccessMethodValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
@@ -190,6 +192,7 @@ export default function CredentialsPage() {
       cell: ({ row }) => {
         const cred = row.original;
         const isTerminal = cred.status === 'revoked' || cred.status === 'expired';
+        if (!canManage) return null;
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -302,9 +305,11 @@ export default function CredentialsPage() {
         searchPlaceholder="Buscar por inquilino..."
         emptyText="No hay credenciales. Crea la primera para empezar."
         toolbarRight={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Nueva credencial
-          </Button>
+          canManage ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> Nueva credencial
+            </Button>
+          ) : null
         }
       />
 

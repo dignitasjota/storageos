@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -235,135 +236,139 @@ export default function IncidentsPage() {
         searchPlaceholder="Buscar por título..."
         emptyText="No hay incidencias registradas."
         toolbarRight={
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-1 h-4 w-4" /> Reportar incidencia
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Reportar incidencia</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Título</FormLabel>
-                        <FormControl>
-                          <Input {...field} value={field.value ?? ''} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="severity"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Severidad</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value ?? 'medium'}>
+          <Can permission="incidents:write">
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" /> Reportar incidencia
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Reportar incidencia</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                    <FormField
+                      control={form.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Título</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
+                            <Input {...field} value={field.value ?? ''} />
                           </FormControl>
-                          <SelectContent>
-                            {(Object.keys(SEVERITY_LABELS) as IncidentSeverityValue[]).map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {SEVERITY_LABELS[s].label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                  />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <FormField
-                      control={form.control}
-                      name="facilityId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Local</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
-                            value={field.value ?? 'none'}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="(sin local)" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">(sin local)</SelectItem>
-                              {(facilities.data ?? []).map((f) => (
-                                <SelectItem key={f.id} value={f.id}>
-                                  {f.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
                     <FormField
                       control={form.control}
-                      name="customerId"
+                      name="severity"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Inquilino</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
-                            value={field.value ?? 'none'}
-                          >
+                          <FormLabel>Severidad</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value ?? 'medium'}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="(sin inquilino)" />
+                                <SelectValue />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="none">(sin inquilino)</SelectItem>
-                              {(customers.data ?? []).map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  {c.displayName}
-                                </SelectItem>
-                              ))}
+                              {(Object.keys(SEVERITY_LABELS) as IncidentSeverityValue[]).map(
+                                (s) => (
+                                  <SelectItem key={s} value={s}>
+                                    {SEVERITY_LABELS[s].label}
+                                  </SelectItem>
+                                ),
+                              )}
                             </SelectContent>
                           </Select>
                         </FormItem>
                       )}
                     />
-                  </div>
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Descripción</FormLabel>
-                        <FormControl>
-                          <Textarea {...field} value={field.value ?? ''} rows={4} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={form.formState.isSubmitting}>
-                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="facilityId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Local</FormLabel>
+                            <Select
+                              onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
+                              value={field.value ?? 'none'}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="(sin local)" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">(sin local)</SelectItem>
+                                {(facilities.data ?? []).map((f) => (
+                                  <SelectItem key={f.id} value={f.id}>
+                                    {f.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="customerId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Inquilino</FormLabel>
+                            <Select
+                              onValueChange={(v) => field.onChange(v === 'none' ? undefined : v)}
+                              value={field.value ?? 'none'}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="(sin inquilino)" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">(sin inquilino)</SelectItem>
+                                {(customers.data ?? []).map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>
+                                    {c.displayName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Descripción</FormLabel>
+                          <FormControl>
+                            <Textarea {...field} value={field.value ?? ''} rows={4} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </Can>
         }
       />
 
