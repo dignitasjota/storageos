@@ -11,7 +11,7 @@ import cookieParser from 'cookie-parser';
 import { raw } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
-import { patchNestJsSwagger } from 'nestjs-zod';
+import { cleanupOpenApiDoc } from 'nestjs-zod';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -61,30 +61,11 @@ async function bootstrap() {
   // --- OpenAPI / Swagger ---
   // Se monta en `development` siempre, y en cualquier entorno si
   // `OPENAPI_ENABLED=true`. En `test` NO se monta: el servidor e2e real corre
-  // con NODE_ENV=test (para desactivar el throttler) y `patchNestJsSwagger`
-  // de nestjs-zod peta al arrancar contra la versión instalada de
-  // @nestjs/swagger; además los tests no necesitan la UI de docs.
+  // con NODE_ENV=test (para desactivar el throttler) y los tests no necesitan
+  // la UI de docs.
   const nodeEnv = config.get('NODE_ENV', { infer: true });
   const openapiEnabled = config.get('OPENAPI_ENABLED', { infer: true });
   if (openapiEnabled || nodeEnv === 'development') {
-    // Hace que @nestjs/swagger entienda los DTOs creados con createZodDto
-    // de nestjs-zod (inyecta los schemas Zod como definiciones OpenAPI).
-    // El parcheo accede a rutas internas de @nestjs/swagger que pueden cambiar
-    // entre versiones (p. ej. nestjs-zod@4.3.1 busca
-    // `./dist/services/schema-object-factory`, que @nestjs/swagger@11.4.3 ya no
-    // exporta y lanza ERR_PACKAGE_PATH_NOT_EXPORTED). Si el parcheo falla, la UI
-    // de docs se monta igualmente (sin los schemas Zod detallados) en vez de
-    // tumbar el arranque en `development`.
-    try {
-      patchNestJsSwagger();
-    } catch (err) {
-      console.warn(
-        '[swagger] patchNestJsSwagger falló (incompatibilidad de versión nestjs-zod ↔ @nestjs/swagger); ' +
-          'la UI de docs se monta sin los schemas Zod detallados.',
-        err instanceof Error ? err.message : err,
-      );
-    }
-
     const swaggerConfig = new DocumentBuilder()
       .setTitle('StorageOS API')
       .setDescription('SaaS multi-tenant para self-storage')
@@ -98,7 +79,11 @@ async function bootstrap() {
       .addTag('Billing', 'Facturación Verifactu')
       .build();
 
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    // nestjs-zod 5: `cleanupOpenApiDoc` reemplaza al antiguo `patchNestJsSwagger`
+    // (monkey-patch en boot). Procesa el documento ya generado para inyectar los
+    // schemas Zod de los DTOs `createZodDto`, sin deep-imports a internals de
+    // @nestjs/swagger.
+    const document = cleanupOpenApiDoc(SwaggerModule.createDocument(app, swaggerConfig));
     SwaggerModule.setup('api/docs', app, document, {
       swaggerOptions: { persistAuthorization: true },
     });
