@@ -67,6 +67,7 @@ import {
   useRegenerateApiKey,
 } from '@/lib/access/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
 const TYPE_LABELS: Record<AccessDeviceTypeValue, string> = {
@@ -84,6 +85,7 @@ const TYPE_ICONS: Record<AccessDeviceTypeValue, React.ElementType> = {
 };
 
 export default function DevicesPage() {
+  const canManage = useHasPermission('access:manage');
   const [facilityId, setFacilityId] = useState<string | undefined>();
   const [type, setType] = useState<AccessDeviceTypeValue | undefined>();
   const [onlineFilter, setOnlineFilter] = useState<'all' | 'online' | 'offline'>('all');
@@ -201,26 +203,35 @@ export default function DevicesPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleOpen(device)} disabled={openDevice.isPending}>
-                <DoorOpen className="mr-2 h-4 w-4" />
-                Abrir (remoto)
-              </DropdownMenuItem>
+              {canManage && (
+                <DropdownMenuItem
+                  onClick={() => handleOpen(device)}
+                  disabled={openDevice.isPending}
+                >
+                  <DoorOpen className="mr-2 h-4 w-4" />
+                  Abrir (remoto)
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => handlePing(device)} disabled={ping.isPending}>
                 <Signal className="mr-2 h-4 w-4" />
                 Hacer ping
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setRegenerateTarget(device)}>
-                <RotateCw className="mr-2 h-4 w-4" />
-                Regenerar API key
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setDeleteTarget(device)}
-                className="text-red-600 focus:text-red-600"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Eliminar
-              </DropdownMenuItem>
+              {canManage && (
+                <>
+                  <DropdownMenuItem onClick={() => setRegenerateTarget(device)}>
+                    <RotateCw className="mr-2 h-4 w-4" />
+                    Regenerar API key
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteTarget(device)}
+                    className="text-red-600 focus:text-red-600"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Eliminar
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -278,9 +289,11 @@ export default function DevicesPage() {
         searchPlaceholder="Buscar por nombre..."
         emptyText="No hay dispositivos. Crea el primero para empezar."
         toolbarRight={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Nuevo dispositivo
-          </Button>
+          canManage ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> Nuevo dispositivo
+            </Button>
+          ) : null
         }
       />
 

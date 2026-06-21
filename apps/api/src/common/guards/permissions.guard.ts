@@ -19,9 +19,9 @@ function hasAll(user: AuthenticatedUser, required: Permission[]): boolean {
 
 /**
  * Guard de autorización por permiso fino. Se evalúa DESPUÉS del `JwtAuthGuard`
- * (que garantiza `request.user`) y junto al `RolesGuard`. Si el handler no
- * declara `@RequirePermission()`, deja pasar (la autorización la decide
- * `@Roles` o el endpoint es abierto a cualquier autenticado).
+ * (que garantiza `request.user`). Si el handler no declara
+ * `@RequirePermission()`, deja pasar (el endpoint es abierto a cualquier
+ * usuario autenticado).
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {

@@ -6,6 +6,7 @@ import { Plus, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
+import { Can } from '@/components/auth/can';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { DataTable } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
@@ -146,16 +147,20 @@ export default function ContractsPage() {
         searchPlaceholder="Buscar..."
         toolbarRight={
           <>
-            <Button asChild variant="outline">
-              <Link href="/contracts/import">
-                <Upload className="mr-1 h-4 w-4" /> Importar
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href="/contracts/new">
-                <Plus className="mr-1 h-4 w-4" /> Nuevo contrato
-              </Link>
-            </Button>
+            <Can permission="imports:manage">
+              <Button asChild variant="outline">
+                <Link href="/contracts/import">
+                  <Upload className="mr-1 h-4 w-4" /> Importar
+                </Link>
+              </Button>
+            </Can>
+            <Can permission="contracts:write">
+              <Button asChild>
+                <Link href="/contracts/new">
+                  <Plus className="mr-1 h-4 w-4" /> Nuevo contrato
+                </Link>
+              </Button>
+            </Can>
           </>
         }
         emptyText="No hay contratos que coincidan con los filtros."

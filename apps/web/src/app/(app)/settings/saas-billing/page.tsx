@@ -17,7 +17,7 @@ import {
 
 /**
  * Pantalla de la suscripcion SaaS del propio tenant a StorageOS.
- * Solo accesible para owner (el backend ya lo aplica con RolesGuard).
+ * Solo accesible para owner (el backend ya lo aplica con `billing:configure`).
  *
  * - Trial: muestra plan actual + CTA "Suscribirse" → Stripe Checkout.
  * - Active con stripeCustomerId: CTA "Gestionar suscripción" → Stripe portal.

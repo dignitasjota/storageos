@@ -57,6 +57,8 @@ export default function CustomersPage() {
   const remove = useDeleteCustomer();
   // RBAC v2 (PR1): borrar inquilinos es owner-only (`customers:delete`).
   const canDelete = useHasPermission('customers:delete');
+  const canWrite = useHasPermission('customers:write');
+  const canImport = useHasPermission('imports:manage');
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<'individual' | 'business'>('individual');
 
@@ -194,17 +196,21 @@ export default function CustomersPage() {
         searchPlaceholder="Buscar por nombre, email, documento..."
         toolbarRight={
           <>
-            <Button asChild variant="outline">
-              <Link href="/customers/import">
-                <Upload className="mr-1 h-4 w-4" /> Importar
-              </Link>
-            </Button>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="mr-1 h-4 w-4" /> Nuevo inquilino
-                </Button>
-              </DialogTrigger>
+            {canImport && (
+              <Button asChild variant="outline">
+                <Link href="/customers/import">
+                  <Upload className="mr-1 h-4 w-4" /> Importar
+                </Link>
+              </Button>
+            )}
+            <Dialog open={open && canWrite} onOpenChange={setOpen}>
+              {canWrite && (
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="mr-1 h-4 w-4" /> Nuevo inquilino
+                  </Button>
+                </DialogTrigger>
+              )}
               <DialogContent className="max-w-lg">
                 <DialogHeader>
                   <DialogTitle>Nuevo inquilino</DialogTitle>

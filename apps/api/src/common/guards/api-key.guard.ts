@@ -26,8 +26,8 @@ import type { Request } from 'express';
  * Si el token es valido, inyecta `request.user` con la forma estandar de
  * `AuthenticatedUser` pero con:
  *   - `sub = 'api-key:<apiKeyId>'`
- *   - `role = 'api'` (no es un UserRole real; el RolesGuard que requiera
- *     `owner|manager` rechaza estas requests por diseno)
+ *   - `role = 'api'` (no es un UserRole real; no concede permisos de panel —
+ *     la autorizacion de estos endpoints la decide `@RequireScope`, no el rol)
  *   - `apiKeyId` con el id de la fila autenticada
  *   - `apiKeyScopes` con los scopes persistidos (puede incluir `'*'`).
  *
@@ -82,9 +82,9 @@ export class ApiKeyGuard implements CanActivate {
     const user: AuthenticatedUser & { apiKeyId?: string; apiKeyScopes?: string[] } = {
       sub: `api-key:${result.apiKeyId}`,
       tenantId: result.tenantId,
-      // 'api' no esta en UserRole pero es seguro porque RolesGuard rechaza
-      // cualquier rol distinto al esperado y los endpoints de integraciones
-      // no usan @Roles.
+      // 'api' no esta en UserRole; es seguro porque los endpoints de
+      // integraciones autorizan por @RequireScope (scopes de la API key),
+      // no por rol ni por @RequirePermission.
       role: 'api' as never,
       apiKeyId: result.apiKeyId,
       apiKeyScopes: result.scopes,

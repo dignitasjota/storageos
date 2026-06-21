@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
@@ -110,6 +112,7 @@ function CatalogTab() {
   const products = useProducts();
   const create = useCreateProduct();
   const remove = useDeleteProduct();
+  const canManage = useHasPermission('products:manage');
   const [createOpen, setCreateOpen] = useState(false);
 
   const form = useForm<CreateProductInput>({
@@ -194,7 +197,8 @@ function CatalogTab() {
       id: 'actions',
       header: '',
       cell: ({ row }) =>
-        row.original.isActive && (
+        row.original.isActive &&
+        canManage && (
           <Button variant="ghost" size="icon" onClick={() => handleDelete(row.original.id)}>
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -218,25 +222,63 @@ function CatalogTab() {
       searchPlaceholder="Buscar por SKU o nombre..."
       emptyText="No hay productos. Añade el primero (ej. candado standard)."
       toolbarRight={
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-1 h-4 w-4" /> Nuevo producto
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Nuevo producto</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Can permission="products:manage">
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-1 h-4 w-4" /> Nuevo producto
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Nuevo producto</DialogTitle>
+              </DialogHeader>
+              <Form {...form}>
+                <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <FormField
+                      control={form.control}
+                      name="sku"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>SKU</FormLabel>
+                          <FormControl>
+                            <Input {...field} value={field.value ?? ''} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="type"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {(Object.keys(PRODUCT_TYPE_LABELS) as ProductTypeValue[]).map((t) => (
+                                <SelectItem key={t} value={t}>
+                                  {PRODUCT_TYPE_LABELS[t]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                   <FormField
                     control={form.control}
-                    name="sku"
+                    name="name"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>SKU</FormLabel>
+                        <FormLabel>Nombre</FormLabel>
                         <FormControl>
                           <Input {...field} value={field.value ?? ''} />
                         </FormControl>
@@ -246,109 +288,73 @@ function CatalogTab() {
                   />
                   <FormField
                     control={form.control}
-                    name="type"
+                    name="description"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Tipo</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
+                        <FormLabel>Descripción</FormLabel>
+                        <FormControl>
+                          <Textarea {...field} value={field.value ?? ''} rows={2} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <FormField
+                      control={form.control}
+                      name="price"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Precio (EUR)</FormLabel>
                           <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              {...field}
+                              value={field.value ?? 0}
+                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                            />
                           </FormControl>
-                          <SelectContent>
-                            {(Object.keys(PRODUCT_TYPE_LABELS) as ProductTypeValue[]).map((t) => (
-                              <SelectItem key={t} value={t}>
-                                {PRODUCT_TYPE_LABELS[t]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nombre</FormLabel>
-                      <FormControl>
-                        <Input {...field} value={field.value ?? ''} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Descripción</FormLabel>
-                      <FormControl>
-                        <Textarea {...field} value={field.value ?? ''} rows={2} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <FormField
-                    control={form.control}
-                    name="price"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Precio (EUR)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            {...field}
-                            value={field.value ?? 0}
-                            onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="taxRate"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>IVA (%)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            max="100"
-                            {...field}
-                            value={field.value ?? 21}
-                            onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={form.formState.isSubmitting}>
-                    {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="taxRate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>IVA (%)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="100"
+                              {...field}
+                              value={field.value ?? 21}
+                              onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button type="submit" disabled={form.formState.isSubmitting}>
+                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
+        </Can>
       }
     />
   );
@@ -361,6 +367,7 @@ function CatalogTab() {
 function SalesTab() {
   const sales = useProductSales();
   const cancel = useCancelProductSale();
+  const canSell = useHasPermission('products:write');
   const [createOpen, setCreateOpen] = useState(false);
 
   async function handleCancel(id: string) {
@@ -416,7 +423,8 @@ function SalesTab() {
       id: 'actions',
       header: '',
       cell: ({ row }) =>
-        row.original.status !== 'cancelled' && (
+        row.original.status !== 'cancelled' &&
+        canSell && (
           <Button variant="ghost" size="sm" onClick={() => handleCancel(row.original.id)}>
             Cancelar
           </Button>
@@ -439,19 +447,21 @@ function SalesTab() {
       isLoading={sales.isLoading}
       emptyText="Aún no hay ventas registradas."
       toolbarRight={
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-1 h-4 w-4" /> Nueva venta
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Nueva venta</DialogTitle>
-            </DialogHeader>
-            <NewSaleForm onDone={() => setCreateOpen(false)} />
-          </DialogContent>
-        </Dialog>
+        <Can permission="products:write">
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-1 h-4 w-4" /> Nueva venta
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Nueva venta</DialogTitle>
+              </DialogHeader>
+              <NewSaleForm onDone={() => setCreateOpen(false)} />
+            </DialogContent>
+          </Dialog>
+        </Can>
       }
     />
   );

@@ -10,9 +10,9 @@ export const PERMISSION_KEY = 'permissions';
  *
  *   @RequirePermission('invoices:refund')
  *
- * Es complementario a `@Roles(...)`: un handler puede usar uno u otro. Para
- * granularidad fina (acciones sensibles) usa permisos; el rol sigue siendo la
- * unidad que se asigna al usuario.
+ * Es la única capa de autorización fina del panel (la antigua `@Roles` se
+ * retiró en RBAC v2). El rol sigue siendo la unidad que se asigna al usuario;
+ * los permisos efectivos se derivan de él (o del rol custom del tenant).
  */
 export const RequirePermission = (...permissions: Permission[]) =>
   SetMetadata(PERMISSION_KEY, permissions);

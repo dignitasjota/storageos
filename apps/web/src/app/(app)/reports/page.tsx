@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useReportCatalog, useReports, useRunReport } from '@/lib/reports/hooks';
 
 const STATUS_LABELS: Record<
@@ -48,6 +49,7 @@ const STATUS_LABELS: Record<
 export default function ReportsPage() {
   const catalog = useReportCatalog();
   const reports = useReports();
+  const canRun = useHasPermission('reports:run');
   const [selected, setSelected] = useState<ReportGeneratorCatalogEntry | null>(null);
 
   return (
@@ -71,8 +73,8 @@ export default function ReportsPage() {
             {(catalog.data ?? []).map((entry) => (
               <Card
                 key={entry.code}
-                className="cursor-pointer transition hover:border-primary"
-                onClick={() => setSelected(entry)}
+                className={canRun ? 'cursor-pointer transition hover:border-primary' : 'opacity-70'}
+                onClick={canRun ? () => setSelected(entry) : undefined}
               >
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
