@@ -22,5 +22,6 @@ export * from './move-in';
 export * from './landing';
 export * from './accounting';
 export * from './notifications';
+export * from './reviews';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;

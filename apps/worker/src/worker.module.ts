@@ -21,6 +21,7 @@ import { NotificationsModule } from '../../api/src/modules/notifications/notific
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
+import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
 
 import type { Env } from '../../api/src/config/env.schema';
@@ -118,9 +119,11 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     DunningModule,
     AccessModule,
     IntegrationsModule,
-    // CRM: cron `contract_ending_soon` + feed de notificaciones in-app.
+    // CRM: cron `contract_ending_soon` + feed de notificaciones in-app +
+    // cron `reviews.auto-request`.
     ContractsModule,
     NotificationsModule,
+    ReviewsModule,
   ],
 })
 export class WorkerModule {}

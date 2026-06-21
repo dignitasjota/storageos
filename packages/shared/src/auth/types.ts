@@ -138,3 +138,9 @@ export interface TenantSecuritySettingsResponse {
 export interface TenantBillingSettingsResponse {
   autoChargeOnIssue: boolean;
 }
+
+/** Respuesta de `/settings/tenant/reviews` (auto-solicitud de valoraciones). */
+export interface TenantReviewsSettingsResponse {
+  reviewsAutoRequest: boolean;
+  reviewRequestDelayDays: number;
+}

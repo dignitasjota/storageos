@@ -195,3 +195,13 @@ export const UpdateTenantBillingSettingsSchema = z.object({
   autoChargeOnIssue: z.boolean(),
 });
 export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;
+
+/**
+ * PATCH /settings/tenant/reviews — body. Activa la auto-solicitud de
+ * valoraciones (NPS) N días tras firmar el contrato. Opt-in por tenant.
+ */
+export const UpdateTenantReviewsSettingsSchema = z.object({
+  reviewsAutoRequest: z.boolean(),
+  reviewRequestDelayDays: z.number().int().min(1).max(180),
+});
+export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;

@@ -55,6 +55,8 @@ export const Permissions = [
   'products:write',
   'products:manage',
   'imports:manage', // alta masiva CSV (owner+manager)
+  'reviews:read',
+  'reviews:write', // solicitar valoraciones (NPS)
   'access:read',
   'access:manage',
   'analytics:read',
@@ -93,6 +95,7 @@ const STAFF: Permission[] = [
   'incidents:write',
   'products:write',
   'reports:run',
+  'reviews:write',
 ];
 
 /**

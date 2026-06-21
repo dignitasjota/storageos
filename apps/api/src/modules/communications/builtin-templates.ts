@@ -191,4 +191,20 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     variables: ['lead.firstName', 'tenant.name'],
     trigger: 'lead_created',
   },
+  {
+    code: 'review_request_email',
+    kind: 'transactional',
+    channel: 'email',
+    name: 'Solicitud de valoración (NPS)',
+    subject: '¿Qué tal tu experiencia con {{tenant.name}}?',
+    bodyText:
+      'Hola {{customer.firstName}},\n\nNos encantaria conocer tu opinion sobre {{tenant.name}}. Solo te llevara un minuto:\n\n{{review.url}}\n\nGracias,\nEl equipo de {{tenant.name}}',
+    bodyHtml: wrapHtml(
+      '¿Que tal tu experiencia?',
+      '<p>Hola {{customer.firstName}},</p><p>Nos encantaria conocer tu opinion sobre <strong>{{tenant.name}}</strong>. Solo te llevara un minuto:</p><p><a href="{{review.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Dejar mi valoracion</a></p>',
+    ),
+    locale: 'es-ES',
+    variables: ['customer.firstName', 'customer.displayName', 'review.url', 'tenant.name'],
+    trigger: 'review_request',
+  },
 ];

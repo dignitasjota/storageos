@@ -172,6 +172,10 @@ export class AutomationsService {
   async onLeadCreated(p: DomainEventPayload): Promise<void> {
     return this.handleEvent('lead_created', p);
   }
+  @OnEvent(DOMAIN_EVENTS.review_submitted, { async: true, promisify: true })
+  async onReviewSubmitted(p: DomainEventPayload): Promise<void> {
+    return this.handleEvent('review_submitted', p);
+  }
 
   private async handleEvent(
     trigger: AutomationTriggerValue,

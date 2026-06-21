@@ -6,8 +6,10 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   TenantBillingSettingsResponse,
+  TenantReviewsSettingsResponse,
   TenantSecuritySettingsResponse,
   UpdateTenantBillingSettingsInput,
+  UpdateTenantReviewsSettingsInput,
   UpdateTenantSecuritySettingsInput,
 } from '@storageos/shared';
 
@@ -106,5 +108,57 @@ export class TenantSettingsService {
     });
 
     return { autoChargeOnIssue: updated.autoChargeOnIssue };
+  }
+
+  async getReviews(tenantId: string): Promise<TenantReviewsSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    return {
+      reviewsAutoRequest: tenant.reviewsAutoRequest,
+      reviewRequestDelayDays: tenant.reviewRequestDelayDays,
+    };
+  }
+
+  async updateReviews(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateTenantReviewsSettingsInput;
+    meta: RequestMeta;
+  }): Promise<TenantReviewsSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: {
+        reviewsAutoRequest: args.input.reviewsAutoRequest,
+        reviewRequestDelayDays: args.input.reviewRequestDelayDays,
+      },
+    });
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.reviews.settings_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: {
+        reviewsAutoRequest: { from: tenant.reviewsAutoRequest, to: updated.reviewsAutoRequest },
+        reviewRequestDelayDays: {
+          from: tenant.reviewRequestDelayDays,
+          to: updated.reviewRequestDelayDays,
+        },
+      },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return {
+      reviewsAutoRequest: updated.reviewsAutoRequest,
+      reviewRequestDelayDays: updated.reviewRequestDelayDays,
+    };
   }
 }

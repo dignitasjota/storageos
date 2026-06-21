@@ -50,6 +50,8 @@ export const AutomationTriggerEnum = z.enum([
   'invoice_paid',
   'reservation_confirmed',
   'lead_created',
+  'review_request',
+  'review_submitted',
 ]);
 export type AutomationTriggerValue = z.infer<typeof AutomationTriggerEnum>;
 

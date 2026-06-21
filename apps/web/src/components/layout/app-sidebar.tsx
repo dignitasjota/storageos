@@ -19,6 +19,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Star,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -74,6 +75,7 @@ const NAV: NavItem[] = [
   { href: '/products', labelKey: 'products', icon: Package, enabled: true },
   { href: '/analytics', labelKey: 'analytics', icon: BarChart3, enabled: true },
   { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, enabled: true },
+  { href: '/reviews', labelKey: 'reviews', icon: Star, enabled: true },
 ];
 
 export function AppSidebar() {

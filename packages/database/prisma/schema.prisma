@@ -314,6 +314,10 @@ model Tenant {
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
   autoChargeOnIssue           Boolean      @default(false) @map("auto_charge_on_issue")
+  /// Si true, un cron pide la valoracion (NPS) automaticamente N dias tras
+  /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
+  reviewsAutoRequest          Boolean      @default(false) @map("reviews_auto_request")
+  reviewRequestDelayDays      Int          @default(14) @map("review_request_delay_days")
   deletedAt                   DateTime?    @map("deleted_at") @db.Timestamptz(6)
   createdAt                   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -373,6 +377,7 @@ model Tenant {
   apiKeys                 ApiKey[]
   webhooks                Webhook[]
   webhookDeliveries       WebhookDelivery[]
+  reviews                 Review[]
 
   @@map("tenants")
 }
@@ -837,6 +842,7 @@ model Customer {
   productSales   ProductSale[]      @relation("ProductSaleCustomer")
   credentials    AccessCredential[] @relation("CredentialCustomer")
   accessLogs     AccessLog[]        @relation("AccessLogCustomer")
+  reviews        Review[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -908,16 +914,17 @@ model Contract {
   createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  unit           Unit            @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer       Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
   events         ContractEvent[]
   signatures     ContractSignature[]
   invoices       Invoice[]
   invoiceItems   InvoiceItem[]
-  leadsConverted Lead[]          @relation("LeadConvertedContract")
-  incidents      Incident[]      @relation("IncidentContract")
-  credentials    AccessCredential[] @relation("CredentialContract")
+  leadsConverted Lead[]              @relation("LeadConvertedContract")
+  incidents      Incident[]          @relation("IncidentContract")
+  credentials    AccessCredential[]  @relation("CredentialContract")
+  reviews        Review[]
 
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
@@ -1053,65 +1060,65 @@ model InvoiceSeries {
 /// El `invoice_number` es inmutable tras pasar de `draft` a `issued`. La
 /// numeracion secuencial dentro de (tenant, series) la garantiza UNIQUE.
 model Invoice {
-  id             String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId       String        @map("tenant_id") @db.Uuid
+  id                  String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String            @map("tenant_id") @db.Uuid
   /// Nullable desde Fase 13A.3: en F2 (factura simplificada) el destinatario
   /// puede no identificarse. En F1 sigue siendo obligatorio (validado en
   /// `InvoicesService.create`, no a nivel de schema).
-  customerId     String?       @map("customer_id") @db.Uuid
-  contractId     String?       @map("contract_id") @db.Uuid
-  seriesId       String        @map("series_id") @db.Uuid
-  sequenceNumber Int           @map("sequence_number")
-  invoiceNumber  String        @map("invoice_number")
-  status         InvoiceStatus @default(draft)
-  invoiceType    InvoiceType   @default(F1) @map("invoice_type")
+  customerId          String?           @map("customer_id") @db.Uuid
+  contractId          String?           @map("contract_id") @db.Uuid
+  seriesId            String            @map("series_id") @db.Uuid
+  sequenceNumber      Int               @map("sequence_number")
+  invoiceNumber       String            @map("invoice_number")
+  status              InvoiceStatus     @default(draft)
+  invoiceType         InvoiceType       @default(F1) @map("invoice_type")
   /// Si es una rectificativa (`invoice_type` en R1..R5), apunta a la
   /// factura original que se rectifica. ON DELETE RESTRICT para impedir
   /// borrar la original sin antes resolver la rectificativa.
   rectifiesInvoiceId  String?           @map("rectifies_invoice_id") @db.Uuid
   rectificationReason String?           @map("rectification_reason")
   correctionMethod    CorrectionMethod? @map("correction_method")
-  issueDate      DateTime?     @map("issue_date") @db.Date
-  dueDate        DateTime?     @map("due_date") @db.Date
+  issueDate           DateTime?         @map("issue_date") @db.Date
+  dueDate             DateTime?         @map("due_date") @db.Date
   /// Periodo facturado (p.ej. mes natural si es un alquiler mensual).
-  periodStart    DateTime?     @map("period_start") @db.Date
-  periodEnd      DateTime?     @map("period_end") @db.Date
-  subtotal       Decimal       @default(0) @db.Decimal(12, 2)
-  taxAmount      Decimal       @default(0) @map("tax_amount") @db.Decimal(12, 2)
-  total          Decimal       @default(0) @db.Decimal(12, 2)
-  amountPaid     Decimal       @default(0) @map("amount_paid") @db.Decimal(12, 2)
-  amountRefunded Decimal       @default(0) @map("amount_refunded") @db.Decimal(12, 2)
-  currency       String        @default("EUR") @db.Char(3)
-  pdfUrl         String?       @map("pdf_url")
-  notes          String?
+  periodStart         DateTime?         @map("period_start") @db.Date
+  periodEnd           DateTime?         @map("period_end") @db.Date
+  subtotal            Decimal           @default(0) @db.Decimal(12, 2)
+  taxAmount           Decimal           @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  total               Decimal           @default(0) @db.Decimal(12, 2)
+  amountPaid          Decimal           @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  amountRefunded      Decimal           @default(0) @map("amount_refunded") @db.Decimal(12, 2)
+  currency            String            @default("EUR") @db.Char(3)
+  pdfUrl              String?           @map("pdf_url")
+  notes               String?
   /// --- Verifactu ---
-  hash           String?
-  previousHash   String?       @map("previous_hash")
-  qrCodeUrl      String?       @map("qr_code_url")
-  verifactuMode  VerifactuMode @default(verifactu) @map("verifactu_mode")
-  aeatSentAt     DateTime?     @map("aeat_sent_at") @db.Timestamptz(6)
-  aeatStatus     AeatStatus?   @map("aeat_status")
-  aeatResponse   Json?         @map("aeat_response")
-  aeatCsv        String?       @map("aeat_csv")
+  hash                String?
+  previousHash        String?           @map("previous_hash")
+  qrCodeUrl           String?           @map("qr_code_url")
+  verifactuMode       VerifactuMode     @default(verifactu) @map("verifactu_mode")
+  aeatSentAt          DateTime?         @map("aeat_sent_at") @db.Timestamptz(6)
+  aeatStatus          AeatStatus?       @map("aeat_status")
+  aeatResponse        Json?             @map("aeat_response")
+  aeatCsv             String?           @map("aeat_csv")
   /// Id del documento en Holded si se ha exportado (integración contable).
-  holdedDocumentId String?     @map("holded_document_id")
-  paidAt         DateTime?     @map("paid_at") @db.Timestamptz(6)
-  cancelledAt    DateTime?     @map("cancelled_at") @db.Timestamptz(6)
-  deletedAt      DateTime?     @map("deleted_at") @db.Timestamptz(6)
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  holdedDocumentId    String?           @map("holded_document_id")
+  paidAt              DateTime?         @map("paid_at") @db.Timestamptz(6)
+  cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  contract       Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
-  series         InvoiceSeries   @relation(fields: [seriesId], references: [id], onDelete: Restrict)
-  items          InvoiceItem[]
-  payments       Payment[]
-  dunningActions DunningAction[]
-  productSale    ProductSale?    @relation("ProductSaleInvoice")
-  redsysOrders   RedsysOrder[]
-  rectifiesInvoice Invoice?  @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
-  rectifiedBy      Invoice[] @relation("InvoiceRectification")
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer         Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract         Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  series           InvoiceSeries   @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  items            InvoiceItem[]
+  payments         Payment[]
+  dunningActions   DunningAction[]
+  productSale      ProductSale?    @relation("ProductSaleInvoice")
+  redsysOrders     RedsysOrder[]
+  rectifiesInvoice Invoice?        @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
+  rectifiedBy      Invoice[]       @relation("InvoiceRectification")
 
   @@unique([tenantId, seriesId, sequenceNumber])
   @@unique([tenantId, invoiceNumber])
@@ -1412,6 +1419,8 @@ enum AutomationTrigger {
   invoice_paid
   reservation_confirmed
   lead_created
+  review_request // envío de la solicitud de valoración (NPS)
+  review_submitted // el inquilino ha enviado su valoración
 
   @@map("automation_trigger")
 }
@@ -1486,30 +1495,30 @@ model Lead {
 /// `marketing` para campanas manuales. Variables Handlebars `{{var}}` con
 /// whitelist por trigger en codigo (no en BD).
 model MessageTemplate {
-  id        String               @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId  String               @map("tenant_id") @db.Uuid
-  code      String // identificador unico por tenant (e.g. welcome_email)
-  kind      MessageTemplateKind  @default(transactional)
-  channel   CommunicationChannel @default(email)
-  name      String
-  subject   String? // email
-  bodyText  String               @map("body_text")
-  bodyHtml  String?              @map("body_html")
-  locale    String               @default("es-ES")
-  isActive  Boolean              @default(true) @map("is_active")
+  id                        String               @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                  String               @map("tenant_id") @db.Uuid
+  code                      String // identificador unico por tenant (e.g. welcome_email)
+  kind                      MessageTemplateKind  @default(transactional)
+  channel                   CommunicationChannel @default(email)
+  name                      String
+  subject                   String? // email
+  bodyText                  String               @map("body_text")
+  bodyHtml                  String?              @map("body_html")
+  locale                    String               @default("es-ES")
+  isActive                  Boolean              @default(true) @map("is_active")
   /// Variables Handlebars permitidas (informativo para UI: ["customerName", "contractNumber", ...])
-  variables String[]             @default([])
+  variables                 String[]             @default([])
   /// Plantilla aprobada en Meta WhatsApp Business (solo channel=whatsapp).
-  whatsappTemplateName      String?  @map("whatsapp_template_name")
+  whatsappTemplateName      String?              @map("whatsapp_template_name")
   /// Idioma de la plantilla WABA (e.g. "es"); al enviar usa "es" si es null.
-  whatsappTemplateLanguage  String?  @map("whatsapp_template_language")
+  whatsappTemplateLanguage  String?              @map("whatsapp_template_language")
   /// Nombres de variables, en orden, que mapean a los parámetros posicionales {{1}}, {{2}}... de la plantilla WABA.
-  whatsappTemplateVariables String[] @default([]) @map("whatsapp_template_variables")
+  whatsappTemplateVariables String[]             @default([]) @map("whatsapp_template_variables")
   /// JSONB con metadatos: trigger asociado (informativo), tags, etc.
-  metadata  Json                 @default("{}")
-  deletedAt DateTime?            @map("deleted_at") @db.Timestamptz(6)
-  createdAt DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  metadata                  Json                 @default("{}")
+  deletedAt                 DateTime?            @map("deleted_at") @db.Timestamptz(6)
+  createdAt                 DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   communications  Communication[]
@@ -1525,39 +1534,39 @@ model MessageTemplate {
 /// -> sent -> delivered (webhook), o bounced/failed. Cancelable mientras
 /// este pending (e.g. el cliente pago antes del recordatorio dunning).
 model Communication {
-  id                String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId          String                 @map("tenant_id") @db.Uuid
-  channel           CommunicationChannel   @default(email)
-  status            CommunicationStatus    @default(pending)
-  direction         CommunicationDirection @default(outbound)
-  templateId        String?                @map("template_id") @db.Uuid
-  customerId        String?                @map("customer_id") @db.Uuid
-  leadId            String?                @map("lead_id") @db.Uuid
+  id                       String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                 String                 @map("tenant_id") @db.Uuid
+  channel                  CommunicationChannel   @default(email)
+  status                   CommunicationStatus    @default(pending)
+  direction                CommunicationDirection @default(outbound)
+  templateId               String?                @map("template_id") @db.Uuid
+  customerId               String?                @map("customer_id") @db.Uuid
+  leadId                   String?                @map("lead_id") @db.Uuid
   /// Recipient resuelto en el momento de crear la fila (snapshot).
-  recipient         String
-  subject           String?
-  bodyText          String                 @map("body_text")
-  bodyHtml          String?                @map("body_html")
+  recipient                String
+  subject                  String?
+  bodyText                 String                 @map("body_text")
+  bodyHtml                 String?                @map("body_html")
   /// Variables resueltas al renderizar, guardadas para auditoria.
-  variables         Json                   @default("{}")
+  variables                Json                   @default("{}")
   /// Snapshot de la plantilla WABA a usar al enviar (solo whatsapp por plantilla).
-  whatsappTemplateName     String? @map("whatsapp_template_name")
-  whatsappTemplateLanguage String? @map("whatsapp_template_language")
+  whatsappTemplateName     String?                @map("whatsapp_template_name")
+  whatsappTemplateLanguage String?                @map("whatsapp_template_language")
   /// Parámetros posicionales resueltos para la plantilla WABA: { "1": "...", "2": "..." }.
-  whatsappTemplateParams   Json?   @map("whatsapp_template_params")
+  whatsappTemplateParams   Json?                  @map("whatsapp_template_params")
   /// ID del provider (Resend message_id, WhatsApp wamid, etc.) si se envio.
-  providerMessageId String?                @map("provider_message_id")
-  provider          String? // "resend", "mailpit", "whatsapp_stub"
+  providerMessageId        String?                @map("provider_message_id")
+  provider                 String? // "resend", "mailpit", "whatsapp_stub"
   /// Origen del envio: nombre legible. e.g. "dunning.email_reminder", "auth.invitation".
-  source            String?
-  errorMessage      String?                @map("error_message")
-  retryCount        Int                    @default(0) @map("retry_count")
-  scheduledFor      DateTime?              @map("scheduled_for") @db.Timestamptz(6)
-  sentAt            DateTime?              @map("sent_at") @db.Timestamptz(6)
-  deliveredAt       DateTime?              @map("delivered_at") @db.Timestamptz(6)
-  failedAt          DateTime?              @map("failed_at") @db.Timestamptz(6)
-  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  source                   String?
+  errorMessage             String?                @map("error_message")
+  retryCount               Int                    @default(0) @map("retry_count")
+  scheduledFor             DateTime?              @map("scheduled_for") @db.Timestamptz(6)
+  sentAt                   DateTime?              @map("sent_at") @db.Timestamptz(6)
+  deliveredAt              DateTime?              @map("delivered_at") @db.Timestamptz(6)
+  failedAt                 DateTime?              @map("failed_at") @db.Timestamptz(6)
+  createdAt                DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   template MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
@@ -2044,27 +2053,27 @@ model AccessCredential {
 /// auth HTTP en `POST /access/verify`. Si va por MQTT, `mqttTopic`
 /// identifica el canal donde escucha eventos.
 model AccessDevice {
-  id            String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId      String           @map("tenant_id") @db.Uuid
-  facilityId    String           @map("facility_id") @db.Uuid
-  unitId        String?          @map("unit_id") @db.Uuid
-  type          AccessDeviceType
-  name          String
-  hardwareId    String           @map("hardware_id")
-  apiKeyHash    String?          @map("api_key_hash")
-  apiKeyPreview String?          @map("api_key_preview")
-  mqttTopic     String?          @map("mqtt_topic")
+  id                     String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String           @map("tenant_id") @db.Uuid
+  facilityId             String           @map("facility_id") @db.Uuid
+  unitId                 String?          @map("unit_id") @db.Uuid
+  type                   AccessDeviceType
+  name                   String
+  hardwareId             String           @map("hardware_id")
+  apiKeyHash             String?          @map("api_key_hash")
+  apiKeyPreview          String?          @map("api_key_preview")
+  mqttTopic              String?          @map("mqtt_topic")
   /// Provider HTTP (LOCK_PROVIDER=http): URL del controlador a la que el
   /// servidor hace POST firmado (HMAC) para abrir, y el secreto HMAC cifrado
   /// (AES-256-GCM). Null si el device no usa el provider HTTP.
-  controlUrl             String?  @map("control_url")
-  controlSecretEncrypted String?  @map("control_secret_encrypted")
-  isOnline      Boolean          @default(false) @map("is_online")
-  lastSeenAt    DateTime?        @map("last_seen_at") @db.Timestamptz(6)
-  isActive      Boolean          @default(true) @map("is_active")
-  metadata      Json             @default("{}")
-  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  controlUrl             String?          @map("control_url")
+  controlSecretEncrypted String?          @map("control_secret_encrypted")
+  isOnline               Boolean          @default(false) @map("is_online")
+  lastSeenAt             DateTime?        @map("last_seen_at") @db.Timestamptz(6)
+  isActive               Boolean          @default(true) @map("is_active")
+  metadata               Json             @default("{}")
+  createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   facility Facility    @relation("DeviceFacility", fields: [facilityId], references: [id], onDelete: Cascade)
@@ -2080,18 +2089,18 @@ model AccessDevice {
 
 /// Audit trail de cada intento de acceso (exitoso, denegado, error).
 model AccessLog {
-  id             String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId       String        @map("tenant_id") @db.Uuid
-  deviceId       String?       @map("device_id") @db.Uuid
-  credentialId   String?       @map("credential_id") @db.Uuid
-  customerId     String?       @map("customer_id") @db.Uuid
+  id             String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  deviceId       String?      @map("device_id") @db.Uuid
+  credentialId   String?      @map("credential_id") @db.Uuid
+  customerId     String?      @map("customer_id") @db.Uuid
   method         AccessMethod
   result         AccessResult
-  attemptedValue String?       @map("attempted_value")
+  attemptedValue String?      @map("attempted_value")
   reason         String?
-  ipAddress      String?       @map("ip_address")
-  metadata       Json          @default("{}")
-  occurredAt     DateTime      @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  ipAddress      String?      @map("ip_address")
+  metadata       Json         @default("{}")
+  occurredAt     DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(6)
 
   tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   device     AccessDevice?     @relation(fields: [deviceId], references: [id], onDelete: SetNull)
@@ -2219,9 +2228,9 @@ model SupportTicket {
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant        Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  createdBy     User?                   @relation("TicketCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  assignedAdmin SuperAdmin?             @relation("TicketAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdBy     User?                  @relation("TicketCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assignedAdmin SuperAdmin?            @relation("TicketAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   messages      SupportTicketMessage[]
 
   @@index([tenantId])
@@ -2252,15 +2261,15 @@ model SupportTicketMessage {
 /// Log de impersonaciones de super admin a tenant. Tabla global (sin RLS)
 /// para que solo super admins lean. Audita "quien entro a que tenant cuando".
 model ImpersonationLog {
-  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  superAdminId    String   @map("super_admin_id") @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  reason          String
-  ipAddress       String?  @map("ip_address")
-  userAgent       String?  @map("user_agent")
-  expiresAt       DateTime @map("expires_at") @db.Timestamptz(6)
-  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  superAdminId String    @map("super_admin_id") @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  reason       String
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   superAdmin SuperAdmin @relation("ImpersonationAdmin", fields: [superAdminId], references: [id], onDelete: Cascade)
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -2339,6 +2348,43 @@ model Notification {
   @@index([tenantId, readAt])
   @@index([tenantId, createdAt])
   @@map("notifications")
+}
+
+/// Valoracion (NPS) del inquilino. Se solicita por enlace publico con token
+/// (manual o por cron) y se rellena en la pagina publica `/review/[token]`.
+model Review {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  customerId     String    @map("customer_id") @db.Uuid
+  contractId     String?   @map("contract_id") @db.Uuid
+  /// Token opaco para el enlace publico de valoracion.
+  token          String    @unique
+  tokenExpiresAt DateTime  @map("token_expires_at") @db.Timestamptz(6)
+  /// pending | submitted | expired
+  status         String    @default("pending")
+  /// Net Promoter Score 0-10 (null hasta que se rellena).
+  npsScore       Int?      @map("nps_score")
+  /// Valoracion 1-5 estrellas opcional.
+  rating         Int?
+  comment        String?
+  /// email | whatsapp | manual
+  channel        String?
+  source         String?
+  requestedAt    DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+  submittedAt    DateTime? @map("submitted_at") @db.Timestamptz(6)
+  ip             String?
+  userAgent      String?   @map("user_agent")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([contractId])
+  @@map("reviews")
 }
 
 /// Configuración Redsys (TPV bancario) por tenant. Clave secreta cifrada.
