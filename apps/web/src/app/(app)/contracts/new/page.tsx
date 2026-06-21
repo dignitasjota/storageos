@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useCreateContract, useCustomers } from '@/lib/customers/hooks';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
+import { useValidatePromotion } from '@/lib/promotions/hooks';
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -28,6 +29,7 @@ export default function NewContractWizardPage() {
   const [priceMonthly, setPriceMonthly] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountReason, setDiscountReason] = useState('');
+  const [promotionCode, setPromotionCode] = useState('');
   const [depositAmount, setDepositAmount] = useState(0);
 
   const create = useCreateContract();
@@ -43,6 +45,7 @@ export default function NewContractWizardPage() {
       priceMonthly,
       discountAmount,
       ...(discountReason ? { discountReason } : {}),
+      ...(promotionCode ? { promotionCode } : {}),
       depositAmount,
       autoRenew: true,
       cancellationNoticeDays: 15,
@@ -112,6 +115,7 @@ export default function NewContractWizardPage() {
           priceMonthly={priceMonthly}
           discountAmount={discountAmount}
           discountReason={discountReason}
+          promotionCode={promotionCode}
           depositAmount={depositAmount}
           onChange={(p) => {
             if (p.startDate !== undefined) setStartDate(p.startDate);
@@ -119,6 +123,7 @@ export default function NewContractWizardPage() {
             if (p.priceMonthly !== undefined) setPriceMonthly(p.priceMonthly);
             if (p.discountAmount !== undefined) setDiscountAmount(p.discountAmount);
             if (p.discountReason !== undefined) setDiscountReason(p.discountReason);
+            if (p.promotionCode !== undefined) setPromotionCode(p.promotionCode);
             if (p.depositAmount !== undefined) setDepositAmount(p.depositAmount);
           }}
           onBack={() => setStep(2)}
@@ -254,6 +259,7 @@ function StepEconomics(props: {
   priceMonthly: number;
   discountAmount: number;
   discountReason: string;
+  promotionCode: string;
   depositAmount: number;
   onChange: (
     p: Partial<{
@@ -262,12 +268,42 @@ function StepEconomics(props: {
       priceMonthly: number;
       discountAmount: number;
       discountReason: string;
+      promotionCode: string;
       depositAmount: number;
     }>,
   ) => void;
   onBack: () => void;
   onNext: () => void;
 }) {
+  const validate = useValidatePromotion();
+  const [codeInput, setCodeInput] = useState(props.promotionCode);
+
+  async function applyCode() {
+    const code = codeInput.trim().toUpperCase();
+    if (!code) return;
+    if (props.priceMonthly <= 0) {
+      toast.error('Indica primero la cuota mensual.');
+      return;
+    }
+    try {
+      const res = await validate.mutateAsync({ code, monthlyPrice: props.priceMonthly });
+      if (!res.valid) {
+        toast.error('Código no aplicable.');
+        props.onChange({ promotionCode: '' });
+        return;
+      }
+      props.onChange({
+        promotionCode: code,
+        discountAmount: res.discountAmount,
+        discountReason: `Promoción ${res.code}`,
+      });
+      toast.success(`Descuento aplicado: ${res.discountAmount.toFixed(2)} €/mes.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      props.onChange({ promotionCode: '' });
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -327,6 +363,29 @@ function StepEconomics(props: {
             value={props.discountReason}
             onChange={(e) => props.onChange({ discountReason: e.target.value })}
           />
+        </div>
+        <div>
+          <Label>Código promocional (opcional)</Label>
+          <div className="flex gap-2">
+            <Input
+              placeholder="VERANO20"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={applyCode}
+              disabled={validate.isPending || !codeInput.trim()}
+            >
+              {validate.isPending ? 'Aplicando...' : 'Aplicar'}
+            </Button>
+          </div>
+          {props.promotionCode && (
+            <p className="mt-1 text-xs text-green-600">
+              Código {props.promotionCode} aplicado al descuento.
+            </p>
+          )}
         </div>
         <div className="rounded-md bg-muted/40 px-3 py-2 text-sm">
           Cuota efectiva mensual:{' '}

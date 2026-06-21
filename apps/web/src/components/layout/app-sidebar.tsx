@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Ticket,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -73,6 +74,7 @@ const NAV: NavItem[] = [
   { href: '/incidents', labelKey: 'incidents', icon: AlertTriangle, enabled: true },
   { href: '/access', labelKey: 'access', icon: KeyRound, enabled: true },
   { href: '/products', labelKey: 'products', icon: Package, enabled: true },
+  { href: '/promotions', labelKey: 'promotions', icon: Ticket, enabled: true },
   { href: '/analytics', labelKey: 'analytics', icon: BarChart3, enabled: true },
   { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, enabled: true },
   { href: '/reviews', labelKey: 'reviews', icon: Star, enabled: true },

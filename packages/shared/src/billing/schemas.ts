@@ -334,17 +334,56 @@ export type CreatePricingRuleInput = z.infer<typeof CreatePricingRuleSchema>;
 // Promotions
 // ============================================================================
 
-export const CreatePromotionSchema = z.object({
-  code: z.string().trim().toUpperCase().min(3).max(40),
-  name: z.string().trim().min(1).max(120),
-  discountType: PromotionDiscountTypeEnum,
-  discountValue: positiveDecimal,
-  appliesTo: z.record(z.unknown()).default({}),
-  maxUses: z.number().int().positive().optional(),
-  validFrom: z.string().datetime().optional(),
-  validUntil: z.string().datetime().optional(),
-});
+const promotionCodeField = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .min(3)
+  .max(40)
+  .regex(/^[A-Z0-9_-]+$/, 'Solo letras, números, guion y guion bajo');
+
+export const CreatePromotionSchema = z
+  .object({
+    code: promotionCodeField,
+    name: z.string().trim().min(1).max(120),
+    discountType: PromotionDiscountTypeEnum,
+    discountValue: positiveDecimal,
+    appliesTo: z.record(z.unknown()).default({}),
+    maxUses: z.number().int().positive().optional(),
+    validFrom: z.string().datetime({ offset: true }).optional(),
+    validUntil: z.string().datetime({ offset: true }).optional(),
+    isActive: z.boolean().default(true),
+  })
+  .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
+    message: 'El porcentaje no puede superar 100',
+    path: ['discountValue'],
+  });
 export type CreatePromotionInput = z.infer<typeof CreatePromotionSchema>;
+
+export const UpdatePromotionSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    discountType: PromotionDiscountTypeEnum.optional(),
+    discountValue: positiveDecimal.optional(),
+    appliesTo: z.record(z.unknown()).optional(),
+    maxUses: z.number().int().positive().nullable().optional(),
+    validFrom: z.string().datetime({ offset: true }).nullable().optional(),
+    validUntil: z.string().datetime({ offset: true }).nullable().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine(
+    (v) =>
+      v.discountType !== 'percentage' || v.discountValue === undefined || v.discountValue <= 100,
+    { message: 'El porcentaje no puede superar 100', path: ['discountValue'] },
+  );
+export type UpdatePromotionInput = z.infer<typeof UpdatePromotionSchema>;
+
+/** Previsualiza el descuento de un código sobre un precio mensual dado. */
+export const ValidatePromotionSchema = z.object({
+  code: z.string().trim().toUpperCase().min(1).max(40),
+  monthlyPrice: z.number().nonnegative(),
+});
+export type ValidatePromotionInput = z.infer<typeof ValidatePromotionSchema>;
 
 // ============================================================================
 // RGPD

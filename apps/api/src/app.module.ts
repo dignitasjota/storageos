@@ -41,6 +41,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { RedsysModule } from './modules/payments/redsys/redsys.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ProductsModule } from './modules/products/products.module';
+import { PromotionsModule } from './modules/promotions/promotions.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
@@ -155,6 +156,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     RedsysModule,
     NotificationsModule,
     ReviewsModule,
+    PromotionsModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

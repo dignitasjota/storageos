@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { PromotionsService } from '../promotions/promotions.service';
 
 import { buildContractTermsText } from './contract-terms';
 import { PricingService } from './pricing.service';
@@ -62,6 +63,7 @@ export class ContractsService {
     private readonly audit: AuditService,
     private readonly pricing: PricingService,
     private readonly eventBus: EventEmitter2,
+    private readonly promotions: PromotionsService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<ContractDto[]> {
@@ -150,6 +152,22 @@ export class ContractsService {
       // (p.ej. esta reserved para este mismo customer). Sera al firmar
       // cuando bloqueemos si esta occupied/maintenance/blocked.
 
+      // Código promocional: si es válido (percentage/fixed), calcula el
+      // descuento recurrente y registra el uso. Tiene prioridad sobre un
+      // `discountAmount` manual.
+      let discountAmount = input.discountAmount;
+      let discountReason = input.discountReason?.trim() || null;
+      if (input.promotionCode?.trim()) {
+        const applied = await this.promotions.applyToContractTx(
+          tx,
+          tenantId,
+          input.promotionCode,
+          Number(input.priceMonthly),
+        );
+        discountAmount = applied.discountAmount;
+        discountReason = applied.discountReason;
+      }
+
       const contractNumber = await this.nextContractNumber(tx, tenantId);
       return tx.contract.create({
         data: {
@@ -162,8 +180,8 @@ export class ContractsService {
           ...(input.endDate ? { endDate: new Date(input.endDate) } : {}),
           billingCycle: input.billingCycle,
           priceMonthly: input.priceMonthly,
-          discountAmount: input.discountAmount,
-          discountReason: input.discountReason?.trim() || null,
+          discountAmount,
+          discountReason,
           depositAmount: input.depositAmount,
           autoRenew: input.autoRenew,
           cancellationNoticeDays: input.cancellationNoticeDays,

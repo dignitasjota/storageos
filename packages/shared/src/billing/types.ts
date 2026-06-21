@@ -171,6 +171,20 @@ export interface PromotionDto {
   validFrom: string | null;
   validUntil: string | null;
   isActive: boolean;
+  createdAt: string;
+}
+
+/** Resultado de validar/previsualizar un código promocional. */
+export interface ValidatePromotionResultDto {
+  valid: boolean;
+  /** Motivo si `valid` es false (not_found | inactive | expired | not_started | max_uses_reached | unsupported_type). */
+  reason: string | null;
+  code: string;
+  discountType: PromotionDiscountTypeValue | null;
+  /** Descuento mensual resultante (€) sobre el precio dado. */
+  discountAmount: number;
+  /** Precio mensual tras el descuento. */
+  effectivePrice: number;
 }
 
 export interface DataSubjectRequestDto {
