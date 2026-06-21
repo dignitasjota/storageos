@@ -84,11 +84,20 @@ const cspHeader = Object.entries(cspDirectives)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Paquetes internos del monorepo que se publican como TS sin compilar.
-  // `@storageos/shared` ya emite JS compilado a `dist/`, asi que no lo
-  // anadimos aqui (transpilePackages le inyectaria HMR markers `import.meta`
-  // sobre codigo CJS y rompe el parse).
   transpilePackages: ['@storageos/ui'],
+  // pnpm + Next dev (webpack): con `resolve.symlinks` por defecto (true),
+  // webpack resuelve el symlink de los paquetes del workspace a su ruta
+  // real (`packages/*`, FUERA de node_modules), por lo que el loader de
+  // react-refresh —que excluye node_modules— sí les aplica el transform
+  // de HMR e inyecta `import.meta.webpackHot.accept()` en el dist CJS de
+  // `@storageos/shared` (`type: commonjs`), rompiendo el parse en `pnpm dev`
+  // con "Cannot use 'import.meta' outside a module". Desactivar la
+  // resolución de symlinks mantiene la ruta bajo node_modules → excluida del
+  // HMR. No afecta al build de producción (HMR es solo de dev).
+  webpack: (config) => {
+    config.resolve.symlinks = false;
+    return config;
+  },
   // Output `standalone` empaqueta el servidor Next con sus dependencias
   // minimas en `.next/standalone`, lo que permite imagenes Docker mucho
   // mas pequenas (solo copiamos esa carpeta + .next/static + public).
