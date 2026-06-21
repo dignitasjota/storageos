@@ -96,6 +96,22 @@ export const TEMPLATE_VARIABLES_BY_TRIGGER: Record<
     'lead.phone',
     'tenant.name',
   ],
+  review_request: [
+    'customer.firstName',
+    'customer.displayName',
+    'review.url',
+    'contract.number',
+    'unit.code',
+    'facility.name',
+    'tenant.name',
+  ],
+  review_submitted: [
+    'customer.firstName',
+    'customer.displayName',
+    'review.npsScore',
+    'review.rating',
+    'tenant.name',
+  ],
   manual: [
     'customer.firstName',
     'customer.lastName',

@@ -43,6 +43,7 @@ import { PortalModule } from './modules/portal/portal.module';
 import { ProductsModule } from './modules/products/products.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
 import { SecurityEventsModule } from './modules/security-events/security-events.module';
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
@@ -153,6 +154,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AccountingModule,
     RedsysModule,
     NotificationsModule,
+    ReviewsModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

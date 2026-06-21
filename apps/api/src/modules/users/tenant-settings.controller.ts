@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
 import {
   type TenantBillingSettingsResponse,
+  type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
   UpdateTenantBillingSettingsSchema,
+  UpdateTenantReviewsSettingsSchema,
   UpdateTenantSecuritySettingsSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -20,6 +22,7 @@ import type { Request } from 'express';
 
 class UpdateTenantSecuritySettingsDto extends createZodDto(UpdateTenantSecuritySettingsSchema) {}
 class UpdateTenantBillingSettingsDto extends createZodDto(UpdateTenantBillingSettingsSchema) {}
+class UpdateTenantReviewsSettingsDto extends createZodDto(UpdateTenantReviewsSettingsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -91,6 +94,28 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantBillingSettingsResponse> {
     return this.settings.updateBilling({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('settings:read')
+  @Get('reviews')
+  async getReviews(@CurrentUser() user: AuthenticatedUser): Promise<TenantReviewsSettingsResponse> {
+    return this.settings.getReviews(user.tenantId);
+  }
+
+  /** Activa o desactiva la auto-solicitud de valoraciones (NPS) por tenant. */
+  @RequirePermission('settings:manage')
+  @Patch('reviews')
+  async updateReviews(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateTenantReviewsSettingsDto,
+    @Req() req: Request,
+  ): Promise<TenantReviewsSettingsResponse> {
+    return this.settings.updateReviews({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,

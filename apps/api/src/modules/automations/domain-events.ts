@@ -20,6 +20,7 @@ export const DOMAIN_EVENTS = {
   reservation_confirmed: 'domain.reservation_confirmed',
   lead_created: 'domain.lead_created',
   incident_created: 'domain.incident_created',
+  review_submitted: 'domain.review_submitted',
 } as const;
 
 export type DomainEventName = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS];
@@ -34,7 +35,7 @@ export type DomainEventName = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS]
  */
 export interface DomainEventPayload {
   tenantId: string;
-  entityType: 'customer' | 'contract' | 'invoice' | 'reservation' | 'lead' | 'incident';
+  entityType: 'customer' | 'contract' | 'invoice' | 'reservation' | 'lead' | 'incident' | 'review';
   entityId: string;
   /** Email/telefono del recipient si aplica (customer principal). */
   recipientEmail?: string | null;
