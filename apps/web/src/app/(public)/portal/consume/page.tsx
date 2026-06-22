@@ -78,6 +78,7 @@ function PortalConsumeContent() {
   const [ucBusy, setUcBusy] = useState(false);
   const [moveOutId, setMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [addingAccess, setAddingAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
@@ -170,6 +171,26 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo regenerar.');
     } finally {
       setRegeneratingId(null);
+    }
+  }
+
+  async function addExtraAccess() {
+    if (!session) return;
+    const label = window.prompt('¿Para quién es este acceso? (p. ej. "Hijo", "Empleado")');
+    if (!label || !label.trim()) return;
+    setAddingAccess(true);
+    try {
+      const created = await portalFetch<PortalAccessCredentialDto>(
+        session,
+        '/portal/me/access/extra',
+        { method: 'POST', json: { label: label.trim() } },
+      );
+      setAccess((prev) => [created, ...(prev ?? [])]);
+      toast.success('Acceso adicional creado');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el acceso.');
+    } finally {
+      setAddingAccess(false);
     }
   }
 
@@ -544,6 +565,23 @@ function PortalConsumeContent() {
                 </li>
               ))}
             </ul>
+          )}
+          {access !== null && (
+            <div className="mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={addingAccess}
+                onClick={() => void addExtraAccess()}
+              >
+                {addingAccess ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-1 h-4 w-4" />
+                )}
+                Añadir acceso (familiar, etc.)
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

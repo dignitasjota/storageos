@@ -152,3 +152,8 @@ export interface TenantReviewsSettingsResponse {
   reviewRequestDelayDays: number;
   googleReviewUrl: string | null;
 }
+
+export interface TenantAccessSettingsResponse {
+  /** Máximo de accesos adicionales que un inquilino puede crearse en el portal. */
+  extraAccessLimit: number;
+}

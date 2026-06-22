@@ -39,3 +39,9 @@ export interface PortalIncidentDto {
   severity: string;
   createdAt: string;
 }
+
+/** Acceso adicional que el inquilino se crea desde el portal (familiar, etc.). */
+export const PortalCreateExtraAccessSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+});
+export type PortalCreateExtraAccessInput = z.infer<typeof PortalCreateExtraAccessSchema>;

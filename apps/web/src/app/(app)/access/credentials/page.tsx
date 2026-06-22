@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -75,6 +76,7 @@ import {
   useRotateCredential,
   useSuspendCredential,
 } from '@/lib/access/hooks';
+import { useAccessSettings, useUpdateAccessSettings } from '@/lib/access/settings-hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
@@ -245,6 +247,7 @@ export default function CredentialsPage() {
 
   return (
     <div className="space-y-4">
+      <ExtraAccessSettingsCard />
       <div className="flex flex-wrap gap-2">
         <Select
           value={status ?? 'all'}
@@ -852,5 +855,72 @@ function RevealedSecretDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Ajuste del tenant: máximo de accesos adicionales que un inquilino puede
+ * crearse desde su portal (p. ej. para familiares). Solo owner/manager.
+ */
+function ExtraAccessSettingsCard() {
+  const canManage = useHasPermission('settings:manage');
+  const settings = useAccessSettings();
+  const update = useUpdateAccessSettings();
+  const [value, setValue] = useState<string>('');
+
+  if (!canManage) return null;
+
+  const current = settings.data?.extraAccessLimit ?? 0;
+  const parsed = value === '' ? current : Number(value);
+  const dirty = value !== '' && Number(value) !== current;
+
+  async function save() {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0 || n > 10) {
+      toast.error('Indica un número entre 0 y 10.');
+      return;
+    }
+    try {
+      await update.mutateAsync({ extraAccessLimit: n });
+      setValue('');
+      toast.success('Límite de accesos actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Accesos adicionales del inquilino</CardTitle>
+        <CardDescription>
+          Cuántos accesos extra (para familiares, empleados…) puede crearse cada inquilino desde su
+          portal, además del que recibe al contratar. 0 = desactivado.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-end gap-2">
+          <div className="space-y-1">
+            <Label htmlFor="extra-access-limit" className="text-xs">
+              Máximo por inquilino
+            </Label>
+            <Input
+              id="extra-access-limit"
+              type="number"
+              min={0}
+              max={10}
+              className="h-9 w-24"
+              value={value === '' ? String(current) : value}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={settings.isLoading}
+            />
+          </div>
+          <Button size="sm" onClick={() => void save()} disabled={!dirty || update.isPending}>
+            Guardar
+          </Button>
+          <span className="pb-2 text-xs text-muted-foreground">Actual: {parsed}</span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

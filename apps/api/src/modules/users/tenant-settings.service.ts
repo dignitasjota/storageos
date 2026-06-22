@@ -5,10 +5,12 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  TenantAccessSettingsResponse,
   TenantBillingSettingsResponse,
   TenantReferralSettingsResponse,
   TenantReviewsSettingsResponse,
   TenantSecuritySettingsResponse,
+  UpdateTenantAccessSettingsInput,
   UpdateTenantBillingSettingsInput,
   UpdateTenantReferralSettingsInput,
   UpdateTenantReviewsSettingsInput,
@@ -236,5 +238,42 @@ export class TenantSettingsService {
       referralRewardType: updated.referralRewardType,
       referralRewardValue: Number(updated.referralRewardValue),
     };
+  }
+
+  async getAccess(tenantId: string): Promise<TenantAccessSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    return { extraAccessLimit: tenant.extraAccessLimit };
+  }
+
+  async updateAccess(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateTenantAccessSettingsInput;
+    meta: RequestMeta;
+  }): Promise<TenantAccessSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: { extraAccessLimit: args.input.extraAccessLimit },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.access.settings_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: {
+        extraAccessLimit: { from: tenant.extraAccessLimit, to: updated.extraAccessLimit },
+      },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { extraAccessLimit: updated.extraAccessLimit };
   }
 }

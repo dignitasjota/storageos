@@ -474,6 +474,63 @@ export class AccessCredentialsService {
     };
   }
 
+  /**
+   * El inquilino se crea un **acceso adicional** (p. ej. para un familiar)
+   * desde el portal, hasta el máximo configurado por el tenant
+   * (`tenants.extra_access_limit`). Solo PIN (con etiqueta).
+   */
+  async createExtraForCustomer(
+    tenantId: string,
+    customerId: string,
+    label: string,
+  ): Promise<PortalAccessCredentialDto> {
+    const limit = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { extraAccessLimit: true } }),
+      tenantId,
+    );
+    const max = limit?.extraAccessLimit ?? 2;
+    const used = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.count({
+          where: {
+            customerId,
+            status: { in: ['active', 'suspended'] as AccessCredentialStatus[] },
+            metadata: { path: ['source'], equals: 'portal_self_service' },
+          },
+        }),
+      tenantId,
+    );
+    if (used >= max) {
+      throw new ConflictException({
+        code: 'extra_access_limit_reached',
+        message: `Has alcanzado el máximo de accesos adicionales (${max})`,
+      });
+    }
+    const created = await this.create({
+      tenantId,
+      userId: 'system',
+      input: {
+        customerId,
+        method: 'pin',
+        label: label.trim() || 'Acceso adicional',
+        allowedFacilityIds: [],
+        allowedUnitIds: [],
+        allowedHours: {},
+        metadata: { source: 'portal_self_service' },
+      } as CreateCredentialInput,
+      meta: {},
+    });
+    return {
+      id: created.id,
+      method: 'pin',
+      label: created.label,
+      status: created.status,
+      value: created.revealedSecret,
+      expiresAt: created.expiresAt,
+      lastUsedAt: null,
+    };
+  }
+
   private async findOrThrow(tenantId: string, id: string): Promise<CredentialWithCustomer> {
     const row = await this.prisma.withTenant(
       (tx) =>

@@ -17,6 +17,7 @@ import {
   type PortalChargeResultDto,
   type PortalContractDto,
   type PortalIncidentDto,
+  PortalCreateExtraAccessSchema,
   type PortalInvoiceDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
@@ -51,6 +52,7 @@ class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchem
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
+class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
 class PortalUnitChangeRequestDto2 extends createZodDto(PortalUnitChangeRequestSchema) {}
@@ -233,6 +235,18 @@ export class PortalController {
   ): Promise<PortalAccessCredentialDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.access.regenerateForCustomer(tenantId, customerId, id);
+  }
+
+  /** El inquilino se crea un acceso adicional (familiar, etc.) hasta el límite. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/access/extra')
+  async createExtraAccess(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalCreateExtraAccessDto,
+  ): Promise<PortalAccessCredentialDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.access.createExtraForCustomer(tenantId, customerId, input.label);
   }
 
   @Public()

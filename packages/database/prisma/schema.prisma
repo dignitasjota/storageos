@@ -333,6 +333,7 @@ model Tenant {
   referralEnabled             Boolean               @default(false) @map("referral_enabled")
   referralRewardType          PromotionDiscountType @default(fixed) @map("referral_reward_type")
   referralRewardValue         Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
+  extraAccessLimit            Int                   @default(2) @map("extra_access_limit")
   deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt                   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)

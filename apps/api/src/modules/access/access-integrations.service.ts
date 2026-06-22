@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
+import { PrismaService } from '../database/prisma.service';
 
 import { AccessCredentialsService } from './access-credentials.service';
 
@@ -22,7 +23,66 @@ export class AccessIntegrationsService {
   constructor(
     private readonly credentials: AccessCredentialsService,
     private readonly communications: CommunicationsService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Emite un PIN para el inquilino y le manda el email con el código. Lo usan
+   * tanto el alta por firma de contrato como la auto-emisión al primer pago.
+   */
+  private async issueCredential(args: {
+    tenantId: string;
+    customerId: string;
+    source: string;
+    label: string | null;
+    recipientEmail: string | null;
+    scope: {
+      customer?: Record<string, unknown>;
+      unit?: Record<string, unknown>;
+      facility?: Record<string, unknown>;
+      tenant?: Record<string, unknown>;
+    };
+    entityId?: string;
+  }): Promise<void> {
+    const created = await this.credentials.create({
+      tenantId: args.tenantId,
+      userId: 'system',
+      input: {
+        customerId: args.customerId,
+        method: 'pin',
+        label: args.label,
+        allowedFacilityIds: [],
+        allowedUnitIds: [],
+        allowedHours: {},
+        metadata: { source: args.source, entityId: args.entityId },
+      } as Parameters<AccessCredentialsService['create']>[0]['input'],
+      meta: {},
+    });
+    if (!args.recipientEmail || !created.revealedSecret) {
+      this.logger.warn(
+        `${args.source}: credencial creada pero no se envia email (sin recipient o sin secret) tenant=${args.tenantId}`,
+      );
+      return;
+    }
+    await this.communications.enqueue({
+      tenantId: args.tenantId,
+      channel: 'email',
+      recipient: args.recipientEmail,
+      templateCode: 'access_credential_issued_email',
+      variables: {
+        customer: args.scope.customer ?? {},
+        credential: { secret: created.revealedSecret },
+        unit: args.scope.unit ?? {},
+        facility: args.scope.facility ?? {},
+        tenant: args.scope.tenant ?? {},
+      },
+      customerId: args.customerId,
+      source: `access.${args.source}`,
+    });
+    this.logger.log(
+      `${args.source}: credencial PIN emitida + email encolado tenant=${args.tenantId} customer=${args.customerId}`,
+    );
+  }
 
   @OnEvent(DOMAIN_EVENTS.contract_signed, { async: true, promisify: true })
   async onContractSigned(payload: DomainEventPayload): Promise<void> {
@@ -35,44 +95,15 @@ export class AccessIntegrationsService {
       tenant?: { name?: string };
     };
     try {
-      const created = await this.credentials.create({
+      await this.issueCredential({
         tenantId: payload.tenantId,
-        userId: 'system',
-        input: {
-          customerId: payload.customerId,
-          method: 'pin',
-          label: scope.contract?.number ? `Contrato ${scope.contract.number}` : null,
-          allowedFacilityIds: [],
-          allowedUnitIds: [],
-          allowedHours: {},
-          metadata: { source: 'contract_signed', entityId: payload.entityId },
-        } as Parameters<AccessCredentialsService['create']>[0]['input'],
-        meta: {},
-      });
-      if (!payload.recipientEmail || !created.revealedSecret) {
-        this.logger.warn(
-          `contract.signed: credencial creada pero no se envia email (sin recipient o sin secret) tenant=${payload.tenantId}`,
-        );
-        return;
-      }
-      await this.communications.enqueue({
-        tenantId: payload.tenantId,
-        channel: 'email',
-        recipient: payload.recipientEmail,
-        templateCode: 'access_credential_issued_email',
-        variables: {
-          customer: scope.customer ?? {},
-          credential: { secret: created.revealedSecret },
-          unit: scope.unit ?? {},
-          facility: scope.facility ?? {},
-          tenant: scope.tenant ?? {},
-        },
         customerId: payload.customerId,
-        source: 'access.contract_signed',
+        source: 'contract_signed',
+        label: scope.contract?.number ? `Contrato ${scope.contract.number}` : null,
+        recipientEmail: payload.recipientEmail ?? null,
+        scope: scope as Parameters<typeof this.issueCredential>[0]['scope'],
+        entityId: payload.entityId,
       });
-      this.logger.log(
-        `contract.signed: credencial PIN emitida + email encolado tenant=${payload.tenantId} customer=${payload.customerId}`,
-      );
     } catch (err) {
       this.logger.error(
         `contract.signed: fallo en integracion access tenant=${payload.tenantId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -83,16 +114,41 @@ export class AccessIntegrationsService {
   @OnEvent(DOMAIN_EVENTS.invoice_paid, { async: true, promisify: true })
   async onInvoicePaid(payload: DomainEventPayload): Promise<void> {
     if (!payload.customerId) return;
+    const customerId = payload.customerId;
     try {
+      // 1. Reactiva credenciales suspendidas por impago.
       await this.credentials.resume({
         tenantId: payload.tenantId,
         userId: 'system',
-        customerId: payload.customerId,
+        customerId,
         onlyIfReasonStartsWith: 'dunning:',
         meta: {},
       } as Parameters<AccessCredentialsService['resume']>[0]);
+      // 2. Auto-emisión al primer pago: si el inquilino aún no tiene ninguna
+      //    credencial activa (p. ej. modelo "pago primero"), le emite un PIN.
+      const active = await this.credentials.listForCustomer(payload.tenantId, customerId);
+      if (active.length === 0) {
+        const customer = await this.prisma.withTenant(
+          (tx) =>
+            tx.customer.findFirst({
+              where: { id: customerId, tenantId: payload.tenantId, deletedAt: null },
+              select: { email: true, firstName: true, lastName: true, companyName: true },
+            }),
+          payload.tenantId,
+        );
+        if (customer) {
+          await this.issueCredential({
+            tenantId: payload.tenantId,
+            customerId,
+            source: 'invoice_paid',
+            label: 'Acceso',
+            recipientEmail: customer.email ?? null,
+            scope: { customer: { firstName: customer.firstName ?? '' } },
+          });
+        }
+      }
       this.logger.log(
-        `invoice.paid: credenciales reactivadas (si las habia) tenant=${payload.tenantId} customer=${payload.customerId}`,
+        `invoice.paid: credenciales reactivadas/emitidas (si procede) tenant=${payload.tenantId} customer=${customerId}`,
       );
     } catch (err) {
       this.logger.warn(
