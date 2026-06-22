@@ -1729,6 +1729,11 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /portal/me/contracts` (`@Public` + sesión de portal): contratos active/ending del inquilino (`PortalContractDto`).
 - `POST /portal/me/contracts/:id/request-move-out {endDate}` (`@Public` + sesión + throttle): solicita la baja. Valida propiedad (404 si no es suyo) + preaviso (`endDate ≥ hoy + cancellationNoticeDays`, 400 `notice_period_not_met`) → contrato a `ending`. Emite `contract_move_out_requested` → notificación al staff + encuesta de salida (NPS). El staff finaliza el contrato en la fecha (no auto-finaliza).
 
+### Recargo por mora / late fee (`/invoices/:id/late-fee`, `/settings/tenant/billing`)
+
+- `POST /invoices/:id/late-fee` (`invoices:manage`): emite una **factura separada** de recargo (F1, línea sin IVA, % del importe vencido o € fijo según config). Idempotente (409 `late_fee_already_applied`). También lo hace el dunning a los `late_fee_grace_days` de vencimiento si el tenant lo activó.
+- `GET/PATCH /settings/tenant/billing` (`settings:read` / `billing:configure`): config del recargo (`lateFeeEnabled`/`lateFeeType`/`lateFeeValue`/`lateFeeGraceDays`) + auto-charge. `InvoiceDto` expone `lateFeeForInvoiceId`/`lateFeeInvoiceId`.
+
 ### Imágenes + slug del local (`/facilities/:id/images`)
 
 - `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).

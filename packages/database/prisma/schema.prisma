@@ -314,6 +314,13 @@ model Tenant {
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
   autoChargeOnIssue           Boolean               @default(false) @map("auto_charge_on_issue")
+  /// Recargo por mora (opt-in): a los `lateFeeGraceDays` de vencimiento se
+  /// emite una factura de recargo (% del vencido o € fijo) vía el dunning.
+  lateFeeEnabled              Boolean               @default(false) @map("late_fee_enabled")
+  /// percentage | fixed
+  lateFeeType                 String                @default("percentage") @map("late_fee_type")
+  lateFeeValue                Decimal               @default(5) @map("late_fee_value") @db.Decimal(10, 2)
+  lateFeeGraceDays            Int                   @default(7) @map("late_fee_grace_days")
   /// Si true, un cron pide la valoracion (NPS) automaticamente N dias tras
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
   reviewsAutoRequest          Boolean               @default(false) @map("reviews_auto_request")
@@ -1100,6 +1107,9 @@ model Invoice {
   rectifiesInvoiceId  String?           @map("rectifies_invoice_id") @db.Uuid
   rectificationReason String?           @map("rectification_reason")
   correctionMethod    CorrectionMethod? @map("correction_method")
+  /// Si esta factura es un recargo por mora, apunta a la factura vencida que
+  /// lo originó (idempotencia: única por factura original).
+  lateFeeForInvoiceId String?           @unique @map("late_fee_for_invoice_id") @db.Uuid
   issueDate           DateTime?         @map("issue_date") @db.Date
   dueDate             DateTime?         @map("due_date") @db.Date
   /// Periodo facturado (p.ej. mes natural si es un alquiler mensual).
@@ -1130,17 +1140,19 @@ model Invoice {
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer         Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  contract         Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
-  series           InvoiceSeries   @relation(fields: [seriesId], references: [id], onDelete: Restrict)
-  items            InvoiceItem[]
-  payments         Payment[]
-  dunningActions   DunningAction[]
-  productSale      ProductSale?    @relation("ProductSaleInvoice")
-  redsysOrders     RedsysOrder[]
-  rectifiesInvoice Invoice?        @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
-  rectifiedBy      Invoice[]       @relation("InvoiceRectification")
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer          Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract          Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  series            InvoiceSeries   @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  items             InvoiceItem[]
+  payments          Payment[]
+  dunningActions    DunningAction[]
+  productSale       ProductSale?    @relation("ProductSaleInvoice")
+  redsysOrders      RedsysOrder[]
+  rectifiesInvoice  Invoice?        @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
+  rectifiedBy       Invoice[]       @relation("InvoiceRectification")
+  lateFeeForInvoice Invoice?        @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
+  lateFeeInvoice    Invoice?        @relation("InvoiceLateFee")
 
   @@unique([tenantId, seriesId, sequenceNumber])
   @@unique([tenantId, invoiceNumber])

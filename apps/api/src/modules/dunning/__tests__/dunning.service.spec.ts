@@ -7,6 +7,7 @@ import { DunningService } from '../dunning.service';
 
 import type { AccessIntegrationsService } from '../../access/access-integrations.service';
 import type { AuditService } from '../../auth/audit.service';
+import type { InvoicesService } from '../../billing/invoices.service';
 import type { CommunicationsService } from '../../communications/communications.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
@@ -31,12 +32,14 @@ function buildService(
   const queue = deps.queue ?? { add: jest.fn() };
   const events = deps.events ?? { emit: jest.fn() };
   const audit = { write: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
+  const invoices = { createLateFee: jest.fn() } as unknown as InvoicesService;
   return new DunningService(
     queue as unknown as Queue,
     admin as unknown as PrismaAdminService,
     audit,
     communications as unknown as CommunicationsService,
     events as unknown as EventEmitter2,
+    invoices,
     null as unknown as AccessIntegrationsService,
   );
 }

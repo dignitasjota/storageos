@@ -68,12 +68,28 @@ export class TenantSettingsService {
     return { requireTwoFactorForManagers: updated.requireTwoFactorForManagers };
   }
 
+  private billingDto(tenant: {
+    autoChargeOnIssue: boolean;
+    lateFeeEnabled: boolean;
+    lateFeeType: string;
+    lateFeeValue: unknown;
+    lateFeeGraceDays: number;
+  }): TenantBillingSettingsResponse {
+    return {
+      autoChargeOnIssue: tenant.autoChargeOnIssue,
+      lateFeeEnabled: tenant.lateFeeEnabled,
+      lateFeeType: tenant.lateFeeType as 'percentage' | 'fixed',
+      lateFeeValue: Number(tenant.lateFeeValue),
+      lateFeeGraceDays: tenant.lateFeeGraceDays,
+    };
+  }
+
   async getBilling(tenantId: string): Promise<TenantBillingSettingsResponse> {
     const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    return { autoChargeOnIssue: tenant.autoChargeOnIssue };
+    return this.billingDto(tenant);
   }
 
   async updateBilling(args: {
@@ -86,30 +102,32 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    const prev = tenant.autoChargeOnIssue;
-    const next = args.input.autoChargeOnIssue;
+    const { input } = args;
+    const data: Record<string, string | number | boolean> = {};
+    if (input.autoChargeOnIssue !== undefined) data.autoChargeOnIssue = input.autoChargeOnIssue;
+    if (input.lateFeeEnabled !== undefined) data.lateFeeEnabled = input.lateFeeEnabled;
+    if (input.lateFeeType !== undefined) data.lateFeeType = input.lateFeeType;
+    if (input.lateFeeValue !== undefined) data.lateFeeValue = input.lateFeeValue;
+    if (input.lateFeeGraceDays !== undefined) data.lateFeeGraceDays = input.lateFeeGraceDays;
 
-    if (prev === next) {
-      return { autoChargeOnIssue: next };
+    if (Object.keys(data).length === 0) {
+      return this.billingDto(tenant);
     }
 
-    const updated = await this.admin.tenant.update({
-      where: { id: args.tenantId },
-      data: { autoChargeOnIssue: next },
-    });
+    const updated = await this.admin.tenant.update({ where: { id: args.tenantId }, data });
 
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.actorUserId,
-      action: 'tenant.billing.auto_charge_changed',
+      action: 'tenant.billing.settings_changed',
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: { from: prev, to: next },
+      changes: data,
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
 
-    return { autoChargeOnIssue: updated.autoChargeOnIssue };
+    return this.billingDto(updated);
   }
 
   async getReviews(tenantId: string): Promise<TenantReviewsSettingsResponse> {

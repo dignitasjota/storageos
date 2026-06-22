@@ -192,7 +192,12 @@ export type UpdateTenantSecuritySettingsInput = z.infer<typeof UpdateTenantSecur
  * del cliente (las facturas sin metodo quedan pendientes sin error).
  */
 export const UpdateTenantBillingSettingsSchema = z.object({
-  autoChargeOnIssue: z.boolean(),
+  autoChargeOnIssue: z.boolean().optional(),
+  /** Recargo por mora (opt-in): emite una factura de recargo a los N días de vencimiento. */
+  lateFeeEnabled: z.boolean().optional(),
+  lateFeeType: z.enum(['percentage', 'fixed']).optional(),
+  lateFeeValue: z.number().nonnegative().max(100_000).optional(),
+  lateFeeGraceDays: z.number().int().min(0).max(120).optional(),
 });
 export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;
 

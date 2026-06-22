@@ -137,6 +137,10 @@ export interface TenantSecuritySettingsResponse {
  */
 export interface TenantBillingSettingsResponse {
   autoChargeOnIssue: boolean;
+  lateFeeEnabled: boolean;
+  lateFeeType: 'percentage' | 'fixed';
+  lateFeeValue: number;
+  lateFeeGraceDays: number;
 }
 
 /** Respuesta de `/settings/tenant/reviews` (auto-solicitud de valoraciones). */

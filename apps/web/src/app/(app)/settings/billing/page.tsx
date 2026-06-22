@@ -133,6 +133,7 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoChargeCard />
+      <LateFeeCard />
 
       <HoldedCard />
 
@@ -298,6 +299,96 @@ function AutoChargeCard() {
           disabled={update.isPending}
         >
           {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar cobro automático'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Recargo por mora (opt-in). Solo owner (billing:configure). */
+function LateFeeCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+
+  if (!canConfigure || settings.isLoading || !settings.data) return null;
+  const s = settings.data;
+
+  async function save(patch: Partial<typeof s>) {
+    try {
+      await update.mutateAsync(patch);
+      toast.success('Recargo por mora actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Recargo por mora</CardTitle>
+          <Badge variant={s.lateFeeEnabled ? 'default' : 'outline'}>
+            {s.lateFeeEnabled ? 'Activado' : 'Desactivado'}
+          </Badge>
+        </div>
+        <CardDescription>
+          A los días indicados de vencimiento, el dunning emite una factura de recargo (separada,
+          conforme a Veri*Factu). También puedes aplicarlo a mano desde una factura vencida.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Tipo</label>
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              value={s.lateFeeType}
+              onChange={(e) => save({ lateFeeType: e.target.value as 'percentage' | 'fixed' })}
+              disabled={update.isPending}
+            >
+              <option value="percentage">Porcentaje (%)</option>
+              <option value="fixed">Importe fijo (€)</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">
+              {s.lateFeeType === 'percentage' ? 'Porcentaje' : 'Euros'}
+            </label>
+            <Input
+              type="number"
+              defaultValue={s.lateFeeValue}
+              min={0}
+              step="0.01"
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (v !== s.lateFeeValue) void save({ lateFeeValue: v });
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Días tras vencimiento</label>
+            <Input
+              type="number"
+              defaultValue={s.lateFeeGraceDays}
+              min={0}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (v !== s.lateFeeGraceDays) void save({ lateFeeGraceDays: v });
+              }}
+            />
+          </div>
+        </div>
+        <Button
+          onClick={() => save({ lateFeeEnabled: !s.lateFeeEnabled })}
+          variant={s.lateFeeEnabled ? 'destructive' : 'default'}
+          disabled={update.isPending}
+        >
+          {update.isPending
+            ? 'Guardando…'
+            : s.lateFeeEnabled
+              ? 'Desactivar recargo'
+              : 'Activar recargo por mora'}
         </Button>
       </CardContent>
     </Card>
