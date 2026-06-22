@@ -59,6 +59,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard, enabled: true },
+  { href: '/assistant', labelKey: 'assistant', icon: Bot, enabled: true, permission: 'ai:use' },
   { href: '/facilities', labelKey: 'facilities', icon: Building2, enabled: true },
   { href: '/units', labelKey: 'units', icon: Boxes, enabled: true },
   { href: '/customers', labelKey: 'customers', icon: Users, enabled: true },

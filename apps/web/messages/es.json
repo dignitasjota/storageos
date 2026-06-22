@@ -151,6 +151,7 @@
   },
   "sidebar": {
     "dashboard": "Resumen",
+    "assistant": "Asistente IA",
     "facilities": "Locales",
     "units": "Trasteros",
     "customers": "Inquilinos",
