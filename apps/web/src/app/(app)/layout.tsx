@@ -11,7 +11,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <AuthBootstrap>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset>
+        <SidebarInset className="bg-app">
           <AppHeader />
           <TrialBanner />
           <div className="flex-1">{children}</div>

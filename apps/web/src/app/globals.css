@@ -23,19 +23,22 @@
     --accent-foreground: 222 47% 11%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
+    --border: 214 32% 92%;
+    --input: 214 32% 92%;
     --ring: 221 83% 53%;
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    /* Sidebar */
-    --sidebar-background: 210 40% 98%;
-    --sidebar-foreground: 222 47% 11%;
+    /* Fondo de la zona de contenido: tarjetas blancas "flotando" sobre gris. */
+    --app: 210 40% 98%;
+
+    /* Sidebar — blanco; item activo = pildora azul tenue. */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 215 18% 38%;
     --sidebar-primary: 221 83% 53%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 40% 94%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 214 32% 91%;
+    --sidebar-accent: 221 83% 96%;
+    --sidebar-accent-foreground: 221 83% 47%;
+    --sidebar-border: 214 32% 93%;
     --sidebar-ring: 221 83% 53%;
   }
 
@@ -62,13 +65,15 @@
     --input: 217 33% 17%;
     --ring: 217 91% 60%;
 
-    --sidebar-background: 222 47% 10%;
-    --sidebar-foreground: 210 40% 98%;
+    --app: 222 47% 5%;
+
+    --sidebar-background: 222 47% 9%;
+    --sidebar-foreground: 215 20% 65%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 222 47% 11%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 17%;
+    --sidebar-accent: 217 60% 16%;
+    --sidebar-accent-foreground: 213 94% 78%;
+    --sidebar-border: 217 33% 15%;
     --sidebar-ring: 217 91% 60%;
   }
 }

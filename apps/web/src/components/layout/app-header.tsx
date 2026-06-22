@@ -9,10 +9,10 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 
 export function AppHeader() {
   return (
-    <header className="flex h-14 items-center gap-3 border-b border-border bg-background px-4">
-      <SidebarTrigger />
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/70 bg-app/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-app/60">
+      <SidebarTrigger className="-ml-1" />
       <FacilitySwitcher />
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1.5">
         <NotificationBell />
         <ThemeToggle />
         <UserMenu />
