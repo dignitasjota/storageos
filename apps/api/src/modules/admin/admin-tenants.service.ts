@@ -221,6 +221,61 @@ export class AdminTenantsService {
   }
 
   /**
+   * Cambia el plan de suscripcion de un tenant (super admin). Util para
+   * mover un tenant entre planes (free/starter/pro) — controla, vía
+   * `PLAN_FEATURES`, qué modulos premium ve. No toca Stripe (cambio manual).
+   */
+  async changePlan(
+    tenantId: string,
+    args: { planSlug: string; reason: string } & ActionMeta,
+  ): Promise<AdminTenantDto> {
+    await this.findOrThrow(tenantId);
+    const plan = await this.admin.subscriptionPlan.findUnique({
+      where: { slug: args.planSlug },
+    });
+    if (!plan) {
+      throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
+    }
+    const subscription = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: true },
+    });
+    if (!subscription) {
+      throw new NotFoundException({
+        code: 'subscription_not_found',
+        message: 'Suscripcion no encontrada',
+      });
+    }
+    const previousSlug = subscription.plan.slug;
+    await this.admin.tenantSubscription.update({
+      where: { tenantId },
+      data: { planId: plan.id },
+    });
+    const changes = { reason: args.reason, previousPlan: previousSlug, newPlan: plan.slug };
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'admin.tenant.plan_changed',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { superAdminId: args.superAdminId, ...changes },
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: args.superAdminId,
+      action: 'admin.tenant.plan_changed',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+      changes,
+    });
+    return this.detail(tenantId);
+  }
+
+  /**
    * Anonimizacion completa de un tenant (RGPD, derecho al olvido al darse de
    * baja). Irreversible. En una sola `$transaction` (bypass RLS porque es
    * cross-tenant):

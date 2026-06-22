@@ -10,7 +10,9 @@ import type {
   AdminTenantDto,
   AnonymizeTenantResultDto,
   AssignTicketInput,
+  ChangePlanInput,
   ExtendTrialInput,
+  SubscriptionPlanDto,
   ImpersonateInput,
   ImpersonationTokenDto,
   SecurityEventTypeValue,
@@ -236,6 +238,28 @@ export function useExtendTrial() {
   return useMutation({
     mutationFn: (args: { id: string; input: ExtendTrialInput }) =>
       adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/extend-trial`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+/** Catálogo de planes (endpoint público) para el selector de cambio de plan. */
+export function useAdminSubscriptionPlans() {
+  return useQuery({
+    queryKey: ['admin', 'subscription-plans'],
+    queryFn: () => adminApiFetch<SubscriptionPlanDto[]>('/subscription-plans'),
+  });
+}
+
+export function useChangePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: ChangePlanInput }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/change-plan`, {
         method: 'POST',
         json: args.input,
       }),

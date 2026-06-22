@@ -97,6 +97,29 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(trialEndsAfter).toBeGreaterThan(trialEndsBefore);
   });
 
+  it('tenant action: change-plan cambia el plan de suscripción', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-plan');
+    // Registro → plan starter.
+    const detailBefore = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(detailBefore.body.subscription.planSlug).toBe('starter');
+
+    const r = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/change-plan`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ planSlug: 'pro', reason: 'upgrade de test' });
+    expect([200, 201]).toContain(r.status);
+    expect(r.body.subscription.planSlug).toBe('pro');
+
+    // Plan inexistente → 404.
+    const bad = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/change-plan`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ planSlug: 'inexistente', reason: 'x' });
+    expect(bad.status).toBe(404);
+  });
+
   it('tenant action: suspend → reactivate', async () => {
     const owner = await registerVerifiedUser(app, 'admin-sus');
     const suspend = await request(app.getHttpServer())

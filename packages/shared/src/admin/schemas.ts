@@ -67,6 +67,12 @@ export const ExtendTrialSchema = z.object({
 });
 export type ExtendTrialInput = z.infer<typeof ExtendTrialSchema>;
 
+export const ChangePlanSchema = z.object({
+  planSlug: z.string().trim().min(1).max(60),
+  reason: z.string().trim().min(1).max(500),
+});
+export type ChangePlanInput = z.infer<typeof ChangePlanSchema>;
+
 export const ImpersonateSchema = z.object({
   reason: z.string().trim().min(1).max(500),
 });

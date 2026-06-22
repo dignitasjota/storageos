@@ -14,6 +14,7 @@ import {
 import {
   type AdminTenantDto,
   AdminTenantActionSchema,
+  ChangePlanSchema,
   ExtendTrialSchema,
   type ImpersonationTokenDto,
   ImpersonateSchema,
@@ -31,6 +32,7 @@ import type { Request } from 'express';
 
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
+class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
 
 interface RequestMetaInfo {
@@ -117,6 +119,24 @@ export class AdminTenantsController {
       superAdminId: admin.sub,
       reason: input.reason,
       days: input.days,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  @Post(':id/change-plan')
+  @HttpCode(HttpStatus.OK)
+  async changePlan(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: ChangePlanDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantDto> {
+    const meta = extractMeta(req);
+    return this.tenants.changePlan(id, {
+      superAdminId: admin.sub,
+      planSlug: input.planSlug,
+      reason: input.reason,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
