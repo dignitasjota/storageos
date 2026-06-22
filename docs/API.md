@@ -1678,6 +1678,39 @@ En tests e2e (`NODE_ENV=test`) el throttler aplica `skipIf: () => true`.
 
 ---
 
+## Crecimiento / CRM (2026-06)
+
+Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
+`facilities`. Autorización por `@RequirePermission`.
+
+### Reviews / NPS (`/reviews`, `/public/reviews`, `/settings/tenant/reviews`)
+
+- `POST /reviews/request` (`reviews:write`): solicita una valoración a un cliente (crea token + envía email/WhatsApp).
+- `GET /reviews` (`reviews:read`), `GET /reviews/stats` (`reviews:read`): NPS = %promotores(9-10) − %detractores(0-6), media de estrellas, tasa de respuesta.
+- `GET /public/reviews/:token` + `POST /public/reviews/:token` (`@Public`, throttle, honeypot): contexto + envío de la valoración (NPS 0-10 + estrellas 1-5 + comentario) → emite `domain.review_submitted`.
+- `GET/PATCH /settings/tenant/reviews` (`settings:read`/`settings:manage`): opt-in del cron `reviews.auto-request` (`reviews_auto_request` + `review_request_delay_days`).
+
+### Promociones (`/promotions`)
+
+- `GET/POST/PATCH/DELETE /promotions` (`promotions:read` / `promotions:manage`).
+- `POST /promotions/validate` (`contracts:write`): previsualiza el descuento de un código sobre un precio mensual.
+- Aplicación: `CreateContractSchema.promotionCode` en el alta de contrato → valida + fija `discount_amount` recurrente + `used_count++` (atómico). Solo percentage/fixed.
+
+### Referidos (`/referrals`, `/portal/me/referrals`, `/settings/tenant/referrals`)
+
+- `GET /referrals` + `GET /referrals/stats` (`referrals:read`): lista + métricas.
+- `GET /portal/me/referrals` (`@Public` + sesión de portal): código del inquilino + sus referidos + recompensas.
+- `GET/PATCH /settings/tenant/referrals` (`settings:read`/`settings:manage`): opt-in + recompensa (`referral_enabled`/`referral_reward_type`/`referral_reward_value`).
+- Registro: `referralCode` en el alta de cliente (`CreateCustomerSchema`) y en el booking público (`PublicBookingSchema`). Conversión + recompensa (promoción `REF-XXXX` de un solo uso) por el listener `domain.contract_signed`.
+
+### Imágenes + slug del local (`/facilities/:id/images`)
+
+- `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).
+- `PUT /facilities/:id/images` (`facilities:manage`): fija la lista completa por keys; valida que cada key empieza por `<tenant>/<facility>/images/` (404 `invalid_image_key`).
+- El slug se edita con el `PATCH /facilities/:id` existente (`publicSlug`). `FacilityDto.images = { key, url }[]`; la landing pública las muestra.
+
+---
+
 ## Pendiente / Backlog post-MVP
 
 Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):

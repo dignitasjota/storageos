@@ -319,13 +319,18 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 SQL
 
 # 6.8 Crear los buckets MinIO
+# IMPORTANTE: `storageos-public` es PUBLIC-READ (anonymous download) porque
+# sirve las imágenes de los locales en la landing pública sin auth. Los demás
+# buckets quedan PRIVADOS (guardan documentos de clientes y PDFs de contratos).
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec minio \
   /bin/sh -c "
     mc alias set local http://localhost:9000 \$MINIO_ROOT_USER \$MINIO_ROOT_PASSWORD &&
     mc mb --ignore-existing local/storageos-uploads &&
     mc mb --ignore-existing local/storageos-invoices &&
     mc mb --ignore-existing local/storageos-plans &&
-    mc mb --ignore-existing local/storageos-reports
+    mc mb --ignore-existing local/storageos-reports &&
+    mc mb --ignore-existing local/storageos-public &&
+    mc anonymous set download local/storageos-public
   "
 
 # 6.9 Levantar api + web
