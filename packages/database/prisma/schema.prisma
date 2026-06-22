@@ -406,6 +406,7 @@ model Tenant {
   bankStatementTxs        BankStatementTransaction[]
   aiConversations         AiConversation[]
   aiMessages              AiMessage[]
+  pushSubscriptions       PushSubscription[]
 
   @@map("tenants")
 }
@@ -862,24 +863,25 @@ model Customer {
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  documents        CustomerDocument[]
-  contracts        Contract[]
-  reservations     Reservation[]
-  invoices         Invoice[]
-  payments         Payment[]
-  paymentMethods   PaymentMethod[]
-  consents         Consent[]
-  communications   Communication[]
-  leadsConverted   Lead[]             @relation("LeadConvertedCustomer")
-  incidents        Incident[]         @relation("IncidentCustomer")
-  productSales     ProductSale[]      @relation("ProductSaleCustomer")
-  credentials      AccessCredential[] @relation("CredentialCustomer")
-  accessLogs       AccessLog[]        @relation("AccessLogCustomer")
-  reviews          Review[]
-  referralsMade    Referral[]         @relation("ReferralReferrer")
-  referralReceived Referral?          @relation("ReferralReferred")
-  sepaMandates     SepaMandate[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  documents         CustomerDocument[]
+  contracts         Contract[]
+  reservations      Reservation[]
+  invoices          Invoice[]
+  payments          Payment[]
+  paymentMethods    PaymentMethod[]
+  consents          Consent[]
+  communications    Communication[]
+  leadsConverted    Lead[]             @relation("LeadConvertedCustomer")
+  incidents         Incident[]         @relation("IncidentCustomer")
+  productSales      ProductSale[]      @relation("ProductSaleCustomer")
+  credentials       AccessCredential[] @relation("CredentialCustomer")
+  accessLogs        AccessLog[]        @relation("AccessLogCustomer")
+  reviews           Review[]
+  referralsMade     Referral[]         @relation("ReferralReferrer")
+  referralReceived  Referral?          @relation("ReferralReferred")
+  sepaMandates      SepaMandate[]
+  pushSubscriptions PushSubscription[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1656,6 +1658,23 @@ model AiMessage {
   @@index([conversationId])
   @@index([tenantId])
   @@map("ai_messages")
+}
+
+/// Suscripción Web Push del navegador del inquilino (PWA del portal).
+model PushSubscription {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, customerId])
+  @@map("push_subscriptions")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).

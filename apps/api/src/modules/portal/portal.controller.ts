@@ -23,6 +23,9 @@ import {
   PortalReportIncidentSchema,
   PortalRequestMagicLinkSchema,
   type PortalSessionDto,
+  type PushPublicKeyDto,
+  PushSubscribeSchema,
+  PushUnsubscribeSchema,
   type RedsysRedirectDto,
   RequestMoveOutSchema,
   type SetupIntentResponseDto,
@@ -35,6 +38,7 @@ import { AccessCredentialsService } from '../access/access-credentials.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
+import { PushService } from '../push/push.service';
 import { ReferralsService } from '../referrals/referrals.service';
 
 import { PortalService } from './portal.service';
@@ -44,6 +48,8 @@ class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchem
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
+class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
+class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -54,6 +60,7 @@ export class PortalController {
     private readonly referrals: ReferralsService,
     private readonly contracts: ContractsService,
     private readonly incidents: IncidentsService,
+    private readonly push: PushService,
   ) {}
 
   @Public()
@@ -141,6 +148,41 @@ export class PortalController {
   ): Promise<PortalIncidentDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.incidents.createFromPortal({ tenantId, customerId, input });
+  }
+
+  // ----------------------- notificaciones push -----------------------------
+
+  @Public()
+  @Get('me/push/public-key')
+  async pushPublicKey(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PushPublicKeyDto> {
+    await this.requirePortalSession(auth);
+    return { publicKey: this.push.getPublicKey() };
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/push/subscribe')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async pushSubscribe(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PushSubscribeDto,
+  ): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.push.subscribe(tenantId, customerId, input);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/push/unsubscribe')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async pushUnsubscribe(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PushUnsubscribeDto,
+  ): Promise<void> {
+    const { tenantId } = await this.requirePortalSession(auth);
+    await this.push.unsubscribe(tenantId, input.endpoint);
   }
 
   // ----------------------- referidos ---------------------------------------

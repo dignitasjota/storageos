@@ -7,6 +7,7 @@ import { ContractsModule } from '../contracts/contracts.module';
 import { OperationsModule } from '../operations/operations.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
+import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 
 import { PortalController } from './portal.controller';
@@ -28,6 +29,8 @@ import { PortalService } from './portal.service';
     ContractsModule,
     // OperationsModule: el inquilino reporta incidencias desde el portal.
     OperationsModule,
+    // PushModule: suscripción a notificaciones push desde el portal.
+    PushModule,
   ],
   controllers: [PortalController],
   providers: [PortalService],

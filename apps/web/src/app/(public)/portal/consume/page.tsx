@@ -12,6 +12,7 @@ import {
   type SetupIntentResponseDto,
 } from '@storageos/shared';
 import {
+  Bell,
   CreditCard,
   Download,
   Gift,
@@ -43,6 +44,16 @@ import {
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
+/** Convierte la clave pública VAPID (base64url) al formato que pide pushManager. */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
 function PortalConsumeContent() {
   const params = useSearchParams();
   const token = params.get('token');
@@ -56,6 +67,9 @@ function PortalConsumeContent() {
   const [incidentTitle, setIncidentTitle] = useState('');
   const [incidentDesc, setIncidentDesc] = useState('');
   const [reportingIncident, setReportingIncident] = useState(false);
+  const [pushKey, setPushKey] = useState<string | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const [moveOutId, setMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +124,16 @@ function PortalConsumeContent() {
         setReferrals(refs);
         setContracts(ctr);
         setIncidents(inc);
+        // Clave pública de push (best-effort; null si no está configurado).
+        try {
+          const k = await portalFetch<{ publicKey: string | null }>(
+            s,
+            '/portal/me/push/public-key',
+          );
+          if (!cancelled) setPushKey(k.publicKey);
+        } catch {
+          /* push opcional */
+        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.body.message : 'Enlace inválido o caducado');
@@ -138,6 +162,37 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo regenerar.');
     } finally {
       setRegeneratingId(null);
+    }
+  }
+
+  async function enablePush() {
+    if (!session || !pushKey) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      toast.error('Tu navegador no soporta notificaciones push.');
+      return;
+    }
+    setPushBusy(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        toast.error('Permiso de notificaciones denegado.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(pushKey) as BufferSource,
+      });
+      await portalFetch(session, '/portal/me/push/subscribe', {
+        method: 'POST',
+        json: sub.toJSON(),
+      });
+      setPushEnabled(true);
+      toast.success('Notificaciones activadas.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron activar.');
+    } finally {
+      setPushBusy(false);
     }
   }
 
@@ -507,6 +562,35 @@ function PortalConsumeContent() {
                   </li>
                 ))}
               </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {pushKey && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="h-4 w-4" /> Notificaciones
+            </CardTitle>
+            <CardDescription>
+              Recibe avisos de pagos y vencimientos en este dispositivo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {pushEnabled ? (
+              <p className="text-sm text-emerald-600">
+                ✓ Notificaciones activadas en este dispositivo.
+              </p>
+            ) : (
+              <Button onClick={enablePush} disabled={pushBusy} variant="outline">
+                {pushBusy ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Bell className="mr-1 h-4 w-4" />
+                )}
+                Activar notificaciones
+              </Button>
             )}
           </CardContent>
         </Card>
