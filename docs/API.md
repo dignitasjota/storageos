@@ -1041,6 +1041,8 @@ y declararla en `reports.module.ts`.
 
 Modulo `apps/api/src/modules/access/`.
 
+> 🔌 **Montaje físico con ESP32** (guía + firmware de ejemplo): [`HARDWARE_ESP32.md`](HARDWARE_ESP32.md). Explica el contrato de `/v1/access/verify` desde el dispositivo y el alta del device.
+
 ### Invariantes clave
 
 - **Credenciales** con state machine `pending → active → suspended ⇄ active → revoked`. `revoked` es terminal. Soft delete preservando audit.
@@ -1078,10 +1080,10 @@ Modulo `apps/api/src/modules/access/`.
 
 ### Endpoints — Access logs + verify
 
-| Metodo | Ruta             | Auth           | Descripcion                                                                        |
-| ------ | ---------------- | -------------- | ---------------------------------------------------------------------------------- |
-| GET    | `/access/logs`   | SI             | Filtros `?credentialId=&deviceId=&success=&from=&to=`                              |
-| POST   | `/access/verify` | `X-Device-Key` | Endpoint del device. Body `{ value, type }`. Devuelve `{ granted, reason? }` + log |
+| Metodo | Ruta                | Auth           | Descripcion                                                                                                                |
+| ------ | ------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/access/logs`      | SI             | Filtros `?credentialId=&deviceId=&success=&from=&to=`                                                                      |
+| POST   | `/v1/access/verify` | `X-Device-Key` | Endpoint del device. Body `{ method, credential, deviceId }`. Devuelve `{ result, allowed, customerName?, reason? }` + log |
 
 ### Codigos `code` (Fase 7)
 
