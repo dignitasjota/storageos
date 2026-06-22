@@ -31,6 +31,7 @@ import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FilesModule } from './modules/files/files.module';
+import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { InsuranceModule } from './modules/insurance/insurance.module';
@@ -175,6 +176,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AiModule,
     PushModule,
     UnitChangesModule,
+    FiscalModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

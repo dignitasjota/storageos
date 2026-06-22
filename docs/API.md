@@ -1771,6 +1771,13 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /ai/conversations` (`ai:use`) + `GET /ai/conversations/:id` + `DELETE /ai/conversations/:id`: scoped por usuario.
 - Provider por `AI_PROVIDER=stub|anthropic` (+ `ANTHROPIC_API_KEY`, `AI_MODEL`). El stub permite dev/test sin coste.
 
+### Fiscalidad — libro de IVA + 303 + 347 (`/fiscal/...`)
+
+- `GET /fiscal/vat-book?from=&to=` (`invoices:manage`): libro registro de facturas expedidas (filas por factura + desglose por tipo de IVA + totales).
+- `GET /fiscal/model-303?year=&quarter=` (`invoices:manage`): IVA devengado por tipo del trimestre (parte de IVA repercutido; el soportado lo aporta la asesoría).
+- `GET /fiscal/model-347?year=` (`invoices:manage`): clientes con operaciones anuales > 3.005,06 € con NIF y desglose trimestral.
+- Solo lectura, derivado de las facturas emitidas (estados ≠ draft/cancelled, por `issue_date`).
+
 ### Conciliación bancaria Norma 43 (`/bank-statements/...`)
 
 - `POST /bank-statements/import` (`invoices:manage`): body `{ filename, content }` (texto del fichero N43); parsea y crea un extracto por bloque de cuenta. 400 `invalid_n43` si no parsea.
