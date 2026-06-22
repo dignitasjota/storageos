@@ -29,6 +29,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
     documentNumber: '',
   });
   const [website, setWebsite] = useState(''); // honeypot
+  const [referralCode, setReferralCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
           unitTypeId,
           startDate,
           customer: form,
+          ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
           website,
         },
       });
@@ -191,6 +193,14 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                   <Input
                     value={form.documentNumber}
                     onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Código de referido (opcional)</Label>
+                  <Input
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                    placeholder="Si te ha recomendado alguien"
                   />
                 </div>
               </div>

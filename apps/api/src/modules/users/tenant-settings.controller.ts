@@ -1,9 +1,11 @@
 import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
 import {
   type TenantBillingSettingsResponse,
+  type TenantReferralSettingsResponse,
   type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
   UpdateTenantBillingSettingsSchema,
+  UpdateTenantReferralSettingsSchema,
   UpdateTenantReviewsSettingsSchema,
   UpdateTenantSecuritySettingsSchema,
 } from '@storageos/shared';
@@ -23,6 +25,7 @@ import type { Request } from 'express';
 class UpdateTenantSecuritySettingsDto extends createZodDto(UpdateTenantSecuritySettingsSchema) {}
 class UpdateTenantBillingSettingsDto extends createZodDto(UpdateTenantBillingSettingsSchema) {}
 class UpdateTenantReviewsSettingsDto extends createZodDto(UpdateTenantReviewsSettingsSchema) {}
+class UpdateTenantReferralSettingsDto extends createZodDto(UpdateTenantReferralSettingsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -116,6 +119,30 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantReviewsSettingsResponse> {
     return this.settings.updateReviews({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('settings:read')
+  @Get('referrals')
+  async getReferrals(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<TenantReferralSettingsResponse> {
+    return this.settings.getReferrals(user.tenantId);
+  }
+
+  /** Activa el programa de referidos + recompensa al referidor. */
+  @RequirePermission('settings:manage')
+  @Patch('referrals')
+  async updateReferrals(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateTenantReferralSettingsDto,
+    @Req() req: Request,
+  ): Promise<TenantReferralSettingsResponse> {
+    return this.settings.updateReferrals({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,

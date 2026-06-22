@@ -37,7 +37,15 @@ const customerBase = {
 };
 
 export const CreateCustomerSchema = z
-  .object(customerBase)
+  .object({
+    ...customerBase,
+    /**
+     * Código de referido (del referidor) introducido al darse de alta. Si el
+     * programa está activo y el código existe, se registra el referido.
+     * Best-effort: un código inválido no bloquea el alta.
+     */
+    referralCode: z.string().trim().toUpperCase().max(32).optional(),
+  })
   .refine(
     (v) =>
       v.customerType === 'business'

@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { ReferralsService } from '../referrals/referrals.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { DomainEventPayload } from '../automations/domain-events';
@@ -35,6 +36,7 @@ export class CustomersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
+    private readonly referrals: ReferralsService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<CustomerDto[]> {
@@ -100,14 +102,16 @@ export class CustomersService {
       notes: args.input.notes?.trim() || null,
       tags: args.input.tags,
     };
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.customer.create({
-          data,
-          include: { _count: { select: { contracts: true, reservations: true } } },
-        }),
-      args.tenantId,
-    );
+    const created = await this.prisma.withTenant(async (tx) => {
+      const customer = await tx.customer.create({
+        data,
+        include: { _count: { select: { contracts: true, reservations: true } } },
+      });
+      if (args.input.referralCode) {
+        await this.referrals.registerInTx(tx, args.tenantId, args.input.referralCode, customer.id);
+      }
+      return customer;
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

@@ -43,6 +43,7 @@ import { PortalModule } from './modules/portal/portal.module';
 import { ProductsModule } from './modules/products/products.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { QueuesModule } from './modules/queues/queues.module';
+import { ReferralsModule } from './modules/referrals/referrals.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
@@ -157,6 +158,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     NotificationsModule,
     ReviewsModule,
     PromotionsModule,
+    ReferralsModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

@@ -5,6 +5,7 @@ import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
@@ -13,7 +14,15 @@ import { PortalService } from './portal.service';
   // PaymentsModule: self-service de metodos de pago + cobro desde el portal.
   // RedsysModule: pago de facturas por TPV bancario (redirect) desde el portal.
   // AccessModule: el inquilino ve/regenera su credencial QR/PIN.
-  imports: [AuthModule, JwtModule.register({}), PaymentsModule, RedsysModule, AccessModule],
+  // ReferralsModule: el inquilino ve su código de referido + sus referidos.
+  imports: [
+    AuthModule,
+    JwtModule.register({}),
+    PaymentsModule,
+    RedsysModule,
+    AccessModule,
+    ReferralsModule,
+  ],
   controllers: [PortalController],
   providers: [PortalService],
 })

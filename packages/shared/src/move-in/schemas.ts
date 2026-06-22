@@ -30,6 +30,8 @@ export const PublicBookingSchema = z.object({
     phone: z.string().trim().max(40).optional().or(z.literal('')),
     documentNumber: z.string().trim().max(40).optional().or(z.literal('')),
   }),
+  /** Código de referido opcional (best-effort). */
+  referralCode: z.string().trim().toUpperCase().max(32).optional().or(z.literal('')),
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
 });

@@ -6,9 +6,11 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   TenantBillingSettingsResponse,
+  TenantReferralSettingsResponse,
   TenantReviewsSettingsResponse,
   TenantSecuritySettingsResponse,
   UpdateTenantBillingSettingsInput,
+  UpdateTenantReferralSettingsInput,
   UpdateTenantReviewsSettingsInput,
   UpdateTenantSecuritySettingsInput,
 } from '@storageos/shared';
@@ -159,6 +161,62 @@ export class TenantSettingsService {
     return {
       reviewsAutoRequest: updated.reviewsAutoRequest,
       reviewRequestDelayDays: updated.reviewRequestDelayDays,
+    };
+  }
+
+  async getReferrals(tenantId: string): Promise<TenantReferralSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    return {
+      referralEnabled: tenant.referralEnabled,
+      referralRewardType: tenant.referralRewardType,
+      referralRewardValue: Number(tenant.referralRewardValue),
+    };
+  }
+
+  async updateReferrals(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateTenantReferralSettingsInput;
+    meta: RequestMeta;
+  }): Promise<TenantReferralSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: {
+        referralEnabled: args.input.referralEnabled,
+        referralRewardType: args.input.referralRewardType,
+        referralRewardValue: args.input.referralRewardValue,
+      },
+    });
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.referrals.settings_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: {
+        referralEnabled: { from: tenant.referralEnabled, to: updated.referralEnabled },
+        referralRewardType: { from: tenant.referralRewardType, to: updated.referralRewardType },
+        referralRewardValue: {
+          from: Number(tenant.referralRewardValue),
+          to: Number(updated.referralRewardValue),
+        },
+      },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return {
+      referralEnabled: updated.referralEnabled,
+      referralRewardType: updated.referralRewardType,
+      referralRewardValue: Number(updated.referralRewardValue),
     };
   }
 }

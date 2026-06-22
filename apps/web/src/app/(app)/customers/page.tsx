@@ -336,6 +336,24 @@ export default function CustomersPage() {
                         )}
                       />
                     </div>
+                    <FormField
+                      control={form.control}
+                      name="referralCode"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Código de referido (opcional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Si llega recomendado por otro inquilino"
+                              {...field}
+                              value={field.value ?? ''}
+                              onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                     <DialogFooter>
                       <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                         Cancelar
