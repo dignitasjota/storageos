@@ -1748,6 +1748,11 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /sepa/remittances/:id/xml` (`invoices:manage`): devuelve `{filename, xml}` (el front descarga el blob).
 - `POST /sepa/remittances/:id/confirm` (`invoices:manage`): marca las facturas pagadas (methodType `sepa_debit`) + pasa los mandatos FRST→RCUR.
 
+### Portal — incidencias (`/portal/me/incidents`)
+
+- `GET /portal/me/incidents` (`@Public` + sesión de portal): incidencias del inquilino.
+- `POST /portal/me/incidents` (`@Public` + sesión de portal, throttle): body `{ title, description? }` → crea la incidencia (severity medium) y notifica al staff.
+
 ### Asistente IA (`/ai/...`)
 
 - `POST /ai/chat` (`ai:use`): body `{ conversationId?, content }`. Crea la conversación si no se pasa id; el asistente puede invocar herramientas read-only (ocupación, vencidas, métricas, búsqueda/resumen de cliente) ejecutadas con el contexto del tenant. Devuelve `{ conversationId, message }` (con `toolsUsed`). 503 `ai_not_configured` si el provider anthropic no tiene API key.
