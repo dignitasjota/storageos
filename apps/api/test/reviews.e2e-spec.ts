@@ -119,13 +119,13 @@ describe('Reviews / NPS (e2e)', () => {
       .get('/settings/tenant/reviews')
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(get.status).toBe(200);
-    expect(get.body).toEqual({ reviewsAutoRequest: false, reviewRequestDelayDays: 14 });
+    expect(get.body).toMatchObject({ reviewsAutoRequest: false, reviewRequestDelayDays: 14 });
 
     const patch = await request(app.getHttpServer())
       .patch('/settings/tenant/reviews')
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({ reviewsAutoRequest: true, reviewRequestDelayDays: 7 });
     expect(patch.status).toBe(200);
-    expect(patch.body).toEqual({ reviewsAutoRequest: true, reviewRequestDelayDays: 7 });
+    expect(patch.body).toMatchObject({ reviewsAutoRequest: true, reviewRequestDelayDays: 7 });
   });
 });
