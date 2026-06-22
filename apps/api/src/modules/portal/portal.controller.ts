@@ -15,12 +15,14 @@ import {
   PortalConsumeMagicLinkSchema,
   type PaymentMethodDto,
   type PortalChargeResultDto,
+  type PortalContractDto,
   type PortalInvoiceDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalRequestMagicLinkSchema,
   type PortalSessionDto,
   type RedsysRedirectDto,
+  RequestMoveOutSchema,
   type SetupIntentResponseDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -28,6 +30,7 @@ import { createZodDto } from 'nestjs-zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
+import { ContractsService } from '../contracts/contracts.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { ReferralsService } from '../referrals/referrals.service';
 
@@ -36,6 +39,7 @@ import { PortalService } from './portal.service';
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
+class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -44,6 +48,7 @@ export class PortalController {
     private readonly redsys: RedsysService,
     private readonly access: AccessCredentialsService,
     private readonly referrals: ReferralsService,
+    private readonly contracts: ContractsService,
   ) {}
 
   @Public()
@@ -80,6 +85,35 @@ export class PortalController {
   ): Promise<PortalAccessCredentialDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.access.listForCustomer(tenantId, customerId);
+  }
+
+  // ----------------------- contratos / move-out ----------------------------
+
+  @Public()
+  @Get('me/contracts')
+  async myContracts(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalContractDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.contracts.listForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/request-move-out')
+  @HttpCode(HttpStatus.OK)
+  async requestMoveOut(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RequestMoveOutDto,
+  ): Promise<PortalContractDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.contracts.requestEndByCustomer({
+      tenantId,
+      customerId,
+      contractId: id,
+      endDate: input.endDate,
+    });
   }
 
   // ----------------------- referidos ---------------------------------------

@@ -1724,6 +1724,11 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `PUT /contracts/:id/insurance` (`contracts:write`): asigna (`{planId}`) o quita (`{planId:null}`) el seguro; congela la prima en `contracts.insurance_price`. También se asigna en el alta con `CreateContractSchema.insurancePlanId`.
 - La prima se factura como una línea recurrente más en la factura mensual del alquiler (`billing-jobs`). `ContractDto` expone `insurancePlanId`/`insurancePlanName`/`insurancePrice`.
 
+### Move-out self-service (portal del inquilino)
+
+- `GET /portal/me/contracts` (`@Public` + sesión de portal): contratos active/ending del inquilino (`PortalContractDto`).
+- `POST /portal/me/contracts/:id/request-move-out {endDate}` (`@Public` + sesión + throttle): solicita la baja. Valida propiedad (404 si no es suyo) + preaviso (`endDate ≥ hoy + cancellationNoticeDays`, 400 `notice_period_not_met`) → contrato a `ending`. Emite `contract_move_out_requested` → notificación al staff + encuesta de salida (NPS). El staff finaliza el contrato en la fecha (no auto-finaliza).
+
 ### Imágenes + slug del local (`/facilities/:id/images`)
 
 - `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).

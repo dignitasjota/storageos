@@ -125,6 +125,23 @@ export class NotificationsService {
     });
   }
 
+  @OnEvent(DOMAIN_EVENTS.contract_move_out_requested, { async: true, promisify: true })
+  async onMoveOutRequested(p: DomainEventPayload): Promise<void> {
+    const num = nested(p.scope, 'contract', 'number');
+    const endDate = nested(p.scope, 'contract', 'endDate');
+    const who = nested(p.scope, 'customer', 'displayName');
+    await this.safe(p.tenantId, {
+      type: 'contract.move_out_requested',
+      title: num ? `Baja solicitada — ${num}` : 'Baja solicitada por el inquilino',
+      ...(endDate || who
+        ? {
+            body: `${who ? `${who} ` : ''}solicita la baja${endDate ? ` para el ${endDate}` : ''}.`,
+          }
+        : {}),
+      link: `/contracts/${p.entityId}`,
+    });
+  }
+
   @OnEvent(DOMAIN_EVENTS.incident_created, { async: true, promisify: true })
   async onIncidentCreated(p: DomainEventPayload): Promise<void> {
     const title = nested(p.scope, 'incident', 'title') ?? nested(p.scope, 'incident', 'subject');

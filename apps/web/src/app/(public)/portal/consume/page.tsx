@@ -4,6 +4,7 @@ import {
   type PaymentMethodDto,
   type PortalAccessCredentialDto,
   type PortalChargeResultDto,
+  type PortalContractDto,
   type PortalInvoiceDto,
   type PortalReferralDto,
   type PortalSessionDto,
@@ -16,6 +17,7 @@ import {
   KeyRound,
   Landmark,
   Loader2,
+  LogOut,
   Plus,
   RefreshCw,
 } from 'lucide-react';
@@ -47,6 +49,8 @@ function PortalConsumeContent() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
   const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
+  const [contracts, setContracts] = useState<PortalContractDto[] | null>(null);
+  const [moveOutId, setMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,17 +89,19 @@ function PortalConsumeContent() {
         });
         if (cancelled) return;
         setSession(s);
-        const [inv, pms, acc, refs] = await Promise.all([
+        const [inv, pms, acc, refs, ctr] = await Promise.all([
           portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
           portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
           portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
           portalFetch<PortalReferralDto>(s, '/portal/me/referrals'),
+          portalFetch<PortalContractDto[]>(s, '/portal/me/contracts'),
         ]);
         if (cancelled) return;
         setInvoices(inv);
         setPaymentMethods(pms);
         setAccess(acc);
         setReferrals(refs);
+        setContracts(ctr);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.body.message : 'Enlace inválido o caducado');
@@ -124,6 +130,22 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo regenerar.');
     } finally {
       setRegeneratingId(null);
+    }
+  }
+
+  async function requestMoveOut(id: string, endDate: string) {
+    if (!session) return;
+    try {
+      const updated = await portalFetch<PortalContractDto>(
+        session,
+        `/portal/me/contracts/${id}/request-move-out`,
+        { method: 'POST', json: { endDate } },
+      );
+      setContracts((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
+      setMoveOutId(null);
+      toast.success('Solicitud de baja enviada. Te contactaremos para el cierre.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo solicitar la baja.');
     }
   }
 
@@ -228,6 +250,50 @@ function PortalConsumeContent() {
         </div>
         <InstallPwaButton />
       </div>
+
+      {contracts && contracts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Mis contratos</CardTitle>
+            <CardDescription>
+              Tus trasteros activos. Puedes solicitar la baja online.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {contracts.map((c) => (
+              <div
+                key={c.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+              >
+                <div>
+                  <p className="font-medium">
+                    {c.unitCode} · {c.facilityName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {c.contractNumber} · {c.effectivePrice.toFixed(2)} €/mes
+                    {c.status === 'ending' && c.endDate ? ` · baja prevista el ${c.endDate}` : ''}
+                  </p>
+                </div>
+                {c.status === 'ending' ? (
+                  <Badge variant="secondary">Baja solicitada</Badge>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
+                    <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
+                  </Button>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {moveOutId && (
+        <MoveOutDialog
+          contract={contracts?.find((c) => c.id === moveOutId) ?? null}
+          onClose={() => setMoveOutId(null)}
+          onConfirm={(endDate) => requestMoveOut(moveOutId, endDate)}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -496,5 +562,56 @@ export default function PortalConsumePage() {
     <Suspense fallback={null}>
       <PortalConsumeContent />
     </Suspense>
+  );
+}
+
+function MoveOutDialog({
+  contract,
+  onClose,
+  onConfirm,
+}: {
+  contract: PortalContractDto | null;
+  onClose: () => void;
+  onConfirm: (endDate: string) => void;
+}) {
+  const notice = contract?.cancellationNoticeDays ?? 15;
+  const min = new Date();
+  min.setDate(min.getDate() + notice);
+  const minDate = min.toISOString().slice(0, 10);
+  const [endDate, setEndDate] = useState(minDate);
+
+  return (
+    <Dialog open={!!contract} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Solicitar baja</DialogTitle>
+          <DialogDescription>
+            {contract ? `${contract.unitCode} · ${contract.facilityName}. ` : ''}
+            El preaviso es de {notice} días: la fecha de salida más temprana es el {minDate}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="moveout-date">
+            Fecha de salida
+          </label>
+          <input
+            id="moveout-date"
+            type="date"
+            min={minDate}
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+          />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={() => onConfirm(endDate)} disabled={!endDate || endDate < minDate}>
+            Confirmar baja
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
