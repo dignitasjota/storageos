@@ -24,6 +24,8 @@ packages/database/node_modules/.prisma/
 
 # Logs
 logs/
+# ...pero NO los segmentos de ruta "logs" del App Router de Next (código fuente)
+!apps/web/src/app/**/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
