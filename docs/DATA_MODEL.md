@@ -332,6 +332,14 @@ Campañas segmentadas por email. RLS por `tenant_id`.
 - id, tenant_id, name, channel (email), subject, body_text, `segment` jsonb (audiencia clientes/leads + filtros), status (draft/sending/sent/cancelled), audience_count, sent_count, scheduled_for, sent_at, created_by_user_id
 - Al enviar (`POST /campaigns/:id/send`) se resuelve la audiencia (con `withTenant`) y se encola una `communications` por destinatario (`source=campaign:<id>`, subject/body renderizados por destinatario). Permisos `communications:read`/`communications:send`.
 
+### `bank_statements` + `bank_statement_transactions` (2026-06-22)
+
+Conciliación bancaria (Norma 43). RLS por `tenant_id`.
+
+- **`bank_statements`** (extracto importado): filename, account_label, currency, start/end_date, initial/final_balance (céntimos), transaction_count.
+- **`bank_statement_transactions`** (movimiento): operation/value_date, `amount` (céntimos **con signo**: + abono, − cargo), concept_common/own, reference1/2, document_number, description, status (pending/matched/ignored), matched_invoice_id (FK SET NULL).
+- Flujo: `POST /bank-statements/import` parsea el fichero N43 → extracto + movimientos. El detalle sugiere facturas (issued/overdue con importe pendiente exacto) por cada abono pendiente; `match` marca la factura pagada (`markPaidManually`, bank_transfer). v1 solo abonos; cargos informativos. Permisos `invoices:manage` (import/match) / `payments:read` (lecturas).
+
 ### `sepa_settings` + `sepa_mandates` + `sepa_remittances` + `sepa_remittance_items` (2026-06-22)
 
 Remesas SEPA (adeudos directos, fichero pain.008). RLS por `tenant_id`.

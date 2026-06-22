@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  ArrowLeftRight,
   BarChart3,
   Bot,
   Boxes,
@@ -65,6 +66,13 @@ const NAV: NavItem[] = [
   { href: '/reservations', labelKey: 'reservations', icon: CalendarClock, enabled: true },
   { href: '/invoices', labelKey: 'invoices', icon: CreditCard, enabled: true },
   { href: '/sepa-remittances', labelKey: 'sepaRemittances', icon: Landmark, enabled: true },
+  {
+    href: '/bank-reconciliation',
+    labelKey: 'bankReconciliation',
+    icon: ArrowLeftRight,
+    enabled: true,
+    permission: 'payments:read',
+  },
   {
     href: '/rent-increases',
     labelKey: 'rentIncreases',

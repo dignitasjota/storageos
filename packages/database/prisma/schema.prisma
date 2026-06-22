@@ -402,6 +402,8 @@ model Tenant {
   sepaMandates            SepaMandate[]
   sepaRemittances         SepaRemittance[]
   sepaRemittanceItems     SepaRemittanceItem[]
+  bankStatements          BankStatement[]
+  bankStatementTxs        BankStatementTransaction[]
 
   @@map("tenants")
 }
@@ -1148,20 +1150,21 @@ model Invoice {
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer           Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  contract           Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
-  series             InvoiceSeries       @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer           Customer?                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract           Contract?                  @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  series             InvoiceSeries              @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   items              InvoiceItem[]
   payments           Payment[]
   dunningActions     DunningAction[]
-  productSale        ProductSale?        @relation("ProductSaleInvoice")
+  productSale        ProductSale?               @relation("ProductSaleInvoice")
   redsysOrders       RedsysOrder[]
-  rectifiesInvoice   Invoice?            @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
-  rectifiedBy        Invoice[]           @relation("InvoiceRectification")
-  lateFeeForInvoice  Invoice?            @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
-  lateFeeInvoice     Invoice?            @relation("InvoiceLateFee")
+  rectifiesInvoice   Invoice?                   @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
+  rectifiedBy        Invoice[]                  @relation("InvoiceRectification")
+  lateFeeForInvoice  Invoice?                   @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
+  lateFeeInvoice     Invoice?                   @relation("InvoiceLateFee")
   sepaRemittanceItem SepaRemittanceItem?
+  bankStatementTxs   BankStatementTransaction[]
 
   @@unique([tenantId, seriesId, sequenceNumber])
   @@unique([tenantId, invoiceNumber])
@@ -1561,6 +1564,58 @@ model SepaRemittanceItem {
 
   @@index([tenantId])
   @@map("sepa_remittance_items")
+}
+
+/// Conciliación bancaria: extracto importado de un fichero Norma 43.
+model BankStatement {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  filename         String
+  accountLabel     String    @map("account_label")
+  currency         String    @default("EUR")
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  /// saldos en céntimos.
+  initialBalance   Int       @default(0) @map("initial_balance")
+  finalBalance     Int       @default(0) @map("final_balance")
+  transactionCount Int       @default(0) @map("transaction_count")
+  createdByUserId  String?   @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions BankStatementTransaction[]
+
+  @@index([tenantId])
+  @@map("bank_statements")
+}
+
+/// Movimiento de un extracto Norma 43.
+model BankStatementTransaction {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  statementId      String    @map("statement_id") @db.Uuid
+  operationDate    DateTime? @map("operation_date") @db.Date
+  valueDate        DateTime? @map("value_date") @db.Date
+  /// importe en céntimos con signo: + abono, − cargo.
+  amount           Int
+  conceptCommon    String?   @map("concept_common")
+  conceptOwn       String?   @map("concept_own")
+  reference1       String?
+  reference2       String?
+  documentNumber   String?   @map("document_number")
+  description      String?
+  /// pending | matched | ignored
+  status           String    @default("pending")
+  matchedInvoiceId String?   @map("matched_invoice_id") @db.Uuid
+  matchedAt        DateTime? @map("matched_at") @db.Timestamptz(6)
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  invoice   Invoice?      @relation(fields: [matchedInvoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([statementId])
+  @@map("bank_statement_transactions")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
