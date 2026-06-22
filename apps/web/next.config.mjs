@@ -93,9 +93,16 @@ const nextConfig = {
   // `@storageos/shared` (`type: commonjs`), rompiendo el parse en `pnpm dev`
   // con "Cannot use 'import.meta' outside a module". Desactivar la
   // resolución de symlinks mantiene la ruta bajo node_modules → excluida del
-  // HMR. No afecta al build de producción (HMR es solo de dev).
-  webpack: (config) => {
-    config.resolve.symlinks = false;
+  // HMR.
+  //
+  // ⚠️ SOLO en dev: en el build de producción `resolve.symlinks = false`
+  // hace que el tracer del `output: 'standalone'` genere un symlink ROTO
+  // para `apps/web/node_modules/next` (apunta a una ruta `.pnpm` que no se
+  // copia con esa relativa), de modo que el server standalone crashea en
+  // arranque con `Cannot find module 'next'` (502 en prod). CI no lo detecta
+  // porque compila pero no arranca el server. Por eso lo gateamos a dev.
+  webpack: (config, { dev }) => {
+    if (dev) config.resolve.symlinks = false;
     return config;
   },
   // Output `standalone` empaqueta el servidor Next con sus dependencias
