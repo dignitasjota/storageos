@@ -153,6 +153,12 @@ const GROUPS: NavGroup[] = [
         feature: 'rent_increases',
       },
       {
+        href: '/fiscal',
+        labelKey: 'fiscal',
+        icon: FileSpreadsheet,
+        permission: 'invoices:manage',
+      },
+      {
         href: '/settings/billing/verifactu',
         labelKey: 'verifactu',
         icon: ShieldCheck,

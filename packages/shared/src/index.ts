@@ -34,5 +34,6 @@ export * from './ai';
 export * from './push';
 export * from './unit-changes';
 export * from './features';
+export * from './fiscal';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;
