@@ -194,15 +194,24 @@ export function PlanEditor({ facilityId, floorId }: Props) {
     return { width: 800, height: 600 };
   }, [planImage]);
 
-  // Medir el contenedor (responsive) con ResizeObserver.
-  useEffect(() => {
-    const el = containerRef.current;
+  // Medir el contenedor (responsive). Usamos un CALLBACK REF en vez de
+  // useEffect+deps[] porque el contenedor se monta DESPUÉS del primer render:
+  // mientras `units` carga mostramos un spinner (early return) y el div aún no
+  // existe. Un useEffect con deps [] mediría con el ref a null y no volvería a
+  // ejecutarse al aparecer el div → viewport quedaba en 0 y el Stage no se
+  // renderizaba hasta cambiar de pestaña y volver. El callback ref se dispara
+  // justo cuando el nodo entra/sale del DOM.
+  const roRef = useRef<ResizeObserver | null>(null);
+  const setContainerRef = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    containerRef.current = el;
     if (!el) return;
     const update = () => setViewport({ width: el.clientWidth, height: el.clientHeight });
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    roRef.current = ro;
   }, []);
 
   // Encaja la escena en el viewport (centrada, sin ampliar más del 100%).
@@ -320,7 +329,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
       </div>
 
       <div
-        ref={containerRef}
+        ref={setContainerRef}
         className="relative h-[55vh] w-full touch-none overflow-hidden rounded-md border bg-muted/30 sm:h-[65vh]"
       >
         {viewport.width > 0 && (
