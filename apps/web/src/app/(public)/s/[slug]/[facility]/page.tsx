@@ -126,6 +126,21 @@ export default async function FacilityLandingPage({
         )}
       </div>
 
+      {f.imageUrls.length > 0 && (
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {f.imageUrls.map((url) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={url}
+              src={url}
+              alt={`${f.name}`}
+              loading="lazy"
+              className="aspect-video w-full rounded-md border object-cover"
+            />
+          ))}
+        </div>
+      )}
+
       <Link
         href={`/book/${data.tenantSlug}`}
         className="mt-6 inline-flex h-11 items-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"

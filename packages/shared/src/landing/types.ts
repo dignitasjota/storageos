@@ -20,6 +20,8 @@ export interface PublicLandingFacilityDto {
   contactPhone: string | null;
   contactEmail: string | null;
   openingHours: Record<string, unknown>;
+  /** URLs públicas de las imágenes del local. */
+  imageUrls: string[];
   unitTypes: PublicLandingUnitTypeDto[];
 }
 

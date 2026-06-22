@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Facility, Prisma } from '@storageos/database';
@@ -50,6 +51,7 @@ export class FacilitiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly files: FilesService,
   ) {}
 
   async list(tenantId: string): Promise<FacilityDto[]> {
@@ -238,6 +240,77 @@ export class FacilitiesService {
     });
   }
 
+  // -------------------------------------------------------------------
+  // Imágenes (landing pública)
+  // -------------------------------------------------------------------
+
+  async requestImageUploadUrl(args: {
+    tenantId: string;
+    facilityId: string;
+    mimeType: string;
+    sizeBytes: number;
+  }): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    await this.requireFacility(args.tenantId, args.facilityId);
+    const key = this.files.buildFacilityImageKey(args.tenantId, args.facilityId, args.mimeType);
+    const { uploadUrl, expiresIn } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: args.mimeType,
+      contentLengthRange: { min: 1, max: args.sizeBytes },
+    });
+    return { uploadUrl, key, expiresIn };
+  }
+
+  /** Fija la lista completa de imágenes (añadir/quitar/reordenar) por sus keys. */
+  async setImages(args: {
+    tenantId: string;
+    userId: string;
+    facilityId: string;
+    images: string[];
+    meta: RequestMeta;
+  }): Promise<FacilityDto> {
+    await this.requireFacility(args.tenantId, args.facilityId);
+    // Seguridad: cada key debe pertenecer a la carpeta de imágenes de ESTE local.
+    const prefix = `${args.tenantId}/${args.facilityId}/images/`;
+    const invalid = args.images.find((k) => !k.startsWith(prefix));
+    if (invalid) {
+      throw new NotFoundException({
+        code: 'invalid_image_key',
+        message: 'Una de las imágenes no pertenece a este local',
+      });
+    }
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.update({
+          where: { id: args.facilityId },
+          data: { images: args.images },
+          include: { units: { select: { status: true } } },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'facility.images_updated',
+      entityType: 'Facility',
+      entityId: args.facilityId,
+      changes: { count: args.images.length },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  private async requireFacility(tenantId: string, facilityId: string): Promise<void> {
+    const facility = await this.prisma.withTenant(
+      (tx) => tx.facility.findFirst({ where: { id: facilityId, deletedAt: null } }),
+      tenantId,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+  }
+
   private toDto(f: FacilityWithStats): FacilityDto {
     const units = f.units ?? [];
     const occupied = units.filter((u) => u.status === 'occupied').length;
@@ -255,6 +328,10 @@ export class FacilitiesService {
       openingHours: (f.openingHours as Record<string, unknown>) ?? {},
       contactPhone: f.contactPhone,
       contactEmail: f.contactEmail,
+      images: (f.images ?? []).map((key) => ({
+        key,
+        url: this.files.buildPublicUrl('public', key),
+      })),
       isActive: f.isActive,
       createdAt: f.createdAt.toISOString(),
       updatedAt: f.updatedAt.toISOString(),

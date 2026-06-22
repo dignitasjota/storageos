@@ -5,18 +5,21 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
 import { FacilityFloorsTab } from './floors-tab';
+import { FacilitySettingsTab } from './settings-tab';
 import { FacilityUnitTypesTab } from './unit-types-tab';
 import { FacilityUnitsTab } from './units-tab';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useFacility } from '@/lib/facilities/hooks';
 
 export default function FacilityDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const facility = useFacility(id);
+  const canManage = useHasPermission('facilities:manage');
 
   if (facility.isLoading || !facility.data) {
     return (
@@ -64,6 +67,7 @@ export default function FacilityDetailPage() {
           <TabsTrigger value="units">Trasteros</TabsTrigger>
           <TabsTrigger value="floors">Plantas y plano</TabsTrigger>
           <TabsTrigger value="unit-types">Tipos</TabsTrigger>
+          {canManage && <TabsTrigger value="settings">Ajustes</TabsTrigger>}
         </TabsList>
         <TabsContent value="units" className="mt-6">
           <FacilityUnitsTab facilityId={facility.data.id} />
@@ -74,6 +78,11 @@ export default function FacilityDetailPage() {
         <TabsContent value="unit-types" className="mt-6">
           <FacilityUnitTypesTab />
         </TabsContent>
+        {canManage && (
+          <TabsContent value="settings" className="mt-6">
+            <FacilitySettingsTab facility={facility.data} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
