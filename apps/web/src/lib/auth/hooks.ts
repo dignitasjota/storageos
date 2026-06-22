@@ -1,4 +1,4 @@
-import { permissionsForRole } from '@storageos/shared';
+import { featuresForPlan, permissionsForRole } from '@storageos/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from './api';
@@ -16,6 +16,7 @@ import type {
   RegisterPendingResponse,
   ResendVerificationInput,
   ResetPasswordInput,
+  TenantFeature,
   VerifyEmailInput,
 } from '@storageos/shared';
 
@@ -51,6 +52,20 @@ export function useHasPermission(permission: Permission): boolean {
   return usePermissions().includes(permission);
 }
 
+/** Features premium incluidas en el plan del tenant. */
+export function useFeatures(): TenantFeature[] {
+  const { data } = useMe();
+  return data?.features ?? [];
+}
+
+/**
+ * ¿El plan del tenant incluye esta feature? Gating por plan (cosmético; sirve
+ * para ocultar módulos del menú y mostrar upsell en las páginas premium).
+ */
+export function useHasFeature(feature: TenantFeature): boolean {
+  return useFeatures().includes(feature);
+}
+
 /** POST /auth/login con email/password/tenantSlug. */
 export function useLogin() {
   const queryClient = useQueryClient();
@@ -69,6 +84,7 @@ export function useLogin() {
         tenant: data.tenant,
         subscription: data.subscription,
         permissions: permissionsForRole(data.user.role),
+        features: featuresForPlan(data.subscription.planSlug),
       });
     },
   });
@@ -106,6 +122,7 @@ export function useVerifyEmail() {
         tenant: data.tenant,
         subscription: data.subscription,
         permissions: permissionsForRole(data.user.role),
+        features: featuresForPlan(data.subscription.planSlug),
       });
     },
   });

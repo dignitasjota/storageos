@@ -38,8 +38,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  useAdminSubscriptionPlans,
   useAdminTenant,
   useAnonymizeTenant,
+  useChangePlan,
   useExtendTrial,
   useImpersonateTenant,
   useReactivateTenant,
@@ -158,6 +160,7 @@ export default function AdminTenantDetailPage() {
                   value={t.subscription.stripeSubscriptionId ?? '—'}
                   mono
                 />
+                <ChangePlanControl tenantId={id} currentSlug={t.subscription.planSlug ?? null} />
               </>
             ) : (
               <p className="text-muted-foreground">Sin suscripción activa.</p>
@@ -628,3 +631,67 @@ function AnonymizeDialog({
 // Silenciar warning de variable no usada: la constante se exporta de forma
 // implicita a traves del dialog; la mantenemos como documentacion.
 void IMPERSONATION_KEY;
+
+/** Selector inline para cambiar el plan de suscripción del tenant. */
+function ChangePlanControl({
+  tenantId,
+  currentSlug,
+}: {
+  tenantId: string;
+  currentSlug: string | null;
+}) {
+  const plans = useAdminSubscriptionPlans();
+  const change = useChangePlan();
+  const [slug, setSlug] = useState(currentSlug ?? '');
+  const [reason, setReason] = useState('');
+
+  async function submit() {
+    if (!slug || slug === currentSlug) {
+      toast.error('Elige un plan distinto al actual.');
+      return;
+    }
+    if (reason.trim().length < 3) {
+      toast.error('Indica un motivo.');
+      return;
+    }
+    try {
+      await change.mutateAsync({ id: tenantId, input: { planSlug: slug, reason: reason.trim() } });
+      toast.success('Plan cambiado.');
+      setReason('');
+    } catch (err) {
+      if (err instanceof ApiError) toast.error(err.body.message);
+      else toast.error('No se pudo cambiar el plan.');
+    }
+  }
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <Label className="text-xs text-muted-foreground">Cambiar plan</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={slug}
+          onChange={(e) => setSlug(e.target.value)}
+          className="h-9 rounded-md border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          {(plans.data ?? []).map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {p.name} ({p.slug})
+            </option>
+          ))}
+        </select>
+        <Input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Motivo"
+          className="h-9 w-40"
+        />
+        <Button size="sm" onClick={submit} disabled={change.isPending}>
+          Cambiar
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Controla qué módulos premium ve el tenant (free / starter / pro).
+      </p>
+    </div>
+  );
+}

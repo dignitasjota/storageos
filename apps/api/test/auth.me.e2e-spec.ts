@@ -52,6 +52,14 @@ describe('GET /auth/me (e2e)', () => {
     expect(res.body.tenant.slug).toBe(slugA);
     expect(res.body.subscription.status).toBe('trial');
     expect(res.body.subscription.planSlug).toBe('starter');
+    // Gating por plan: el plan `starter` incluye estas features premium...
+    expect(res.body.features).toEqual(
+      expect.arrayContaining(['rent_increases', 'insurance', 'access_control', 'automations']),
+    );
+    // ...pero NO las de plan superior (IA / pagos avanzados).
+    expect(res.body.features).not.toContain('ai_assistant');
+    expect(res.body.features).not.toContain('sepa');
+    expect(res.body.features).not.toContain('bank_reconciliation');
   });
 
   it('rechaza con 401 sin token', async () => {
