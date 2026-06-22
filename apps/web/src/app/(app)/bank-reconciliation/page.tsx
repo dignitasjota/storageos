@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowDownLeft, ArrowUpRight, Check, Upload, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Check, Undo2, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -24,6 +24,7 @@ import {
   useBankStatements,
   useIgnoreTransaction,
   useImportN43,
+  useMarkReturnTransaction,
   useMatchTransaction,
 } from '@/lib/bank-reconciliation/hooks';
 
@@ -135,12 +136,24 @@ export default function BankReconciliationPage() {
 function StatementDetail({ statementId, canManage }: { statementId: string; canManage: boolean }) {
   const detail = useBankStatement(statementId);
   const match = useMatchTransaction(statementId);
+  const markReturn = useMarkReturnTransaction(statementId);
   const ignore = useIgnoreTransaction(statementId);
 
   async function doMatch(transactionId: string, invoiceId: string) {
     try {
       await match.mutateAsync({ transactionId, invoiceId });
       toast.success('Movimiento conciliado: factura marcada como pagada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function doReturn(transactionId: string, invoiceId: string) {
+    if (!window.confirm('¿Marcar como devolución? La factura volverá a estar pendiente (vencida).'))
+      return;
+    try {
+      await markReturn.mutateAsync({ transactionId, invoiceId });
+      toast.success('Devolución registrada: la factura vuelve a estar pendiente.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -205,8 +218,9 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
                   <ReconcileCell
                     tx={t}
                     canManage={canManage}
-                    busy={match.isPending || ignore.isPending}
+                    busy={match.isPending || ignore.isPending || markReturn.isPending}
                     onMatch={(invoiceId) => doMatch(t.id, invoiceId)}
+                    onReturn={(invoiceId) => doReturn(t.id, invoiceId)}
                     onIgnore={() => doIgnore(t.id)}
                   />
                 </TableCell>
@@ -224,12 +238,14 @@ function ReconcileCell({
   canManage,
   busy,
   onMatch,
+  onReturn,
   onIgnore,
 }: {
   tx: BankTransactionDto;
   canManage: boolean;
   busy: boolean;
   onMatch: (invoiceId: string) => void;
+  onReturn: (invoiceId: string) => void;
   onIgnore: () => void;
 }) {
   if (tx.status === 'matched') {
@@ -239,11 +255,38 @@ function ReconcileCell({
       </Badge>
     );
   }
+  if (tx.status === 'returned') {
+    return (
+      <Badge variant="destructive" className="gap-1">
+        <Undo2 className="h-3 w-3" /> Devuelta {tx.matchedInvoiceNumber ?? ''}
+      </Badge>
+    );
+  }
   if (tx.status === 'ignored') {
     return <Badge variant="outline">Ignorado</Badge>;
   }
   if (tx.type === 'debit') {
-    return <span className="text-xs text-muted-foreground">Cargo (informativo)</span>;
+    // Cargo: posible devolución SEPA de una factura ya cobrada.
+    if (!canManage || tx.returnSuggestions.length === 0) {
+      return <span className="text-xs text-muted-foreground">Cargo (informativo)</span>;
+    }
+    const top = tx.returnSuggestions[0]!;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => onReturn(top.invoiceId)}
+          disabled={busy}
+        >
+          <Undo2 className="mr-1 h-3 w-3" /> Devolución {top.invoiceNumber}
+        </Button>
+        <span className="text-xs text-muted-foreground">{top.customerName}</span>
+        <Button variant="ghost" size="sm" onClick={onIgnore} disabled={busy}>
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+    );
   }
   if (!canManage) return <Badge variant="secondary">Pendiente</Badge>;
   if (tx.suggestions.length === 0) {

@@ -54,6 +54,21 @@ export function useMatchTransaction(statementId: string) {
   });
 }
 
+export function useMarkReturnTransaction(statementId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { transactionId: string; invoiceId: string }) =>
+      apiFetch<BankStatementDetailDto>(
+        `/bank-statements/transactions/${args.transactionId}/mark-return`,
+        { method: 'POST', json: { invoiceId: args.invoiceId } },
+      ),
+    onSuccess: (data) => {
+      qc.setQueryData(detailKey(statementId), data);
+      qc.invalidateQueries({ queryKey: listKey });
+    },
+  });
+}
+
 export function useIgnoreTransaction(statementId: string) {
   const qc = useQueryClient();
   return useMutation({

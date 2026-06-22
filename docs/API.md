@@ -1781,8 +1781,9 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 ### Conciliación bancaria Norma 43 (`/bank-statements/...`)
 
 - `POST /bank-statements/import` (`invoices:manage`): body `{ filename, content }` (texto del fichero N43); parsea y crea un extracto por bloque de cuenta. 400 `invalid_n43` si no parsea.
-- `GET /bank-statements` (`payments:read`): lista de extractos con `matchedCount`. `GET /bank-statements/:id` (`payments:read`): detalle con movimientos; cada abono pendiente trae `suggestions` (facturas con importe pendiente exacto; la referencia que contiene el nº de factura desempata).
+- `GET /bank-statements` (`payments:read`): lista de extractos con `matchedCount`. `GET /bank-statements/:id` (`payments:read`): detalle con movimientos; cada **abono** pendiente trae `suggestions` (facturas con importe pendiente exacto) y cada **cargo** pendiente trae `returnSuggestions` (facturas pagadas del mismo importe → devolución SEPA).
 - `POST /bank-statements/transactions/:id/match` (`invoices:manage`): body `{ invoiceId }` → marca la factura pagada (bank_transfer) + movimiento `matched`.
+- `POST /bank-statements/transactions/:id/mark-return` (`invoices:manage`): body `{ invoiceId }` → devolución SEPA: revierte el cobro (factura a vencida) + movimiento `returned`.
 - `POST /bank-statements/transactions/:id/ignore` (`invoices:manage`): marca el movimiento `ignored`.
 
 ### Imágenes + slug del local (`/facilities/:id/images`)

@@ -74,6 +74,22 @@ export class BankReconciliationController {
   }
 
   @RequirePermission('invoices:manage')
+  @Post('transactions/:id/mark-return')
+  @HttpCode(HttpStatus.OK)
+  markReturn(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: MatchTransactionDto,
+  ): Promise<BankStatementDetailDto> {
+    return this.service.markReturn({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      transactionId: id,
+      invoiceId: body.invoiceId,
+    });
+  }
+
+  @RequirePermission('invoices:manage')
   @Post('transactions/:id/ignore')
   @HttpCode(HttpStatus.OK)
   ignore(
