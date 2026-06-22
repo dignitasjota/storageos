@@ -27,6 +27,7 @@ import type {
   ContractEventDto,
   ContractStatusValue,
   CreateContractInput,
+  PortalContractDto,
   UpdateContractInput,
 } from '@storageos/shared';
 
@@ -561,6 +562,155 @@ export class ContractsService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(updated);
+  }
+
+  // -------------------------------------------------------------------------
+  // Move-out self-service (portal del inquilino)
+  // -------------------------------------------------------------------------
+
+  private toPortalDto(row: {
+    id: string;
+    contractNumber: string;
+    status: string;
+    startDate: Date;
+    endDate: Date | null;
+    priceMonthly: unknown;
+    discountAmount: unknown;
+    cancellationNoticeDays: number;
+    endingRequestedAt: Date | null;
+    unit: { code: string; facility: { name: string } };
+  }): PortalContractDto {
+    const base = Number(row.priceMonthly);
+    const discount = Number(row.discountAmount);
+    return {
+      id: row.id,
+      contractNumber: row.contractNumber,
+      unitCode: row.unit.code,
+      facilityName: row.unit.facility.name,
+      status: row.status as ContractStatusValue,
+      startDate: row.startDate.toISOString().slice(0, 10),
+      endDate: row.endDate?.toISOString().slice(0, 10) ?? null,
+      priceMonthly: base,
+      effectivePrice: this.pricing.computeEffectivePrice({ base, discount }),
+      cancellationNoticeDays: row.cancellationNoticeDays,
+      endingRequestedAt: row.endingRequestedAt?.toISOString() ?? null,
+    };
+  }
+
+  /** Contratos active/ending del inquilino (para el portal). */
+  async listForCustomer(tenantId: string, customerId: string): Promise<PortalContractDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findMany({
+          where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
+          orderBy: { startDate: 'desc' },
+          include: { unit: { select: { code: true, facility: { select: { name: true } } } } },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => this.toPortalDto(r));
+  }
+
+  /**
+   * El inquilino solicita la baja desde el portal: deja el contrato en `ending`
+   * con la fecha de salida (respetando el preaviso) y emite el evento para que
+   * el staff reciba la notificación y se dispare la encuesta de salida.
+   */
+  async requestEndByCustomer(args: {
+    tenantId: string;
+    customerId: string;
+    contractId: string;
+    endDate: string;
+  }): Promise<PortalContractDto> {
+    const existing = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findFirst({
+          where: {
+            id: args.contractId,
+            customerId: args.customerId,
+            tenantId: args.tenantId,
+            deletedAt: null,
+          },
+        }),
+      args.tenantId,
+    );
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    if (existing.status !== 'active') {
+      throw new BadRequestException({
+        code: 'contract_not_active',
+        message: 'Solo puedes solicitar la baja de un contrato activo',
+      });
+    }
+    // Preaviso: la fecha de salida debe respetar `cancellationNoticeDays`.
+    const minDate = new Date();
+    minDate.setHours(0, 0, 0, 0);
+    minDate.setDate(minDate.getDate() + existing.cancellationNoticeDays);
+    const requested = new Date(`${args.endDate}T00:00:00Z`);
+    if (requested.getTime() < minDate.getTime()) {
+      throw new BadRequestException({
+        code: 'notice_period_not_met',
+        message: `La baja requiere un preaviso de ${existing.cancellationNoticeDays} días`,
+        details: { minEndDate: minDate.toISOString().slice(0, 10) },
+      });
+    }
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.contract.update({
+        where: { id: args.contractId },
+        data: { status: 'ending', endDate: requested, endingRequestedAt: new Date() },
+        include: {
+          customer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              customerType: true,
+              email: true,
+              phone: true,
+            },
+          },
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+        },
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'ending_requested',
+          payload: { requestedEndDate: args.endDate, channel: 'portal' },
+          createdByUserId: null,
+        },
+      });
+      return row;
+    }, args.tenantId);
+
+    const c = updated.customer;
+    const displayName =
+      c.customerType === 'business'
+        ? (c.companyName ?? 'Empresa')
+        : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
+    const payload: DomainEventPayload = {
+      tenantId: args.tenantId,
+      entityType: 'contract',
+      entityId: updated.id,
+      recipientEmail: c.email ?? null,
+      recipientPhone: c.phone ?? null,
+      customerId: updated.customerId,
+      scope: {
+        customer: { firstName: c.firstName ?? '', displayName, email: c.email ?? '' },
+        contract: { number: updated.contractNumber, endDate: args.endDate },
+        unit: { code: updated.unit.code },
+        facility: { name: updated.unit.facility.name },
+      },
+    };
+    this.eventBus.emit(DOMAIN_EVENTS.contract_move_out_requested, payload);
+
+    return this.toPortalDto(updated);
   }
 
   async end(args: {

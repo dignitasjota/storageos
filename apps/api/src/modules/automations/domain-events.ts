@@ -13,6 +13,8 @@ export const DOMAIN_EVENTS = {
   contract_signed: 'domain.contract_signed',
   contract_ending_soon: 'domain.contract_ending_soon',
   contract_ended: 'domain.contract_ended',
+  /** El inquilino solicita la baja (move-out) desde el portal. */
+  contract_move_out_requested: 'domain.contract_move_out_requested',
   invoice_issued: 'domain.invoice_issued',
   invoice_overdue: 'domain.invoice_overdue',
   invoice_paid: 'domain.invoice_paid',

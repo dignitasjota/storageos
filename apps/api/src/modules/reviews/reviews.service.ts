@@ -2,9 +2,9 @@ import { randomBytes } from 'node:crypto';
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 
-import { DOMAIN_EVENTS } from '../automations/domain-events';
+import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { MessageTemplatesService } from '../communications/message-templates.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -214,6 +214,26 @@ export class ReviewsService {
         facilityName,
       },
     });
+  }
+
+  /**
+   * Encuesta de salida: cuando el inquilino solicita la baja (move-out) se
+   * dispara una valoración NPS para medir el motivo y mejorar retención.
+   * Best-effort: un fallo de envío no afecta a la baja.
+   */
+  @OnEvent(DOMAIN_EVENTS.contract_move_out_requested, { async: true, promisify: true })
+  async onMoveOutRequested(p: DomainEventPayload): Promise<void> {
+    if (!p.customerId) return;
+    try {
+      await this.request({
+        tenantId: p.tenantId,
+        input: { customerId: p.customerId, contractId: p.entityId, channel: 'email' },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[reviews] encuesta de salida para ${p.entityId} falló: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   /**
