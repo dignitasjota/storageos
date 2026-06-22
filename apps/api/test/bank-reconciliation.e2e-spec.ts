@@ -17,7 +17,7 @@ function n43Line(segments: [number, string][]): string {
   return buf.join('');
 }
 
-function buildN43(creditAmount: string, reference: string): string {
+function buildN43(creditAmount: string, reference: string, debitAmount = '00000000005000'): string {
   const header = n43Line([
     [1, '11'],
     [3, '2100'],
@@ -42,7 +42,7 @@ function buildN43(creditAmount: string, reference: string): string {
     [7, '260616'],
     [13, '260616'],
     [24, '1'],
-    [25, '00000000005000'],
+    [25, debitAmount],
   ]);
   const footer = n43Line([
     [1, '33'],
@@ -125,6 +125,67 @@ describe('Conciliación N43 (e2e)', () => {
       .set(auth)
       .send({ invoiceId });
     expect(again.status).toBe(400);
+  });
+
+  it('devolución SEPA: un cargo del mismo importe revierte la factura cobrada', async () => {
+    const owner = await registerVerifiedUser(app, 'n43ret');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken);
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    const issued = await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/issue`)
+      .set(auth)
+      .expect(200);
+    const invoiceNumber = issued.body.invoiceNumber as string;
+
+    // Conciliar el abono → factura pagada.
+    const file1 = buildN43('00000000012100', invoiceNumber);
+    const imp1 = await request(app.getHttpServer())
+      .post('/bank-statements/import')
+      .set(auth)
+      .send({ filename: 'cobro.n43', content: file1 });
+    const detail1 = await request(app.getHttpServer())
+      .get(`/bank-statements/${imp1.body.statements[0].id}`)
+      .set(auth);
+    const credit = detail1.body.transactions.find((t: { type: string }) => t.type === 'credit');
+    await request(app.getHttpServer())
+      .post(`/bank-statements/transactions/${credit.id}/match`)
+      .set(auth)
+      .send({ invoiceId })
+      .expect(200);
+    expect(
+      (await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth)).body.status,
+    ).toBe('paid');
+
+    // Segundo extracto con un CARGO de 121 € (la devolución) + ref de la factura.
+    const file2 = buildN43('00000000000100', `OTRA-${invoiceNumber}`, '00000000012100');
+    const imp2 = await request(app.getHttpServer())
+      .post('/bank-statements/import')
+      .set(auth)
+      .send({ filename: 'devolucion.n43', content: file2 });
+    const stId = imp2.body.statements[0].id as string;
+    const detail2 = await request(app.getHttpServer()).get(`/bank-statements/${stId}`).set(auth);
+    const debit = detail2.body.transactions.find((t: { type: string }) => t.type === 'debit');
+    expect(debit.amount).toBe(-121);
+    // El cargo sugiere la factura pagada como devolución.
+    expect(debit.returnSuggestions.length).toBeGreaterThanOrEqual(1);
+    expect(debit.returnSuggestions[0].invoiceId).toBe(invoiceId);
+
+    // Marcar devolución → factura vuelve a vencida/emitida.
+    const ret = await request(app.getHttpServer())
+      .post(`/bank-statements/transactions/${debit.id}/mark-return`)
+      .set(auth)
+      .send({ invoiceId });
+    expect(ret.status).toBe(200);
+    const retDebit = ret.body.transactions.find((t: { id: string }) => t.id === debit.id);
+    expect(retDebit.status).toBe('returned');
+
+    const after = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(['overdue', 'issued']).toContain(after.body.status);
+    expect(after.body.amountPaid).toBe(0);
   });
 
   it('rechaza un fichero sin movimientos válidos', async () => {

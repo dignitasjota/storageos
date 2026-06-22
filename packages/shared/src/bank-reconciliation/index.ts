@@ -40,11 +40,13 @@ export interface BankTransactionDto {
   type: 'credit' | 'debit';
   description: string;
   reference: string;
-  status: 'pending' | 'matched' | 'ignored';
+  status: 'pending' | 'matched' | 'ignored' | 'returned';
   matchedInvoiceId: string | null;
   matchedInvoiceNumber: string | null;
-  /** Sugerencias de factura (solo abonos pendientes). */
+  /** Sugerencias de factura (solo abonos pendientes) → marcar como cobrada. */
   suggestions: BankTransactionSuggestionDto[];
+  /** Sugerencias de factura pagada (solo cargos pendientes) → devolución SEPA. */
+  returnSuggestions: BankTransactionSuggestionDto[];
 }
 
 export interface BankStatementDetailDto extends BankStatementDto {

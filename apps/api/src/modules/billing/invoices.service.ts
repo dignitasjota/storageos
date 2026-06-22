@@ -10,7 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
-import { addAmounts, isAtLeast, isGreaterThan } from '../../common/money';
+import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -654,6 +654,64 @@ export class InvoicesService {
       };
       this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
     }
+    return this.toDto(updated);
+  }
+
+  /**
+   * Revierte un cobro (p. ej. una **devolución SEPA** detectada en la
+   * conciliación N43): resta el importe de `amountPaid`, marca los pagos con
+   * éxito como fallidos y devuelve la factura a `overdue`/`issued`. Mismo patrón
+   * que el revert de disputas Stripe.
+   */
+  async revertPayment(args: {
+    tenantId: string;
+    userId: string | null;
+    invoiceId: string;
+    amount: number;
+    reason: string;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    if (Number(existing.amountPaid) <= 0) {
+      throw new BadRequestException({
+        code: 'nothing_to_revert',
+        message: 'La factura no tiene cobros que revertir',
+      });
+    }
+    const newPaid = Math.max(0, subtractAmounts(existing.amountPaid, args.amount));
+    const wasPaid = existing.status === 'paid';
+    const revertedStatus = wasPaid
+      ? existing.dueDate && existing.dueDate.getTime() < Date.now()
+        ? 'overdue'
+        : 'issued'
+      : existing.status;
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await tx.payment.updateMany({
+        where: { invoiceId: args.invoiceId, status: 'succeeded' },
+        data: { status: 'failed', failureReason: args.reason },
+      });
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          amountPaid: newPaid,
+          status: revertedStatus,
+          ...(wasPaid ? { paidAt: null } : {}),
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.payment_reverted',
+      entityType: 'Invoice',
+      entityId: args.invoiceId,
+      changes: { amount: args.amount, reason: args.reason, revertedStatus },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
     return this.toDto(updated);
   }
 
