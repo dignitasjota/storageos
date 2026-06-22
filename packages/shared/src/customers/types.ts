@@ -81,6 +81,9 @@ export interface ContractDto {
   depositAmount: number;
   depositStatus: ContractDepositStatusValue;
   signedPdfUrl: string | null;
+  insurancePlanId: string | null;
+  insurancePlanName: string | null;
+  insurancePrice: number | null;
   autoRenew: boolean;
   cancellationNoticeDays: number;
   notes: string | null;

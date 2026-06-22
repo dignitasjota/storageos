@@ -91,6 +91,7 @@ export class BillingJobsService {
       },
       include: {
         unit: { select: { id: true, facilityId: true, unitTypeId: true } },
+        insurancePlan: { select: { name: true, taxRate: true } },
       },
     });
 
@@ -148,6 +149,22 @@ export class BillingJobsService {
               periodStart: periodStart.toISOString().slice(0, 10),
               periodEnd: periodEnd.toISOString().slice(0, 10),
             },
+            // Línea de seguro/protección si el contrato tiene un plan asignado.
+            ...(c.insurancePlanId && c.insurancePrice && Number(c.insurancePrice) > 0
+              ? [
+                  {
+                    description: `Protección de contenido${
+                      c.insurancePlan?.name ? ` — ${c.insurancePlan.name}` : ''
+                    } (${periodStart.toISOString().slice(0, 7)})`,
+                    quantity: 1,
+                    unitPrice: Number(c.insurancePrice),
+                    taxRate: Number(c.insurancePlan?.taxRate ?? 21),
+                    relatedContractId: c.id,
+                    periodStart: periodStart.toISOString().slice(0, 10),
+                    periodEnd: periodEnd.toISOString().slice(0, 10),
+                  },
+                ]
+              : []),
           ],
           verifactuMode: 'verifactu',
         },

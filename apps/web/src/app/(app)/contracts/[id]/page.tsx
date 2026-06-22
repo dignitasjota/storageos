@@ -29,6 +29,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
@@ -44,6 +51,7 @@ import {
   useRequestSignature,
   useSignContract,
 } from '@/lib/customers/hooks';
+import { useInsurancePlans, useSetContractInsurance } from '@/lib/insurance/hooks';
 
 const EVENT_LABELS: Record<string, string> = {
   created: 'Creado',
@@ -268,6 +276,13 @@ export default function ContractDetailPage() {
         </Card>
       </div>
 
+      <InsuranceCard
+        contractId={c.id}
+        planId={c.insurancePlanId}
+        planName={c.insurancePlanName}
+        price={c.insurancePrice}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Timeline</CardTitle>
@@ -457,5 +472,66 @@ export default function ContractDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function InsuranceCard({
+  contractId,
+  planId,
+  planName,
+  price,
+}: {
+  contractId: string;
+  planId: string | null;
+  planName: string | null;
+  price: number | null;
+}) {
+  const canManage = useHasPermission('contracts:write');
+  const plans = useInsurancePlans(true);
+  const setInsurance = useSetContractInsurance();
+
+  async function change(value: string) {
+    try {
+      await setInsurance.mutateAsync({ contractId, planId: value === 'none' ? null : value });
+      toast.success(value === 'none' ? 'Seguro retirado.' : 'Seguro asignado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-normal text-muted-foreground">
+          Seguro / protección
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-3">
+        {planId ? (
+          <p className="text-sm">
+            <span className="font-medium">{planName}</span>
+            {price != null && ` · ${price.toFixed(2)} €/mes`}{' '}
+            <span className="text-muted-foreground">(se factura con el alquiler)</span>
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Sin seguro contratado.</p>
+        )}
+        {canManage && (
+          <Select value={planId ?? 'none'} onValueChange={change} disabled={setInsurance.isPending}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder="Asignar plan..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin seguro</SelectItem>
+              {(plans.data ?? []).map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} · {p.monthlyPrice.toFixed(2)} €/mes
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </CardContent>
+    </Card>
   );
 }

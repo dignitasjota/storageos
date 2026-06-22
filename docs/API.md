@@ -1718,6 +1718,12 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `POST /rent-increases/:id/apply` (`contracts:manage`): aplica ya (sube `priceMonthly` + evento `price_changed`). Idempotente. También lo hace el cron `rent-increases.apply` en la fecha efectiva.
 - `POST /rent-increases/:id/cancel` (`contracts:manage`): cancela una tanda programada.
 
+### Seguro / protección recurrente (`/insurance-plans`, `/contracts/:id/insurance`)
+
+- `GET /insurance-plans` (`insurance:read`; `?onlyActive=true`) + `POST`/`PATCH /:id`/`DELETE /:id` (`insurance:manage`): catálogo de planes (prima mensual, cobertura, IVA, activo).
+- `PUT /contracts/:id/insurance` (`contracts:write`): asigna (`{planId}`) o quita (`{planId:null}`) el seguro; congela la prima en `contracts.insurance_price`. También se asigna en el alta con `CreateContractSchema.insurancePlanId`.
+- La prima se factura como una línea recurrente más en la factura mensual del alquiler (`billing-jobs`). `ContractDto` expone `insurancePlanId`/`insurancePlanName`/`insurancePrice`.
+
 ### Imágenes + slug del local (`/facilities/:id/images`)
 
 - `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).

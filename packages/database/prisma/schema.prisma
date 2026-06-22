@@ -387,6 +387,7 @@ model Tenant {
   campaigns               Campaign[]
   rentIncreases           RentIncrease[]
   rentIncreaseItems       RentIncreaseItem[]
+  insurancePlans          InsurancePlan[]
 
   @@map("tenants")
 }
@@ -925,6 +926,9 @@ model Contract {
   endingSoonNotifiedAt   DateTime?             @map("ending_soon_notified_at") @db.Timestamptz(6)
   autoRenew              Boolean               @default(true) @map("auto_renew")
   cancellationNoticeDays Int                   @default(15) @map("cancellation_notice_days")
+  /// Seguro/protección opcional: plan asignado + prima mensual congelada al asignar.
+  insurancePlanId        String?               @map("insurance_plan_id") @db.Uuid
+  insurancePrice         Decimal?              @map("insurance_price") @db.Decimal(10, 2)
   notes                  String?
   deletedAt              DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -942,6 +946,7 @@ model Contract {
   credentials       AccessCredential[]  @relation("CredentialContract")
   reviews           Review[]
   rentIncreaseItems RentIncreaseItem[]
+  insurancePlan     InsurancePlan?      @relation(fields: [insurancePlanId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
@@ -1423,6 +1428,28 @@ model RentIncreaseItem {
   @@unique([rentIncreaseId, contractId])
   @@index([tenantId])
   @@map("rent_increase_items")
+}
+
+/// Revenue: plan de seguro / protección de contenido (catálogo del tenant).
+/// Se asigna a un contrato y se factura como línea recurrente del alquiler.
+model InsurancePlan {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  name           String
+  monthlyPrice   Decimal  @map("monthly_price") @db.Decimal(10, 2)
+  coverageAmount Decimal  @default(0) @map("coverage_amount") @db.Decimal(12, 2)
+  /// IVA por defecto (21%). Se vende como servicio de protección, no seguro regulado.
+  taxRate        Decimal  @default(21) @map("tax_rate") @db.Decimal(5, 2)
+  description    String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contracts Contract[]
+
+  @@index([tenantId])
+  @@map("insurance_plans")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
