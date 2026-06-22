@@ -11,8 +11,8 @@ import {
   ClipboardList,
   CreditCard,
   FileSpreadsheet,
-  Gift,
   FileText,
+  Gift,
   KeyRound,
   Landmark,
   LayoutDashboard,
@@ -29,6 +29,7 @@ import {
   Ticket,
   TrendingUp,
   Users,
+  Warehouse,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -42,130 +43,205 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { usePermissions } from '@/lib/auth/hooks';
 
 interface NavItem {
   href: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
-  enabled: boolean;
-  /** Si se define, sólo quien tenga el permiso verá el item (RBAC v2). */
+  /** Si se define, solo quien tenga el permiso ve el item (RBAC v2). */
   permission?: Permission;
 }
 
-const NAV: NavItem[] = [
-  { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard, enabled: true },
-  { href: '/assistant', labelKey: 'assistant', icon: Bot, enabled: true, permission: 'ai:use' },
-  { href: '/facilities', labelKey: 'facilities', icon: Building2, enabled: true },
-  { href: '/units', labelKey: 'units', icon: Boxes, enabled: true },
-  { href: '/customers', labelKey: 'customers', icon: Users, enabled: true },
-  { href: '/contracts', labelKey: 'contracts', icon: FileText, enabled: true },
-  { href: '/reservations', labelKey: 'reservations', icon: CalendarClock, enabled: true },
+interface NavGroup {
+  /** Clave i18n de la cabecera del grupo (`sidebar.groups.*`). */
+  labelKey: string;
+  items: NavItem[];
+}
+
+const GROUPS: NavGroup[] = [
   {
-    href: '/unit-change-requests',
-    labelKey: 'unitChangeRequests',
-    icon: Replace,
-    enabled: true,
-    permission: 'contracts:read',
-  },
-  { href: '/invoices', labelKey: 'invoices', icon: CreditCard, enabled: true },
-  { href: '/sepa-remittances', labelKey: 'sepaRemittances', icon: Landmark, enabled: true },
-  {
-    href: '/bank-reconciliation',
-    labelKey: 'bankReconciliation',
-    icon: ArrowLeftRight,
-    enabled: true,
-    permission: 'payments:read',
+    labelKey: 'principal',
+    items: [
+      { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
+      { href: '/assistant', labelKey: 'assistant', icon: Bot, permission: 'ai:use' },
+    ],
   },
   {
-    href: '/rent-increases',
-    labelKey: 'rentIncreases',
-    icon: TrendingUp,
-    enabled: true,
-    permission: 'contracts:manage',
+    labelKey: 'operations',
+    items: [
+      { href: '/customers', labelKey: 'customers', icon: Users, permission: 'customers:read' },
+      { href: '/contracts', labelKey: 'contracts', icon: FileText, permission: 'contracts:read' },
+      {
+        href: '/reservations',
+        labelKey: 'reservations',
+        icon: CalendarClock,
+        permission: 'reservations:read',
+      },
+      {
+        href: '/unit-change-requests',
+        labelKey: 'unitChangeRequests',
+        icon: Replace,
+        permission: 'contracts:read',
+      },
+      { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
+      {
+        href: '/incidents',
+        labelKey: 'incidents',
+        icon: AlertTriangle,
+        permission: 'incidents:read',
+      },
+    ],
   },
   {
-    href: '/settings/billing/verifactu',
-    labelKey: 'verifactu',
-    icon: ShieldCheck,
-    enabled: true,
-    permission: 'invoices:manage',
+    labelKey: 'inventory',
+    items: [
+      {
+        href: '/facilities',
+        labelKey: 'facilities',
+        icon: Building2,
+        permission: 'facilities:read',
+      },
+      { href: '/units', labelKey: 'units', icon: Boxes, permission: 'units:read' },
+      { href: '/products', labelKey: 'products', icon: Package, permission: 'products:read' },
+      {
+        href: '/insurance-plans',
+        labelKey: 'insurance',
+        icon: Shield,
+        permission: 'insurance:read',
+      },
+    ],
   },
-  { href: '/leads', labelKey: 'leads', icon: Sparkles, enabled: true },
-  { href: '/communications', labelKey: 'communications', icon: Mail, enabled: true },
-  { href: '/campaigns', labelKey: 'campaigns', icon: Megaphone, enabled: true },
-  { href: '/message-templates', labelKey: 'messageTemplates', icon: MessageSquare, enabled: true },
-  { href: '/automations', labelKey: 'automations', icon: Bot, enabled: true },
-  { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, enabled: true },
-  { href: '/incidents', labelKey: 'incidents', icon: AlertTriangle, enabled: true },
-  { href: '/access', labelKey: 'access', icon: KeyRound, enabled: true },
-  { href: '/products', labelKey: 'products', icon: Package, enabled: true },
-  { href: '/insurance-plans', labelKey: 'insurance', icon: Shield, enabled: true },
-  { href: '/promotions', labelKey: 'promotions', icon: Ticket, enabled: true },
-  { href: '/referrals', labelKey: 'referrals', icon: Gift, enabled: true },
-  { href: '/analytics', labelKey: 'analytics', icon: BarChart3, enabled: true },
-  { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, enabled: true },
-  { href: '/reviews', labelKey: 'reviews', icon: Star, enabled: true },
+  {
+    labelKey: 'billing',
+    items: [
+      { href: '/invoices', labelKey: 'invoices', icon: CreditCard, permission: 'invoices:read' },
+      {
+        href: '/sepa-remittances',
+        labelKey: 'sepaRemittances',
+        icon: Landmark,
+        permission: 'payments:read',
+      },
+      {
+        href: '/bank-reconciliation',
+        labelKey: 'bankReconciliation',
+        icon: ArrowLeftRight,
+        permission: 'payments:read',
+      },
+      {
+        href: '/rent-increases',
+        labelKey: 'rentIncreases',
+        icon: TrendingUp,
+        permission: 'contracts:manage',
+      },
+      {
+        href: '/settings/billing/verifactu',
+        labelKey: 'verifactu',
+        icon: ShieldCheck,
+        permission: 'invoices:manage',
+      },
+    ],
+  },
+  {
+    labelKey: 'access',
+    items: [{ href: '/access', labelKey: 'access', icon: KeyRound, permission: 'access:read' }],
+  },
+  {
+    labelKey: 'crm',
+    items: [
+      { href: '/leads', labelKey: 'leads', icon: Sparkles, permission: 'leads:read' },
+      {
+        href: '/campaigns',
+        labelKey: 'campaigns',
+        icon: Megaphone,
+        permission: 'communications:read',
+      },
+      {
+        href: '/communications',
+        labelKey: 'communications',
+        icon: Mail,
+        permission: 'communications:read',
+      },
+      {
+        href: '/message-templates',
+        labelKey: 'messageTemplates',
+        icon: MessageSquare,
+        permission: 'templates:read',
+      },
+      { href: '/automations', labelKey: 'automations', icon: Bot, permission: 'automations:read' },
+      { href: '/promotions', labelKey: 'promotions', icon: Ticket, permission: 'promotions:read' },
+      { href: '/referrals', labelKey: 'referrals', icon: Gift, permission: 'referrals:read' },
+      { href: '/reviews', labelKey: 'reviews', icon: Star, permission: 'reviews:read' },
+    ],
+  },
+  {
+    labelKey: 'analysis',
+    items: [
+      { href: '/analytics', labelKey: 'analytics', icon: BarChart3, permission: 'analytics:read' },
+      { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, permission: 'reports:read' },
+    ],
+  },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations('sidebar');
-  const common = useTranslations('common');
-  // RBAC v2: items gateados por permiso (Veri*Factu + subidas de precio).
-  const canManageInvoices = useHasPermission('invoices:manage');
-  const canManageContracts = useHasPermission('contracts:manage');
+  const permissions = usePermissions();
+  const can = (p?: Permission) => !p || permissions.includes(p);
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex h-14 items-center px-2 text-base font-semibold tracking-tight">
-          StorageOS
-        </div>
+        <Link
+          href="/dashboard"
+          className="flex h-14 items-center gap-2 px-2 transition-opacity hover:opacity-80"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+            <Warehouse className="size-4" />
+          </span>
+          <span className="text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+            StorageOS
+          </span>
+        </Link>
       </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV.filter((item) => {
-                if (!item.permission) return true;
-                if (item.permission === 'invoices:manage') return canManageInvoices;
-                if (item.permission === 'contracts:manage') return canManageContracts;
-                return true;
-              }).map((item) => {
-                const Icon = item.icon;
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={active}
-                      tooltip={item.enabled ? undefined : common('comingSoon')}
-                      disabled={!item.enabled}
-                    >
-                      {item.enabled ? (
-                        <Link href={item.href}>
-                          <Icon />
-                          <span>{t(item.labelKey)}</span>
-                        </Link>
-                      ) : (
-                        <span aria-disabled="true" className="cursor-not-allowed opacity-60">
-                          <Icon />
-                          <span>{t(item.labelKey)}</span>
-                        </span>
-                      )}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="gap-0">
+        {GROUPS.map((group) => {
+          const items = group.items.filter((item) => can(item.permission));
+          if (items.length === 0) return null;
+          return (
+            <SidebarGroup key={group.labelKey}>
+              <SidebarGroupLabel>{t(`groups.${group.labelKey}`)}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {items.map((item) => {
+                    const Icon = item.icon;
+                    const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          className="data-[active=true]:font-medium"
+                        >
+                          <Link href={item.href}>
+                            <Icon />
+                            <span>{t(item.labelKey)}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
@@ -173,6 +249,7 @@ export function AppSidebar() {
             <SidebarMenuButton
               asChild
               isActive={pathname === '/settings' || pathname.startsWith('/settings/')}
+              className="data-[active=true]:font-medium"
             >
               <Link href="/settings/users">
                 <Settings />
