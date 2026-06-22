@@ -38,6 +38,7 @@ interface UnitRect {
   height: number;
   color: string;
   status: string;
+  areaM2: number;
 }
 
 const STATUS_OPACITY: Record<string, number> = {
@@ -46,6 +47,23 @@ const STATUS_OPACITY: Record<string, number> = {
   reserved: 0.75,
   maintenance: 0.6,
   blocked: 0.6,
+};
+
+/** Color de borde por estado, para distinguirlo de un vistazo. */
+const STATUS_COLOR: Record<string, string> = {
+  available: '#16a34a', // verde
+  occupied: '#dc2626', // rojo
+  reserved: '#d97706', // ámbar
+  maintenance: '#64748b', // gris
+  blocked: '#64748b',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  available: 'Disponible',
+  occupied: 'Ocupado',
+  reserved: 'Reservado',
+  maintenance: 'Mantenimiento',
+  blocked: 'Bloqueado',
 };
 
 function snap(value: number): number {
@@ -120,6 +138,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
         height: h,
         color: u.unitTypeColor,
         status: u.status,
+        areaM2: u.areaM2,
       };
     });
     setRects(next);
@@ -328,6 +347,19 @@ export function PlanEditor({ facilityId, floorId }: Props) {
         </span>
       </div>
 
+      {/* Leyenda de estados (color del borde de cada trastero). */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {(['available', 'occupied', 'reserved', 'maintenance', 'blocked'] as const).map((s) => (
+          <span key={s} className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block h-3 w-3 rounded-sm border-2"
+              style={{ borderColor: STATUS_COLOR[s] }}
+            />
+            {STATUS_LABEL[s]}
+          </span>
+        ))}
+      </div>
+
       <div
         ref={setContainerRef}
         className="relative h-[55vh] w-full touch-none overflow-hidden rounded-md border bg-muted/30 sm:h-[65vh]"
@@ -373,8 +405,8 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                     height={r.height}
                     fill={r.color}
                     opacity={STATUS_OPACITY[r.status] ?? 0.6}
-                    stroke={isSelected ? '#000' : '#222'}
-                    strokeWidth={isSelected ? 2 : 1}
+                    stroke={isSelected ? '#000' : (STATUS_COLOR[r.status] ?? '#222')}
+                    strokeWidth={isSelected ? 4 : 2.5}
                     draggable
                     onClick={() => setSelectedId(r.id)}
                     onTap={() => setSelectedId(r.id)}
@@ -392,10 +424,16 @@ export function PlanEditor({ facilityId, floorId }: Props) {
                 <Text
                   key={`label-${r.id}`}
                   x={r.x + 4}
-                  y={r.y + 4}
-                  text={r.code}
+                  y={r.y + 3}
+                  width={Math.max(r.width - 8, 20)}
+                  text={`${r.code}\n${r.areaM2.toFixed(1)} m²`}
                   fontSize={11}
+                  lineHeight={1.25}
+                  fontStyle="bold"
                   fill="#fff"
+                  shadowColor="#000"
+                  shadowBlur={2}
+                  shadowOpacity={0.7}
                   listening={false}
                 />
               ))}
