@@ -18,6 +18,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AutomationsModule } from './modules/automations/automations.module';
+import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
@@ -167,6 +168,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     RentIncreasesModule,
     InsuranceModule,
     SepaModule,
+    BankReconciliationModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

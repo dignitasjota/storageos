@@ -29,5 +29,6 @@ export * from './rent-increases';
 export * from './insurance';
 export * from './portal';
 export * from './sepa';
+export * from './bank-reconciliation';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;
