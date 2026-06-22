@@ -83,6 +83,8 @@ Empresas clientes del SaaS.
 - id, name, slug (único), status (trial/active/suspended/cancelled), trial_ends_at, billing_email, country, locale, currency, timezone, tax_id, created_at
 - **Fase 12A.1**: `require_two_factor_for_managers BOOLEAN DEFAULT false`. Cuando `true`, todos los users con role `owner`/`manager` quedan obligados a tener 2FA activo; el `/auth/login` les devuelve un `enrolmentToken` corto en lugar de access/refresh hasta que se enrolen. Solo el `owner` puede modificar este flag (`PATCH /settings/tenant/security`).
 - **Auto-charge (2026-06-11)**: `auto_charge_on_issue BOOLEAN DEFAULT false`. Cuando `true`, al emitir una factura se encola un cobro automático al método de pago predeterminado del cliente (cola BullMQ `payments`, listener de `domain.invoice_issued`). Solo el `owner` puede modificarlo (`PATCH /settings/tenant/billing`).
+- **Reviews/NPS (2026-06-22)**: `reviews_auto_request BOOLEAN DEFAULT false` + `review_request_delay_days INT DEFAULT 14`. Opt-in del cron `reviews.auto-request` que pide la valoración N días tras firmar. `GET/PATCH /settings/tenant/reviews` (`settings:read`/`settings:manage`).
+- **Referidos (2026-06-22)**: `referral_enabled BOOLEAN DEFAULT false` + `referral_reward_type promotion_discount_type DEFAULT 'fixed'` + `referral_reward_value DECIMAL(10,2) DEFAULT 0`. Opt-in del programa de referidos; la recompensa (percentage/fixed) se materializa como una promoción de un solo uso al convertir. `GET/PATCH /settings/tenant/referrals`.
 
 ### `users`
 
@@ -155,6 +157,8 @@ Mismo formato que el anterior. TTL más corto (1 h por defecto). Al usarse, **se
 Locales físicos del tenant.
 
 - id, tenant_id, name, address, city, postal_code, country, latitude, longitude, timezone, opening_hours (jsonb), contact_phone, contact_email, is_active
+- `public_slug` (único por tenant, autogenerado del nombre): identificador en la landing SEO `/s/<tenant>/<slug>`. Editable desde la pestaña "Ajustes" del local.
+- **Imágenes (2026-06-22)**: `images TEXT[] DEFAULT '{}'` — **keys** de objeto MinIO (no URLs del cliente) de las imágenes que se muestran en la landing pública. Se sirven desde el bucket **público dedicado** `storageos-public` (anonymous download); el resto de buckets (`uploads`/`invoices`/`plans`) son privados. `POST /facilities/:id/images/upload-url` (presigned PUT) + `PUT /facilities/:id/images` (valida que cada key empieza por `<tenant>/<facility>/images/`).
 
 ### `facility_floors`
 
@@ -194,7 +198,8 @@ Reglas de pricing dinámico.
 
 Códigos promocionales.
 
-- id, tenant_id, code (único por tenant), name, discount_type, discount_value, applies_to (jsonb), max_uses, used_count, valid_from, valid_until, is_active
+- id, tenant_id, code (único por tenant), name, discount_type (percentage/fixed/free_months), discount_value, applies_to (jsonb), max_uses, used_count, valid_from, valid_until, is_active
+- **Gestión + aplicación (2026-06-22)**: CRUD `/promotions` (`promotions:read`/`promotions:manage`) + `POST /promotions/validate`. Se aplica en el alta de contrato vía `CreateContractSchema.promotionCode` → fija `contracts.discount_amount` recurrente + incrementa `used_count` (atómico, en la transacción). Solo percentage/fixed en alta. Las **recompensas de referidos** se generan como promociones `REF-XXXX` de un solo uso (`max_uses=1`).
 
 ## 4. Inquilinos finales
 
@@ -203,6 +208,7 @@ Códigos promocionales.
 Inquilinos del tenant.
 
 - id, tenant_id, customer_type (individual/business), first_name, last_name, company_name, document_type, document_number, email, phone, address, city, postal_code, country, emergency_contact_name, emergency_contact_phone, notes, tags (array), portal_access_enabled, portal_password_hash, kyc_verified, kyc_verified_at, deleted_at
+- **Referidos (2026-06-22)**: `referral_code TEXT` (índice único parcial por tenant, autogenerado 8 chars sin ambiguos al verlo en el portal). Es el código que el inquilino comparte para referir a otros.
 
 ### `customer_documents`
 
@@ -301,6 +307,21 @@ Log unificado de mensajes.
 ### `automation_rules`
 
 - id, tenant_id, name, trigger_event, conditions (jsonb), actions (jsonb), is_active, last_run_at
+- El enum `automation_trigger` añadió en 2026-06-22 los valores `review_request` y `review_submitted` (ciclo de valoración NPS).
+
+### `reviews` (2026-06-22)
+
+Valoraciones (NPS) del inquilino post-contratación. RLS por `tenant_id`.
+
+- id, tenant_id, customer_id, contract_id (nullable), `token` (único, enlace público), token_expires_at, status (pending/submitted/expired), `nps_score` (0-10), `rating` (1-5), comment, channel (email/whatsapp/manual), source, requested_at, submitted_at, ip, user_agent
+- Solicitud manual (`POST /reviews/request`) o cron `reviews.auto-request`. Pública por token: `GET/POST /public/reviews/:token`. Stats NPS en `GET /reviews/stats`. Permiso nuevo `reviews:read`/`reviews:write`.
+
+### `referrals` (2026-06-22)
+
+Programa de referidos. RLS por `tenant_id`.
+
+- id, tenant_id, referrer_customer_id, referred_customer_id (**único** — un cliente se refiere una vez), status (pending/converted/cancelled), reward_promotion_id (FK a `promotions`, nullable), converted_at, created_at
+- Se registra en el alta del referido (best-effort, en la transacción). El listener `domain.contract_signed` lo marca `converted` + genera la promoción-recompensa. Vista del portal `GET /portal/me/referrals`, panel `GET /referrals` (permiso `referrals:read`).
 
 ## 9. Operativa interna
 
