@@ -9,10 +9,12 @@ import {
   type PortalInvoiceDto,
   type PortalReferralDto,
   type PortalSessionDto,
+  type PortalUnitChangeRequestDto,
   type SetupIntentResponseDto,
 } from '@storageos/shared';
 import {
   Bell,
+  Boxes,
   CreditCard,
   Download,
   Gift,
@@ -70,6 +72,10 @@ function PortalConsumeContent() {
   const [pushKey, setPushKey] = useState<string | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [unitChanges, setUnitChanges] = useState<PortalUnitChangeRequestDto[] | null>(null);
+  const [ucNote, setUcNote] = useState('');
+  const [ucContractId, setUcContractId] = useState('');
+  const [ucBusy, setUcBusy] = useState(false);
   const [moveOutId, setMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,13 +115,14 @@ function PortalConsumeContent() {
         });
         if (cancelled) return;
         setSession(s);
-        const [inv, pms, acc, refs, ctr, inc] = await Promise.all([
+        const [inv, pms, acc, refs, ctr, inc, ucr] = await Promise.all([
           portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
           portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
           portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
           portalFetch<PortalReferralDto>(s, '/portal/me/referrals'),
           portalFetch<PortalContractDto[]>(s, '/portal/me/contracts'),
           portalFetch<PortalIncidentDto[]>(s, '/portal/me/incidents'),
+          portalFetch<PortalUnitChangeRequestDto[]>(s, '/portal/me/unit-change-requests'),
         ]);
         if (cancelled) return;
         setInvoices(inv);
@@ -124,6 +131,7 @@ function PortalConsumeContent() {
         setReferrals(refs);
         setContracts(ctr);
         setIncidents(inc);
+        setUnitChanges(ucr);
         // Clave pública de push (best-effort; null si no está configurado).
         try {
           const k = await portalFetch<{ publicKey: string | null }>(
@@ -193,6 +201,29 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron activar.');
     } finally {
       setPushBusy(false);
+    }
+  }
+
+  async function requestUnitChange() {
+    if (!session || ucNote.trim().length < 5) {
+      toast.error('Cuéntanos qué cambio necesitas (mínimo 5 caracteres).');
+      return;
+    }
+    setUcBusy(true);
+    try {
+      const created = await portalFetch<PortalUnitChangeRequestDto>(
+        session,
+        '/portal/me/unit-change-requests',
+        { method: 'POST', json: { note: ucNote.trim(), contractId: ucContractId || undefined } },
+      );
+      setUnitChanges((prev) => [created, ...(prev ?? [])]);
+      setUcNote('');
+      setUcContractId('');
+      toast.success('Solicitud enviada. Te contactaremos.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    } finally {
+      setUcBusy(false);
     }
   }
 
@@ -646,6 +677,66 @@ function PortalConsumeContent() {
                         : i.status === 'resolved'
                           ? 'Resuelta'
                           : 'Cerrada'}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Boxes className="h-4 w-4" /> Cambiar de trastero
+          </CardTitle>
+          <CardDescription>
+            ¿Necesitas más espacio o un trastero distinto? Pídelo y te ayudamos con el cambio.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(contracts ?? []).length > 0 && (
+            <select
+              value={ucContractId}
+              onChange={(e) => setUcContractId(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Trastero actual (opcional)</option>
+              {(contracts ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.unitCode} · {c.facilityName}
+                </option>
+              ))}
+            </select>
+          )}
+          <textarea
+            value={ucNote}
+            onChange={(e) => setUcNote(e.target.value)}
+            placeholder="¿Qué necesitas? (p. ej. uno más grande, planta baja…)"
+            maxLength={1000}
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <Button onClick={requestUnitChange} disabled={ucBusy || ucNote.trim().length < 5}>
+            {ucBusy ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="mr-1 h-4 w-4" />
+            )}
+            Solicitar cambio
+          </Button>
+
+          {(unitChanges ?? []).length > 0 && (
+            <ul className="space-y-2 border-t pt-3">
+              {(unitChanges ?? []).map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="line-clamp-1">{r.note}</span>
+                  <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
+                    {r.status === 'pending'
+                      ? 'Pendiente'
+                      : r.status === 'handled'
+                        ? 'Gestionada'
+                        : 'Rechazada'}
                   </Badge>
                 </li>
               ))}

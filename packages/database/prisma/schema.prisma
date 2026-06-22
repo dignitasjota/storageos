@@ -407,6 +407,7 @@ model Tenant {
   aiConversations         AiConversation[]
   aiMessages              AiMessage[]
   pushSubscriptions       PushSubscription[]
+  unitChangeRequests      UnitChangeRequest[]
 
   @@map("tenants")
 }
@@ -863,25 +864,26 @@ model Customer {
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  documents         CustomerDocument[]
-  contracts         Contract[]
-  reservations      Reservation[]
-  invoices          Invoice[]
-  payments          Payment[]
-  paymentMethods    PaymentMethod[]
-  consents          Consent[]
-  communications    Communication[]
-  leadsConverted    Lead[]             @relation("LeadConvertedCustomer")
-  incidents         Incident[]         @relation("IncidentCustomer")
-  productSales      ProductSale[]      @relation("ProductSaleCustomer")
-  credentials       AccessCredential[] @relation("CredentialCustomer")
-  accessLogs        AccessLog[]        @relation("AccessLogCustomer")
-  reviews           Review[]
-  referralsMade     Referral[]         @relation("ReferralReferrer")
-  referralReceived  Referral?          @relation("ReferralReferred")
-  sepaMandates      SepaMandate[]
-  pushSubscriptions PushSubscription[]
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  documents          CustomerDocument[]
+  contracts          Contract[]
+  reservations       Reservation[]
+  invoices           Invoice[]
+  payments           Payment[]
+  paymentMethods     PaymentMethod[]
+  consents           Consent[]
+  communications     Communication[]
+  leadsConverted     Lead[]              @relation("LeadConvertedCustomer")
+  incidents          Incident[]          @relation("IncidentCustomer")
+  productSales       ProductSale[]       @relation("ProductSaleCustomer")
+  credentials        AccessCredential[]  @relation("CredentialCustomer")
+  accessLogs         AccessLog[]         @relation("AccessLogCustomer")
+  reviews            Review[]
+  referralsMade      Referral[]          @relation("ReferralReferrer")
+  referralReceived   Referral?           @relation("ReferralReferred")
+  sepaMandates       SepaMandate[]
+  pushSubscriptions  PushSubscription[]
+  unitChangeRequests UnitChangeRequest[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -956,19 +958,20 @@ model Contract {
   createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer          Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  unit              Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  events            ContractEvent[]
-  signatures        ContractSignature[]
-  invoices          Invoice[]
-  invoiceItems      InvoiceItem[]
-  leadsConverted    Lead[]              @relation("LeadConvertedContract")
-  incidents         Incident[]          @relation("IncidentContract")
-  credentials       AccessCredential[]  @relation("CredentialContract")
-  reviews           Review[]
-  rentIncreaseItems RentIncreaseItem[]
-  insurancePlan     InsurancePlan?      @relation(fields: [insurancePlanId], references: [id], onDelete: SetNull)
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  unit               Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  events             ContractEvent[]
+  signatures         ContractSignature[]
+  invoices           Invoice[]
+  invoiceItems       InvoiceItem[]
+  leadsConverted     Lead[]              @relation("LeadConvertedContract")
+  incidents          Incident[]          @relation("IncidentContract")
+  credentials        AccessCredential[]  @relation("CredentialContract")
+  reviews            Review[]
+  rentIncreaseItems  RentIncreaseItem[]
+  insurancePlan      InsurancePlan?      @relation(fields: [insurancePlanId], references: [id], onDelete: SetNull)
+  unitChangeRequests UnitChangeRequest[]
 
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
@@ -1675,6 +1678,29 @@ model PushSubscription {
 
   @@index([tenantId, customerId])
   @@map("push_subscriptions")
+}
+
+/// Solicitud del inquilino para cambiar/ampliar de trastero (la gestiona el staff).
+model UnitChangeRequest {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  contractId      String?   @map("contract_id") @db.Uuid
+  note            String
+  /// pending | handled | rejected
+  status          String    @default("pending")
+  resolutionNote  String?   @map("resolution_note")
+  handledByUserId String?   @map("handled_by_user_id") @db.Uuid
+  handledAt       DateTime? @map("handled_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+  @@map("unit_change_requests")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).

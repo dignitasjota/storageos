@@ -57,6 +57,7 @@ import { SecurityEventsModule } from './modules/security-events/security-events.
 import { SepaModule } from './modules/sepa/sepa.module';
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
+import { UnitChangesModule } from './modules/unit-changes/unit-changes.module';
 import { UsersModule } from './modules/users/users.module';
 import { WidgetModule } from './modules/widget/widget.module';
 
@@ -173,6 +174,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     BankReconciliationModule,
     AiModule,
     PushModule,
+    UnitChangesModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

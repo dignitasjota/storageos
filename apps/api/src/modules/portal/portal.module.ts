@@ -9,6 +9,7 @@ import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
 import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
@@ -31,6 +32,8 @@ import { PortalService } from './portal.service';
     OperationsModule,
     // PushModule: suscripción a notificaciones push desde el portal.
     PushModule,
+    // UnitChangesModule: el inquilino solicita cambio de trastero.
+    UnitChangesModule,
   ],
   controllers: [PortalController],
   providers: [PortalService],
