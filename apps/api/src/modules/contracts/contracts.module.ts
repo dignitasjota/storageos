@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
+import { PromotionsModule } from '../promotions/promotions.module';
 
 import { ContractEndingSoonCron } from './contract-ending-soon.cron';
 import { ContractPdfController } from './contract-pdf.controller';
@@ -13,7 +14,7 @@ import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, PromotionsModule],
   controllers: [ContractsController, ReservationsController, ContractPdfController],
   providers: [
     ContractsService,

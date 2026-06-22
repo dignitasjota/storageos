@@ -143,6 +143,12 @@ export const CreateContractSchema = z.object({
   priceMonthly: positiveDecimal,
   discountAmount: nonNegativeDecimal.default(0),
   discountReason: optionalText(200),
+  /**
+   * Código promocional opcional. Si se indica y es válido (percentage/fixed),
+   * el backend calcula `discountAmount` (recurrente sobre la cuota) y registra
+   * el uso; tiene prioridad sobre un `discountAmount` manual.
+   */
+  promotionCode: z.string().trim().toUpperCase().max(32).optional(),
   depositAmount: nonNegativeDecimal.default(0),
   autoRenew: z.boolean().default(true),
   cancellationNoticeDays: z.number().int().min(0).max(365).default(15),

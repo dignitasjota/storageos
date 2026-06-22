@@ -57,6 +57,8 @@ export const Permissions = [
   'imports:manage', // alta masiva CSV (owner+manager)
   'reviews:read',
   'reviews:write', // solicitar valoraciones (NPS)
+  'promotions:read',
+  'promotions:manage', // crear/editar códigos promocionales (owner+manager)
   'access:read',
   'access:manage',
   'analytics:read',
