@@ -12,8 +12,12 @@ export type CampaignStatusValue = z.infer<typeof CampaignStatusEnum>;
  */
 export const CustomerSegmentSchema = z.object({
   audience: z.literal('customers'),
-  /** active = con contrato active/ending; none = sin él; any = todos. */
-  contractStatus: z.enum(['active', 'none', 'any']).default('any'),
+  /**
+   * active = con contrato active/ending; none = sin él; any = todos;
+   * former = ex-clientes (tuvieron un contrato ended/cancelled y ninguno
+   * activo) → segmento de win-back.
+   */
+  contractStatus: z.enum(['active', 'none', 'any', 'former']).default('any'),
   /** Solo clientes con facturas vencidas (morosos). */
   overdueOnly: z.boolean().default(false),
   /** Solo clientes con este tag. */
