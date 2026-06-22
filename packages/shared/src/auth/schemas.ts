@@ -212,3 +212,9 @@ export const UpdateTenantReviewsSettingsSchema = z.object({
   googleReviewUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
 });
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
+
+/** PATCH /settings/tenant/access — máximo de accesos adicionales por inquilino. */
+export const UpdateTenantAccessSettingsSchema = z.object({
+  extraAccessLimit: z.number().int().min(0).max(10),
+});
+export type UpdateTenantAccessSettingsInput = z.infer<typeof UpdateTenantAccessSettingsSchema>;

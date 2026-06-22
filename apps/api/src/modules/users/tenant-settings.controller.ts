@@ -1,9 +1,11 @@
 import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
 import {
+  type TenantAccessSettingsResponse,
   type TenantBillingSettingsResponse,
   type TenantReferralSettingsResponse,
   type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
+  UpdateTenantAccessSettingsSchema,
   UpdateTenantBillingSettingsSchema,
   UpdateTenantReferralSettingsSchema,
   UpdateTenantReviewsSettingsSchema,
@@ -26,6 +28,7 @@ class UpdateTenantSecuritySettingsDto extends createZodDto(UpdateTenantSecurityS
 class UpdateTenantBillingSettingsDto extends createZodDto(UpdateTenantBillingSettingsSchema) {}
 class UpdateTenantReviewsSettingsDto extends createZodDto(UpdateTenantReviewsSettingsSchema) {}
 class UpdateTenantReferralSettingsDto extends createZodDto(UpdateTenantReferralSettingsSchema) {}
+class UpdateTenantAccessSettingsDto extends createZodDto(UpdateTenantAccessSettingsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -143,6 +146,28 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantReferralSettingsResponse> {
     return this.settings.updateReferrals({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('settings:read')
+  @Get('access')
+  async getAccess(@CurrentUser() user: AuthenticatedUser): Promise<TenantAccessSettingsResponse> {
+    return this.settings.getAccess(user.tenantId);
+  }
+
+  /** Máximo de accesos adicionales que un inquilino puede crearse en el portal. */
+  @RequirePermission('settings:manage')
+  @Patch('access')
+  async updateAccess(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateTenantAccessSettingsDto,
+    @Req() req: Request,
+  ): Promise<TenantAccessSettingsResponse> {
+    return this.settings.updateAccess({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,

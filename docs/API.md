@@ -768,6 +768,7 @@ portal mínimo para que el inquilino consulte sus facturas.
 | POST   | `/portal/me/invoices/:id/charge`          | NO   | 5/min/IP  | Bearer JWT portal; cobra el pendiente con el PM predeterminado. 404 si la invoice no es del customer del token; 400 `no_payment_method` si no hay PM |
 | GET    | `/portal/me/access`                       | NO   | 60/min/IP | Bearer JWT portal; credenciales pin/qr activas del inquilino con el valor descifrado (para mostrar/presentar)                                        |
 | POST   | `/portal/me/access/:id/regenerate`        | NO   | 5/min/IP  | Bearer JWT portal; regenera el secreto de SU credencial (404 si no es suya). Devuelve el nuevo valor                                                 |
+| POST   | `/portal/me/access/extra`                 | NO   | 5/min/IP  | Bearer JWT portal; crea un acceso adicional (PIN, body `{label}`) hasta `tenants.extra_access_limit`. 409 `extra_access_limit_reached` al exceder    |
 
 ### Codigos `code` (Fase 4)
 
@@ -1733,6 +1734,10 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 
 - `POST /invoices/:id/late-fee` (`invoices:manage`): emite una **factura separada** de recargo (F1, línea sin IVA, % del importe vencido o € fijo según config). Idempotente (409 `late_fee_already_applied`). También lo hace el dunning a los `late_fee_grace_days` de vencimiento si el tenant lo activó.
 - `GET/PATCH /settings/tenant/billing` (`settings:read` / `billing:configure`): config del recargo (`lateFeeEnabled`/`lateFeeType`/`lateFeeValue`/`lateFeeGraceDays`) + auto-charge. `InvoiceDto` expone `lateFeeForInvoiceId`/`lateFeeInvoiceId`.
+
+### Accesos del inquilino (`/settings/tenant/access`)
+
+- `GET/PATCH /settings/tenant/access` (`settings:read` / `settings:manage`): `extraAccessLimit` (0-10) — máximo de accesos adicionales que un inquilino puede crearse desde su portal. Auto-emisión de PIN al firmar el contrato y al primer pago (si no tiene credencial).
 
 ### Reseñas en Google (`/settings/tenant/reviews`, `/public/reviews/:token`)
 

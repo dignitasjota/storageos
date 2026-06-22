@@ -84,6 +84,46 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     expect(regen.body.value).not.toBe('4821');
   });
 
+  it('el inquilino crea accesos adicionales hasta el límite del tenant (409 al exceder)', async () => {
+    const owner = await registerVerifiedUser(app, 'portal-extra');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const email = `pex-${Date.now()}@e2e.local`;
+    await createCustomer(app, owner.accessToken, { email });
+
+    // El tenant fija el límite de accesos adicionales en 1.
+    const setLimit = await request(app.getHttpServer())
+      .patch('/settings/tenant/access')
+      .set(auth)
+      .send({ extraAccessLimit: 1 });
+    expect(setLimit.status).toBe(200);
+    expect(setLimit.body.extraAccessLimit).toBe(1);
+
+    const portalToken = await portalLogin(owner.slug, email);
+    const phdr = { Authorization: `Bearer ${portalToken}` };
+
+    // Primer acceso adicional → OK, devuelve un PIN visible.
+    const first = await request(app.getHttpServer())
+      .post('/portal/me/access/extra')
+      .set(phdr)
+      .send({ label: 'Hijo' });
+    expect(first.status).toBe(201);
+    expect(first.body.method).toBe('pin');
+    expect(first.body.value).toBeTruthy();
+    expect(first.body.label).toBe('Hijo');
+
+    // Segundo → supera el límite (1) → 409.
+    const second = await request(app.getHttpServer())
+      .post('/portal/me/access/extra')
+      .set(phdr)
+      .send({ label: 'Empleado' });
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('extra_access_limit_reached');
+
+    // Aparece en su lista de accesos.
+    const list = await request(app.getHttpServer()).get('/portal/me/access').set(phdr);
+    expect(list.body.some((c: { label: string }) => c.label === 'Hijo')).toBe(true);
+  });
+
   it('sin token de portal devuelve 401', async () => {
     const res = await request(app.getHttpServer()).get('/portal/me/access');
     expect(res.status).toBe(401);
