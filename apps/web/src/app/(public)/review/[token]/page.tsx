@@ -4,7 +4,7 @@ import { CheckCircle2, Loader2, Star } from 'lucide-react';
 import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { PublicReviewContextDto } from '@storageos/shared';
+import type { PublicReviewContextDto, SubmitReviewResultDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +23,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [googleUrl, setGoogleUrl] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<PublicReviewContextDto>(`/public/reviews/${token}`, { requiresAuth: false })
@@ -39,7 +40,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
     }
     setSubmitting(true);
     try {
-      await apiFetch(`/public/reviews/${token}`, {
+      const res = await apiFetch<SubmitReviewResultDto>(`/public/reviews/${token}`, {
         method: 'POST',
         requiresAuth: false,
         json: {
@@ -48,6 +49,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
           ...(comment.trim() ? { comment: comment.trim() } : {}),
         },
       });
+      setGoogleUrl(res.googleReviewUrl);
       setDone(true);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
@@ -88,6 +90,18 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
             <p className="text-sm text-muted-foreground">
               Tu opinión ayuda a {ctx.tenantName} a mejorar.
             </p>
+            {done && googleUrl && (
+              <div className="mt-2 space-y-2">
+                <p className="text-sm">
+                  ¿Te ha gustado tu experiencia? Déjanos una reseña en Google, nos ayuda muchísimo.
+                </p>
+                <Button asChild>
+                  <a href={googleUrl} target="_blank" rel="noopener noreferrer">
+                    <Star className="mr-1 h-4 w-4" /> Reseñar en Google
+                  </a>
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </Shell>

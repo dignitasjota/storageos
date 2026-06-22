@@ -325,6 +325,9 @@ model Tenant {
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
   reviewsAutoRequest          Boolean               @default(false) @map("reviews_auto_request")
   reviewRequestDelayDays      Int                   @default(14) @map("review_request_delay_days")
+  /// Link de "deja tu reseña" en Google Business Profile; se ofrece al promotor
+  /// (NPS >= 9) tras valorar, para mejorar el ranking local.
+  googleReviewUrl             String?               @map("google_review_url")
   /// Programa de referidos (opt-in): al convertir un referido se genera una
   /// promocion de un solo uso para el referidor con esta recompensa.
   referralEnabled             Boolean               @default(false) @map("referral_enabled")

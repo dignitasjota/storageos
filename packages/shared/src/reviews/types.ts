@@ -52,3 +52,12 @@ export interface PublicReviewContextDto {
   customerFirstName: string;
   facilityName: string | null;
 }
+
+/**
+ * Respuesta al enviar la valoración pública. `googleReviewUrl` solo viene si el
+ * inquilino es promotor (NPS >= 9) y el tenant configuró su link de Google.
+ */
+export interface SubmitReviewResultDto {
+  status: 'submitted';
+  googleReviewUrl: string | null;
+}

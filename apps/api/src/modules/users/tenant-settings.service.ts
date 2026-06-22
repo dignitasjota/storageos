@@ -138,6 +138,7 @@ export class TenantSettingsService {
     return {
       reviewsAutoRequest: tenant.reviewsAutoRequest,
       reviewRequestDelayDays: tenant.reviewRequestDelayDays,
+      googleReviewUrl: tenant.googleReviewUrl,
     };
   }
 
@@ -151,13 +152,17 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    const updated = await this.admin.tenant.update({
-      where: { id: args.tenantId },
-      data: {
-        reviewsAutoRequest: args.input.reviewsAutoRequest,
-        reviewRequestDelayDays: args.input.reviewRequestDelayDays,
-      },
-    });
+    const { input } = args;
+    const data: Record<string, string | number | boolean | null> = {};
+    if (input.reviewsAutoRequest !== undefined) data.reviewsAutoRequest = input.reviewsAutoRequest;
+    if (input.reviewRequestDelayDays !== undefined)
+      data.reviewRequestDelayDays = input.reviewRequestDelayDays;
+    if (input.googleReviewUrl !== undefined) data.googleReviewUrl = input.googleReviewUrl || null;
+
+    const updated =
+      Object.keys(data).length === 0
+        ? tenant
+        : await this.admin.tenant.update({ where: { id: args.tenantId }, data });
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -165,13 +170,7 @@ export class TenantSettingsService {
       action: 'tenant.reviews.settings_changed',
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: {
-        reviewsAutoRequest: { from: tenant.reviewsAutoRequest, to: updated.reviewsAutoRequest },
-        reviewRequestDelayDays: {
-          from: tenant.reviewRequestDelayDays,
-          to: updated.reviewRequestDelayDays,
-        },
-      },
+      changes: data,
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
@@ -179,6 +178,7 @@ export class TenantSettingsService {
     return {
       reviewsAutoRequest: updated.reviewsAutoRequest,
       reviewRequestDelayDays: updated.reviewRequestDelayDays,
+      googleReviewUrl: updated.googleReviewUrl,
     };
   }
 

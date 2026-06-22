@@ -311,9 +311,21 @@ function AutoRequestSettings() {
   const settings = useReviewsSettings();
   const update = useUpdateReviewsSettings();
   const [delay, setDelay] = useState<number | null>(null);
+  const [googleUrl, setGoogleUrl] = useState<string | null>(null);
 
   const enabled = settings.data?.reviewsAutoRequest ?? false;
   const delayValue = delay ?? settings.data?.reviewRequestDelayDays ?? 14;
+  const googleUrlValue = googleUrl ?? settings.data?.googleReviewUrl ?? '';
+
+  async function saveGoogleUrl() {
+    if (googleUrl === null || googleUrl === (settings.data?.googleReviewUrl ?? '')) return;
+    try {
+      await update.mutateAsync({ googleReviewUrl: googleUrl });
+      toast.success('Enlace de Google guardado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'URL no válida.');
+    }
+  }
 
   async function save(next: { reviewsAutoRequest: boolean; reviewRequestDelayDays: number }) {
     try {
@@ -368,6 +380,23 @@ function AutoRequestSettings() {
             />
           </div>
         )}
+        <div className="space-y-1 border-t pt-3">
+          <Label htmlFor="google-url" className="text-sm">
+            Enlace de reseña en Google (opcional)
+          </Label>
+          <Input
+            id="google-url"
+            type="url"
+            placeholder="https://g.page/r/.../review"
+            value={googleUrlValue}
+            onChange={(e) => setGoogleUrl(e.target.value)}
+            onBlur={saveGoogleUrl}
+          />
+          <p className="text-xs text-muted-foreground">
+            Tras una valoración positiva (NPS 9-10), se invita al inquilino a dejar una reseña en
+            Google con este enlace — mejora tu ranking local.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

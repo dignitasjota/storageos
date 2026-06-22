@@ -1,6 +1,10 @@
 import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { type PublicReviewContextDto, SubmitReviewSchema } from '@storageos/shared';
+import {
+  type PublicReviewContextDto,
+  type SubmitReviewResultDto,
+  SubmitReviewSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -39,7 +43,7 @@ export class ReviewsPublicController {
     @Param('token') token: string,
     @Body() body: SubmitReviewBody,
     @Req() req: Request,
-  ): Promise<{ status: 'submitted' }> {
+  ): Promise<SubmitReviewResultDto> {
     return this.reviews.submitByToken(token, body, extractMeta(req));
   }
 }

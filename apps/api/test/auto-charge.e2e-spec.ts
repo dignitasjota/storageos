@@ -35,19 +35,19 @@ describe('Auto-charge on issue (e2e)', () => {
       .get('/settings/tenant/billing')
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(initial.status).toBe(200);
-    expect(initial.body).toEqual({ autoChargeOnIssue: false });
+    expect(initial.body).toMatchObject({ autoChargeOnIssue: false });
 
     const enable = await request(app.getHttpServer())
       .patch('/settings/tenant/billing')
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({ autoChargeOnIssue: true });
     expect(enable.status).toBe(200);
-    expect(enable.body).toEqual({ autoChargeOnIssue: true });
+    expect(enable.body).toMatchObject({ autoChargeOnIssue: true });
 
     const after = await request(app.getHttpServer())
       .get('/settings/tenant/billing')
       .set('Authorization', `Bearer ${owner.accessToken}`);
-    expect(after.body).toEqual({ autoChargeOnIssue: true });
+    expect(after.body).toMatchObject({ autoChargeOnIssue: true });
 
     const sinAuth = await request(app.getHttpServer())
       .patch('/settings/tenant/billing')

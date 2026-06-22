@@ -316,6 +316,7 @@ Valoraciones (NPS) del inquilino post-contratación. RLS por `tenant_id`.
 
 - id, tenant_id, customer_id, contract_id (nullable), `token` (único, enlace público), token_expires_at, status (pending/submitted/expired), `nps_score` (0-10), `rating` (1-5), comment, channel (email/whatsapp/manual), source, requested_at, submitted_at, ip, user_agent
 - Solicitud manual (`POST /reviews/request`) o cron `reviews.auto-request`. Pública por token: `GET/POST /public/reviews/:token`. Stats NPS en `GET /reviews/stats`. Permiso nuevo `reviews:read`/`reviews:write`.
+- **Google Business Profile (2026-06-22)**: `tenants.google_review_url`; al enviar la valoración, si `nps_score >= 9` (promotor) y el tenant tiene el link, `submitByToken` lo devuelve y la página pública invita a dejar la reseña en Google.
 
 ### `referrals` (2026-06-22)
 
