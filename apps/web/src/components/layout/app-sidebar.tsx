@@ -35,7 +35,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
-import type { Permission } from '@storageos/shared';
+import type { Permission, TenantFeature } from '@storageos/shared';
 
 import {
   Sidebar,
@@ -49,7 +49,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { usePermissions } from '@/lib/auth/hooks';
+import { useFeatures, usePermissions } from '@/lib/auth/hooks';
 
 interface NavItem {
   href: string;
@@ -57,6 +57,8 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   /** Si se define, solo quien tenga el permiso ve el item (RBAC v2). */
   permission?: Permission;
+  /** Si se define, solo si el plan del tenant incluye esta feature. */
+  feature?: TenantFeature;
 }
 
 interface NavGroup {
@@ -70,7 +72,13 @@ const GROUPS: NavGroup[] = [
     labelKey: 'principal',
     items: [
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
-      { href: '/assistant', labelKey: 'assistant', icon: Bot, permission: 'ai:use' },
+      {
+        href: '/assistant',
+        labelKey: 'assistant',
+        icon: Bot,
+        permission: 'ai:use',
+        feature: 'ai_assistant',
+      },
     ],
   },
   {
@@ -115,6 +123,7 @@ const GROUPS: NavGroup[] = [
         labelKey: 'insurance',
         icon: Shield,
         permission: 'insurance:read',
+        feature: 'insurance',
       },
     ],
   },
@@ -127,18 +136,21 @@ const GROUPS: NavGroup[] = [
         labelKey: 'sepaRemittances',
         icon: Landmark,
         permission: 'payments:read',
+        feature: 'sepa',
       },
       {
         href: '/bank-reconciliation',
         labelKey: 'bankReconciliation',
         icon: ArrowLeftRight,
         permission: 'payments:read',
+        feature: 'bank_reconciliation',
       },
       {
         href: '/rent-increases',
         labelKey: 'rentIncreases',
         icon: TrendingUp,
         permission: 'contracts:manage',
+        feature: 'rent_increases',
       },
       {
         href: '/settings/billing/verifactu',
@@ -150,7 +162,15 @@ const GROUPS: NavGroup[] = [
   },
   {
     labelKey: 'access',
-    items: [{ href: '/access', labelKey: 'access', icon: KeyRound, permission: 'access:read' }],
+    items: [
+      {
+        href: '/access',
+        labelKey: 'access',
+        icon: KeyRound,
+        permission: 'access:read',
+        feature: 'access_control',
+      },
+    ],
   },
   {
     labelKey: 'crm',
@@ -174,7 +194,13 @@ const GROUPS: NavGroup[] = [
         icon: MessageSquare,
         permission: 'templates:read',
       },
-      { href: '/automations', labelKey: 'automations', icon: Bot, permission: 'automations:read' },
+      {
+        href: '/automations',
+        labelKey: 'automations',
+        icon: Bot,
+        permission: 'automations:read',
+        feature: 'automations',
+      },
       { href: '/promotions', labelKey: 'promotions', icon: Ticket, permission: 'promotions:read' },
       { href: '/referrals', labelKey: 'referrals', icon: Gift, permission: 'referrals:read' },
       { href: '/reviews', labelKey: 'reviews', icon: Star, permission: 'reviews:read' },
@@ -193,7 +219,9 @@ export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations('sidebar');
   const permissions = usePermissions();
+  const features = useFeatures();
   const can = (p?: Permission) => !p || permissions.includes(p);
+  const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
 
   return (
     <Sidebar collapsible="icon">
@@ -212,7 +240,9 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent className="gap-0">
         {GROUPS.map((group) => {
-          const items = group.items.filter((item) => can(item.permission));
+          const items = group.items.filter(
+            (item) => can(item.permission) && hasFeature(item.feature),
+          );
           if (items.length === 0) return null;
           return (
             <SidebarGroup key={group.labelKey}>
