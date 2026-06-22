@@ -23,6 +23,7 @@ import type {
   ReviewListQueryInput,
   ReviewStatsDto,
   SubmitReviewInput,
+  SubmitReviewResultDto,
 } from '@storageos/shared';
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -375,10 +376,10 @@ export class ReviewsService {
     token: string,
     input: SubmitReviewInput,
     meta: RequestMeta,
-  ): Promise<{ status: 'submitted' }> {
+  ): Promise<SubmitReviewResultDto> {
     if (input.website && input.website.trim() !== '') {
       // Honeypot: bot. Respondemos OK sin persistir.
-      return { status: 'submitted' };
+      return { status: 'submitted', googleReviewUrl: null };
     }
     const review = await this.admin.review.findUnique({
       where: { token },
@@ -425,6 +426,17 @@ export class ReviewsService {
       customerId: review.customerId,
       scope: { review: { npsScore: input.npsScore, rating: input.rating ?? '' } },
     });
-    return { status: 'submitted' };
+
+    // Promotor (NPS >= 9): si el tenant configuró su link de Google, lo
+    // devolvemos para invitarle a dejar la reseña pública (ranking local).
+    let googleReviewUrl: string | null = null;
+    if (input.npsScore >= 9) {
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: review.tenantId },
+        select: { googleReviewUrl: true },
+      });
+      googleReviewUrl = tenant?.googleReviewUrl ?? null;
+    }
+    return { status: 'submitted', googleReviewUrl };
   }
 }

@@ -147,4 +147,5 @@ export interface TenantBillingSettingsResponse {
 export interface TenantReviewsSettingsResponse {
   reviewsAutoRequest: boolean;
   reviewRequestDelayDays: number;
+  googleReviewUrl: string | null;
 }

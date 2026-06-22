@@ -206,7 +206,9 @@ export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillin
  * valoraciones (NPS) N días tras firmar el contrato. Opt-in por tenant.
  */
 export const UpdateTenantReviewsSettingsSchema = z.object({
-  reviewsAutoRequest: z.boolean(),
-  reviewRequestDelayDays: z.number().int().min(1).max(180),
+  reviewsAutoRequest: z.boolean().optional(),
+  reviewRequestDelayDays: z.number().int().min(1).max(180).optional(),
+  /** Link "deja tu reseña" en Google Business Profile (vacío = desactivado). */
+  googleReviewUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
 });
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
