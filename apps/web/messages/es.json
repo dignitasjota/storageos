@@ -157,6 +157,7 @@
     "contracts": "Contratos",
     "reservations": "Reservas",
     "invoices": "Facturas",
+    "sepaRemittances": "Remesas SEPA",
     "billing": "Facturación",
     "verifactu": "Veri*Factu",
     "leads": "Leads",

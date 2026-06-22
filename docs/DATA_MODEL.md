@@ -332,6 +332,16 @@ Campañas segmentadas por email. RLS por `tenant_id`.
 - id, tenant_id, name, channel (email), subject, body_text, `segment` jsonb (audiencia clientes/leads + filtros), status (draft/sending/sent/cancelled), audience_count, sent_count, scheduled_for, sent_at, created_by_user_id
 - Al enviar (`POST /campaigns/:id/send`) se resuelve la audiencia (con `withTenant`) y se encola una `communications` por destinatario (`source=campaign:<id>`, subject/body renderizados por destinatario). Permisos `communications:read`/`communications:send`.
 
+### `sepa_settings` + `sepa_mandates` + `sepa_remittances` + `sepa_remittance_items` (2026-06-22)
+
+Remesas SEPA (adeudos directos, fichero pain.008). RLS por `tenant_id`.
+
+- **`sepa_settings`** (acreedor, única por tenant): creditor_name, creditor_id (identificador del acreedor SEPA), creditor_iban_encrypted (AES-GCM), creditor_bic, enabled.
+- **`sepa_mandates`** (por cliente): reference (única autogenerada), iban_encrypted + iban_last4, bic, signed_at, sequence_type (FRST→RCUR), status (active/cancelled). Índice parcial **único mandato activo por cliente**.
+- **`sepa_remittances`** (lote): message_id, collection_date, status (generated/confirmed/cancelled), item_count, total_amount (céntimos), xml.
+- **`sepa_remittance_items`** (por factura): invoice_id (**único** → una factura por remesa), mandate_id (FK), amount (céntimos), sequence_type, end_to_end_id.
+- Flujo: config acreedor + mandatos → `POST /sepa/remittances` genera el XML pain.008 → descargar → `POST /sepa/remittances/:id/confirm` marca las facturas pagadas (manual, methodType `sepa_debit`) + mandatos FRST→RCUR. Permisos `invoices:manage` (remesas) / `payments:charge` (mandatos) / `billing:configure` (settings).
+
 ### `rent_increases` + `rent_increase_items` (2026-06-22)
 
 Subidas de precio a clientes en cartera (ECRI). RLS por `tenant_id`.

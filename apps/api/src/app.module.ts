@@ -51,6 +51,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
 import { SecurityEventsModule } from './modules/security-events/security-events.module';
+import { SepaModule } from './modules/sepa/sepa.module';
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UsersModule } from './modules/users/users.module';
@@ -165,6 +166,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     CampaignsModule,
     RentIncreasesModule,
     InsuranceModule,
+    SepaModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

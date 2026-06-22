@@ -13,6 +13,7 @@ import {
   Gift,
   FileText,
   KeyRound,
+  Landmark,
   LayoutDashboard,
   Mail,
   Megaphone,
@@ -63,6 +64,7 @@ const NAV: NavItem[] = [
   { href: '/contracts', labelKey: 'contracts', icon: FileText, enabled: true },
   { href: '/reservations', labelKey: 'reservations', icon: CalendarClock, enabled: true },
   { href: '/invoices', labelKey: 'invoices', icon: CreditCard, enabled: true },
+  { href: '/sepa-remittances', labelKey: 'sepaRemittances', icon: Landmark, enabled: true },
   {
     href: '/rent-increases',
     labelKey: 'rentIncreases',

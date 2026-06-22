@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCreateSetupIntent,
@@ -25,6 +26,7 @@ import {
   useRegisterPaymentMethod,
   useRemovePaymentMethod,
 } from '@/lib/billing/hooks';
+import { useCancelSepaMandate, useCreateSepaMandate, useSepaMandates } from '@/lib/sepa/hooks';
 
 export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }) {
   const methods = useCustomerPaymentMethods(customerId);
@@ -54,92 +56,189 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Métodos de pago</CardTitle>
-        <Button onClick={openAddDialog} disabled={createSetupIntent.isPending}>
-          {createSetupIntent.isPending ? (
-            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Métodos de pago</CardTitle>
+          <Button onClick={openAddDialog} disabled={createSetupIntent.isPending}>
+            {createSetupIntent.isPending ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="mr-1 h-4 w-4" />
+            )}
+            Añadir método de pago
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {methods.isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !methods.data?.length ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Sin métodos de pago. Añade un IBAN (SEPA) o una tarjeta para poder cobrar las facturas
+              automáticamente.
+            </p>
           ) : (
-            <Plus className="mr-1 h-4 w-4" />
-          )}
-          Añadir método de pago
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {methods.isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : !methods.data?.length ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Sin métodos de pago. Añade un IBAN (SEPA) o una tarjeta para poder cobrar las facturas
-            automáticamente.
-          </p>
-        ) : (
-          <ul className="divide-y">
-            {methods.data.map((pm) => (
-              <li key={pm.id} className="flex items-center justify-between gap-3 py-3">
-                <div className="flex items-center gap-3">
-                  {pm.type === 'sepa_debit' ? (
-                    <Landmark className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <CreditCard className="h-5 w-5 text-muted-foreground" />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium">{formatLabel(pm)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {pm.type === 'sepa_debit'
-                        ? `Domiciliación SEPA${pm.mandateReference ? ` · mandato ${pm.mandateReference}` : ''}`
-                        : pm.expMonth && pm.expYear
-                          ? `Caduca ${String(pm.expMonth).padStart(2, '0')}/${pm.expYear}`
-                          : 'Tarjeta'}
-                    </p>
+            <ul className="divide-y">
+              {methods.data.map((pm) => (
+                <li key={pm.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="flex items-center gap-3">
+                    {pm.type === 'sepa_debit' ? (
+                      <Landmark className="h-5 w-5 text-muted-foreground" />
+                    ) : (
+                      <CreditCard className="h-5 w-5 text-muted-foreground" />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium">{formatLabel(pm)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {pm.type === 'sepa_debit'
+                          ? `Domiciliación SEPA${pm.mandateReference ? ` · mandato ${pm.mandateReference}` : ''}`
+                          : pm.expMonth && pm.expYear
+                            ? `Caduca ${String(pm.expMonth).padStart(2, '0')}/${pm.expYear}`
+                            : 'Tarjeta'}
+                      </p>
+                    </div>
+                    {pm.isDefault && <Badge variant="secondary">Predeterminado</Badge>}
                   </div>
-                  {pm.isDefault && <Badge variant="secondary">Predeterminado</Badge>}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => void handleRemove(pm)}
-                  disabled={remove.isPending}
-                  aria-label="Eliminar método de pago"
-                >
-                  <Trash2 className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </li>
-            ))}
-          </ul>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void handleRemove(pm)}
+                    disabled={remove.isPending}
+                    aria-label="Eliminar método de pago"
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) setSetupIntent(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Añadir método de pago</DialogTitle>
+              <DialogDescription>
+                IBAN (domiciliación SEPA) o tarjeta. Para SEPA, el cliente debe haber aceptado el
+                mandato de domiciliación (firmado en el contrato o por escrito).
+              </DialogDescription>
+            </DialogHeader>
+            {setupIntent && (
+              <AddPaymentMethodForm
+                customerId={customerId}
+                setupIntent={setupIntent}
+                onDone={() => {
+                  setDialogOpen(false);
+                  setSetupIntent(null);
+                }}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      </Card>
+      <SepaMandateCard customerId={customerId} />
+    </div>
+  );
+}
+
+function SepaMandateCard({ customerId }: { customerId: string }) {
+  const mandates = useSepaMandates(customerId);
+  const create = useCreateSepaMandate();
+  const cancel = useCancelSepaMandate();
+  const [iban, setIban] = useState('');
+  const [bic, setBic] = useState('');
+  const [signedAt, setSignedAt] = useState(new Date().toISOString().slice(0, 10));
+
+  const active = (mandates.data ?? []).find((m) => m.status === 'active');
+
+  async function add() {
+    if (!iban.trim()) {
+      toast.error('Indica el IBAN del cliente.');
+      return;
+    }
+    try {
+      await create.mutateAsync({
+        customerId,
+        iban: iban.trim(),
+        bic: bic.trim() || undefined,
+        signedAt,
+      });
+      setIban('');
+      setBic('');
+      toast.success('Mandato SEPA registrado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'IBAN no válido.');
+    }
+  }
+
+  async function revoke(id: string) {
+    if (!confirm('¿Cancelar el mandato SEPA?')) return;
+    try {
+      await cancel.mutateAsync(id);
+      toast.success('Mandato cancelado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Landmark className="h-4 w-4" /> Mandato SEPA (domiciliación)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {active ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+            <div className="text-sm">
+              <p className="font-medium">
+                IBAN ····{active.ibanLast4}{' '}
+                <Badge variant="secondary" className="ml-1">
+                  {active.sequenceType}
+                </Badge>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Ref {active.reference} · firmado {active.signedAt}
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => revoke(active.id)}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Registra el mandato para poder domiciliar las facturas de este cliente en las remesas
+              SEPA.
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Input
+                placeholder="IBAN ES91…"
+                value={iban}
+                onChange={(e) => setIban(e.target.value)}
+              />
+              <Input
+                placeholder="BIC (opcional)"
+                value={bic}
+                onChange={(e) => setBic(e.target.value)}
+              />
+              <Input type="date" value={signedAt} onChange={(e) => setSignedAt(e.target.value)} />
+            </div>
+            <Button size="sm" onClick={add} disabled={create.isPending}>
+              <Plus className="mr-1 h-4 w-4" /> Registrar mandato
+            </Button>
+          </div>
         )}
       </CardContent>
-
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) setSetupIntent(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Añadir método de pago</DialogTitle>
-            <DialogDescription>
-              IBAN (domiciliación SEPA) o tarjeta. Para SEPA, el cliente debe haber aceptado el
-              mandato de domiciliación (firmado en el contrato o por escrito).
-            </DialogDescription>
-          </DialogHeader>
-          {setupIntent && (
-            <AddPaymentMethodForm
-              customerId={customerId}
-              setupIntent={setupIntent}
-              onDone={() => {
-                setDialogOpen(false);
-                setSetupIntent(null);
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </Card>
   );
 }

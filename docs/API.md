@@ -1739,6 +1739,15 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET/PATCH /settings/tenant/reviews` (`settings:read` / `settings:manage`): config de auto-solicitud + `googleReviewUrl` (link de Google Business Profile del tenant).
 - `POST /public/reviews/:token` (`@Public`): al enviar la valoración devuelve `{ status, googleReviewUrl }`. `googleReviewUrl` solo se rellena si `npsScore >= 9` (promotor) y el tenant configuró el link; la página pública muestra entonces un CTA para reseñar en Google.
 
+### Remesas SEPA (`/sepa/...`)
+
+- `GET /sepa/settings` (`settings:read`) + `PUT /sepa/settings` (`billing:configure`): config del acreedor (nombre, identificador, IBAN cifrado, BIC, enabled). El IBAN es opcional al actualizar (conserva el actual).
+- `GET /sepa/mandates?customerId=` (`payments:read`) + `POST /sepa/mandates` (`payments:charge`) + `DELETE /sepa/mandates/:id` (`payments:charge`): mandatos por cliente (IBAN validado mod-97 + fecha de firma; crear cancela el activo previo).
+- `POST /sepa/remittances/preview` (`invoices:manage`): facturas domiciliables (issued/overdue, cliente con mandato activo, sin remesa) + `withoutMandate`.
+- `POST /sepa/remittances` (`invoices:manage`): genera el XML pain.008 + items (facturas quedan "en remesa", no pagadas aún). `GET /sepa/remittances` (`payments:read`).
+- `GET /sepa/remittances/:id/xml` (`invoices:manage`): devuelve `{filename, xml}` (el front descarga el blob).
+- `POST /sepa/remittances/:id/confirm` (`invoices:manage`): marca las facturas pagadas (methodType `sepa_debit`) + pasa los mandatos FRST→RCUR.
+
 ### Imágenes + slug del local (`/facilities/:id/images`)
 
 - `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).

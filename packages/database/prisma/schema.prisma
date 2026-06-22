@@ -398,6 +398,10 @@ model Tenant {
   rentIncreases           RentIncrease[]
   rentIncreaseItems       RentIncreaseItem[]
   insurancePlans          InsurancePlan[]
+  sepaSettings            SepaSettings?
+  sepaMandates            SepaMandate[]
+  sepaRemittances         SepaRemittance[]
+  sepaRemittanceItems     SepaRemittanceItem[]
 
   @@map("tenants")
 }
@@ -870,6 +874,7 @@ model Customer {
   reviews          Review[]
   referralsMade    Referral[]         @relation("ReferralReferrer")
   referralReceived Referral?          @relation("ReferralReferred")
+  sepaMandates     SepaMandate[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1143,19 +1148,20 @@ model Invoice {
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer          Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  contract          Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
-  series            InvoiceSeries   @relation(fields: [seriesId], references: [id], onDelete: Restrict)
-  items             InvoiceItem[]
-  payments          Payment[]
-  dunningActions    DunningAction[]
-  productSale       ProductSale?    @relation("ProductSaleInvoice")
-  redsysOrders      RedsysOrder[]
-  rectifiesInvoice  Invoice?        @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
-  rectifiedBy       Invoice[]       @relation("InvoiceRectification")
-  lateFeeForInvoice Invoice?        @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
-  lateFeeInvoice    Invoice?        @relation("InvoiceLateFee")
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer           Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contract           Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  series             InvoiceSeries       @relation(fields: [seriesId], references: [id], onDelete: Restrict)
+  items              InvoiceItem[]
+  payments           Payment[]
+  dunningActions     DunningAction[]
+  productSale        ProductSale?        @relation("ProductSaleInvoice")
+  redsysOrders       RedsysOrder[]
+  rectifiesInvoice   Invoice?            @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
+  rectifiedBy        Invoice[]           @relation("InvoiceRectification")
+  lateFeeForInvoice  Invoice?            @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
+  lateFeeInvoice     Invoice?            @relation("InvoiceLateFee")
+  sepaRemittanceItem SepaRemittanceItem?
 
   @@unique([tenantId, seriesId, sequenceNumber])
   @@unique([tenantId, invoiceNumber])
@@ -1465,6 +1471,96 @@ model InsurancePlan {
 
   @@index([tenantId])
   @@map("insurance_plans")
+}
+
+/// Pagos España: config del acreedor para remesas SEPA (adeudos directos).
+/// IBAN cifrado AES-GCM como redsys/holded.
+model SepaSettings {
+  id                    String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId              String   @unique @map("tenant_id") @db.Uuid
+  creditorName          String   @map("creditor_name")
+  /// Identificador del acreedor SEPA (p.ej. ES12ZZZ + NIF).
+  creditorId            String   @map("creditor_id")
+  creditorIbanEncrypted String   @map("creditor_iban_encrypted")
+  creditorBic           String?  @map("creditor_bic")
+  enabled               Boolean  @default(false)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("sepa_settings")
+}
+
+/// Mandato SEPA por cliente (IBAN del deudor cifrado).
+model SepaMandate {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  customerId    String   @map("customer_id") @db.Uuid
+  reference     String
+  ibanEncrypted String   @map("iban_encrypted")
+  ibanLast4     String   @map("iban_last4")
+  bic           String?
+  signedAt      DateTime @map("signed_at") @db.Date
+  /// FRST hasta el primer cobro con éxito; luego RCUR.
+  sequenceType  String   @default("FRST") @map("sequence_type")
+  /// active | cancelled
+  status        String   @default("active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    SepaRemittanceItem[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, customerId])
+  @@map("sepa_mandates")
+}
+
+/// Remesa SEPA: lote de adeudos para una fecha de cobro (genera el XML pain.008).
+model SepaRemittance {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  messageId       String    @map("message_id")
+  collectionDate  DateTime  @map("collection_date") @db.Date
+  /// generated | confirmed | cancelled
+  status          String    @default("generated")
+  itemCount       Int       @default(0) @map("item_count")
+  /// total en céntimos.
+  totalAmount     Int       @default(0) @map("total_amount")
+  xml             String?
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz(6)
+
+  tenant Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  SepaRemittanceItem[]
+
+  @@index([tenantId, status])
+  @@map("sepa_remittances")
+}
+
+/// Línea de remesa (una por factura). Una factura solo puede estar en una remesa.
+model SepaRemittanceItem {
+  id           String @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String @map("tenant_id") @db.Uuid
+  remittanceId String @map("remittance_id") @db.Uuid
+  invoiceId    String @unique @map("invoice_id") @db.Uuid
+  mandateId    String @map("mandate_id") @db.Uuid
+  /// importe en céntimos.
+  amount       Int
+  sequenceType String @map("sequence_type")
+  endToEndId   String @map("end_to_end_id")
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  remittance SepaRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  invoice    Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  mandate    SepaMandate    @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("sepa_remittance_items")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
