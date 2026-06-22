@@ -404,6 +404,8 @@ model Tenant {
   sepaRemittanceItems     SepaRemittanceItem[]
   bankStatements          BankStatement[]
   bankStatementTxs        BankStatementTransaction[]
+  aiConversations         AiConversation[]
+  aiMessages              AiMessage[]
 
   @@map("tenants")
 }
@@ -456,6 +458,7 @@ model User {
   supportMessagesAuthored  SupportTicketMessage[]   @relation("MessageAuthorUser")
   aeatCredentialsUploaded  TenantAeatCredential[]   @relation("AeatCredentialUploadedBy")
   apiKeysCreated           ApiKey[]                 @relation("ApiKeyCreatedBy")
+  aiConversations          AiConversation[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1616,6 +1619,43 @@ model BankStatementTransaction {
   @@index([tenantId])
   @@index([statementId])
   @@map("bank_statement_transactions")
+}
+
+/// Asistente IA: conversación de un usuario del staff.
+model AiConversation {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([tenantId, userId])
+  @@map("ai_conversations")
+}
+
+/// Mensaje de una conversación con el asistente IA.
+model AiMessage {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  /// user | assistant
+  role           String
+  content        String
+  /// herramientas que consultó el asistente (transparencia en la UI).
+  toolsUsed      Json?    @map("tools_used")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([tenantId])
+  @@map("ai_messages")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).

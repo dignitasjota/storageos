@@ -332,6 +332,14 @@ Campañas segmentadas por email. RLS por `tenant_id`.
 - id, tenant_id, name, channel (email), subject, body_text, `segment` jsonb (audiencia clientes/leads + filtros), status (draft/sending/sent/cancelled), audience_count, sent_count, scheduled_for, sent_at, created_by_user_id
 - Al enviar (`POST /campaigns/:id/send`) se resuelve la audiencia (con `withTenant`) y se encola una `communications` por destinatario (`source=campaign:<id>`, subject/body renderizados por destinatario). Permisos `communications:read`/`communications:send`.
 
+### `ai_conversations` + `ai_messages` (2026-06-22)
+
+Asistente IA para staff. RLS por `tenant_id`; conversaciones **por usuario** (`user_id`).
+
+- **`ai_conversations`**: tenant_id, user_id (FK users), title.
+- **`ai_messages`**: conversation_id, role (user/assistant), content, `tools_used` (jsonb, herramientas consultadas para transparencia).
+- El asistente usa herramientas read-only (ocupación, vencidas, métricas, resumen de cliente) ejecutadas con el contexto del tenant. Permiso `ai:use` (owner/manager/staff).
+
 ### `bank_statements` + `bank_statement_transactions` (2026-06-22)
 
 Conciliación bancaria (Norma 43). RLS por `tenant_id`.

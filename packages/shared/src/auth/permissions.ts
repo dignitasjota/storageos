@@ -67,6 +67,7 @@ export const Permissions = [
   'analytics:read',
   'reports:read',
   'reports:run',
+  'ai:use', // asistente IA para staff (owner/manager/staff)
   // --- Administración del tenant (típicamente owner) ---
   'users:read',
   'users:manage', // invitar / desactivar / transferir propiedad
@@ -101,6 +102,7 @@ const STAFF: Permission[] = [
   'products:write',
   'reports:run',
   'reviews:write',
+  'ai:use',
 ];
 
 /**

@@ -205,6 +205,12 @@ export const envSchema = z.object({
   /** Sample rate de tracing APM (0 = solo errores, sin transacciones). */
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 
+  // --- Asistente IA ---
+  /** `stub` (dev/test, sin coste) o `anthropic` (Claude real). */
+  AI_PROVIDER: z.enum(['stub', 'anthropic']).default('stub'),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().default('claude-sonnet-4-6'),
+
   // --- Logger ---
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_PRETTY: z
