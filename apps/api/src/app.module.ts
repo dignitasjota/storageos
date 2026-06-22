@@ -45,6 +45,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
+import { RentIncreasesModule } from './modules/rent-increases/rent-increases.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
@@ -161,6 +162,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     PromotionsModule,
     ReferralsModule,
     CampaignsModule,
+    RentIncreasesModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

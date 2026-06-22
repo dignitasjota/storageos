@@ -20,6 +20,7 @@ import { IntegrationsModule } from '../../api/src/modules/integrations/integrati
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
+import { RentIncreasesModule } from '../../api/src/modules/rent-increases/rent-increases.module';
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
@@ -124,6 +125,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ContractsModule,
     NotificationsModule,
     ReviewsModule,
+    RentIncreasesModule,
   ],
 })
 export class WorkerModule {}

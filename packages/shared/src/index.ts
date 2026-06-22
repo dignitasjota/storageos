@@ -25,5 +25,6 @@ export * from './notifications';
 export * from './reviews';
 export * from './referrals';
 export * from './campaigns';
+export * from './rent-increases';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;
