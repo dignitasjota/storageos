@@ -16,6 +16,7 @@ import {
   type PaymentMethodDto,
   type PortalChargeResultDto,
   type PortalInvoiceDto,
+  type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalRequestMagicLinkSchema,
   type PortalSessionDto,
@@ -28,6 +29,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
+import { ReferralsService } from '../referrals/referrals.service';
 
 import { PortalService } from './portal.service';
 
@@ -41,6 +43,7 @@ export class PortalController {
     private readonly portal: PortalService,
     private readonly redsys: RedsysService,
     private readonly access: AccessCredentialsService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   @Public()
@@ -77,6 +80,17 @@ export class PortalController {
   ): Promise<PortalAccessCredentialDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.access.listForCustomer(tenantId, customerId);
+  }
+
+  // ----------------------- referidos ---------------------------------------
+
+  @Public()
+  @Get('me/referrals')
+  async myReferrals(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalReferralDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.referrals.getPortalView(tenantId, customerId);
   }
 
   @Public()

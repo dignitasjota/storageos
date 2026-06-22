@@ -5,10 +5,20 @@ import {
   type PortalAccessCredentialDto,
   type PortalChargeResultDto,
   type PortalInvoiceDto,
+  type PortalReferralDto,
   type PortalSessionDto,
   type SetupIntentResponseDto,
 } from '@storageos/shared';
-import { CreditCard, Download, KeyRound, Landmark, Loader2, Plus, RefreshCw } from 'lucide-react';
+import {
+  CreditCard,
+  Download,
+  Gift,
+  KeyRound,
+  Landmark,
+  Loader2,
+  Plus,
+  RefreshCw,
+} from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useState } from 'react';
@@ -36,6 +46,7 @@ function PortalConsumeContent() {
   const [invoices, setInvoices] = useState<PortalInvoiceDto[] | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
+  const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,15 +85,17 @@ function PortalConsumeContent() {
         });
         if (cancelled) return;
         setSession(s);
-        const [inv, pms, acc] = await Promise.all([
+        const [inv, pms, acc, refs] = await Promise.all([
           portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
           portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
           portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
+          portalFetch<PortalReferralDto>(s, '/portal/me/referrals'),
         ]);
         if (cancelled) return;
         setInvoices(inv);
         setPaymentMethods(pms);
         setAccess(acc);
+        setReferrals(refs);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.body.message : 'Enlace inválido o caducado');
@@ -352,6 +365,56 @@ function PortalConsumeContent() {
           )}
         </CardContent>
       </Card>
+
+      {referrals?.enabled && referrals.referralCode && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gift className="h-4 w-4" /> Recomienda y gana
+            </CardTitle>
+            <CardDescription>
+              Comparte tu código. Cuando tu recomendado firme su contrato, recibirás una recompensa.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="rounded-md border bg-muted/40 px-3 py-2 font-mono text-lg tracking-widest">
+                {referrals.referralCode}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(referrals.referralCode ?? '');
+                  toast.success('Código copiado.');
+                }}
+              >
+                Copiar
+              </Button>
+            </div>
+            {referrals.rewards.length > 0 && (
+              <p className="text-sm">
+                Tus recompensas:{' '}
+                {referrals.rewards.map((c) => (
+                  <span key={c} className="mr-1 font-mono text-xs">
+                    {c}
+                  </span>
+                ))}
+              </p>
+            )}
+            {referrals.referrals.length > 0 && (
+              <ul className="text-sm text-muted-foreground">
+                {referrals.referrals.map((r, i) => (
+                  <li key={i}>
+                    {r.referredName} —{' '}
+                    {r.status === 'converted' ? 'recompensa concedida' : 'pendiente'}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

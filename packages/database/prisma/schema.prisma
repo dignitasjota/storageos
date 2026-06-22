@@ -299,28 +299,33 @@ enum DataSubjectRequestStatus {
 
 /// Empresas clientes del SaaS.
 model Tenant {
-  id                          String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  id                          String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   name                        String
-  slug                        String       @unique
-  status                      TenantStatus @default(trial)
-  trialEndsAt                 DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
-  billingEmail                String?      @map("billing_email")
-  country                     String       @default("ES") @db.Char(2)
-  locale                      String       @default("es-ES")
-  currency                    String       @default("EUR") @db.Char(3)
-  timezone                    String       @default("Europe/Madrid")
-  taxId                       String?      @map("tax_id")
-  requireTwoFactorForManagers Boolean      @default(false) @map("require_two_factor_for_managers")
+  slug                        String                @unique
+  status                      TenantStatus          @default(trial)
+  trialEndsAt                 DateTime?             @map("trial_ends_at") @db.Timestamptz(6)
+  billingEmail                String?               @map("billing_email")
+  country                     String                @default("ES") @db.Char(2)
+  locale                      String                @default("es-ES")
+  currency                    String                @default("EUR") @db.Char(3)
+  timezone                    String                @default("Europe/Madrid")
+  taxId                       String?               @map("tax_id")
+  requireTwoFactorForManagers Boolean               @default(false) @map("require_two_factor_for_managers")
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
-  autoChargeOnIssue           Boolean      @default(false) @map("auto_charge_on_issue")
+  autoChargeOnIssue           Boolean               @default(false) @map("auto_charge_on_issue")
   /// Si true, un cron pide la valoracion (NPS) automaticamente N dias tras
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
-  reviewsAutoRequest          Boolean      @default(false) @map("reviews_auto_request")
-  reviewRequestDelayDays      Int          @default(14) @map("review_request_delay_days")
-  deletedAt                   DateTime?    @map("deleted_at") @db.Timestamptz(6)
-  createdAt                   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  reviewsAutoRequest          Boolean               @default(false) @map("reviews_auto_request")
+  reviewRequestDelayDays      Int                   @default(14) @map("review_request_delay_days")
+  /// Programa de referidos (opt-in): al convertir un referido se genera una
+  /// promocion de un solo uso para el referidor con esta recompensa.
+  referralEnabled             Boolean               @default(false) @map("referral_enabled")
+  referralRewardType          PromotionDiscountType @default(fixed) @map("referral_reward_type")
+  referralRewardValue         Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
+  deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  createdAt                   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   users                   User[]
   tenantRoles             TenantRole[]
@@ -378,6 +383,7 @@ model Tenant {
   webhooks                Webhook[]
   webhookDeliveries       WebhookDelivery[]
   reviews                 Review[]
+  referrals               Referral[]
 
   @@map("tenants")
 }
@@ -824,25 +830,29 @@ model Customer {
   portalPasswordHash    String?      @map("portal_password_hash")
   kycVerified           Boolean      @default(false) @map("kyc_verified")
   kycVerifiedAt         DateTime?    @map("kyc_verified_at") @db.Timestamptz(6)
+  /// Codigo de referido que este cliente comparte (unico por tenant).
+  referralCode          String?      @map("referral_code")
   deletedAt             DateTime?    @map("deleted_at") @db.Timestamptz(6)
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  documents      CustomerDocument[]
-  contracts      Contract[]
-  reservations   Reservation[]
-  invoices       Invoice[]
-  payments       Payment[]
-  paymentMethods PaymentMethod[]
-  consents       Consent[]
-  communications Communication[]
-  leadsConverted Lead[]             @relation("LeadConvertedCustomer")
-  incidents      Incident[]         @relation("IncidentCustomer")
-  productSales   ProductSale[]      @relation("ProductSaleCustomer")
-  credentials    AccessCredential[] @relation("CredentialCustomer")
-  accessLogs     AccessLog[]        @relation("AccessLogCustomer")
-  reviews        Review[]
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  documents        CustomerDocument[]
+  contracts        Contract[]
+  reservations     Reservation[]
+  invoices         Invoice[]
+  payments         Payment[]
+  paymentMethods   PaymentMethod[]
+  consents         Consent[]
+  communications   Communication[]
+  leadsConverted   Lead[]             @relation("LeadConvertedCustomer")
+  incidents        Incident[]         @relation("IncidentCustomer")
+  productSales     ProductSale[]      @relation("ProductSaleCustomer")
+  credentials      AccessCredential[] @relation("CredentialCustomer")
+  accessLogs       AccessLog[]        @relation("AccessLogCustomer")
+  reviews          Review[]
+  referralsMade    Referral[]         @relation("ReferralReferrer")
+  referralReceived Referral?          @relation("ReferralReferred")
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1291,11 +1301,38 @@ model Promotion {
   createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  referrals Referral[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
   @@map("promotions")
+}
+
+/// Programa de referidos: un cliente (referidor) recomienda y otro (referido)
+/// se da de alta con su codigo. Al firmar el primer contrato del referido, la
+/// referral pasa a `converted` y se genera una promocion de un solo uso para
+/// el referidor (`reward_promotion_id`).
+model Referral {
+  id                 String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  referrerCustomerId String    @map("referrer_customer_id") @db.Uuid
+  referredCustomerId String    @unique @map("referred_customer_id") @db.Uuid
+  /// pending | converted | cancelled
+  status             String    @default("pending")
+  rewardPromotionId  String?   @map("reward_promotion_id") @db.Uuid
+  convertedAt        DateTime? @map("converted_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  referrer        Customer   @relation("ReferralReferrer", fields: [referrerCustomerId], references: [id], onDelete: Cascade)
+  referred        Customer   @relation("ReferralReferred", fields: [referredCustomerId], references: [id], onDelete: Cascade)
+  rewardPromotion Promotion? @relation(fields: [rewardPromotionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([referrerCustomerId])
+  @@map("referrals")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).

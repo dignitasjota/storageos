@@ -8,6 +8,7 @@ import {
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { ReferralsService } from '../referrals/referrals.service';
 
 import { SignaturesService } from './signatures.service';
 
@@ -25,6 +26,7 @@ export class BookingService {
     private readonly prisma: PrismaService,
     private readonly contracts: ContractsService,
     private readonly signatures: SignaturesService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   /** Disponibilidad pública por local y tipo (move-in). */
@@ -125,6 +127,10 @@ export class BookingService {
             country: 'ES',
           },
         }));
+      // Referido (best-effort, solo para clientes nuevos).
+      if (!existing && input.referralCode && input.referralCode.trim()) {
+        await this.referrals.registerInTx(tx, tenantId, input.referralCode, customer.id);
+      }
       return {
         unitId: unit.id,
         customerId: customer.id,

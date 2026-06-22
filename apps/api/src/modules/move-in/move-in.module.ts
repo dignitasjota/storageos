@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 import { BookingService } from './booking.service';
 import { ContractSignaturesController } from './contract-signatures.controller';
@@ -15,7 +16,7 @@ import { SignaturesService } from './signatures.service';
  * - Staff: solicitar firma + ver el registro probatorio.
  */
 @Module({
-  imports: [ContractsModule, BillingModule, JwtModule.register({})],
+  imports: [ContractsModule, BillingModule, ReferralsModule, JwtModule.register({})],
   controllers: [MoveInPublicController, ContractSignaturesController],
   providers: [SignaturesService, BookingService],
 })
