@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCreateInvoiceSeries, useInvoiceSeries } from '@/lib/billing/hooks';
+import { useSepaSettings, useUpdateSepaSettings } from '@/lib/sepa/hooks';
 import {
   useTenantBillingSettings,
   useUpdateTenantBillingSettings,
@@ -134,6 +135,7 @@ export default function BillingSettingsPage() {
 
       <AutoChargeCard />
       <LateFeeCard />
+      <SepaSettingsCard />
 
       <HoldedCard />
 
@@ -390,6 +392,122 @@ function LateFeeCard() {
               ? 'Desactivar recargo'
               : 'Activar recargo por mora'}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Config del acreedor para remesas SEPA. Solo owner (billing:configure). */
+function SepaSettingsCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useSepaSettings(canConfigure);
+  const update = useUpdateSepaSettings();
+
+  const [creditorName, setCreditorName] = useState('');
+  const [creditorId, setCreditorId] = useState('');
+  const [creditorIban, setCreditorIban] = useState('');
+  const [creditorBic, setCreditorBic] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  if (!canConfigure || settings.isLoading || !settings.data) return null;
+  const s = settings.data;
+  if (!loaded && s.configured) {
+    setCreditorName(s.creditorName);
+    setCreditorId(s.creditorId);
+    setCreditorBic(s.creditorBic ?? '');
+    setLoaded(true);
+  }
+
+  async function save(enabled: boolean) {
+    if (!creditorName.trim() || !creditorId.trim()) {
+      toast.error('Indica el nombre y el identificador del acreedor.');
+      return;
+    }
+    if (!s.configured && !creditorIban.trim()) {
+      toast.error('Indica el IBAN del acreedor.');
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        creditorName,
+        creditorId,
+        // El IBAN solo se envía si se reescribe; si no, el backend conserva el actual.
+        ...(creditorIban.trim() ? { creditorIban: creditorIban.trim() } : {}),
+        creditorBic,
+        enabled,
+      });
+      toast.success('Ajustes SEPA guardados.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'IBAN no válido.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Remesas SEPA (acreedor)</CardTitle>
+          <Badge variant={s.enabled ? 'default' : 'outline'}>
+            {s.enabled ? 'Activado' : 'Desactivado'}
+          </Badge>
+        </div>
+        <CardDescription>
+          Datos del acreedor para generar el fichero de adeudos SEPA (pain.008) que subes a tu
+          banco. El IBAN se guarda cifrado.
+          {s.configured && s.creditorIbanLast4 && ` IBAN actual: ····${s.creditorIbanLast4}.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Nombre del acreedor</label>
+            <Input
+              value={creditorName}
+              onChange={(e) => setCreditorName(e.target.value)}
+              placeholder="Trasteros SL"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Identificador del acreedor</label>
+            <Input
+              value={creditorId}
+              onChange={(e) => setCreditorId(e.target.value)}
+              placeholder="ES12ZZZB12345678"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">
+              IBAN del acreedor {s.configured && '(reescribir para cambiar)'}
+            </label>
+            <Input
+              value={creditorIban}
+              onChange={(e) => setCreditorIban(e.target.value)}
+              placeholder={
+                s.configured ? `····${s.creditorIbanLast4}` : 'ES91 2100 0418 4502 0005 1332'
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">BIC (opcional)</label>
+            <Input
+              value={creditorBic}
+              onChange={(e) => setCreditorBic(e.target.value)}
+              placeholder="CAIXESBBXXX"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => save(s.enabled)} disabled={update.isPending}>
+            Guardar
+          </Button>
+          <Button
+            variant={s.enabled ? 'destructive' : 'outline'}
+            onClick={() => save(!s.enabled)}
+            disabled={update.isPending}
+          >
+            {s.enabled ? 'Desactivar' : 'Activar remesas SEPA'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
