@@ -46,6 +46,7 @@ import { RedsysModule } from './modules/payments/redsys/redsys.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ProductsModule } from './modules/products/products.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
+import { PushModule } from './modules/push/push.module';
 import { QueuesModule } from './modules/queues/queues.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
 import { RentIncreasesModule } from './modules/rent-increases/rent-increases.module';
@@ -171,6 +172,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     SepaModule,
     BankReconciliationModule,
     AiModule,
+    PushModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

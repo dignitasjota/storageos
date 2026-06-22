@@ -66,3 +66,35 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// Web Push: muestra la notificación que envía el backend.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  const title = data.title || 'StorageOS';
+  const options = {
+    body: data.body || '',
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    data: { url: data.url || '/portal/login' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Al pulsar la notificación: abre (o enfoca) la URL indicada.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/portal/login';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes(target) && 'focus' in client) return client.focus();
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});

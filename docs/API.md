@@ -1753,6 +1753,13 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /portal/me/incidents` (`@Public` + sesión de portal): incidencias del inquilino.
 - `POST /portal/me/incidents` (`@Public` + sesión de portal, throttle): body `{ title, description? }` → crea la incidencia (severity medium) y notifica al staff.
 
+### Portal — notificaciones push (`/portal/me/push/...`)
+
+- `GET /portal/me/push/public-key` (sesión de portal): `{ publicKey }` (null si el push no está configurado — sin VAPID).
+- `POST /portal/me/push/subscribe` (sesión de portal, throttle): body `{ endpoint, keys: { p256dh, auth } }` → guarda la suscripción (upsert por endpoint).
+- `POST /portal/me/push/unsubscribe` (sesión de portal, throttle): body `{ endpoint }`.
+- Web Push (`web-push`) por `VAPID_*`. Listeners `invoice_overdue`/`invoice_paid` envían un push al inquilino.
+
 ### Asistente IA (`/ai/...`)
 
 - `POST /ai/chat` (`ai:use`): body `{ conversationId?, content }`. Crea la conversación si no se pasa id; el asistente puede invocar herramientas read-only (ocupación, vencidas, métricas, búsqueda/resumen de cliente) ejecutadas con el contexto del tenant. Devuelve `{ conversationId, message }` (con `toolsUsed`). 503 `ai_not_configured` si el provider anthropic no tiene API key.
