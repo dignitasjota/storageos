@@ -1703,6 +1703,13 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET/PATCH /settings/tenant/referrals` (`settings:read`/`settings:manage`): opt-in + recompensa (`referral_enabled`/`referral_reward_type`/`referral_reward_value`).
 - Registro: `referralCode` en el alta de cliente (`CreateCustomerSchema`) y en el booking público (`PublicBookingSchema`). Conversión + recompensa (promoción `REF-XXXX` de un solo uso) por el listener `domain.contract_signed`.
 
+### Campañas segmentadas (`/campaigns`)
+
+- `POST /campaigns/preview` (`communications:send`): cuenta la audiencia (clientes/leads con email) de un `segment` sin crear ni enviar.
+- `GET /campaigns` + `GET /campaigns/:id` (`communications:read`).
+- `POST /campaigns` (`communications:send`): crea una campaña en borrador (segmento + asunto + cuerpo Handlebars inline).
+- `POST /campaigns/:id/send` (`communications:send`): resuelve la audiencia, renderiza por destinatario y encola una `communications` por cada uno (`source=campaign:<id>`). Idempotente (409 `campaign_not_sendable` si no es borrador). v1 solo email.
+
 ### Imágenes + slug del local (`/facilities/:id/images`)
 
 - `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).

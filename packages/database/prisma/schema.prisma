@@ -384,6 +384,7 @@ model Tenant {
   webhookDeliveries       WebhookDelivery[]
   reviews                 Review[]
   referrals               Referral[]
+  campaigns               Campaign[]
 
   @@map("tenants")
 }
@@ -1336,6 +1337,36 @@ model Referral {
   @@index([tenantId, status])
   @@index([referrerCustomerId])
   @@map("referrals")
+}
+
+/// Campaña segmentada por email. Segmenta clientes/leads por criterios
+/// (`segment` jsonb) y al enviarla encola una `communications` por destinatario
+/// vía el outbox (`source = campaign:<id>`).
+model Campaign {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  /// email (único canal en v1)
+  channel         String    @default("email")
+  subject         String
+  bodyText        String    @map("body_text")
+  /// Criterios de segmentación (audiencia + filtros), ver shared.
+  segment         Json      @default("{}")
+  /// draft | sending | sent | cancelled
+  status          String    @default("draft")
+  audienceCount   Int       @default(0) @map("audience_count")
+  sentCount       Int       @default(0) @map("sent_count")
+  scheduledFor    DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("campaigns")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
