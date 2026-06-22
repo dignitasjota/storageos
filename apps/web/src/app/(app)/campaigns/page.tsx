@@ -136,7 +136,7 @@ function CreateCampaignDialog() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [audience, setAudience] = useState<'customers' | 'leads'>('customers');
-  const [contractStatus, setContractStatus] = useState<'active' | 'none' | 'any'>('any');
+  const [contractStatus, setContractStatus] = useState<'active' | 'none' | 'any' | 'former'>('any');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [tag, setTag] = useState('');
   const [leadStatus, setLeadStatus] = useState<string>('any');
@@ -227,7 +227,7 @@ function CreateCampaignDialog() {
                 <Select
                   value={contractStatus}
                   onValueChange={(v) => {
-                    setContractStatus(v as 'active' | 'none' | 'any');
+                    setContractStatus(v as 'active' | 'none' | 'any' | 'former');
                     setCount(null);
                   }}
                 >
@@ -238,6 +238,7 @@ function CreateCampaignDialog() {
                     <SelectItem value="any">Todos</SelectItem>
                     <SelectItem value="active">Con contrato activo</SelectItem>
                     <SelectItem value="none">Sin contrato activo</SelectItem>
+                    <SelectItem value="former">Ex-clientes (win-back)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -118,6 +118,12 @@ export class CampaignsService {
     if (segment.contractStatus === 'active') where.contracts = activeContract;
     else if (segment.contractStatus === 'none')
       where.contracts = { none: { status: { in: ['active', 'ending'] }, deletedAt: null } };
+    else if (segment.contractStatus === 'former')
+      // Win-back: tuvieron un contrato finalizado y no tienen ninguno activo.
+      where.AND = [
+        { contracts: { some: { status: { in: ['ended', 'cancelled'] }, deletedAt: null } } },
+        { contracts: { none: { status: { in: ['active', 'ending'] }, deletedAt: null } } },
+      ];
     if (segment.overdueOnly) where.invoices = { some: { status: 'overdue' } };
     if (segment.tag && segment.tag.trim()) where.tags = { has: segment.tag.trim() };
 
