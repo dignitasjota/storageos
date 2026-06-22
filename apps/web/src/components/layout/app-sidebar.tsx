@@ -8,6 +8,7 @@ import {
   Boxes,
   Building2,
   CalendarClock,
+  ChevronDown,
   ClipboardList,
   CreditCard,
   FileSpreadsheet,
@@ -34,6 +35,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
 
 import type { Permission, TenantFeature } from '@storageos/shared';
 
@@ -221,6 +223,8 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+const COLLAPSE_KEY = 'storageos:sidebar-collapsed';
+
 export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations('sidebar');
@@ -228,6 +232,31 @@ export function AppSidebar() {
   const features = useFeatures();
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
+
+  // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
+  // para no romper la hidratación (se sincroniza en cliente tras montar).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSE_KEY);
+      if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      /* localStorage no disponible */
+    }
+  }, []);
+  function toggleGroup(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]));
+      } catch {
+        /* noop */
+      }
+      return next;
+    });
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -250,10 +279,25 @@ export function AppSidebar() {
             (item) => can(item.permission) && hasFeature(item.feature),
           );
           if (items.length === 0) return null;
+          const isCollapsed = collapsed.has(group.labelKey);
           return (
             <SidebarGroup key={group.labelKey}>
-              <SidebarGroupLabel>{t(`groups.${group.labelKey}`)}</SidebarGroupLabel>
-              <SidebarGroupContent>
+              <SidebarGroupLabel
+                asChild
+                className="cursor-pointer transition-colors hover:text-sidebar-foreground/80"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.labelKey)}
+                  aria-expanded={!isCollapsed}
+                >
+                  <span>{t(`groups.${group.labelKey}`)}</span>
+                  <ChevronDown
+                    className={`ml-auto transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+                  />
+                </button>
+              </SidebarGroupLabel>
+              <SidebarGroupContent hidden={isCollapsed}>
                 <SidebarMenu>
                   {items.map((item) => {
                     const Icon = item.icon;
