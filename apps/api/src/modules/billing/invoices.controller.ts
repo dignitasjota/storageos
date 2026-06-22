@@ -137,6 +137,20 @@ export class InvoicesController {
   }
 
   @RequirePermission('invoices:manage')
+  @Post(':id/late-fee')
+  @HttpCode(HttpStatus.OK)
+  async lateFee(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<InvoiceDto> {
+    return this.invoices.createLateFee({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+    });
+  }
+
+  @RequirePermission('invoices:manage')
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   async cancel(

@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
@@ -61,6 +62,7 @@ export class DunningService {
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
     private readonly events: EventEmitter2,
+    private readonly invoices: InvoicesService,
     @Optional() private readonly access: AccessIntegrationsService | null = null,
   ) {}
 
@@ -151,6 +153,14 @@ export class DunningService {
       { daysAfter: 14, type: 'access_block' },
       { daysAfter: 30, type: 'legal_notice' },
     ];
+    // Recargo por mora: solo si el tenant lo activó (opt-in), a los N días.
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: data.tenantId },
+      select: { lateFeeEnabled: true, lateFeeGraceDays: true },
+    });
+    if (tenant?.lateFeeEnabled) {
+      calendar.push({ daysAfter: tenant.lateFeeGraceDays, type: 'late_fee' });
+    }
     for (const step of calendar) {
       const scheduledFor = new Date(base);
       scheduledFor.setUTCDate(scheduledFor.getUTCDate() + step.daysAfter);
@@ -245,6 +255,24 @@ export class DunningService {
           invoiceId: action.invoiceId,
         });
         result = { ...result, accessBlocked: true };
+      }
+      if (action.actionType === 'late_fee') {
+        // Re-chequea el opt-in (pudo desactivarse tras agendar). Idempotente:
+        // createLateFee lanza si ya existe un recargo para esta factura.
+        const tenant = await this.admin.tenant.findUnique({
+          where: { id: action.tenantId },
+          select: { lateFeeEnabled: true },
+        });
+        if (tenant?.lateFeeEnabled) {
+          const fee = await this.invoices.createLateFee({
+            tenantId: action.tenantId,
+            invoiceId: action.invoiceId,
+            userId: null,
+          });
+          result = { ...result, lateFeeInvoiceId: fee.id };
+        } else {
+          result = { ...result, lateFeeSkipped: 'disabled' };
+        }
       }
     } catch (err) {
       result = {

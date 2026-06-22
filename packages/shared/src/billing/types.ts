@@ -62,6 +62,10 @@ export interface InvoiceDto {
   rectifiesInvoiceId: string | null;
   rectifiesInvoiceNumber: string | null;
   rectificationReason: string | null;
+  /** Si esta factura es un recargo por mora, la factura vencida que lo originó. */
+  lateFeeForInvoiceId: string | null;
+  /** Si esta factura (vencida) ya tiene un recargo emitido, la factura de recargo. */
+  lateFeeInvoiceId: string | null;
   correctionMethod: CorrectionMethodValue | null;
   issueDate: string | null;
   dueDate: string | null;

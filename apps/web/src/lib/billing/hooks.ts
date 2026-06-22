@@ -131,6 +131,8 @@ export const useIssueInvoice = makeInvoiceAction<undefined>('issue');
 export const useCancelInvoice = makeInvoiceAction<CancelInvoiceInput>('cancel');
 export const useRefundInvoice = makeInvoiceAction<RefundInvoiceInput>('refund');
 export const useMarkInvoicePaid = makeInvoiceAction<MarkPaidManuallyInput>('mark-paid');
+/** Emite una factura de recargo por mora sobre una factura vencida. */
+export const useLateFeeInvoice = makeInvoiceAction<undefined>('late-fee');
 
 /**
  * Crea una factura rectificativa (R1-R5) sobre una factura original ya

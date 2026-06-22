@@ -49,6 +49,7 @@ import {
   useGenerateInvoicePdf,
   useInvoice,
   useIssueInvoice,
+  useLateFeeInvoice,
   useMarkInvoicePaid,
   useRectifyInvoice,
   useRefundInvoice,
@@ -97,6 +98,7 @@ export default function InvoiceDetailPage() {
   const generatePdf = useGenerateInvoicePdf();
   const holdedSync = useSyncInvoiceHolded();
   const rectify = useRectifyInvoice();
+  const lateFee = useLateFeeInvoice();
   const canRefund = useHasPermission('invoices:refund');
   const canManageInv = useHasPermission('invoices:manage');
   const canWriteInv = useHasPermission('invoices:write');
@@ -148,6 +150,16 @@ export default function InvoiceDetailPage() {
             : 'El cobro no se completó.',
         );
       }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function handleLateFee(): Promise<void> {
+    if (!confirm('¿Emitir una factura de recargo por mora para esta factura vencida?')) return;
+    try {
+      const fee = await lateFee.mutateAsync({ id: i.id });
+      toast.success(`Recargo emitido: ${fee.invoiceNumber ?? fee.id} (${fee.total.toFixed(2)} €).`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -237,6 +249,20 @@ export default function InvoiceDetailPage() {
                     }}
                   >
                     <CheckCircle2 className="mr-1 h-4 w-4" /> Marcar pagada
+                  </Button>
+                )}
+                {canManageInv && i.status === 'overdue' && !i.lateFeeInvoiceId && (
+                  <Button
+                    variant="outline"
+                    onClick={() => void handleLateFee()}
+                    disabled={lateFee.isPending}
+                  >
+                    Aplicar recargo
+                  </Button>
+                )}
+                {i.lateFeeInvoiceId && (
+                  <Button variant="outline" asChild>
+                    <Link href={`/invoices/${i.lateFeeInvoiceId}`}>Ver recargo</Link>
                   </Button>
                 )}
               </>

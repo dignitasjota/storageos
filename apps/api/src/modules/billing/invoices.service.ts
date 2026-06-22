@@ -1,5 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
@@ -54,6 +60,7 @@ type InvoiceWithRelations = Invoice & {
   contract: { contractNumber: string } | null;
   series: { code: string };
   rectifiesInvoice: { id: string; invoiceNumber: string } | null;
+  lateFeeInvoice: { id: string } | null;
 };
 
 interface ListFilters {
@@ -366,6 +373,113 @@ export class InvoicesService {
     };
     this.events.emit(DOMAIN_EVENTS.invoice_issued, issuedPayload);
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
+  }
+
+  /**
+   * Recargo por mora: emite una FACTURA SEPARADA (F1, línea sin IVA — el
+   * recargo es indemnizatorio) por el % del importe vencido o un € fijo,
+   * según la config del tenant. Idempotente: una sola por factura original
+   * (constraint único en `late_fee_for_invoice_id`).
+   */
+  async createLateFee(args: {
+    tenantId: string;
+    invoiceId: string;
+    userId: string | null;
+  }): Promise<InvoiceDto> {
+    const { tenantId, invoiceId } = args;
+    const { customerId, invoiceLabel, fee } = await this.prisma.withTenant(async (tx) => {
+      const original = await tx.invoice.findFirst({
+        where: { id: invoiceId, tenantId },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          customerId: true,
+          total: true,
+          lateFeeInvoice: { select: { id: true } },
+        },
+      });
+      if (!original) {
+        throw new NotFoundException({
+          code: 'invoice_not_found',
+          message: 'Factura no encontrada',
+        });
+      }
+      if (original.lateFeeInvoice) {
+        throw new ConflictException({
+          code: 'late_fee_already_applied',
+          message: 'Esta factura ya tiene un recargo por mora',
+        });
+      }
+      if (!original.customerId) {
+        throw new BadRequestException({
+          code: 'customer_required',
+          message: 'La factura no tiene cliente al que recargar',
+        });
+      }
+      if (original.status !== 'issued' && original.status !== 'overdue') {
+        throw new BadRequestException({
+          code: 'invoice_not_chargeable',
+          message: 'Solo se aplica recargo a facturas emitidas o vencidas',
+        });
+      }
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { lateFeeType: true, lateFeeValue: true },
+      });
+      const base = Number(original.total);
+      const value = Number(tenant.lateFeeValue);
+      const fee =
+        tenant.lateFeeType === 'percentage'
+          ? Math.round(base * (value / 100) * 100) / 100
+          : Math.round(value * 100) / 100;
+      if (fee <= 0) {
+        throw new BadRequestException({
+          code: 'late_fee_zero',
+          message: 'El recargo configurado es 0',
+        });
+      }
+      return {
+        customerId: original.customerId,
+        invoiceLabel: original.invoiceNumber ?? original.id,
+        fee,
+      };
+    }, tenantId);
+
+    const series = await this.series.getDefault(tenantId);
+    if (!series) {
+      throw new BadRequestException({
+        code: 'no_default_series',
+        message: 'No hay serie de facturación por defecto',
+      });
+    }
+
+    const created = await this.create({
+      tenantId,
+      userId: args.userId,
+      input: {
+        invoiceType: 'F1',
+        customerId,
+        seriesId: series.id,
+        items: [
+          {
+            description: `Recargo por mora — factura ${invoiceLabel}`,
+            quantity: 1,
+            unitPrice: fee,
+            taxRate: 0,
+          },
+        ],
+        verifactuMode: 'verifactu',
+      },
+      meta: {},
+    });
+    // Enlazar a la original (idempotencia) y emitir.
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.update({ where: { id: created.id }, data: { lateFeeForInvoiceId: invoiceId } }),
+      tenantId,
+    );
+    return this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
   }
 
   /**
@@ -776,6 +890,7 @@ export class InvoicesService {
       contract: { select: { contractNumber: true } },
       series: { select: { code: true } },
       rectifiesInvoice: { select: { id: true, invoiceNumber: true } },
+      lateFeeInvoice: { select: { id: true } },
     } as const;
   }
 
@@ -902,6 +1017,8 @@ export class InvoicesService {
       invoiceType: row.invoiceType as InvoiceTypeValue,
       rectifiesInvoiceId: row.rectifiesInvoiceId,
       rectifiesInvoiceNumber: row.rectifiesInvoice?.invoiceNumber ?? null,
+      lateFeeForInvoiceId: row.lateFeeForInvoiceId,
+      lateFeeInvoiceId: row.lateFeeInvoice?.id ?? null,
       rectificationReason: row.rectificationReason,
       correctionMethod: row.correctionMethod as CorrectionMethodValue | null,
       issueDate: row.issueDate ? row.issueDate.toISOString().slice(0, 10) : null,
