@@ -32,5 +32,6 @@ export * from './sepa';
 export * from './bank-reconciliation';
 export * from './ai';
 export * from './push';
+export * from './unit-changes';
 
 export const SHARED_PACKAGE_VERSION = '0.0.0' as const;

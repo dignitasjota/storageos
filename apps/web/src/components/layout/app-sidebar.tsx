@@ -20,6 +20,7 @@ import {
   Megaphone,
   MessageSquare,
   Package,
+  Replace,
   Settings,
   Shield,
   ShieldCheck,
@@ -65,6 +66,13 @@ const NAV: NavItem[] = [
   { href: '/customers', labelKey: 'customers', icon: Users, enabled: true },
   { href: '/contracts', labelKey: 'contracts', icon: FileText, enabled: true },
   { href: '/reservations', labelKey: 'reservations', icon: CalendarClock, enabled: true },
+  {
+    href: '/unit-change-requests',
+    labelKey: 'unitChangeRequests',
+    icon: Replace,
+    enabled: true,
+    permission: 'contracts:read',
+  },
   { href: '/invoices', labelKey: 'invoices', icon: CreditCard, enabled: true },
   { href: '/sepa-remittances', labelKey: 'sepaRemittances', icon: Landmark, enabled: true },
   {

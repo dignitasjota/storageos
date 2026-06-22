@@ -23,6 +23,8 @@ import {
   PortalReportIncidentSchema,
   PortalRequestMagicLinkSchema,
   type PortalSessionDto,
+  type PortalUnitChangeRequestDto,
+  PortalUnitChangeRequestSchema,
   type PushPublicKeyDto,
   PushSubscribeSchema,
   PushUnsubscribeSchema,
@@ -40,6 +42,7 @@ import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import { UnitChangesService } from '../unit-changes/unit-changes.service';
 
 import { PortalService } from './portal.service';
 
@@ -50,6 +53,7 @@ class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
+class PortalUnitChangeRequestDto2 extends createZodDto(PortalUnitChangeRequestSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -61,6 +65,7 @@ export class PortalController {
     private readonly contracts: ContractsService,
     private readonly incidents: IncidentsService,
     private readonly push: PushService,
+    private readonly unitChanges: UnitChangesService,
   ) {}
 
   @Public()
@@ -183,6 +188,28 @@ export class PortalController {
   ): Promise<void> {
     const { tenantId } = await this.requirePortalSession(auth);
     await this.push.unsubscribe(tenantId, input.endpoint);
+  }
+
+  // ----------------------- cambio de trastero ------------------------------
+
+  @Public()
+  @Get('me/unit-change-requests')
+  async myUnitChangeRequests(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalUnitChangeRequestDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.unitChanges.listForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/unit-change-requests')
+  async requestUnitChange(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalUnitChangeRequestDto2,
+  ): Promise<PortalUnitChangeRequestDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.unitChanges.createFromPortal({ tenantId, customerId, input });
   }
 
   // ----------------------- referidos ---------------------------------------

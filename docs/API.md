@@ -1753,6 +1753,11 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /portal/me/incidents` (`@Public` + sesión de portal): incidencias del inquilino.
 - `POST /portal/me/incidents` (`@Public` + sesión de portal, throttle): body `{ title, description? }` → crea la incidencia (severity medium) y notifica al staff.
 
+### Cambio de trastero (`/portal/me/unit-change-requests`, `/unit-change-requests`)
+
+- `GET/POST /portal/me/unit-change-requests` (`@Public` + sesión de portal, throttle): el inquilino lista/crea solicitudes `{ contractId?, note }`; al crear notifica al staff.
+- `GET /unit-change-requests?status=` (`contracts:read`): cola del staff. `PATCH /unit-change-requests/:id` (`contracts:write`): `{ status: handled|rejected, resolutionNote? }`.
+
 ### Portal — notificaciones push (`/portal/me/push/...`)
 
 - `GET /portal/me/push/public-key` (sesión de portal): `{ publicKey }` (null si el push no está configurado — sin VAPID).
