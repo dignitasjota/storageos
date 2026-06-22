@@ -9,6 +9,7 @@ import type {
   CreateUnitInput,
   CreateUnitTypeInput,
   FacilityDto,
+  FacilityImageUploadResponseDto,
   FacilityFloorDto,
   OccupancyDashboardDto,
   PlanUploadResponseDto,
@@ -75,6 +76,36 @@ export function useUpdateFacility() {
       void qc.invalidateQueries({ queryKey: facilityKey(data.id) });
     },
   });
+}
+
+export function useSetFacilityImages() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; images: string[] }) =>
+      apiFetch<FacilityDto>(`/facilities/${args.id}/images`, {
+        method: 'PUT',
+        json: { images: args.images },
+      }),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: facilitiesKey });
+      void qc.invalidateQueries({ queryKey: facilityKey(data.id) });
+    },
+  });
+}
+
+/** Sube una imagen del local a MinIO vía URL firmada y devuelve su key. */
+export async function uploadFacilityImage(facilityId: string, file: File): Promise<string> {
+  const presign = await apiFetch<FacilityImageUploadResponseDto>(
+    `/facilities/${facilityId}/images/upload-url`,
+    { method: 'POST', json: { mimeType: file.type, sizeBytes: file.size } },
+  );
+  const put = await fetch(presign.uploadUrl, {
+    method: 'PUT',
+    headers: presign.requiredHeaders,
+    body: file,
+  });
+  if (!put.ok) throw new Error('No se pudo subir la imagen');
+  return presign.key;
 }
 
 export function useDeleteFacility() {

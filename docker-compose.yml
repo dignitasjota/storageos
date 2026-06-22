@@ -75,7 +75,10 @@ services:
         mc mb --ignore-existing local/storageos-uploads;
         mc mb --ignore-existing local/storageos-invoices;
         mc mb --ignore-existing local/storageos-plans;
-        echo 'Buckets listos.';
+        mc mb --ignore-existing local/storageos-reports;
+        mc mb --ignore-existing local/storageos-public;
+        mc anonymous set download local/storageos-public;
+        echo 'Buckets listos (storageos-public es public-read).';
         exit 0;
 
   mailpit:

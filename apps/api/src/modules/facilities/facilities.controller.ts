@@ -9,9 +9,17 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Req,
 } from '@nestjs/common';
-import { CreateFacilitySchema, type FacilityDto, UpdateFacilitySchema } from '@storageos/shared';
+import {
+  CreateFacilitySchema,
+  type FacilityDto,
+  type FacilityImageUploadResponseDto,
+  RequestFacilityImageUploadSchema,
+  SetFacilityImagesSchema,
+  UpdateFacilitySchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -27,6 +35,8 @@ import type { Request } from 'express';
 
 class CreateFacilityDto extends createZodDto(CreateFacilitySchema) {}
 class UpdateFacilityDto extends createZodDto(UpdateFacilitySchema) {}
+class RequestFacilityImageUploadDto extends createZodDto(RequestFacilityImageUploadSchema) {}
+class SetFacilityImagesDto extends createZodDto(SetFacilityImagesSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -100,6 +110,41 @@ export class FacilitiesController {
       tenantId: user.tenantId,
       userId: user.sub,
       facilityId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('facilities:manage')
+  @Post(':id/images/upload-url')
+  @HttpCode(HttpStatus.OK)
+  async requestImageUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RequestFacilityImageUploadDto,
+  ): Promise<FacilityImageUploadResponseDto> {
+    const { uploadUrl, key, expiresIn } = await this.facilities.requestImageUploadUrl({
+      tenantId: user.tenantId,
+      facilityId: id,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+    });
+    return { uploadUrl, key, expiresIn, requiredHeaders: { 'Content-Type': input.mimeType } };
+  }
+
+  /** Fija la lista completa de imágenes (añadir/quitar/reordenar) por sus keys. */
+  @RequirePermission('facilities:manage')
+  @Put(':id/images')
+  async setImages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetFacilityImagesDto,
+    @Req() req: Request,
+  ): Promise<FacilityDto> {
+    return this.facilities.setImages({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      images: input.images,
       meta: extractMeta(req),
     });
   }

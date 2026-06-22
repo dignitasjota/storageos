@@ -182,3 +182,20 @@ export const RequestPlanUploadSchema = z.object({
     .max(5 * 1024 * 1024, 'Maximo 5 MB'),
 });
 export type RequestPlanUploadInput = z.infer<typeof RequestPlanUploadSchema>;
+
+/** Solicitud de URL firmada para subir una imagen del local. */
+export const RequestFacilityImageUploadSchema = z.object({
+  mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024, 'Máximo 5 MB'),
+});
+export type RequestFacilityImageUploadInput = z.infer<typeof RequestFacilityImageUploadSchema>;
+
+/** Confirma una imagen subida (por su key) o reordena la lista completa. */
+export const SetFacilityImagesSchema = z.object({
+  images: z.array(z.string().min(1).max(300)).max(12),
+});
+export type SetFacilityImagesInput = z.infer<typeof SetFacilityImagesSchema>;

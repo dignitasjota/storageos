@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { FilesService } from '../files/files.service';
 
 import type {
   PublicFacilityLandingDto,
@@ -17,7 +18,10 @@ import type {
  */
 @Injectable()
 export class LandingService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly files: FilesService,
+  ) {}
 
   async getBySlug(slug: string): Promise<PublicLandingDto> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug } });
@@ -38,6 +42,7 @@ export class LandingService {
           contactPhone: true,
           contactEmail: true,
           openingHours: true,
+          images: true,
         },
         orderBy: { name: 'asc' },
       }),
@@ -70,6 +75,7 @@ export class LandingService {
         contactPhone: f.contactPhone,
         contactEmail: f.contactEmail,
         openingHours: (f.openingHours as Record<string, unknown>) ?? {},
+        imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
         unitTypes: unitTypes
           .map((t) => ({
             id: t.id,

@@ -117,6 +117,10 @@ export const envSchema = z.object({
   MINIO_BUCKET_INVOICES: z.string().default('storageos-invoices'),
   MINIO_BUCKET_PLANS: z.string().default('storageos-plans'),
   MINIO_BUCKET_REPORTS: z.string().default('storageos-reports'),
+  /** Bucket PUBLIC-READ (anonymous download) para activos servidos en la web
+   *  pública: imágenes de los locales en la landing. NO meter aquí nada
+   *  sensible (documentos de clientes, PDFs de contratos viven en uploads). */
+  MINIO_BUCKET_PUBLIC: z.string().default('storageos-public'),
   /** Base URL publica para servir objetos. En dev = http://localhost:9010. */
   MINIO_PUBLIC_URL: z.string().url().default('http://localhost:9010'),
 

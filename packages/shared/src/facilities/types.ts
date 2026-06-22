@@ -15,6 +15,8 @@ export interface FacilityDto {
   openingHours: Record<string, unknown>;
   contactPhone: string | null;
   contactEmail: string | null;
+  /** Imágenes del local (key de objeto + URL pública) para la landing. */
+  images: Array<{ key: string; url: string }>;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -91,6 +93,14 @@ export interface PlanUploadResponseDto {
   /** Seg de validez del uploadUrl. */
   expiresIn: number;
   /** Headers que el cliente debe incluir en el PUT. */
+  requiredHeaders: Record<string, string>;
+}
+
+export interface FacilityImageUploadResponseDto {
+  uploadUrl: string;
+  /** Key del objeto a confirmar con POST /facilities/:id/images. */
+  key: string;
+  expiresIn: number;
   requiredHeaders: Record<string, string>;
 }
 

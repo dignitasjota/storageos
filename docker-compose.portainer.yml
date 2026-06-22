@@ -48,6 +48,7 @@ x-app-env: &app-env
   MINIO_BUCKET_INVOICES: storageos-invoices
   MINIO_BUCKET_PLANS: storageos-plans
   MINIO_BUCKET_REPORTS: storageos-reports
+  MINIO_BUCKET_PUBLIC: storageos-public
   MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
   WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
@@ -178,7 +179,9 @@ services:
         mc mb --ignore-existing local/storageos-invoices &&
         mc mb --ignore-existing local/storageos-plans &&
         mc mb --ignore-existing local/storageos-reports &&
-        echo "[createbuckets] OK"
+        mc mb --ignore-existing local/storageos-public &&
+        mc anonymous set download local/storageos-public &&
+        echo "[createbuckets] OK (storageos-public es public-read)"
     networks:
       - storageos-net
     restart: 'no'

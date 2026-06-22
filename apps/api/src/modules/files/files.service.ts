@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.schema';
 
 interface PresignArgs {
-  bucket: 'plans' | 'uploads' | 'invoices' | 'reports';
+  bucket: 'plans' | 'uploads' | 'invoices' | 'reports' | 'public';
   key: string;
   contentType: string;
   contentLengthRange?: { min: number; max: number };
@@ -50,6 +50,7 @@ export class FilesService implements OnModuleInit {
       invoices: config.get('MINIO_BUCKET_INVOICES', { infer: true }),
       plans: config.get('MINIO_BUCKET_PLANS', { infer: true }),
       reports: config.get('MINIO_BUCKET_REPORTS', { infer: true }),
+      public: config.get('MINIO_BUCKET_PUBLIC', { infer: true }),
     };
   }
 
@@ -100,6 +101,12 @@ export class FilesService implements OnModuleInit {
   ): string {
     const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
     return `${tenantId}/${facilityId}/floors/${floorId}-${randomUUID()}.${ext}`;
+  }
+
+  /** Genera una key unica para una imagen del local (landing pública). */
+  buildFacilityImageKey(tenantId: string, facilityId: string, mimeType: string): string {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
+    return `${tenantId}/${facilityId}/images/${randomUUID()}.${ext}`;
   }
 
   /** Genera una key para documentos del cliente. */
