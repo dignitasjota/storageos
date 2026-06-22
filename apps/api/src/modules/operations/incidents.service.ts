@@ -21,6 +21,8 @@ import type {
   IncidentDto,
   IncidentSeverityValue,
   IncidentStatusValue,
+  PortalIncidentDto,
+  PortalReportIncidentInput,
   TransitionIncidentInput,
   UpdateIncidentInput,
 } from '@storageos/shared';
@@ -169,6 +171,122 @@ export class IncidentsService {
     }
 
     return this.toDto(created as IncidentWithIncludes);
+  }
+
+  /**
+   * Alta de incidencia desde el portal del inquilino (sin usuario staff).
+   * Siempre notifica al staff (emite `incident_created`).
+   */
+  async createFromPortal(args: {
+    tenantId: string;
+    customerId: string;
+    input: PortalReportIncidentInput;
+  }): Promise<PortalIncidentDto> {
+    const customer = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.findFirst({
+          where: { id: args.customerId, tenantId: args.tenantId, deletedAt: null },
+          select: { customerType: true, firstName: true, lastName: true, companyName: true },
+        }),
+      args.tenantId,
+    );
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
+    }
+    const reporter =
+      customer.customerType === 'business'
+        ? (customer.companyName ?? 'Empresa')
+        : [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || 'Inquilino';
+
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.incident.create({
+          data: {
+            tenantId: args.tenantId,
+            severity: 'medium',
+            title: args.input.title,
+            description: args.input.description || null,
+            customerId: args.customerId,
+            reportedByUserId: null,
+            reportedByExternal: `Portal: ${reporter}`,
+          },
+          include: INCLUDE,
+        }),
+      args.tenantId,
+    );
+
+    const dto = this.toDto(created as IncidentWithIncludes);
+    const payload: DomainEventPayload = {
+      tenantId: args.tenantId,
+      entityType: 'incident',
+      entityId: created.id,
+      recipientEmail: null,
+      recipientPhone: null,
+      scope: {
+        incident: {
+          id: dto.id,
+          title: dto.title,
+          description: dto.description ?? '',
+          severity: dto.severity,
+          status: dto.status,
+          facilityId: dto.facilityId ?? '',
+          facilityName: dto.facilityName ?? '',
+          unitId: dto.unitId ?? '',
+          unitCode: dto.unitCode ?? '',
+          customerId: dto.customerId ?? '',
+          customerName: dto.customerName ?? '',
+          contractId: dto.contractId ?? '',
+          contractNumber: dto.contractNumber ?? '',
+          assignedToUserId: dto.assignedToUserId ?? '',
+          assignedToName: dto.assignedToName ?? '',
+          occurredAt: dto.occurredAt ?? '',
+          createdAt: dto.createdAt,
+        },
+        tenant: { id: args.tenantId },
+      },
+    };
+    this.events.emit(DOMAIN_EVENTS.incident_created, payload);
+
+    return this.toPortalDto(created);
+  }
+
+  /** Incidencias reportadas por un inquilino (para su portal). */
+  async listForCustomer(tenantId: string, customerId: string): Promise<PortalIncidentDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.incident.findMany({
+          where: { tenantId, customerId, deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            status: true,
+            severity: true,
+            createdAt: true,
+          },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => this.toPortalDto(r));
+  }
+
+  private toPortalDto(i: {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    severity: string;
+    createdAt: Date;
+  }): PortalIncidentDto {
+    return {
+      id: i.id,
+      title: i.title,
+      description: i.description,
+      status: i.status,
+      severity: i.severity,
+      createdAt: i.createdAt.toISOString(),
+    };
   }
 
   async update(args: {

@@ -16,9 +16,11 @@ import {
   type PaymentMethodDto,
   type PortalChargeResultDto,
   type PortalContractDto,
+  type PortalIncidentDto,
   type PortalInvoiceDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
+  PortalReportIncidentSchema,
   PortalRequestMagicLinkSchema,
   type PortalSessionDto,
   type RedsysRedirectDto,
@@ -31,6 +33,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { ContractsService } from '../contracts/contracts.service';
+import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { ReferralsService } from '../referrals/referrals.service';
 
@@ -40,6 +43,7 @@ class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchem
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
+class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -49,6 +53,7 @@ export class PortalController {
     private readonly access: AccessCredentialsService,
     private readonly referrals: ReferralsService,
     private readonly contracts: ContractsService,
+    private readonly incidents: IncidentsService,
   ) {}
 
   @Public()
@@ -114,6 +119,28 @@ export class PortalController {
       contractId: id,
       endDate: input.endDate,
     });
+  }
+
+  // ----------------------- incidencias -------------------------------------
+
+  @Public()
+  @Get('me/incidents')
+  async myIncidents(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalIncidentDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.incidents.listForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/incidents')
+  async reportIncident(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalReportIncidentDto,
+  ): Promise<PortalIncidentDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.incidents.createFromPortal({ tenantId, customerId, input });
   }
 
   // ----------------------- referidos ---------------------------------------

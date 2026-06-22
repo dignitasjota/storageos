@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
 import { ContractsModule } from '../contracts/contracts.module';
+import { OperationsModule } from '../operations/operations.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
 import { ReferralsModule } from '../referrals/referrals.module';
@@ -25,6 +26,8 @@ import { PortalService } from './portal.service';
     ReferralsModule,
     // ContractsModule: el inquilino ve sus contratos y solicita la baja (move-out).
     ContractsModule,
+    // OperationsModule: el inquilino reporta incidencias desde el portal.
+    OperationsModule,
   ],
   controllers: [PortalController],
   providers: [PortalService],

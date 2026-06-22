@@ -23,3 +23,19 @@ export const RequestMoveOutSchema = z.object({
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD'),
 });
 export type RequestMoveOutInput = z.infer<typeof RequestMoveOutSchema>;
+
+/** Incidencia reportada por el inquilino desde el portal. */
+export const PortalReportIncidentSchema = z.object({
+  title: z.string().trim().min(3).max(160),
+  description: z.string().trim().max(2000).optional(),
+});
+export type PortalReportIncidentInput = z.infer<typeof PortalReportIncidentSchema>;
+
+export interface PortalIncidentDto {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  severity: string;
+  createdAt: string;
+}

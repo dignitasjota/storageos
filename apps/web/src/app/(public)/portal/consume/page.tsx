@@ -5,6 +5,7 @@ import {
   type PortalAccessCredentialDto,
   type PortalChargeResultDto,
   type PortalContractDto,
+  type PortalIncidentDto,
   type PortalInvoiceDto,
   type PortalReferralDto,
   type PortalSessionDto,
@@ -20,6 +21,7 @@ import {
   LogOut,
   Plus,
   RefreshCw,
+  Wrench,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
@@ -50,6 +52,10 @@ function PortalConsumeContent() {
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
   const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
   const [contracts, setContracts] = useState<PortalContractDto[] | null>(null);
+  const [incidents, setIncidents] = useState<PortalIncidentDto[] | null>(null);
+  const [incidentTitle, setIncidentTitle] = useState('');
+  const [incidentDesc, setIncidentDesc] = useState('');
+  const [reportingIncident, setReportingIncident] = useState(false);
   const [moveOutId, setMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,12 +95,13 @@ function PortalConsumeContent() {
         });
         if (cancelled) return;
         setSession(s);
-        const [inv, pms, acc, refs, ctr] = await Promise.all([
+        const [inv, pms, acc, refs, ctr, inc] = await Promise.all([
           portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
           portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
           portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
           portalFetch<PortalReferralDto>(s, '/portal/me/referrals'),
           portalFetch<PortalContractDto[]>(s, '/portal/me/contracts'),
+          portalFetch<PortalIncidentDto[]>(s, '/portal/me/incidents'),
         ]);
         if (cancelled) return;
         setInvoices(inv);
@@ -102,6 +109,7 @@ function PortalConsumeContent() {
         setAccess(acc);
         setReferrals(refs);
         setContracts(ctr);
+        setIncidents(inc);
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.body.message : 'Enlace inválido o caducado');
@@ -130,6 +138,28 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo regenerar.');
     } finally {
       setRegeneratingId(null);
+    }
+  }
+
+  async function reportIncident() {
+    if (!session || incidentTitle.trim().length < 3) {
+      toast.error('Describe la incidencia (mínimo 3 caracteres).');
+      return;
+    }
+    setReportingIncident(true);
+    try {
+      const created = await portalFetch<PortalIncidentDto>(session, '/portal/me/incidents', {
+        method: 'POST',
+        json: { title: incidentTitle.trim(), description: incidentDesc.trim() || undefined },
+      });
+      setIncidents((prev) => [created, ...(prev ?? [])]);
+      setIncidentTitle('');
+      setIncidentDesc('');
+      toast.success('Incidencia enviada. La revisaremos lo antes posible.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    } finally {
+      setReportingIncident(false);
     }
   }
 
@@ -481,6 +511,64 @@ function PortalConsumeContent() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wrench className="h-4 w-4" /> Incidencias
+          </CardTitle>
+          <CardDescription>
+            ¿Algún problema con tu trastero o el acceso? Cuéntanoslo y lo revisaremos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <input
+            value={incidentTitle}
+            onChange={(e) => setIncidentTitle(e.target.value)}
+            placeholder="Asunto (p. ej. la puerta no cierra)"
+            maxLength={160}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <textarea
+            value={incidentDesc}
+            onChange={(e) => setIncidentDesc(e.target.value)}
+            placeholder="Detalles (opcional)"
+            maxLength={2000}
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <Button
+            onClick={reportIncident}
+            disabled={reportingIncident || incidentTitle.trim().length < 3}
+          >
+            {reportingIncident ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="mr-1 h-4 w-4" />
+            )}
+            Reportar incidencia
+          </Button>
+
+          {(incidents ?? []).length > 0 && (
+            <ul className="space-y-2 border-t pt-3">
+              {(incidents ?? []).map((i) => (
+                <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="line-clamp-1">{i.title}</span>
+                  <Badge variant={i.status === 'resolved' ? 'default' : 'secondary'}>
+                    {i.status === 'reported'
+                      ? 'Recibida'
+                      : i.status === 'investigating'
+                        ? 'En curso'
+                        : i.status === 'resolved'
+                          ? 'Resuelta'
+                          : 'Cerrada'}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
