@@ -1710,6 +1710,14 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `POST /campaigns` (`communications:send`): crea una campaña en borrador (segmento + asunto + cuerpo Handlebars inline).
 - `POST /campaigns/:id/send` (`communications:send`): resuelve la audiencia, renderiza por destinatario y encola una `communications` por cada uno (`source=campaign:<id>`). Idempotente (409 `campaign_not_sendable` si no es borrador). v1 solo email.
 
+### Subidas de precio / ECRI (`/rent-increases`)
+
+- `POST /rent-increases/preview` (`contracts:manage`): contratos afectados (active/ending + antigüedad mínima + local/tipo) con precio nuevo (% o € fijo) + delta de MRR, sin persistir.
+- `GET /rent-increases` + `GET /rent-increases/:id` (`contracts:read`): el detalle incluye los items (old/new price + estado).
+- `POST /rent-increases` (`contracts:manage`): programa la tanda (congela items + envía el preaviso por email) con `effectiveDate`.
+- `POST /rent-increases/:id/apply` (`contracts:manage`): aplica ya (sube `priceMonthly` + evento `price_changed`). Idempotente. También lo hace el cron `rent-increases.apply` en la fecha efectiva.
+- `POST /rent-increases/:id/cancel` (`contracts:manage`): cancela una tanda programada.
+
 ### Imágenes + slug del local (`/facilities/:id/images`)
 
 - `POST /facilities/:id/images/upload-url` (`facilities:manage`): presigned PUT a MinIO (bucket público `storageos-public`).

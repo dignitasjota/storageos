@@ -23,6 +23,7 @@ import {
   Sparkles,
   Star,
   Ticket,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -62,6 +63,13 @@ const NAV: NavItem[] = [
   { href: '/reservations', labelKey: 'reservations', icon: CalendarClock, enabled: true },
   { href: '/invoices', labelKey: 'invoices', icon: CreditCard, enabled: true },
   {
+    href: '/rent-increases',
+    labelKey: 'rentIncreases',
+    icon: TrendingUp,
+    enabled: true,
+    permission: 'contracts:manage',
+  },
+  {
     href: '/settings/billing/verifactu',
     labelKey: 'verifactu',
     icon: ShieldCheck,
@@ -88,8 +96,9 @@ export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations('sidebar');
   const common = useTranslations('common');
-  // RBAC v2: el único item gateado es Veri*Factu (invoices:manage = owner+manager).
+  // RBAC v2: items gateados por permiso (Veri*Factu + subidas de precio).
   const canManageInvoices = useHasPermission('invoices:manage');
+  const canManageContracts = useHasPermission('contracts:manage');
 
   return (
     <Sidebar collapsible="icon">
@@ -102,10 +111,12 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV.filter(
-                (item) =>
-                  !item.permission || (item.permission === 'invoices:manage' && canManageInvoices),
-              ).map((item) => {
+              {NAV.filter((item) => {
+                if (!item.permission) return true;
+                if (item.permission === 'invoices:manage') return canManageInvoices;
+                if (item.permission === 'contracts:manage') return canManageContracts;
+                return true;
+              }).map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
                 return (

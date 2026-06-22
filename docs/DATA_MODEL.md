@@ -330,6 +330,14 @@ Campañas segmentadas por email. RLS por `tenant_id`.
 - id, tenant_id, name, channel (email), subject, body_text, `segment` jsonb (audiencia clientes/leads + filtros), status (draft/sending/sent/cancelled), audience_count, sent_count, scheduled_for, sent_at, created_by_user_id
 - Al enviar (`POST /campaigns/:id/send`) se resuelve la audiencia (con `withTenant`) y se encola una `communications` por destinatario (`source=campaign:<id>`, subject/body renderizados por destinatario). Permisos `communications:read`/`communications:send`.
 
+### `rent_increases` + `rent_increase_items` (2026-06-22)
+
+Subidas de precio a clientes en cartera (ECRI). RLS por `tenant_id`.
+
+- **`rent_increases`** (la tanda): id, tenant_id, name, `scope` jsonb (antigüedad mínima + local/tipo), increase_type (percentage/fixed), increase_value, effective_date, status (scheduled/applied/cancelled), affected_count, applied_count, mrr_delta, notice_sent, created_by_user_id, applied_at
+- **`rent_increase_items`** (por contrato, congela el cambio): id, tenant_id, rent_increase_id (FK), contract_id (FK), old_price, new_price, status (pending/applied/skipped), skip_reason, applied_at. Único `(rent_increase_id, contract_id)`.
+- Al crear se congelan los items + se envía el preaviso por email. El cron `rent-increases.apply` (o el botón manual) aplica en `effective_date`: `contract.price_monthly = new_price` + `contract_event 'price_changed'`. La facturación recurrente lee `price_monthly`. Permiso `contracts:manage`.
+
 ## 9. Operativa interna
 
 ### `tasks`

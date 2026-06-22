@@ -385,6 +385,8 @@ model Tenant {
   reviews                 Review[]
   referrals               Referral[]
   campaigns               Campaign[]
+  rentIncreases           RentIncrease[]
+  rentIncreaseItems       RentIncreaseItem[]
 
   @@map("tenants")
 }
@@ -928,17 +930,18 @@ model Contract {
   createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer       Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  events         ContractEvent[]
-  signatures     ContractSignature[]
-  invoices       Invoice[]
-  invoiceItems   InvoiceItem[]
-  leadsConverted Lead[]              @relation("LeadConvertedContract")
-  incidents      Incident[]          @relation("IncidentContract")
-  credentials    AccessCredential[]  @relation("CredentialContract")
-  reviews        Review[]
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer          Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  unit              Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  events            ContractEvent[]
+  signatures        ContractSignature[]
+  invoices          Invoice[]
+  invoiceItems      InvoiceItem[]
+  leadsConverted    Lead[]              @relation("LeadConvertedContract")
+  incidents         Incident[]          @relation("IncidentContract")
+  credentials       AccessCredential[]  @relation("CredentialContract")
+  reviews           Review[]
+  rentIncreaseItems RentIncreaseItem[]
 
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
@@ -1367,6 +1370,59 @@ model Campaign {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("campaigns")
+}
+
+/// Revenue (ECRI): tanda de subida de precio a clientes en cartera. Aplica un
+/// aumento (% o fijo) a los contratos del `scope`, con preaviso por email y
+/// aplicación programada en `effectiveDate` (cron).
+model RentIncrease {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  /// Filtros del scope (antigüedad mínima, local, tipo), ver shared.
+  scope           Json      @default("{}")
+  /// percentage | fixed
+  increaseType    String    @map("increase_type")
+  increaseValue   Decimal   @map("increase_value") @db.Decimal(10, 2)
+  effectiveDate   DateTime  @map("effective_date") @db.Date
+  /// scheduled | applied | cancelled
+  status          String    @default("scheduled")
+  affectedCount   Int       @default(0) @map("affected_count")
+  appliedCount    Int       @default(0) @map("applied_count")
+  mrrDelta        Decimal   @default(0) @map("mrr_delta") @db.Decimal(12, 2)
+  noticeSent      Boolean   @default(false) @map("notice_sent")
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  appliedAt       DateTime? @map("applied_at") @db.Timestamptz(6)
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  RentIncreaseItem[]
+
+  @@index([tenantId, status])
+  @@index([status, effectiveDate])
+  @@map("rent_increases")
+}
+
+/// Un contrato dentro de una tanda ECRI, con el precio antiguo/nuevo congelado.
+model RentIncreaseItem {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  rentIncreaseId String    @map("rent_increase_id") @db.Uuid
+  contractId     String    @map("contract_id") @db.Uuid
+  oldPrice       Decimal   @map("old_price") @db.Decimal(10, 2)
+  newPrice       Decimal   @map("new_price") @db.Decimal(10, 2)
+  /// pending | applied | skipped
+  status         String    @default("pending")
+  skipReason     String?   @map("skip_reason")
+  appliedAt      DateTime? @map("applied_at") @db.Timestamptz(6)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rentIncrease RentIncrease @relation(fields: [rentIncreaseId], references: [id], onDelete: Cascade)
+  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([rentIncreaseId, contractId])
+  @@index([tenantId])
+  @@map("rent_increase_items")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
