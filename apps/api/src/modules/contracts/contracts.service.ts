@@ -46,6 +46,7 @@ type ContractWithRelations = Contract & {
     customerType: 'individual' | 'business';
   };
   unit: { code: string; facilityId: string; facility: { name: string } };
+  insurancePlan: { name: string } | null;
 };
 
 interface ListFilters {
@@ -94,6 +95,7 @@ export class ContractsService {
                 facility: { select: { name: true } },
               },
             },
+            insurancePlan: { select: { name: true } },
           },
         }),
       tenantId,
@@ -168,6 +170,24 @@ export class ContractsService {
         discountReason = applied.discountReason;
       }
 
+      // Seguro opcional: congela la prima del plan activo en el contrato.
+      let insurancePlanId: string | null = null;
+      let insurancePrice: number | null = null;
+      if (input.insurancePlanId) {
+        const plan = await tx.insurancePlan.findFirst({
+          where: { id: input.insurancePlanId, tenantId, isActive: true },
+          select: { id: true, monthlyPrice: true },
+        });
+        if (!plan) {
+          throw new NotFoundException({
+            code: 'insurance_plan_not_found',
+            message: 'Plan de seguro no encontrado o inactivo',
+          });
+        }
+        insurancePlanId = plan.id;
+        insurancePrice = Number(plan.monthlyPrice);
+      }
+
       const contractNumber = await this.nextContractNumber(tx, tenantId);
       return tx.contract.create({
         data: {
@@ -183,6 +203,8 @@ export class ContractsService {
           discountAmount,
           discountReason,
           depositAmount: input.depositAmount,
+          insurancePlanId,
+          insurancePrice,
           autoRenew: input.autoRenew,
           cancellationNoticeDays: input.cancellationNoticeDays,
           notes: input.notes?.trim() || null,
@@ -215,6 +237,7 @@ export class ContractsService {
               facility: { select: { name: true } },
             },
           },
+          insurancePlan: { select: { name: true } },
         },
       });
     }, tenantId);
@@ -295,6 +318,7 @@ export class ContractsService {
                 facility: { select: { name: true } },
               },
             },
+            insurancePlan: { select: { name: true } },
           },
         }),
       args.tenantId,
@@ -371,6 +395,7 @@ export class ContractsService {
               facility: { select: { name: true } },
             },
           },
+          insurancePlan: { select: { name: true } },
         },
       });
       await tx.contractEvent.create({
@@ -512,6 +537,7 @@ export class ContractsService {
               facility: { select: { name: true } },
             },
           },
+          insurancePlan: { select: { name: true } },
         },
       });
       await tx.contractEvent.create({
@@ -565,6 +591,7 @@ export class ContractsService {
               facility: { select: { name: true } },
             },
           },
+          insurancePlan: { select: { name: true } },
         },
       });
       await tx.contractEvent.create({
@@ -631,6 +658,7 @@ export class ContractsService {
               facility: { select: { name: true } },
             },
           },
+          insurancePlan: { select: { name: true } },
         },
       });
       await tx.contractEvent.create({
@@ -706,6 +734,7 @@ export class ContractsService {
               facility: { select: { name: true } },
             },
           },
+          insurancePlan: { select: { name: true } },
         },
       });
       await tx.contractEvent.create({
@@ -737,6 +766,53 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    return this.toDto(updated);
+  }
+
+  /** Asigna o quita (planId null) el seguro de un contrato; congela la prima. */
+  async setInsurance(args: {
+    tenantId: string;
+    contractId: string;
+    planId: string | null;
+  }): Promise<ContractDto> {
+    await this.findOrThrow(args.tenantId, args.contractId);
+    let insurancePlanId: string | null = null;
+    let insurancePrice: number | null = null;
+    if (args.planId) {
+      const plan = await this.prisma.withTenant(
+        (tx) =>
+          tx.insurancePlan.findFirst({
+            where: { id: args.planId!, tenantId: args.tenantId, isActive: true },
+            select: { id: true, monthlyPrice: true },
+          }),
+        args.tenantId,
+      );
+      if (!plan) {
+        throw new NotFoundException({
+          code: 'insurance_plan_not_found',
+          message: 'Plan de seguro no encontrado o inactivo',
+        });
+      }
+      insurancePlanId = plan.id;
+      insurancePrice = Number(plan.monthlyPrice);
+    }
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.update({
+          where: { id: args.contractId },
+          data: { insurancePlanId, insurancePrice },
+          include: {
+            customer: {
+              select: { firstName: true, lastName: true, companyName: true, customerType: true },
+            },
+            unit: {
+              select: { code: true, facilityId: true, facility: { select: { name: true } } },
+            },
+            insurancePlan: { select: { name: true } },
+          },
+        }),
+      args.tenantId,
+    );
     return this.toDto(updated);
   }
 
@@ -886,6 +962,7 @@ export class ContractsService {
                 facility: { select: { name: true } },
               },
             },
+            insurancePlan: { select: { name: true } },
           },
         }),
       tenantId,
@@ -994,6 +1071,9 @@ export class ContractsService {
       depositAmount: Number(row.depositAmount),
       depositStatus: row.depositStatus,
       signedPdfUrl: row.signedPdfUrl,
+      insurancePlanId: row.insurancePlanId,
+      insurancePlanName: row.insurancePlan?.name ?? null,
+      insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,
       autoRenew: row.autoRenew,
       cancellationNoticeDays: row.cancellationNoticeDays,
       notes: row.notes,

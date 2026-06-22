@@ -8,11 +8,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
 import {
   AddContractNoteSchema,
+  AssignInsuranceSchema,
   CancelContractSchema,
   ChangeContractPriceSchema,
   type ContractDto,
@@ -41,6 +43,7 @@ class ChangeContractPriceDto extends createZodDto(ChangeContractPriceSchema) {}
 class SignContractDto extends createZodDto(SignContractSchema) {}
 class AddContractNoteDto extends createZodDto(AddContractNoteSchema) {}
 class CancelContractDto extends createZodDto(CancelContractSchema) {}
+class AssignInsuranceDto extends createZodDto(AssignInsuranceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -217,6 +220,21 @@ export class ContractsController {
       contractId: id,
       input,
       meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('contracts:write')
+  @Put(':id/insurance')
+  @HttpCode(HttpStatus.OK)
+  async setInsurance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: AssignInsuranceDto,
+  ): Promise<ContractDto> {
+    return this.contracts.setInsurance({
+      tenantId: user.tenantId,
+      contractId: id,
+      planId: input.planId,
     });
   }
 

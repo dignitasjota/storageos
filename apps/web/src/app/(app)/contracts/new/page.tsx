@@ -12,9 +12,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useCreateContract, useCustomers } from '@/lib/customers/hooks';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
+import { useInsurancePlans } from '@/lib/insurance/hooks';
 import { useValidatePromotion } from '@/lib/promotions/hooks';
 
 type Step = 1 | 2 | 3 | 4;
@@ -31,6 +39,7 @@ export default function NewContractWizardPage() {
   const [discountReason, setDiscountReason] = useState('');
   const [promotionCode, setPromotionCode] = useState('');
   const [depositAmount, setDepositAmount] = useState(0);
+  const [insurancePlanId, setInsurancePlanId] = useState('');
 
   const create = useCreateContract();
 
@@ -47,6 +56,7 @@ export default function NewContractWizardPage() {
       ...(discountReason ? { discountReason } : {}),
       ...(promotionCode ? { promotionCode } : {}),
       depositAmount,
+      ...(insurancePlanId ? { insurancePlanId } : {}),
       autoRenew: true,
       cancellationNoticeDays: 15,
     };
@@ -117,6 +127,7 @@ export default function NewContractWizardPage() {
           discountReason={discountReason}
           promotionCode={promotionCode}
           depositAmount={depositAmount}
+          insurancePlanId={insurancePlanId}
           onChange={(p) => {
             if (p.startDate !== undefined) setStartDate(p.startDate);
             if (p.endDate !== undefined) setEndDate(p.endDate);
@@ -125,6 +136,7 @@ export default function NewContractWizardPage() {
             if (p.discountReason !== undefined) setDiscountReason(p.discountReason);
             if (p.promotionCode !== undefined) setPromotionCode(p.promotionCode);
             if (p.depositAmount !== undefined) setDepositAmount(p.depositAmount);
+            if (p.insurancePlanId !== undefined) setInsurancePlanId(p.insurancePlanId);
           }}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
@@ -261,6 +273,7 @@ function StepEconomics(props: {
   discountReason: string;
   promotionCode: string;
   depositAmount: number;
+  insurancePlanId: string;
   onChange: (
     p: Partial<{
       startDate: string;
@@ -270,6 +283,7 @@ function StepEconomics(props: {
       discountReason: string;
       promotionCode: string;
       depositAmount: number;
+      insurancePlanId: string;
     }>,
   ) => void;
   onBack: () => void;
@@ -387,11 +401,16 @@ function StepEconomics(props: {
             </p>
           )}
         </div>
+        <InsuranceSelect
+          value={props.insurancePlanId}
+          onChange={(v) => props.onChange({ insurancePlanId: v })}
+        />
         <div className="rounded-md bg-muted/40 px-3 py-2 text-sm">
           Cuota efectiva mensual:{' '}
           <strong className="tabular-nums">
             {Math.max(0, props.priceMonthly - props.discountAmount).toFixed(2)} €
           </strong>
+          <span className="text-muted-foreground"> (el seguro se factura como línea aparte)</span>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={props.onBack}>
@@ -477,5 +496,28 @@ function StepReview(props: {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function InsuranceSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const plans = useInsurancePlans(true);
+  if ((plans.data ?? []).length === 0) return null;
+  return (
+    <div>
+      <Label>Seguro / protección (opcional)</Label>
+      <Select value={value || 'none'} onValueChange={(v) => onChange(v === 'none' ? '' : v)}>
+        <SelectTrigger>
+          <SelectValue placeholder="Sin seguro" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Sin seguro</SelectItem>
+          {(plans.data ?? []).map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {p.name} · {p.monthlyPrice.toFixed(2)} €/mes
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

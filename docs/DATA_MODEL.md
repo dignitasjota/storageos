@@ -338,6 +338,13 @@ Subidas de precio a clientes en cartera (ECRI). RLS por `tenant_id`.
 - **`rent_increase_items`** (por contrato, congela el cambio): id, tenant_id, rent_increase_id (FK), contract_id (FK), old_price, new_price, status (pending/applied/skipped), skip_reason, applied_at. Único `(rent_increase_id, contract_id)`.
 - Al crear se congelan los items + se envía el preaviso por email. El cron `rent-increases.apply` (o el botón manual) aplica en `effective_date`: `contract.price_monthly = new_price` + `contract_event 'price_changed'`. La facturación recurrente lee `price_monthly`. Permiso `contracts:manage`.
 
+### `insurance_plans` (2026-06-22)
+
+Planes de seguro / protección de contenido (catálogo del tenant). RLS por `tenant_id`.
+
+- id, tenant_id, name, monthly_price, coverage_amount, tax_rate (default 21), description, is_active
+- Se asigna a un contrato vía `contracts.insurance_plan_id` (FK SET NULL) + `contracts.insurance_price` (**snapshot** de la prima al asignar). La facturación recurrente añade una línea de la prima a la factura mensual del alquiler. CRUD `/insurance-plans` (permisos `insurance:read`/`insurance:manage`); asignación `PUT /contracts/:id/insurance` (`contracts:write`).
+
 ## 9. Operativa interna
 
 ### `tasks`

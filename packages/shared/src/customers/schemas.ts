@@ -158,6 +158,8 @@ export const CreateContractSchema = z.object({
    */
   promotionCode: z.string().trim().toUpperCase().max(32).optional(),
   depositAmount: nonNegativeDecimal.default(0),
+  /** Plan de seguro opcional; la prima se congela y se factura cada mes. */
+  insurancePlanId: z.string().uuid().optional(),
   autoRenew: z.boolean().default(true),
   cancellationNoticeDays: z.number().int().min(0).max(365).default(15),
   notes: optionalText(2000),

@@ -59,6 +59,8 @@ export const Permissions = [
   'reviews:write', // solicitar valoraciones (NPS)
   'promotions:read',
   'promotions:manage', // crear/editar códigos promocionales (owner+manager)
+  'insurance:read',
+  'insurance:manage', // crear/editar planes de seguro (owner+manager)
   'referrals:read',
   'access:read',
   'access:manage',

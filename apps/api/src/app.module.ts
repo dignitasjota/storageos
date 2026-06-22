@@ -31,6 +31,7 @@ import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { InsuranceModule } from './modules/insurance/insurance.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { LandingModule } from './modules/landing/landing.module';
@@ -163,6 +164,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ReferralsModule,
     CampaignsModule,
     RentIncreasesModule,
+    InsuranceModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
