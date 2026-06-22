@@ -20,6 +20,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AutomationsModule } from './modules/automations/automations.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
+import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -159,6 +160,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ReviewsModule,
     PromotionsModule,
     ReferralsModule,
+    CampaignsModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

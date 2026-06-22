@@ -323,6 +323,13 @@ Programa de referidos. RLS por `tenant_id`.
 - id, tenant_id, referrer_customer_id, referred_customer_id (**único** — un cliente se refiere una vez), status (pending/converted/cancelled), reward_promotion_id (FK a `promotions`, nullable), converted_at, created_at
 - Se registra en el alta del referido (best-effort, en la transacción). El listener `domain.contract_signed` lo marca `converted` + genera la promoción-recompensa. Vista del portal `GET /portal/me/referrals`, panel `GET /referrals` (permiso `referrals:read`).
 
+### `campaigns` (2026-06-22)
+
+Campañas segmentadas por email. RLS por `tenant_id`.
+
+- id, tenant_id, name, channel (email), subject, body_text, `segment` jsonb (audiencia clientes/leads + filtros), status (draft/sending/sent/cancelled), audience_count, sent_count, scheduled_for, sent_at, created_by_user_id
+- Al enviar (`POST /campaigns/:id/send`) se resuelve la audiencia (con `withTenant`) y se encola una `communications` por destinatario (`source=campaign:<id>`, subject/body renderizados por destinatario). Permisos `communications:read`/`communications:send`.
+
 ## 9. Operativa interna
 
 ### `tasks`
