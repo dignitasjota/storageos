@@ -8,6 +8,7 @@ acceso, registra cada intento). El ESP32 es el **músculo** en la puerta: lee el
 código, pregunta a la API y, si la respuesta es _permitido_, acciona el relé.
 
 > Firmware de ejemplo: [`examples/esp32-access-controller/`](examples/esp32-access-controller/).
+> Para el escenario "solo cancela perimetral" (cada trastero con candado del cliente), ver también [`HARDWARE_CANCELA.md`](HARDWARE_CANCELA.md).
 
 ---
 

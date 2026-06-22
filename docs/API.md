@@ -1042,6 +1042,7 @@ y declararla en `reports.module.ts`.
 Modulo `apps/api/src/modules/access/`.
 
 > 🔌 **Montaje físico con ESP32** (guía + firmware de ejemplo): [`HARDWARE_ESP32.md`](HARDWARE_ESP32.md). Explica el contrato de `/v1/access/verify` desde el dispositivo y el alta del device.
+> 🚧 **Escenario "solo cancela perimetral"** (cada trastero con candado del cliente): [`HARDWARE_CANCELA.md`](HARDWARE_CANCELA.md).
 
 ### Invariantes clave
 
