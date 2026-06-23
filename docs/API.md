@@ -658,20 +658,24 @@ reason }`.
 
 ### Endpoints — Contracts
 
-| Metodo | Ruta                          | Auth | Roles                 | Descripcion                                        |
-| ------ | ----------------------------- | ---- | --------------------- | -------------------------------------------------- |
-| GET    | `/contracts`                  | SI   | cualquiera            | Filtros `?status=&customerId=&facilityId=&unitId=` |
-| GET    | `/contracts/:id`              | SI   | cualquiera            | Detalle con `effectivePrice` calculado             |
-| GET    | `/contracts/:id/events`       | SI   | cualquiera            | Timeline inmutable de eventos                      |
-| POST   | `/contracts`                  | SI   | owner, manager, staff | Crea borrador                                      |
-| PATCH  | `/contracts/:id`              | SI   | owner, manager, staff | Edita campos meta (no precio)                      |
-| POST   | `/contracts/:id/sign`         | SI   | owner, manager        | Pasa a active + ocupa unit                         |
-| POST   | `/contracts/:id/request-end`  | SI   | owner, manager        | Pasa a ending                                      |
-| POST   | `/contracts/:id/end`          | SI   | owner, manager        | Pasa a ended + libera unit                         |
-| POST   | `/contracts/:id/cancel`       | SI   | owner, manager        | Cancela + libera unit                              |
-| POST   | `/contracts/:id/change-price` | SI   | owner, manager        | Cambia precio con motivo (registrado en eventos)   |
-| POST   | `/contracts/:id/notes`        | SI   | owner, manager, staff | Anyade nota a la timeline                          |
-| POST   | `/contracts/:id/generate-pdf` | SI   | owner, manager        | Genera PDF con Puppeteer                           |
+| Metodo | Ruta                                        | Auth | Roles                 | Descripcion                                                                           |
+| ------ | ------------------------------------------- | ---- | --------------------- | ------------------------------------------------------------------------------------- |
+| GET    | `/contracts`                                | SI   | cualquiera            | Filtros `?status=&customerId=&facilityId=&unitId=`                                    |
+| GET    | `/contracts/:id`                            | SI   | cualquiera            | Detalle con `effectivePrice` calculado                                                |
+| GET    | `/contracts/:id/events`                     | SI   | cualquiera            | Timeline inmutable de eventos                                                         |
+| POST   | `/contracts`                                | SI   | owner, manager, staff | Crea borrador                                                                         |
+| PATCH  | `/contracts/:id`                            | SI   | owner, manager, staff | Edita campos meta (no precio)                                                         |
+| POST   | `/contracts/:id/sign`                       | SI   | owner, manager        | Pasa a active + ocupa unit                                                            |
+| POST   | `/contracts/:id/request-end`                | SI   | owner, manager        | Pasa a ending                                                                         |
+| POST   | `/contracts/:id/end`                        | SI   | owner, manager        | Pasa a ended + libera unit                                                            |
+| POST   | `/contracts/:id/cancel`                     | SI   | owner, manager        | Cancela + libera unit                                                                 |
+| POST   | `/contracts/:id/change-price`               | SI   | owner, manager        | Cambia precio con motivo (registrado en eventos)                                      |
+| POST   | `/contracts/:id/notes`                      | SI   | owner, manager, staff | Anyade nota a la timeline                                                             |
+| POST   | `/contracts/:id/generate-pdf`               | SI   | owner, manager        | Genera PDF con Puppeteer                                                              |
+| GET    | `/contracts/:id/checkout-photos`            | SI   | `contracts:read`      | Fotos de check-out con URL firmada GET (privadas)                                     |
+| POST   | `/contracts/:id/checkout-photos/upload-url` | SI   | `contracts:write`     | Signed URL PUT a MinIO (bucket privado `uploads`)                                     |
+| POST   | `/contracts/:id/checkout-photos`            | SI   | `contracts:write`     | Registra la foto `{key, note?}`; 400 `invalid_photo_key` si la key no es del contrato |
+| DELETE | `/contracts/:id/checkout-photos/:photoId`   | SI   | `contracts:write`     | Borra una foto de check-out                                                           |
 
 ### Endpoints — Reservations
 
