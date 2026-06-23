@@ -10,21 +10,43 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
-  checkoutPhotosKey,
-  uploadCheckoutPhoto,
-  useCheckoutPhotos,
-  useDeleteCheckoutPhoto,
+  inspectionPhotosKey,
+  uploadInspectionPhoto,
+  useDeleteInspectionPhoto,
+  useInspectionPhotos,
 } from '@/lib/customers/hooks';
 
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp'];
 
-export function CheckoutPhotosCard({ contractId }: { contractId: string }) {
+type InspectionKind = 'checkin' | 'checkout';
+
+const META: Record<InspectionKind, { title: string; desc: string; empty: string }> = {
+  checkin: {
+    title: 'Check-in (fotos)',
+    desc: 'Estado del trastero a la entrada — referencia inicial para fianzas y disputas.',
+    empty: 'Aún no hay fotos de check-in.',
+  },
+  checkout: {
+    title: 'Check-out (fotos)',
+    desc: 'Estado del trastero a la salida — evidencia para fianzas y disputas.',
+    empty: 'Aún no hay fotos de check-out.',
+  },
+};
+
+export function InspectionPhotosCard({
+  contractId,
+  kind,
+}: {
+  contractId: string;
+  kind: InspectionKind;
+}) {
   const canWrite = useHasPermission('contracts:write');
-  const photos = useCheckoutPhotos(contractId);
-  const del = useDeleteCheckoutPhoto(contractId);
+  const photos = useInspectionPhotos(contractId, kind);
+  const del = useDeleteInspectionPhoto(contractId, kind);
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const meta = META[kind];
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -38,11 +60,11 @@ export function CheckoutPhotosCard({ contractId }: { contractId: string }) {
           toast.error(`Formato no soportado: ${file.name}`);
           continue;
         }
-        await uploadCheckoutPhoto(contractId, file);
+        await uploadInspectionPhoto(contractId, kind, file);
         ok += 1;
       }
       if (ok > 0) {
-        await qc.invalidateQueries({ queryKey: checkoutPhotosKey(contractId) });
+        await qc.invalidateQueries({ queryKey: inspectionPhotosKey(contractId, kind) });
         toast.success(ok === 1 ? 'Foto subida.' : `${ok} fotos subidas.`);
       }
     } catch (err) {
@@ -65,10 +87,8 @@ export function CheckoutPhotosCard({ contractId }: { contractId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Check-out (fotos)</CardTitle>
-        <CardDescription>
-          Estado del trastero a la salida — evidencia para fianzas y disputas.
-        </CardDescription>
+        <CardTitle className="text-base">{meta.title}</CardTitle>
+        <CardDescription>{meta.desc}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {list.length > 0 ? (
@@ -81,7 +101,7 @@ export function CheckoutPhotosCard({ contractId }: { contractId: string }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={p.url}
-                  alt={p.note ?? 'Foto de check-out'}
+                  alt={p.note ?? meta.title}
                   className="h-full w-full object-cover"
                 />
                 {canWrite && (
@@ -99,7 +119,7 @@ export function CheckoutPhotosCard({ contractId }: { contractId: string }) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Aún no hay fotos de check-out.</p>
+          <p className="text-sm text-muted-foreground">{meta.empty}</p>
         )}
         {canWrite && (
           <>

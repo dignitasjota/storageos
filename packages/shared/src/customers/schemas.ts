@@ -109,20 +109,25 @@ export const RegisterCustomerDocumentSchema = z.object({
 export type RegisterCustomerDocumentInput = z.infer<typeof RegisterCustomerDocumentSchema>;
 
 // ============================================================================
-// Check-out con fotos (evidencia del estado del trastero a la salida)
+// Fotos de inspección (estado del trastero en check-in y check-out)
 // ============================================================================
 
-export const RequestCheckoutPhotoUploadSchema = z.object({
+export const InspectionKindEnum = z.enum(['checkin', 'checkout']);
+export type InspectionKindValue = z.infer<typeof InspectionKindEnum>;
+
+export const RequestInspectionPhotoUploadSchema = z.object({
+  kind: InspectionKindEnum,
   mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
   fileName: z.string().trim().min(1).max(200),
 });
-export type RequestCheckoutPhotoUploadInput = z.infer<typeof RequestCheckoutPhotoUploadSchema>;
+export type RequestInspectionPhotoUploadInput = z.infer<typeof RequestInspectionPhotoUploadSchema>;
 
-export const RegisterCheckoutPhotoSchema = z.object({
+export const RegisterInspectionPhotoSchema = z.object({
+  kind: InspectionKindEnum,
   key: z.string().trim().min(1).max(500),
   note: z.string().trim().max(500).optional().or(z.literal('')),
 });
-export type RegisterCheckoutPhotoInput = z.infer<typeof RegisterCheckoutPhotoSchema>;
+export type RegisterInspectionPhotoInput = z.infer<typeof RegisterInspectionPhotoSchema>;
 
 // ============================================================================
 // Contracts

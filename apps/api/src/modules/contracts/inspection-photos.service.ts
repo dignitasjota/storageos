@@ -7,59 +7,62 @@ import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
-  CheckoutPhotoDto,
-  CheckoutPhotoUploadDto,
-  RegisterCheckoutPhotoInput,
-  RequestCheckoutPhotoUploadInput,
+  InspectionKindValue,
+  InspectionPhotoDto,
+  InspectionPhotoUploadDto,
+  RegisterInspectionPhotoInput,
+  RequestInspectionPhotoUploadInput,
 } from '@storageos/shared';
 
 type Scope = string[] | null | undefined;
 
 /**
- * Fotos de check-out: evidencia del estado del trastero a la salida (fianzas,
- * disputas). Las imágenes se suben directamente a MinIO (bucket privado
- * `uploads`) con URL firmada PUT; aquí guardamos la key + metadatos y servimos
- * las fotos con URLs firmadas GET de corta duración.
+ * Fotos de inspección (check-in / check-out): evidencia del estado del trastero
+ * a la entrada y a la salida (fianzas, disputas). Las imágenes se suben
+ * directamente a MinIO (bucket privado `uploads`) con URL firmada PUT; aquí
+ * guardamos la key + metadatos y servimos las fotos con URLs firmadas GET de
+ * corta duración.
  */
 @Injectable()
-export class CheckoutPhotosService {
+export class InspectionPhotosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
     private readonly audit: AuditService,
   ) {}
 
-  async list(tenantId: string, contractId: string, scope?: Scope): Promise<CheckoutPhotoDto[]> {
+  async list(
+    tenantId: string,
+    contractId: string,
+    kind?: InspectionKindValue,
+    scope?: Scope,
+  ): Promise<InspectionPhotoDto[]> {
     await this.assertContract(tenantId, contractId, scope);
     const rows = await this.prisma.withTenant(
       (tx) =>
-        tx.contractCheckoutPhoto.findMany({
-          where: { contractId },
+        tx.contractInspectionPhoto.findMany({
+          where: { contractId, ...(kind ? { kind } : {}) },
           orderBy: [{ createdAt: 'desc' }],
           include: { createdBy: { select: { fullName: true } } },
         }),
       tenantId,
     );
-    return Promise.all(
-      rows.map(async (r) => ({
-        id: r.id,
-        contractId: r.contractId,
-        url: await this.files.getPresignedGetUrl('uploads', r.key),
-        note: r.note,
-        createdByName: r.createdBy?.fullName ?? null,
-        createdAt: r.createdAt.toISOString(),
-      })),
-    );
+    return Promise.all(rows.map((r) => this.toDto(r)));
   }
 
   async requestUploadUrl(
     tenantId: string,
     contractId: string,
-    input: RequestCheckoutPhotoUploadInput,
+    input: RequestInspectionPhotoUploadInput,
     scope?: Scope,
-  ): Promise<CheckoutPhotoUploadDto> {
+  ): Promise<InspectionPhotoUploadDto> {
     await this.assertContract(tenantId, contractId, scope);
-    const key = this.files.buildCheckoutPhotoKey(tenantId, contractId, input.mimeType);
+    const key = this.files.buildInspectionPhotoKey(
+      tenantId,
+      contractId,
+      input.kind,
+      input.mimeType,
+    );
     const { uploadUrl, expiresIn } = await this.files.getPresignedPutUrl({
       bucket: 'uploads',
       key,
@@ -77,23 +80,24 @@ export class CheckoutPhotosService {
     tenantId: string;
     userId: string;
     contractId: string;
-    input: RegisterCheckoutPhotoInput;
+    input: RegisterInspectionPhotoInput;
     meta: RequestMeta;
     scope?: Scope;
-  }): Promise<CheckoutPhotoDto> {
+  }): Promise<InspectionPhotoDto> {
     await this.assertContract(args.tenantId, args.contractId, args.scope);
-    // La key debe pertenecer a este contrato (defensa: que no registren la key
-    // de otro tenant/contrato a la que no tendrían URL firmada de subida).
-    const prefix = `${args.tenantId}/contracts/${args.contractId}/checkout/`;
+    // La key debe pertenecer a este contrato + kind (defensa: que no registren la
+    // key de otro tenant/contrato a la que no tendrían URL firmada de subida).
+    const prefix = `${args.tenantId}/contracts/${args.contractId}/${args.input.kind}/`;
     if (!args.input.key.startsWith(prefix)) {
       throw new BadRequestException({ code: 'invalid_photo_key', message: 'Key no válida' });
     }
     const created = await this.prisma.withTenant(
       (tx) =>
-        tx.contractCheckoutPhoto.create({
+        tx.contractInspectionPhoto.create({
           data: {
             tenantId: args.tenantId,
             contractId: args.contractId,
+            kind: args.input.kind,
             key: args.input.key,
             note: args.input.note?.trim() || null,
             createdByUserId: args.userId,
@@ -105,21 +109,14 @@ export class CheckoutPhotosService {
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
-      action: 'contract.checkout_photo_added',
-      entityType: 'ContractCheckoutPhoto',
+      action: 'contract.inspection_photo_added',
+      entityType: 'ContractInspectionPhoto',
       entityId: created.id,
-      changes: { contractId: args.contractId },
+      changes: { contractId: args.contractId, kind: args.input.kind },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return {
-      id: created.id,
-      contractId: created.contractId,
-      url: await this.files.getPresignedGetUrl('uploads', created.key),
-      note: created.note,
-      createdByName: created.createdBy?.fullName ?? null,
-      createdAt: created.createdAt.toISOString(),
-    };
+    return this.toDto(created);
   }
 
   async delete(args: {
@@ -133,7 +130,7 @@ export class CheckoutPhotosService {
     await this.assertContract(args.tenantId, args.contractId, args.scope);
     const row = await this.prisma.withTenant(
       (tx) =>
-        tx.contractCheckoutPhoto.findFirst({
+        tx.contractInspectionPhoto.findFirst({
           where: { id: args.photoId, contractId: args.contractId },
         }),
       args.tenantId,
@@ -142,19 +139,39 @@ export class CheckoutPhotosService {
       throw new NotFoundException({ code: 'photo_not_found', message: 'Foto no encontrada' });
     }
     await this.prisma.withTenant(
-      (tx) => tx.contractCheckoutPhoto.delete({ where: { id: args.photoId } }),
+      (tx) => tx.contractInspectionPhoto.delete({ where: { id: args.photoId } }),
       args.tenantId,
     );
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
-      action: 'contract.checkout_photo_deleted',
-      entityType: 'ContractCheckoutPhoto',
+      action: 'contract.inspection_photo_deleted',
+      entityType: 'ContractInspectionPhoto',
       entityId: args.photoId,
       changes: { contractId: args.contractId },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+  }
+
+  private async toDto(row: {
+    id: string;
+    contractId: string;
+    kind: string;
+    key: string;
+    note: string | null;
+    createdBy?: { fullName: string } | null;
+    createdAt: Date;
+  }): Promise<InspectionPhotoDto> {
+    return {
+      id: row.id,
+      contractId: row.contractId,
+      kind: row.kind as 'checkin' | 'checkout',
+      url: await this.files.getPresignedGetUrl('uploads', row.key),
+      note: row.note,
+      createdByName: row.createdBy?.fullName ?? null,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 
   /** Verifica que el contrato existe en el tenant y está en el scope de locales. */
