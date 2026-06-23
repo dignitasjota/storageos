@@ -2,6 +2,8 @@ import { getRequestConfig } from 'next-intl/server';
 
 import messages from '../../../messages/es.json';
 
+import { formats } from './formats';
+
 /**
  * Configuracion de next-intl. Hoy solo soportamos `es-ES`; cuando anadamos
  * mas idiomas, este es el unico sitio que cambia (lee la cookie
@@ -12,4 +14,5 @@ export default getRequestConfig(async () => ({
   messages,
   timeZone: 'Europe/Madrid',
   now: new Date(),
+  formats,
 }));

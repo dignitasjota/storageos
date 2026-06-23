@@ -8,6 +8,8 @@ import { Providers } from './providers';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
+import { formats } from '@/lib/i18n/formats';
+
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -29,7 +31,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       className={`${GeistSans.variable} ${GeistMono.variable}`}
     >
       <body className="min-h-screen bg-background font-sans antialiased">
-        <NextIntlClientProvider locale={locale} messages={messages}>
+        <NextIntlClientProvider locale={locale} messages={messages} formats={formats}>
           <Providers>{children}</Providers>
         </NextIntlClientProvider>
       </body>
