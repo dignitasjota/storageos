@@ -42,6 +42,7 @@ export interface UnitTypeDto {
   name: string;
   description: string | null;
   defaultPriceMonthly: number;
+  defaultDepositAmount: number;
   color: string;
   features: Record<string, unknown>;
   isActive: boolean;

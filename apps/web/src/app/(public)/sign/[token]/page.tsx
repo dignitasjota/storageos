@@ -4,8 +4,15 @@ import { CheckCircle2, Loader2 } from 'lucide-react';
 import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { ContractSignViewDto, PortalInvoiceDto, SignResultDto } from '@storageos/shared';
+import type {
+  ContractSignViewDto,
+  PortalChargeResultDto,
+  PortalInvoiceDto,
+  SetupIntentResponseDto,
+  SignResultDto,
+} from '@storageos/shared';
 
+import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +21,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
+
+const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export default function SignPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -103,45 +112,16 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p>
-              ¡Gracias! Tu contrato <strong>{view.contractNumber}</strong> queda firmado y tu acceso
-              al trastero <strong>{view.unitCode}</strong> se activará en breve.
+              ¡Gracias! Tu contrato <strong>{view.contractNumber}</strong> queda firmado. Para
+              activar tu acceso al trastero <strong>{view.unitCode}</strong>, completa el pago de tu
+              primera factura.
             </p>
-            {pending.length > 0 && result?.portalToken && (
-              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-                <p className="font-medium">Paga ya tu primera factura</p>
-                {pending.map((inv) => (
-                  <div key={inv.id} className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">
-                      {inv.invoiceNumber} —{' '}
-                      {inv.amountPending.toLocaleString('es-ES', {
-                        style: 'currency',
-                        currency: 'EUR',
-                      })}
-                    </span>
-                    <Button
-                      size="sm"
-                      onClick={async () => {
-                        try {
-                          submitRedsysForm(
-                            await fetchPortalRedsysRedirect(result.portalToken!, inv.id),
-                          );
-                        } catch (err) {
-                          toast.error(
-                            err instanceof ApiError
-                              ? err.body.message
-                              : 'El pago con tarjeta no está disponible',
-                          );
-                        }
-                      }}
-                    >
-                      Pagar con tarjeta
-                    </Button>
-                  </div>
-                ))}
-                <p className="text-xs text-muted-foreground">
-                  También recibirás un email con el enlace a tu portal para pagarla más tarde.
-                </p>
-              </div>
+            {pending.length > 0 && result?.portalToken ? (
+              <BookingPayment portalToken={result.portalToken} invoice={pending[0]!} />
+            ) : (
+              <p className="text-muted-foreground">
+                Te hemos enviado un email con el enlace a tu portal para completar el pago.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -213,6 +193,117 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
         </CardContent>
       </Card>
     </Centered>
+  );
+}
+
+/**
+ * Pago obligatorio de la 1ª factura tras firmar (reserva online): tarjeta vía
+ * Stripe o Redsys. Al pagar, el acceso (PIN) se emite (listener invoice_paid).
+ */
+function BookingPayment({
+  portalToken,
+  invoice,
+}: {
+  portalToken: string;
+  invoice: PortalInvoiceDto;
+}) {
+  const [paid, setPaid] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const auth = { Authorization: `Bearer ${portalToken}` };
+
+  if (paid) {
+    return (
+      <div className="rounded-md border border-green-200 bg-green-50 p-3 text-green-800">
+        ✓ Pago completado. Tu acceso al trastero se activará en breve.
+      </div>
+    );
+  }
+  if (processing) {
+    return (
+      <div className="rounded-md border bg-muted/30 p-3 text-muted-foreground">
+        Domiciliación iniciada: tu banco la confirmará en 2-5 días hábiles y tu acceso se activará
+        entonces.
+      </div>
+    );
+  }
+
+  async function startStripe() {
+    setBusy(true);
+    try {
+      const intent = await apiFetch<SetupIntentResponseDto>(
+        '/portal/me/payment-methods/setup-intent',
+        { method: 'POST', requiresAuth: false, headers: auth },
+      );
+      setSetupIntent(intent);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo iniciar el pago.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmed(gatewayToken: string) {
+    await apiFetch('/portal/me/payment-methods', {
+      method: 'POST',
+      requiresAuth: false,
+      headers: auth,
+      json: { gatewayToken, gatewayCustomerId: setupIntent?.customerId },
+    });
+    const result = await apiFetch<PortalChargeResultDto>(
+      `/portal/me/invoices/${invoice.id}/charge`,
+      { method: 'POST', requiresAuth: false, headers: auth },
+    );
+    if (result.status === 'succeeded') {
+      setPaid(true);
+      toast.success('Pago realizado. ¡Gracias!');
+    } else if (result.status === 'processing') {
+      setProcessing(true);
+    } else {
+      toast.error('El pago no se pudo completar. Inténtalo de nuevo.');
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+      <p className="font-medium">
+        Primera factura: {invoice.invoiceNumber} — {eur(invoice.amountPending)}
+      </p>
+      {setupIntent ? (
+        <StripeSetupForm
+          clientSecret={setupIntent.clientSecret}
+          publishableKey={setupIntent.publishableKey}
+          submitLabel={`Pagar ${eur(invoice.amountPending)}`}
+          onConfirmed={onConfirmed}
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Button onClick={startStripe} disabled={busy}>
+            {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            Pagar con tarjeta
+          </Button>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                submitRedsysForm(await fetchPortalRedsysRedirect(portalToken, invoice.id));
+              } catch (err) {
+                toast.error(
+                  err instanceof ApiError ? err.body.message : 'Redsys no está disponible.',
+                );
+              }
+            }}
+          >
+            Pagar con Redsys
+          </Button>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        También recibirás un email con el enlace a tu portal para pagarla más tarde.
+      </p>
+    </div>
   );
 }
 

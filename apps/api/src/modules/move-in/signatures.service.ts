@@ -159,6 +159,8 @@ export class SignaturesService {
         typedSignature: input.method === 'typed' ? (input.typedSignature ?? null) : null,
         channel: 'remote',
       },
+      // Self-service remoto: el acceso se emite al pagar la 1ª factura, no al firmar.
+      deferAccessUntilPaid: true,
     });
 
     await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId);
@@ -276,6 +278,33 @@ export class SignaturesService {
       const dueDate = new Date(periodEnd);
       dueDate.setDate(dueDate.getDate() + 15);
       const unitPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
+      const deposit = Number(contract.depositAmount);
+
+      const items = [
+        {
+          description: `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 7)})`,
+          quantity: 1,
+          unitPrice,
+          taxRate: 21,
+          relatedContractId: contractId,
+          relatedUnitId: contract.unit.id,
+          periodStart: periodStart.toISOString().slice(0, 10),
+          periodEnd: periodEnd.toISOString().slice(0, 10),
+        },
+        // La fianza/depósito es indemnizatoria (garantía reembolsable) → IVA 0.
+        ...(deposit > 0
+          ? [
+              {
+                description: `Fianza ${contract.contractNumber}`,
+                quantity: 1,
+                unitPrice: deposit,
+                taxRate: 0,
+                relatedContractId: contractId,
+                relatedUnitId: contract.unit.id,
+              },
+            ]
+          : []),
+      ];
 
       const invoice = await this.invoices.create({
         tenantId,
@@ -288,18 +317,7 @@ export class SignaturesService {
           periodStart: periodStart.toISOString().slice(0, 10),
           periodEnd: periodEnd.toISOString().slice(0, 10),
           dueDate: dueDate.toISOString().slice(0, 10),
-          items: [
-            {
-              description: `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 7)})`,
-              quantity: 1,
-              unitPrice,
-              taxRate: 21,
-              relatedContractId: contractId,
-              relatedUnitId: contract.unit.id,
-              periodStart: periodStart.toISOString().slice(0, 10),
-              periodEnd: periodEnd.toISOString().slice(0, 10),
-            },
-          ],
+          items,
           verifactuMode: 'verifactu',
         },
         meta: {},
