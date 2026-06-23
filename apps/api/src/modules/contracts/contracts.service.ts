@@ -351,6 +351,11 @@ export class ContractsService {
       typedSignature?: string | null;
       channel?: string;
     };
+    /**
+     * Si true, NO se emite el acceso al firmar: queda diferido a que se pague la
+     * 1ª factura (reserva online con pago obligatorio). Lo marca el booking.
+     */
+    deferAccessUntilPaid?: boolean;
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId);
     this.assertTransition(existing.status, 'active');
@@ -504,6 +509,7 @@ export class ContractsService {
         },
         unit: { code: updated.unit.code },
         facility: { name: updated.unit.facility.name },
+        ...(args.deferAccessUntilPaid ? { deferAccess: true } : {}),
       },
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);

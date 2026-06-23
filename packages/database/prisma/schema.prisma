@@ -742,16 +742,17 @@ model FacilityFloor {
 /// features. Cambiar features de un unit_type NO modifica las units
 /// existentes (snapshot en `units.base_price_monthly`).
 model UnitType {
-  id                  String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId            String   @map("tenant_id") @db.Uuid
-  name                String
-  description         String?
-  defaultPriceMonthly Decimal  @map("default_price_monthly") @db.Decimal(10, 2)
-  color               String   @default("#888888") @db.Char(7)
-  features            Json     @default("{}")
-  isActive            Boolean  @default(true) @map("is_active")
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                   String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  name                 String
+  description          String?
+  defaultPriceMonthly  Decimal  @map("default_price_monthly") @db.Decimal(10, 2)
+  defaultDepositAmount Decimal  @default(0) @map("default_deposit_amount") @db.Decimal(10, 2)
+  color                String   @default("#888888") @db.Char(7)
+  features             Json     @default("{}")
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   units          Unit[]

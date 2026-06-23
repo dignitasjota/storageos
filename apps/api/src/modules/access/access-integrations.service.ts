@@ -93,7 +93,16 @@ export class AccessIntegrationsService {
       unit?: { code?: string };
       facility?: { name?: string };
       tenant?: { name?: string };
+      deferAccess?: boolean;
     };
+    // Reserva online con pago obligatorio: el acceso NO se emite al firmar; se
+    // emite al pagar la 1ª factura (listener invoice_paid → issueCredential).
+    if (scope.deferAccess) {
+      this.logger.log(
+        `contract.signed: emisión de acceso diferida al primer pago tenant=${payload.tenantId} customer=${payload.customerId}`,
+      );
+      return;
+    }
     try {
       await this.issueCredential({
         tenantId: payload.tenantId,

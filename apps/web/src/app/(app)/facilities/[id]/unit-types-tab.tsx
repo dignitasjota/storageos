@@ -32,6 +32,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -56,7 +57,13 @@ export function FacilityUnitTypesTab() {
 
   const form = useForm<CreateUnitTypeInput>({
     resolver: zodResolver(CreateUnitTypeSchema),
-    defaultValues: { name: '', defaultPriceMonthly: 50, color: '#3366ff', features: {} },
+    defaultValues: {
+      name: '',
+      defaultPriceMonthly: 50,
+      defaultDepositAmount: 0,
+      color: '#3366ff',
+      features: {},
+    },
   });
 
   useEffect(() => {
@@ -65,6 +72,7 @@ export function FacilityUnitTypesTab() {
         name: editing.name,
         description: editing.description ?? '',
         defaultPriceMonthly: editing.defaultPriceMonthly,
+        defaultDepositAmount: editing.defaultDepositAmount,
         color: editing.color,
         features: editing.features,
       });
@@ -221,6 +229,28 @@ export function FacilityUnitTypesTab() {
                           onChange={(e) => field.onChange(Number(e.target.value))}
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="defaultDepositAmount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fianza / depósito (€)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          {...field}
+                          value={field.value ?? 0}
+                          onChange={(e) => field.onChange(Number(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Se cobra junto a la 1ª mensualidad en la reserva online. 0 = sin fianza.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

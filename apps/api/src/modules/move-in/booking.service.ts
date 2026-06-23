@@ -92,51 +92,66 @@ export class BookingService {
     }
     const tenantId = tenant.id;
 
-    const { unitId, customerId, priceMonthly } = await this.prisma.withTenant(async (tx) => {
-      const facility = await tx.facility.findFirst({
-        where: { id: input.facilityId, deletedAt: null },
-      });
-      if (!facility) {
-        throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
-      }
-      const unit = await tx.unit.findFirst({
-        where: { facilityId: input.facilityId, unitTypeId: input.unitTypeId, status: 'available' },
-        orderBy: { code: 'asc' },
-      });
-      if (!unit) {
-        throw new ConflictException({
-          code: 'no_units_available',
-          message: 'No quedan trasteros disponibles de ese tipo',
+    const { unitId, customerId, priceMonthly, depositAmount } = await this.prisma.withTenant(
+      async (tx) => {
+        const facility = await tx.facility.findFirst({
+          where: { id: input.facilityId, deletedAt: null },
         });
-      }
-      // Reutiliza el cliente por email si ya existe; si no, lo crea.
-      const existing = await tx.customer.findFirst({
-        where: { email: input.customer.email, deletedAt: null },
-      });
-      const customer =
-        existing ??
-        (await tx.customer.create({
-          data: {
-            tenantId,
-            customerType: 'individual',
-            firstName: input.customer.firstName.trim(),
-            lastName: input.customer.lastName.trim(),
-            email: input.customer.email,
-            phone: input.customer.phone?.trim() || null,
-            documentNumber: input.customer.documentNumber?.trim() || null,
-            country: 'ES',
+        if (!facility) {
+          throw new NotFoundException({
+            code: 'facility_not_found',
+            message: 'Local no encontrado',
+          });
+        }
+        const unitType = await tx.unitType.findFirst({
+          where: { id: input.unitTypeId },
+          select: { defaultDepositAmount: true },
+        });
+        const unit = await tx.unit.findFirst({
+          where: {
+            facilityId: input.facilityId,
+            unitTypeId: input.unitTypeId,
+            status: 'available',
           },
-        }));
-      // Referido (best-effort, solo para clientes nuevos).
-      if (!existing && input.referralCode && input.referralCode.trim()) {
-        await this.referrals.registerInTx(tx, tenantId, input.referralCode, customer.id);
-      }
-      return {
-        unitId: unit.id,
-        customerId: customer.id,
-        priceMonthly: Number(unit.basePriceMonthly),
-      };
-    }, tenantId);
+          orderBy: { code: 'asc' },
+        });
+        if (!unit) {
+          throw new ConflictException({
+            code: 'no_units_available',
+            message: 'No quedan trasteros disponibles de ese tipo',
+          });
+        }
+        // Reutiliza el cliente por email si ya existe; si no, lo crea.
+        const existing = await tx.customer.findFirst({
+          where: { email: input.customer.email, deletedAt: null },
+        });
+        const customer =
+          existing ??
+          (await tx.customer.create({
+            data: {
+              tenantId,
+              customerType: 'individual',
+              firstName: input.customer.firstName.trim(),
+              lastName: input.customer.lastName.trim(),
+              email: input.customer.email,
+              phone: input.customer.phone?.trim() || null,
+              documentNumber: input.customer.documentNumber?.trim() || null,
+              country: 'ES',
+            },
+          }));
+        // Referido (best-effort, solo para clientes nuevos).
+        if (!existing && input.referralCode && input.referralCode.trim()) {
+          await this.referrals.registerInTx(tx, tenantId, input.referralCode, customer.id);
+        }
+        return {
+          unitId: unit.id,
+          customerId: customer.id,
+          priceMonthly: Number(unit.basePriceMonthly),
+          depositAmount: Number(unitType?.defaultDepositAmount ?? 0),
+        };
+      },
+      tenantId,
+    );
 
     const contract = await this.contracts.create({
       tenantId,
@@ -149,7 +164,7 @@ export class BookingService {
         billingCycle: 'monthly',
         priceMonthly,
         discountAmount: 0,
-        depositAmount: 0,
+        depositAmount,
         autoRenew: true,
         cancellationNoticeDays: 15,
       },

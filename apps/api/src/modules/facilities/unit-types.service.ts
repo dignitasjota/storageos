@@ -56,6 +56,7 @@ export class UnitTypesService {
       name: args.input.name.trim(),
       description: args.input.description?.trim() || null,
       defaultPriceMonthly: args.input.defaultPriceMonthly,
+      defaultDepositAmount: args.input.defaultDepositAmount ?? 0,
       color: args.input.color,
       features: args.input.features as Prisma.InputJsonValue,
     };
@@ -105,6 +106,10 @@ export class UnitTypesService {
     if (args.input.defaultPriceMonthly !== undefined) {
       data.defaultPriceMonthly = args.input.defaultPriceMonthly;
       changes.defaultPriceMonthly = args.input.defaultPriceMonthly;
+    }
+    if (args.input.defaultDepositAmount !== undefined) {
+      data.defaultDepositAmount = args.input.defaultDepositAmount;
+      changes.defaultDepositAmount = args.input.defaultDepositAmount;
     }
     if (args.input.color !== undefined) {
       data.color = args.input.color;
@@ -216,6 +221,7 @@ export class UnitTypesService {
       name: row.name,
       description: row.description,
       defaultPriceMonthly: Number(row.defaultPriceMonthly),
+      defaultDepositAmount: Number(row.defaultDepositAmount),
       color: row.color,
       features: (row.features as Record<string, unknown>) ?? {},
       isActive: row.isActive,

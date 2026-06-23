@@ -64,6 +64,7 @@ export const CreateUnitTypeSchema = z.object({
   name: z.string().trim().min(1, 'Obligatorio').max(80),
   description: z.string().trim().max(500).optional().or(z.literal('')),
   defaultPriceMonthly: nonNegativeDecimal,
+  defaultDepositAmount: nonNegativeDecimal.default(0),
   color: hexColor.default('#888888'),
   features: z.record(z.unknown()).default({}),
 });
