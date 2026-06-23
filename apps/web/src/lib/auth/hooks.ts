@@ -85,6 +85,7 @@ export function useLogin() {
         subscription: data.subscription,
         permissions: permissionsForRole(data.user.role),
         features: featuresForPlan(data.subscription.planSlug),
+        facilityScope: null,
       });
     },
   });
@@ -123,6 +124,7 @@ export function useVerifyEmail() {
         subscription: data.subscription,
         permissions: permissionsForRole(data.user.role),
         features: featuresForPlan(data.subscription.planSlug),
+        facilityScope: null,
       });
     },
   });

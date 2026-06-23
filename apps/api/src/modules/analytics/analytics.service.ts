@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -75,11 +76,14 @@ export class AnalyticsService {
   // ---------------------------------------------------------------------------
   async getOccupancy(
     tenantId: string,
-    filters?: { facilityId?: string },
+    filters?: { facilityId?: string; facilityScope?: string[] | null },
   ): Promise<OccupancyKpiDto> {
-    const facilityFilter: Prisma.UnitWhereInput = filters?.facilityId
-      ? { facilityId: filters.facilityId }
-      : {};
+    // Permisos por local: combina el filtro explícito con el scope del usuario.
+    const facFilter = resolveFacilityFilter(filters?.facilityScope, filters?.facilityId);
+    const facIds = facFilter === null ? [] : facFilter; // null = pedido fuera de scope → vacío
+    const facilityFilter: Prisma.UnitWhereInput = facIds ? { facilityId: { in: facIds } } : {};
+    const facilityIdWhere = facIds ? { id: { in: facIds } } : {};
+    const contractFacilityWhere = facIds ? { unit: { facilityId: { in: facIds } } } : {};
 
     return this.prisma.withTenant(async (tx) => {
       const [byStatus, byUnitType, unitTypes, activeContracts, facilities, facilityCounts] =
@@ -98,17 +102,11 @@ export class AnalyticsService {
             select: { id: true, defaultPriceMonthly: true },
           }),
           tx.contract.findMany({
-            where: {
-              status: 'active',
-              ...(filters?.facilityId ? { unit: { facilityId: filters.facilityId } } : {}),
-            },
+            where: { status: 'active', ...contractFacilityWhere },
             select: { priceMonthly: true },
           }),
           tx.facility.findMany({
-            where: {
-              deletedAt: null,
-              ...(filters?.facilityId ? { id: filters.facilityId } : {}),
-            },
+            where: { deletedAt: null, ...facilityIdWhere },
             select: { id: true, name: true },
             orderBy: { name: 'asc' },
           }),

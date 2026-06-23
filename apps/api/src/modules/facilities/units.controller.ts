@@ -27,6 +27,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertFacilityAllowed } from '../../common/facility-scope';
 
 import { UnitsService } from './units.service';
 
@@ -71,6 +72,7 @@ export class UnitsController {
       ...(search ? { search } : {}),
       ...(cursor ? { cursor } : {}),
       ...(limit ? { limit: Number.parseInt(limit, 10) } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -99,6 +101,7 @@ export class UnitsController {
     @Body() input: CreateUnitDto,
     @Req() req: Request,
   ): Promise<UnitDto> {
+    assertFacilityAllowed(user.facilityScope, input.facilityId);
     return this.units.create({
       tenantId: user.tenantId,
       userId: user.sub,

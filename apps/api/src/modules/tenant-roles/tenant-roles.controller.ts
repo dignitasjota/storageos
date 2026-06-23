@@ -13,6 +13,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   AssignTenantRoleSchema,
+  AssignUserFacilitiesSchema,
   CreateTenantRoleSchema,
   type TenantRoleDto,
   UpdateTenantRoleSchema,
@@ -30,6 +31,7 @@ import { TenantRolesService } from './tenant-roles.service';
 class CreateTenantRoleDto extends createZodDto(CreateTenantRoleSchema) {}
 class UpdateTenantRoleDto extends createZodDto(UpdateTenantRoleSchema) {}
 class AssignTenantRoleDto extends createZodDto(AssignTenantRoleSchema) {}
+class AssignUserFacilitiesDto extends createZodDto(AssignUserFacilitiesSchema) {}
 
 @ApiTags('Settings')
 @ApiBearerAuth('jwt')
@@ -77,5 +79,16 @@ export class TenantRolesController {
     @Body() input: AssignTenantRoleDto,
   ): Promise<void> {
     await this.service.assignToUser(user.tenantId, userId, input.tenantRoleId);
+  }
+
+  /** Permisos por local: fija los locales a los que se restringe un usuario. */
+  @Patch('users/:userId/facilities')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setFacilities(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Body() input: AssignUserFacilitiesDto,
+  ): Promise<void> {
+    await this.service.setUserFacilities(user.tenantId, userId, input.facilityIds);
   }
 }

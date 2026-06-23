@@ -426,7 +426,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 - **Marketplace público de trasteros**.
 - Más endpoints públicos `/v1/integrations/*` según el primer integrador.
 - **White-label del portal y la landing por tenant** _(propuesta 2026-06-22)_: logo, colores y dominio propio por tenant en el portal del inquilino y la landing pública. Abre un **tier de pricing superior** del SaaS.
-- **Permisos por local (multi-local real)** _(propuesta 2026-06-22)_: que un usuario `staff` solo gestione su(s) facility(es) asignada(s), no todo el tenant. Útil para operadores con varios locales y equipos distintos.
+- ~~**Permisos por local (multi-local real)**~~ ✅ **Implementado** (2026-06-23, v1): tabla `user_facilities` (migración `20260623160000`); el scope se resuelve en el JWT (`facilityScope`) + `/auth/me`. Asignación en el diálogo de editar usuario (`PATCH /settings/users/:id/facilities`). Enforcement: lists filtradas por scope (facilities, units, contracts, reservations, ocupación, access-devices) + guards de escritura (crear unit/contract/device fuera de scope → 403). Sin filas = ve todo. Inquilinos/facturas a nivel tenant; guards `:id` de mutación en units/contracts/reservas/devices = follow-up. e2e `facility-scope` 1/1.
 
 ### Prioridad recomendada
 

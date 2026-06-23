@@ -54,3 +54,18 @@ export function useAssignTenantRole() {
     },
   });
 }
+
+/** Permisos por local: fija los locales a los que se restringe un usuario. */
+export function useSetUserFacilities() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, facilityIds }: { userId: string; facilityIds: string[] }) =>
+      apiFetch<void>(`/settings/users/${userId}/facilities`, {
+        method: 'PATCH',
+        json: { facilityIds },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}

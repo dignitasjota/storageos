@@ -63,6 +63,7 @@ export class ReservationsController {
       ...(customerId ? { customerId } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

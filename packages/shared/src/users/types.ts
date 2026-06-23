@@ -9,6 +9,8 @@ export interface UserDetailDto {
   role: UserRole;
   /** Rol personalizado del tenant asignado (null = solo rol enum). */
   tenantRoleId: string | null;
+  /** Permisos por local: locales asignados ([] = ve todos los locales). */
+  facilityIds: string[];
   isActive: boolean;
   emailVerifiedAt: string | null;
   twoFactorEnabled: boolean;

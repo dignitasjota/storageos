@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -36,6 +37,8 @@ interface ListFilters {
   customerId?: string;
   status?: ReservationStatusValue;
   facilityId?: string;
+  /** Permisos por local: si está, solo reservas de unidades de esos locales. */
+  facilityScope?: string[] | null;
 }
 
 @Injectable()
@@ -51,7 +54,9 @@ export class ReservationsService {
     if (filters.unitId) where.unitId = filters.unitId;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.status) where.status = filters.status as ReservationStatus;
-    if (filters.facilityId) where.unit = { facilityId: filters.facilityId };
+    const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (facFilter === null) return []; // local pedido fuera del scope del usuario
+    if (facFilter) where.unit = { facilityId: { in: facFilter } };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.reservation.findMany({

@@ -34,11 +34,22 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
-import { useAssignTenantRole, useTenantRoles } from '@/lib/tenant-roles/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
+import {
+  useAssignTenantRole,
+  useSetUserFacilities,
+  useTenantRoles,
+} from '@/lib/tenant-roles/hooks';
 import { useUpdateUser } from '@/lib/users/hooks';
 
 const ROLES = ['manager', 'staff', 'readonly'] as const;
 const NO_CUSTOM_ROLE = '__none__';
+
+function sameSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const s = new Set(a);
+  return b.every((x) => s.has(x));
+}
 
 interface Props {
   user: UserDetailDto | null;
@@ -53,7 +64,10 @@ export function EditUserDialog({ user, onClose }: Props) {
   const isCurrentOwner = me.data?.user.role === 'owner';
   const tenantRoles = useTenantRoles();
   const assignRole = useAssignTenantRole();
+  const facilities = useFacilities();
+  const setFacilities = useSetUserFacilities();
   const [customRoleId, setCustomRoleId] = useState<string>(NO_CUSTOM_ROLE);
+  const [selectedFacilities, setSelectedFacilities] = useState<string[]>([]);
 
   const form = useForm<UpdateUserInput>({
     resolver: zodResolver(UpdateUserSchema),
@@ -69,6 +83,7 @@ export function EditUserDialog({ user, onClose }: Props) {
         isActive: user.isActive,
       });
       setCustomRoleId(user.tenantRoleId ?? NO_CUSTOM_ROLE);
+      setSelectedFacilities(user.facilityIds);
     }
   }, [user, form]);
 
@@ -83,6 +98,10 @@ export function EditUserDialog({ user, onClose }: Props) {
       const desired = customRoleId === NO_CUSTOM_ROLE ? null : customRoleId;
       if (isCurrentOwner && user.role !== 'owner' && desired !== (user.tenantRoleId ?? null)) {
         await assignRole.mutateAsync({ userId: user.id, input: { tenantRoleId: desired } });
+      }
+      // Permisos por local (solo owner; endpoint separado).
+      if (isCurrentOwner && !sameSet(selectedFacilities, user.facilityIds)) {
+        await setFacilities.mutateAsync({ userId: user.id, facilityIds: selectedFacilities });
       }
       toast.success(t('editDialog.success'));
       onClose();
@@ -182,6 +201,36 @@ export function EditUserDialog({ user, onClose }: Props) {
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   Si asignas un rol personalizado, sus permisos rigen sobre el rol base.
+                </p>
+              </div>
+            )}
+            {!isOwner && isCurrentOwner && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Locales asignados</label>
+                <div className="max-h-40 space-y-1.5 overflow-auto rounded-md border p-2">
+                  {(facilities.data ?? []).map((f) => {
+                    const checked = selectedFacilities.includes(f.id);
+                    return (
+                      <label key={f.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) =>
+                            setSelectedFacilities((prev) =>
+                              v === true ? [...prev, f.id] : prev.filter((id) => id !== f.id),
+                            )
+                          }
+                        />
+                        {f.name}
+                      </label>
+                    );
+                  })}
+                  {(facilities.data ?? []).length === 0 && (
+                    <p className="text-xs text-muted-foreground">No hay locales.</p>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Sin ninguno marcado, el usuario ve <strong>todos</strong> los locales. Si marcas
+                  alguno, solo verá/gestionará esos (trasteros, contratos, reservas, accesos…).
                 </p>
               </div>
             )}

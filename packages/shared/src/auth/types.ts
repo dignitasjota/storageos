@@ -77,6 +77,8 @@ export interface MeResponse {
   permissions: Permission[];
   /** Features premium incluidas en el plan del tenant (gating por plan). */
   features: TenantFeature[];
+  /** Locales (facility IDs) a los que el usuario está restringido; null = todos. */
+  facilityScope: string[] | null;
 }
 
 /**

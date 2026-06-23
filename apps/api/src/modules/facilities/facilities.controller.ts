@@ -27,6 +27,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertFacilityAllowed } from '../../common/facility-scope';
 
 import { FacilitiesService } from './facilities.service';
 
@@ -54,7 +55,7 @@ export class FacilitiesController {
   @RequirePermission('facilities:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<FacilityDto[]> {
-    return this.facilities.list(user.tenantId);
+    return this.facilities.list(user.tenantId, user.facilityScope);
   }
 
   @RequirePermission('facilities:read')
@@ -63,6 +64,7 @@ export class FacilitiesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<FacilityDto> {
+    assertFacilityAllowed(user.facilityScope, id);
     return this.facilities.detail(user.tenantId, id);
   }
 
@@ -89,6 +91,7 @@ export class FacilitiesController {
     @Body() input: UpdateFacilityDto,
     @Req() req: Request,
   ): Promise<FacilityDto> {
+    assertFacilityAllowed(user.facilityScope, id);
     return this.facilities.update({
       tenantId: user.tenantId,
       userId: user.sub,
@@ -106,6 +109,7 @@ export class FacilitiesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Req() req: Request,
   ): Promise<void> {
+    assertFacilityAllowed(user.facilityScope, id);
     await this.facilities.softDelete({
       tenantId: user.tenantId,
       userId: user.sub,
@@ -122,6 +126,7 @@ export class FacilitiesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: RequestFacilityImageUploadDto,
   ): Promise<FacilityImageUploadResponseDto> {
+    assertFacilityAllowed(user.facilityScope, id);
     const { uploadUrl, key, expiresIn } = await this.facilities.requestImageUploadUrl({
       tenantId: user.tenantId,
       facilityId: id,
@@ -140,6 +145,7 @@ export class FacilitiesController {
     @Body() input: SetFacilityImagesDto,
     @Req() req: Request,
   ): Promise<FacilityDto> {
+    assertFacilityAllowed(user.facilityScope, id);
     return this.facilities.setImages({
       tenantId: user.tenantId,
       userId: user.sub,

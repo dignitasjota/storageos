@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -48,6 +49,8 @@ export interface ListUnitsFilters {
   search?: string;
   limit?: number;
   cursor?: string;
+  /** Permisos por local: si está, solo unidades de esos locales. */
+  facilityScope?: string[] | null;
 }
 
 @Injectable()
@@ -63,7 +66,9 @@ export class UnitsService {
     filters: ListUnitsFilters,
   ): Promise<{ items: UnitDto[]; nextCursor: string | null }> {
     const where: Prisma.UnitWhereInput = {};
-    if (filters.facilityId) where.facilityId = filters.facilityId;
+    const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (facFilter === null) return { items: [], nextCursor: null }; // local fuera de scope
+    if (facFilter) where.facilityId = { in: facFilter };
     if (filters.floorId) where.floorId = filters.floorId;
     if (filters.unitTypeId) where.unitTypeId = filters.unitTypeId;
     if (filters.status) where.status = filters.status as UnitStatus;

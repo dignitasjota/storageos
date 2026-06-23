@@ -13,6 +13,11 @@ export interface AuthenticatedUser {
   role: UserRole;
   /** Permisos efectivos del usuario (del JWT). Opcional para tokens antiguos. */
   permissions?: Permission[];
+  /**
+   * Locales (facility IDs) a los que está restringido el usuario (permisos por
+   * local). `null` o ausente = sin restricción (ve todos los locales).
+   */
+  facilityScope?: string[] | null;
 }
 
 /**

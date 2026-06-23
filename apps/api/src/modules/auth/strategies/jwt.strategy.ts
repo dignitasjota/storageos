@@ -12,6 +12,7 @@ interface RawAccessPayload {
   tenantId: string;
   role: UserRole;
   permissions?: Permission[];
+  facilityScope?: string[] | null;
   iat: number;
   exp: number;
 }
@@ -36,6 +37,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       tenantId: payload.tenantId,
       role: payload.role,
       ...(payload.permissions ? { permissions: payload.permissions } : {}),
+      facilityScope: payload.facilityScope ?? null,
     };
   }
 }

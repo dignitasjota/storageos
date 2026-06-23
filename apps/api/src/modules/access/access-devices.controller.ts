@@ -27,6 +27,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertFacilityAllowed } from '../../common/facility-scope';
 
 import { AccessDevicesService } from './access-devices.service';
 
@@ -76,6 +77,7 @@ export class AccessDevicesController {
       ...(facilityId ? { facilityId } : {}),
       ...(parsedType ? { type: parsedType } : {}),
       ...(parsedOnline !== undefined ? { isOnline: parsedOnline } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -95,6 +97,7 @@ export class AccessDevicesController {
     @Body() body: CreateDeviceDto,
     @Req() req: Request,
   ): Promise<AccessDeviceWithKeyDto> {
+    assertFacilityAllowed(user.facilityScope, body.facilityId);
     return this.service.create({
       tenantId: user.tenantId,
       userId: user.sub,

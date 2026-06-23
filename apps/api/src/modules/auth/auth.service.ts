@@ -453,6 +453,7 @@ export class AuthService {
       tenantId: result.tenantId,
       role: user.role,
       permissions: await this.resolvePermissions(result.tenantId, user),
+      facilityScope: await this.resolveFacilityScope(result.tenantId, user.id),
     });
 
     return {
@@ -635,8 +636,21 @@ export class AuthService {
         subscription: this.toSubscriptionDto(subscription, subscription.plan.slug),
         permissions: await this.resolvePermissions(args.tenantId, user),
         features: featuresForPlan(subscription.plan.slug),
+        facilityScope: await this.resolveFacilityScope(args.tenantId, args.userId),
       };
     }, args.tenantId);
+  }
+
+  /**
+   * Locales a los que está restringido un usuario (permisos por local). Sin
+   * asignaciones en `user_facilities` → null (ve todos los locales del tenant).
+   */
+  private async resolveFacilityScope(tenantId: string, userId: string): Promise<string[] | null> {
+    const rows = await this.prisma.withTenant(
+      (tx) => tx.userFacility.findMany({ where: { userId }, select: { facilityId: true } }),
+      tenantId,
+    );
+    return rows.length > 0 ? rows.map((r) => r.facilityId) : null;
   }
 
   // ========================== helpers privados =============================
@@ -726,6 +740,7 @@ export class AuthService {
       tenantId: tenant.id,
       role: user.role,
       permissions: await this.resolvePermissions(tenant.id, user),
+      facilityScope: await this.resolveFacilityScope(tenant.id, user.id),
     });
 
     return {

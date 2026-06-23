@@ -36,6 +36,7 @@ export class AnalyticsController {
   ): Promise<OccupancyKpiDto> {
     return this.service.getOccupancy(user.tenantId, {
       ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

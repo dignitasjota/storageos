@@ -30,6 +30,12 @@ export const AssignTenantRoleSchema = z.object({
 });
 export type AssignTenantRoleInput = z.infer<typeof AssignTenantRoleSchema>;
 
+/** Permisos por local: locales a los que se restringe un usuario ([] = todos). */
+export const AssignUserFacilitiesSchema = z.object({
+  facilityIds: z.array(z.string().uuid()).max(200),
+});
+export type AssignUserFacilitiesInput = z.infer<typeof AssignUserFacilitiesSchema>;
+
 export interface TenantRoleDto {
   id: string;
   name: string;
