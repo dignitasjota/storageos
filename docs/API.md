@@ -999,6 +999,7 @@ Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
 | GET    | `/analytics/pricing-suggestions`     | SI   | Sugerencias de precio por ocupación (yield management, read-only)                                                       |
 | GET    | `/analytics/forecast?months=`        | SI   | Previsión de MRR + ocupación a N meses (1-24, default 6) por tendencia                                                  |
 | GET    | `/analytics/monthly-revenue?months=` | SI   | Ingresos por mes (histórico): facturado (emitido) y cobrado (pagos succeeded) de los últimos N meses (1-24, default 12) |
+| GET    | `/analytics/leads-utm?from=&to=`     | SI   | Tracking de campañas: leads con UTM agrupados por (origen, campaña) + ganados + tasa de conversión                      |
 
 ### Endpoints — Reports
 

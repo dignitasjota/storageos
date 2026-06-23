@@ -65,8 +65,16 @@ export type AutomationRunStatusValue = z.infer<typeof AutomationRunStatusEnum>;
 // Leads
 // ============================================================================
 
+/** Parámetros UTM de tracking de campañas (capturados de la URL). */
+export const utmFields = {
+  utmSource: z.string().trim().max(120).optional(),
+  utmMedium: z.string().trim().max(120).optional(),
+  utmCampaign: z.string().trim().max(120).optional(),
+};
+
 export const CreateLeadSchema = z.object({
   source: LeadSourceEnum.default('manual'),
+  ...utmFields,
   firstName: optionalText(120),
   lastName: optionalText(120),
   companyName: optionalText(180),
@@ -223,5 +231,6 @@ export const WidgetLeadSchema = z.object({
   /** ConsentLM. */
   acceptsTerms: z.literal(true),
   acceptsMarketing: z.boolean().default(false),
+  ...utmFields,
 });
 export type WidgetLeadInput = z.infer<typeof WidgetLeadSchema>;

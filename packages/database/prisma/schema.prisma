@@ -1867,6 +1867,9 @@ model Lead {
   preferredStartDate      DateTime?  @map("preferred_start_date") @db.Date
   estimatedDurationMonths Int?       @map("estimated_duration_months")
   budgetMonthly           Decimal?   @map("budget_monthly") @db.Decimal(10, 2)
+  utmSource               String?    @map("utm_source")
+  utmMedium               String?    @map("utm_medium")
+  utmCampaign             String?    @map("utm_campaign")
   metadata                Json       @default("{}")
   assignedToUserId        String?    @map("assigned_to_user_id") @db.Uuid
   contactedAt             DateTime?  @map("contacted_at") @db.Timestamptz(6)

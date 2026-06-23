@@ -14,6 +14,7 @@ import type {
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
+  LeadsUtmKpiDto,
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
@@ -87,6 +88,18 @@ export class AnalyticsController {
     @Query('to') to?: string,
   ): Promise<LeadsFunnelKpiDto> {
     return this.service.getLeadsFunnel(user.tenantId, {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+  }
+
+  @Get('leads-utm')
+  getLeadsUtm(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<LeadsUtmKpiDto> {
+    return this.service.getLeadsUtm(user.tenantId, {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     });

@@ -29,6 +29,12 @@ export default function WidgetPage({ params }: PageProps) {
   const [facilities, setFacilities] = useState<WidgetFacilityDto[] | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Tracking de campañas: captura los utm_* de la URL al cargar (origen de captación).
+  const [utm, setUtm] = useState<{
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+  }>({});
 
   const form = useForm<WidgetLeadInput>({
     resolver: zodResolver(WidgetLeadSchema),
@@ -45,6 +51,16 @@ export default function WidgetPage({ params }: PageProps) {
   });
 
   useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const pick = (k: string) => q.get(k)?.slice(0, 120) || undefined;
+    setUtm({
+      utmSource: pick('utm_source'),
+      utmMedium: pick('utm_medium'),
+      utmCampaign: pick('utm_campaign'),
+    });
+  }, []);
+
+  useEffect(() => {
     fetch(`${env.apiUrl}/public/widget/${slug}/facilities`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data: WidgetFacilityDto[]) => setFacilities(data))
@@ -57,7 +73,7 @@ export default function WidgetPage({ params }: PageProps) {
       const res = await fetch(`${env.apiUrl}/public/widget/${slug}/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ ...input, ...utm }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { message?: string } | null;

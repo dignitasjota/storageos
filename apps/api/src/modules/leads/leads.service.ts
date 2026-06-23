@@ -151,6 +151,9 @@ export class LeadsService {
               ? new Date(args.input.preferredStartDate)
               : null,
             estimatedDurationMonths: args.input.estimatedDurationMonths ?? null,
+            utmSource: args.input.utmSource ?? null,
+            utmMedium: args.input.utmMedium ?? null,
+            utmCampaign: args.input.utmCampaign ?? null,
             metadata: {
               acceptsMarketing: args.input.acceptsMarketing,
               acceptsTerms: args.input.acceptsTerms,
@@ -434,6 +437,9 @@ export class LeadsService {
       estimatedDurationMonths: input.estimatedDurationMonths ?? null,
       budgetMonthly: input.budgetMonthly ?? null,
       assignedToUserId: input.assignedToUserId ?? null,
+      utmSource: input.utmSource ?? null,
+      utmMedium: input.utmMedium ?? null,
+      utmCampaign: input.utmCampaign ?? null,
       metadata: input.metadata as Prisma.InputJsonValue,
     };
   }
@@ -492,6 +498,9 @@ export class LeadsService {
       convertedCustomerId: l.convertedCustomerId,
       convertedContractId: l.convertedContractId,
       convertedReservationId: l.convertedReservationId,
+      utmSource: l.utmSource,
+      utmMedium: l.utmMedium,
+      utmCampaign: l.utmCampaign,
       createdAt: l.createdAt.toISOString(),
       updatedAt: l.updatedAt.toISOString(),
     };

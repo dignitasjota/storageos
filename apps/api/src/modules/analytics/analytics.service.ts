@@ -8,6 +8,7 @@ import type {
   ChurnKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
+  LeadsUtmKpiDto,
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   RevenueKpiDto,
@@ -358,6 +359,60 @@ export class AnalyticsService {
           .map((r) => ({ source: r.source as string, count: r._count._all }))
           .sort((a, b) => b.count - a.count),
       };
+    }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4b. Tracking de campañas (UTM): conversión por origen/campaña
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Leads con UTM agrupados por (origen, campaña) con su tasa de conversión a
+   * `won`. Permite ver qué canal/campaña capta y cuál convierte mejor.
+   */
+  async getLeadsUtm(
+    tenantId: string,
+    filters?: { from?: string; to?: string },
+  ): Promise<LeadsUtmKpiDto> {
+    const createdAt: Prisma.DateTimeFilter = {};
+    if (filters?.from) createdAt.gte = parseDate(filters.from);
+    if (filters?.to) {
+      const end = parseDate(filters.to);
+      end.setUTCDate(end.getUTCDate() + 1); // `to` inclusivo (hasta fin de ese día)
+      createdAt.lt = end;
+    }
+    const where: Prisma.LeadWhereInput = {
+      deletedAt: null,
+      OR: [{ utmSource: { not: null } }, { utmCampaign: { not: null } }],
+      ...(Object.keys(createdAt).length > 0 ? { createdAt } : {}),
+    };
+
+    return this.prisma.withTenant(async (tx) => {
+      const [totals, wons] = await Promise.all([
+        tx.lead.groupBy({ by: ['utmSource', 'utmCampaign'], where, _count: { _all: true } }),
+        tx.lead.groupBy({
+          by: ['utmSource', 'utmCampaign'],
+          where: { ...where, status: 'won' },
+          _count: { _all: true },
+        }),
+      ]);
+      const wonMap = new Map(
+        wons.map((w) => [`${w.utmSource ?? ''}|${w.utmCampaign ?? ''}`, w._count._all]),
+      );
+      const rows = totals
+        .map((t) => {
+          const total = t._count._all;
+          const won = wonMap.get(`${t.utmSource ?? ''}|${t.utmCampaign ?? ''}`) ?? 0;
+          return {
+            source: t.utmSource ?? '(directo)',
+            campaign: t.utmCampaign ?? '(sin campaña)',
+            total,
+            won,
+            conversionRate: total > 0 ? won / total : 0,
+          };
+        })
+        .sort((a, b) => b.total - a.total);
+      return { rows, totalTracked: rows.reduce((s, r) => s + r.total, 0) };
     }, tenantId);
   }
 
