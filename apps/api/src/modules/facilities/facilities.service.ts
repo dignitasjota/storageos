@@ -130,6 +130,13 @@ export class FacilitiesService {
         ...(args.input.latitude !== undefined ? { latitude: args.input.latitude } : {}),
         ...(args.input.longitude !== undefined ? { longitude: args.input.longitude } : {}),
         timezone: args.input.timezone,
+        ...(args.input.accessCurfewEnabled !== undefined
+          ? { accessCurfewEnabled: args.input.accessCurfewEnabled }
+          : {}),
+        ...(args.input.accessCurfewStart
+          ? { accessCurfewStart: args.input.accessCurfewStart }
+          : {}),
+        ...(args.input.accessCurfewEnd ? { accessCurfewEnd: args.input.accessCurfewEnd } : {}),
         contactPhone: args.input.contactPhone?.trim() || null,
         contactEmail: args.input.contactEmail?.trim() || null,
       };
@@ -175,6 +182,9 @@ export class FacilitiesService {
     set('latitude');
     set('longitude');
     set('timezone');
+    set('accessCurfewEnabled');
+    set('accessCurfewStart');
+    set('accessCurfewEnd');
     set('contactPhone');
     set('contactEmail');
     set('isActive');
@@ -326,6 +336,9 @@ export class FacilitiesService {
       longitude: f.longitude !== null && f.longitude !== undefined ? Number(f.longitude) : null,
       timezone: f.timezone,
       openingHours: (f.openingHours as Record<string, unknown>) ?? {},
+      accessCurfewEnabled: f.accessCurfewEnabled,
+      accessCurfewStart: f.accessCurfewStart,
+      accessCurfewEnd: f.accessCurfewEnd,
       contactPhone: f.contactPhone,
       contactEmail: f.contactEmail,
       images: (f.images ?? []).map((key) => ({

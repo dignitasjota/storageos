@@ -54,6 +54,7 @@ export class AccessIntegrationsService {
         allowedFacilityIds: [],
         allowedUnitIds: [],
         allowedHours: {},
+        bypassCurfew: false,
         metadata: { source: args.source, entityId: args.entityId },
       } as Parameters<AccessCredentialsService['create']>[0]['input'],
       meta: {},

@@ -24,6 +24,48 @@ import type {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Minutos desde medianoche "ahora" en una zona horaria dada. */
+function nowMinutesInTz(timezone: string): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const hh = Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24;
+  const mm = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  return hh * 60 + mm;
+}
+
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':');
+  return Number(h) * 60 + Number(m);
+}
+
+/** ¿Es ahora dentro del toque de queda [start, end)? Soporta cruzar medianoche. */
+function checkCurfew(
+  facility: {
+    timezone: string;
+    accessCurfewEnabled: boolean;
+    accessCurfewStart: string | null;
+    accessCurfewEnd: string | null;
+  } | null,
+  credential: { bypassCurfew: boolean },
+): { result: AccessResultValue; reason: string } | null {
+  if (!facility?.accessCurfewEnabled || !facility.accessCurfewStart || !facility.accessCurfewEnd) {
+    return null;
+  }
+  if (credential.bypassCurfew) return null; // acceso 24h (staff)
+  const now = nowMinutesInTz(facility.timezone);
+  const start = hhmmToMinutes(facility.accessCurfewStart);
+  const end = hhmmToMinutes(facility.accessCurfewEnd);
+  const inWindow =
+    start === end ? false : start < end ? now >= start && now < end : now >= start || now < end;
+  return inWindow
+    ? { result: 'denied_outside_hours', reason: 'Acceso cerrado (toque de queda del local)' }
+    : null;
+}
+
 interface VerifyArgs {
   tenantId: string;
   device: AccessDevice;
@@ -147,7 +189,18 @@ export class AccessVerifyService {
       };
     }
 
-    const denied = this.evaluateCredential(credentialRow, device);
+    // Toque de queda del local (zona horaria del facility del device).
+    const facility = await this.admin.facility.findUnique({
+      where: { id: device.facilityId },
+      select: {
+        timezone: true,
+        accessCurfewEnabled: true,
+        accessCurfewStart: true,
+        accessCurfewEnd: true,
+      },
+    });
+    const denied =
+      this.evaluateCredential(credentialRow, device) ?? checkCurfew(facility, credentialRow);
     if (denied) {
       await this.log({
         tenantId,

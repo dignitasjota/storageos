@@ -693,29 +693,34 @@ model Invitation {
 /// delete (`deleted_at`) porque borrar implicaria perder historial de
 /// contratos asociados a sus units (Fase 3).
 model Facility {
-  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
-  name         String
+  id                  String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  name                String
   /// Slug público para la landing SEO por local (`/s/<tenant>/<slug>`). Único
   /// por tenant. Se genera del nombre al crear; null en casos sin slug válido.
-  publicSlug   String?   @map("public_slug")
-  address      String?
-  city         String?
-  postalCode   String?   @map("postal_code")
-  country      String    @default("ES") @db.Char(2)
-  latitude     Decimal?  @db.Decimal(9, 6)
-  longitude    Decimal?  @db.Decimal(9, 6)
-  timezone     String    @default("Europe/Madrid")
-  openingHours Json      @default("{}") @map("opening_hours")
-  contactPhone String?   @map("contact_phone")
-  contactEmail String?   @map("contact_email")
+  publicSlug          String?   @map("public_slug")
+  address             String?
+  city                String?
+  postalCode          String?   @map("postal_code")
+  country             String    @default("ES") @db.Char(2)
+  latitude            Decimal?  @db.Decimal(9, 6)
+  longitude           Decimal?  @db.Decimal(9, 6)
+  timezone            String    @default("Europe/Madrid")
+  openingHours        Json      @default("{}") @map("opening_hours")
+  /// Toque de queda de acceso: franja "HH:MM"-"HH:MM" (en `timezone`) en la que
+  /// se bloquea el acceso, salvo credenciales con `bypassCurfew`.
+  accessCurfewEnabled Boolean   @default(false) @map("access_curfew_enabled")
+  accessCurfewStart   String?   @map("access_curfew_start")
+  accessCurfewEnd     String?   @map("access_curfew_end")
+  contactPhone        String?   @map("contact_phone")
+  contactEmail        String?   @map("contact_email")
   /// Keys de objeto MinIO de las imágenes del local (landing pública). El
   /// servidor construye las URLs con `FilesService.buildPublicUrl`.
-  images       String[]  @default([])
-  isActive     Boolean   @default(true) @map("is_active")
-  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  images              String[]  @default([])
+  isActive            Boolean   @default(true) @map("is_active")
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   floors         FacilityFloor[]
@@ -2457,6 +2462,8 @@ model AccessCredential {
   allowedFacilityIds String[]               @default([]) @map("allowed_facility_ids")
   allowedUnitIds     String[]               @default([]) @map("allowed_unit_ids")
   allowedHours       Json                   @default("{}") @map("allowed_hours")
+  /// Salta el toque de queda del local (acceso 24h, típico de staff).
+  bypassCurfew       Boolean                @default(false) @map("bypass_curfew")
   suspendReason      String?                @map("suspend_reason")
   expiresAt          DateTime?              @map("expires_at") @db.Timestamptz(6)
   activatedAt        DateTime?              @map("activated_at") @db.Timestamptz(6)
