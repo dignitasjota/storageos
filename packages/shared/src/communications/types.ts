@@ -38,8 +38,27 @@ export interface LeadDto {
   convertedCustomerId: string | null;
   convertedContractId: string | null;
   convertedReservationId: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Una fila del reporte de campañas (UTM): origen/campaña → leads y conversión. */
+export interface LeadsUtmRowDto {
+  source: string;
+  campaign: string;
+  total: number;
+  won: number;
+  /** Ratio won/total (0-1). */
+  conversionRate: number;
+}
+
+export interface LeadsUtmKpiDto {
+  rows: LeadsUtmRowDto[];
+  /** Total de leads con algún UTM en el periodo. */
+  totalTracked: number;
 }
 
 export interface MessageTemplateDto {

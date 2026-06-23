@@ -35,6 +35,7 @@ import {
   useChurn,
   useChurnRisk,
   useLeadsFunnel,
+  useLeadsUtm,
   useMonthlyRevenue,
   useOccupancy,
   usePricingSuggestions,
@@ -375,7 +376,60 @@ function LeadsPanel() {
           )}
         </CardContent>
       </Card>
+
+      <LeadsUtmCard />
     </div>
+  );
+}
+
+function LeadsUtmCard() {
+  const utm = useLeadsUtm();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Campañas (UTM)</CardTitle>
+        <CardDescription>
+          Conversión por origen y campaña de los leads que llegan con parámetros{' '}
+          <code className="text-xs">utm_*</code> en la URL (widget / booking).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {utm.isLoading || !utm.data ? (
+          <PanelLoader />
+        ) : utm.data.rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Aún no hay leads con tracking UTM. Comparte el enlace del widget con parámetros, p. ej.{' '}
+            <code className="text-xs">?utm_source=google&utm_campaign=verano</code>.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Origen</TableHead>
+                <TableHead>Campaña</TableHead>
+                <TableHead className="text-right">Leads</TableHead>
+                <TableHead className="text-right">Ganados</TableHead>
+                <TableHead className="text-right">Conversión</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {utm.data.rows.map((r) => (
+                <TableRow key={`${r.source}|${r.campaign}`}>
+                  <TableCell className="font-medium">{r.source}</TableCell>
+                  <TableCell>{r.campaign}</TableCell>
+                  <TableCell className="text-right">{r.total}</TableCell>
+                  <TableCell className="text-right">{r.won}</TableCell>
+                  <TableCell className="text-right font-medium">
+                    {formatPercent(r.conversionRate)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -8,6 +8,7 @@ import type {
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
+  LeadsUtmKpiDto,
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
@@ -24,6 +25,7 @@ export const analyticsKey = (
     | 'customers'
     | 'revenue'
     | 'monthly-revenue'
+    | 'leads-utm'
     | 'churn-risk'
     | 'pricing-suggestions'
     | 'forecast',
@@ -88,6 +90,16 @@ export function useLeadsFunnel(params: { from?: string; to?: string } = {}) {
     queryKey: analyticsKey('leads-funnel', params as Record<string, string | undefined>),
     queryFn: () =>
       apiFetch<LeadsFunnelKpiDto>(`/analytics/leads-funnel${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+export function useLeadsUtm(params: { from?: string; to?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.from) qs.set('from', params.from);
+  if (params.to) qs.set('to', params.to);
+  return useQuery({
+    queryKey: analyticsKey('leads-utm', params as Record<string, string | undefined>),
+    queryFn: () => apiFetch<LeadsUtmKpiDto>(`/analytics/leads-utm${qs.toString() ? `?${qs}` : ''}`),
   });
 }
 
