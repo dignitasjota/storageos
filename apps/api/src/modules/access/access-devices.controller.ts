@@ -26,6 +26,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { assertFacilityAllowed } from '../../common/facility-scope';
 
@@ -60,6 +61,7 @@ function parseBool(value: string | undefined): boolean | undefined {
 }
 
 @Controller('access/devices')
+@RequireFeature('access_control')
 export class AccessDevicesController {
   constructor(private readonly service: AccessDevicesService) {}
 

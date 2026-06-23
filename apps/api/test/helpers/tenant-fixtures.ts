@@ -116,3 +116,24 @@ export function uniqueTestIds(prefix: string): { slug: string; email: string } {
     email: `${prefix}-${stamp}@e2e.local`,
   };
 }
+
+/**
+ * Cambia el plan de un tenant (por slug) al `planSlug` indicado. El registro
+ * crea siempre tenants en `starter`; las suites que ejercitan features premium
+ * fuera de starter (IA, SEPA, conciliación) lo suben a `pro` para que el
+ * `FeatureGuard` (que lee el plan en vivo de la BD) las deje pasar.
+ */
+export async function setTenantPlan(tenantSlug: string, planSlug: string): Promise<void> {
+  const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
+  try {
+    const tenant = await admin.tenant.findUnique({ where: { slug: tenantSlug } });
+    const plan = await admin.subscriptionPlan.findUnique({ where: { slug: planSlug } });
+    if (!tenant || !plan) return;
+    await admin.tenantSubscription.update({
+      where: { tenantId: tenant.id },
+      data: { planId: plan.id },
+    });
+  } finally {
+    await admin.$disconnect();
+  }
+}

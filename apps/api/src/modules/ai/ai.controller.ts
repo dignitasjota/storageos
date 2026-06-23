@@ -21,6 +21,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AiService } from './ai.service';
@@ -29,6 +30,7 @@ class ChatDto extends createZodDto(ChatSchema) {}
 
 @RequirePermission('ai:use')
 @Controller('ai')
+@RequireFeature('ai_assistant')
 export class AiController {
   constructor(private readonly ai: AiService) {}
 

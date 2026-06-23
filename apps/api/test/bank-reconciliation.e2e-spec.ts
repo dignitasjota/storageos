@@ -3,7 +3,7 @@ import request from 'supertest';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -68,6 +68,7 @@ describe('Conciliación N43 (e2e)', () => {
 
   it('importa N43 → sugiere factura por importe+referencia → concilia → factura pagada', async () => {
     const owner = await registerVerifiedUser(app, 'n43');
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
     const customerId = await createCustomer(app, owner.accessToken);
@@ -129,6 +130,7 @@ describe('Conciliación N43 (e2e)', () => {
 
   it('devolución SEPA: un cargo del mismo importe revierte la factura cobrada', async () => {
     const owner = await registerVerifiedUser(app, 'n43ret');
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
     const customerId = await createCustomer(app, owner.accessToken);
@@ -190,6 +192,7 @@ describe('Conciliación N43 (e2e)', () => {
 
   it('rechaza un fichero sin movimientos válidos', async () => {
     const owner = await registerVerifiedUser(app, 'n43b');
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const res = await request(app.getHttpServer())
       .post('/bank-statements/import')

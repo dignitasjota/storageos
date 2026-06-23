@@ -22,6 +22,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { InsuranceService } from './insurance.service';
@@ -30,6 +31,7 @@ class CreateInsurancePlanDto extends createZodDto(CreateInsurancePlanSchema) {}
 class UpdateInsurancePlanDto extends createZodDto(UpdateInsurancePlanSchema) {}
 
 @Controller('insurance-plans')
+@RequireFeature('insurance')
 export class InsuranceController {
   constructor(private readonly insurance: InsuranceService) {}
 

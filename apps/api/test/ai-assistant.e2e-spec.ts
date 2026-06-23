@@ -1,7 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -21,6 +21,7 @@ describe('Asistente IA (e2e, provider stub)', () => {
 
   it('crea conversación, usa una herramienta y persiste el historial', async () => {
     const owner = await registerVerifiedUser(app, 'ai');
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
     // Pregunta que el stub mapea a la herramienta list_overdue_invoices.
@@ -67,7 +68,9 @@ describe('Asistente IA (e2e, provider stub)', () => {
 
   it('aísla las conversaciones entre usuarios/tenants', async () => {
     const a = await registerVerifiedUser(app, 'aiowner');
+    await setTenantPlan(a.slug, 'pro');
     const b = await registerVerifiedUser(app, 'aiother');
+    await setTenantPlan(b.slug, 'pro');
     const chat = await request(app.getHttpServer())
       .post('/ai/chat')
       .set({ Authorization: `Bearer ${a.accessToken}` })

@@ -10,6 +10,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { PrismaService } from '../database/prisma.service';
 
@@ -66,6 +67,7 @@ const INCLUDE = {
 
 @RequirePermission('access:read')
 @Controller('access/logs')
+@RequireFeature('access_control')
 export class AccessLogsController {
   constructor(private readonly prisma: PrismaService) {}
 

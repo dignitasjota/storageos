@@ -8,6 +8,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 
 import { AsyncContextModule } from './common/async-context/async-context.module';
 import { CryptoModule } from './common/crypto/crypto.module';
+import { FeatureGuard } from './common/guards/feature.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
@@ -187,6 +188,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     { provide: APP_GUARD, useClass: SecurityThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // Gating por plan del tenant (@RequireFeature) — frontera real del frontend.
+    { provide: APP_GUARD, useClass: FeatureGuard },
   ],
 })
 /**
