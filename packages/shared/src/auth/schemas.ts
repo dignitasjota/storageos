@@ -213,8 +213,11 @@ export const UpdateTenantReviewsSettingsSchema = z.object({
 });
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
 
-/** PATCH /settings/tenant/access — máximo de accesos adicionales por inquilino. */
+/** PATCH /settings/tenant/access — accesos adicionales + pase nocturno. */
 export const UpdateTenantAccessSettingsSchema = z.object({
-  extraAccessLimit: z.number().int().min(0).max(10),
+  extraAccessLimit: z.number().int().min(0).max(10).optional(),
+  /** Pase nocturno: el inquilino compra un código de un solo uso que salta el toque de queda. */
+  nightPassEnabled: z.boolean().optional(),
+  nightPassPrice: z.number().min(0).max(1000).optional(),
 });
 export type UpdateTenantAccessSettingsInput = z.infer<typeof UpdateTenantAccessSettingsSchema>;

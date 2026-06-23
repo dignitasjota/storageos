@@ -67,6 +67,22 @@ function generateQrToken(): string {
   return randomBytes(18).toString('base64url');
 }
 
+/** Próxima 08:00 en Europe/Madrid, como ISO (caducidad del pase nocturno). */
+function nextMorningIso(hour = 8): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Madrid',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24;
+  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  let deltaMin = hour * 60 - (h * 60 + m);
+  if (deltaMin <= 0) deltaMin += 1440; // ya pasó hoy → mañana
+  return new Date(now.getTime() + deltaMin * 60_000).toISOString();
+}
+
 @Injectable()
 export class AccessCredentialsService {
   constructor(
@@ -148,6 +164,7 @@ export class AccessCredentialsService {
       allowedUnitIds: input.allowedUnitIds,
       allowedHours: input.allowedHours as Prisma.InputJsonValue,
       bypassCurfew: input.bypassCurfew,
+      maxUses: input.maxUses ?? null,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
       contractId: input.contractId ?? null,
       metadata: input.metadata as Prisma.InputJsonValue,
@@ -533,6 +550,43 @@ export class AccessCredentialsService {
     };
   }
 
+  /**
+   * Pase nocturno: PIN de **un solo uso** que **salta el toque de queda** y
+   * caduca a la mañana siguiente (08:00 Europe/Madrid). El cobro lo orquesta
+   * quien llama (NightPassService) — esto solo emite el código.
+   */
+  async createNightPassForCustomer(
+    tenantId: string,
+    customerId: string,
+  ): Promise<PortalAccessCredentialDto> {
+    const created = await this.create({
+      tenantId,
+      userId: 'system',
+      input: {
+        customerId,
+        method: 'pin',
+        label: 'Pase nocturno',
+        allowedFacilityIds: [],
+        allowedUnitIds: [],
+        allowedHours: {},
+        bypassCurfew: true,
+        maxUses: 1,
+        expiresAt: nextMorningIso(),
+        metadata: { source: 'night_pass' },
+      } as CreateCredentialInput,
+      meta: {},
+    });
+    return {
+      id: created.id,
+      method: 'pin',
+      label: created.label,
+      status: created.status,
+      value: created.revealedSecret,
+      expiresAt: created.expiresAt,
+      lastUsedAt: null,
+    };
+  }
+
   private async findOrThrow(tenantId: string, id: string): Promise<CredentialWithCustomer> {
     const row = await this.prisma.withTenant(
       (tx) =>
@@ -581,6 +635,8 @@ export class AccessCredentialsService {
       allowedUnitIds: c.allowedUnitIds,
       allowedHours: (c.allowedHours ?? {}) as Record<string, unknown>,
       bypassCurfew: c.bypassCurfew,
+      maxUses: c.maxUses,
+      usesCount: c.usesCount,
       suspendReason: c.suspendReason,
       expiresAt: c.expiresAt?.toISOString() ?? null,
       activatedAt: c.activatedAt?.toISOString() ?? null,

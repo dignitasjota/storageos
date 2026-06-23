@@ -55,6 +55,8 @@ export const CreateCredentialSchema = z
     allowedHours: z.record(z.unknown()).default({}),
     /** Acceso 24h: salta el toque de queda del local (típico de staff). */
     bypassCurfew: z.boolean().default(false),
+    /** Usos máximos (single-use = 1). Sin valor = ilimitado. */
+    maxUses: z.number().int().positive().max(100).optional(),
     expiresAt: z.string().datetime().optional(),
     contractId: z.string().uuid().optional(),
     metadata: z.record(z.unknown()).default({}),

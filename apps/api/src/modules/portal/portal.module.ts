@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { OperationsModule } from '../operations/operations.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -11,6 +12,7 @@ import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 
+import { NightPassService } from './night-pass.service';
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
 
@@ -25,6 +27,8 @@ import { PortalService } from './portal.service';
     PaymentsModule,
     RedsysModule,
     AccessModule,
+    // BillingModule: factura del pase nocturno (InvoicesService + serie).
+    BillingModule,
     ReferralsModule,
     // ContractsModule: el inquilino ve sus contratos y solicita la baja (move-out).
     ContractsModule,
@@ -36,6 +40,6 @@ import { PortalService } from './portal.service';
     UnitChangesModule,
   ],
   controllers: [PortalController],
-  providers: [PortalService],
+  providers: [PortalService, NightPassService],
 })
 export class PortalModule {}

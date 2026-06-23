@@ -769,18 +769,20 @@ portal mínimo para que el inquilino consulte sus facturas.
 
 ### Endpoints — Portal del cliente
 
-| Metodo | Ruta                                      | Auth | Throttle  | Descripcion                                                                                                                                          |
-| ------ | ----------------------------------------- | ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/portal/login/request`                   | NO   | 5/min/IP  | Envia magic link al email (204 silencioso)                                                                                                           |
-| POST   | `/portal/login/consume`                   | NO   | 5/min/IP  | Intercambia token por JWT corto (single-use)                                                                                                         |
-| GET    | `/portal/me/invoices`                     | NO   | 60/min/IP | Bearer JWT portal; lista facturas del cliente                                                                                                        |
-| GET    | `/portal/me/payment-methods`              | NO   | 60/min/IP | Bearer JWT portal; lista metodos de pago del cliente                                                                                                 |
-| POST   | `/portal/me/payment-methods/setup-intent` | NO   | 5/min/IP  | Bearer JWT portal; crea SetupIntent Stripe (self-service IBAN/tarjeta)                                                                               |
-| POST   | `/portal/me/payment-methods`              | NO   | 5/min/IP  | Bearer JWT portal; registra el PM confirmado (pasa a predeterminado; tipo derivado del gateway)                                                      |
-| POST   | `/portal/me/invoices/:id/charge`          | NO   | 5/min/IP  | Bearer JWT portal; cobra el pendiente con el PM predeterminado. 404 si la invoice no es del customer del token; 400 `no_payment_method` si no hay PM |
-| GET    | `/portal/me/access`                       | NO   | 60/min/IP | Bearer JWT portal; credenciales pin/qr activas del inquilino con el valor descifrado (para mostrar/presentar)                                        |
-| POST   | `/portal/me/access/:id/regenerate`        | NO   | 5/min/IP  | Bearer JWT portal; regenera el secreto de SU credencial (404 si no es suya). Devuelve el nuevo valor                                                 |
-| POST   | `/portal/me/access/extra`                 | NO   | 5/min/IP  | Bearer JWT portal; crea un acceso adicional (PIN, body `{label}`) hasta `tenants.extra_access_limit`. 409 `extra_access_limit_reached` al exceder    |
+| Metodo | Ruta                                      | Auth | Throttle  | Descripcion                                                                                                                                                    |
+| ------ | ----------------------------------------- | ---- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/portal/login/request`                   | NO   | 5/min/IP  | Envia magic link al email (204 silencioso)                                                                                                                     |
+| POST   | `/portal/login/consume`                   | NO   | 5/min/IP  | Intercambia token por JWT corto (single-use)                                                                                                                   |
+| GET    | `/portal/me/invoices`                     | NO   | 60/min/IP | Bearer JWT portal; lista facturas del cliente                                                                                                                  |
+| GET    | `/portal/me/payment-methods`              | NO   | 60/min/IP | Bearer JWT portal; lista metodos de pago del cliente                                                                                                           |
+| POST   | `/portal/me/payment-methods/setup-intent` | NO   | 5/min/IP  | Bearer JWT portal; crea SetupIntent Stripe (self-service IBAN/tarjeta)                                                                                         |
+| POST   | `/portal/me/payment-methods`              | NO   | 5/min/IP  | Bearer JWT portal; registra el PM confirmado (pasa a predeterminado; tipo derivado del gateway)                                                                |
+| POST   | `/portal/me/invoices/:id/charge`          | NO   | 5/min/IP  | Bearer JWT portal; cobra el pendiente con el PM predeterminado. 404 si la invoice no es del customer del token; 400 `no_payment_method` si no hay PM           |
+| GET    | `/portal/me/access`                       | NO   | 60/min/IP | Bearer JWT portal; credenciales pin/qr activas del inquilino con el valor descifrado (para mostrar/presentar)                                                  |
+| POST   | `/portal/me/access/:id/regenerate`        | NO   | 5/min/IP  | Bearer JWT portal; regenera el secreto de SU credencial (404 si no es suya). Devuelve el nuevo valor                                                           |
+| POST   | `/portal/me/access/extra`                 | NO   | 5/min/IP  | Bearer JWT portal; crea un acceso adicional (PIN, body `{label}`) hasta `tenants.extra_access_limit`. 409 `extra_access_limit_reached` al exceder              |
+| GET    | `/portal/me/access/night-pass`            | NO   | 60/min/IP | Bearer JWT portal; disponibilidad + precio del pase nocturno (`{enabled, price}`)                                                                              |
+| POST   | `/portal/me/access/night-pass`            | NO   | 5/min/IP  | Bearer JWT portal; compra un pase nocturno (PIN de un solo uso que salta el toque de queda, caduca a la mañana siguiente) + factura. 409 `night_pass_disabled` |
 
 ### Codigos `code` (Fase 4)
 

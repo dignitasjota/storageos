@@ -248,6 +248,7 @@ export default function CredentialsPage() {
   return (
     <div className="space-y-4">
       <ExtraAccessSettingsCard />
+      <NightPassSettingsCard />
       <div className="flex flex-wrap gap-2">
         <Select
           value={status ?? 'all'}
@@ -938,6 +939,74 @@ function ExtraAccessSettingsCard() {
             Guardar
           </Button>
           <span className="pb-2 text-xs text-muted-foreground">Actual: {parsed}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Pase nocturno: el inquilino compra un código de un solo uso (de pago). */
+function NightPassSettingsCard() {
+  const canManage = useHasPermission('settings:manage');
+  const settings = useAccessSettings();
+  const update = useUpdateAccessSettings();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [price, setPrice] = useState<string>('');
+
+  if (!canManage) return null;
+
+  const curEnabled = enabled ?? settings.data?.nightPassEnabled ?? false;
+  const curPrice = price === '' ? (settings.data?.nightPassPrice ?? 0) : Number(price);
+
+  async function save() {
+    try {
+      await update.mutateAsync({ nightPassEnabled: curEnabled, nightPassPrice: curPrice });
+      setEnabled(null);
+      setPrice('');
+      toast.success('Pase nocturno actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Pase nocturno (de pago)</CardTitle>
+        <CardDescription>
+          Permite al inquilino comprar desde su portal un código de <strong>un solo uso</strong> que
+          salta el toque de queda y caduca a la mañana siguiente. Se le factura el importe (+ IVA).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={curEnabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="size-4"
+            />
+            Activar
+          </label>
+          <div className="space-y-1">
+            <Label htmlFor="night-pass-price" className="text-xs">
+              Precio (€, sin IVA)
+            </Label>
+            <Input
+              id="night-pass-price"
+              type="number"
+              step="0.01"
+              min={0}
+              className="h-9 w-28"
+              value={price === '' ? String(settings.data?.nightPassPrice ?? 0) : price}
+              onChange={(e) => setPrice(e.target.value)}
+              disabled={settings.isLoading}
+            />
+          </div>
+          <Button size="sm" onClick={() => void save()} disabled={update.isPending}>
+            Guardar
+          </Button>
         </div>
       </CardContent>
     </Card>

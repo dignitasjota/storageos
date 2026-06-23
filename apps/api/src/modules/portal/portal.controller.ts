@@ -19,6 +19,7 @@ import {
   type PortalIncidentDto,
   PortalCreateExtraAccessSchema,
   type PortalInvoiceDto,
+  type PortalNightPassInfoDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalReportIncidentSchema,
@@ -45,6 +46,7 @@ import { PushService } from '../push/push.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { UnitChangesService } from '../unit-changes/unit-changes.service';
 
+import { NightPassService } from './night-pass.service';
 import { PortalService } from './portal.service';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
@@ -68,6 +70,7 @@ export class PortalController {
     private readonly incidents: IncidentsService,
     private readonly push: PushService,
     private readonly unitChanges: UnitChangesService,
+    private readonly nightPass: NightPassService,
   ) {}
 
   @Public()
@@ -247,6 +250,27 @@ export class PortalController {
   ): Promise<PortalAccessCredentialDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.access.createExtraForCustomer(tenantId, customerId, input.label);
+  }
+
+  /** Disponibilidad + precio del pase nocturno (para la card del portal). */
+  @Public()
+  @Get('me/access/night-pass')
+  async nightPassInfo(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalNightPassInfoDto> {
+    const { tenantId } = await this.requirePortalSession(auth);
+    return this.nightPass.info(tenantId);
+  }
+
+  /** El inquilino compra un pase nocturno (código de un solo uso, se factura). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/access/night-pass')
+  async buyNightPass(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalAccessCredentialDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.nightPass.buy(tenantId, customerId);
   }
 
   @Public()
