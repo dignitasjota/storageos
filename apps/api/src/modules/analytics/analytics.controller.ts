@@ -14,6 +14,7 @@ import type {
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
+  MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
   RevenueForecastDto,
@@ -45,6 +46,18 @@ export class AnalyticsController {
   @Get('revenue')
   getRevenue(@CurrentUser() user: AuthenticatedUser): Promise<RevenueKpiDto> {
     return this.service.getRevenue(user.tenantId);
+  }
+
+  @Get('monthly-revenue')
+  getMonthlyRevenue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+  ): Promise<MonthlyRevenueKpiDto> {
+    const parsed = months ? Number.parseInt(months, 10) : undefined;
+    return this.service.getMonthlyRevenue(
+      user.tenantId,
+      parsed && Number.isFinite(parsed) ? parsed : 12,
+    );
   }
 
   @Get('churn')

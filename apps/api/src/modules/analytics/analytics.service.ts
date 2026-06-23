@@ -8,6 +8,7 @@ import type {
   ChurnKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
+  MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   RevenueKpiDto,
 } from '@storageos/shared';
@@ -377,6 +378,90 @@ export class AnalyticsService {
       ]);
       return { total, withActiveContract, newThisMonth };
     }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5b. Ingresos por mes (facturado vs cobrado, histórico)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Serie de los últimos `months` meses con lo **facturado** (facturas emitidas
+   * en el mes, por fecha de emisión, estados no borrador/anulada) y lo
+   * **cobrado** (pagos con éxito en el mes, por fecha de cobro). Permite ver la
+   * tendencia y comparar meses (lo que el Resumen no muestra: solo el mes actual).
+   */
+  async getMonthlyRevenue(tenantId: string, months = 12): Promise<MonthlyRevenueKpiDto> {
+    const span = Math.min(24, Math.max(1, Math.trunc(months) || 12));
+    const now = new Date();
+    const curYear = now.getUTCFullYear();
+    const curMonth = now.getUTCMonth() + 1;
+
+    // Lista de meses (más antiguo → actual) y rango de fechas.
+    const list: { year: number; month: number; key: string }[] = [];
+    for (let i = span - 1; i >= 0; i--) {
+      const idx = curYear * 12 + (curMonth - 1) - i;
+      const year = Math.floor(idx / 12);
+      const month = (idx % 12) + 1;
+      list.push({ year, month, key: formatYearMonth(year, month) });
+    }
+    const first = list[0]!;
+    const fromDate = monthStartUtc(first.year, first.month);
+
+    const [invoices, payments] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.invoice.findMany({
+            where: {
+              tenantId,
+              deletedAt: null,
+              status: { in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] },
+              issueDate: { gte: fromDate },
+            },
+            select: { issueDate: true, total: true },
+          }),
+          tx.payment.findMany({
+            where: { tenantId, status: 'succeeded', paidAt: { gte: fromDate } },
+            select: { paidAt: true, amount: true },
+          }),
+        ]),
+      tenantId,
+    );
+
+    const invoicedByKey = new Map<string, number>();
+    for (const inv of invoices) {
+      if (!inv.issueDate) continue;
+      const key = formatYearMonth(inv.issueDate.getUTCFullYear(), inv.issueDate.getUTCMonth() + 1);
+      invoicedByKey.set(key, (invoicedByKey.get(key) ?? 0) + Number(inv.total));
+    }
+    const collectedByKey = new Map<string, number>();
+    for (const p of payments) {
+      if (!p.paidAt) continue;
+      const key = formatYearMonth(p.paidAt.getUTCFullYear(), p.paidAt.getUTCMonth() + 1);
+      collectedByKey.set(key, (collectedByKey.get(key) ?? 0) + Number(p.amount));
+    }
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const MONTHS_ES = [
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
+    ];
+    const points = list.map(({ year, month, key }) => ({
+      yearMonth: key,
+      label: `${MONTHS_ES[month - 1]} ${(year % 100).toString().padStart(2, '0')}`,
+      invoiced: round2(invoicedByKey.get(key) ?? 0),
+      collected: round2(collectedByKey.get(key) ?? 0),
+    }));
+    return { points };
   }
 
   // ---------------------------------------------------------------------------

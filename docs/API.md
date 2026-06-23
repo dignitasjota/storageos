@@ -989,15 +989,16 @@ Modulos `apps/api/src/modules/{operations,products,analytics,reports}/`.
 
 ### Endpoints — Analytics
 
-| Metodo | Ruta                                | Auth | Descripcion                                                             |
-| ------ | ----------------------------------- | ---- | ----------------------------------------------------------------------- |
-| GET    | `/analytics/occupancy`              | SI   | Fisica + economica + MRR actual vs potencial + perFacility              |
-| GET    | `/analytics/churn?from=&to=`        | SI   | Cohort mensual. Default ultimos 6 meses                                 |
-| GET    | `/analytics/aging?atDate=`          | SI   | Buckets 0-30/30-60/60-90/+90 + totalOutstanding                         |
-| GET    | `/analytics/leads-funnel?from=&to=` | SI   | Totales por estado + ratios + bySource                                  |
-| GET    | `/analytics/churn-risk`             | SI   | Riesgo de baja heurístico por contrato (score 0-100 + nivel + factores) |
-| GET    | `/analytics/pricing-suggestions`    | SI   | Sugerencias de precio por ocupación (yield management, read-only)       |
-| GET    | `/analytics/forecast?months=`       | SI   | Previsión de MRR + ocupación a N meses (1-24, default 6) por tendencia  |
+| Metodo | Ruta                                 | Auth | Descripcion                                                                                                             |
+| ------ | ------------------------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/analytics/occupancy`               | SI   | Fisica + economica + MRR actual vs potencial + perFacility                                                              |
+| GET    | `/analytics/churn?from=&to=`         | SI   | Cohort mensual. Default ultimos 6 meses                                                                                 |
+| GET    | `/analytics/aging?atDate=`           | SI   | Buckets 0-30/30-60/60-90/+90 + totalOutstanding                                                                         |
+| GET    | `/analytics/leads-funnel?from=&to=`  | SI   | Totales por estado + ratios + bySource                                                                                  |
+| GET    | `/analytics/churn-risk`              | SI   | Riesgo de baja heurístico por contrato (score 0-100 + nivel + factores)                                                 |
+| GET    | `/analytics/pricing-suggestions`     | SI   | Sugerencias de precio por ocupación (yield management, read-only)                                                       |
+| GET    | `/analytics/forecast?months=`        | SI   | Previsión de MRR + ocupación a N meses (1-24, default 6) por tendencia                                                  |
+| GET    | `/analytics/monthly-revenue?months=` | SI   | Ingresos por mes (histórico): facturado (emitido) y cobrado (pagos succeeded) de los últimos N meses (1-24, default 12) |
 
 ### Endpoints — Reports
 

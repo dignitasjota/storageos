@@ -8,6 +8,7 @@ import type {
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
   LeadsFunnelKpiDto,
+  MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
   RevenueForecastDto,
@@ -22,11 +23,19 @@ export const analyticsKey = (
     | 'leads-funnel'
     | 'customers'
     | 'revenue'
+    | 'monthly-revenue'
     | 'churn-risk'
     | 'pricing-suggestions'
     | 'forecast',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
+
+export function useMonthlyRevenue(months = 12) {
+  return useQuery({
+    queryKey: analyticsKey('monthly-revenue', { months: String(months) }),
+    queryFn: () => apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue?months=${months}`),
+  });
+}
 
 export function useCustomerStats() {
   return useQuery({
