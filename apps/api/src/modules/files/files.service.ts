@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { CreateBucketCommand } from '@aws-sdk/client-s3';
+import {
+  CreateBucketCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -90,6 +95,25 @@ export class FilesService implements OnModuleInit {
   buildPublicUrl(bucket: PresignArgs['bucket'], key: string): string {
     const bucketName = this.bucketMap[bucket];
     return `${this.publicUrl}/${bucketName}/${key}`;
+  }
+
+  /**
+   * URL firmada GET para servir un objeto de un bucket PRIVADO (evidencia:
+   * fotos de check-out, documentos…). TTL corto; el cliente la usa en un <img>.
+   */
+  async getPresignedGetUrl(
+    bucket: PresignArgs['bucket'],
+    key: string,
+    expiresIn = 300,
+  ): Promise<string> {
+    const cmd = new GetObjectCommand({ Bucket: this.bucketMap[bucket], Key: key });
+    return getSignedUrl(this.s3, cmd, { expiresIn });
+  }
+
+  /** Genera una key para una foto de check-out de contrato. */
+  buildCheckoutPhotoKey(tenantId: string, contractId: string, mimeType: string): string {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
+    return `${tenantId}/contracts/${contractId}/checkout/${randomUUID()}.${ext}`;
   }
 
   /** Genera una key unica para un plano de planta. */

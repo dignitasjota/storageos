@@ -14,6 +14,8 @@ import type {
   CreateContractInput,
   RequestSignatureResultDto,
   SignContractInput,
+  CheckoutPhotoDto,
+  CheckoutPhotoUploadDto,
   CreateCustomerInput,
   CreateReservationInput,
   CustomerDocumentDto,
@@ -351,6 +353,52 @@ export function useConvertReservation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['reservations'] });
       void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
+}
+
+// ============================== Check-out (fotos) ==========================
+
+export const checkoutPhotosKey = (contractId: string) =>
+  ['contracts', contractId, 'checkout-photos'] as const;
+
+export function useCheckoutPhotos(contractId: string | undefined) {
+  return useQuery({
+    queryKey: contractId ? checkoutPhotosKey(contractId) : ['checkout-photos', 'none'],
+    queryFn: () => apiFetch<CheckoutPhotoDto[]>(`/contracts/${contractId}/checkout-photos`),
+    enabled: !!contractId,
+  });
+}
+
+/** Sube una foto de check-out a MinIO vía URL firmada y la registra. */
+export async function uploadCheckoutPhoto(
+  contractId: string,
+  file: File,
+  note?: string,
+): Promise<CheckoutPhotoDto> {
+  const presign = await apiFetch<CheckoutPhotoUploadDto>(
+    `/contracts/${contractId}/checkout-photos/upload-url`,
+    { method: 'POST', json: { mimeType: file.type, fileName: file.name } },
+  );
+  const put = await fetch(presign.uploadUrl, {
+    method: 'PUT',
+    headers: presign.requiredHeaders,
+    body: file,
+  });
+  if (!put.ok) throw new Error('No se pudo subir la foto');
+  return apiFetch<CheckoutPhotoDto>(`/contracts/${contractId}/checkout-photos`, {
+    method: 'POST',
+    json: { key: presign.key, ...(note ? { note } : {}) },
+  });
+}
+
+export function useDeleteCheckoutPhoto(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (photoId: string) =>
+      apiFetch<void>(`/contracts/${contractId}/checkout-photos/${photoId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: checkoutPhotosKey(contractId) });
     },
   });
 }
