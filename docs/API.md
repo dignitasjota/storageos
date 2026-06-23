@@ -245,6 +245,13 @@ global tras Roles). El catálogo y el mapa rol→permisos viven en
 Ejemplo de regla más fina que el rol no podía expresar: `POST /invoices/:id/refund`
 exige `invoices:refund`, que solo tiene `owner` (aunque `manager` pueda emitir).
 
+**Gating por plan (`@RequireFeature` + `FeatureGuard`, quinto guard global tras
+`PermissionsGuard`):** los módulos premium (ai, sepa, bank-reconciliation,
+rent-increases, insurance, automations, access) sólo responden si el **plan del
+tenant** incluye la feature (`featuresForPlan(plan.slug)`); si no, `403
+{ code: feature_not_in_plan, details: { requiredFeature } }`. Es la frontera real;
+el `<FeatureGate>` del frontend es cosmético.
+
 **Migración RBAC v2 (en curso):** los módulos se están migrando de `@Roles(...)`
 a `@RequirePermission(...)` para que los roles personalizados controlen toda la
 app (no solo facturas). Ya migrados: **invoices** y la **operativa diaria** — PR1
