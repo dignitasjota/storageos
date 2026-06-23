@@ -83,7 +83,7 @@ export class ContractsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ContractDto> {
-    return this.contracts.detail(user.tenantId, id);
+    return this.contracts.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:read')
@@ -92,7 +92,7 @@ export class ContractsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ContractEventDto[]> {
-    return this.contracts.events(user.tenantId, id);
+    return this.contracts.events(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:write')
@@ -123,6 +123,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -141,6 +142,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
       // Firma asistida en el local (opcional): si el staff captura la firma.
       ...(body.method
@@ -169,6 +171,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -185,6 +188,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -202,6 +206,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -220,6 +225,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -236,6 +242,7 @@ export class ContractsController {
     return this.contracts.setInsurance({
       tenantId: user.tenantId,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       planId: input.planId,
     });
   }
@@ -252,6 +259,7 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });

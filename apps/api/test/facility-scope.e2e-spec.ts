@@ -90,6 +90,24 @@ describe('Permisos por local (facility scope) (e2e)', () => {
       .set(staffAuth);
     expect([403, 404]).toContain(bById.status);
 
+    // Guards :id — no puede leer ni mutar un trastero del local B aunque conozca el id.
+    const unitB = facB.unitIds[0]!;
+    const readUnitB = await request(app.getHttpServer()).get(`/units/${unitB}`).set(staffAuth);
+    expect(readUnitB.status).toBe(403);
+    expect(readUnitB.body.code).toBe('facility_not_in_scope');
+
+    const mutateUnitB = await request(app.getHttpServer())
+      .post(`/units/${unitB}/change-status`)
+      .set(staffAuth)
+      .send({ status: 'maintenance', reason: 'x' });
+    expect(mutateUnitB.status).toBe(403);
+
+    // Un trastero del local A (asignado) sí lo lee.
+    const readUnitA = await request(app.getHttpServer())
+      .get(`/units/${facA.unitIds[0]!}`)
+      .set(staffAuth);
+    expect(readUnitA.status).toBe(200);
+
     // El owner (sin asignaciones) sigue viendo los dos locales.
     const ownerFacs = await request(app.getHttpServer()).get('/facilities').set(ownerAuth);
     expect(ownerFacs.body.length).toBeGreaterThanOrEqual(2);

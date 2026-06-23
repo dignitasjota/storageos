@@ -89,7 +89,7 @@ export class AccessDevicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<AccessDeviceDto> {
-    return this.service.detail(user.tenantId, id);
+    return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post()
@@ -122,6 +122,7 @@ export class AccessDevicesController {
       id,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -138,6 +139,7 @@ export class AccessDevicesController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -154,6 +156,7 @@ export class AccessDevicesController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -170,6 +173,7 @@ export class AccessDevicesController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -187,6 +191,7 @@ export class AccessDevicesController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 }

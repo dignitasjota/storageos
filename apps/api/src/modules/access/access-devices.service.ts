@@ -4,7 +4,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { hash as argonHash } from '@node-rs/argon2';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
-import { resolveFacilityFilter } from '../../common/facility-scope';
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -79,8 +79,12 @@ export class AccessDevicesService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<AccessDeviceDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<AccessDeviceDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
   async create(args: {
@@ -88,6 +92,7 @@ export class AccessDevicesService {
     userId: string;
     input: CreateDeviceInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessDeviceWithKeyDto> {
     const apiKey = generateApiKey();
     const apiKeyHash = await argonHash(apiKey);
@@ -134,8 +139,9 @@ export class AccessDevicesService {
     id: string;
     input: UpdateDeviceInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessDeviceDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const data: Prisma.AccessDeviceUncheckedUpdateInput = {};
     const input = args.input;
     if (input.name !== undefined) data.name = input.name;
@@ -170,8 +176,9 @@ export class AccessDevicesService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessDeviceWithKeyDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const apiKey = generateApiKey();
     const apiKeyHash = await argonHash(apiKey);
     const apiKeyPreview = apiKey.slice(0, 8);
@@ -193,8 +200,9 @@ export class AccessDevicesService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     await this.prisma.withTenant(
       (tx) => tx.accessDevice.delete({ where: { id: args.id } }),
       args.tenantId,
@@ -207,8 +215,9 @@ export class AccessDevicesService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<{ online: boolean }> {
-    const device = await this.findOrThrow(args.tenantId, args.id);
+    const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const result = await this.lock.open({
       tenantId: args.tenantId,
       deviceId: device.id,
@@ -239,8 +248,9 @@ export class AccessDevicesService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<{ dispatched: boolean; message?: string }> {
-    const device = await this.findOrThrow(args.tenantId, args.id);
+    const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const result = await this.lock.open({
       tenantId: args.tenantId,
       deviceId: device.id,
@@ -293,7 +303,11 @@ export class AccessDevicesService {
     };
   }
 
-  private async findOrThrow(tenantId: string, id: string): Promise<DeviceWithIncludes> {
+  private async findOrThrow(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<DeviceWithIncludes> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.accessDevice.findFirst({
@@ -308,6 +322,7 @@ export class AccessDevicesService {
         message: 'Dispositivo no encontrado',
       });
     }
+    assertFacilityAllowed(facilityScope, row.facilityId);
     return row as DeviceWithIncludes;
   }
 

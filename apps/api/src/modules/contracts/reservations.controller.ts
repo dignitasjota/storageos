@@ -73,7 +73,7 @@ export class ReservationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ReservationDto> {
-    return this.reservations.detail(user.tenantId, id);
+    return this.reservations.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('reservations:write')
@@ -104,6 +104,7 @@ export class ReservationsController {
       userId: user.sub,
       reservationId: id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -122,6 +123,7 @@ export class ReservationsController {
       reservationId: id,
       input,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -140,6 +142,7 @@ export class ReservationsController {
       reservationId: id,
       input,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

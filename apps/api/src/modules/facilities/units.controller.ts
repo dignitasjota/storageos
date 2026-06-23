@@ -82,7 +82,7 @@ export class UnitsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<UnitDto> {
-    return this.units.detail(user.tenantId, id);
+    return this.units.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('units:read')
@@ -91,7 +91,7 @@ export class UnitsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<UnitStatusHistoryDto[]> {
-    return this.units.history(user.tenantId, id);
+    return this.units.history(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('units:write')
@@ -124,6 +124,7 @@ export class UnitsController {
       unitId: id,
       input,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -142,6 +143,7 @@ export class UnitsController {
       unitId: id,
       input,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -158,6 +160,7 @@ export class UnitsController {
       userId: user.sub,
       unitId: id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 }
