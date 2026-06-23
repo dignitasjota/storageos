@@ -17,6 +17,8 @@ export interface AccessTokenPayload {
   role: UserRole;
   /** Permisos efectivos (del rol custom si lo hay, si no del rol enum). */
   permissions: Permission[];
+  /** Locales a los que está restringido (permisos por local); null = todos. */
+  facilityScope: string[] | null;
 }
 
 /** Payload + claims estandar al verificar. */
@@ -53,7 +55,12 @@ export class TokensService {
   async signAccess(payload: AccessTokenPayload): Promise<{ token: string; expiresIn: number }> {
     const expiresIn = this.config.get('JWT_ACCESS_TTL_SECONDS', { infer: true });
     const token = await this.jwt.signAsync(
-      { tenantId: payload.tenantId, role: payload.role, permissions: payload.permissions },
+      {
+        tenantId: payload.tenantId,
+        role: payload.role,
+        permissions: payload.permissions,
+        facilityScope: payload.facilityScope,
+      },
       {
         subject: payload.sub,
         secret: this.config.get('JWT_ACCESS_SECRET', { infer: true }),

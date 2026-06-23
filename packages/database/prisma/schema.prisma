@@ -409,6 +409,7 @@ model Tenant {
   aiMessages              AiMessage[]
   pushSubscriptions       PushSubscription[]
   unitChangeRequests      UnitChangeRequest[]
+  userFacilities          UserFacility[]
 
   @@map("tenants")
 }
@@ -462,10 +463,29 @@ model User {
   aeatCredentialsUploaded  TenantAeatCredential[]   @relation("AeatCredentialUploadedBy")
   apiKeysCreated           ApiKey[]                 @relation("ApiKeyCreatedBy")
   aiConversations          AiConversation[]
+  facilities               UserFacility[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
+}
+
+/// Permisos por local: a qué facilities está restringido un usuario. Sin filas
+/// = sin restricción (ve todos los locales). Con filas = solo esos.
+model UserFacility {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  facilityId String   @map("facility_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, facilityId])
+  @@index([tenantId, userId])
+  @@map("user_facilities")
 }
 
 /// Rol personalizado por tenant (RBAC de grano fino, v1). Define un conjunto
@@ -706,6 +726,7 @@ model Facility {
   productStocks  ProductStock[]  @relation("ProductStockFacility")
   productSales   ProductSale[]   @relation("ProductSaleFacility")
   accessDevices  AccessDevice[]  @relation("DeviceFacility")
+  userFacilities UserFacility[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])

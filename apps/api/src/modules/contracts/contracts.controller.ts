@@ -73,6 +73,7 @@ export class ContractsController {
       ...(customerId ? { customerId } : {}),
       ...(facilityId ? { facilityId } : {}),
       ...(unitId ? { unitId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -106,6 +107,7 @@ export class ContractsController {
       userId: user.sub,
       input,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

@@ -128,4 +128,35 @@ export class TenantRolesService {
       await tx.user.update({ where: { id: userId }, data: { tenantRoleId } });
     }, tenantId);
   }
+
+  /**
+   * Permisos por local: fija a qué locales está restringido un usuario.
+   * `[]` = sin restricción (ve todos). Reescribe la lista completa.
+   */
+  async setUserFacilities(tenantId: string, userId: string, facilityIds: string[]): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException({ message: 'Usuario no encontrado', code: 'user_not_found' });
+      }
+      const unique = [...new Set(facilityIds)];
+      if (unique.length > 0) {
+        const valid = await tx.facility.count({
+          where: { id: { in: unique }, deletedAt: null },
+        });
+        if (valid !== unique.length) {
+          throw new BadRequestException({
+            message: 'Algún local no existe',
+            code: 'facility_not_found',
+          });
+        }
+      }
+      await tx.userFacility.deleteMany({ where: { userId } });
+      if (unique.length > 0) {
+        await tx.userFacility.createMany({
+          data: unique.map((facilityId) => ({ tenantId, userId, facilityId })),
+        });
+      }
+    }, tenantId);
+  }
 }

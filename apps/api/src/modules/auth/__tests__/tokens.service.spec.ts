@@ -30,6 +30,7 @@ describe('TokensService', () => {
         tenantId: 'tenant-1',
         role: 'owner',
         permissions: ['invoices:read'],
+        facilityScope: null,
       });
       expect(typeof token).toBe('string');
       expect(expiresIn).toBe(ACCESS_TTL);
@@ -50,6 +51,7 @@ describe('TokensService', () => {
         tenantId: 't',
         role: 'staff',
         permissions: [],
+        facilityScope: null,
       });
       await expect(b.verifyAccess(token)).rejects.toBeInstanceOf(UnauthorizedException);
     });
@@ -61,6 +63,7 @@ describe('TokensService', () => {
         tenantId: 't',
         role: 'staff',
         permissions: [],
+        facilityScope: null,
       });
       await expect(svc.verifyAccess(token)).rejects.toBeInstanceOf(UnauthorizedException);
     });

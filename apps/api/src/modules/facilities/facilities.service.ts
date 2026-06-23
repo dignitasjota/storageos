@@ -54,11 +54,11 @@ export class FacilitiesService {
     private readonly files: FilesService,
   ) {}
 
-  async list(tenantId: string): Promise<FacilityDto[]> {
+  async list(tenantId: string, facilityScope?: string[] | null): Promise<FacilityDto[]> {
     const facilities = await this.prisma.withTenant(
       (tx) =>
         tx.facility.findMany({
-          where: { deletedAt: null },
+          where: { deletedAt: null, ...(facilityScope ? { id: { in: facilityScope } } : {}) },
           orderBy: [{ name: 'asc' }],
           include: {
             units: {

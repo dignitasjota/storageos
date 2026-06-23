@@ -329,9 +329,10 @@ export class InvitationsService {
     const { token: accessToken, expiresIn } = await this.tokens.signAccess({
       sub: user.id,
       tenantId: record.tenantId,
-      // Usuario recién aceptado: nunca tiene rol custom todavía → permisos del enum.
+      // Usuario recién aceptado: nunca tiene rol custom ni locales asignados todavía.
       role: user.role,
       permissions: permissionsForRole(user.role),
+      facilityScope: null,
     });
 
     const userDto: UserDto = {

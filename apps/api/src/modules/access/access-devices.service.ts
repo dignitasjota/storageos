@@ -4,6 +4,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { hash as argonHash } from '@node-rs/argon2';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -31,6 +32,8 @@ interface ListFilters {
   facilityId?: string;
   type?: AccessDeviceTypeValue;
   isOnline?: boolean;
+  /** Permisos por local: si está, solo dispositivos de esos locales. */
+  facilityScope?: string[] | null;
 }
 
 type DeviceWithIncludes = AccessDevice & {
@@ -58,7 +61,9 @@ export class AccessDevicesService {
 
   async list(tenantId: string, filters: ListFilters): Promise<AccessDeviceDto[]> {
     const where: Prisma.AccessDeviceWhereInput = {};
-    if (filters.facilityId) where.facilityId = filters.facilityId;
+    const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (facFilter === null) return []; // local pedido fuera del scope del usuario
+    if (facFilter) where.facilityId = { in: facFilter };
     if (filters.type) where.type = filters.type as AccessDeviceType;
     if (filters.isOnline !== undefined) where.isOnline = filters.isOnline;
     const rows = await this.prisma.withTenant(

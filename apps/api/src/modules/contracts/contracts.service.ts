@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -56,6 +57,8 @@ interface ListFilters {
   facilityId?: string;
   unitId?: string;
   includeDeleted?: boolean;
+  /** Permisos por local: si está, solo contratos de unidades de esos locales. */
+  facilityScope?: string[] | null;
 }
 
 @Injectable()
@@ -74,7 +77,9 @@ export class ContractsService {
     if (filters.status) where.status = filters.status as ContractStatus;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.unitId) where.unitId = filters.unitId;
-    if (filters.facilityId) where.unit = { facilityId: filters.facilityId };
+    const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (facFilter === null) return []; // local pedido fuera del scope del usuario
+    if (facFilter) where.unit = { facilityId: { in: facFilter } };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
@@ -134,6 +139,8 @@ export class ContractsService {
     userId: string | null;
     input: CreateContractInput;
     meta: RequestMeta;
+    /** Permisos por local: la unidad debe estar en el scope del usuario. */
+    facilityScope?: string[] | null;
   }): Promise<ContractDto> {
     const { tenantId, input } = args;
     const created = await this.prisma.withTenant(async (tx) => {
@@ -151,6 +158,7 @@ export class ContractsService {
       if (!unit) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
+      assertFacilityAllowed(args.facilityScope, unit.facilityId);
       // En draft permitimos crear el contrato aunque el unit no este available
       // (p.ej. esta reserved para este mismo customer). Sera al firmar
       // cuando bloqueemos si esta occupied/maintenance/blocked.

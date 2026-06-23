@@ -19,7 +19,6 @@ import type {
   UpdateUserInput,
   UserDetailDto,
   UserRole,
-  UserSummaryDto,
 } from '@storageos/shared';
 
 @Injectable()
@@ -33,20 +32,25 @@ export class UsersService {
 
   // ============================= lectura ===================================
 
-  async list(tenantId: string): Promise<UserSummaryDto[]> {
+  async list(tenantId: string): Promise<UserDetailDto[]> {
     const users = await this.prisma.withTenant(
       (tx) =>
         tx.user.findMany({
           orderBy: [{ role: 'asc' }, { fullName: 'asc' }],
+          include: { facilities: { select: { facilityId: true } } },
         }),
       tenantId,
     );
-    return users.map((u) => this.toSummary(u));
+    return users.map((u) => this.toDetail(u));
   }
 
   async detail(tenantId: string, userId: string): Promise<UserDetailDto> {
     const user = await this.prisma.withTenant(
-      (tx) => tx.user.findUnique({ where: { id: userId } }),
+      (tx) =>
+        tx.user.findUnique({
+          where: { id: userId },
+          include: { facilities: { select: { facilityId: true } } },
+        }),
       tenantId,
     );
     if (!user) throw new NotFoundException('Usuario no encontrado');
@@ -308,19 +312,7 @@ export class UsersService {
 
   // ============================= helpers ===================================
 
-  private toSummary(user: User): UserSummaryDto {
-    return {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      role: user.role as UserRole,
-      isActive: user.isActive,
-      lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
-      twoFactorEnabled: user.twoFactorEnabled,
-    };
-  }
-
-  private toDetail(user: User): UserDetailDto {
+  private toDetail(user: User & { facilities?: { facilityId: string }[] }): UserDetailDto {
     return {
       id: user.id,
       email: user.email,
@@ -328,6 +320,7 @@ export class UsersService {
       phone: user.phone,
       role: user.role as UserRole,
       tenantRoleId: user.tenantRoleId,
+      facilityIds: user.facilities?.map((f) => f.facilityId) ?? [],
       isActive: user.isActive,
       emailVerifiedAt: user.emailVerifiedAt ? user.emailVerifiedAt.toISOString() : null,
       twoFactorEnabled: user.twoFactorEnabled,

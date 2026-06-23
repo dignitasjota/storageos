@@ -297,13 +297,25 @@ efectivos de un usuario (rol custom si lo tiene, si no el enum) viajan en el
 access JWT y los devuelve `/auth/me` en `permissions`. Editar/asignar un rol
 aplica al siguiente refresh del access token (≤15 min).
 
-| Metodo | Ruta                                  | Auth | Role  | Descripcion                                              |
-| ------ | ------------------------------------- | ---- | ----- | -------------------------------------------------------- |
-| GET    | `/settings/roles`                     | SI   | owner | Lista los roles custom (con `userCount`)                 |
-| POST   | `/settings/roles`                     | SI   | owner | Crea rol `{name, description?, permissions[], baseRole}` |
-| PATCH  | `/settings/roles/:id`                 | SI   | owner | Actualiza un rol (parcial)                               |
-| DELETE | `/settings/roles/:id`                 | SI   | owner | Borra el rol (los usuarios vuelven a su rol enum)        |
-| PATCH  | `/settings/users/:userId/tenant-role` | SI   | owner | Asigna/quita rol custom `{tenantRoleId: uuid\|null}`     |
+| Metodo | Ruta                                  | Auth | Role  | Descripcion                                                      |
+| ------ | ------------------------------------- | ---- | ----- | ---------------------------------------------------------------- |
+| GET    | `/settings/roles`                     | SI   | owner | Lista los roles custom (con `userCount`)                         |
+| POST   | `/settings/roles`                     | SI   | owner | Crea rol `{name, description?, permissions[], baseRole}`         |
+| PATCH  | `/settings/roles/:id`                 | SI   | owner | Actualiza un rol (parcial)                                       |
+| DELETE | `/settings/roles/:id`                 | SI   | owner | Borra el rol (los usuarios vuelven a su rol enum)                |
+| PATCH  | `/settings/users/:userId/tenant-role` | SI   | owner | Asigna/quita rol custom `{tenantRoleId: uuid\|null}`             |
+| PATCH  | `/settings/users/:userId/facilities`  | SI   | owner | Permisos por local: fija `{facilityIds: uuid[]}` ([] = ve todos) |
+
+#### Permisos por local (facility scope)
+
+Un usuario con locales asignados en `user_facilities` solo ve/gestiona las
+entidades ancladas a esos locales. Sin asignaciones = sin restricción. El scope
+viaja en el access JWT (`facilityScope`) y lo devuelve `/auth/me`; aplica al
+siguiente refresh. **Filtrado por scope**: `GET /facilities`, `/units`,
+`/contracts`, `/reservations`, `/analytics/occupancy`, `/access/devices`.
+**Guards de escritura** (403 `facility_not_in_scope`): crear unit/contract/device
+en un local fuera del scope, y mutar un local (`PATCH/DELETE /facilities/:id`,
+imágenes) fuera del scope.
 
 ## Users
 
