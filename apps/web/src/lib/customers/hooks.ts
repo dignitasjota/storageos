@@ -14,8 +14,8 @@ import type {
   CreateContractInput,
   RequestSignatureResultDto,
   SignContractInput,
-  CheckoutPhotoDto,
-  CheckoutPhotoUploadDto,
+  InspectionPhotoDto,
+  InspectionPhotoUploadDto,
   CreateCustomerInput,
   CreateReservationInput,
   CustomerDocumentDto,
@@ -357,28 +357,32 @@ export function useConvertReservation() {
   });
 }
 
-// ============================== Check-out (fotos) ==========================
+// =================== Fotos de inspección (check-in / check-out) =============
 
-export const checkoutPhotosKey = (contractId: string) =>
-  ['contracts', contractId, 'checkout-photos'] as const;
+type InspectionKind = 'checkin' | 'checkout';
 
-export function useCheckoutPhotos(contractId: string | undefined) {
+export const inspectionPhotosKey = (contractId: string, kind: InspectionKind) =>
+  ['contracts', contractId, 'inspection-photos', kind] as const;
+
+export function useInspectionPhotos(contractId: string | undefined, kind: InspectionKind) {
   return useQuery({
-    queryKey: contractId ? checkoutPhotosKey(contractId) : ['checkout-photos', 'none'],
-    queryFn: () => apiFetch<CheckoutPhotoDto[]>(`/contracts/${contractId}/checkout-photos`),
+    queryKey: contractId ? inspectionPhotosKey(contractId, kind) : ['inspection-photos', 'none'],
+    queryFn: () =>
+      apiFetch<InspectionPhotoDto[]>(`/contracts/${contractId}/inspection-photos?kind=${kind}`),
     enabled: !!contractId,
   });
 }
 
-/** Sube una foto de check-out a MinIO vía URL firmada y la registra. */
-export async function uploadCheckoutPhoto(
+/** Sube una foto de inspección a MinIO vía URL firmada y la registra. */
+export async function uploadInspectionPhoto(
   contractId: string,
+  kind: InspectionKind,
   file: File,
   note?: string,
-): Promise<CheckoutPhotoDto> {
-  const presign = await apiFetch<CheckoutPhotoUploadDto>(
-    `/contracts/${contractId}/checkout-photos/upload-url`,
-    { method: 'POST', json: { mimeType: file.type, fileName: file.name } },
+): Promise<InspectionPhotoDto> {
+  const presign = await apiFetch<InspectionPhotoUploadDto>(
+    `/contracts/${contractId}/inspection-photos/upload-url`,
+    { method: 'POST', json: { kind, mimeType: file.type, fileName: file.name } },
   );
   const put = await fetch(presign.uploadUrl, {
     method: 'PUT',
@@ -386,19 +390,19 @@ export async function uploadCheckoutPhoto(
     body: file,
   });
   if (!put.ok) throw new Error('No se pudo subir la foto');
-  return apiFetch<CheckoutPhotoDto>(`/contracts/${contractId}/checkout-photos`, {
+  return apiFetch<InspectionPhotoDto>(`/contracts/${contractId}/inspection-photos`, {
     method: 'POST',
-    json: { key: presign.key, ...(note ? { note } : {}) },
+    json: { kind, key: presign.key, ...(note ? { note } : {}) },
   });
 }
 
-export function useDeleteCheckoutPhoto(contractId: string) {
+export function useDeleteInspectionPhoto(contractId: string, kind: InspectionKind) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (photoId: string) =>
-      apiFetch<void>(`/contracts/${contractId}/checkout-photos/${photoId}`, { method: 'DELETE' }),
+      apiFetch<void>(`/contracts/${contractId}/inspection-photos/${photoId}`, { method: 'DELETE' }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: checkoutPhotosKey(contractId) });
+      void qc.invalidateQueries({ queryKey: inspectionPhotosKey(contractId, kind) });
     },
   });
 }

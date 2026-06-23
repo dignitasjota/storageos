@@ -8,13 +8,15 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
-  type CheckoutPhotoDto,
-  type CheckoutPhotoUploadDto,
-  RegisterCheckoutPhotoSchema,
-  RequestCheckoutPhotoUploadSchema,
+  type InspectionKindValue,
+  type InspectionPhotoDto,
+  type InspectionPhotoUploadDto,
+  RegisterInspectionPhotoSchema,
+  RequestInspectionPhotoUploadSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -24,13 +26,13 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
-import { CheckoutPhotosService } from './checkout-photos.service';
+import { InspectionPhotosService } from './inspection-photos.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
-class RequestCheckoutPhotoUploadDto extends createZodDto(RequestCheckoutPhotoUploadSchema) {}
-class RegisterCheckoutPhotoDto extends createZodDto(RegisterCheckoutPhotoSchema) {}
+class RequestInspectionPhotoUploadDto extends createZodDto(RequestInspectionPhotoUploadSchema) {}
+class RegisterInspectionPhotoDto extends createZodDto(RegisterInspectionPhotoSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -41,17 +43,18 @@ function extractMeta(req: Request): RequestMeta {
   };
 }
 
-@Controller('contracts/:contractId/checkout-photos')
-export class CheckoutPhotosController {
-  constructor(private readonly service: CheckoutPhotosService) {}
+@Controller('contracts/:contractId/inspection-photos')
+export class InspectionPhotosController {
+  constructor(private readonly service: InspectionPhotosService) {}
 
   @RequirePermission('contracts:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
     @Param('contractId', new ParseUUIDPipe()) contractId: string,
-  ): Promise<CheckoutPhotoDto[]> {
-    return this.service.list(user.tenantId, contractId, user.facilityScope ?? null);
+    @Query('kind') kind?: InspectionKindValue,
+  ): Promise<InspectionPhotoDto[]> {
+    return this.service.list(user.tenantId, contractId, kind, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:write')
@@ -59,8 +62,8 @@ export class CheckoutPhotosController {
   async uploadUrl(
     @CurrentUser() user: AuthenticatedUser,
     @Param('contractId', new ParseUUIDPipe()) contractId: string,
-    @Body() input: RequestCheckoutPhotoUploadDto,
-  ): Promise<CheckoutPhotoUploadDto> {
+    @Body() input: RequestInspectionPhotoUploadDto,
+  ): Promise<InspectionPhotoUploadDto> {
     return this.service.requestUploadUrl(
       user.tenantId,
       contractId,
@@ -74,9 +77,9 @@ export class CheckoutPhotosController {
   async register(
     @CurrentUser() user: AuthenticatedUser,
     @Param('contractId', new ParseUUIDPipe()) contractId: string,
-    @Body() input: RegisterCheckoutPhotoDto,
+    @Body() input: RegisterInspectionPhotoDto,
     @Req() req: Request,
-  ): Promise<CheckoutPhotoDto> {
+  ): Promise<InspectionPhotoDto> {
     return this.service.register({
       tenantId: user.tenantId,
       userId: user.sub,

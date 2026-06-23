@@ -110,10 +110,15 @@ export class FilesService implements OnModuleInit {
     return getSignedUrl(this.s3, cmd, { expiresIn });
   }
 
-  /** Genera una key para una foto de check-out de contrato. */
-  buildCheckoutPhotoKey(tenantId: string, contractId: string, mimeType: string): string {
+  /** Genera una key para una foto de inspección de contrato (check-in/check-out). */
+  buildInspectionPhotoKey(
+    tenantId: string,
+    contractId: string,
+    kind: string,
+    mimeType: string,
+  ): string {
     const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
-    return `${tenantId}/contracts/${contractId}/checkout/${randomUUID()}.${ext}`;
+    return `${tenantId}/contracts/${contractId}/${kind}/${randomUUID()}.${ext}`;
   }
 
   /** Genera una key unica para un plano de planta. */

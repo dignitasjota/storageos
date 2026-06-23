@@ -57,18 +57,19 @@ export interface CustomerDocumentUploadDto {
   key: string;
 }
 
-/** URL firmada PUT para subir una foto de check-out directamente a MinIO. */
-export interface CheckoutPhotoUploadDto {
+/** URL firmada PUT para subir una foto de inspección directamente a MinIO. */
+export interface InspectionPhotoUploadDto {
   uploadUrl: string;
   expiresIn: number;
   requiredHeaders: Record<string, string>;
   key: string;
 }
 
-/** Foto de check-out con su URL firmada GET (bucket privado) para mostrarla. */
-export interface CheckoutPhotoDto {
+/** Foto de inspección con su URL firmada GET (bucket privado) para mostrarla. */
+export interface InspectionPhotoDto {
   id: string;
   contractId: string;
+  kind: 'checkin' | 'checkout';
   /** URL firmada GET de corta duración (evidencia en bucket privado). */
   url: string;
   note: string | null;

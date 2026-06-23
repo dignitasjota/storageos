@@ -16,7 +16,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { CheckoutPhotosCard } from './checkout-photos-card';
+import { InspectionPhotosCard } from './inspection-photos-card';
 
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { SignaturePad } from '@/components/move-in/signature-pad';
@@ -285,7 +285,8 @@ export default function ContractDetailPage() {
         price={c.insurancePrice}
       />
 
-      <CheckoutPhotosCard contractId={c.id} />
+      <InspectionPhotosCard contractId={c.id} kind="checkin" />
+      <InspectionPhotosCard contractId={c.id} kind="checkout" />
 
       <Card>
         <CardHeader>
