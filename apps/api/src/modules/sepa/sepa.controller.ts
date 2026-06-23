@@ -26,6 +26,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { SepaService } from './sepa.service';
@@ -35,6 +36,7 @@ class CreateSepaMandateDto extends createZodDto(CreateSepaMandateSchema) {}
 class CreateRemittanceDto extends createZodDto(CreateRemittanceSchema) {}
 
 @Controller('sepa')
+@RequireFeature('sepa')
 export class SepaController {
   constructor(private readonly sepa: SepaService) {}
 

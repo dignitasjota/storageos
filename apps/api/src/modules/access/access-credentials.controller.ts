@@ -29,6 +29,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AccessCredentialsService } from './access-credentials.service';
@@ -63,6 +64,7 @@ function parseMethod(value: string | undefined): AccessMethodValue | undefined {
 }
 
 @Controller('access/credentials')
+@RequireFeature('access_control')
 export class AccessCredentialsController {
   constructor(private readonly service: AccessCredentialsService) {}
 

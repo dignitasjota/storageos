@@ -21,6 +21,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { BankReconciliationService } from './bank-reconciliation.service';
@@ -29,6 +30,7 @@ class ImportN43Dto extends createZodDto(ImportN43Schema) {}
 class MatchTransactionDto extends createZodDto(MatchTransactionSchema) {}
 
 @Controller('bank-statements')
+@RequireFeature('bank_reconciliation')
 export class BankReconciliationController {
   constructor(private readonly service: BankReconciliationService) {}
 

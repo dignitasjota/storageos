@@ -20,6 +20,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { RentIncreasesService } from './rent-increases.service';
@@ -28,6 +29,7 @@ class CreateRentIncreaseDto extends createZodDto(CreateRentIncreaseSchema) {}
 class PreviewRentIncreaseDto extends createZodDto(PreviewRentIncreaseSchema) {}
 
 @Controller('rent-increases')
+@RequireFeature('rent_increases')
 export class RentIncreasesController {
   constructor(private readonly service: RentIncreasesService) {}
 

@@ -22,6 +22,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AutomationsService } from './automations.service';
@@ -42,6 +43,7 @@ function extractMeta(req: Request): RequestMeta {
 }
 
 @Controller('automations')
+@RequireFeature('automations')
 export class AutomationsController {
   constructor(private readonly service: AutomationsService) {}
 

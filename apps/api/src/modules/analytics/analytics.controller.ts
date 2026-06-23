@@ -4,6 +4,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AnalyticsService } from './analytics.service';
 import { InsightsService } from './insights.service';
@@ -22,6 +23,7 @@ import type {
   RevenueKpiDto,
 } from '@storageos/shared';
 
+@RequirePermission('analytics:read')
 @Controller('analytics')
 export class AnalyticsController {
   constructor(

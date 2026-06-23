@@ -3,7 +3,7 @@ import request from 'supertest';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -26,30 +26,25 @@ describe('Remesas SEPA (e2e)', () => {
 
   it('config acreedor + mandato → remesa → XML pain.008 → confirmar (factura pagada, mandato RCUR)', async () => {
     const owner = await registerVerifiedUser(app, 'sepa');
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
 
     // Config del acreedor (rechaza IBAN inválido).
-    const bad = await request(app.getHttpServer())
-      .put('/sepa/settings')
-      .set(auth)
-      .send({
-        creditorName: 'Trasteros SL',
-        creditorId: 'ES12ZZZB12345678',
-        creditorIban: 'ES0021000418450200051332',
-        enabled: true,
-      });
+    const bad = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
+      creditorName: 'Trasteros SL',
+      creditorId: 'ES12ZZZB12345678',
+      creditorIban: 'ES0021000418450200051332',
+      enabled: true,
+    });
     expect(bad.status).toBe(400);
 
-    const settings = await request(app.getHttpServer())
-      .put('/sepa/settings')
-      .set(auth)
-      .send({
-        creditorName: 'Trasteros SL',
-        creditorId: 'ES12ZZZB12345678',
-        creditorIban: CREDITOR_IBAN,
-        enabled: true,
-      });
+    const settings = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
+      creditorName: 'Trasteros SL',
+      creditorId: 'ES12ZZZB12345678',
+      creditorIban: CREDITOR_IBAN,
+      enabled: true,
+    });
     expect(settings.status).toBe(200);
     expect(settings.body.configured).toBe(true);
     expect(settings.body.creditorIbanLast4).toBe('1332');
@@ -133,6 +128,7 @@ describe('Remesas SEPA (e2e)', () => {
 
   it('factura de cliente sin mandato aparece en withoutMandate', async () => {
     const owner = await registerVerifiedUser(app, 'sepa2');
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
     const customerId = await createCustomer(app, owner.accessToken);
