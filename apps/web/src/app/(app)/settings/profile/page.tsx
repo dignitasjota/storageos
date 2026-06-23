@@ -16,13 +16,13 @@ import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
@@ -50,7 +50,7 @@ export default function ProfileSettingsPage() {
             <ProfileForm
               defaultValues={{
                 fullName: me.data.user.fullName,
-                phone: '',
+                phone: me.data.user.phone ?? '',
               }}
               email={me.data.user.email}
               t={t}
@@ -83,7 +83,7 @@ function ProfileForm({ defaultValues, email, t, tCommon }: ProfileFormProps) {
   useEffect(() => {
     form.reset(defaultValues);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultValues.fullName]);
+  }, [defaultValues.fullName, defaultValues.phone]);
 
   async function onSubmit(values: UpdateProfileInput) {
     try {
@@ -124,13 +124,14 @@ function ProfileForm({ defaultValues, email, t, tCommon }: ProfileFormProps) {
             </FormItem>
           )}
         />
-        <FormItem>
-          <FormLabel>{t('email')}</FormLabel>
-          <FormControl>
-            <Input value={email} disabled readOnly />
-          </FormControl>
-          <FormDescription>{t('emailHint')}</FormDescription>
-        </FormItem>
+        {/* El email es de solo lectura: NO va dentro de <FormField>, así que
+            no puede usar <FormLabel>/<FormControl> (llaman a useFormField y
+            crashean fuera de un FormField). Va con Label/Input planos. */}
+        <div className="space-y-2">
+          <Label>{t('email')}</Label>
+          <Input value={email} disabled readOnly />
+          <p className="text-[0.8rem] text-muted-foreground">{t('emailHint')}</p>
+        </div>
         <Button type="submit" disabled={form.formState.isSubmitting}>
           {form.formState.isSubmitting ? tCommon('loading') : t('submit')}
         </Button>
