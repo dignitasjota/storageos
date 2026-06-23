@@ -334,6 +334,8 @@ model Tenant {
   referralRewardType          PromotionDiscountType @default(fixed) @map("referral_reward_type")
   referralRewardValue         Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
   extraAccessLimit            Int                   @default(2) @map("extra_access_limit")
+  nightPassEnabled            Boolean               @default(false) @map("night_pass_enabled")
+  nightPassPrice              Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt                   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2464,6 +2466,9 @@ model AccessCredential {
   allowedHours       Json                   @default("{}") @map("allowed_hours")
   /// Salta el toque de queda del local (acceso 24h, típico de staff).
   bypassCurfew       Boolean                @default(false) @map("bypass_curfew")
+  /// Usos máximos (single-use = 1; pase nocturno). NULL = ilimitado.
+  maxUses            Int?                   @map("max_uses")
+  usesCount          Int                    @default(0) @map("uses_count")
   suspendReason      String?                @map("suspend_reason")
   expiresAt          DateTime?              @map("expires_at") @db.Timestamptz(6)
   activatedAt        DateTime?              @map("activated_at") @db.Timestamptz(6)

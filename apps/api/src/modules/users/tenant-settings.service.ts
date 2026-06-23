@@ -245,7 +245,11 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    return { extraAccessLimit: tenant.extraAccessLimit };
+    return {
+      extraAccessLimit: tenant.extraAccessLimit,
+      nightPassEnabled: tenant.nightPassEnabled,
+      nightPassPrice: Number(tenant.nightPassPrice),
+    };
   }
 
   async updateAccess(args: {
@@ -260,7 +264,17 @@ export class TenantSettingsService {
     }
     const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
-      data: { extraAccessLimit: args.input.extraAccessLimit },
+      data: {
+        ...(args.input.extraAccessLimit !== undefined
+          ? { extraAccessLimit: args.input.extraAccessLimit }
+          : {}),
+        ...(args.input.nightPassEnabled !== undefined
+          ? { nightPassEnabled: args.input.nightPassEnabled }
+          : {}),
+        ...(args.input.nightPassPrice !== undefined
+          ? { nightPassPrice: args.input.nightPassPrice }
+          : {}),
+      },
     });
     await this.audit.write({
       tenantId: args.tenantId,
@@ -268,12 +282,14 @@ export class TenantSettingsService {
       action: 'tenant.access.settings_changed',
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: {
-        extraAccessLimit: { from: tenant.extraAccessLimit, to: updated.extraAccessLimit },
-      },
+      changes: { ...args.input },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return { extraAccessLimit: updated.extraAccessLimit };
+    return {
+      extraAccessLimit: updated.extraAccessLimit,
+      nightPassEnabled: updated.nightPassEnabled,
+      nightPassPrice: Number(updated.nightPassPrice),
+    };
   }
 }

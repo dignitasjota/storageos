@@ -159,4 +159,7 @@ export interface TenantReviewsSettingsResponse {
 export interface TenantAccessSettingsResponse {
   /** Máximo de accesos adicionales que un inquilino puede crearse en el portal. */
   extraAccessLimit: number;
+  /** Pase nocturno: compra de un código de un solo uso que salta el toque de queda. */
+  nightPassEnabled: boolean;
+  nightPassPrice: number;
 }

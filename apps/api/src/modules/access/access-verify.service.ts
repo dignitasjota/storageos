@@ -247,10 +247,18 @@ export class AccessVerifyService {
       customerId: credentialRow.customerId,
     });
 
+    // Single-use (pase nocturno): incrementa el contador y, si alcanza el
+    // máximo de usos, marca la credencial como expirada (gastada).
+    const newUses = credentialRow.usesCount + 1;
+    const spent = credentialRow.maxUses != null && newUses >= credentialRow.maxUses;
     await this.admin.accessCredential
       .update({
         where: { id: credentialRow.id },
-        data: { lastUsedAt: new Date() },
+        data: {
+          lastUsedAt: new Date(),
+          ...(credentialRow.maxUses != null ? { usesCount: { increment: 1 } } : {}),
+          ...(spent ? { status: 'expired' as AccessCredentialStatus } : {}),
+        },
       })
       .catch((err) => this.logger.warn(`No se pudo actualizar lastUsedAt: ${String(err)}`));
 
@@ -358,6 +366,13 @@ export class AccessVerifyService {
       return {
         result: 'denied_invalid_credential',
         reason: 'Credencial expirada',
+      };
+    }
+    // Single-use ya gastado (pase nocturno).
+    if (credential.maxUses != null && credential.usesCount >= credential.maxUses) {
+      return {
+        result: 'denied_inactive_credential',
+        reason: 'Pase ya utilizado',
       };
     }
     if (

@@ -45,3 +45,10 @@ export const PortalCreateExtraAccessSchema = z.object({
   label: z.string().trim().min(1).max(60),
 });
 export type PortalCreateExtraAccessInput = z.infer<typeof PortalCreateExtraAccessSchema>;
+
+/** Disponibilidad + precio del pase nocturno (para la card del portal). */
+export interface PortalNightPassInfoDto {
+  enabled: boolean;
+  /** Precio del pase (sin IVA; la factura añade el 21%). */
+  price: number;
+}

@@ -7,6 +7,7 @@ import {
   type PortalContractDto,
   type PortalIncidentDto,
   type PortalInvoiceDto,
+  type PortalNightPassInfoDto,
   type PortalReferralDto,
   type PortalSessionDto,
   type PortalUnitChangeRequestDto,
@@ -63,6 +64,8 @@ function PortalConsumeContent() {
   const [invoices, setInvoices] = useState<PortalInvoiceDto[] | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
+  const [nightPass, setNightPass] = useState<PortalNightPassInfoDto | null>(null);
+  const [buyingPass, setBuyingPass] = useState(false);
   const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
   const [contracts, setContracts] = useState<PortalContractDto[] | null>(null);
   const [incidents, setIncidents] = useState<PortalIncidentDto[] | null>(null);
@@ -116,7 +119,7 @@ function PortalConsumeContent() {
         });
         if (cancelled) return;
         setSession(s);
-        const [inv, pms, acc, refs, ctr, inc, ucr] = await Promise.all([
+        const [inv, pms, acc, refs, ctr, inc, ucr, ucr2] = await Promise.all([
           portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
           portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
           portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
@@ -124,11 +127,13 @@ function PortalConsumeContent() {
           portalFetch<PortalContractDto[]>(s, '/portal/me/contracts'),
           portalFetch<PortalIncidentDto[]>(s, '/portal/me/incidents'),
           portalFetch<PortalUnitChangeRequestDto[]>(s, '/portal/me/unit-change-requests'),
+          portalFetch<PortalNightPassInfoDto>(s, '/portal/me/access/night-pass'),
         ]);
         if (cancelled) return;
         setInvoices(inv);
         setPaymentMethods(pms);
         setAccess(acc);
+        setNightPass(ucr2);
         setReferrals(refs);
         setContracts(ctr);
         setIncidents(inc);
@@ -191,6 +196,32 @@ function PortalConsumeContent() {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el acceso.');
     } finally {
       setAddingAccess(false);
+    }
+  }
+
+  async function buyNightPass() {
+    if (!session || !nightPass) return;
+    if (
+      !window.confirm(
+        `Comprar un pase nocturno por ${nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (+ IVA). Se añadirá a tu cuenta.`,
+      )
+    )
+      return;
+    setBuyingPass(true);
+    try {
+      const created = await portalFetch<PortalAccessCredentialDto>(
+        session,
+        '/portal/me/access/night-pass',
+        { method: 'POST' },
+      );
+      setAccess((prev) => [created, ...(prev ?? [])]);
+      const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
+      setInvoices(inv);
+      toast.success('Pase nocturno comprado. Tu código es de un solo uso y caduca por la mañana.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprar el pase.');
+    } finally {
+      setBuyingPass(false);
     }
   }
 
@@ -580,6 +611,21 @@ function PortalConsumeContent() {
                   <Plus className="mr-1 h-4 w-4" />
                 )}
                 Añadir acceso (familiar, etc.)
+              </Button>
+            </div>
+          )}
+          {nightPass?.enabled && (
+            <div className="mt-3 rounded-md border bg-muted/30 p-3">
+              <p className="text-sm font-medium">Pase nocturno</p>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Código de un solo uso para entrar fuera de horario (toque de queda). Caduca a la
+                mañana siguiente. Se factura a tu cuenta.
+              </p>
+              <Button size="sm" disabled={buyingPass} onClick={() => void buyNightPass()}>
+                {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                Comprar pase nocturno (
+                {nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} +
+                IVA)
               </Button>
             </div>
           )}
