@@ -412,6 +412,7 @@ model Tenant {
   pushSubscriptions       PushSubscription[]
   unitChangeRequests      UnitChangeRequest[]
   userFacilities          UserFacility[]
+  contractCheckoutPhotos  ContractCheckoutPhoto[]
 
   @@map("tenants")
 }
@@ -466,6 +467,7 @@ model User {
   apiKeysCreated           ApiKey[]                 @relation("ApiKeyCreatedBy")
   aiConversations          AiConversation[]
   facilities               UserFacility[]
+  checkoutPhotos           ContractCheckoutPhoto[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -988,20 +990,21 @@ model Contract {
   createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer           Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  unit               Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  tenant             Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer           Customer                @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  unit               Unit                    @relation(fields: [unitId], references: [id], onDelete: Restrict)
   events             ContractEvent[]
   signatures         ContractSignature[]
   invoices           Invoice[]
   invoiceItems       InvoiceItem[]
-  leadsConverted     Lead[]              @relation("LeadConvertedContract")
-  incidents          Incident[]          @relation("IncidentContract")
-  credentials        AccessCredential[]  @relation("CredentialContract")
+  leadsConverted     Lead[]                  @relation("LeadConvertedContract")
+  incidents          Incident[]              @relation("IncidentContract")
+  credentials        AccessCredential[]      @relation("CredentialContract")
   reviews            Review[]
   rentIncreaseItems  RentIncreaseItem[]
-  insurancePlan      InsurancePlan?      @relation(fields: [insurancePlanId], references: [id], onDelete: SetNull)
+  insurancePlan      InsurancePlan?          @relation(fields: [insurancePlanId], references: [id], onDelete: SetNull)
   unitChangeRequests UnitChangeRequest[]
+  checkoutPhotos     ContractCheckoutPhoto[]
 
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
@@ -1009,6 +1012,25 @@ model Contract {
   @@index([customerId])
   @@index([unitId])
   @@map("contracts")
+}
+
+/// Foto del estado del trastero en el check-out (evidencia para fianzas/disputas).
+/// La imagen vive en MinIO (bucket privado `uploads`); aquí solo la key + metadatos.
+model ContractCheckoutPhoto {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  contractId      String   @map("contract_id") @db.Uuid
+  key             String
+  note            String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract  Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, contractId])
+  @@map("contract_checkout_photos")
 }
 
 /// Firma electrónica simple de un contrato: registro probatorio (firmante,

@@ -109,6 +109,22 @@ export const RegisterCustomerDocumentSchema = z.object({
 export type RegisterCustomerDocumentInput = z.infer<typeof RegisterCustomerDocumentSchema>;
 
 // ============================================================================
+// Check-out con fotos (evidencia del estado del trastero a la salida)
+// ============================================================================
+
+export const RequestCheckoutPhotoUploadSchema = z.object({
+  mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+  fileName: z.string().trim().min(1).max(200),
+});
+export type RequestCheckoutPhotoUploadInput = z.infer<typeof RequestCheckoutPhotoUploadSchema>;
+
+export const RegisterCheckoutPhotoSchema = z.object({
+  key: z.string().trim().min(1).max(500),
+  note: z.string().trim().max(500).optional().or(z.literal('')),
+});
+export type RegisterCheckoutPhotoInput = z.infer<typeof RegisterCheckoutPhotoSchema>;
+
+// ============================================================================
 // Contracts
 // ============================================================================
 
