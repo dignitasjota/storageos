@@ -156,6 +156,22 @@ export interface RevenueForecastPointDto {
   projectedOccupancy: number;
 }
 
+/** Ingresos reales de un mes: facturado (emitido) y cobrado en ese mes. */
+export interface MonthlyRevenuePointDto {
+  /** Mes (YYYY-MM). */
+  yearMonth: string;
+  /** Etiqueta corta para el eje (p. ej. "jun 25"). */
+  label: string;
+  /** Total facturado: facturas emitidas en el mes (por fecha de emisión). */
+  invoiced: number;
+  /** Total cobrado: pagos con éxito en el mes (por fecha de cobro). */
+  collected: number;
+}
+
+export interface MonthlyRevenueKpiDto {
+  points: MonthlyRevenuePointDto[];
+}
+
 export interface RevenueForecastDto {
   current: {
     activeContracts: number;

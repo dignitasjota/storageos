@@ -35,6 +35,7 @@ import {
   useChurn,
   useChurnRisk,
   useLeadsFunnel,
+  useMonthlyRevenue,
   useOccupancy,
   usePricingSuggestions,
   useRevenueForecast,
@@ -61,6 +62,7 @@ export default function AnalyticsPage() {
 
       <Tabs defaultValue="occupancy" className="w-full">
         <TabsList className="flex-wrap">
+          <TabsTrigger value="revenue">Ingresos</TabsTrigger>
           <TabsTrigger value="occupancy">Ocupación</TabsTrigger>
           <TabsTrigger value="churn">Churn</TabsTrigger>
           <TabsTrigger value="aging">Morosidad</TabsTrigger>
@@ -69,6 +71,9 @@ export default function AnalyticsPage() {
           <TabsTrigger value="pricing">Precio dinámico</TabsTrigger>
           <TabsTrigger value="forecast">Previsión</TabsTrigger>
         </TabsList>
+        <TabsContent value="revenue" className="mt-4">
+          <MonthlyRevenuePanel />
+        </TabsContent>
         <TabsContent value="occupancy" className="mt-4">
           <OccupancyPanel />
         </TabsContent>
@@ -676,6 +681,95 @@ function PanelLoader() {
   return (
     <div className="flex h-64 items-center justify-center">
       <Loader2 className="size-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function MonthlyRevenuePanel() {
+  const revenue = useMonthlyRevenue(12);
+
+  if (revenue.isLoading || !revenue.data) {
+    return <PanelLoader />;
+  }
+
+  const points = revenue.data.points;
+  const totalInvoiced = points.reduce((acc, p) => acc + p.invoiced, 0);
+  const totalCollected = points.reduce((acc, p) => acc + p.collected, 0);
+  const chartData = points.map((p) => ({
+    mes: p.label,
+    Facturado: p.invoiced,
+    Cobrado: p.collected,
+  }));
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <KpiCard title="Facturado (12 meses)" value={formatCurrency(totalInvoiced)}>
+          Facturas emitidas en el periodo
+        </KpiCard>
+        <KpiCard title="Cobrado (12 meses)" value={formatCurrency(totalCollected)}>
+          Pagos con éxito en el periodo
+        </KpiCard>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ingresos por mes</CardTitle>
+          <CardDescription>
+            Facturado (emitido) y cobrado en cada uno de los últimos 12 meses.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="h-80">
+          {totalInvoiced === 0 && totalCollected === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Aún no hay ingresos registrados en los últimos 12 meses.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="mes" />
+                <YAxis />
+                <Tooltip formatter={(v) => formatCurrency(Number(v) || 0)} />
+                <Legend />
+                <Bar dataKey="Facturado" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Cobrado" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Detalle mensual</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Mes</TableHead>
+                <TableHead className="text-right">Facturado</TableHead>
+                <TableHead className="text-right">Cobrado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {points
+                .slice()
+                .reverse()
+                .map((p) => (
+                  <TableRow key={p.yearMonth}>
+                    <TableCell>{p.label}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(p.invoiced)}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(p.collected)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
