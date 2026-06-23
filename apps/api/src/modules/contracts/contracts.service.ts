@@ -109,12 +109,20 @@ export class ContractsService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<ContractDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
-  async events(tenantId: string, contractId: string): Promise<ContractEventDto[]> {
-    await this.findOrThrow(tenantId, contractId);
+  async events(
+    tenantId: string,
+    contractId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractEventDto[]> {
+    await this.findOrThrow(tenantId, contractId, facilityScope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.contractEvent.findMany({
@@ -272,10 +280,11 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     input: UpdateContractInput;
     meta: RequestMeta;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.contractId);
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     // En estados activos solo permitimos cambios "meta" (notas, autoRenew,
     // endDate planificada, dias preaviso). El precio cambia via endpoint
     // dedicado para que sea auditeable.
@@ -349,6 +358,7 @@ export class ContractsService {
     tenantId: string;
     userId: string | null;
     contractId: string;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
     /** Firma electrónica simple (remota, asistida o self-service). */
     signature?: {
@@ -365,7 +375,7 @@ export class ContractsService {
      */
     deferAccessUntilPaid?: boolean;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.contractId);
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'active');
 
     const updated = await this.prisma.withTenant(async (tx) => {
@@ -528,9 +538,10 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.contractId);
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'ending');
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
@@ -634,6 +645,7 @@ export class ContractsService {
     tenantId: string;
     customerId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     endDate: string;
   }): Promise<PortalContractDto> {
     const existing = await this.prisma.withTenant(
@@ -731,9 +743,10 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.contractId);
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'ended');
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
@@ -797,10 +810,11 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     input: CancelContractInput;
     meta: RequestMeta;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.contractId);
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'cancelled');
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
@@ -867,10 +881,11 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     input: ChangeContractPriceInput;
     meta: RequestMeta;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.contractId);
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     if (existing.status !== 'active' && existing.status !== 'ending') {
       throw new BadRequestException({
         code: 'contract_not_active',
@@ -937,9 +952,10 @@ export class ContractsService {
   async setInsurance(args: {
     tenantId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     planId: string | null;
   }): Promise<ContractDto> {
-    await this.findOrThrow(args.tenantId, args.contractId);
+    await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     let insurancePlanId: string | null = null;
     let insurancePrice: number | null = null;
     if (args.planId) {
@@ -984,10 +1000,11 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     input: AddContractNoteInput;
     meta: RequestMeta;
   }): Promise<ContractEventDto> {
-    await this.findOrThrow(args.tenantId, args.contractId);
+    await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.contractEvent.create({
@@ -1029,10 +1046,11 @@ export class ContractsService {
     tenantId: string;
     userId: string;
     contractId: string;
+    facilityScope?: string[] | null;
     pdfUrl: string;
     meta: RequestMeta;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.contractId);
+    await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     await this.prisma.withTenant(
       (tx) =>
         tx.contract.update({
@@ -1105,7 +1123,11 @@ export class ContractsService {
     return created;
   }
 
-  private async findOrThrow(tenantId: string, contractId: string): Promise<ContractWithRelations> {
+  private async findOrThrow(
+    tenantId: string,
+    contractId: string,
+    facilityScope?: string[] | null,
+  ): Promise<ContractWithRelations> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findFirst({
@@ -1137,6 +1159,7 @@ export class ContractsService {
         message: 'Contrato no encontrado',
       });
     }
+    assertFacilityAllowed(facilityScope, row.unit.facilityId);
     return row;
   }
 

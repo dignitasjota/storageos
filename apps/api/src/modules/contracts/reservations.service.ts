@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { resolveFacilityFilter } from '../../common/facility-scope';
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -85,8 +85,12 @@ export class ReservationsService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<ReservationDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<ReservationDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
   async create(args: {
@@ -186,9 +190,10 @@ export class ReservationsService {
     tenantId: string;
     userId: string;
     reservationId: string;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ReservationDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.reservationId);
+    const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
     this.assertTransition(existing.status, 'confirmed');
 
     const updated = await this.prisma.withTenant(async (tx) => {
@@ -250,10 +255,11 @@ export class ReservationsService {
     tenantId: string;
     userId: string;
     reservationId: string;
+    facilityScope?: string[] | null;
     input: CancelReservationInput;
     meta: RequestMeta;
   }): Promise<ReservationDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.reservationId);
+    const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
     this.assertTransition(existing.status, 'cancelled');
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.reservation.update({
@@ -333,10 +339,11 @@ export class ReservationsService {
     tenantId: string;
     userId: string;
     reservationId: string;
+    facilityScope?: string[] | null;
     input: ConvertReservationInput;
     meta: RequestMeta;
   }): Promise<ContractDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.reservationId);
+    const existing = await this.findOrThrow(args.tenantId, args.reservationId, args.facilityScope);
     if (existing.status !== 'pending' && existing.status !== 'confirmed') {
       throw new BadRequestException({
         code: 'reservation_not_convertible',
@@ -409,6 +416,7 @@ export class ReservationsService {
   private async findOrThrow(
     tenantId: string,
     reservationId: string,
+    facilityScope?: string[] | null,
   ): Promise<ReservationWithRelations> {
     const row = await this.prisma.withTenant(
       (tx) =>
@@ -440,6 +448,7 @@ export class ReservationsService {
         message: 'Reserva no encontrada',
       });
     }
+    assertFacilityAllowed(facilityScope, row.unit.facilityId);
     return row;
   }
 

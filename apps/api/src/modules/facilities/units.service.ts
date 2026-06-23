@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { resolveFacilityFilter } from '../../common/facility-scope';
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -102,13 +102,21 @@ export class UnitsService {
     };
   }
 
-  async detail(tenantId: string, unitId: string): Promise<UnitDto> {
-    const row = await this.findOrThrow(tenantId, unitId);
+  async detail(
+    tenantId: string,
+    unitId: string,
+    facilityScope?: string[] | null,
+  ): Promise<UnitDto> {
+    const row = await this.findOrThrow(tenantId, unitId, facilityScope);
     return this.toDto(row);
   }
 
-  async history(tenantId: string, unitId: string): Promise<UnitStatusHistoryDto[]> {
-    await this.findOrThrow(tenantId, unitId);
+  async history(
+    tenantId: string,
+    unitId: string,
+    facilityScope?: string[] | null,
+  ): Promise<UnitStatusHistoryDto[]> {
+    await this.findOrThrow(tenantId, unitId, facilityScope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.unitStatusHistory.findMany({
@@ -221,8 +229,9 @@ export class UnitsService {
     unitId: string;
     input: UpdateUnitInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<UnitDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.unitId);
+    const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     const data: Prisma.UnitUpdateInput = {};
     const changes: Record<string, unknown> = {};
     if (args.input.floorId !== undefined) {
@@ -312,8 +321,9 @@ export class UnitsService {
     userId: string;
     unitId: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<void> {
-    const existing = await this.findOrThrow(args.tenantId, args.unitId);
+    const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     if (existing.status === 'occupied') {
       throw new ConflictException({
         code: 'unit_occupied',
@@ -342,8 +352,9 @@ export class UnitsService {
     unitId: string;
     input: ChangeUnitStatusInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<UnitDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.unitId);
+    const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     const from = existing.status as UnitStatusValue;
     const to = args.input.status;
     if (from === to) return this.toDto(existing);
@@ -397,7 +408,7 @@ export class UnitsService {
     return this.toDto(updated);
   }
 
-  private async findOrThrow(tenantId: string, unitId: string) {
+  private async findOrThrow(tenantId: string, unitId: string, facilityScope?: string[] | null) {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.unit.findUnique({
@@ -413,6 +424,7 @@ export class UnitsService {
     if (!row) {
       throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
     }
+    assertFacilityAllowed(facilityScope, row.facilityId);
     return row;
   }
 
