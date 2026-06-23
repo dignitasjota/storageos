@@ -379,6 +379,7 @@ function CreateCredentialDialog({
       allowedFacilityIds: [],
       allowedUnitIds: [],
       allowedHours: {},
+      bypassCurfew: false,
       metadata: {},
     },
   });
@@ -394,6 +395,7 @@ function CreateCredentialDialog({
         allowedFacilityIds: values.allowedFacilityIds ?? [],
         allowedUnitIds: values.allowedUnitIds ?? [],
         allowedHours: values.allowedHours ?? {},
+        bypassCurfew: values.bypassCurfew ?? false,
         metadata: values.metadata ?? {},
         ...(values.label ? { label: values.label } : {}),
         ...(values.method === 'pin' && values.pin ? { pin: values.pin } : {}),
@@ -568,6 +570,23 @@ function CreateCredentialDialog({
                 })}
               </div>
             </div>
+            <FormField
+              control={form.control}
+              name="bypassCurfew"
+              render={({ field }) => (
+                <FormItem className="flex items-center gap-2 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value ?? false}
+                      onCheckedChange={(v) => field.onChange(v === true)}
+                    />
+                  </FormControl>
+                  <FormLabel className="!mt-0">
+                    Acceso 24h (salta el toque de queda del local) — staff
+                  </FormLabel>
+                </FormItem>
+              )}
+            />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancelar

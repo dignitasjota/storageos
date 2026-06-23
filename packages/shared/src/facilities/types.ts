@@ -13,6 +13,10 @@ export interface FacilityDto {
   longitude: number | null;
   timezone: string;
   openingHours: Record<string, unknown>;
+  /** Toque de queda de acceso (franja bloqueada, en `timezone`). */
+  accessCurfewEnabled: boolean;
+  accessCurfewStart: string | null;
+  accessCurfewEnd: string | null;
   contactPhone: string | null;
   contactEmail: string | null;
   /** Imágenes del local (key de objeto + URL pública) para la landing. */

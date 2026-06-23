@@ -17,6 +17,8 @@ export interface AccessCredentialDto {
   allowedFacilityIds: string[];
   allowedUnitIds: string[];
   allowedHours: Record<string, unknown>;
+  /** Acceso 24h: salta el toque de queda del local. */
+  bypassCurfew: boolean;
   suspendReason: string | null;
   expiresAt: string | null;
   activatedAt: string | null;

@@ -46,6 +46,18 @@ export const CreateFacilitySchema = z.object({
     .optional()
     .or(z.literal('')),
   contactEmail: z.string().trim().toLowerCase().email().optional().or(z.literal('')),
+  /** Toque de queda de acceso: bloquea el acceso en la franja (zona horaria del local). */
+  accessCurfewEnabled: z.boolean().optional(),
+  accessCurfewStart: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM')
+    .optional()
+    .or(z.literal('')),
+  accessCurfewEnd: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM')
+    .optional()
+    .or(z.literal('')),
 });
 export type CreateFacilityInput = z.infer<typeof CreateFacilitySchema>;
 

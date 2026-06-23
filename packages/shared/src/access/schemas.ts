@@ -53,6 +53,8 @@ export const CreateCredentialSchema = z
     allowedFacilityIds: z.array(z.string().uuid()).default([]),
     allowedUnitIds: z.array(z.string().uuid()).default([]),
     allowedHours: z.record(z.unknown()).default({}),
+    /** Acceso 24h: salta el toque de queda del local (típico de staff). */
+    bypassCurfew: z.boolean().default(false),
     expiresAt: z.string().datetime().optional(),
     contractId: z.string().uuid().optional(),
     metadata: z.record(z.unknown()).default({}),
@@ -69,6 +71,7 @@ export const UpdateCredentialSchema = z
     allowedFacilityIds: z.array(z.string().uuid()).optional(),
     allowedUnitIds: z.array(z.string().uuid()).optional(),
     allowedHours: z.record(z.unknown()).optional(),
+    bypassCurfew: z.boolean().optional(),
     expiresAt: z.string().datetime().optional().nullable(),
     metadata: z.record(z.unknown()).optional(),
   })

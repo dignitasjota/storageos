@@ -20,9 +20,85 @@ import {
 export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
   return (
     <div className="space-y-6">
+      <CurfewCard facility={facility} />
       <SlugCard facility={facility} />
       <ImagesCard facility={facility} />
     </div>
+  );
+}
+
+function CurfewCard({ facility }: { facility: FacilityDto }) {
+  const update = useUpdateFacility();
+  const [enabled, setEnabled] = useState(facility.accessCurfewEnabled);
+  const [start, setStart] = useState(facility.accessCurfewStart ?? '00:00');
+  const [end, setEnd] = useState(facility.accessCurfewEnd ?? '06:00');
+
+  async function save() {
+    try {
+      await update.mutateAsync({
+        id: facility.id,
+        input: {
+          accessCurfewEnabled: enabled,
+          accessCurfewStart: enabled ? start : '',
+          accessCurfewEnd: enabled ? end : '',
+        },
+      });
+      toast.success('Toque de queda actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Toque de queda de acceso</CardTitle>
+        <CardDescription>
+          Bloquea el acceso en una franja (zona horaria del local:{' '}
+          <span className="font-mono">{facility.timezone}</span>). Las credenciales con &quot;acceso
+          24h&quot; (staff) lo saltan.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            className="size-4"
+          />
+          Activar toque de queda
+        </label>
+        {enabled && (
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Cerrado desde</Label>
+              <Input
+                type="time"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                className="h-9 w-32"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Hasta</Label>
+              <Input
+                type="time"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                className="h-9 w-32"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              p. ej. de 00:00 a 06:00 = cerrado de medianoche a las 6.
+            </p>
+          </div>
+        )}
+        <Button onClick={save} disabled={update.isPending}>
+          {update.isPending ? 'Guardando...' : 'Guardar'}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
