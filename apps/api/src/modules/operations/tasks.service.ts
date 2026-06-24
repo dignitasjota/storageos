@@ -288,6 +288,7 @@ export class TasksService {
       assignedToUserId: t.assignedToUserId,
       assignedToName: t.assignedTo?.fullName ?? null,
       createdByUserId: t.createdByUserId,
+      maintenancePlanId: t.maintenancePlanId,
       dueDate: t.dueDate?.toISOString().slice(0, 10) ?? null,
       startedAt: t.startedAt?.toISOString() ?? null,
       completedAt: t.completedAt?.toISOString() ?? null,

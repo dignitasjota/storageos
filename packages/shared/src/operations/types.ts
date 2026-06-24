@@ -22,6 +22,8 @@ export interface TaskDto {
   assignedToUserId: string | null;
   assignedToName: string | null;
   createdByUserId: string | null;
+  /** Plan de mantenimiento recurrente que la generó (null si es manual). */
+  maintenancePlanId: string | null;
   dueDate: string | null;
   startedAt: string | null;
   completedAt: string | null;
