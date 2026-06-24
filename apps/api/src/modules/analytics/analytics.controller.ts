@@ -56,12 +56,15 @@ export class AnalyticsController {
   getMonthlyRevenue(
     @CurrentUser() user: AuthenticatedUser,
     @Query('months') months?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ): Promise<MonthlyRevenueKpiDto> {
     const parsed = months ? Number.parseInt(months, 10) : undefined;
-    return this.service.getMonthlyRevenue(
-      user.tenantId,
-      parsed && Number.isFinite(parsed) ? parsed : 12,
-    );
+    return this.service.getMonthlyRevenue(user.tenantId, {
+      ...(parsed && Number.isFinite(parsed) ? { months: parsed } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
   }
 
   @Get('churn')

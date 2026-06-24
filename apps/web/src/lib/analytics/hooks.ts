@@ -32,10 +32,22 @@ export const analyticsKey = (
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
-export function useMonthlyRevenue(months = 12) {
+export function useMonthlyRevenue(
+  arg: number | { months?: number; from?: string; to?: string } = 12,
+) {
+  const params = typeof arg === 'number' ? { months: arg } : arg;
+  const qs = new URLSearchParams();
+  if (params.from) qs.set('from', params.from);
+  if (params.to) qs.set('to', params.to);
+  if (!params.from && !params.to && params.months) qs.set('months', String(params.months));
   return useQuery({
-    queryKey: analyticsKey('monthly-revenue', { months: String(months) }),
-    queryFn: () => apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue?months=${months}`),
+    queryKey: analyticsKey('monthly-revenue', {
+      months: params.months ? String(params.months) : undefined,
+      from: params.from,
+      to: params.to,
+    }),
+    queryFn: () =>
+      apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue${qs.toString() ? `?${qs}` : ''}`),
   });
 }
 
