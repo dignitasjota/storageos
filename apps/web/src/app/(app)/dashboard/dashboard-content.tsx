@@ -1,17 +1,21 @@
 'use client';
 
-import { Building2, CalendarClock, CreditCard, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 
-import { BillingMetricsCard } from './billing-metrics-card';
-import { CustomersKpiCard } from './customers-kpi-card';
+import { AgingCard } from './aging-card';
+import { ChurnRiskCard } from './churn-risk-card';
+import { FacilityOccupancyCard } from './facility-occupancy-card';
+import { ForecastCard } from './forecast-card';
+import { KpiTiles } from './kpi-tiles';
+import { LeadsCard } from './leads-card';
 import { OccupancyCard } from './occupancy-card';
-import { RevenueKpiCard } from './revenue-kpi-card';
+import { RevenueTrendCard } from './revenue-trend-card';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useMe } from '@/lib/auth/hooks';
+import { useHasPermission, useMe } from '@/lib/auth/hooks';
 
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null;
@@ -19,51 +23,25 @@ function daysUntil(iso: string | null): number | null {
   return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
 }
 
-/** Tarjeta de KPI/cuenta con icono en círculo tintado (estilo minimalista). */
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  badge,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  hint?: string;
-  badge?: React.ReactNode;
-}) {
-  return (
-    <Card className="transition-shadow hover:shadow-soft">
-      <CardContent className="flex items-start gap-4 p-5">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Icon className="size-5" />
-        </span>
-        <div className="min-w-0 space-y-0.5">
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="truncate text-xl font-semibold tracking-tight">{value}</p>
-          {hint ? <p className="truncate text-xs text-muted-foreground">{hint}</p> : null}
-          {badge}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export function DashboardContent() {
   const t = useTranslations('dashboard');
   const format = useFormatter();
   const me = useMe();
+  const canSeeAnalytics = useHasPermission('analytics:read');
 
   if (me.isLoading || !me.data) {
     return (
       <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         <Skeleton className="h-9 w-72" />
         <Skeleton className="h-4 w-96" />
-        <div className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-xl" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[104px] rounded-xl" />
           ))}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-80 rounded-xl" />
+          <Skeleton className="h-80 rounded-xl" />
         </div>
       </div>
     );
@@ -76,50 +54,64 @@ export function DashboardContent() {
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          {t('welcome', { name: user.fullName })}
-        </h1>
-        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
-      </header>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        {tenant.status === 'trial' ? (
-          <StatCard
-            icon={Sparkles}
-            label={t('cards.trial.title')}
-            value={days !== null ? t('cards.trial.remaining', { days }) : '—'}
-            hint={
-              trialDate
-                ? t('cards.trial.endsOn', { date: format.dateTime(trialDate, 'long') })
-                : undefined
-            }
-          />
-        ) : null}
-
-        <StatCard
-          icon={CreditCard}
-          label={t('cards.plan.title')}
-          value={t('cards.plan.current', { plan: planTitle })}
-          badge={
-            <Badge variant="secondary" className="mt-1 capitalize">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {t('welcome', { name: user.fullName })}
+          </h1>
+          <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="capitalize">
+            Plan {planTitle}
+          </Badge>
+          {tenant.status === 'trial' && days !== null ? (
+            <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
+              <Sparkles className="size-3" />
+              {t('cards.trial.remaining', { days })}
+              {trialDate ? ` · ${format.dateTime(trialDate, 'long')}` : ''}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="capitalize">
               {subscription.status}
             </Badge>
-          }
-        />
+          )}
+        </div>
+      </header>
 
-        <StatCard
-          icon={tenant.status === 'trial' ? Building2 : CalendarClock}
-          label={t('cards.tenant.title')}
-          value={tenant.name}
-          hint={t('cards.tenant.slug', { slug: tenant.slug })}
-        />
-      </section>
+      {canSeeAnalytics ? (
+        <>
+          <KpiTiles />
 
-      <BillingMetricsCard />
-      <CustomersKpiCard />
-      <RevenueKpiCard />
-      <OccupancyCard />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <RevenueTrendCard />
+            <OccupancyCard />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ForecastCard />
+            <AgingCard />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ChurnRiskCard />
+            <LeadsCard />
+          </div>
+
+          <FacilityOccupancyCard />
+        </>
+      ) : (
+        <>
+          <OccupancyCard />
+          <Card className="border-dashed">
+            <CardContent className="py-6 text-sm text-muted-foreground">
+              Tu rol no tiene acceso a las métricas de negocio. Pide a un administrador el permiso{' '}
+              <span className="font-mono">analytics:read</span> para ver ingresos, ocupación y
+              previsiones.
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
