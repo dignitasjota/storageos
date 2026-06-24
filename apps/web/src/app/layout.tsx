@@ -17,7 +17,8 @@ export const metadata: Metadata = {
     default: 'StorageOS',
     template: '%s · StorageOS',
   },
-  description: 'SaaS multi-tenant para la gestión de locales de self-storage',
+  description:
+    'Software todo-en-uno para self-storage: inquilinos, contratos, facturación Veri*Factu, cobros, control de accesos, CRM y analítica. En español y multi-local.',
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
