@@ -17,6 +17,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { toast } from 'sonner';
 
 import type { ChurnRiskLevel, PricingAction } from '@storageos/shared';
 
@@ -36,6 +37,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   useAging,
+  useApplyPricing,
   useChurn,
   useChurnRisk,
   useLeadsFunnel,
@@ -45,6 +47,8 @@ import {
   usePricingSuggestions,
   useRevenueForecast,
 } from '@/lib/analytics/hooks';
+import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -540,6 +544,8 @@ const PRICING_BADGE: Record<PricingAction, { label: string; className: string }>
 
 function PricingSuggestionsPanel() {
   const pricing = usePricingSuggestions();
+  const apply = useApplyPricing();
+  const canApply = useHasPermission('units:manage');
 
   if (pricing.isLoading || !pricing.data) {
     return <PanelLoader />;
@@ -547,13 +553,29 @@ function PricingSuggestionsPanel() {
 
   const items = pricing.data.items;
 
+  async function applySuggestion(unitTypeId: string, name: string, price: number) {
+    if (
+      !window.confirm(
+        `¿Fijar el precio de catálogo de "${name}" en ${formatCurrency(price)}? Afecta a los nuevos contratos; los activos no cambian.`,
+      )
+    )
+      return;
+    try {
+      await apply.mutateAsync({ unitTypeId, price });
+      toast.success('Precio actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo aplicar.');
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Sugerencias de precio</CardTitle>
         <CardDescription>
-          Recomendaciones de yield management según la ocupación de cada tipo de trastero. Son
-          orientativas: no modifican tus precios ni reglas automáticamente.
+          Recomendaciones de yield management según la ocupación de cada tipo de trastero. Aplicar
+          fija el <strong>precio de catálogo</strong> del tipo (nuevos contratos); los contratos
+          activos no cambian — para subir la cartera usa <em>Subidas de precio</em> (ECRI).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -571,6 +593,7 @@ function PricingSuggestionsPanel() {
                 <TableHead className="text-right">Sugerido</TableHead>
                 <TableHead>Acción</TableHead>
                 <TableHead>Motivo</TableHead>
+                {canApply && <TableHead className="text-right">Aplicar</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -603,6 +626,24 @@ function PricingSuggestionsPanel() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{item.rationale}</TableCell>
+                  {canApply && (
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={apply.isPending || item.action === 'hold'}
+                        onClick={() =>
+                          void applySuggestion(
+                            item.unitTypeId,
+                            item.unitTypeName,
+                            item.suggestedPrice,
+                          )
+                        }
+                      >
+                        Aplicar
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

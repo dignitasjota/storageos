@@ -1,9 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma } from '@storageos/database';
 import type {
+  ApplyPricingResultDto,
   ChurnRiskItemDto,
   ChurnRiskKpiDto,
   ChurnRiskLevel,
@@ -47,7 +50,10 @@ function customerName(c: {
  */
 @Injectable()
 export class InsightsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Riesgo de baja (churn) por contrato activo.
@@ -359,5 +365,52 @@ export class InsightsService {
         points,
       };
     }, tenantId);
+  }
+
+  /**
+   * Aplica el precio sugerido a un tipo de trastero: actualiza su
+   * `defaultPriceMonthly` (precio de catálogo para nuevos contratos). No toca
+   * los contratos activos — para subir la cartera existe ECRI (rent-increases).
+   */
+  async applyPricing(args: {
+    tenantId: string;
+    userId: string;
+    unitTypeId: string;
+    price: number;
+    meta: RequestMeta;
+  }): Promise<ApplyPricingResultDto> {
+    const result = await this.prisma.withTenant(async (tx) => {
+      const ut = await tx.unitType.findUnique({ where: { id: args.unitTypeId } });
+      if (!ut) {
+        throw new NotFoundException({
+          code: 'unit_type_not_found',
+          message: 'Tipo de trastero no encontrado',
+        });
+      }
+      const previousPrice = toNumber(ut.defaultPriceMonthly);
+      const newPrice = round2(args.price);
+      await tx.unitType.update({
+        where: { id: args.unitTypeId },
+        data: { defaultPriceMonthly: newPrice },
+      });
+      return { previousPrice, newPrice };
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'pricing.suggestion_applied',
+      entityType: 'UnitType',
+      entityId: args.unitTypeId,
+      changes: { from: result.previousPrice, to: result.newPrice },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return {
+      unitTypeId: args.unitTypeId,
+      previousPrice: result.previousPrice,
+      newPrice: result.newPrice,
+    };
   }
 }
