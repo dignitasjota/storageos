@@ -63,5 +63,28 @@ describe('Analytics: ingresos por mes (e2e)', () => {
       .get('/analytics/monthly-revenue?months=0')
       .set(auth);
     expect(def.body.points).toHaveLength(12);
+
+    // Rango from/to (YYYY-MM): devuelve solo los meses del rango (inclusive) y
+    // el mes actual sigue mostrando 121/121.
+    const fromKey = (() => {
+      const idx = now.getUTCFullYear() * 12 + now.getUTCMonth() - 2; // 3 meses (incluye actual)
+      return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+    })();
+    const ranged = await request(app.getHttpServer())
+      .get(`/analytics/monthly-revenue?from=${fromKey}&to=${curKey}`)
+      .set(auth);
+    expect(ranged.status).toBe(200);
+    expect(ranged.body.points).toHaveLength(3);
+    expect(ranged.body.points[0].yearMonth).toBe(fromKey);
+    expect(ranged.body.points[2].yearMonth).toBe(curKey);
+    expect(ranged.body.points[2].invoiced).toBe(121);
+    expect(ranged.body.points[2].collected).toBe(121);
+
+    // from/to invertidos → el servicio los normaliza (mismo resultado).
+    const swapped = await request(app.getHttpServer())
+      .get(`/analytics/monthly-revenue?from=${curKey}&to=${fromKey}`)
+      .set(auth);
+    expect(swapped.body.points).toHaveLength(3);
+    expect(swapped.body.points[0].yearMonth).toBe(fromKey);
   });
 });

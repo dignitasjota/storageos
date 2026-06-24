@@ -44,6 +44,58 @@ function monthStartUtc(year: number, month: number): Date {
   return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
 }
 
+/** Parsea un "YYYY-MM" a índice absoluto de mes (year*12 + month-1). null si inválido. */
+function parseYearMonthIdx(value: string | undefined): number | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return year * 12 + (month - 1);
+}
+
+const MONTH_RANGE_MAX = 36;
+
+/**
+ * Lista de meses (más antiguo → actual) a partir de un rango `from`/`to`
+ * ("YYYY-MM") o, si no hay rango válido, los últimos `months` meses hasta hoy.
+ * Acota a `MONTH_RANGE_MAX` meses por seguridad.
+ */
+function resolveMonthList(opts: {
+  months?: number;
+  from?: string;
+  to?: string;
+}): { year: number; month: number; key: string }[] {
+  const now = new Date();
+  const curIdx = now.getUTCFullYear() * 12 + now.getUTCMonth();
+
+  let startIdx: number;
+  let endIdx: number;
+  const fromIdx = parseYearMonthIdx(opts.from);
+  const toIdx = parseYearMonthIdx(opts.to);
+  if (fromIdx !== null && toIdx !== null) {
+    startIdx = Math.min(fromIdx, toIdx);
+    endIdx = Math.max(fromIdx, toIdx);
+    // No proyectar al futuro: el tope es el mes actual.
+    if (endIdx > curIdx) endIdx = curIdx;
+    if (startIdx > endIdx) startIdx = endIdx;
+    if (endIdx - startIdx + 1 > MONTH_RANGE_MAX) startIdx = endIdx - (MONTH_RANGE_MAX - 1);
+  } else {
+    const span = Math.min(MONTH_RANGE_MAX, Math.max(1, Math.trunc(opts.months ?? 12) || 12));
+    endIdx = curIdx;
+    startIdx = curIdx - (span - 1);
+  }
+
+  const list: { year: number; month: number; key: string }[] = [];
+  for (let idx = startIdx; idx <= endIdx; idx++) {
+    const year = Math.floor(idx / 12);
+    const month = (idx % 12) + 1;
+    list.push({ year, month, key: formatYearMonth(year, month) });
+  }
+  return list;
+}
+
 function nextMonthStartUtc(year: number, month: number): Date {
   return month === 12 ? monthStartUtc(year + 1, 1) : monthStartUtc(year, month + 1);
 }
@@ -443,22 +495,17 @@ export class AnalyticsService {
    * **cobrado** (pagos con éxito en el mes, por fecha de cobro). Permite ver la
    * tendencia y comparar meses (lo que el Resumen no muestra: solo el mes actual).
    */
-  async getMonthlyRevenue(tenantId: string, months = 12): Promise<MonthlyRevenueKpiDto> {
-    const span = Math.min(24, Math.max(1, Math.trunc(months) || 12));
-    const now = new Date();
-    const curYear = now.getUTCFullYear();
-    const curMonth = now.getUTCMonth() + 1;
-
-    // Lista de meses (más antiguo → actual) y rango de fechas.
-    const list: { year: number; month: number; key: string }[] = [];
-    for (let i = span - 1; i >= 0; i--) {
-      const idx = curYear * 12 + (curMonth - 1) - i;
-      const year = Math.floor(idx / 12);
-      const month = (idx % 12) + 1;
-      list.push({ year, month, key: formatYearMonth(year, month) });
-    }
+  async getMonthlyRevenue(
+    tenantId: string,
+    opts: { months?: number; from?: string; to?: string } = {},
+  ): Promise<MonthlyRevenueKpiDto> {
+    // Lista de meses (más antiguo → actual): rango from/to o últimos N.
+    const list = resolveMonthList(opts);
     const first = list[0]!;
+    const last = list[list.length - 1]!;
     const fromDate = monthStartUtc(first.year, first.month);
+    // Exclusivo: primer día del mes siguiente al último del rango.
+    const toExclusive = nextMonthStartUtc(last.year, last.month);
 
     const [invoices, payments] = await this.prisma.withTenant(
       (tx) =>
@@ -468,12 +515,12 @@ export class AnalyticsService {
               tenantId,
               deletedAt: null,
               status: { in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] },
-              issueDate: { gte: fromDate },
+              issueDate: { gte: fromDate, lt: toExclusive },
             },
             select: { issueDate: true, total: true },
           }),
           tx.payment.findMany({
-            where: { tenantId, status: 'succeeded', paidAt: { gte: fromDate } },
+            where: { tenantId, status: 'succeeded', paidAt: { gte: fromDate, lt: toExclusive } },
             select: { paidAt: true, amount: true },
           }),
         ]),

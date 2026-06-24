@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -20,7 +21,10 @@ import {
 import type { ChurnRiskLevel, PricingAction } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -739,11 +743,103 @@ function PanelLoader() {
   );
 }
 
+/** Mes/año actuales y helpers para los atajos de rango (formato YYYY-MM). */
+function ym(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+interface RevenueRange {
+  key: string;
+  label: string;
+  months?: number;
+  from?: string;
+  to?: string;
+}
+
+function buildPresets(): RevenueRange[] {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const qStart = Math.floor((m - 1) / 3) * 3 + 1;
+  return [
+    { key: 'm12', label: 'Últimos 12 meses', months: 12 },
+    { key: 'm6', label: 'Últimos 6 meses', months: 6 },
+    { key: 'thisYear', label: 'Este año', from: ym(y, 1), to: ym(y, m) },
+    { key: 'lastYear', label: 'Año pasado', from: ym(y - 1, 1), to: ym(y - 1, 12) },
+    { key: 'thisQuarter', label: 'Este trimestre', from: ym(y, qStart), to: ym(y, m) },
+  ];
+}
+
 function MonthlyRevenuePanel() {
-  const revenue = useMonthlyRevenue(12);
+  const presets = buildPresets();
+  const [sel, setSel] = useState<RevenueRange>(presets[0]!);
+
+  const query = sel.from && sel.to ? { from: sel.from, to: sel.to } : { months: sel.months ?? 12 };
+  const revenue = useMonthlyRevenue(query);
+
+  const isRange = !!(sel.from && sel.to);
+
+  function setCustom(part: 'from' | 'to', value: string) {
+    // Conserva el otro extremo; la consulta solo pasa a rango cuando ambos
+    // están definidos (mientras tanto sigue mostrando los últimos 12 meses).
+    setSel({
+      key: 'custom',
+      label: 'Personalizado',
+      from: part === 'from' ? value || undefined : sel.from,
+      to: part === 'to' ? value || undefined : sel.to,
+    });
+  }
+
+  const controls = (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {presets.map((p) => (
+          <Button
+            key={p.key}
+            size="sm"
+            variant={sel.key === p.key ? 'default' : 'outline'}
+            onClick={() => setSel(p)}
+          >
+            {p.label}
+          </Button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="rev-from" className="text-xs">
+            Desde
+          </Label>
+          <Input
+            id="rev-from"
+            type="month"
+            className="h-9 w-40"
+            value={sel.from ?? ''}
+            onChange={(e) => setCustom('from', e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="rev-to" className="text-xs">
+            Hasta
+          </Label>
+          <Input
+            id="rev-to"
+            type="month"
+            className="h-9 w-40"
+            value={sel.to ?? ''}
+            onChange={(e) => setCustom('to', e.target.value)}
+          />
+        </div>
+      </div>
+    </div>
+  );
 
   if (revenue.isLoading || !revenue.data) {
-    return <PanelLoader />;
+    return (
+      <div className="space-y-4">
+        {controls}
+        <PanelLoader />
+      </div>
+    );
   }
 
   const points = revenue.data.points;
@@ -754,14 +850,19 @@ function MonthlyRevenuePanel() {
     Facturado: p.invoiced,
     Cobrado: p.collected,
   }));
+  const periodLabel = isRange
+    ? `${points[0]?.label ?? ''} – ${points[points.length - 1]?.label ?? ''}`
+    : sel.label.toLowerCase();
 
   return (
     <div className="space-y-4">
+      {controls}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <KpiCard title="Facturado (12 meses)" value={formatCurrency(totalInvoiced)}>
+        <KpiCard title={`Facturado (${periodLabel})`} value={formatCurrency(totalInvoiced)}>
           Facturas emitidas en el periodo
         </KpiCard>
-        <KpiCard title="Cobrado (12 meses)" value={formatCurrency(totalCollected)}>
+        <KpiCard title={`Cobrado (${periodLabel})`} value={formatCurrency(totalCollected)}>
           Pagos con éxito en el periodo
         </KpiCard>
       </div>
@@ -769,14 +870,12 @@ function MonthlyRevenuePanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Ingresos por mes</CardTitle>
-          <CardDescription>
-            Facturado (emitido) y cobrado en cada uno de los últimos 12 meses.
-          </CardDescription>
+          <CardDescription>Facturado (emitido) y cobrado · {periodLabel}.</CardDescription>
         </CardHeader>
         <CardContent className="h-80">
           {totalInvoiced === 0 && totalCollected === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Aún no hay ingresos registrados en los últimos 12 meses.
+              No hay ingresos registrados en el periodo seleccionado.
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
