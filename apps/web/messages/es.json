@@ -151,11 +151,9 @@
   },
   "sidebar": {
     "groups": {
-      "principal": "Principal",
       "operations": "Operativa",
       "inventory": "Inventario",
       "billing": "Facturación y cobros",
-      "access": "Accesos",
       "crm": "Crecimiento (CRM)",
       "analysis": "Análisis"
     },
