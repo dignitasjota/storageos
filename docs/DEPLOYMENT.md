@@ -727,6 +727,31 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 
 ---
 
+## 12C. Stripe live (producción)
+
+Tras validar todo en test mode (§12B), pasar a claves live. **Un solo webhook** (`/webhooks/stripe`) atiende tanto los pagos del inquilino (tarjeta/SEPA) como las suscripciones SaaS del tenant; el frontend **no** necesita variable de Stripe (la `publishableKey` viaja en la respuesta del SetupIntent).
+
+1. **Activar la cuenta** en Stripe (datos fiscales/bancarios) y cambiar el dashboard a **modo live** (toggle "Test mode" off).
+2. **Claves live** → en Portainer, variables del servicio **api** (no en web):
+   - `STRIPE_SECRET_KEY=sk_live_...`
+   - `STRIPE_PUBLISHABLE_KEY=pk_live_...`
+3. **Crear el webhook de producción** (Stripe Dashboard → Developers → Webhooks → Add endpoint):
+   - URL: `https://api.tu-dominio.com/webhooks/stripe`
+   - Eventos a seleccionar (los que procesa el backend):
+     - `payment_intent.succeeded`, `payment_intent.payment_failed`
+     - `charge.refunded`, `charge.dispute.created`
+     - `setup_intent.succeeded`
+     - `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
+     - `invoice.payment_succeeded`, `invoice.payment_failed`
+   - Copiar el **Signing secret** (`whsec_...`) → `STRIPE_WEBHOOK_SECRET` en Portainer (api).
+4. **Nginx Proxy Manager**: confirmar la _Custom location_ de `/webhooks/stripe` con `Request body size` ≥ 5MB y sin caché (Stripe firma el raw body; ver §6/§8 de NPM).
+5. **Redeploy** del stack en Portainer para que el api tome las nuevas variables.
+6. **Verificar**: en el webhook de Stripe, la última entrega debe responder `200`; hacer un cobro real pequeño (o un Checkout de suscripción) y comprobar que la factura/suscripción se actualiza. El worker debe estar arriba (consume la cola `payments`).
+
+> El catálogo de planes SaaS (Stripe Products/Prices) se gestiona desde `/admin` (super admin) vía `POST /subscription-plans`; no hay variables de entorno de `price_id`.
+
+---
+
 ## 13. Observabilidad (mínima)
 
 - **Sentry**: definir `SENTRY_DSN` en `.env.prod` (misma variable para `api` y `worker`; ambos la leen en su `instrument.ts`). Sin DSN, Sentry es un no-op. El API reporta los errores 5xx desde `HttpExceptionFilter`; el worker captura unhandled rejections/exceptions. Opcional: `SENTRY_TRACES_SAMPLE_RATE` (default `0`, solo errores).
