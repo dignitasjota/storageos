@@ -8,6 +8,14 @@ import type {
   TaskTypeValue,
 } from './schemas';
 
+/** Punto del checklist instanciado en una tarea (ronda). */
+export interface ChecklistItemDto {
+  id: string;
+  label: string;
+  status: 'pending' | 'ok' | 'issue';
+  note: string | null;
+}
+
 export interface TaskDto {
   id: string;
   type: TaskTypeValue;
@@ -24,6 +32,8 @@ export interface TaskDto {
   createdByUserId: string | null;
   /** Plan de mantenimiento recurrente que la generó (null si es manual). */
   maintenancePlanId: string | null;
+  /** Puntos a marcar (rondas). Vacío si la tarea no tiene checklist. */
+  checklist: ChecklistItemDto[];
   dueDate: string | null;
   startedAt: string | null;
   completedAt: string | null;

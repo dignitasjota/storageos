@@ -9,6 +9,12 @@ import { TaskPriorityEnum, TaskTypeEnum } from '../operations/schemas';
 export const MaintenanceFreqEnum = z.enum(['daily', 'weekly', 'monthly']);
 export type MaintenanceFreqValue = z.infer<typeof MaintenanceFreqEnum>;
 
+/** Punto del checklist de una plantilla (ronda). */
+export const ChecklistTemplateItemSchema = z.object({
+  label: z.string().trim().min(1).max(200),
+});
+export type ChecklistTemplateItem = z.infer<typeof ChecklistTemplateItemSchema>;
+
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 
 export const CreateMaintenancePlanSchema = z
@@ -28,6 +34,8 @@ export const CreateMaintenancePlanSchema = z
     dayOfMonth: z.number().int().min(1).max(28).optional(),
     /** Fecha desde la que empieza a generar (default: hoy). */
     startDate: dateOnly.optional(),
+    /** Puntos del checklist (ronda). Vacío = tarea simple sin checklist. */
+    checklistTemplate: z.array(ChecklistTemplateItemSchema).max(50).default([]),
   })
   .refine((v) => v.freq !== 'weekly' || v.weekdays.length > 0, {
     message: 'Indica al menos un día de la semana',
@@ -47,6 +55,7 @@ export const UpdateMaintenancePlanSchema = z.object({
   facilityId: z.string().uuid().nullable().optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().optional(),
+  checklistTemplate: z.array(ChecklistTemplateItemSchema).max(50).optional(),
 });
 export type UpdateMaintenancePlanInput = z.infer<typeof UpdateMaintenancePlanSchema>;
 
@@ -64,6 +73,7 @@ export interface MaintenancePlanDto {
   interval: number;
   weekdays: number[];
   dayOfMonth: number | null;
+  checklistTemplate: ChecklistTemplateItem[];
   startDate: string;
   nextRunDate: string;
   lastGeneratedAt: string | null;

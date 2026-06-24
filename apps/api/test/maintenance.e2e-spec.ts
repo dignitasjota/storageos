@@ -78,4 +78,54 @@ describe('Mantenimiento recurrente (e2e)', () => {
       .send({ isActive: false });
     expect(paused.body.isActive).toBe(false);
   });
+
+  it('ronda con checklist: la tarea generada lleva los puntos y se marcan', async () => {
+    const owner = await registerVerifiedUser(app, 'round');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const create = await request(app.getHttpServer())
+      .post('/maintenance-plans')
+      .set(auth)
+      .send({
+        title: 'Ronda de cierre',
+        type: 'inspection',
+        freq: 'daily',
+        interval: 1,
+        startDate: '2026-01-01',
+        checklistTemplate: [{ label: 'Puerta principal cerrada' }, { label: 'Luces apagadas' }],
+      });
+    expect(create.status).toBe(201);
+    expect(create.body.checklistTemplate).toHaveLength(2);
+    const planId = create.body.id as string;
+
+    await request(app.getHttpServer())
+      .post(`/maintenance-plans/${planId}/run`)
+      .set(auth)
+      .expect(200);
+
+    const tasks = await request(app.getHttpServer()).get('/tasks').set(auth);
+    const items = tasks.body.items ?? tasks.body;
+    const task = items.find((t: { maintenancePlanId?: string }) => t.maintenancePlanId === planId);
+    expect(task).toBeDefined();
+    expect(task.checklist).toHaveLength(2);
+    expect(task.checklist[0].status).toBe('pending');
+    const itemId = task.checklist[0].id as string;
+
+    // Marcar el primer punto como incidencia con nota.
+    const marked = await request(app.getHttpServer())
+      .patch(`/tasks/${task.id}/checklist/${itemId}`)
+      .set(auth)
+      .send({ status: 'issue', note: 'Puerta sin cerrar' });
+    expect(marked.status).toBe(200);
+    const updatedItem = marked.body.checklist.find((c: { id: string }) => c.id === itemId);
+    expect(updatedItem.status).toBe('issue');
+    expect(updatedItem.note).toBe('Puerta sin cerrar');
+
+    // Un itemId inexistente → 404.
+    const bad = await request(app.getHttpServer())
+      .patch(`/tasks/${task.id}/checklist/00000000-0000-7000-8000-000000000000`)
+      .set(auth)
+      .send({ status: 'ok' });
+    expect(bad.status).toBe(404);
+  });
 });

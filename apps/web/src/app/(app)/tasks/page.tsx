@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
+  type ChecklistItemDto,
   type CreateTaskInput,
   CreateTaskSchema,
   type TaskDto,
@@ -10,7 +11,7 @@ import {
   type TaskTypeValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Loader2, Plus } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -48,11 +49,13 @@ import { ApiError } from '@/lib/auth/api';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
   useAddTaskComment,
+  useCreateIncident,
   useCreateTask,
   useTask,
   useTaskComments,
   useTasks,
   useTransitionTask,
+  useUpdateChecklistItem,
 } from '@/lib/operations/hooks';
 import { useUsers } from '@/lib/users/hooks';
 
@@ -567,6 +570,14 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
               </div>
             )}
 
+            {task.data.checklist.length > 0 && (
+              <ChecklistSection
+                taskId={task.data.id}
+                facilityId={task.data.facilityId}
+                checklist={task.data.checklist}
+              />
+            )}
+
             <div className="space-y-2">
               <h3 className="text-sm font-medium">Comentarios</h3>
               <div className="max-h-48 space-y-2 overflow-y-auto">
@@ -602,5 +613,115 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChecklistSection({
+  taskId,
+  facilityId,
+  checklist,
+}: {
+  taskId: string;
+  facilityId: string | null;
+  checklist: ChecklistItemDto[];
+}) {
+  const updateItem = useUpdateChecklistItem(taskId);
+  const createIncident = useCreateIncident();
+  const doneCount = checklist.filter((it) => it.status !== 'pending').length;
+
+  async function mark(item: ChecklistItemDto, status: 'ok' | 'issue') {
+    let note: string | undefined;
+    if (status === 'issue') {
+      note = window.prompt('Describe la incidencia (opcional):') ?? undefined;
+    }
+    try {
+      await updateItem.mutateAsync({ itemId: item.id, status, ...(note ? { note } : {}) });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function openIncident(item: ChecklistItemDto) {
+    try {
+      await createIncident.mutateAsync({
+        title: `Ronda: ${item.label}`,
+        description: item.note ?? '',
+        severity: 'medium',
+        ...(facilityId ? { facilityId } : {}),
+        metadata: { source: 'checklist', taskId, checklistItemId: item.id },
+      });
+      toast.success('Incidencia creada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear la incidencia.');
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium">
+        Checklist{' '}
+        <span className="text-xs font-normal text-muted-foreground">
+          ({doneCount}/{checklist.length})
+        </span>
+      </h3>
+      <ul className="space-y-1.5">
+        {checklist.map((item) => (
+          <li
+            key={item.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+          >
+            <div className="min-w-0 flex-1">
+              <span
+                className={
+                  item.status === 'ok'
+                    ? 'text-muted-foreground line-through'
+                    : item.status === 'issue'
+                      ? 'font-medium text-red-600'
+                      : ''
+                }
+              >
+                {item.label}
+              </span>
+              {item.note && (
+                <span className="block text-xs text-muted-foreground">{item.note}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant={item.status === 'ok' ? 'default' : 'outline'}
+                className="h-7 px-2"
+                disabled={updateItem.isPending}
+                onClick={() => void mark(item, 'ok')}
+                aria-label="Marcar OK"
+              >
+                <Check className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant={item.status === 'issue' ? 'destructive' : 'outline'}
+                className="h-7 px-2"
+                disabled={updateItem.isPending}
+                onClick={() => void mark(item, 'issue')}
+                aria-label="Marcar incidencia"
+              >
+                <AlertTriangle className="h-4 w-4" />
+              </Button>
+              {item.status === 'issue' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  disabled={createIncident.isPending}
+                  onClick={() => void openIncident(item)}
+                >
+                  Abrir incidencia
+                </Button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
