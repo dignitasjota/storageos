@@ -97,6 +97,13 @@ const GROUPS: NavGroup[] = [
         icon: AlertTriangle,
         permission: 'incidents:read',
       },
+      {
+        href: '/access',
+        labelKey: 'access',
+        icon: KeyRound,
+        permission: 'access:read',
+        feature: 'access_control',
+      },
     ],
   },
   {
@@ -155,18 +162,6 @@ const GROUPS: NavGroup[] = [
         labelKey: 'verifactu',
         icon: ShieldCheck,
         permission: 'invoices:manage',
-      },
-    ],
-  },
-  {
-    labelKey: 'access',
-    items: [
-      {
-        href: '/access',
-        labelKey: 'access',
-        icon: KeyRound,
-        permission: 'access:read',
-        feature: 'access_control',
       },
     ],
   },
