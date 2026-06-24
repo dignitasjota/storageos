@@ -1,4 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { ApplyPricingSchema } from '@storageos/shared';
+import { createZodDto } from 'nestjs-zod';
 
 import {
   type AuthenticatedUser,
@@ -9,8 +11,10 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { AnalyticsService } from './analytics.service';
 import { InsightsService } from './insights.service';
 
+import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
+  ApplyPricingResultDto,
   ChurnKpiDto,
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
@@ -22,6 +26,18 @@ import type {
   RevenueForecastDto,
   RevenueKpiDto,
 } from '@storageos/shared';
+import type { Request } from 'express';
+
+class ApplyPricingDto extends createZodDto(ApplyPricingSchema) {}
+
+function extractMeta(req: Request): RequestMeta {
+  const ua = req.header('user-agent');
+  const ip = req.ip;
+  return {
+    ...(ua ? { userAgent: ua } : {}),
+    ...(ip ? { ipAddress: ip } : {}),
+  };
+}
 
 @RequirePermission('analytics:read')
 @Controller('analytics')
@@ -119,6 +135,23 @@ export class AnalyticsController {
   @Get('pricing-suggestions')
   getPricingSuggestions(@CurrentUser() user: AuthenticatedUser): Promise<PricingSuggestionsDto> {
     return this.insights.getPricingSuggestions(user.tenantId);
+  }
+
+  /** Aplica el precio sugerido al tipo de trastero (yield management). */
+  @RequirePermission('units:manage')
+  @Post('pricing-suggestions/apply')
+  applyPricing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ApplyPricingDto,
+    @Req() req: Request,
+  ): Promise<ApplyPricingResultDto> {
+    return this.insights.applyPricing({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      unitTypeId: body.unitTypeId,
+      price: body.price,
+      meta: extractMeta(req),
+    });
   }
 
   @Get('forecast')

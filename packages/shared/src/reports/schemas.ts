@@ -27,3 +27,10 @@ export const RunReportSchema = z.object({
   params: z.record(z.unknown()).default({}),
 });
 export type RunReportInput = z.infer<typeof RunReportSchema>;
+
+/** Aplica el nuevo precio de catálogo a un tipo de trastero (yield management). */
+export const ApplyPricingSchema = z.object({
+  unitTypeId: z.string().uuid(),
+  price: z.number().positive().max(100000),
+});
+export type ApplyPricingInput = z.infer<typeof ApplyPricingSchema>;

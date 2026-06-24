@@ -143,6 +143,13 @@ export interface PricingSuggestionsDto {
   items: PricingSuggestionItemDto[];
 }
 
+/** Resultado de aplicar una sugerencia de precio a un tipo de trastero. */
+export interface ApplyPricingResultDto {
+  unitTypeId: string;
+  previousPrice: number;
+  newPrice: number;
+}
+
 // ============================================================================
 // Forecasting de ocupación e ingresos (proyección heurística por tendencia)
 // ============================================================================

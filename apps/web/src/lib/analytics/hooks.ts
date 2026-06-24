@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
 import type {
   AgingKpiDto,
+  ApplyPricingResultDto,
   ChurnKpiDto,
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
@@ -126,6 +127,21 @@ export function usePricingSuggestions() {
   return useQuery({
     queryKey: analyticsKey('pricing-suggestions'),
     queryFn: () => apiFetch<PricingSuggestionsDto>('/analytics/pricing-suggestions'),
+  });
+}
+
+export function useApplyPricing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { unitTypeId: string; price: number }) =>
+      apiFetch<ApplyPricingResultDto>('/analytics/pricing-suggestions/apply', {
+        method: 'POST',
+        json: args,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: analyticsKey('pricing-suggestions') });
+      void qc.invalidateQueries({ queryKey: ['unit-types'] });
+    },
   });
 }
 

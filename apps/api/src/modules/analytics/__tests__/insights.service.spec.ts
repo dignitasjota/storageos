@@ -31,7 +31,8 @@ function buildService(tx: TxMock) {
   const prisma = {
     withTenant: <T>(fn: (t: TxMock) => Promise<T>) => fn(tx),
   } as unknown as PrismaService;
-  return new InsightsService(prisma);
+  const audit = { write: jest.fn() } as unknown as ConstructorParameters<typeof InsightsService>[1];
+  return new InsightsService(prisma, audit);
 }
 
 function activeContract(overrides: Record<string, unknown> = {}) {
