@@ -374,6 +374,7 @@ model Tenant {
   automationRules         AutomationRule[]
   automationRuns          AutomationRun[]
   tasks                   Task[]
+  maintenancePlans        MaintenancePlan[]
   taskComments            TaskComment[]
   incidents               Incident[]
   incidentComments        IncidentComment[]
@@ -455,6 +456,7 @@ model User {
   leadsAssigned            Lead[]                    @relation("LeadAssignedTo")
   tasksAssigned            Task[]                    @relation("TaskAssignedTo")
   tasksCreated             Task[]                    @relation("TaskCreatedBy")
+  maintenancePlansAssigned MaintenancePlan[]         @relation("MaintenancePlanAssignee")
   taskCommentsAuthored     TaskComment[]             @relation("TaskCommentAuthor")
   incidentsAssigned        Incident[]                @relation("IncidentAssignedTo")
   incidentsReported        Incident[]                @relation("IncidentReportedBy")
@@ -726,16 +728,17 @@ model Facility {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  floors         FacilityFloor[]
-  units          Unit[]
-  leadsPreferred Lead[]          @relation("LeadPreferredFacility")
-  tasks          Task[]          @relation("TaskFacility")
-  incidents      Incident[]      @relation("IncidentFacility")
-  productStocks  ProductStock[]  @relation("ProductStockFacility")
-  productSales   ProductSale[]   @relation("ProductSaleFacility")
-  accessDevices  AccessDevice[]  @relation("DeviceFacility")
-  userFacilities UserFacility[]
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  floors           FacilityFloor[]
+  units            Unit[]
+  leadsPreferred   Lead[]            @relation("LeadPreferredFacility")
+  tasks            Task[]            @relation("TaskFacility")
+  maintenancePlans MaintenancePlan[]
+  incidents        Incident[]        @relation("IncidentFacility")
+  productStocks    ProductStock[]    @relation("ProductStockFacility")
+  productSales     ProductSale[]     @relation("ProductSaleFacility")
+  accessDevices    AccessDevice[]    @relation("DeviceFacility")
+  userFacilities   UserFacility[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -2184,39 +2187,74 @@ enum ReportFormat {
 /// State machine: open -> in_progress -> done | cancelled (con vuelta
 /// atras permitida hasta done). Asignacion a un user del tenant.
 model Task {
-  id               String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId         String       @map("tenant_id") @db.Uuid
-  type             TaskType     @default(other)
-  status           TaskStatus   @default(open)
-  priority         TaskPriority @default(normal)
-  title            String
-  description      String?
-  facilityId       String?      @map("facility_id") @db.Uuid
-  unitId           String?      @map("unit_id") @db.Uuid
-  assignedToUserId String?      @map("assigned_to_user_id") @db.Uuid
-  createdByUserId  String?      @map("created_by_user_id") @db.Uuid
-  dueDate          DateTime?    @map("due_date") @db.Date
-  startedAt        DateTime?    @map("started_at") @db.Timestamptz(6)
-  completedAt      DateTime?    @map("completed_at") @db.Timestamptz(6)
-  cancelledAt      DateTime?    @map("cancelled_at") @db.Timestamptz(6)
-  cancelReason     String?      @map("cancel_reason")
-  metadata         Json         @default("{}")
-  deletedAt        DateTime?    @map("deleted_at") @db.Timestamptz(6)
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  type              TaskType     @default(other)
+  status            TaskStatus   @default(open)
+  priority          TaskPriority @default(normal)
+  title             String
+  description       String?
+  facilityId        String?      @map("facility_id") @db.Uuid
+  unitId            String?      @map("unit_id") @db.Uuid
+  assignedToUserId  String?      @map("assigned_to_user_id") @db.Uuid
+  createdByUserId   String?      @map("created_by_user_id") @db.Uuid
+  maintenancePlanId String?      @map("maintenance_plan_id") @db.Uuid
+  dueDate           DateTime?    @map("due_date") @db.Date
+  startedAt         DateTime?    @map("started_at") @db.Timestamptz(6)
+  completedAt       DateTime?    @map("completed_at") @db.Timestamptz(6)
+  cancelledAt       DateTime?    @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason      String?      @map("cancel_reason")
+  metadata          Json         @default("{}")
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  facility   Facility?     @relation("TaskFacility", fields: [facilityId], references: [id], onDelete: SetNull)
-  unit       Unit?         @relation("TaskUnit", fields: [unitId], references: [id], onDelete: SetNull)
-  assignedTo User?         @relation("TaskAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  createdBy  User?         @relation("TaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  comments   TaskComment[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  facility        Facility?        @relation("TaskFacility", fields: [facilityId], references: [id], onDelete: SetNull)
+  unit            Unit?            @relation("TaskUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  assignedTo      User?            @relation("TaskAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdBy       User?            @relation("TaskCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  maintenancePlan MaintenancePlan? @relation(fields: [maintenancePlanId], references: [id], onDelete: SetNull)
+  comments        TaskComment[]
 
   @@index([tenantId])
   @@index([tenantId, status, dueDate])
   @@index([tenantId, assignedToUserId])
   @@index([tenantId, facilityId])
   @@map("tasks")
+}
+
+/// Plantilla de mantenimiento recurrente: genera tareas automáticamente según
+/// una frecuencia. `freq` = 'daily' | 'weekly' | 'monthly'; `weekdays` (0=dom..6=sáb)
+/// solo para weekly; `dayOfMonth` (1-28) solo para monthly; `interval` = cada N.
+model MaintenancePlan {
+  id               String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  title            String
+  description      String?
+  type             TaskType     @default(maintenance)
+  priority         TaskPriority @default(normal)
+  facilityId       String?      @map("facility_id") @db.Uuid
+  assignedToUserId String?      @map("assigned_to_user_id") @db.Uuid
+  freq             String
+  interval         Int          @default(1)
+  weekdays         Int[]        @default([])
+  dayOfMonth       Int?         @map("day_of_month")
+  startDate        DateTime     @map("start_date") @db.Date
+  nextRunDate      DateTime     @map("next_run_date") @db.Date
+  lastGeneratedAt  DateTime?    @map("last_generated_at") @db.Timestamptz(6)
+  isActive         Boolean      @default(true) @map("is_active")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility   Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  assignedTo User?     @relation("MaintenancePlanAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  tasks      Task[]
+
+  @@index([tenantId])
+  @@index([isActive, nextRunDate])
+  @@map("maintenance_plans")
 }
 
 model TaskComment {

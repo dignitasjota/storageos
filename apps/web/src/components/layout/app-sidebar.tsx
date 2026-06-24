@@ -31,6 +31,7 @@ import {
   TrendingUp,
   Users,
   Warehouse,
+  Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -91,6 +92,12 @@ const GROUPS: NavGroup[] = [
         permission: 'contracts:read',
       },
       { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
+      {
+        href: '/maintenance',
+        labelKey: 'maintenance',
+        icon: Wrench,
+        permission: 'tasks:read',
+      },
       {
         href: '/incidents',
         labelKey: 'incidents',

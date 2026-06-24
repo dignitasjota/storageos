@@ -13,6 +13,7 @@ export * from './customers';
 export * from './billing';
 export * from './communications';
 export * from './operations';
+export * from './maintenance';
 export * from './reports';
 export * from './access';
 export * from './admin';
