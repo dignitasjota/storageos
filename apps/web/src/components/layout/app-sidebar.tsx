@@ -69,20 +69,10 @@ interface NavGroup {
   items: NavItem[];
 }
 
+/** Item principal, fuera de cualquier grupo (siempre el primero). */
+const PRIMARY_ITEM: NavItem = { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard };
+
 const GROUPS: NavGroup[] = [
-  {
-    labelKey: 'principal',
-    items: [
-      { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
-      {
-        href: '/assistant',
-        labelKey: 'assistant',
-        icon: Bot,
-        permission: 'ai:use',
-        feature: 'ai_assistant',
-      },
-    ],
-  },
   {
     labelKey: 'operations',
     items: [
@@ -219,6 +209,13 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/analytics', labelKey: 'analytics', icon: BarChart3, permission: 'analytics:read' },
       { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, permission: 'reports:read' },
+      {
+        href: '/assistant',
+        labelKey: 'assistant',
+        icon: Bot,
+        permission: 'ai:use',
+        feature: 'ai_assistant',
+      },
     ],
   },
 ];
@@ -258,6 +255,21 @@ export function AppSidebar() {
     });
   }
 
+  function renderItem(item: NavItem) {
+    const Icon = item.icon;
+    const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    return (
+      <SidebarMenuItem key={item.href}>
+        <SidebarMenuButton asChild isActive={active} className="data-[active=true]:font-medium">
+          <Link href={item.href}>
+            <Icon />
+            <span>{t(item.labelKey)}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  }
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -274,6 +286,12 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
       <SidebarContent className="gap-0">
+        {/* Item principal suelto (sin cabecera de grupo), siempre el primero. */}
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>{renderItem(PRIMARY_ITEM)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
         {GROUPS.map((group) => {
           const items = group.items.filter(
             (item) => can(item.permission) && hasFeature(item.feature),
@@ -298,26 +316,7 @@ export function AppSidebar() {
                 </button>
               </SidebarGroupLabel>
               <SidebarGroupContent hidden={isCollapsed}>
-                <SidebarMenu>
-                  {items.map((item) => {
-                    const Icon = item.icon;
-                    const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={active}
-                          className="data-[active=true]:font-medium"
-                        >
-                          <Link href={item.href}>
-                            <Icon />
-                            <span>{t(item.labelKey)}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
+                <SidebarMenu>{items.map((item) => renderItem(item))}</SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
           );
