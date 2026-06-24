@@ -91,6 +91,21 @@ export function useTransitionTask() {
   });
 }
 
+export function useUpdateChecklistItem(taskId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { itemId: string; status: 'pending' | 'ok' | 'issue'; note?: string }) =>
+      apiFetch<TaskDto>(`/tasks/${taskId}/checklist/${args.itemId}`, {
+        method: 'PATCH',
+        json: { status: args.status, ...(args.note ? { note: args.note } : {}) },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      void qc.invalidateQueries({ queryKey: ['tasks', taskId] });
+    },
+  });
+}
+
 export function useDeleteTask() {
   const qc = useQueryClient();
   return useMutation({

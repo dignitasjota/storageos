@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, Task, TaskComment, TaskStatus, TaskType } from '@storageos/database';
 import type {
+  ChecklistItemDto,
   CreateTaskInput,
   TaskCommentDto,
   TaskCommentInput,
@@ -13,6 +14,7 @@ import type {
   TaskStatusValue,
   TaskTypeValue,
   TransitionTaskInput,
+  UpdateChecklistItemInput,
   UpdateTaskInput,
 } from '@storageos/shared';
 
@@ -238,6 +240,44 @@ export class TasksService {
     return this.commentToDto(created);
   }
 
+  /** Marca un punto del checklist de la tarea (ronda): ok / incidencia + nota. */
+  async updateChecklistItem(args: {
+    tenantId: string;
+    userId: string;
+    taskId: string;
+    itemId: string;
+    input: UpdateChecklistItemInput;
+    meta: RequestMeta;
+  }): Promise<TaskDto> {
+    const task = await this.findOrThrow(args.tenantId, args.taskId);
+    const items = (task.checklist as ChecklistItemDto[] | null) ?? [];
+    const idx = items.findIndex((it) => it.id === args.itemId);
+    if (idx === -1) {
+      throw new NotFoundException({
+        code: 'checklist_item_not_found',
+        message: 'Punto no encontrado',
+      });
+    }
+    const next = items.map((it, i) =>
+      i === idx ? { ...it, status: args.input.status, note: args.input.note?.trim() || null } : it,
+    );
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.task.update({
+          where: { id: args.taskId },
+          data: { checklist: next as unknown as Prisma.InputJsonValue },
+          include: {
+            facility: { select: { name: true } },
+            unit: { select: { code: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.writeAudit('task.checklist_item_updated', args, args.taskId);
+    return this.toDto(updated);
+  }
+
   private async findOrThrow(tenantId: string, id: string): Promise<TaskWithIncludes> {
     const row = await this.prisma.withTenant(
       (tx) =>
@@ -289,6 +329,7 @@ export class TasksService {
       assignedToName: t.assignedTo?.fullName ?? null,
       createdByUserId: t.createdByUserId,
       maintenancePlanId: t.maintenancePlanId,
+      checklist: (t.checklist as ChecklistItemDto[] | null) ?? [],
       dueDate: t.dueDate?.toISOString().slice(0, 10) ?? null,
       startedAt: t.startedAt?.toISOString() ?? null,
       completedAt: t.completedAt?.toISOString() ?? null,

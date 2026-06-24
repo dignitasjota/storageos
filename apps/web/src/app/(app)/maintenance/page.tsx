@@ -211,6 +211,7 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
   const [dayOfMonth, setDayOfMonth] = useState('1');
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
+  const [checklist, setChecklist] = useState<string[]>([]);
 
   function toggleWeekday(v: number) {
     setWeekdays((prev) => (prev.includes(v) ? prev.filter((d) => d !== v) : [...prev, v]));
@@ -231,6 +232,10 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
       interval: Number(interval) || 1,
       weekdays: freq === 'weekly' ? weekdays : [],
       ...(freq === 'monthly' ? { dayOfMonth: Number(dayOfMonth) || 1 } : {}),
+      checklistTemplate: checklist
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((label) => ({ label })),
       startDate,
     };
     try {
@@ -389,6 +394,44 @@ function CreatePlanDialog({ onDone }: { onDone: () => void }) {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="space-y-2 rounded-md border p-3">
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+            Checklist (opcional)
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Puntos a comprobar en cada tarea generada (ronda de inspección). Déjalo vacío para una
+            tarea simple.
+          </p>
+          {checklist.map((item, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={item}
+                placeholder={`Punto ${i + 1}`}
+                onChange={(e) =>
+                  setChecklist((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))
+                }
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setChecklist((prev) => prev.filter((_, j) => j !== i))}
+                aria-label="Quitar punto"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setChecklist((prev) => [...prev, ''])}
+          >
+            <Plus className="mr-1 h-4 w-4" /> Añadir punto
+          </Button>
         </div>
 
         <div className="space-y-1.5">

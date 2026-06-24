@@ -20,6 +20,7 @@ import {
   type TaskStatusValue,
   type TaskTypeValue,
   TransitionTaskSchema,
+  UpdateChecklistItemSchema,
   UpdateTaskSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -38,6 +39,7 @@ import type { Request } from 'express';
 class CreateTaskDto extends createZodDto(CreateTaskSchema) {}
 class UpdateTaskDto extends createZodDto(UpdateTaskSchema) {}
 class TransitionTaskDto extends createZodDto(TransitionTaskSchema) {}
+class UpdateChecklistItemDto extends createZodDto(UpdateChecklistItemSchema) {}
 class TaskCommentDto2 extends createZodDto(TaskCommentSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -167,6 +169,25 @@ export class TasksController {
       tenantId: user.tenantId,
       userId: user.sub,
       taskId: id,
+      input: body,
+      meta: extractMeta(req),
+    });
+  }
+
+  @Patch(':id/checklist/:itemId')
+  @RequirePermission('tasks:write')
+  updateChecklistItem(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('itemId', new ParseUUIDPipe()) itemId: string,
+    @Body() body: UpdateChecklistItemDto,
+    @Req() req: Request,
+  ): Promise<TaskDto> {
+    return this.service.updateChecklistItem({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      taskId: id,
+      itemId,
       input: body,
       meta: extractMeta(req),
     });

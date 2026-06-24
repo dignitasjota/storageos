@@ -59,6 +59,13 @@ export const TransitionTaskSchema = z.object({
 });
 export type TransitionTaskInput = z.infer<typeof TransitionTaskSchema>;
 
+/** Marca un punto del checklist de una tarea (ronda). */
+export const UpdateChecklistItemSchema = z.object({
+  status: z.enum(['pending', 'ok', 'issue']),
+  note: optionalText(300),
+});
+export type UpdateChecklistItemInput = z.infer<typeof UpdateChecklistItemSchema>;
+
 export const TaskCommentSchema = z.object({
   body: z.string().trim().min(1).max(5000),
 });

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   type CreateMaintenancePlanInput,
@@ -103,6 +105,7 @@ export class MaintenanceService {
             interval: input.interval,
             weekdays: input.weekdays,
             dayOfMonth: input.dayOfMonth ?? null,
+            checklistTemplate: input.checklistTemplate as Prisma.InputJsonValue,
             startDate,
             nextRunDate,
           },
@@ -140,6 +143,8 @@ export class MaintenanceService {
     if (i.facilityId !== undefined) data.facilityId = i.facilityId;
     if (i.assignedToUserId !== undefined) data.assignedToUserId = i.assignedToUserId;
     if (i.isActive !== undefined) data.isActive = i.isActive;
+    if (i.checklistTemplate !== undefined)
+      data.checklistTemplate = i.checklistTemplate as Prisma.InputJsonValue;
 
     const updated = await this.prisma.withTenant(
       (tx) => tx.maintenancePlan.update({ where: { id: args.planId }, data, include: INCLUDE }),
@@ -220,6 +225,15 @@ export class MaintenanceService {
       if (!plan || !plan.isActive) return false;
       if (plan.nextRunDate.getTime() > today.getTime()) return false; // aún no toca
 
+      // Instancia el checklist de la plantilla (cada punto con id + estado).
+      const template = (plan.checklistTemplate as { label: string }[] | null) ?? [];
+      const checklist = template.map((it) => ({
+        id: randomUUID(),
+        label: it.label,
+        status: 'pending' as const,
+        note: null,
+      }));
+
       // Crea la tarea con vencimiento en la fecha que tocaba.
       await tx.task.create({
         data: {
@@ -231,6 +245,7 @@ export class MaintenanceService {
           facilityId: plan.facilityId,
           assignedToUserId: plan.assignedToUserId,
           maintenancePlanId: plan.id,
+          checklist: checklist as Prisma.InputJsonValue,
           dueDate: plan.nextRunDate,
         },
       });
@@ -280,6 +295,7 @@ export class MaintenanceService {
       interval: p.interval,
       weekdays: p.weekdays,
       dayOfMonth: p.dayOfMonth,
+      checklistTemplate: (p.checklistTemplate as { label: string }[] | null) ?? [],
       startDate: p.startDate.toISOString().slice(0, 10),
       nextRunDate: p.nextRunDate.toISOString().slice(0, 10),
       lastGeneratedAt: p.lastGeneratedAt ? p.lastGeneratedAt.toISOString() : null,
