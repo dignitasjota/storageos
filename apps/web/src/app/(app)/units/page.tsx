@@ -1,8 +1,14 @@
 'use client';
 
-import { type UnitDto, type UnitStatusValue } from '@storageos/shared';
+import {
+  type FacilityDto,
+  type FacilityFloorDto,
+  type UnitDto,
+  type UnitStatusValue,
+} from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal, Upload } from 'lucide-react';
+import { LayoutGrid, Map as MapIcon, MoreHorizontal, Upload } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -11,6 +17,7 @@ import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -39,11 +46,17 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useChangeUnitStatus,
   useFacilities,
+  useFloors,
   useOccupancyDashboard,
   useUnits,
   useUnitTypes,
 } from '@/lib/facilities/hooks';
 import { useFacilityStore } from '@/lib/facilities/store';
+
+// Konva no funciona en SSR; el plano se carga solo en cliente.
+const PlanViewer = dynamic(() => import('./plan-viewer').then((m) => m.PlanViewer), {
+  ssr: false,
+});
 
 const STATUS_OPTIONS: UnitStatusValue[] = ['available', 'reserved', 'maintenance', 'blocked'];
 
@@ -69,10 +82,13 @@ export default function UnitsPage() {
   const [facilityId, setFacilityId] = useState<string | undefined>(switcherFacility ?? undefined);
   const [status, setStatus] = useState<UnitStatusValue | undefined>();
   const [unitTypeId, setUnitTypeId] = useState<string | undefined>();
+  const [view, setView] = useState<'table' | 'plan'>('table');
+  const [floorId, setFloorId] = useState<string | undefined>();
 
   const facilities = useFacilities();
   const types = useUnitTypes();
   const occupancy = useOccupancyDashboard();
+  const floors = useFloors(view === 'plan' ? facilityId : undefined);
   const units = useUnits({
     ...(facilityId ? { facilityId } : {}),
     ...(status ? { status } : {}),
@@ -198,13 +214,33 @@ export default function UnitsPage() {
             Vista global de todos tus trasteros con filtros.
           </p>
         </div>
-        <Can permission="imports:manage">
-          <Button asChild variant="outline">
-            <Link href="/units/import">
-              <Upload className="mr-1 h-4 w-4" /> Importar
-            </Link>
-          </Button>
-        </Can>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-md border p-0.5">
+            <Button
+              variant={view === 'table' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 gap-1.5"
+              onClick={() => setView('table')}
+            >
+              <LayoutGrid className="h-4 w-4" /> Tabla
+            </Button>
+            <Button
+              variant={view === 'plan' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 gap-1.5"
+              onClick={() => setView('plan')}
+            >
+              <MapIcon className="h-4 w-4" /> Plano
+            </Button>
+          </div>
+          <Can permission="imports:manage">
+            <Button asChild variant="outline">
+              <Link href="/units/import">
+                <Upload className="mr-1 h-4 w-4" /> Importar
+              </Link>
+            </Button>
+          </Can>
+        </div>
       </div>
 
       {occupancy.data && occupancy.data.totalUnits > 0 && (
@@ -235,66 +271,85 @@ export default function UnitsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Select
-          value={facilityId ?? 'all'}
-          onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Local" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los locales</SelectItem>
-            {(facilities.data ?? []).map((f) => (
-              <SelectItem key={f.id} value={f.id}>
-                {f.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={status ?? 'all'}
-          onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as UnitStatusValue))}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los estados</SelectItem>
-            {(
-              ['available', 'occupied', 'reserved', 'maintenance', 'blocked'] as UnitStatusValue[]
-            ).map((s) => (
-              <SelectItem key={s} value={s}>
-                {STATUS_LABELS[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={unitTypeId ?? 'all'}
-          onValueChange={(v) => setUnitTypeId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Tipo" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los tipos</SelectItem>
-            {(types.data ?? []).map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {t.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {view === 'table' ? (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <Select
+              value={facilityId ?? 'all'}
+              onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Local" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los locales</SelectItem>
+                {(facilities.data ?? []).map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={status ?? 'all'}
+              onValueChange={(v) => setStatus(v === 'all' ? undefined : (v as UnitStatusValue))}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                {(
+                  [
+                    'available',
+                    'occupied',
+                    'reserved',
+                    'maintenance',
+                    'blocked',
+                  ] as UnitStatusValue[]
+                ).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={unitTypeId ?? 'all'}
+              onValueChange={(v) => setUnitTypeId(v === 'all' ? undefined : v)}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los tipos</SelectItem>
+                {(types.data ?? []).map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      <DataTable
-        columns={columns}
-        data={units.data?.items ?? []}
-        isLoading={units.isLoading}
-        searchPlaceholder="Buscar por código..."
-        emptyText="No hay trasteros que coincidan con los filtros."
-      />
+          <DataTable
+            columns={columns}
+            data={units.data?.items ?? []}
+            isLoading={units.isLoading}
+            searchPlaceholder="Buscar por código..."
+            emptyText="No hay trasteros que coincidan con los filtros."
+          />
+        </>
+      ) : (
+        <PlanView
+          facilityId={facilityId}
+          setFacilityId={setFacilityId}
+          facilities={facilities.data ?? []}
+          floors={floors.data ?? []}
+          floorId={floorId}
+          setFloorId={setFloorId}
+        />
+      )}
 
       <Dialog open={!!target} onOpenChange={(o) => !o && setTarget(null)}>
         <DialogContent>
@@ -335,6 +390,79 @@ export default function UnitsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function PlanView({
+  facilityId,
+  setFacilityId,
+  facilities,
+  floors,
+  floorId,
+  setFloorId,
+}: {
+  facilityId: string | undefined;
+  setFacilityId: (v: string | undefined) => void;
+  facilities: FacilityDto[];
+  floors: FacilityFloorDto[];
+  floorId: string | undefined;
+  setFloorId: (v: string | undefined) => void;
+}) {
+  // Planta efectiva: la seleccionada si pertenece al local, si no la primera.
+  const effectiveFloorId = floors.some((f) => f.id === floorId) ? floorId : floors[0]?.id;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Select
+          value={facilityId ?? 'none'}
+          onValueChange={(v) => setFacilityId(v === 'none' ? undefined : v)}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Elige un local" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Elige un local</SelectItem>
+            {facilities.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {f.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {facilityId && floors.length > 0 && (
+          <Select value={effectiveFloorId ?? ''} onValueChange={(v) => setFloorId(v)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Planta" />
+            </SelectTrigger>
+            <SelectContent>
+              {floors.map((fl) => (
+                <SelectItem key={fl.id} value={fl.id}>
+                  {fl.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {!facilityId ? (
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            Elige un local para ver el plano de sus trasteros por planta.
+          </CardContent>
+        </Card>
+      ) : floors.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            Este local no tiene plantas. Crea una en el detalle del local → pestaña «Plantas y
+            plano».
+          </CardContent>
+        </Card>
+      ) : effectiveFloorId ? (
+        <PlanViewer facilityId={facilityId} floorId={effectiveFloorId} />
+      ) : null}
     </div>
   );
 }
