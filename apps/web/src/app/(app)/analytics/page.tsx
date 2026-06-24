@@ -61,7 +61,7 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="occupancy" className="w-full">
+      <Tabs defaultValue="revenue" className="w-full">
         <TabsList className="flex-wrap">
           <TabsTrigger value="revenue">Ingresos</TabsTrigger>
           <TabsTrigger value="occupancy">Ocupación</TabsTrigger>
