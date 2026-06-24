@@ -36,10 +36,25 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useChangeUnitStatus, useFacilities, useUnits, useUnitTypes } from '@/lib/facilities/hooks';
+import {
+  useChangeUnitStatus,
+  useFacilities,
+  useOccupancyDashboard,
+  useUnits,
+  useUnitTypes,
+} from '@/lib/facilities/hooks';
 import { useFacilityStore } from '@/lib/facilities/store';
 
 const STATUS_OPTIONS: UnitStatusValue[] = ['available', 'reserved', 'maintenance', 'blocked'];
+
+/** Tiles de resumen por estado (colores alineados con el dashboard). */
+const STATUS_KPIS: { status: UnitStatusValue; label: string; color: string }[] = [
+  { status: 'available', label: 'Disponibles', color: '#64748b' },
+  { status: 'occupied', label: 'Ocupados', color: '#16a34a' },
+  { status: 'reserved', label: 'Reservados', color: '#eab308' },
+  { status: 'maintenance', label: 'Mantenimiento', color: '#f97316' },
+  { status: 'blocked', label: 'Bloqueados', color: '#dc2626' },
+];
 
 const STATUS_LABELS: Record<UnitStatusValue, string> = {
   available: 'Disponible',
@@ -57,6 +72,7 @@ export default function UnitsPage() {
 
   const facilities = useFacilities();
   const types = useUnitTypes();
+  const occupancy = useOccupancyDashboard();
   const units = useUnits({
     ...(facilityId ? { facilityId } : {}),
     ...(status ? { status } : {}),
@@ -190,6 +206,34 @@ export default function UnitsPage() {
           </Button>
         </Can>
       </div>
+
+      {occupancy.data && occupancy.data.totalUnits > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {STATUS_KPIS.map((k) => {
+            const count = occupancy.data.byStatus[k.status] ?? 0;
+            const active = status === k.status;
+            return (
+              <button
+                key={k.status}
+                type="button"
+                onClick={() => setStatus(active ? undefined : k.status)}
+                className={`rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/50 ${
+                  active ? 'ring-2 ring-primary' : ''
+                }`}
+              >
+                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span
+                    className="inline-block size-2.5 rounded-full"
+                    style={{ backgroundColor: k.color }}
+                  />
+                  {k.label}
+                </span>
+                <span className="mt-1 block text-2xl font-semibold tabular-nums">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Select
