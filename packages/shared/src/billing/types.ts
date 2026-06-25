@@ -58,7 +58,9 @@ export interface InvoiceDto {
   contractId: string | null;
   contractNumber: string | null;
   /** Trastero y local del contrato facturado (null en F2 o facturas sin contrato). */
+  unitId: string | null;
   unitCode: string | null;
+  facilityId: string | null;
   facilityName: string | null;
   status: InvoiceStatusValue;
   invoiceType: InvoiceTypeValue;

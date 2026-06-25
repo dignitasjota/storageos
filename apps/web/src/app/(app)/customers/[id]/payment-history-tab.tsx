@@ -322,8 +322,24 @@ function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
         <TableCell className="text-sm">
           {i.unitCode ? (
             <>
-              {i.unitCode}
-              {i.facilityName && <span className="text-muted-foreground"> · {i.facilityName}</span>}
+              {i.unitId ? (
+                <Link href={`/units/${i.unitId}`} className="hover:underline">
+                  {i.unitCode}
+                </Link>
+              ) : (
+                i.unitCode
+              )}
+              {i.facilityName &&
+                (i.facilityId ? (
+                  <span className="text-muted-foreground">
+                    {' · '}
+                    <Link href={`/facilities/${i.facilityId}`} className="hover:underline">
+                      {i.facilityName}
+                    </Link>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground"> · {i.facilityName}</span>
+                ))}
             </>
           ) : (
             <span className="text-muted-foreground">—</span>
