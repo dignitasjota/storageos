@@ -24,8 +24,14 @@ import type { ChurnRiskLevel, PricingAction } from '@storageos/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -811,6 +817,67 @@ function buildPresets(): RevenueRange[] {
   ];
 }
 
+const MONTHS_ES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
+/** Selector de mes + año (desplegables nativos del proyecto, fiables en todos
+ * los navegadores). `value` en formato YYYY-MM; emite YYYY-MM al cambiar. */
+function MonthYearSelect({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
+  const now = new Date();
+  const years = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i);
+  const parsed = value ? value.split('-').map(Number) : null;
+  const curMonth = parsed?.[1];
+  const curYear = parsed?.[0];
+  const baseYear = curYear ?? now.getFullYear();
+  const baseMonth = curMonth ?? now.getMonth() + 1;
+  return (
+    <div className="flex gap-1.5">
+      <Select
+        value={curMonth ? String(curMonth) : undefined}
+        onValueChange={(v) => onChange(ym(baseYear, Number(v)))}
+      >
+        <SelectTrigger className="h-9 w-[130px]">
+          <SelectValue placeholder="Mes" />
+        </SelectTrigger>
+        <SelectContent>
+          {MONTHS_ES.map((label, i) => (
+            <SelectItem key={i} value={String(i + 1)}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={curYear ? String(curYear) : undefined}
+        onValueChange={(v) => onChange(ym(Number(v), baseMonth))}
+      >
+        <SelectTrigger className="h-9 w-[90px]">
+          <SelectValue placeholder="Año" />
+        </SelectTrigger>
+        <SelectContent>
+          {years.map((y) => (
+            <SelectItem key={y} value={String(y)}>
+              {y}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function MonthlyRevenuePanel() {
   const presets = buildPresets();
   const [sel, setSel] = useState<RevenueRange>(presets[0]!);
@@ -845,30 +912,14 @@ function MonthlyRevenuePanel() {
           </Button>
         ))}
       </div>
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <div className="space-y-1">
-          <Label htmlFor="rev-from" className="text-xs">
-            Desde
-          </Label>
-          <Input
-            id="rev-from"
-            type="month"
-            className="h-9 w-40"
-            value={sel.from ?? ''}
-            onChange={(e) => setCustom('from', e.target.value)}
-          />
+          <Label className="text-xs">Desde</Label>
+          <MonthYearSelect value={sel.from} onChange={(v) => setCustom('from', v)} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="rev-to" className="text-xs">
-            Hasta
-          </Label>
-          <Input
-            id="rev-to"
-            type="month"
-            className="h-9 w-40"
-            value={sel.to ?? ''}
-            onChange={(e) => setCustom('to', e.target.value)}
-          />
+          <Label className="text-xs">Hasta</Label>
+          <MonthYearSelect value={sel.to} onChange={(v) => setCustom('to', v)} />
         </div>
       </div>
     </div>
