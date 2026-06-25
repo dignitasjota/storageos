@@ -276,3 +276,26 @@ export const ConvertReservationSchema = z.object({
   billingCycle: ContractBillingCycleEnum.default('monthly'),
 });
 export type ConvertReservationInput = z.infer<typeof ConvertReservationSchema>;
+
+// ============================================================================
+// Interacciones manuales con el inquilino (llamadas, visitas, notas)
+// ============================================================================
+
+export const InteractionTypeEnum = z.enum([
+  'note',
+  'call',
+  'visit',
+  'meeting',
+  'whatsapp',
+  'email',
+  'other',
+]);
+export type InteractionTypeValue = z.infer<typeof InteractionTypeEnum>;
+
+export const CreateCustomerInteractionSchema = z.object({
+  type: InteractionTypeEnum.default('note'),
+  content: z.string().trim().min(1).max(5000),
+  /** Cuándo ocurrió la interacción (ISO). Por defecto, ahora. */
+  occurredAt: z.string().datetime().optional(),
+});
+export type CreateCustomerInteractionInput = z.infer<typeof CreateCustomerInteractionSchema>;

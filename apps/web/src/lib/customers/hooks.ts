@@ -17,10 +17,12 @@ import type {
   InspectionPhotoDto,
   InspectionPhotoUploadDto,
   CreateCustomerInput,
+  CreateCustomerInteractionInput,
   CreateReservationInput,
   CustomerDocumentDto,
   CustomerDocumentUploadDto,
   CustomerDto,
+  CustomerInteractionDto,
   RegisterCustomerDocumentInput,
   RequestCustomerDocumentUploadInput,
   ReservationDto,
@@ -404,5 +406,38 @@ export function useDeleteInspectionPhoto(contractId: string, kind: InspectionKin
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: inspectionPhotosKey(contractId, kind) });
     },
+  });
+}
+
+// ============================================================================
+// Interacciones manuales (llamadas, visitas, notas)
+// ============================================================================
+
+export function useCustomerInteractions(id: string | undefined) {
+  return useQuery({
+    queryKey: ['customers', id, 'interactions'],
+    queryFn: () => apiFetch<CustomerInteractionDto[]>(`/customers/${id}/interactions`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateInteraction(customerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateCustomerInteractionInput) =>
+      apiFetch<CustomerInteractionDto>(`/customers/${customerId}/interactions`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'interactions'] }),
+  });
+}
+
+export function useDeleteInteraction(customerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/customers/${customerId}/interactions/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'interactions'] }),
   });
 }

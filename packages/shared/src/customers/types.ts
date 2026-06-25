@@ -5,6 +5,7 @@ import type {
   ContractStatusValue,
   CustomerDocumentTypeValue,
   CustomerTypeValue,
+  InteractionTypeValue,
   ReservationStatusValue,
 } from './schemas';
 
@@ -137,5 +138,17 @@ export interface ReservationDto {
   convertedContractId: string | null;
   cancelledAt: string | null;
   cancelReason: string | null;
+  createdAt: string;
+}
+
+export interface CustomerInteractionDto {
+  id: string;
+  type: InteractionTypeValue;
+  content: string;
+  /** Cuándo ocurrió la interacción (ISO). */
+  occurredAt: string;
+  /** Usuario (staff) que la registró; null si la creó el sistema. */
+  userId: string | null;
+  userName: string | null;
   createdAt: string;
 }
