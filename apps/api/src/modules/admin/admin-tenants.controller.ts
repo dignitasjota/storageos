@@ -18,10 +18,12 @@ import {
   ExtendTrialSchema,
   type ImpersonationTokenDto,
   ImpersonateSchema,
+  type TenantSubscriptionPaymentDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { BillingSaasService } from '../billing-saas/billing-saas.service';
 
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
@@ -54,7 +56,25 @@ export class AdminTenantsController {
   constructor(
     private readonly tenants: AdminTenantsService,
     private readonly impersonation: ImpersonationService,
+    private readonly saasBilling: BillingSaasService,
   ) {}
+
+  /** Historial de pagos de la suscripción SaaS del tenant (desde BD). */
+  @Get(':id/saas-payments')
+  async saasPayments(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<TenantSubscriptionPaymentDto[]> {
+    return this.saasBilling.listSaasPayments(id);
+  }
+
+  /** Sincroniza los pagos de la suscripción desde Stripe (backfill idempotente). */
+  @Post(':id/saas-payments/sync')
+  @HttpCode(HttpStatus.OK)
+  async syncSaasPayments(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ synced: number }> {
+    return this.saasBilling.syncSaasPaymentsFromStripe(id);
+  }
 
   @Get()
   async list(

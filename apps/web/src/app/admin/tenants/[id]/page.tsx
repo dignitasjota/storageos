@@ -15,6 +15,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { SaasPaymentsCard } from './saas-payments-card';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -178,6 +180,10 @@ export default function AdminTenantDetailPage() {
             <Stat label="Contratos" value={t.contractCount} />
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <SaasPaymentsCard tenantId={id} />
       </div>
 
       <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />

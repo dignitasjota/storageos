@@ -343,6 +343,7 @@ model Tenant {
   users                   User[]
   tenantRoles             TenantRole[]
   subscription            TenantSubscription?
+  subscriptionPayments    TenantSubscriptionPayment[]
   auditLogs               AuditLog[]
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
@@ -3139,4 +3140,32 @@ model CustomerInteraction {
   @@index([tenantId])
   @@index([tenantId, customerId])
   @@map("customer_interactions")
+}
+
+/// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la
+/// plataforma). Desacoplado del gateway: `provider` distingue el origen
+/// (stripe/manual/...). Lo llena el webhook de Stripe + un sync idempotente.
+model TenantSubscriptionPayment {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  provider    String    @default("stripe")
+  externalId  String?   @map("external_id")
+  status      String    @default("paid")
+  amount      Decimal   @db.Decimal(12, 2)
+  currency    String    @default("EUR") @db.Char(3)
+  planSlug    String?   @map("plan_slug")
+  planName    String?   @map("plan_name")
+  description String?
+  periodStart DateTime? @map("period_start") @db.Timestamptz(6)
+  periodEnd   DateTime? @map("period_end") @db.Timestamptz(6)
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
+  invoiceUrl  String?   @map("invoice_url")
+  pdfUrl      String?   @map("pdf_url")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, paidAt])
+  @@map("tenant_subscription_payments")
 }

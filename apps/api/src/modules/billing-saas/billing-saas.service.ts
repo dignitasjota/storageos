@@ -18,7 +18,26 @@ import type {
   BillingSessionResponseDto,
   SubscriptionPlanDto,
   TenantSubscriptionDto,
+  TenantSubscriptionPaymentDto,
 } from '@storageos/shared';
+
+/** Mapea el `status` de una factura de Stripe a nuestro estado de pago. */
+function mapInvoiceStatus(status: string | null): string {
+  switch (status) {
+    case 'paid':
+      return 'paid';
+    case 'uncollectible':
+      return 'failed';
+    case 'void':
+      return 'void';
+    default:
+      return 'pending'; // draft | open
+  }
+}
+
+function unixToDate(seconds: number | null | undefined): Date | null {
+  return seconds ? new Date(seconds * 1000) : null;
+}
 
 // El SDK de Stripe exporta `Stripe` como namespace y como clase con el mismo
 // nombre. El import por defecto resuelve al constructor; para acceder a los
@@ -26,6 +45,7 @@ import type {
 // usamos los tipos inferidos del cliente. Patron alineado con
 // `stripe.gateway.ts`.
 type StripeClient = InstanceType<typeof StripeSDK>;
+type StripeInvoice = Awaited<ReturnType<StripeClient['invoices']['list']>>['data'][number];
 type CheckoutSession = Awaited<ReturnType<StripeClient['checkout']['sessions']['create']>>;
 type BillingPortalSession = Awaited<
   ReturnType<StripeClient['billingPortal']['sessions']['create']>
@@ -474,5 +494,127 @@ export class BillingSaasService {
       stripeSubscriptionId: row.stripeSubscriptionId,
       plan,
     };
+  }
+
+  // ==========================================================================
+  // Historial de pagos de la suscripción SaaS (persistido en BD)
+  // ==========================================================================
+
+  /** Lista los pagos SaaS guardados de un tenant (panel super admin). */
+  async listSaasPayments(tenantId: string): Promise<TenantSubscriptionPaymentDto[]> {
+    const rows = await this.admin.tenantSubscriptionPayment.findMany({
+      where: { tenantId },
+      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      provider: r.provider,
+      status: r.status,
+      amount: Number(r.amount),
+      currency: r.currency,
+      planSlug: r.planSlug,
+      planName: r.planName,
+      description: r.description,
+      periodStart: r.periodStart?.toISOString() ?? null,
+      periodEnd: r.periodEnd?.toISOString() ?? null,
+      paidAt: r.paidAt?.toISOString() ?? null,
+      invoiceUrl: r.invoiceUrl,
+      pdfUrl: r.pdfUrl,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Backfill: trae las facturas del cliente en Stripe y las registra
+   * (idempotente). No lanza si Stripe no está configurado o el tenant no tiene
+   * `stripeCustomerId` (devuelve `{ synced: 0 }`).
+   */
+  async syncSaasPaymentsFromStripe(tenantId: string): Promise<{ synced: number }> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: { select: { slug: true, name: true } } },
+    });
+    if (!sub?.stripeCustomerId) return { synced: 0 };
+
+    let synced = 0;
+    try {
+      const invoices = await this.stripe.invoices.list({
+        customer: sub.stripeCustomerId,
+        limit: 100,
+      });
+      for (const inv of invoices.data) {
+        await this.recordStripeInvoice(tenantId, inv, sub.plan);
+        synced += 1;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Sync de pagos SaaS desde Stripe falló (tenant=${tenantId}): ${String(err)}`,
+      );
+    }
+    return { synced };
+  }
+
+  /** Registra (upsert) un pago desde un webhook de Stripe; resuelve el tenant. */
+  async recordStripeInvoiceFromWebhook(invoice: StripeInvoice): Promise<void> {
+    // En Stripe SDK v22 `invoice.subscription` ya no está tipado en la factura;
+    // resolvemos el tenant por el cliente (único por tenant), que sí está.
+    const customerId =
+      typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+    const tenantId = await this.resolveTenantId({
+      tenantIdHint: null,
+      stripeSubscriptionId: '',
+      stripeCustomerId: customerId ?? '',
+    });
+    if (!tenantId) {
+      this.logger.warn(`Pago SaaS de Stripe sin tenant resoluble (invoice=${invoice.id})`);
+      return;
+    }
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: { select: { slug: true, name: true } } },
+    });
+    await this.recordStripeInvoice(tenantId, invoice, sub?.plan ?? null);
+  }
+
+  /** Upsert idempotente (por external_id) de una factura de Stripe en BD. */
+  private async recordStripeInvoice(
+    tenantId: string,
+    invoice: StripeInvoice,
+    planHint?: { slug: string; name: string } | null,
+  ): Promise<void> {
+    const externalId = invoice.id;
+    const line = invoice.lines?.data?.[0];
+    const amountCents = invoice.amount_paid || invoice.amount_due || invoice.total || 0;
+    const data = {
+      tenantId,
+      provider: 'stripe',
+      externalId,
+      status: mapInvoiceStatus(invoice.status),
+      amount: amountCents / 100,
+      currency: (invoice.currency ?? 'eur').toUpperCase(),
+      planSlug: planHint?.slug ?? null,
+      planName: planHint?.name ?? null,
+      description: line?.description ?? invoice.description ?? null,
+      periodStart: unixToDate(line?.period?.start) ?? unixToDate(invoice.period_start),
+      periodEnd: unixToDate(line?.period?.end) ?? unixToDate(invoice.period_end),
+      paidAt: unixToDate(invoice.status_transitions?.paid_at),
+      invoiceUrl: invoice.hosted_invoice_url ?? null,
+      pdfUrl: invoice.invoice_pdf ?? null,
+    };
+
+    const existing = await this.admin.tenantSubscriptionPayment.findFirst({
+      where: { provider: 'stripe', externalId },
+      select: { id: true },
+    });
+    if (existing) {
+      await this.admin.tenantSubscriptionPayment.update({ where: { id: existing.id }, data });
+      return;
+    }
+    try {
+      await this.admin.tenantSubscriptionPayment.create({ data });
+    } catch (err) {
+      // Race con el índice único parcial: ya existe, lo ignoramos.
+      this.logger.debug(`recordStripeInvoice create race (invoice=${externalId}): ${String(err)}`);
+    }
   }
 }
