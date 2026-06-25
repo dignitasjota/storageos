@@ -106,7 +106,11 @@ export default function InvoicesPage() {
       accessorKey: 'customerName',
       header: 'Cliente',
       cell: ({ row }) =>
-        row.original.customerName ?? (
+        row.original.customerId ? (
+          <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
+            {row.original.customerName ?? 'Cliente'}
+          </Link>
+        ) : (
           <span className="italic text-muted-foreground">Sin identificar (F2)</span>
         ),
     },

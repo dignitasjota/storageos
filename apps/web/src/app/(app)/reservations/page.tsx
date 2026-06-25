@@ -3,6 +3,7 @@
 import { type ReservationDto, type ReservationStatusValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { MoreHorizontal } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -76,12 +77,29 @@ export default function ReservationsPage() {
     {
       id: 'unit',
       header: 'Trastero',
-      cell: ({ row }) => `${row.original.facilityName} · ${row.original.unitCode}`,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          <Link href={`/facilities/${row.original.facilityId}`} className="hover:underline">
+            {row.original.facilityName}
+          </Link>{' '}
+          ·{' '}
+          <Link href={`/units/${row.original.unitId}`} className="hover:underline">
+            {row.original.unitCode}
+          </Link>
+        </span>
+      ),
     },
     {
       accessorKey: 'customerName',
       header: 'Inquilino',
-      cell: ({ row }) => row.original.customerName ?? '—',
+      cell: ({ row }) =>
+        row.original.customerId ? (
+          <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
+            {row.original.customerName}
+          </Link>
+        ) : (
+          (row.original.customerName ?? '—')
+        ),
     },
     {
       accessorKey: 'validFrom',

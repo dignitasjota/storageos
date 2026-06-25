@@ -2,6 +2,7 @@
 
 import { type ReservationDto } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
+import Link from 'next/link';
 
 import { DataTable } from '@/components/data-table';
 import { ReservationStatusBadge } from '@/components/reservation-status-badge';
@@ -14,7 +15,17 @@ export function CustomerReservationsTab({ customerId }: { customerId: string }) 
     {
       accessorKey: 'unitCode',
       header: 'Trastero',
-      cell: ({ row }) => `${row.original.facilityName} · ${row.original.unitCode}`,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          <Link href={`/facilities/${row.original.facilityId}`} className="hover:underline">
+            {row.original.facilityName}
+          </Link>{' '}
+          ·{' '}
+          <Link href={`/units/${row.original.unitId}`} className="hover:underline">
+            {row.original.unitCode}
+          </Link>
+        </span>
+      ),
     },
     {
       accessorKey: 'validFrom',

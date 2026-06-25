@@ -217,7 +217,14 @@ export default function InvoiceDetailPage() {
               ) : (
                 <span className="italic">Sin destinatario identificado (F2)</span>
               )}
-              {i.contractNumber && ` · contrato ${i.contractNumber}`}
+              {i.contractNumber && i.contractId && (
+                <>
+                  {' · contrato '}
+                  <Link href={`/contracts/${i.contractId}`} className="hover:underline">
+                    {i.contractNumber}
+                  </Link>
+                </>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

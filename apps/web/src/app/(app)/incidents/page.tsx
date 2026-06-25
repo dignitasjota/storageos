@@ -10,6 +10,7 @@ import {
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Loader2, Plus } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -155,12 +156,26 @@ export default function IncidentsPage() {
     {
       accessorKey: 'customerName',
       header: 'Inquilino',
-      cell: ({ row }) => row.original.customerName ?? '—',
+      cell: ({ row }) =>
+        row.original.customerId ? (
+          <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
+            {row.original.customerName}
+          </Link>
+        ) : (
+          (row.original.customerName ?? '—')
+        ),
     },
     {
       accessorKey: 'facilityName',
       header: 'Local',
-      cell: ({ row }) => row.original.facilityName ?? '—',
+      cell: ({ row }) =>
+        row.original.facilityId ? (
+          <Link href={`/facilities/${row.original.facilityId}`} className="hover:underline">
+            {row.original.facilityName}
+          </Link>
+        ) : (
+          (row.original.facilityName ?? '—')
+        ),
     },
     {
       accessorKey: 'createdAt',

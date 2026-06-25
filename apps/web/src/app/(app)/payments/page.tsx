@@ -52,7 +52,15 @@ export default function PaymentsPage() {
           <span className="text-muted-foreground">—</span>
         ),
     },
-    { accessorKey: 'customerName', header: 'Cliente' },
+    {
+      accessorKey: 'customerName',
+      header: 'Cliente',
+      cell: ({ row }) => (
+        <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
+          {row.original.customerName}
+        </Link>
+      ),
+    },
     {
       accessorKey: 'amount',
       header: 'Importe',

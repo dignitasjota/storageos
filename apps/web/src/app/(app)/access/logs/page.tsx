@@ -2,6 +2,7 @@
 
 import { type AccessLogDto, type AccessResultValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { DataTable } from '@/components/data-table';
@@ -56,7 +57,14 @@ export default function AccessLogsPage() {
     {
       accessorKey: 'customerName',
       header: 'Inquilino',
-      cell: ({ row }) => <span className="text-sm">{row.original.customerName ?? '—'}</span>,
+      cell: ({ row }) =>
+        row.original.customerId ? (
+          <Link href={`/customers/${row.original.customerId}`} className="text-sm hover:underline">
+            {row.original.customerName}
+          </Link>
+        ) : (
+          <span className="text-sm">{row.original.customerName ?? '—'}</span>
+        ),
     },
     {
       accessorKey: 'deviceName',
