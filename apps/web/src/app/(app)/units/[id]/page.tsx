@@ -1,13 +1,38 @@
 'use client';
 
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { type UpdateUnitInput, UpdateUnitSchema } from '@storageos/shared';
+import { ArrowLeft, Loader2, Pencil, User } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useUnit, useUnitHistory } from '@/lib/facilities/hooks';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
+import { useContracts } from '@/lib/customers/hooks';
+import { useUnit, useUnitHistory, useUpdateUnit } from '@/lib/facilities/hooks';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -22,6 +47,10 @@ export default function UnitDetailPage() {
   const id = params?.id;
   const unit = useUnit(id);
   const history = useUnitHistory(id);
+  // Contrato vigente del trastero (para mostrar el inquilino que lo ocupa).
+  const contracts = useContracts(id ? { unitId: id } : {});
+  const canWrite = useHasPermission('units:write');
+  const [editOpen, setEditOpen] = useState(false);
 
   if (unit.isLoading || !unit.data) {
     return (
@@ -31,6 +60,12 @@ export default function UnitDetailPage() {
     );
   }
 
+  const u = unit.data;
+  const activeContract = (contracts.data ?? []).find(
+    (c) => c.status === 'active' || c.status === 'ending',
+  );
+  const isRented = u.status === 'occupied' || !!activeContract;
+
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
@@ -39,17 +74,62 @@ export default function UnitDetailPage() {
             <ArrowLeft className="mr-1 h-4 w-4" /> Trasteros
           </Link>
         </Button>
-        <div className="mt-2 flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{unit.data.code}</h1>
-          <StatusBadge status={unit.data.status} />
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">{u.code}</h1>
+            <StatusBadge status={u.status} />
+          </div>
+          {canWrite && !isRented && (
+            <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1 h-4 w-4" /> Editar trastero
+            </Button>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
-          <Link href={`/facilities/${unit.data.facilityId}`} className="hover:underline">
-            {unit.data.facilityName}
+          <Link href={`/facilities/${u.facilityId}`} className="hover:underline">
+            {u.facilityName}
           </Link>{' '}
-          · {unit.data.floorName} · {unit.data.unitTypeName}
+          · {u.floorName} · {u.unitTypeName}
         </p>
       </div>
+
+      {/* Estado actual */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Estado actual</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <StatusBadge status={u.status} />
+            <span className="text-sm text-muted-foreground">{STATUS_LABELS[u.status]}</span>
+          </div>
+          {activeContract ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-3">
+              <span className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <User className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Inquilino actual</p>
+                <Link
+                  href={`/customers/${activeContract.customerId}`}
+                  className="font-medium hover:underline"
+                >
+                  {activeContract.customerName}
+                </Link>
+              </div>
+              <Button asChild variant="outline" size="sm" className="ml-auto">
+                <Link href={`/contracts/${activeContract.id}`}>Ver contrato</Link>
+              </Button>
+            </div>
+          ) : u.status === 'available' ? (
+            <p className="text-sm text-muted-foreground">
+              Disponible para alquilar — sin contrato activo.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Sin inquilino asignado actualmente.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
@@ -57,9 +137,9 @@ export default function UnitDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Área</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold">{unit.data.areaM2.toFixed(2)} m²</p>
+            <p className="text-xl font-semibold">{u.areaM2.toFixed(2)} m²</p>
             <p className="text-xs text-muted-foreground">
-              {unit.data.widthM} × {unit.data.depthM} m
+              {u.widthM} × {u.depthM} m
             </p>
           </CardContent>
         </Card>
@@ -68,8 +148,8 @@ export default function UnitDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Volumen</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold">{unit.data.volumeM3.toFixed(2)} m³</p>
-            <p className="text-xs text-muted-foreground">Alto {unit.data.heightM} m</p>
+            <p className="text-xl font-semibold">{u.volumeM3.toFixed(2)} m³</p>
+            <p className="text-xs text-muted-foreground">Alto {u.heightM} m</p>
           </CardContent>
         </Card>
         <Card>
@@ -79,7 +159,7 @@ export default function UnitDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold">{unit.data.basePriceMonthly.toFixed(2)} €</p>
+            <p className="text-xl font-semibold">{u.basePriceMonthly.toFixed(2)} €</p>
           </CardContent>
         </Card>
         <Card>
@@ -87,7 +167,7 @@ export default function UnitDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Notas</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm">{unit.data.notes ?? '—'}</p>
+            <p className="text-sm">{u.notes ?? '—'}</p>
           </CardContent>
         </Card>
       </div>
@@ -122,6 +202,163 @@ export default function UnitDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <EditUnitDialog unit={u} open={editOpen} onOpenChange={setEditOpen} />
     </div>
+  );
+}
+
+function EditUnitDialog({
+  unit,
+  open,
+  onOpenChange,
+}: {
+  unit: {
+    id: string;
+    widthM: number;
+    depthM: number;
+    heightM: number;
+    basePriceMonthly: number;
+    notes: string | null;
+  };
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const update = useUpdateUnit();
+  const form = useForm<UpdateUnitInput>({
+    resolver: zodResolver(UpdateUnitSchema),
+    values: {
+      widthM: unit.widthM,
+      depthM: unit.depthM,
+      heightM: unit.heightM,
+      basePriceMonthly: unit.basePriceMonthly,
+      notes: unit.notes ?? '',
+    },
+  });
+
+  async function onSubmit(values: UpdateUnitInput) {
+    try {
+      await update.mutateAsync({ id: unit.id, input: values });
+      toast.success('Trastero actualizado.');
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar.');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar trastero</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <div className="grid grid-cols-3 gap-3">
+              <FormField
+                control={form.control}
+                name="widthM"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ancho (m)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        {...field}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="depthM"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Fondo (m)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        {...field}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="heightM"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Alto (m)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        {...field}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El área (m²) y el volumen (m³) se recalculan automáticamente.
+            </p>
+            <FormField
+              control={form.control}
+              name="basePriceMonthly"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Precio mensual (€)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      {...field}
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notas</FormLabel>
+                  <FormControl>
+                    <Textarea {...field} value={field.value ?? ''} rows={3} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={update.isPending}>
+                {update.isPending ? 'Guardando…' : 'Guardar'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
   );
 }
