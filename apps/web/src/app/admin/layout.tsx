@@ -14,10 +14,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { ThemeProvider } from 'next-themes';
 import { useEffect, type ReactNode } from 'react';
 
 import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared';
 
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -66,14 +68,25 @@ const ADMIN_NAV: AdminNavItem[] = [
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname === '/admin/login') {
-    return <div className="min-h-screen bg-background">{children}</div>;
-  }
-
+  // El panel admin tiene su propio tema (oscuro por defecto), independiente del
+  // panel normal, con su propia clave de almacenamiento. Son grupos de rutas
+  // hermanos que no coexisten, así que no hay conflicto de temas.
   return (
-    <AdminGuard>
-      <AdminShell>{children}</AdminShell>
-    </AdminGuard>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      enableSystem
+      disableTransitionOnChange
+      storageKey="storageos-admin-theme"
+    >
+      {pathname === '/admin/login' ? (
+        <div className="min-h-screen bg-background">{children}</div>
+      ) : (
+        <AdminGuard>
+          <AdminShell>{children}</AdminShell>
+        </AdminGuard>
+      )}
+    </ThemeProvider>
   );
 }
 
@@ -191,40 +204,43 @@ function AdminShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
           <div className="text-sm font-medium text-muted-foreground">Panel super admin</div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="size-9 rounded-full p-0"
-                aria-label="Menu de admin"
-              >
-                <Avatar className="size-9">
-                  <AvatarFallback>
-                    {(admin?.fullName ?? 'A').slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="space-y-0.5">
-                <p className="truncate text-sm">{admin?.fullName ?? '...'}</p>
-                <p className="truncate text-xs font-normal text-muted-foreground">
-                  {admin?.email ?? ''}
-                </p>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/admin/security">
-                  <ShieldCheck className="mr-2 size-4" aria-hidden />
-                  Seguridad (2FA)
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onLogout} disabled={logout.isPending}>
-                <LogOut className="mr-2 size-4" aria-hidden />
-                Cerrar sesión
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="size-9 rounded-full p-0"
+                  aria-label="Menu de admin"
+                >
+                  <Avatar className="size-9">
+                    <AvatarFallback>
+                      {(admin?.fullName ?? 'A').slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="space-y-0.5">
+                  <p className="truncate text-sm">{admin?.fullName ?? '...'}</p>
+                  <p className="truncate text-xs font-normal text-muted-foreground">
+                    {admin?.email ?? ''}
+                  </p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/admin/security">
+                    <ShieldCheck className="mr-2 size-4" aria-hidden />
+                    Seguridad (2FA)
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onLogout} disabled={logout.isPending}>
+                  <LogOut className="mr-2 size-4" aria-hidden />
+                  Cerrar sesión
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </header>
         <main className="min-w-0 flex-1">{children}</main>
       </div>

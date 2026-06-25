@@ -1,3 +1,5 @@
+import { ThemeProvider } from 'next-themes';
+
 import type { ReactNode } from 'react';
 
 import { AppHeader } from '@/components/layout/app-header';
@@ -8,15 +10,17 @@ import { AuthBootstrap } from '@/lib/auth/bootstrap';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <AuthBootstrap>
-      <SidebarProvider>
-        <AppSidebar />
-        <SidebarInset className="bg-app">
-          <AppHeader />
-          <TrialBanner />
-          <div className="flex-1">{children}</div>
-        </SidebarInset>
-      </SidebarProvider>
-    </AuthBootstrap>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <AuthBootstrap>
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset className="bg-app">
+            <AppHeader />
+            <TrialBanner />
+            <div className="flex-1">{children}</div>
+          </SidebarInset>
+        </SidebarProvider>
+      </AuthBootstrap>
+    </ThemeProvider>
   );
 }
