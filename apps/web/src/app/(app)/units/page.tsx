@@ -10,7 +10,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { LayoutGrid, Map as MapIcon, MoreHorizontal, Upload } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
@@ -79,7 +79,17 @@ const STATUS_LABELS: Record<UnitStatusValue, string> = {
 
 export default function UnitsPage() {
   const switcherFacility = useFacilityStore((s) => s.currentFacilityId);
+  const setCurrentFacility = useFacilityStore((s) => s.setCurrentFacility);
   const [facilityId, setFacilityId] = useState<string | undefined>(switcherFacility ?? undefined);
+  // Selecciona un local y lo recuerda (persistido en el store, compartido con
+  // el selector de local de la cabecera) para retomarlo en la próxima visita.
+  const selectFacility = useCallback(
+    (id: string | undefined) => {
+      setFacilityId(id);
+      setCurrentFacility(id ?? null);
+    },
+    [setCurrentFacility],
+  );
   const [status, setStatus] = useState<UnitStatusValue | undefined>();
   const [unitTypeId, setUnitTypeId] = useState<string | undefined>();
   const [view, setView] = useState<'table' | 'plan'>('table');
@@ -89,6 +99,14 @@ export default function UnitsPage() {
   const types = useUnitTypes();
   const occupancy = useOccupancyDashboard();
   const floors = useFloors(view === 'plan' ? facilityId : undefined);
+
+  // Si solo hay un local, lo selecciona automáticamente (no hace falta elegirlo).
+  useEffect(() => {
+    if (!facilityId && facilities.data && facilities.data.length === 1) {
+      selectFacility(facilities.data[0]!.id);
+    }
+  }, [facilities.data, facilityId, selectFacility]);
+
   const units = useUnits({
     ...(facilityId ? { facilityId } : {}),
     ...(status ? { status } : {}),
@@ -276,7 +294,7 @@ export default function UnitsPage() {
           <div className="flex flex-wrap gap-2">
             <Select
               value={facilityId ?? 'all'}
-              onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+              onValueChange={(v) => selectFacility(v === 'all' ? undefined : v)}
             >
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Local" />
@@ -343,7 +361,7 @@ export default function UnitsPage() {
       ) : (
         <PlanView
           facilityId={facilityId}
-          setFacilityId={setFacilityId}
+          setFacilityId={selectFacility}
           facilities={facilities.data ?? []}
           floors={floors.data ?? []}
           floorId={floorId}
