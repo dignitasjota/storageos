@@ -1,13 +1,14 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { InvoiceDto, PaymentDto, PaymentMethodTypeValue } from '@storageos/shared';
 
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -179,8 +180,9 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8" />
                   <TableHead>Factura</TableHead>
-                  <TableHead>Periodo</TableHead>
+                  <TableHead>Concepto</TableHead>
                   <TableHead>Trastero · Local</TableHead>
                   <TableHead>Vencimiento</TableHead>
                   <TableHead className="text-right">Importe</TableHead>
@@ -189,48 +191,9 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invoices.map((i) => {
-                  const punc = punctuality(i);
-                  return (
-                    <TableRow key={i.id}>
-                      <TableCell>
-                        <Link href={`/invoices/${i.id}`} className="font-medium hover:underline">
-                          {i.invoiceNumber}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{i.periodStart ? formatMonth(i.periodStart) : '—'}</TableCell>
-                      <TableCell className="text-sm">
-                        {i.unitCode ? (
-                          <>
-                            {i.unitCode}
-                            {i.facilityName && (
-                              <span className="text-muted-foreground"> · {i.facilityName}</span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm">{formatDate(i.dueDate)}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(i.total)}
-                      </TableCell>
-                      <TableCell>
-                        <InvoiceStatusBadge status={i.status} />
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {punc ? (
-                          <span className="flex items-center gap-1.5">
-                            <Badge variant={punc.variant}>{punc.label}</Badge>
-                            <span className="text-muted-foreground">{formatDate(i.paidAt)}</span>
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {invoices.map((i) => (
+                  <InvoiceRow key={i.id} invoice={i} />
+                ))}
               </TableBody>
             </Table>
           </div>
@@ -302,6 +265,109 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
         )}
       </div>
     </div>
+  );
+}
+
+/** Concepto legible de una factura, derivado de sus campos y líneas. */
+function invoiceConcept(inv: InvoiceDto): {
+  badge: string;
+  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  detail: string;
+} {
+  if (inv.lateFeeForInvoiceId) {
+    return { badge: 'Recargo', variant: 'destructive', detail: 'Recargo por mora' };
+  }
+  if (inv.contractId || inv.periodStart) {
+    const hasInsurance = inv.items.some((it) => /protecci|seguro/i.test(it.description));
+    const month = inv.periodStart ? formatMonth(inv.periodStart) : 'Alquiler';
+    return {
+      badge: 'Alquiler',
+      variant: 'secondary',
+      detail: hasInsurance ? `${month} · incluye protección` : month,
+    };
+  }
+  const first = inv.items[0];
+  return { badge: 'Producto', variant: 'outline', detail: first?.description ?? 'Venta' };
+}
+
+function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
+  const [open, setOpen] = useState(false);
+  const punc = punctuality(i);
+  const concept = invoiceConcept(i);
+  return (
+    <>
+      <TableRow>
+        <TableCell className="pr-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground"
+            onClick={() => setOpen((v) => !v)}
+            aria-label={open ? 'Contraer' : 'Ver líneas'}
+          >
+            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          </Button>
+        </TableCell>
+        <TableCell>
+          <Link href={`/invoices/${i.id}`} className="font-medium hover:underline">
+            {i.invoiceNumber}
+          </Link>
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center gap-2">
+            <Badge variant={concept.variant}>{concept.badge}</Badge>
+            <span className="text-sm text-muted-foreground">{concept.detail}</span>
+          </div>
+        </TableCell>
+        <TableCell className="text-sm">
+          {i.unitCode ? (
+            <>
+              {i.unitCode}
+              {i.facilityName && <span className="text-muted-foreground"> · {i.facilityName}</span>}
+            </>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell className="text-sm">{formatDate(i.dueDate)}</TableCell>
+        <TableCell className="text-right tabular-nums">{formatCurrency(i.total)}</TableCell>
+        <TableCell>
+          <InvoiceStatusBadge status={i.status} />
+        </TableCell>
+        <TableCell className="text-sm">
+          {punc ? (
+            <span className="flex items-center gap-1.5">
+              <Badge variant={punc.variant}>{punc.label}</Badge>
+              <span className="text-muted-foreground">{formatDate(i.paidAt)}</span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </TableCell>
+      </TableRow>
+      {open && (
+        <TableRow className="bg-muted/30 hover:bg-muted/30">
+          <TableCell />
+          <TableCell colSpan={7} className="py-2">
+            {i.items.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Sin líneas de detalle.</p>
+            ) : (
+              <ul className="space-y-1">
+                {i.items.map((it) => (
+                  <li key={it.id} className="flex items-center justify-between gap-4 text-sm">
+                    <span className="text-muted-foreground">
+                      {it.quantity > 1 && `${it.quantity} × `}
+                      {it.description}
+                    </span>
+                    <span className="tabular-nums">{formatCurrency(it.total)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
