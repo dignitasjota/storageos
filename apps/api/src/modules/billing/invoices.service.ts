@@ -59,7 +59,7 @@ type InvoiceWithRelations = Invoice & {
   } | null;
   contract: {
     contractNumber: string;
-    unit: { code: string; facility: { name: string } } | null;
+    unit: { id: string; code: string; facility: { id: string; name: string } } | null;
   } | null;
   series: { code: string };
   rectifiesInvoice: { id: string; invoiceNumber: string } | null;
@@ -951,7 +951,9 @@ export class InvoicesService {
       contract: {
         select: {
           contractNumber: true,
-          unit: { select: { code: true, facility: { select: { name: true } } } },
+          unit: {
+            select: { id: true, code: true, facility: { select: { id: true, name: true } } },
+          },
         },
       },
       series: { select: { code: true } },
@@ -1079,7 +1081,9 @@ export class InvoicesService {
       customerName,
       contractId: row.contractId,
       contractNumber: row.contract?.contractNumber ?? null,
+      unitId: row.contract?.unit?.id ?? null,
       unitCode: row.contract?.unit?.code ?? null,
+      facilityId: row.contract?.unit?.facility?.id ?? null,
       facilityName: row.contract?.unit?.facility?.name ?? null,
       status: row.status as InvoiceStatusValue,
       invoiceType: row.invoiceType as InvoiceTypeValue,
