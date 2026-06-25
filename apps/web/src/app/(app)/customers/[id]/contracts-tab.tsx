@@ -24,7 +24,11 @@ export function CustomerContractsTab({ customerId }: { customerId: string }) {
     {
       accessorKey: 'unitCode',
       header: 'Trastero',
-      cell: ({ row }) => `${row.original.facilityName} · ${row.original.unitCode}`,
+      cell: ({ row }) => (
+        <Link href={`/units/${row.original.unitId}`} className="hover:underline">
+          {row.original.facilityName} · {row.original.unitCode}
+        </Link>
+      ),
     },
     {
       accessorKey: 'startDate',
