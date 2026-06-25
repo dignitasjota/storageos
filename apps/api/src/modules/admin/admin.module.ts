@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
 import { AuthModule } from '../auth/auth.module';
+import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
@@ -38,7 +39,13 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
  * IMPORTANTE: el wiring en `AppModule` lo hace el desarrollador a mano.
  */
 @Module({
-  imports: [AuthModule, TwoFactorModule, JwtModule.register({}), IntegrationsModule],
+  imports: [
+    AuthModule,
+    TwoFactorModule,
+    JwtModule.register({}),
+    IntegrationsModule,
+    BillingSaasModule,
+  ],
   controllers: [
     SuperAdminAuthController,
     AdminTenantsController,

@@ -31,6 +31,7 @@ import type {
   SupportTicketDto,
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
+  TenantSubscriptionPaymentDto,
   TransitionTicketInput,
 } from '@storageos/shared';
 
@@ -551,5 +552,26 @@ export function useAdminQueues() {
     queryKey: ['admin', 'queues'],
     queryFn: () => adminApiFetch<AdminQueueStatus[]>('/admin/queues'),
     refetchInterval: 15_000,
+  });
+}
+
+export function useAdminTenantSaasPayments(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'saas-payments'] as const,
+    queryFn: () =>
+      adminApiFetch<TenantSubscriptionPaymentDto[]>(`/admin/tenants/${id}/saas-payments`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useSyncTenantSaasPayments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<{ synced: number }>(`/admin/tenants/${id}/saas-payments/sync`, {
+        method: 'POST',
+      }),
+    onSuccess: (_data, id) =>
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] }),
   });
 }

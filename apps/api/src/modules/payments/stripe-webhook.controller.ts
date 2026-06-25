@@ -195,13 +195,12 @@ export class StripeWebhookController {
       }
       case 'invoice.payment_succeeded': {
         const inv = (event.data as { object: StripeInvoiceLike }).object;
-        // Las facturas SaaS las gestiona Stripe entero; aqui solo loggeamos.
-        // El cambio de status real llega via `customer.subscription.updated`.
-        if (inv.subscription) {
-          this.logger.log(
-            `invoice.payment_succeeded recibido (event ${event.id}, sub ${stringId(inv.subscription)})`,
-          );
-        }
+        // Persistimos el pago de la suscripción SaaS en BD (historial del tenant,
+        // desacoplado del gateway). El cambio de status de la suscripción sigue
+        // llegando por `customer.subscription.updated`.
+        await this.saasBilling.recordStripeInvoiceFromWebhook(
+          inv as unknown as Parameters<typeof this.saasBilling.recordStripeInvoiceFromWebhook>[0],
+        );
         break;
       }
       case 'invoice.payment_failed': {

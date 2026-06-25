@@ -252,3 +252,23 @@ export interface UpsertSubscriptionPlanInput {
   maxUsers?: number | null;
   isActive?: boolean;
 }
+
+/** Un pago de la suscripción SaaS de un tenant (panel super admin). */
+export interface TenantSubscriptionPaymentDto {
+  id: string;
+  /** Origen del pago: 'stripe' | 'manual' | ... */
+  provider: string;
+  status: string;
+  amount: number;
+  currency: string;
+  planSlug: string | null;
+  planName: string | null;
+  description: string | null;
+  /** Periodo cubierto por el pago (para ver pagos anuales por adelantado). */
+  periodStart: string | null;
+  periodEnd: string | null;
+  paidAt: string | null;
+  invoiceUrl: string | null;
+  pdfUrl: string | null;
+  createdAt: string;
+}
