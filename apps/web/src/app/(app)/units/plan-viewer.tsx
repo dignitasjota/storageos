@@ -46,6 +46,9 @@ interface UnitRect {
   width: number;
   height: number;
   status: string;
+  areaM2: number;
+  price: number;
+  typeName: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -97,9 +100,23 @@ export function PlanViewer({ facilityId, floorId }: Props) {
           cursorY += h + GRID;
         }
       }
-      return { id: u.id, code: u.code, x, y, width: w, height: h, status: u.status };
+      return {
+        id: u.id,
+        code: u.code,
+        x,
+        y,
+        width: w,
+        height: h,
+        status: u.status,
+        areaM2: u.areaM2,
+        price: u.basePriceMonthly,
+        typeName: u.unitTypeName,
+      };
     });
   }, [units.data?.items]);
+
+  // Tooltip al pasar el cursor (precio + detalle del trastero).
+  const [hover, setHover] = useState<{ unit: UnitRect; x: number; y: number } | null>(null);
 
   const sceneSize = useMemo(() => {
     if (planImage) return { width: planImage.naturalWidth, height: planImage.naturalHeight };
@@ -294,9 +311,15 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                     const stage = e.target.getStage();
                     if (stage) stage.container().style.cursor = 'pointer';
                   }}
+                  onMouseMove={(e) => {
+                    const stage = e.target.getStage();
+                    const p = stage?.getPointerPosition();
+                    if (p) setHover({ unit: r, x: p.x, y: p.y });
+                  }}
                   onMouseLeave={(e) => {
                     const stage = e.target.getStage();
                     if (stage) stage.container().style.cursor = 'default';
+                    setHover(null);
                   }}
                 />
               ))}
@@ -304,12 +327,13 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                 <Text
                   key={`t-${r.id}`}
                   x={r.x}
-                  y={r.y + r.height / 2 - 6}
+                  y={r.y + r.height / 2 - 13}
                   width={r.width}
                   align="center"
-                  text={r.code}
+                  text={`${r.code}\n${r.areaM2.toFixed(1)} m²`}
                   fontSize={12}
                   fontStyle="bold"
+                  lineHeight={1.25}
                   fill="#ffffff"
                   listening={false}
                 />
@@ -317,9 +341,31 @@ export function PlanViewer({ facilityId, floorId }: Props) {
             </Layer>
           </Stage>
         )}
+
+        {hover && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-md border bg-popover px-3 py-2 text-xs shadow-md"
+            style={{
+              left: Math.min(hover.x + 12, viewport.width - 160),
+              top: Math.max(hover.y - 12, 4),
+            }}
+          >
+            <p className="font-semibold text-foreground">{hover.unit.code}</p>
+            <p className="text-muted-foreground">{hover.unit.typeName}</p>
+            <p className="text-muted-foreground">
+              {hover.unit.areaM2.toFixed(1)} m² ·{' '}
+              <span className="font-medium text-foreground">
+                {hover.unit.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
+                /mes
+              </span>
+            </p>
+            <p className="text-muted-foreground">{STATUS_LABEL[hover.unit.status]}</p>
+          </div>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
-        Haz clic en un trastero para abrirlo. Rueda o pellizca para hacer zoom; arrastra para mover.
+        Pasa el cursor por un trastero para ver el precio; haz clic para abrirlo. Rueda o pellizca
+        para hacer zoom; arrastra para mover.
       </p>
     </div>
   );
