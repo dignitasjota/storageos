@@ -57,7 +57,10 @@ type InvoiceWithRelations = Invoice & {
     companyName: string | null;
     customerType: 'individual' | 'business';
   } | null;
-  contract: { contractNumber: string } | null;
+  contract: {
+    contractNumber: string;
+    unit: { code: string; facility: { name: string } } | null;
+  } | null;
   series: { code: string };
   rectifiesInvoice: { id: string; invoiceNumber: string } | null;
   lateFeeInvoice: { id: string } | null;
@@ -945,7 +948,12 @@ export class InvoicesService {
           customerType: true,
         },
       },
-      contract: { select: { contractNumber: true } },
+      contract: {
+        select: {
+          contractNumber: true,
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+        },
+      },
       series: { select: { code: true } },
       rectifiesInvoice: { select: { id: true, invoiceNumber: true } },
       lateFeeInvoice: { select: { id: true } },
@@ -1071,6 +1079,8 @@ export class InvoicesService {
       customerName,
       contractId: row.contractId,
       contractNumber: row.contract?.contractNumber ?? null,
+      unitCode: row.contract?.unit?.code ?? null,
+      facilityName: row.contract?.unit?.facility?.name ?? null,
       status: row.status as InvoiceStatusValue,
       invoiceType: row.invoiceType as InvoiceTypeValue,
       rectifiesInvoiceId: row.rectifiesInvoiceId,
