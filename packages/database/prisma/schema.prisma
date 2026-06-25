@@ -371,6 +371,7 @@ model Tenant {
   leads                   Lead[]
   messageTemplates        MessageTemplate[]
   communications          Communication[]
+  customerInteractions    CustomerInteraction[]
   automationRules         AutomationRule[]
   automationRuns          AutomationRun[]
   tasks                   Task[]
@@ -470,6 +471,7 @@ model User {
   aiConversations          AiConversation[]
   facilities               UserFacility[]
   inspectionPhotos         ContractInspectionPhoto[]
+  customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -919,6 +921,7 @@ model Customer {
   sepaMandates       SepaMandate[]
   pushSubscriptions  PushSubscription[]
   unitChangeRequests UnitChangeRequest[]
+  interactions       CustomerInteraction[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -3113,4 +3116,27 @@ model WebhookDelivery {
   @@index([tenantId, status])
   @@index([webhookId, createdAt(sort: Desc)])
   @@map("webhook_deliveries")
+}
+
+/// Interaccion manual con un inquilino (llamada, visita, nota de lo hablado).
+/// Complementa el outbox `communications` (envios salientes) para el historico
+/// completo de comunicaciones con el cliente.
+model CustomerInteraction {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  type       String   @default("note")
+  content    String
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User?    @relation("CustomerInteractionAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, customerId])
+  @@map("customer_interactions")
 }
