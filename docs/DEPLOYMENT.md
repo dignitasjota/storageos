@@ -382,11 +382,63 @@ Automatiza los tres pasos imperativos del arranque:
 ### Notas
 
 - Los secretos viven en Portainer (su BD), **nunca** en el repo.
-- Para actualizar: **Pull and redeploy**. Si cambias `NEXT_PUBLIC_API_URL`
-  (build-arg del frontend) marca la opción de **re-build**.
+- Para actualizar a mano: **Pull and redeploy** (ver §6C para el automático). El
+  redeploy hace `git pull` del repo y reconstruye; al traer commits nuevos, la
+  capa `COPY apps/web` del Dockerfile se invalida y el **web se reconstruye con
+  el código nuevo**. ⚠️ Un "redeploy" **sin** pull efectivo da _cache hit_ del
+  `COPY` → sirve la imagen **vieja** del frontend (síntoma típico: ves rutas o
+  cambios que faltan, p. ej. un 404 en una página recién añadida). Si pasa,
+  fuerza el pull (webhook §6C) o, en el editor del stack, vuelve a desplegar
+  asegurando que reconstruye.
 - Construir 3 imágenes en un CX22 (4 GB) tira de swap; ten el swapfile de la
   sección 1.6 activo.
 - El `migrate dev` nunca; aquí solo corre `migrate deploy` (idempotente).
+
+---
+
+## 6C. Despliegue automático en cada merge (webhook de Portainer)
+
+Para no tener que entrar a Portainer a redeplegar a mano tras cada merge a
+`main` (y evitar olvidarlo, que deja el frontend desactualizado), hay un
+workflow de GitHub Actions (`.github/workflows/deploy.yml`) que dispara un
+**webhook de redeploy** del stack. Como el webhook hace `git pull` + redeploy,
+el web se reconstruye con el código nuevo (resuelve el problema de ver versiones
+viejas del frontend).
+
+`main` está protegida (solo avanza con los 4 checks en verde), así que cuando el
+workflow se dispara el código ya pasó CI + E2E.
+
+### Configuración (una sola vez)
+
+1. **Crea el webhook en Portainer**: abre el **stack** → pestaña/sección
+   **Webhooks** → **Create stack webhook** (o, en versiones nuevas, el icono de
+   webhook junto a "Update the stack"). Copia la URL, con forma
+   `https://<tu-portainer>/api/stacks/webhooks/<uuid>`.
+2. **Guarda la URL en GitHub**: repo → **Settings → Secrets and variables →
+   Actions → New repository secret**:
+   - Name: `PORTAINER_WEBHOOK_URL`
+   - Value: la URL del paso 1.
+3. Listo. En el próximo merge a `main`, el job **Deploy (Portainer)** hará
+   `POST` a esa URL y Portainer redeplegará. Sin el secret, el workflow no falla:
+   registra un aviso y termina (no-op), así que puedes mergear este cambio antes
+   de configurarlo.
+
+### Verificación
+
+- Tras un merge, en GitHub → pestaña **Actions** → workflow **Deploy
+  (Portainer)** debe salir en verde con "✅ Redeploy disparado".
+- En Portainer, el stack debe mostrar un redeploy reciente; cuando termine,
+  recarga el panel con **Ctrl/Cmd + Shift + R**.
+
+### Si aun así el web sigue saliendo viejo
+
+El webhook fuerza el `git pull`, que normalmente basta para que el `COPY` del
+Dockerfile invalide la caché. Si en algún caso Portainer reutilizara la imagen
+del web sin reconstruir, la opción definitiva (determinista, sin caché local) es
+**construir las imágenes en CI y publicarlas en un registry** (p. ej. GHCR) y
+que el compose use `image:` en vez de `build:`; el webhook entonces solo hace
+_pull image + redeploy_. Es un cambio mayor del pipeline; pendiente como
+follow-up si el webhook no resultara suficiente.
 
 ---
 

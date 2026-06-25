@@ -1,0 +1,49 @@
+name: Deploy (Portainer)
+
+# Dispara un redeploy del stack en Portainer en cada push a `main` (es decir, en
+# cada merge de PR — `main` está protegida y solo avanza con los 4 checks en
+# verde, así que el código que llega aquí ya pasó CI + E2E).
+#
+# El webhook de un stack de tipo *Repository* hace `git pull` + redeploy: el
+# `git pull` trae los commits nuevos, lo que invalida la capa `COPY apps/web`
+# del Dockerfile y obliga a reconstruir la imagen del web con el código nuevo
+# (la causa de que antes se vieran versiones viejas era un redeploy SIN pull
+# efectivo → cache hit del COPY → imagen vieja).
+#
+# Configuración (una sola vez):
+#   1. En Portainer: Stack → Webhooks → "Create stack webhook" → copia la URL.
+#   2. En GitHub: Settings → Secrets and variables → Actions → New repository
+#      secret → `PORTAINER_WEBHOOK_URL` con esa URL.
+# Sin el secret, este workflow no falla: registra un aviso y termina (no-op).
+
+on:
+  push:
+    branches: [main]
+
+# Un despliegue a la vez; no cancelamos uno en curso (podría dejar el stack a
+# medias), simplemente encolamos el siguiente.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  trigger-redeploy:
+    name: Disparar redeploy de Portainer
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST al webhook de Portainer
+        env:
+          WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::warning::PORTAINER_WEBHOOK_URL no está configurado; se omite el despliegue automático. Configúralo en Settings → Secrets → Actions."
+            exit 0
+          fi
+          echo "Disparando redeploy del stack en Portainer…"
+          code=$(curl -fsS -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" || echo "000")
+          echo "Respuesta del webhook: HTTP $code"
+          case "$code" in
+            2*) echo "✅ Redeploy disparado. Portainer hará git pull + rebuild del stack." ;;
+            000) echo "::error::No se pudo contactar con el webhook (¿URL/red?)."; exit 1 ;;
+            *) echo "::error::El webhook devolvió HTTP $code."; exit 1 ;;
+          esac
