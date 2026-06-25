@@ -53,13 +53,27 @@ export default function ContractsPage() {
         </Link>
       ),
     },
-    { accessorKey: 'customerName', header: 'Inquilino' },
+    {
+      accessorKey: 'customerName',
+      header: 'Inquilino',
+      cell: ({ row }) => (
+        <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
+          {row.original.customerName}
+        </Link>
+      ),
+    },
     {
       id: 'unit',
       header: 'Trastero',
       cell: ({ row }) => (
         <span className="text-sm">
-          {row.original.facilityName} · {row.original.unitCode}
+          <Link href={`/facilities/${row.original.facilityId}`} className="hover:underline">
+            {row.original.facilityName}
+          </Link>{' '}
+          ·{' '}
+          <Link href={`/units/${row.original.unitId}`} className="hover:underline">
+            {row.original.unitCode}
+          </Link>
         </span>
       ),
     },

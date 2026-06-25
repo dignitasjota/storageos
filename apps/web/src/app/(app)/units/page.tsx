@@ -161,6 +161,11 @@ export default function UnitsPage() {
       {
         accessorKey: 'facilityName',
         header: 'Local',
+        cell: ({ row }) => (
+          <Link href={`/facilities/${row.original.facilityId}`} className="hover:underline">
+            {row.original.facilityName}
+          </Link>
+        ),
       },
       {
         accessorKey: 'unitTypeName',
