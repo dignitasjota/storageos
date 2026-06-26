@@ -89,6 +89,31 @@ export interface AdminTenantDto {
   } | null;
 }
 
+/** Un tenant marcado "en riesgo" (retención) en el panel super admin. */
+export interface AdminAtRiskTenantDto {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  planName: string | null;
+  /** 'trial_expiring' | 'past_due' | 'inactive'. */
+  reason: string;
+  /** Fecha relevante (fin de trial / fin de periodo / último login), ISO o null. */
+  since: string | null;
+  /** Texto legible del motivo. */
+  detail: string;
+}
+
+/** Tenants en riesgo agrupados por motivo. */
+export interface AdminAtRiskDto {
+  /** Trials que expiran en los próximos 7 días. */
+  trialExpiring: AdminAtRiskTenantDto[];
+  /** Suscripciones con pago fallido (past_due). */
+  pastDue: AdminAtRiskTenantDto[];
+  /** Activos sin actividad de usuario en 14+ días. */
+  inactive: AdminAtRiskTenantDto[];
+}
+
 /** Un usuario (staff) de un tenant, visto desde el panel super admin. */
 export interface AdminTenantUserDto {
   id: string;
