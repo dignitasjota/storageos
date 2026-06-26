@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Building2,
   Gauge,
@@ -46,11 +47,12 @@ interface AdminNavItem {
 const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
+  { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
   { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
   { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
   { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
-  { href: '/admin/queues', label: 'Colas', icon: Layers },
+  { href: '/admin/queues', label: 'Sistema', icon: Layers },
   { href: '/admin/webhooks-cleanup', label: 'Cleanup webhooks', icon: Trash2 },
   { href: '/admin/security', label: 'Seguridad', icon: ShieldCheck },
 ];

@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  type AdminAtRiskDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantFacilityDto,
@@ -312,6 +313,12 @@ export class AdminTenantsController {
       ...(search ? { search } : {}),
       ...(status ? { status } : {}),
     });
+  }
+
+  /** Tenants en riesgo (retención): trials por expirar, past_due, inactivos. */
+  @Get('at-risk')
+  async atRisk(): Promise<AdminAtRiskDto> {
+    return this.tenants.getAtRisk();
   }
 
   @Get(':id')

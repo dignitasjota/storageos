@@ -5,6 +5,7 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AddTicketMessageInput,
+  AdminAtRiskDto,
   AdminMetricsDto,
   AdminSystemHealthDto,
   AdminTenantActionInput,
@@ -645,6 +646,15 @@ export function useAdminQueues() {
     queryKey: ['admin', 'queues'],
     queryFn: () => adminApiFetch<AdminQueueStatus[]>('/admin/queues'),
     refetchInterval: 15_000,
+  });
+}
+
+/** Tenants en riesgo (retención): trials por expirar, past_due, inactivos. */
+export function useAdminAtRisk() {
+  return useQuery({
+    queryKey: ['admin', 'at-risk'],
+    queryFn: () => adminApiFetch<AdminAtRiskDto>('/admin/tenants/at-risk'),
+    refetchInterval: 60_000,
   });
 }
 

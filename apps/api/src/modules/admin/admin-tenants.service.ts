@@ -10,6 +10,8 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { InvoiceStatus } from '@storageos/database';
 import type {
+  AdminAtRiskDto,
+  AdminAtRiskTenantDto,
   AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantFacilityDto,
@@ -137,6 +139,88 @@ export class AdminTenantsService {
       });
     }
     return this.toDto(row);
+  }
+
+  /**
+   * Tenants en riesgo (retención), agrupados por motivo:
+   * - trials que expiran en ≤7 días,
+   * - suscripciones con pago fallido (`past_due`),
+   * - activos sin actividad de usuario en 14+ días (incluye los que nunca
+   *   han accedido).
+   */
+  async getAtRisk(): Promise<AdminAtRiskDto> {
+    const now = new Date();
+    const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const inactiveCutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const planInclude = { subscription: { include: { plan: { select: { name: true } } } } };
+
+    const [trials, pastDue, activeTenants, lastLogins] = await Promise.all([
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, status: 'trial', trialEndsAt: { gte: now, lte: in7d } },
+        include: planInclude,
+        orderBy: { trialEndsAt: 'asc' },
+      }),
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, subscription: { status: 'past_due' } },
+        include: planInclude,
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, status: 'active' },
+        include: planInclude,
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.user.groupBy({ by: ['tenantId'], _max: { lastLoginAt: true } }),
+    ]);
+
+    const lastLoginByTenant = new Map(
+      lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]),
+    );
+
+    const toDto = (
+      t: {
+        id: string;
+        name: string;
+        slug: string;
+        status: string;
+        subscription: { plan: { name: string } | null } | null;
+      },
+      reason: string,
+      since: Date | null,
+      detail: string,
+    ): AdminAtRiskTenantDto => ({
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      status: t.status,
+      planName: t.subscription?.plan?.name ?? null,
+      reason,
+      since: since?.toISOString() ?? null,
+      detail,
+    });
+
+    const trialExpiring = trials.map((t) =>
+      toDto(t, 'trial_expiring', t.trialEndsAt, 'El trial expira pronto'),
+    );
+    const pastDueList = pastDue.map((t) =>
+      toDto(t, 'past_due', null, 'Pago de la suscripción fallido'),
+    );
+    const inactive = activeTenants
+      .filter((t) => {
+        const last = lastLoginByTenant.get(t.id) ?? null;
+        return !last || last < inactiveCutoff;
+      })
+      .map((t) => {
+        const last = lastLoginByTenant.get(t.id) ?? null;
+        return toDto(
+          t,
+          'inactive',
+          last,
+          last ? 'Sin actividad reciente' : 'Ningún usuario ha accedido nunca',
+        );
+      });
+
+    return { trialExpiring, pastDue: pastDueList, inactive };
   }
 
   /** Lista los usuarios (staff) de un tenant con datos relevantes para soporte. */
