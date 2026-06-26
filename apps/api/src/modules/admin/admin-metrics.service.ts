@@ -6,54 +6,169 @@ import type { AdminMetricsDto } from '@storageos/shared';
 
 type TenantStatusKey = 'trial' | 'active' | 'suspended' | 'cancelled';
 
+const MONTHS_ES = [
+  'ene',
+  'feb',
+  'mar',
+  'abr',
+  'may',
+  'jun',
+  'jul',
+  'ago',
+  'sep',
+  'oct',
+  'nov',
+  'dic',
+];
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+function startOfMonthUtc(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 /**
- * Metricas globales del SaaS para el dashboard del super admin.
- *
- * En el MVP el MRR se reporta como 0: el cobro real con Stripe Billing
- * (precios por plan + descuentos + impuestos) llega como sub-fase 8B. Aqui
- * dejamos el campo en el DTO para no romper contratos del frontend.
+ * Métricas globales del SaaS para el dashboard del super admin: estado de los
+ * tenants, MRR real (cuotas mensuales de las suscripciones activas), ARPU,
+ * crecimiento e ingresos por mes, distribución por plan, totales de plataforma
+ * y un par de alertas operativas (trials que expiran, tickets abiertos).
  */
 @Injectable()
 export class AdminMetricsService {
   constructor(private readonly admin: PrismaAdminService) {}
 
   async getOverview(): Promise<AdminMetricsDto> {
-    const monthStart = startOfMonthUtc(new Date());
+    const now = new Date();
+    const monthStart = startOfMonthUtc(now);
 
-    const [statusGroups, signupsThisMonth, cancellationsThisMonth, totalAtMonthStart] =
-      await Promise.all([
-        this.admin.tenant.groupBy({
-          by: ['status'],
-          where: { deletedAt: null },
-          _count: { _all: true },
-        }),
-        this.admin.tenant.count({
-          where: { deletedAt: null, createdAt: { gte: monthStart } },
-        }),
-        this.admin.tenant.count({
-          where: {
-            deletedAt: null,
-            status: 'cancelled',
-            updatedAt: { gte: monthStart },
-          },
-        }),
-        this.admin.tenant.count({
-          where: { deletedAt: null, createdAt: { lt: monthStart } },
-        }),
-      ]);
+    // Ventana de 12 meses (UTC) para las series mensuales.
+    const baseY = now.getUTCFullYear();
+    const baseM = now.getUTCMonth();
+    const months = Array.from({ length: 12 }, (_, idx) => {
+      const d = new Date(Date.UTC(baseY, baseM - (11 - idx), 1));
+      const year = d.getUTCFullYear();
+      const month = d.getUTCMonth() + 1;
+      return {
+        key: `${year}-${String(month).padStart(2, '0')}`,
+        label: `${MONTHS_ES[month - 1]} ${String(year % 100).padStart(2, '0')}`,
+      };
+    });
+    const from12 = new Date(Date.UTC(baseY, baseM - 11, 1));
+    const trialSoon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const tenants = {
-      total: 0,
-      trial: 0,
-      active: 0,
-      suspended: 0,
-      cancelled: 0,
-    };
+    const [
+      statusGroups,
+      signupsThisMonth,
+      cancellationsThisMonth,
+      totalAtMonthStart,
+      subscriptions,
+      trialsExpiringSoon,
+      openSupportTickets,
+      facilities,
+      units,
+      customers,
+      contracts,
+      users,
+      signupRows,
+      cancelRows,
+      revenueRows,
+    ] = await Promise.all([
+      this.admin.tenant.groupBy({
+        by: ['status'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.admin.tenant.count({ where: { deletedAt: null, createdAt: { gte: monthStart } } }),
+      this.admin.tenant.count({
+        where: { deletedAt: null, status: 'cancelled', updatedAt: { gte: monthStart } },
+      }),
+      this.admin.tenant.count({ where: { deletedAt: null, createdAt: { lt: monthStart } } }),
+      this.admin.tenantSubscription.findMany({
+        where: { tenant: { deletedAt: null } },
+        select: {
+          status: true,
+          plan: { select: { slug: true, name: true, priceMonthly: true } },
+        },
+      }),
+      this.admin.tenant.count({
+        where: { deletedAt: null, status: 'trial', trialEndsAt: { gte: now, lte: trialSoon } },
+      }),
+      this.admin.supportTicket.count({
+        where: { status: { in: ['open', 'in_progress', 'waiting_user'] } },
+      }),
+      this.admin.facility.count({ where: { deletedAt: null } }),
+      this.admin.unit.count(),
+      this.admin.customer.count({ where: { deletedAt: null } }),
+      this.admin.contract.count(),
+      this.admin.user.count(),
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, createdAt: { gte: from12 } },
+        select: { createdAt: true },
+      }),
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, status: 'cancelled', updatedAt: { gte: from12 } },
+        select: { updatedAt: true },
+      }),
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: { status: 'paid', paidAt: { gte: from12 } },
+        select: { paidAt: true, amount: true },
+      }),
+    ]);
+
+    // --- Tenants por estado ---
+    const tenants = { total: 0, trial: 0, active: 0, suspended: 0, cancelled: 0 };
     for (const row of statusGroups) {
       const key = row.status as TenantStatusKey;
-      const count = row._count._all;
-      tenants[key] = count;
-      tenants.total += count;
+      tenants[key] = row._count._all;
+      tenants.total += row._count._all;
+    }
+
+    // --- MRR (cuotas de suscripciones activas) + distribución por plan ---
+    const planMap = new Map<
+      string,
+      { planSlug: string; planName: string; count: number; mrr: number }
+    >();
+    let mrrTotal = 0;
+    for (const s of subscriptions) {
+      const slug = s.plan.slug;
+      const entry = planMap.get(slug) ?? {
+        planSlug: slug,
+        planName: s.plan.name,
+        count: 0,
+        mrr: 0,
+      };
+      entry.count += 1;
+      if (s.status === 'active') {
+        const monthly = Number(s.plan.priceMonthly);
+        entry.mrr += monthly;
+        mrrTotal += monthly;
+      }
+      planMap.set(slug, entry);
+    }
+    const tenantsByPlan = [...planMap.values()]
+      .map((p) => ({ ...p, mrr: round2(p.mrr) }))
+      .sort((a, b) => b.count - a.count);
+
+    // --- Series mensuales ---
+    const signupsByKey = new Map<string, number>();
+    for (const r of signupRows) {
+      const k = monthKey(r.createdAt);
+      signupsByKey.set(k, (signupsByKey.get(k) ?? 0) + 1);
+    }
+    const cancelsByKey = new Map<string, number>();
+    for (const r of cancelRows) {
+      const k = monthKey(r.updatedAt);
+      cancelsByKey.set(k, (cancelsByKey.get(k) ?? 0) + 1);
+    }
+    const revenueByKey = new Map<string, number>();
+    for (const r of revenueRows) {
+      if (!r.paidAt) continue;
+      const k = monthKey(r.paidAt);
+      revenueByKey.set(k, (revenueByKey.get(k) ?? 0) + Number(r.amount));
     }
 
     const churnRatePercent =
@@ -61,18 +176,24 @@ export class AdminMetricsService {
 
     return {
       tenants,
-      mrr: {
-        total: 0,
-        currency: 'EUR',
-      },
+      mrr: { total: round2(mrrTotal), currency: 'EUR' },
       signupsThisMonth,
       cancellationsThisMonth,
-      churnRatePercent: Math.round(churnRatePercent * 100) / 100,
-      averageRevenuePerTenant: 0,
+      churnRatePercent: round2(churnRatePercent),
+      averageRevenuePerTenant: tenants.active > 0 ? round2(mrrTotal / tenants.active) : 0,
+      trialsExpiringSoon,
+      openSupportTickets,
+      platform: { facilities, units, customers, contracts, users },
+      tenantsByPlan,
+      monthlyGrowth: months.map((m) => ({
+        label: m.label,
+        signups: signupsByKey.get(m.key) ?? 0,
+        cancellations: cancelsByKey.get(m.key) ?? 0,
+      })),
+      monthlySaasRevenue: months.map((m) => ({
+        label: m.label,
+        collected: round2(revenueByKey.get(m.key) ?? 0),
+      })),
     };
   }
-}
-
-function startOfMonthUtc(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
 }
