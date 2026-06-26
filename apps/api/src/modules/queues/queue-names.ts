@@ -16,3 +16,6 @@ export const QUEUE_COMMUNICATIONS = 'communications';
 export const QUEUE_AUTOMATIONS = 'automations';
 export const QUEUE_REPORTS = 'reports';
 export const QUEUE_WEBHOOKS = 'webhooks';
+
+/** Job de envío de un email ad-hoc (broadcasts del super admin). */
+export const JOB_EMAIL_SEND = 'email.send';

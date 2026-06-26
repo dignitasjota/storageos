@@ -1,6 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+
+import { EmailSendProcessor } from './email-send.processor';
 import { EmailService } from './email.service';
 import { EMAIL_PROVIDER } from './providers/email-provider';
 import { ResendEmailProvider } from './providers/resend.provider';
@@ -32,6 +35,9 @@ import type { Env } from '../../config/env.schema';
       inject: [ConfigService, SmtpEmailProvider, ResendEmailProvider],
     },
     EmailService,
+    // Solo procesa jobs cuando los workers corren en este proceso (worker en
+    // prod; API en dev/test). El `EmailService` sigue disponible siempre.
+    ...(WORKERS_ENABLED_IN_API ? [EmailSendProcessor] : []),
   ],
   exports: [EmailService, EMAIL_PROVIDER],
 })
