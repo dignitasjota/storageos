@@ -1,3 +1,4 @@
+import { getQueueToken } from '@nestjs/bullmq';
 import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
@@ -15,10 +16,16 @@ const ADMIN_URL =
 
 const ADMIN_EMAIL = 'admin-comms-test@storageos.local';
 
+interface TestQueue {
+  pause: () => Promise<void>;
+  obliterate: (opts: { force: boolean }) => Promise<void>;
+}
+
 describe('Admin comms (email + broadcast) (e2e)', () => {
   let app: INestApplication;
   let adminClient: PrismaClient;
   let token: string;
+  let emailQueue: TestQueue;
 
   beforeAll(async () => {
     await cleanupTestTenants();
@@ -34,6 +41,12 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
       },
     });
     app = await createTestApp();
+    // Pausamos la cola `email`: el broadcast a todos los tenants puede encolar
+    // muchos jobs en una BD local con tenants residuales; el test verifica el
+    // encolado por la respuesta del endpoint, no el envío real.
+    emailQueue = app.get<TestQueue>(getQueueToken('email'), { strict: false });
+    await emailQueue.pause();
+
     const login = await request(app.getHttpServer())
       .post('/admin/auth/login')
       .send({ email: ADMIN_EMAIL, password: 'AdminTest!23' });
@@ -44,6 +57,13 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
   });
 
   afterAll(async () => {
+    // Borramos los jobs encolados (la cola estaba pausada) para que el cierre
+    // del worker sea inmediato.
+    try {
+      await emailQueue.obliterate({ force: true });
+    } catch {
+      // best-effort
+    }
     await app.close();
     await adminClient.superAdmin.deleteMany({ where: { email: ADMIN_EMAIL } });
     await adminClient.$disconnect();

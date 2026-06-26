@@ -1,8 +1,11 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
+import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
+import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
@@ -41,6 +44,7 @@ export class AdminCommsService {
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
     private readonly superAdminAudit: SuperAdminAuditService,
+    @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
 
   /** Emails de destino de un tenant: owners verificados activos o billingEmail. */
@@ -79,18 +83,16 @@ export class AdminCommsService {
     return { sent, failed };
   }
 
-  /** Envío "fire-and-forget" en segundo plano (no bloquea el request HTTP). */
-  private sendInBackground(recipients: string[], subject: string, body: string): void {
+  /** Encola un email por destinatario en la cola BullMQ `email`. */
+  private async enqueue(recipients: string[], subject: string, body: string): Promise<void> {
+    if (recipients.length === 0) return;
     const { html, text } = renderEmail(body);
-    void (async () => {
-      for (const to of recipients) {
-        try {
-          await this.email.sendRendered({ to, subject, html, text });
-        } catch {
-          // Best-effort: el fallo de un destinatario no afecta al resto.
-        }
-      }
-    })();
+    await this.emailQueue.addBulk(
+      recipients.map((to) => ({
+        name: JOB_EMAIL_SEND,
+        data: { to, subject, html, text },
+      })),
+    );
   }
 
   async emailTenant(
@@ -131,19 +133,40 @@ export class AdminCommsService {
     if (input.audience === 'active') where.status = 'active';
     else if (input.audience === 'trial') where.status = 'trial';
     else where.status = { in: ['active', 'trial'] };
-    const tenants = await this.admin.tenant.findMany({ where, select: { id: true } });
 
-    // Resolvemos los destinatarios (queries rápidas) y disparamos el envío en
-    // segundo plano: un broadcast masivo no debe bloquear el request HTTP.
+    // Resolvemos los destinatarios de TODOS los tenants en 2 queries (no 2·N):
+    // los tenants del público + sus owners verificados activos en bloque.
+    const tenants = await this.admin.tenant.findMany({
+      where,
+      select: { id: true, billingEmail: true },
+    });
+    const owners = await this.admin.user.findMany({
+      where: {
+        tenantId: { in: tenants.map((t) => t.id) },
+        role: 'owner',
+        isActive: true,
+        emailVerifiedAt: { not: null },
+      },
+      select: { tenantId: true, email: true },
+    });
+    const ownersByTenant = new Map<string, Set<string>>();
+    for (const o of owners) {
+      const set = ownersByTenant.get(o.tenantId) ?? new Set<string>();
+      set.add(o.email.toLowerCase());
+      ownersByTenant.set(o.tenantId, set);
+    }
+
     let reached = 0;
     const allRecipients: string[] = [];
     for (const t of tenants) {
-      const tos = await this.recipientsFor(t.id);
+      const set = ownersByTenant.get(t.id);
+      const tos =
+        set && set.size > 0 ? [...set] : t.billingEmail ? [t.billingEmail.toLowerCase()] : [];
       if (tos.length === 0) continue;
       reached += 1;
       allRecipients.push(...tos);
     }
-    this.sendInBackground(allRecipients, input.subject, input.body);
+    await this.enqueue(allRecipients, input.subject, input.body);
 
     await this.superAdminAudit.record({
       superAdminId: meta.superAdminId,
