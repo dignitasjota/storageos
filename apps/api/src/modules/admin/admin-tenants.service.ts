@@ -728,6 +728,8 @@ export class AdminTenantsService {
     billingEmail: string | null;
     country: string;
     currency: string;
+    timezone: string;
+    taxId: string | null;
     createdAt: Date;
     subscription: null | {
       status: string;
@@ -746,6 +748,8 @@ export class AdminTenantsService {
       billingEmail: row.billingEmail,
       country: row.country,
       currency: row.currency,
+      timezone: row.timezone,
+      taxId: row.taxId,
       createdAt: row.createdAt.toISOString(),
       userCount: row._count.users,
       customerCount: row._count.customers,

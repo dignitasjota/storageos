@@ -1,10 +1,20 @@
 'use client';
 
-import { CheckCircle2, KeyRound, Loader2, MapPin, ShieldCheck, XCircle } from 'lucide-react';
+import {
+  CheckCircle2,
+  KeyRound,
+  Loader2,
+  MapPin,
+  MoreHorizontal,
+  ShieldCheck,
+  XCircle,
+} from 'lucide-react';
+import { toast } from 'sonner';
 
 import type { AdminTenantUserDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +22,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useAdminTenantUsers } from '@/lib/admin/hooks';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  useAdminTenantUsers,
+  useTenantUserAction,
+  type TenantUserActionName,
+} from '@/lib/admin/hooks';
+import { ApiError } from '@/lib/auth/api';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Propietario',
@@ -31,6 +53,14 @@ function fmtDateTime(iso: string | null): string {
     : 'Nunca';
 }
 
+interface ActionDef {
+  action: TenantUserActionName;
+  label: string;
+  success: string;
+  confirm?: string;
+  destructive?: boolean;
+}
+
 export function TenantUsersDialog({
   tenantId,
   open,
@@ -41,7 +71,19 @@ export function TenantUsersDialog({
   onClose: () => void;
 }) {
   const users = useAdminTenantUsers(tenantId, open);
+  const action = useTenantUserAction(tenantId);
   const rows = users.data ?? [];
+
+  async function runAction(user: AdminTenantUserDto, def: ActionDef) {
+    if (def.confirm && !window.confirm(def.confirm)) return;
+    try {
+      await action.mutateAsync({ userId: user.id, action: def.action });
+      toast.success(def.success);
+    } catch (err) {
+      if (err instanceof ApiError) toast.error(err.body.message);
+      else toast.error('No se pudo completar la acción.');
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -64,7 +106,7 @@ export function TenantUsersDialog({
         ) : (
           <ul className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
             {rows.map((u) => (
-              <UserRow key={u.id} user={u} />
+              <UserRow key={u.id} user={u} onRun={(def) => runAction(u, def)} />
             ))}
           </ul>
         )}
@@ -73,7 +115,13 @@ export function TenantUsersDialog({
   );
 }
 
-function UserRow({ user: u }: { user: AdminTenantUserDto }) {
+function UserRow({
+  user: u,
+  onRun,
+}: {
+  user: AdminTenantUserDto;
+  onRun: (def: ActionDef) => void;
+}) {
   const roleLabel = u.tenantRoleName ?? ROLE_LABELS[u.role] ?? u.role;
   return (
     <li className="rounded-lg border p-3">
@@ -90,9 +138,10 @@ function UserRow({ user: u }: { user: AdminTenantUserDto }) {
           <div className="truncate text-sm text-muted-foreground">{u.email}</div>
           {u.phone && <div className="text-sm text-muted-foreground">{u.phone}</div>}
         </div>
-        <Badge variant="secondary" className="shrink-0">
-          {roleLabel}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="secondary">{roleLabel}</Badge>
+          <UserActions user={u} onRun={onRun} />
+        </div>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -122,5 +171,105 @@ function UserRow({ user: u }: { user: AdminTenantUserDto }) {
         Último acceso: {fmtDateTime(u.lastLoginAt)} · Alta: {fmtDate(u.createdAt)}
       </div>
     </li>
+  );
+}
+
+function UserActions({
+  user: u,
+  onRun,
+}: {
+  user: AdminTenantUserDto;
+  onRun: (def: ActionDef) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-8" aria-label="Acciones del usuario">
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {!u.emailVerified && (
+          <DropdownMenuItem
+            onClick={() =>
+              onRun({
+                action: 'resend-verification',
+                label: 'Reenviar verificación',
+                success: 'Email de verificación reenviado.',
+              })
+            }
+          >
+            Reenviar verificación
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          onClick={() =>
+            onRun({
+              action: 'password-reset',
+              label: 'Enviar reset de contraseña',
+              success: 'Email de restablecimiento enviado.',
+            })
+          }
+        >
+          Enviar reset de contraseña
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() =>
+            onRun({
+              action: 'revoke-sessions',
+              label: 'Cerrar sesiones',
+              success: 'Sesiones cerradas.',
+              confirm: '¿Cerrar todas las sesiones de este usuario?',
+            })
+          }
+        >
+          Cerrar sesiones
+        </DropdownMenuItem>
+        {u.twoFactorEnabled && (
+          <DropdownMenuItem
+            onClick={() =>
+              onRun({
+                action: 'disable-2fa',
+                label: 'Quitar 2FA',
+                success: '2FA desactivado.',
+                confirm: '¿Quitar el 2FA de este usuario? Podrá entrar sin segundo factor.',
+                destructive: true,
+              })
+            }
+          >
+            Quitar 2FA
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        {u.isActive ? (
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() =>
+              onRun({
+                action: 'deactivate',
+                label: 'Desactivar',
+                success: 'Usuario desactivado.',
+                confirm: '¿Desactivar este usuario? Se cerrarán sus sesiones.',
+                destructive: true,
+              })
+            }
+          >
+            Desactivar usuario
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem
+            onClick={() =>
+              onRun({
+                action: 'reactivate',
+                label: 'Reactivar',
+                success: 'Usuario reactivado.',
+              })
+            }
+          >
+            Reactivar usuario
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

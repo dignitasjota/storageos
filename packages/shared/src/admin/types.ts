@@ -71,6 +71,8 @@ export interface AdminTenantDto {
   billingEmail: string | null;
   country: string;
   currency: string;
+  timezone: string;
+  taxId: string | null;
   createdAt: string;
   /** Conteos rápidos para la lista. */
   userCount: number;

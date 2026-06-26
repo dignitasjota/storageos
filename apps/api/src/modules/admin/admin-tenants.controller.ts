@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -20,6 +21,7 @@ import {
   type AdminTenantUnitDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
+  AdminUpdateTenantSchema,
   ChangePlanSchema,
   CreateManualSaasPaymentSchema,
   CreateTenantInteractionSchema,
@@ -34,6 +36,7 @@ import { createZodDto } from 'nestjs-zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 
+import { AdminSupportService } from './admin-support.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
@@ -49,6 +52,7 @@ class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
 class CreateTenantInteractionDto extends createZodDto(CreateTenantInteractionSchema) {}
 class CreateManualSaasPaymentDto extends createZodDto(CreateManualSaasPaymentSchema) {}
+class AdminUpdateTenantDto extends createZodDto(AdminUpdateTenantSchema) {}
 
 interface RequestMetaInfo {
   ipAddress: string | null;
@@ -72,7 +76,118 @@ export class AdminTenantsController {
     private readonly saasBilling: BillingSaasService,
     private readonly interactions: AdminTenantInteractionsService,
     private readonly audit: SuperAdminAuditService,
+    private readonly support: AdminSupportService,
   ) {}
+
+  /** Edita datos básicos del tenant (soporte). */
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  async update(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: AdminUpdateTenantDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantDto> {
+    const meta = extractMeta(req);
+    await this.support.updateTenant(id, input, { superAdminId: admin.sub, ...meta });
+    return this.tenants.detail(id);
+  }
+
+  /** Reenvía la verificación de email de un usuario del tenant. */
+  @Post(':id/users/:userId/resend-verification')
+  @HttpCode(HttpStatus.OK)
+  async resendVerification(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    await this.support.resendVerification(id, userId, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { ok: true };
+  }
+
+  /** Envía un email de restablecimiento de contraseña a un usuario del tenant. */
+  @Post(':id/users/:userId/password-reset')
+  @HttpCode(HttpStatus.OK)
+  async passwordReset(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    await this.support.sendPasswordReset(id, userId, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { ok: true };
+  }
+
+  /** Cierra todas las sesiones de un usuario del tenant. */
+  @Post(':id/users/:userId/revoke-sessions')
+  @HttpCode(HttpStatus.OK)
+  async revokeSessions(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ revoked: number }> {
+    const revoked = await this.support.revokeSessions(id, userId, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { revoked };
+  }
+
+  /** Desactiva el 2FA de un usuario del tenant (recuperación de cuenta). */
+  @Post(':id/users/:userId/disable-2fa')
+  @HttpCode(HttpStatus.OK)
+  async disableTwoFactor(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    await this.support.disableTwoFactor(id, userId, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { ok: true };
+  }
+
+  /** Desactiva un usuario del tenant (cierra sus sesiones). */
+  @Post(':id/users/:userId/deactivate')
+  @HttpCode(HttpStatus.OK)
+  async deactivateUser(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    await this.support.setUserActive(id, userId, false, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { ok: true };
+  }
+
+  /** Reactiva un usuario del tenant. */
+  @Post(':id/users/:userId/reactivate')
+  @HttpCode(HttpStatus.OK)
+  async reactivateUser(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    await this.support.setUserActive(id, userId, true, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { ok: true };
+  }
 
   /** Histórico de conversaciones del super admin con el tenant. */
   @Get(':id/interactions')
