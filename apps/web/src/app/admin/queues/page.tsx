@@ -1,8 +1,10 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, RotateCw, Trash2, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -12,7 +14,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAdminQueues, type AdminQueueStatus } from '@/lib/admin/hooks';
+import {
+  useAdminQueues,
+  useAdminSystemHealth,
+  useQueueFailedAction,
+  type AdminQueueStatus,
+} from '@/lib/admin/hooks';
+import { ApiError } from '@/lib/auth/api';
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -21,71 +29,171 @@ function formatDate(iso: string | null): string {
 
 export default function AdminQueuesPage() {
   const queues = useAdminQueues();
+  const health = useAdminSystemHealth();
+  const retry = useQueueFailedAction('retry-failed');
+  const clean = useQueueFailedAction('clean-failed');
 
-  if (queues.isLoading || !queues.data) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+  async function onRetry(name: string) {
+    try {
+      const res = await retry.mutateAsync(name);
+      toast.success(`${res.retried ?? 0} job(s) reencolados en «${name}».`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo reintentar.');
+    }
   }
 
-  const withFailures = queues.data.filter((q) => q.recentFailed.length > 0);
+  async function onClean(name: string) {
+    if (!window.confirm(`¿Eliminar los jobs fallidos de «${name}»? No se puede deshacer.`)) return;
+    try {
+      const res = await clean.mutateAsync(name);
+      toast.success(`${res.cleaned ?? 0} job(s) eliminados de «${name}».`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo limpiar.');
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Colas BullMQ</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Sistema y colas</h1>
         <p className="text-sm text-muted-foreground">
-          Estado de las colas de background (se refresca cada 15s). Los jobs fallidos se retienen 30
-          días en Redis.
+          Salud de la infraestructura y estado de las colas de background (refresco cada 15s).
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Counts por cola</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cola</TableHead>
-                <TableHead className="text-right">En espera</TableHead>
-                <TableHead className="text-right">Activos</TableHead>
-                <TableHead className="text-right">Programados</TableHead>
-                <TableHead className="text-right">Fallidos</TableHead>
-                <TableHead className="text-right">Completados</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {queues.data.map((q) => (
-                <TableRow key={q.name}>
-                  <TableCell className="font-mono text-sm">{q.name}</TableCell>
-                  <TableCell className="text-right tabular-nums">{q.counts.waiting}</TableCell>
-                  <TableCell className="text-right tabular-nums">{q.counts.active}</TableCell>
-                  <TableCell className="text-right tabular-nums">{q.counts.delayed}</TableCell>
-                  <TableCell className="text-right">
-                    {q.counts.failed > 0 ? (
-                      <Badge variant="destructive">{q.counts.failed}</Badge>
+      {/* Salud del sistema */}
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-muted-foreground">Salud del sistema</h2>
+        {health.isLoading || !health.data ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {health.data.services.map((s) => {
+              const up = s.status === 'up';
+              return (
+                <Card key={s.key} className={up ? '' : 'border-destructive/50'}>
+                  <CardContent className="flex items-start gap-3 p-4">
+                    {up ? (
+                      <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
                     ) : (
-                      <span className="tabular-nums">0</span>
+                      <XCircle className="mt-0.5 size-5 shrink-0 text-destructive" />
                     )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{q.counts.completed}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{s.label}</span>
+                        <Badge variant={up ? 'secondary' : 'destructive'}>
+                          {up ? 'Operativo' : 'Caído'}
+                        </Badge>
+                      </div>
+                      {s.latencyMs !== null && (
+                        <div className="text-xs text-muted-foreground">{s.latencyMs} ms</div>
+                      )}
+                      {s.detail && (
+                        <div
+                          className="mt-0.5 truncate text-xs text-muted-foreground"
+                          title={s.detail}
+                        >
+                          {s.detail}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-      {withFailures.map((q) => (
-        <FailedJobsCard key={q.name} queue={q} />
-      ))}
-      {withFailures.length === 0 && (
-        <p className="text-sm text-muted-foreground">Sin jobs fallidos recientes. 🎉</p>
-      )}
+      {/* Colas */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-muted-foreground">Colas BullMQ</h2>
+        {queues.isLoading || !queues.data ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cola</TableHead>
+                      <TableHead className="text-right">En espera</TableHead>
+                      <TableHead className="text-right">Activos</TableHead>
+                      <TableHead className="text-right">Programados</TableHead>
+                      <TableHead className="text-right">Fallidos</TableHead>
+                      <TableHead className="text-right">Completados</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {queues.data.map((q) => (
+                      <TableRow key={q.name}>
+                        <TableCell className="font-mono text-sm">{q.name}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {q.counts.waiting}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{q.counts.active}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {q.counts.delayed}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {q.counts.failed > 0 ? (
+                            <Badge variant="destructive">{q.counts.failed}</Badge>
+                          ) : (
+                            <span className="tabular-nums">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {q.counts.completed}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {q.counts.failed > 0 ? (
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={retry.isPending}
+                                onClick={() => onRetry(q.name)}
+                              >
+                                <RotateCw className="mr-1 size-3.5" /> Reintentar
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={clean.isPending}
+                                onClick={() => onClean(q.name)}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            {queues.data
+              .filter((q) => q.recentFailed.length > 0)
+              .map((q) => (
+                <FailedJobsCard key={q.name} queue={q} />
+              ))}
+            {queues.data.every((q) => q.recentFailed.length === 0) && (
+              <p className="text-sm text-muted-foreground">Sin jobs fallidos recientes. 🎉</p>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

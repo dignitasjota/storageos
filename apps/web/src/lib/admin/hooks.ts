@@ -6,6 +6,7 @@ import { useAdminAuthStore } from './auth-store';
 import type {
   AddTicketMessageInput,
   AdminMetricsDto,
+  AdminSystemHealthDto,
   AdminTenantActionInput,
   AdminTenantCustomerDto,
   AdminTenantDto,
@@ -644,6 +645,28 @@ export function useAdminQueues() {
     queryKey: ['admin', 'queues'],
     queryFn: () => adminApiFetch<AdminQueueStatus[]>('/admin/queues'),
     refetchInterval: 15_000,
+  });
+}
+
+/** Salud de las dependencias de infraestructura (status page). */
+export function useAdminSystemHealth() {
+  return useQuery({
+    queryKey: ['admin', 'system-health'],
+    queryFn: () => adminApiFetch<AdminSystemHealthDto>('/admin/system-health'),
+    refetchInterval: 15_000,
+  });
+}
+
+/** Reintentar / limpiar los jobs fallidos de una cola. */
+export function useQueueFailedAction(action: 'retry-failed' | 'clean-failed') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (queueName: string) =>
+      adminApiFetch<{ retried?: number; cleaned?: number }>(
+        `/admin/queues/${queueName}/${action}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'queues'] }),
   });
 }
 

@@ -10,6 +10,7 @@ import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminQueuesController } from './admin-queues.controller';
 import { AdminSupportService } from './admin-support.service';
+import { AdminSystemController } from './admin-system.controller';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
@@ -53,6 +54,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminTenantsController,
     AdminMetricsController,
     AdminQueuesController,
+    AdminSystemController,
     SecurityEventsController,
     SecurityAlertsController,
     SuperAdminAuditController,

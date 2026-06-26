@@ -76,6 +76,11 @@ export class FilesService implements OnModuleInit {
     }
   }
 
+  /** Comprobación de salud de MinIO/S3 (HeadBucket del bucket de uploads). */
+  async ping(): Promise<void> {
+    await this.s3.send(new HeadBucketCommand({ Bucket: this.bucketMap.uploads }));
+  }
+
   /** Genera una URL firmada PUT para subir directamente desde el navegador. */
   async getPresignedPutUrl(args: PresignArgs): Promise<{ uploadUrl: string; expiresIn: number }> {
     const expiresIn = args.expiresIn ?? 300;

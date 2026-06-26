@@ -225,6 +225,22 @@ export interface AdminMetricsRevenueMonthDto {
   collected: number;
 }
 
+/** Estado de un servicio de infraestructura (status page del admin). */
+export interface AdminSystemServiceDto {
+  /** 'database' | 'redis' | 'minio' | 'worker'. */
+  key: string;
+  label: string;
+  status: 'up' | 'down';
+  /** Info extra: último latido del worker, mensaje de error, etc. */
+  detail: string | null;
+  latencyMs: number | null;
+}
+
+export interface AdminSystemHealthDto {
+  checkedAt: string;
+  services: AdminSystemServiceDto[];
+}
+
 export interface AdminMetricsDto {
   tenants: {
     total: number;
