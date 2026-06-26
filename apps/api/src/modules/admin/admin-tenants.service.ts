@@ -10,6 +10,7 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { InvoiceStatus } from '@storageos/database';
 import type {
+  AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantFacilityDto,
   AdminTenantInvoicingDto,
@@ -268,6 +269,49 @@ export class AdminTenantsService {
         collected: round2(collectedByKey.get(m.key) ?? 0),
       })),
     };
+  }
+
+  /** Inquilinos (customers) del tenant con nº de contratos (total y vigentes). */
+  async listCustomers(tenantId: string): Promise<AdminTenantCustomerDto[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const [customers, activeContracts] = await Promise.all([
+      this.admin.customer.findMany({
+        where: { tenantId, deletedAt: null },
+        include: { _count: { select: { contracts: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.admin.contract.groupBy({
+        by: ['customerId'],
+        where: { tenantId, status: { in: ['active', 'ending'] } },
+        _count: { _all: true },
+      }),
+    ]);
+    const activeByCustomer = new Map(activeContracts.map((c) => [c.customerId, c._count._all]));
+    return customers.map((c) => {
+      const name =
+        c.customerType === 'business'
+          ? (c.companyName ?? c.email ?? '—')
+          : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || c.email || '—';
+      return {
+        id: c.id,
+        name,
+        customerType: c.customerType,
+        email: c.email,
+        phone: c.phone,
+        documentType: c.documentType,
+        documentNumber: c.documentNumber,
+        kycVerified: c.kycVerified,
+        contractCount: c._count.contracts,
+        activeContractCount: activeByCustomer.get(c.id) ?? 0,
+        createdAt: c.createdAt.toISOString(),
+      };
+    });
   }
 
   /** Locales (facilities) del tenant con nº de trasteros y ocupados. */

@@ -114,6 +114,29 @@ describe('Admin tenant users (e2e)', () => {
     expect(ghost.status).toBe(404);
   });
 
+  it('lista los inquilinos del tenant', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-cust');
+
+    // Tenant nuevo sin inquilinos
+    const empty = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/customers`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual([]);
+
+    // Sin token -> 401
+    const noAuth = await request(app.getHttpServer()).get(
+      `/admin/tenants/${owner.tenantId}/customers`,
+    );
+    expect(noAuth.status).toBe(401);
+
+    // Tenant inexistente -> 404
+    const ghost = await request(app.getHttpServer())
+      .get('/admin/tenants/00000000-0000-0000-0000-000000000000/customers')
+      .set('Authorization', `Bearer ${token}`);
+    expect(ghost.status).toBe(404);
+  });
+
   it('expone los locales del tenant y el desglose de trasteros', async () => {
     const owner = await registerVerifiedUser(app, 'admin-fac');
 

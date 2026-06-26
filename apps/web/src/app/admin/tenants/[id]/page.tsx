@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { SaasPaymentsCard } from './saas-payments-card';
+import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
@@ -77,6 +78,7 @@ export default function AdminTenantDetailPage() {
   const [usersOpen, setUsersOpen] = useState(false);
   const [invoicingOpen, setInvoicingOpen] = useState(false);
   const [facilitiesOpen, setFacilitiesOpen] = useState(false);
+  const [customersOpen, setCustomersOpen] = useState(false);
 
   if (tenant.isLoading) {
     return (
@@ -200,7 +202,11 @@ export default function AdminTenantDetailPage() {
                   value={t.facilityCount}
                   onClick={() => setFacilitiesOpen(true)}
                 />
-                <Stat label="Inquilinos" value={t.customerCount} />
+                <Stat
+                  label="Inquilinos"
+                  value={t.customerCount}
+                  onClick={() => setCustomersOpen(true)}
+                />
                 <Stat
                   label="Contratos"
                   value={t.contractCount}
@@ -230,6 +236,11 @@ export default function AdminTenantDetailPage() {
         open={facilitiesOpen}
         tenantId={t.id}
         onClose={() => setFacilitiesOpen(false)}
+      />
+      <TenantCustomersDialog
+        open={customersOpen}
+        tenantId={t.id}
+        onClose={() => setCustomersOpen(false)}
       />
 
       <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />
