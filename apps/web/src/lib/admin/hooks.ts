@@ -8,6 +8,10 @@ import type {
   AdminMetricsDto,
   AdminTenantActionInput,
   AdminTenantDto,
+  AdminTenantFacilityDto,
+  AdminTenantInvoicingDto,
+  AdminTenantUnitDto,
+  AdminTenantUserDto,
   AnonymizeTenantResultDto,
   AssignTicketInput,
   ChangePlanInput,
@@ -206,6 +210,46 @@ export function useAdminTenant(id: string | undefined) {
     queryKey: ['admin', 'tenants', id] as const,
     queryFn: () => adminApiFetch<AdminTenantDto>(`/admin/tenants/${id}`),
     enabled: Boolean(id),
+  });
+}
+
+/** Usuarios del tenant; `enabled` para cargarlos solo al abrir el desglose. */
+export function useAdminTenantUsers(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'users'] as const,
+    queryFn: () => adminApiFetch<AdminTenantUserDto[]>(`/admin/tenants/${id}/users`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
+/** Facturación del negocio del tenant; `enabled` para cargarla al abrir. */
+export function useAdminTenantInvoicing(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'invoicing'] as const,
+    queryFn: () => adminApiFetch<AdminTenantInvoicingDto>(`/admin/tenants/${id}/invoicing`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
+/** Locales del tenant; `enabled` para cargarlos al abrir el drill-down. */
+export function useAdminTenantFacilities(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'facilities'] as const,
+    queryFn: () => adminApiFetch<AdminTenantFacilityDto[]>(`/admin/tenants/${id}/facilities`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
+/** Trasteros de un local del tenant; carga cuando hay `facilityId`. */
+export function useAdminTenantFacilityUnits(
+  id: string | undefined,
+  facilityId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'facilities', facilityId, 'units'] as const,
+    queryFn: () =>
+      adminApiFetch<AdminTenantUnitDto[]>(`/admin/tenants/${id}/facilities/${facilityId}/units`),
+    enabled: Boolean(id) && Boolean(facilityId),
   });
 }
 

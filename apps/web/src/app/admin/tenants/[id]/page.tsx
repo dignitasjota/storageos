@@ -16,7 +16,10 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { SaasPaymentsCard } from './saas-payments-card';
+import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
 import { TenantInteractionsCard } from './tenant-interactions-card';
+import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
+import { TenantUsersDialog } from './tenant-users-dialog';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,6 +74,9 @@ export default function AdminTenantDetailPage() {
   const [dialog, setDialog] = useState<
     'suspend' | 'reactivate' | 'extendTrial' | 'impersonate' | 'anonymize' | null
   >(null);
+  const [usersOpen, setUsersOpen] = useState(false);
+  const [invoicingOpen, setInvoicingOpen] = useState(false);
+  const [facilitiesOpen, setFacilitiesOpen] = useState(false);
 
   if (tenant.isLoading) {
     return (
@@ -187,10 +193,19 @@ export default function AdminTenantDetailPage() {
               <CardHeader>
                 <CardTitle className="text-base">Uso</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                <Stat label="Usuarios" value={t.userCount} />
+              <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <Stat label="Usuarios" value={t.userCount} onClick={() => setUsersOpen(true)} />
+                <Stat
+                  label="Locales"
+                  value={t.facilityCount}
+                  onClick={() => setFacilitiesOpen(true)}
+                />
                 <Stat label="Inquilinos" value={t.customerCount} />
-                <Stat label="Contratos" value={t.contractCount} />
+                <Stat
+                  label="Contratos"
+                  value={t.contractCount}
+                  onClick={() => setInvoicingOpen(true)}
+                />
               </CardContent>
             </Card>
           </div>
@@ -204,6 +219,18 @@ export default function AdminTenantDetailPage() {
           <TenantInteractionsCard tenantId={id} />
         </TabsContent>
       </Tabs>
+
+      <TenantUsersDialog open={usersOpen} tenantId={t.id} onClose={() => setUsersOpen(false)} />
+      <TenantInvoicingDialog
+        open={invoicingOpen}
+        tenantId={t.id}
+        onClose={() => setInvoicingOpen(false)}
+      />
+      <TenantFacilitiesDialog
+        open={facilitiesOpen}
+        tenantId={t.id}
+        onClose={() => setFacilitiesOpen(false)}
+      />
 
       <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />
       <ReactivateDialog
@@ -240,7 +267,19 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, onClick }: { label: string; value: number; onClick?: () => void }) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="group rounded-md text-left transition-colors hover:bg-muted/60 -mx-1 px-1 focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-xl font-semibold text-primary group-hover:underline">{value}</div>
+      </button>
+    );
+  }
   return (
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>

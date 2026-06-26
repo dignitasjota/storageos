@@ -8,7 +8,40 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
-import type { AdminTenantDto } from '@storageos/shared';
+import type { InvoiceStatus } from '@storageos/database';
+import type {
+  AdminTenantDto,
+  AdminTenantFacilityDto,
+  AdminTenantInvoicingDto,
+  AdminTenantUnitDto,
+  AdminTenantUserDto,
+} from '@storageos/shared';
+
+/** Estados de factura que cuentan como facturación (excluye draft/cancelled). */
+const ACCOUNTING_STATUSES: InvoiceStatus[] = [
+  'issued',
+  'paid',
+  'overdue',
+  'refunded',
+  'partially_refunded',
+];
+
+const MONTHS_ES = [
+  'ene',
+  'feb',
+  'mar',
+  'abr',
+  'may',
+  'jun',
+  'jul',
+  'ago',
+  'sep',
+  'oct',
+  'nov',
+  'dic',
+];
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 interface ActionMeta {
   superAdminId: string;
@@ -67,7 +100,14 @@ export class AdminTenantsService {
       },
       include: {
         subscription: { include: { plan: true } },
-        _count: { select: { users: true, customers: true, contracts: true } },
+        _count: {
+          select: {
+            users: true,
+            customers: true,
+            contracts: true,
+            facilities: { where: { deletedAt: null } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -79,7 +119,14 @@ export class AdminTenantsService {
       where: { id: tenantId },
       include: {
         subscription: { include: { plan: true } },
-        _count: { select: { users: true, customers: true, contracts: true } },
+        _count: {
+          select: {
+            users: true,
+            customers: true,
+            contracts: true,
+            facilities: { where: { deletedAt: null } },
+          },
+        },
       },
     });
     if (!row || row.deletedAt) {
@@ -89,6 +136,194 @@ export class AdminTenantsService {
       });
     }
     return this.toDto(row);
+  }
+
+  /** Lista los usuarios (staff) de un tenant con datos relevantes para soporte. */
+  async listUsers(tenantId: string): Promise<AdminTenantUserDto[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const users = await this.admin.user.findMany({
+      where: { tenantId },
+      include: {
+        tenantRole: { select: { name: true } },
+        _count: { select: { facilities: true } },
+      },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+    });
+    return users.map((u) => ({
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      phone: u.phone,
+      role: u.role,
+      tenantRoleName: u.tenantRole?.name ?? null,
+      isActive: u.isActive,
+      emailVerified: u.emailVerifiedAt !== null,
+      twoFactorEnabled: u.twoFactorEnabled,
+      facilitiesCount: u._count.facilities,
+      lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
+      createdAt: u.createdAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Resumen de la facturación que el tenant emite a sus inquilinos (volumen de
+   * su negocio): totales + serie de los últimos 12 meses. Cross-tenant vía
+   * `PrismaAdminService`. Misma lógica que `AnalyticsService` (invoices por
+   * `issueDate`, pagos `succeeded` por `paidAt`).
+   */
+  async getInvoicing(tenantId: string): Promise<AdminTenantInvoicingDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, deletedAt: true, currency: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+
+    // Ventana de 12 meses (UTC), del más antiguo al actual.
+    const now = new Date();
+    const baseY = now.getUTCFullYear();
+    const baseM = now.getUTCMonth();
+    const months = Array.from({ length: 12 }, (_, idx) => {
+      const d = new Date(Date.UTC(baseY, baseM - (11 - idx), 1));
+      const year = d.getUTCFullYear();
+      const month = d.getUTCMonth() + 1;
+      return {
+        year,
+        month,
+        key: `${year}-${String(month).padStart(2, '0')}`,
+        label: `${MONTHS_ES[month - 1]} ${String(year % 100).padStart(2, '0')}`,
+      };
+    });
+    const fromDate = new Date(Date.UTC(months[0]!.year, months[0]!.month - 1, 1));
+    const toExclusive = new Date(Date.UTC(baseY, baseM + 1, 1));
+
+    const [totals, pending, overdueCount, collected, invoices, payments] = await Promise.all([
+      this.admin.invoice.aggregate({
+        where: { tenantId, deletedAt: null, status: { in: ACCOUNTING_STATUSES } },
+        _sum: { total: true },
+        _count: true,
+      }),
+      this.admin.invoice.aggregate({
+        where: { tenantId, deletedAt: null, status: { in: ['issued', 'overdue'] } },
+        _sum: { total: true, amountPaid: true, amountRefunded: true },
+      }),
+      this.admin.invoice.count({ where: { tenantId, deletedAt: null, status: 'overdue' } }),
+      this.admin.payment.aggregate({
+        where: { tenantId, status: 'succeeded' },
+        _sum: { amount: true },
+      }),
+      this.admin.invoice.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ACCOUNTING_STATUSES },
+          issueDate: { gte: fromDate, lt: toExclusive },
+        },
+        select: { issueDate: true, total: true },
+      }),
+      this.admin.payment.findMany({
+        where: { tenantId, status: 'succeeded', paidAt: { gte: fromDate, lt: toExclusive } },
+        select: { paidAt: true, amount: true },
+      }),
+    ]);
+
+    const invoicedByKey = new Map<string, number>();
+    for (const inv of invoices) {
+      if (!inv.issueDate) continue;
+      const key = `${inv.issueDate.getUTCFullYear()}-${String(inv.issueDate.getUTCMonth() + 1).padStart(2, '0')}`;
+      invoicedByKey.set(key, (invoicedByKey.get(key) ?? 0) + Number(inv.total));
+    }
+    const collectedByKey = new Map<string, number>();
+    for (const p of payments) {
+      if (!p.paidAt) continue;
+      const key = `${p.paidAt.getUTCFullYear()}-${String(p.paidAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      collectedByKey.set(key, (collectedByKey.get(key) ?? 0) + Number(p.amount));
+    }
+
+    const totalInvoiced = Number(totals._sum.total ?? 0);
+    const invoiceCount = totals._count;
+    const totalPending =
+      Number(pending._sum.total ?? 0) -
+      Number(pending._sum.amountPaid ?? 0) -
+      Number(pending._sum.amountRefunded ?? 0);
+
+    return {
+      currency: tenant.currency,
+      totalInvoiced: round2(totalInvoiced),
+      totalCollected: round2(Number(collected._sum.amount ?? 0)),
+      totalPending: round2(Math.max(0, totalPending)),
+      invoiceCount,
+      overdueCount,
+      avgInvoice: invoiceCount > 0 ? round2(totalInvoiced / invoiceCount) : 0,
+      monthly: months.map((m) => ({
+        label: m.label,
+        invoiced: round2(invoicedByKey.get(m.key) ?? 0),
+        collected: round2(collectedByKey.get(m.key) ?? 0),
+      })),
+    };
+  }
+
+  /** Locales (facilities) del tenant con nº de trasteros y ocupados. */
+  async listFacilities(tenantId: string): Promise<AdminTenantFacilityDto[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const [facilities, occupied] = await Promise.all([
+      this.admin.facility.findMany({
+        where: { tenantId, deletedAt: null },
+        include: { _count: { select: { units: true } } },
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.unit.groupBy({
+        by: ['facilityId'],
+        where: { tenantId, status: 'occupied' },
+        _count: { _all: true },
+      }),
+    ]);
+    const occupiedByFacility = new Map(occupied.map((o) => [o.facilityId, o._count._all]));
+    return facilities.map((f) => ({
+      id: f.id,
+      name: f.name,
+      city: f.city,
+      address: f.address,
+      unitCount: f._count.units,
+      occupiedCount: occupiedByFacility.get(f.id) ?? 0,
+    }));
+  }
+
+  /** Trasteros (units) de un local del tenant, con m², precio, estado y tipo. */
+  async listUnits(tenantId: string, facilityId: string): Promise<AdminTenantUnitDto[]> {
+    const facility = await this.admin.facility.findFirst({
+      where: { id: facilityId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+    const units = await this.admin.unit.findMany({
+      where: { facilityId },
+      include: { unitType: { select: { name: true } } },
+      orderBy: { code: 'asc' },
+    });
+    return units.map((u) => ({
+      id: u.id,
+      code: u.code,
+      unitTypeName: u.unitType.name,
+      areaM2: u.areaM2 === null ? null : Number(u.areaM2),
+      basePriceMonthly: Number(u.basePriceMonthly),
+      status: u.status,
+    }));
   }
 
   // =============================== actions =================================
@@ -456,7 +691,7 @@ export class AdminTenantsService {
       stripeSubscriptionId: string | null;
       plan: { slug: string; name: string } | null;
     };
-    _count: { users: number; customers: number; contracts: number };
+    _count: { users: number; customers: number; contracts: number; facilities: number };
   }): AdminTenantDto {
     return {
       id: row.id,
@@ -471,6 +706,7 @@ export class AdminTenantsService {
       userCount: row._count.users,
       customerCount: row._count.customers,
       contractCount: row._count.contracts,
+      facilityCount: row._count.facilities,
       subscription: row.subscription
         ? {
             planSlug: row.subscription.plan?.slug ?? null,

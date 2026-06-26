@@ -14,6 +14,10 @@ import {
 } from '@nestjs/common';
 import {
   type AdminTenantDto,
+  type AdminTenantFacilityDto,
+  type AdminTenantInvoicingDto,
+  type AdminTenantUnitDto,
+  type AdminTenantUserDto,
   AdminTenantActionSchema,
   ChangePlanSchema,
   CreateManualSaasPaymentSchema,
@@ -197,6 +201,35 @@ export class AdminTenantsController {
   @Get(':id')
   async detail(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantDto> {
     return this.tenants.detail(id);
+  }
+
+  /** Usuarios (staff) del tenant — para el desglose de la card «Uso». */
+  @Get(':id/users')
+  async users(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantUserDto[]> {
+    return this.tenants.listUsers(id);
+  }
+
+  /** Facturación del negocio del tenant (totales + serie mensual). */
+  @Get(':id/invoicing')
+  async invoicing(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantInvoicingDto> {
+    return this.tenants.getInvoicing(id);
+  }
+
+  /** Locales del tenant (drill-down de la card «Uso»). */
+  @Get(':id/facilities')
+  async facilities(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<AdminTenantFacilityDto[]> {
+    return this.tenants.listFacilities(id);
+  }
+
+  /** Trasteros de un local del tenant. */
+  @Get(':id/facilities/:facilityId/units')
+  async facilityUnits(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('facilityId', new ParseUUIDPipe()) facilityId: string,
+  ): Promise<AdminTenantUnitDto[]> {
+    return this.tenants.listUnits(id, facilityId);
   }
 
   @Post(':id/suspend')

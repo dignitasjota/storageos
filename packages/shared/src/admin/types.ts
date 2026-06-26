@@ -76,6 +76,7 @@ export interface AdminTenantDto {
   userCount: number;
   customerCount: number;
   contractCount: number;
+  facilityCount: number;
   /** Plan + Stripe info. */
   subscription: {
     planSlug: string | null;
@@ -84,6 +85,84 @@ export interface AdminTenantDto {
     currentPeriodEnd: string | null;
     stripeSubscriptionId: string | null;
   } | null;
+}
+
+/** Un usuario (staff) de un tenant, visto desde el panel super admin. */
+export interface AdminTenantUserDto {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  /** Rol base (owner | manager | staff | readonly). */
+  role: string;
+  /** Nombre del rol personalizado del tenant, si tiene uno asignado. */
+  tenantRoleName: string | null;
+  isActive: boolean;
+  /** Si ha verificado su email. */
+  emailVerified: boolean;
+  twoFactorEnabled: boolean;
+  /** Locales asignados (facility scope); 0 = ve todos los locales. */
+  facilitiesCount: number;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+/** Un mes de la serie de facturación del negocio del tenant. */
+export interface AdminTenantInvoicingMonthDto {
+  /** Etiqueta corta, p. ej. "mar 26". */
+  label: string;
+  /** Facturado ese mes (total de facturas emitidas por issueDate). */
+  invoiced: number;
+  /** Cobrado ese mes (pagos succeeded por paidAt). */
+  collected: number;
+}
+
+/**
+ * Resumen de la facturación que el tenant emite a SUS inquilinos (el volumen de
+ * su negocio), visto desde el panel super admin. No confundir con los pagos de
+ * la suscripción SaaS (lo que el tenant nos paga: `TenantSubscriptionPaymentDto`).
+ */
+export interface AdminTenantInvoicingDto {
+  currency: string;
+  /** Total facturado histórico (facturas contables: ≠ draft/cancelled). */
+  totalInvoiced: number;
+  /** Total cobrado histórico (pagos succeeded). */
+  totalCollected: number;
+  /** Pendiente de cobro (facturas issued/overdue). */
+  totalPending: number;
+  /** Nº de facturas contables. */
+  invoiceCount: number;
+  /** Nº de facturas vencidas. */
+  overdueCount: number;
+  /** Importe medio por factura. */
+  avgInvoice: number;
+  /** Serie de los últimos 12 meses (más antiguo → actual). */
+  monthly: AdminTenantInvoicingMonthDto[];
+}
+
+/** Un local (facility) de un tenant, visto desde el panel super admin. */
+export interface AdminTenantFacilityDto {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  /** Nº de trasteros del local. */
+  unitCount: number;
+  /** Nº de trasteros ocupados. */
+  occupiedCount: number;
+}
+
+/** Un trastero (unit) de un local, visto desde el panel super admin. */
+export interface AdminTenantUnitDto {
+  id: string;
+  code: string;
+  unitTypeName: string;
+  /** Metros cuadrados (columna generada). */
+  areaM2: number | null;
+  /** Precio mensual del trastero. */
+  basePriceMonthly: number;
+  /** Estado (available | occupied | reserved | maintenance | ...). */
+  status: string;
 }
 
 /** Resumen devuelto por `POST /admin/tenants/:id/anonymize` (RGPD). */
@@ -102,6 +181,29 @@ export interface ImpersonationTokenDto {
   expiresIn: number;
 }
 
+/** Distribución de tenants por plan (para el gráfico de tarta + MRR por plan). */
+export interface AdminMetricsPlanSliceDto {
+  planSlug: string;
+  planName: string;
+  /** Nº de tenants con ese plan (cualquier estado de suscripción). */
+  count: number;
+  /** MRR aportado por los tenants activos de ese plan. */
+  mrr: number;
+}
+
+/** Un mes de la serie de crecimiento (altas vs bajas de tenants). */
+export interface AdminMetricsGrowthMonthDto {
+  label: string;
+  signups: number;
+  cancellations: number;
+}
+
+/** Un mes de la serie de ingresos SaaS cobrados (lo que cobramos a los tenants). */
+export interface AdminMetricsRevenueMonthDto {
+  label: string;
+  collected: number;
+}
+
 export interface AdminMetricsDto {
   tenants: {
     total: number;
@@ -118,6 +220,24 @@ export interface AdminMetricsDto {
   cancellationsThisMonth: number;
   churnRatePercent: number;
   averageRevenuePerTenant: number;
+  /** Trials que expiran en los próximos 7 días (alerta). */
+  trialsExpiringSoon: number;
+  /** Tickets de soporte sin cerrar (open/in_progress/waiting_user). */
+  openSupportTickets: number;
+  /** Agregados de toda la plataforma (suma de todos los tenants). */
+  platform: {
+    facilities: number;
+    units: number;
+    customers: number;
+    contracts: number;
+    users: number;
+  };
+  /** Distribución de tenants por plan + MRR por plan. */
+  tenantsByPlan: AdminMetricsPlanSliceDto[];
+  /** Altas vs bajas de tenants, últimos 12 meses. */
+  monthlyGrowth: AdminMetricsGrowthMonthDto[];
+  /** Ingresos SaaS cobrados por mes (pagos de suscripción), últimos 12 meses. */
+  monthlySaasRevenue: AdminMetricsRevenueMonthDto[];
 }
 
 export interface SupportTicketDto {
