@@ -344,6 +344,7 @@ model Tenant {
   tenantRoles             TenantRole[]
   subscription            TenantSubscription?
   subscriptionPayments    TenantSubscriptionPayment[]
+  tenantInteractions      TenantInteraction[]
   auditLogs               AuditLog[]
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
@@ -2680,6 +2681,7 @@ model SuperAdmin {
   recoveryCodes     SuperAdminRecoveryCode[]
   refreshSessions   SuperAdminSession[]
   auditLogs         SuperAdminAuditLog[]
+  tenantInteractions TenantInteraction[]     @relation("TenantInteractionAuthor")
 
   @@map("super_admins")
 }
@@ -3168,4 +3170,27 @@ model TenantSubscriptionPayment {
 
   @@index([tenantId, paidAt])
   @@map("tenant_subscription_payments")
+}
+
+/// Interaccion/conversacion del super admin con un tenant (llamada, email,
+/// reunion, nota de lo hablado). Replica el patron de `customer_interactions`
+/// del panel del tenant pero a nivel plataforma: el autor es un super admin.
+/// Solo lo consume el panel admin via PrismaAdminService (bypassa RLS); la
+/// policy RLS queda por coherencia/defensa.
+model TenantInteraction {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  superAdminId String?  @map("super_admin_id") @db.Uuid
+  type         String   @default("note")
+  content      String
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin? @relation("TenantInteractionAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, occurredAt])
+  @@map("tenant_interactions")
 }

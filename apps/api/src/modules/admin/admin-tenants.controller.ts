@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -15,9 +16,11 @@ import {
   type AdminTenantDto,
   AdminTenantActionSchema,
   ChangePlanSchema,
+  CreateTenantInteractionSchema,
   ExtendTrialSchema,
   type ImpersonationTokenDto,
   ImpersonateSchema,
+  type TenantInteractionDto,
   type TenantSubscriptionPaymentDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -25,10 +28,12 @@ import { createZodDto } from 'nestjs-zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 
+import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { ImpersonationService } from './impersonation.service';
+import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Request } from 'express';
 
@@ -36,6 +41,7 @@ class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
+class CreateTenantInteractionDto extends createZodDto(CreateTenantInteractionSchema) {}
 
 interface RequestMetaInfo {
   ipAddress: string | null;
@@ -57,7 +63,67 @@ export class AdminTenantsController {
     private readonly tenants: AdminTenantsService,
     private readonly impersonation: ImpersonationService,
     private readonly saasBilling: BillingSaasService,
+    private readonly interactions: AdminTenantInteractionsService,
+    private readonly audit: SuperAdminAuditService,
   ) {}
+
+  /** Histórico de conversaciones del super admin con el tenant. */
+  @Get(':id/interactions')
+  async listInteractions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<TenantInteractionDto[]> {
+    return this.interactions.list(id);
+  }
+
+  /** Registra una conversación (llamada/email/reunión/nota) con el tenant. */
+  @Post(':id/interactions')
+  async createInteraction(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: CreateTenantInteractionDto,
+    @Req() req: Request,
+  ): Promise<TenantInteractionDto> {
+    const meta = extractMeta(req);
+    const created = await this.interactions.create({
+      tenantId: id,
+      superAdminId: admin.sub,
+      input,
+    });
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.interaction_created',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { interactionId: created.id, type: created.type },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return created;
+  }
+
+  /** Borra una conversación registrada. */
+  @Delete(':id/interactions/:interactionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeInteraction(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('interactionId', new ParseUUIDPipe()) interactionId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    const meta = extractMeta(req);
+    await this.interactions.remove(id, interactionId);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.interaction_deleted',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { interactionId },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
 
   /** Historial de pagos de la suscripción SaaS del tenant (desde BD). */
   @Get(':id/saas-payments')
