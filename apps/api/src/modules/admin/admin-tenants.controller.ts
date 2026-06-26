@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantFacilityDto,
   type AdminTenantInvoicingDto,
@@ -213,6 +214,12 @@ export class AdminTenantsController {
   @Get(':id/invoicing')
   async invoicing(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantInvoicingDto> {
     return this.tenants.getInvoicing(id);
+  }
+
+  /** Inquilinos del tenant (desglose de la card «Uso»). */
+  @Get(':id/customers')
+  async customers(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantCustomerDto[]> {
+    return this.tenants.listCustomers(id);
   }
 
   /** Locales del tenant (drill-down de la card «Uso»). */

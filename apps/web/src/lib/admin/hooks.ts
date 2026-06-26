@@ -7,6 +7,7 @@ import type {
   AddTicketMessageInput,
   AdminMetricsDto,
   AdminTenantActionInput,
+  AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantFacilityDto,
   AdminTenantInvoicingDto,
@@ -218,6 +219,15 @@ export function useAdminTenantUsers(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ['admin', 'tenants', id, 'users'] as const,
     queryFn: () => adminApiFetch<AdminTenantUserDto[]>(`/admin/tenants/${id}/users`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
+/** Inquilinos del tenant; `enabled` para cargarlos al abrir el desglose. */
+export function useAdminTenantCustomers(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'customers'] as const,
+    queryFn: () => adminApiFetch<AdminTenantCustomerDto[]>(`/admin/tenants/${id}/customers`),
     enabled: Boolean(id) && enabled,
   });
 }

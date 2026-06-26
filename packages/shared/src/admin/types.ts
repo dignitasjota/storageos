@@ -140,6 +140,25 @@ export interface AdminTenantInvoicingDto {
   monthly: AdminTenantInvoicingMonthDto[];
 }
 
+/** Un inquilino (customer) de un tenant, visto desde el panel super admin. */
+export interface AdminTenantCustomerDto {
+  id: string;
+  /** Nombre completo (particular) o razón social (empresa). */
+  name: string;
+  /** 'individual' | 'company'. */
+  customerType: string;
+  email: string | null;
+  phone: string | null;
+  documentType: string | null;
+  documentNumber: string | null;
+  kycVerified: boolean;
+  /** Nº total de contratos. */
+  contractCount: number;
+  /** Nº de contratos vigentes (active/ending). */
+  activeContractCount: number;
+  createdAt: string;
+}
+
 /** Un local (facility) de un tenant, visto desde el panel super admin. */
 export interface AdminTenantFacilityDto {
   id: string;
