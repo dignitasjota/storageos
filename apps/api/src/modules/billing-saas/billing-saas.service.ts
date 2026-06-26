@@ -39,6 +39,65 @@ function unixToDate(seconds: number | null | undefined): Date | null {
   return seconds ? new Date(seconds * 1000) : null;
 }
 
+/**
+ * Suma `months` meses a una fecha, ajustando el desbordamiento de fin de mes
+ * (31 ene + 1 mes → 28/29 feb, no 3 mar).
+ */
+function addMonths(date: Date, months: number): Date {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * MS_PER_DAY);
+}
+
+function diffInDays(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / MS_PER_DAY);
+}
+
+/** Fila de `tenant_subscription_payments` → DTO. */
+function toPaymentDto(r: {
+  id: string;
+  provider: string;
+  status: string;
+  amount: unknown;
+  discount: unknown;
+  currency: string;
+  planSlug: string | null;
+  planName: string | null;
+  description: string | null;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  paidAt: Date | null;
+  invoiceUrl: string | null;
+  pdfUrl: string | null;
+  createdAt: Date;
+}): TenantSubscriptionPaymentDto {
+  return {
+    id: r.id,
+    provider: r.provider,
+    status: r.status,
+    amount: Number(r.amount),
+    discount: r.discount === null || r.discount === undefined ? null : Number(r.discount),
+    currency: r.currency,
+    planSlug: r.planSlug,
+    planName: r.planName,
+    description: r.description,
+    periodStart: r.periodStart?.toISOString() ?? null,
+    periodEnd: r.periodEnd?.toISOString() ?? null,
+    paidAt: r.paidAt?.toISOString() ?? null,
+    invoiceUrl: r.invoiceUrl,
+    pdfUrl: r.pdfUrl,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
 // El SDK de Stripe exporta `Stripe` como namespace y como clase con el mismo
 // nombre. El import por defecto resuelve al constructor; para acceder a los
 // tipos anidados (Stripe.Checkout.Session, Stripe.BillingPortal.Session)
@@ -312,7 +371,17 @@ export class BillingSaasService {
 
     const newStatus = mapStripeStatus(args.status);
     const periodStart = new Date(args.currentPeriodStart * 1000);
-    const periodEnd = new Date(args.currentPeriodEnd * 1000);
+    const stripePeriodEnd = new Date(args.currentPeriodEnd * 1000);
+
+    // El crédito de pagos manuales (acumulador permanente) se SUMA al periodo
+    // que dicta Stripe: el periodo efectivo = fecha de Stripe + días manuales.
+    // Así un pago manual no se pisa con el siguiente cobro de Stripe.
+    const current = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { manualExtensionDays: true },
+    });
+    const manualDays = current?.manualExtensionDays ?? 0;
+    const periodEnd = manualDays > 0 ? addDays(stripePeriodEnd, manualDays) : stripePeriodEnd;
 
     // Bypass RLS: este flujo nace de webhook publico, sin contexto de tenant
     // del lado HTTP. La tabla `tenant_subscriptions` lleva RLS pero el cliente
@@ -506,22 +575,76 @@ export class BillingSaasService {
       where: { tenantId },
       orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
     });
-    return rows.map((r) => ({
-      id: r.id,
-      provider: r.provider,
-      status: r.status,
-      amount: Number(r.amount),
-      currency: r.currency,
-      planSlug: r.planSlug,
-      planName: r.planName,
-      description: r.description,
-      periodStart: r.periodStart?.toISOString() ?? null,
-      periodEnd: r.periodEnd?.toISOString() ?? null,
-      paidAt: r.paidAt?.toISOString() ?? null,
-      invoiceUrl: r.invoiceUrl,
-      pdfUrl: r.pdfUrl,
-      createdAt: r.createdAt.toISOString(),
-    }));
+    return rows.map((r) => toPaymentDto(r));
+  }
+
+  /**
+   * Registra un pago MANUAL de la suscripción (efectivo/transferencia/PayPal/…)
+   * y **extiende el periodo** de la suscripción `durationMonths` meses, igual
+   * que un cobro de Stripe: a todos los efectos, un pago más.
+   *
+   * La base de la extensión es `max(currentPeriodEnd, ahora)` para no regalar
+   * ni perder días si el periodo aún no había vencido. Deja la suscripción en
+   * `active`. Todo en una transacción (pago + extensión atómicos).
+   */
+  async recordManualPayment(args: {
+    tenantId: string;
+    provider: string;
+    amount: number;
+    discount?: number | null | undefined;
+    currency: string;
+    durationMonths: number;
+    paidAt?: Date | null | undefined;
+    description?: string | null | undefined;
+  }): Promise<TenantSubscriptionPaymentDto> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId: args.tenantId },
+      include: { plan: { select: { slug: true, name: true } } },
+    });
+    if (!sub) {
+      throw new NotFoundException({
+        code: 'subscription_not_found',
+        message: 'El tenant no tiene una suscripción.',
+      });
+    }
+
+    const now = new Date();
+    const base = sub.currentPeriodEnd > now ? sub.currentPeriodEnd : now;
+    const newEnd = addMonths(base, args.durationMonths);
+    // Días de crédito que aporta este pago: se acumulan para que, si el tenant
+    // también cobra por Stripe, el siguiente webhook SUME este tiempo en vez de
+    // pisarlo (crédito manual permanente).
+    const addedDays = diffInDays(base, newEnd);
+
+    const [payment] = await this.admin.$transaction([
+      this.admin.tenantSubscriptionPayment.create({
+        data: {
+          tenantId: args.tenantId,
+          provider: args.provider,
+          externalId: null,
+          status: 'paid',
+          amount: args.amount,
+          discount: args.discount ?? null,
+          currency: args.currency,
+          planSlug: sub.plan.slug,
+          planName: sub.plan.name,
+          description: args.description ?? null,
+          periodStart: base,
+          periodEnd: newEnd,
+          paidAt: args.paidAt ?? now,
+        },
+      }),
+      this.admin.tenantSubscription.update({
+        where: { tenantId: args.tenantId },
+        data: {
+          currentPeriodEnd: newEnd,
+          status: 'active',
+          manualExtensionDays: { increment: addedDays },
+        },
+      }),
+    ]);
+
+    return toPaymentDto(payment);
   }
 
   /**

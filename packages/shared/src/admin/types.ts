@@ -257,10 +257,12 @@ export interface UpsertSubscriptionPlanInput {
 /** Un pago de la suscripción SaaS de un tenant (panel super admin). */
 export interface TenantSubscriptionPaymentDto {
   id: string;
-  /** Origen del pago: 'stripe' | 'manual' | ... */
+  /** Origen del pago: 'stripe' | 'paypal' | 'cash' | 'bank_transfer' | 'other'. */
   provider: string;
   status: string;
   amount: number;
+  /** Descuento aplicado sobre el precio de lista (solo pagos manuales). */
+  discount: number | null;
   currency: string;
   planSlug: string | null;
   planName: string | null;

@@ -16,6 +16,7 @@ import {
   type AdminTenantDto,
   AdminTenantActionSchema,
   ChangePlanSchema,
+  CreateManualSaasPaymentSchema,
   CreateTenantInteractionSchema,
   ExtendTrialSchema,
   type ImpersonationTokenDto,
@@ -42,6 +43,7 @@ class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
 class CreateTenantInteractionDto extends createZodDto(CreateTenantInteractionSchema) {}
+class CreateManualSaasPaymentDto extends createZodDto(CreateManualSaasPaymentSchema) {}
 
 interface RequestMetaInfo {
   ipAddress: string | null;
@@ -140,6 +142,45 @@ export class AdminTenantsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ synced: number }> {
     return this.saasBilling.syncSaasPaymentsFromStripe(id);
+  }
+
+  /** Registra un pago manual (efectivo/transferencia/…) y extiende el periodo. */
+  @Post(':id/saas-payments/manual')
+  @HttpCode(HttpStatus.CREATED)
+  async createManualSaasPayment(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: CreateManualSaasPaymentDto,
+    @Req() req: Request,
+  ): Promise<TenantSubscriptionPaymentDto> {
+    const meta = extractMeta(req);
+    const payment = await this.saasBilling.recordManualPayment({
+      tenantId: id,
+      provider: input.provider,
+      amount: input.amount,
+      discount: input.discount,
+      currency: input.currency,
+      durationMonths: input.durationMonths,
+      ...(input.paidAt ? { paidAt: new Date(input.paidAt) } : {}),
+      description: input.description,
+    });
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.saas_payment_manual_created',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: {
+        paymentId: payment.id,
+        provider: payment.provider,
+        amount: payment.amount,
+        durationMonths: input.durationMonths,
+        periodEnd: payment.periodEnd,
+      },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return payment;
   }
 
   @Get()
