@@ -144,6 +144,39 @@ export const CreatePortalSessionSchema = z.object({
 });
 export type CreatePortalSessionInput = z.infer<typeof CreatePortalSessionSchema>;
 
+/**
+ * Origen de un pago de la suscripción SaaS de un tenant. `stripe` lo rellena
+ * el webhook automático; el resto se registran a mano desde el panel admin.
+ */
+export const SaasPaymentProviderEnum = z.enum([
+  'stripe',
+  'paypal',
+  'cash',
+  'bank_transfer',
+  'other',
+]);
+export type SaasPaymentProviderValue = z.infer<typeof SaasPaymentProviderEnum>;
+
+/**
+ * Registro manual de un pago de la suscripción (efectivo/transferencia/PayPal/…).
+ * Extiende el periodo de la suscripción `durationMonths` meses, igual que un
+ * cobro de Stripe. La duración la propone el panel (importe ÷ precio del plan)
+ * pero el admin puede editarla.
+ */
+export const CreateManualSaasPaymentSchema = z.object({
+  provider: SaasPaymentProviderEnum,
+  amount: z.number().positive().max(1_000_000),
+  /** Descuento aplicado sobre el precio de lista (informativo). */
+  discount: z.number().nonnegative().max(1_000_000).optional(),
+  currency: z.string().trim().length(3).toUpperCase().default('EUR'),
+  /** Meses que cubre el pago; extiende el periodo de suscripción. */
+  durationMonths: z.number().int().min(1).max(36),
+  /** Fecha del cobro (ISO). Por defecto, ahora. */
+  paidAt: z.string().datetime().optional(),
+  description: z.string().trim().max(500).optional(),
+});
+export type CreateManualSaasPaymentInput = z.infer<typeof CreateManualSaasPaymentSchema>;
+
 // ============================================================================
 // Security events (Fase 11A.1)
 // ============================================================================

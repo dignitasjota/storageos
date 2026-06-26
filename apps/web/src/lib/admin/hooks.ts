@@ -31,6 +31,7 @@ import type {
   SupportTicketDto,
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
+  CreateManualSaasPaymentInput,
   CreateTenantInteractionInput,
   TenantInteractionDto,
   TenantSubscriptionPaymentDto,
@@ -575,6 +576,39 @@ export function useSyncTenantSaasPayments() {
       }),
     onSuccess: (_data, id) =>
       qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] }),
+  });
+}
+
+/**
+ * Datos auxiliares para el diálogo de pago manual: precio mensual y divisa del
+ * plan del tenant (para sugerir la duración) + fin de periodo actual.
+ */
+export function useAddManualPaymentDeps(tenantId: string) {
+  const tenant = useAdminTenant(tenantId);
+  const plans = useAdminSubscriptionPlans();
+  const slug = tenant.data?.subscription?.planSlug ?? null;
+  const plan = (plans.data ?? []).find((p) => p.slug === slug) ?? null;
+  return {
+    planPriceMonthly: plan?.priceMonthly ?? null,
+    planCurrency: plan?.currency ?? 'EUR',
+    periodEnd: tenant.data?.subscription?.currentPeriodEnd ?? null,
+    hasStripe: Boolean(tenant.data?.subscription?.stripeSubscriptionId),
+  };
+}
+
+export function useAddManualSaasPayment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateManualSaasPaymentInput) =>
+      adminApiFetch<TenantSubscriptionPaymentDto>(`/admin/tenants/${id}/saas-payments/manual`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      // Refresca los pagos y el detalle del tenant (el periodo de suscripción cambió).
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
+    },
   });
 }
 
