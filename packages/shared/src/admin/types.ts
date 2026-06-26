@@ -3,6 +3,7 @@ import type {
   SuperAdminRoleValue,
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
+  TenantInteractionTypeValue,
 } from './schemas';
 
 export interface SuperAdminDto {
@@ -270,5 +271,21 @@ export interface TenantSubscriptionPaymentDto {
   paidAt: string | null;
   invoiceUrl: string | null;
   pdfUrl: string | null;
+  createdAt: string;
+}
+
+/**
+ * Una interacción/conversación del super admin con un tenant (panel admin).
+ * Réplica de `CustomerInteractionDto` pero el autor es un super admin.
+ */
+export interface TenantInteractionDto {
+  id: string;
+  type: TenantInteractionTypeValue;
+  content: string;
+  /** Cuándo ocurrió la conversación (ISO). */
+  occurredAt: string;
+  /** Super admin que la registró; null si su cuenta se borró. */
+  authorId: string | null;
+  authorName: string | null;
   createdAt: string;
 }

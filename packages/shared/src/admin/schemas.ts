@@ -79,6 +79,28 @@ export const ImpersonateSchema = z.object({
 export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 
 // ============================================================================
+// Tenant interactions (histórico de conversaciones del super admin con el tenant)
+// ============================================================================
+
+export const TenantInteractionTypeEnum = z.enum([
+  'note',
+  'call',
+  'email',
+  'meeting',
+  'whatsapp',
+  'other',
+]);
+export type TenantInteractionTypeValue = z.infer<typeof TenantInteractionTypeEnum>;
+
+export const CreateTenantInteractionSchema = z.object({
+  type: TenantInteractionTypeEnum.default('note'),
+  content: z.string().trim().min(1).max(5000),
+  /** Cuándo ocurrió la conversación (ISO). Por defecto, ahora. */
+  occurredAt: z.string().datetime().optional(),
+});
+export type CreateTenantInteractionInput = z.infer<typeof CreateTenantInteractionSchema>;
+
+// ============================================================================
 // Support tickets
 // ============================================================================
 

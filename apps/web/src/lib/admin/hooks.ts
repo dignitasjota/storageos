@@ -31,6 +31,8 @@ import type {
   SupportTicketDto,
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
+  CreateTenantInteractionInput,
+  TenantInteractionDto,
   TenantSubscriptionPaymentDto,
   TransitionTicketInput,
 } from '@storageos/shared';
@@ -573,5 +575,40 @@ export function useSyncTenantSaasPayments() {
       }),
     onSuccess: (_data, id) =>
       qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] }),
+  });
+}
+
+// ============================================================================
+// Tenant interactions — histórico de conversaciones con el tenant
+// ============================================================================
+
+export function useAdminTenantInteractions(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'interactions'] as const,
+    queryFn: () => adminApiFetch<TenantInteractionDto[]>(`/admin/tenants/${id}/interactions`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateTenantInteraction(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTenantInteractionInput) =>
+      adminApiFetch<TenantInteractionDto>(`/admin/tenants/${id}/interactions`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'interactions'] }),
+  });
+}
+
+export function useDeleteTenantInteraction(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (interactionId: string) =>
+      adminApiFetch<void>(`/admin/tenants/${id}/interactions/${interactionId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'interactions'] }),
   });
 }

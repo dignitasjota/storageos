@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { SaasPaymentsCard } from './saas-payments-card';
+import { TenantInteractionsCard } from './tenant-interactions-card';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
   useAdminSubscriptionPlans,
@@ -119,72 +121,89 @@ export default function AdminTenantDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Datos generales</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="ID" value={t.id} mono />
-            <Row label="Email de facturación" value={t.billingEmail ?? '—'} />
-            <Row label="País" value={t.country} />
-            <Row label="Divisa" value={t.currency} />
-            <Row label="Creado" value={new Date(t.createdAt).toLocaleDateString('es-ES')} />
-            <Row
-              label="Fin trial"
-              value={t.trialEndsAt ? new Date(t.trialEndsAt).toLocaleDateString('es-ES') : '—'}
-            />
-          </CardContent>
-        </Card>
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList>
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="payments">Pagos</TabsTrigger>
+          <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Suscripción</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {t.subscription ? (
-              <>
+        <TabsContent value="general" className="mt-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Datos generales</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <Row label="ID" value={t.id} mono />
+                <Row label="Email de facturación" value={t.billingEmail ?? '—'} />
+                <Row label="País" value={t.country} />
+                <Row label="Divisa" value={t.currency} />
+                <Row label="Creado" value={new Date(t.createdAt).toLocaleDateString('es-ES')} />
                 <Row
-                  label="Plan"
-                  value={t.subscription.planName ?? t.subscription.planSlug ?? '—'}
+                  label="Fin trial"
+                  value={t.trialEndsAt ? new Date(t.trialEndsAt).toLocaleDateString('es-ES') : '—'}
                 />
-                <Row label="Estado" value={t.subscription.status} />
-                <Row
-                  label="Fin periodo"
-                  value={
-                    t.subscription.currentPeriodEnd
-                      ? new Date(t.subscription.currentPeriodEnd).toLocaleDateString('es-ES')
-                      : '—'
-                  }
-                />
-                <Row
-                  label="Stripe sub. ID"
-                  value={t.subscription.stripeSubscriptionId ?? '—'}
-                  mono
-                />
-                <ChangePlanControl tenantId={id} currentSlug={t.subscription.planSlug ?? null} />
-              </>
-            ) : (
-              <p className="text-muted-foreground">Sin suscripción activa.</p>
-            )}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Uso</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-            <Stat label="Usuarios" value={t.userCount} />
-            <Stat label="Inquilinos" value={t.customerCount} />
-            <Stat label="Contratos" value={t.contractCount} />
-          </CardContent>
-        </Card>
-      </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Suscripción</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {t.subscription ? (
+                  <>
+                    <Row
+                      label="Plan"
+                      value={t.subscription.planName ?? t.subscription.planSlug ?? '—'}
+                    />
+                    <Row label="Estado" value={t.subscription.status} />
+                    <Row
+                      label="Fin periodo"
+                      value={
+                        t.subscription.currentPeriodEnd
+                          ? new Date(t.subscription.currentPeriodEnd).toLocaleDateString('es-ES')
+                          : '—'
+                      }
+                    />
+                    <Row
+                      label="Stripe sub. ID"
+                      value={t.subscription.stripeSubscriptionId ?? '—'}
+                      mono
+                    />
+                    <ChangePlanControl
+                      tenantId={id}
+                      currentSlug={t.subscription.planSlug ?? null}
+                    />
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">Sin suscripción activa.</p>
+                )}
+              </CardContent>
+            </Card>
 
-      <div className="mt-4">
-        <SaasPaymentsCard tenantId={id} />
-      </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Uso</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <Stat label="Usuarios" value={t.userCount} />
+                <Stat label="Inquilinos" value={t.customerCount} />
+                <Stat label="Contratos" value={t.contractCount} />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="payments" className="mt-4">
+          <SaasPaymentsCard tenantId={id} />
+        </TabsContent>
+
+        <TabsContent value="conversations" className="mt-4">
+          <TenantInteractionsCard tenantId={id} />
+        </TabsContent>
+      </Tabs>
 
       <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />
       <ReactivateDialog
