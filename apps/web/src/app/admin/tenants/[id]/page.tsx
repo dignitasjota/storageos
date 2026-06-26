@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
+import { TenantEditDialog } from './tenant-edit-dialog';
 import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
@@ -79,6 +80,7 @@ export default function AdminTenantDetailPage() {
   const [invoicingOpen, setInvoicingOpen] = useState(false);
   const [facilitiesOpen, setFacilitiesOpen] = useState(false);
   const [customersOpen, setCustomersOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (tenant.isLoading) {
     return (
@@ -109,6 +111,9 @@ export default function AdminTenantDetailPage() {
           <p className="text-sm text-muted-foreground">/{t.slug}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
+            Editar
+          </Button>
           {t.status !== 'suspended' && (
             <Button variant="destructive" onClick={() => setDialog('suspend')}>
               Suspender
@@ -242,6 +247,7 @@ export default function AdminTenantDetailPage() {
         tenantId={t.id}
         onClose={() => setCustomersOpen(false)}
       />
+      <TenantEditDialog tenant={t} open={editOpen} onClose={() => setEditOpen(false)} />
 
       <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />
       <ReactivateDialog

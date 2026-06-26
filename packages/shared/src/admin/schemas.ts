@@ -78,6 +78,19 @@ export const ImpersonateSchema = z.object({
 });
 export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 
+/** Edición de datos básicos del tenant desde el panel super admin (soporte). */
+export const AdminUpdateTenantSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    billingEmail: z.string().trim().email().max(320).nullable().optional(),
+    country: z.string().trim().length(2).toUpperCase().optional(),
+    currency: z.string().trim().length(3).toUpperCase().optional(),
+    timezone: z.string().trim().min(1).max(64).optional(),
+    taxId: z.string().trim().max(40).nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nada que actualizar' });
+export type AdminUpdateTenantInput = z.infer<typeof AdminUpdateTenantSchema>;
+
 // ============================================================================
 // Tenant interactions (histórico de conversaciones del super admin con el tenant)
 // ============================================================================

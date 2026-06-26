@@ -9,6 +9,7 @@ import type {
   AdminTenantActionInput,
   AdminTenantCustomerDto,
   AdminTenantDto,
+  AdminUpdateTenantInput,
   AdminTenantFacilityDto,
   AdminTenantInvoicingDto,
   AdminTenantUnitDto,
@@ -211,6 +212,40 @@ export function useAdminTenant(id: string | undefined) {
     queryKey: ['admin', 'tenants', id] as const,
     queryFn: () => adminApiFetch<AdminTenantDto>(`/admin/tenants/${id}`),
     enabled: Boolean(id),
+  });
+}
+
+/** Edita datos básicos del tenant (soporte). */
+export function useUpdateTenant(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AdminUpdateTenantInput) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${id}`, { method: 'PATCH', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] }),
+  });
+}
+
+export type TenantUserActionName =
+  | 'resend-verification'
+  | 'password-reset'
+  | 'revoke-sessions'
+  | 'disable-2fa'
+  | 'deactivate'
+  | 'reactivate';
+
+/** Acción de soporte sobre un usuario del tenant (POST al endpoint correspondiente). */
+export function useTenantUserAction(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, action }: { userId: string; action: TenantUserActionName }) =>
+      adminApiFetch<{ ok?: true; revoked?: number }>(
+        `/admin/tenants/${tenantId}/users/${userId}/${action}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId, 'users'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+    },
   });
 }
 
