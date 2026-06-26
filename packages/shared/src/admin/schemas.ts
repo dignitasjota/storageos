@@ -78,6 +78,25 @@ export const ImpersonateSchema = z.object({
 });
 export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 
+/** Email directo del super admin a un tenant (a sus owners / email de facturación). */
+export const AdminEmailTenantSchema = z.object({
+  subject: z.string().trim().min(3).max(200),
+  body: z.string().trim().min(1).max(10_000),
+});
+export type AdminEmailTenantInput = z.infer<typeof AdminEmailTenantSchema>;
+
+/** Público de un anuncio/broadcast. */
+export const AdminBroadcastAudienceEnum = z.enum(['active', 'trial', 'all']);
+export type AdminBroadcastAudienceValue = z.infer<typeof AdminBroadcastAudienceEnum>;
+
+/** Anuncio masivo del super admin a los tenants. */
+export const AdminBroadcastSchema = z.object({
+  audience: AdminBroadcastAudienceEnum,
+  subject: z.string().trim().min(3).max(200),
+  body: z.string().trim().min(1).max(10_000),
+});
+export type AdminBroadcastInput = z.infer<typeof AdminBroadcastSchema>;
+
 /** Edición de datos básicos del tenant desde el panel super admin (soporte). */
 export const AdminUpdateTenantSchema = z
   .object({

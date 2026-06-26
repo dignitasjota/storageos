@@ -6,6 +6,10 @@ import { useAdminAuthStore } from './auth-store';
 import type {
   AddTicketMessageInput,
   AdminAtRiskDto,
+  AdminBroadcastInput,
+  AdminBroadcastResultDto,
+  AdminEmailTenantInput,
+  AdminEmailTenantResultDto,
   AdminMetricsDto,
   AdminSystemHealthDto,
   AdminTenantActionInput,
@@ -646,6 +650,28 @@ export function useAdminQueues() {
     queryKey: ['admin', 'queues'],
     queryFn: () => adminApiFetch<AdminQueueStatus[]>('/admin/queues'),
     refetchInterval: 15_000,
+  });
+}
+
+/** Envía un email directo a un tenant. */
+export function useEmailTenant(id: string) {
+  return useMutation({
+    mutationFn: (input: AdminEmailTenantInput) =>
+      adminApiFetch<AdminEmailTenantResultDto>(`/admin/tenants/${id}/email`, {
+        method: 'POST',
+        json: input,
+      }),
+  });
+}
+
+/** Envía un anuncio masivo a los tenants. */
+export function useAdminBroadcast() {
+  return useMutation({
+    mutationFn: (input: AdminBroadcastInput) =>
+      adminApiFetch<AdminBroadcastResultDto>('/admin/announcements', {
+        method: 'POST',
+        json: input,
+      }),
   });
 }
 

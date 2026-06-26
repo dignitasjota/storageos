@@ -89,6 +89,22 @@ export interface AdminTenantDto {
   } | null;
 }
 
+/** Resultado de un email directo a un tenant. */
+export interface AdminEmailTenantResultDto {
+  /** Destinatarios a los que se envió con éxito. */
+  recipients: number;
+  failed: number;
+}
+
+/** Resultado de un anuncio/broadcast a varios tenants. */
+export interface AdminBroadcastResultDto {
+  /** Nº de tenants alcanzados (con al menos un destinatario). */
+  tenants: number;
+  /** Nº total de emails enviados con éxito. */
+  recipients: number;
+  failed: number;
+}
+
 /** Un tenant marcado "en riesgo" (retención) en el panel super admin. */
 export interface AdminAtRiskTenantDto {
   id: string;
