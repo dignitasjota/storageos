@@ -1,5 +1,14 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -103,5 +112,40 @@ export class AdminQueuesController {
         };
       }),
     );
+  }
+
+  /** Reintenta todos los jobs fallidos de una cola. */
+  @Post(':name/retry-failed')
+  @HttpCode(HttpStatus.OK)
+  async retryFailed(@Param('name') name: string): Promise<{ retried: number }> {
+    const queue = this.byName(name);
+    const failed = await queue.getFailed(0, 999);
+    let retried = 0;
+    for (const job of failed) {
+      try {
+        await job.retry();
+        retried += 1;
+      } catch {
+        // El job pudo cambiar de estado entre el listado y el retry; lo ignoramos.
+      }
+    }
+    return { retried };
+  }
+
+  /** Elimina los jobs fallidos de una cola. */
+  @Post(':name/clean-failed')
+  @HttpCode(HttpStatus.OK)
+  async cleanFailed(@Param('name') name: string): Promise<{ cleaned: number }> {
+    const queue = this.byName(name);
+    const removed = await queue.clean(0, 1000, 'failed');
+    return { cleaned: removed.length };
+  }
+
+  private byName(name: string): Queue {
+    const queue = this.queues.find((q) => q.name === name);
+    if (!queue) {
+      throw new NotFoundException({ code: 'queue_not_found', message: 'Cola no encontrada' });
+    }
+    return queue;
   }
 }
