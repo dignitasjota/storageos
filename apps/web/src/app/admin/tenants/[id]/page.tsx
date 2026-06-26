@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
+import { TenantEmailDialog } from './tenant-email-dialog';
 import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
@@ -81,6 +82,7 @@ export default function AdminTenantDetailPage() {
   const [facilitiesOpen, setFacilitiesOpen] = useState(false);
   const [customersOpen, setCustomersOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
 
   if (tenant.isLoading) {
     return (
@@ -113,6 +115,9 @@ export default function AdminTenantDetailPage() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setEditOpen(true)}>
             Editar
+          </Button>
+          <Button variant="outline" onClick={() => setEmailOpen(true)}>
+            Email
           </Button>
           {t.status !== 'suspended' && (
             <Button variant="destructive" onClick={() => setDialog('suspend')}>
@@ -248,6 +253,7 @@ export default function AdminTenantDetailPage() {
         onClose={() => setCustomersOpen(false)}
       />
       <TenantEditDialog tenant={t} open={editOpen} onClose={() => setEditOpen(false)} />
+      <TenantEmailDialog tenantId={t.id} open={emailOpen} onClose={() => setEmailOpen(false)} />
 
       <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />
       <ReactivateDialog

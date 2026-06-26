@@ -3,9 +3,12 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
+import { EmailModule } from '../email/email.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
+import { AdminCommsController } from './admin-comms.controller';
+import { AdminCommsService } from './admin-comms.service';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminQueuesController } from './admin-queues.controller';
@@ -48,8 +51,10 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     JwtModule.register({}),
     IntegrationsModule,
     BillingSaasModule,
+    EmailModule,
   ],
   controllers: [
+    AdminCommsController,
     SuperAdminAuthController,
     AdminTenantsController,
     AdminMetricsController,
@@ -70,6 +75,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminTenantsService,
     AdminTenantInteractionsService,
     AdminSupportService,
+    AdminCommsService,
     AdminMetricsService,
     ImpersonationService,
     SuperAdminAuditService,
