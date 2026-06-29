@@ -5,6 +5,7 @@ import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -25,7 +26,9 @@ import type {
   PortalFacilityDto,
   PortalInvoiceDto,
   PortalPaymentDto,
+  PortalProfileDto,
   PortalRegisterPaymentMethodInput,
+  PortalUpdateProfileInput,
   PortalRequestMagicLinkInput,
   PortalSessionDto,
   SetupIntentResponseDto,
@@ -356,6 +359,71 @@ export class PortalService {
       });
     }
     return { url };
+  }
+
+  /** Datos de perfil del inquilino (para precargar el formulario). */
+  async getMyProfile(tenantId: string, customerId: string): Promise<PortalProfileDto> {
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+    });
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
+    }
+    return this.toProfileDto(customer);
+  }
+
+  /** El inquilino edita sus propios datos de contacto y facturación (no el email). */
+  async updateMyProfile(
+    tenantId: string,
+    customerId: string,
+    input: PortalUpdateProfileInput,
+  ): Promise<PortalProfileDto> {
+    await this.requireCustomer(tenantId, customerId);
+    // Solo se tocan los campos presentes; '' = borrar (null). undefined = no tocar.
+    const data: Prisma.CustomerUpdateInput = {
+      ...(input.firstName !== undefined && { firstName: input.firstName || null }),
+      ...(input.lastName !== undefined && { lastName: input.lastName || null }),
+      ...(input.companyName !== undefined && { companyName: input.companyName || null }),
+      ...(input.phone !== undefined && { phone: input.phone || null }),
+      ...(input.address !== undefined && { address: input.address || null }),
+      ...(input.city !== undefined && { city: input.city || null }),
+      ...(input.postalCode !== undefined && { postalCode: input.postalCode || null }),
+      ...(input.documentType !== undefined && { documentType: input.documentType || null }),
+      ...(input.documentNumber !== undefined && { documentNumber: input.documentNumber || null }),
+      ...(input.country ? { country: input.country.toUpperCase() } : {}),
+    };
+    const updated = await this.admin.customer.update({ where: { id: customerId }, data });
+    return this.toProfileDto(updated);
+  }
+
+  private toProfileDto(c: {
+    customerType: string;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    city: string | null;
+    postalCode: string | null;
+    country: string;
+    documentType: string | null;
+    documentNumber: string | null;
+  }): PortalProfileDto {
+    return {
+      customerType: c.customerType as PortalProfileDto['customerType'],
+      firstName: c.firstName,
+      lastName: c.lastName,
+      companyName: c.companyName,
+      email: c.email,
+      phone: c.phone,
+      address: c.address,
+      city: c.city,
+      postalCode: c.postalCode,
+      country: c.country,
+      documentType: c.documentType,
+      documentNumber: c.documentNumber,
+    };
   }
 
   // ==========================================================================

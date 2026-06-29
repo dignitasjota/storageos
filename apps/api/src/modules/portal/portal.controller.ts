@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -25,6 +26,8 @@ import {
   type PortalInvoiceDto,
   type PortalNightPassInfoDto,
   type PortalPaymentDto,
+  type PortalProfileDto,
+  PortalUpdateProfileSchema,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalReportIncidentSchema,
@@ -62,6 +65,7 @@ class PortalGoCardlessMandateCompleteDto extends createZodDto(
 ) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
+class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
@@ -104,6 +108,25 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  /** Datos de perfil del inquilino (contacto + facturación). */
+  @Public()
+  @Get('me/profile')
+  async myProfile(@Headers('authorization') auth: string | undefined): Promise<PortalProfileDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.getMyProfile(tenantId, customerId);
+  }
+
+  /** El inquilino edita sus datos de contacto y facturación (no el email). */
+  @Public()
+  @Patch('me/profile')
+  async updateMyProfile(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: PortalUpdateProfileDto,
+  ): Promise<PortalProfileDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.updateMyProfile(tenantId, customerId, body);
   }
 
   /** Historial de cobros (transacciones de pago) del inquilino. */

@@ -62,6 +62,44 @@ export interface PortalDownloadDto {
   url: string;
 }
 
+/** Datos de perfil del inquilino que él mismo puede ver/editar en el portal. */
+export interface PortalProfileDto {
+  customerType: 'individual' | 'business';
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+  /** Solo lectura: el email es el identificador de acceso (lo cambia el staff). */
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  city: string | null;
+  postalCode: string | null;
+  country: string;
+  documentType: string | null;
+  documentNumber: string | null;
+}
+
+const optionalProfileText = (max: number) => z.string().trim().max(max).optional();
+
+/**
+ * Edición del propio perfil desde el portal. Campos opcionales: un campo
+ * presente con cadena vacía se interpreta como "borrar". El email NO se puede
+ * cambiar aquí (identificador de login).
+ */
+export const PortalUpdateProfileSchema = z.object({
+  firstName: optionalProfileText(120),
+  lastName: optionalProfileText(120),
+  companyName: optionalProfileText(200),
+  phone: optionalProfileText(40),
+  address: optionalProfileText(200),
+  city: optionalProfileText(120),
+  postalCode: optionalProfileText(20),
+  country: z.string().trim().length(2).optional(),
+  documentType: optionalProfileText(30),
+  documentNumber: optionalProfileText(60),
+});
+export type PortalUpdateProfileInput = z.infer<typeof PortalUpdateProfileSchema>;
+
 /** Solicitud de baja (move-out) desde el portal. */
 export const RequestMoveOutSchema = z.object({
   /** Fecha de salida deseada (YYYY-MM-DD); debe respetar el preaviso. */

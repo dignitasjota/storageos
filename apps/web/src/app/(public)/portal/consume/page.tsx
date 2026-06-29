@@ -36,6 +36,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ProfileCard } from './profile-card';
+
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
 import { Badge } from '@/components/ui/badge';
@@ -606,6 +608,8 @@ function PortalConsumeContent() {
           </CardContent>
         </Card>
       )}
+
+      <ProfileCard session={session} />
 
       <Card>
         <CardHeader>
