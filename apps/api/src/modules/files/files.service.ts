@@ -103,6 +103,22 @@ export class FilesService implements OnModuleInit {
   }
 
   /**
+   * Dada una URL construida con `buildPublicUrl` sobre un bucket PRIVADO (p. ej.
+   * el `signed_pdf_url` del contrato), devuelve una URL firmada GET temporal
+   * para descargarla. `null` si la URL no corresponde a ese bucket.
+   */
+  async presignFromPublicUrl(
+    bucket: PresignArgs['bucket'],
+    publicUrl: string,
+    expiresIn = 300,
+  ): Promise<string | null> {
+    const prefix = `${this.publicUrl}/${this.bucketMap[bucket]}/`;
+    if (!publicUrl.startsWith(prefix)) return null;
+    const key = publicUrl.slice(prefix.length);
+    return this.getPresignedGetUrl(bucket, key, expiresIn);
+  }
+
+  /**
    * URL firmada GET para servir un objeto de un bucket PRIVADO (evidencia:
    * fotos de check-out, documentos…). TTL corto; el cliente la usa en un <img>.
    */

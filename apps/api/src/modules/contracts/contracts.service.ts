@@ -613,7 +613,13 @@ export class ContractsService {
     discountAmount: unknown;
     cancellationNoticeDays: number;
     endingRequestedAt: Date | null;
+    depositAmount: unknown;
+    depositStatus: string;
+    freeMonthsRemaining: number;
+    insurancePrice: unknown;
+    signedPdfUrl: string | null;
     unit: { code: string; facility: { name: string } };
+    insurancePlan: { name: string } | null;
   }): PortalContractDto {
     const base = Number(row.priceMonthly);
     const discount = Number(row.discountAmount);
@@ -629,6 +635,13 @@ export class ContractsService {
       effectivePrice: this.pricing.computeEffectivePrice({ base, discount }),
       cancellationNoticeDays: row.cancellationNoticeDays,
       endingRequestedAt: row.endingRequestedAt?.toISOString() ?? null,
+      depositAmount: Number(row.depositAmount),
+      depositStatus: row.depositStatus as PortalContractDto['depositStatus'],
+      discountAmount: discount,
+      freeMonthsRemaining: row.freeMonthsRemaining,
+      insurancePlanName: row.insurancePlan?.name ?? null,
+      insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,
+      hasSignedPdf: !!row.signedPdfUrl,
     };
   }
 
@@ -639,7 +652,10 @@ export class ContractsService {
         tx.contract.findMany({
           where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
           orderBy: { startDate: 'desc' },
-          include: { unit: { select: { code: true, facility: { select: { name: true } } } } },
+          include: {
+            unit: { select: { code: true, facility: { select: { name: true } } } },
+            insurancePlan: { select: { name: true } },
+          },
         }),
       tenantId,
     );
@@ -711,6 +727,7 @@ export class ContractsService {
             },
           },
           unit: { select: { code: true, facility: { select: { name: true } } } },
+          insurancePlan: { select: { name: true } },
         },
       });
       await tx.contractEvent.create({

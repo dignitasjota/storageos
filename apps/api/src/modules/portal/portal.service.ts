@@ -10,6 +10,7 @@ import { Queue } from 'bullmq';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
+import { FilesService } from '../files/files.service';
 import { GoCardlessMandatesService } from '../payments/gocardless/gocardless-mandates.service';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -20,7 +21,10 @@ import type {
   GoCardlessMandateStartDto,
   PaymentMethodDto,
   PortalChargeResultDto,
+  PortalDownloadDto,
+  PortalFacilityDto,
   PortalInvoiceDto,
+  PortalPaymentDto,
   PortalRegisterPaymentMethodInput,
   PortalRequestMagicLinkInput,
   PortalSessionDto,
@@ -68,6 +72,7 @@ export class PortalService {
     private readonly paymentMethods: PaymentMethodsService,
     private readonly payments: PaymentsService,
     private readonly goCardlessMandates: GoCardlessMandatesService,
+    private readonly files: FilesService,
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
@@ -271,6 +276,86 @@ export class PortalService {
         pdfUrl: r.pdfUrl,
       };
     });
+  }
+
+  /** Historial de cobros del inquilino (transacciones de pago). */
+  async listMyPayments(tenantId: string, customerId: string): Promise<PortalPaymentDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const rows = await this.admin.payment.findMany({
+      where: { tenantId, customerId },
+      orderBy: { createdAt: 'desc' },
+      include: { invoice: { select: { invoiceNumber: true } } },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      amount: Number(r.amount),
+      currency: r.currency,
+      status: r.status,
+      methodType: r.methodType,
+      paidAt: r.paidAt ? r.paidAt.toISOString() : null,
+      invoiceNumber: r.invoice?.invoiceNumber ?? null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  /** Locales donde el inquilino tiene un trastero activo (dirección, horario, contacto). */
+  async listMyFacilities(tenantId: string, customerId: string): Promise<PortalFacilityDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const contracts = await this.admin.contract.findMany({
+      where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
+      select: { unit: { select: { facilityId: true } } },
+    });
+    const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
+    if (facilityIds.length === 0) return [];
+    const facilities = await this.admin.facility.findMany({
+      where: { id: { in: facilityIds }, deletedAt: null },
+      orderBy: { name: 'asc' },
+    });
+    return facilities.map((f) => ({
+      id: f.id,
+      name: f.name,
+      address: f.address,
+      city: f.city,
+      postalCode: f.postalCode,
+      contactPhone: f.contactPhone,
+      contactEmail: f.contactEmail,
+      accessCurfewEnabled: f.accessCurfewEnabled,
+      accessCurfewStart: f.accessCurfewStart,
+      accessCurfewEnd: f.accessCurfewEnd,
+    }));
+  }
+
+  /** URL temporal para descargar el PDF del contrato firmado del inquilino. */
+  async getMyContractPdf(
+    tenantId: string,
+    customerId: string,
+    contractId: string,
+  ): Promise<PortalDownloadDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const contract = await this.admin.contract.findFirst({
+      where: { id: contractId, customerId, tenantId, deletedAt: null },
+      select: { signedPdfUrl: true },
+    });
+    if (!contract) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    if (!contract.signedPdfUrl) {
+      throw new NotFoundException({
+        code: 'signed_pdf_not_available',
+        message: 'Aún no hay contrato firmado disponible',
+      });
+    }
+    const url = await this.files.presignFromPublicUrl('uploads', contract.signedPdfUrl, 300);
+    if (!url) {
+      throw new NotFoundException({
+        code: 'signed_pdf_not_available',
+        message: 'No se pudo generar el enlace de descarga',
+      });
+    }
+    return { url };
   }
 
   // ==========================================================================
