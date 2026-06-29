@@ -138,6 +138,63 @@ export class PaymentMethodsService {
     return this.toDto(created);
   }
 
+  /**
+   * Registra un método de pago **ya resuelto** (sin llamar a un gateway): los
+   * detalles llegan desde fuera. Lo usa GoCardless, cuyo "token" es el id del
+   * mandato y cuyos datos (referencia, IBAN, customer) ya se obtuvieron del
+   * Billing Request — el flujo Stripe de `register` no aplica.
+   */
+  async registerResolved(args: {
+    tenantId: string;
+    userId: string | null;
+    customerId: string;
+    gateway: PaymentMethod['gateway'];
+    type: PaymentMethod['type'];
+    /** Token/identificador que se cifra (p. ej. el id del mandato de GoCardless). */
+    token: string;
+    gatewayCustomerId?: string | null;
+    last4?: string | null;
+    brand?: string | null;
+    mandateReference?: string | null;
+    isDefault: boolean;
+    meta: RequestMeta;
+  }): Promise<PaymentMethodDto> {
+    const encrypted = this.crypto.encryptString(args.token);
+    const created = await this.prisma.withTenant(async (tx) => {
+      if (args.isDefault) {
+        await tx.paymentMethod.updateMany({
+          where: { customerId: args.customerId, deletedAt: null },
+          data: { isDefault: false },
+        });
+      }
+      return tx.paymentMethod.create({
+        data: {
+          tenantId: args.tenantId,
+          customerId: args.customerId,
+          type: args.type,
+          gateway: args.gateway,
+          gatewayTokenEncrypted: encrypted,
+          ...(args.gatewayCustomerId ? { gatewayCustomerId: args.gatewayCustomerId } : {}),
+          last4: args.last4 ?? null,
+          brand: args.brand ?? null,
+          isDefault: args.isDefault,
+          mandateReference: args.mandateReference ?? null,
+        },
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'payment_method.added',
+      entityType: 'PaymentMethod',
+      entityId: created.id,
+      changes: { customerId: args.customerId, type: args.type, gateway: args.gateway },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(created);
+  }
+
   async remove(args: {
     tenantId: string;
     userId: string;

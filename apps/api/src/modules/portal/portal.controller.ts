@@ -11,8 +11,10 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
+  type GoCardlessMandateStartDto,
   type PortalAccessCredentialDto,
   PortalConsumeMagicLinkSchema,
+  PortalGoCardlessMandateCompleteSchema,
   type PaymentMethodDto,
   type PortalChargeResultDto,
   type PortalContractDto,
@@ -52,6 +54,9 @@ import { PortalService } from './portal.service';
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
+class PortalGoCardlessMandateCompleteDto extends createZodDto(
+  PortalGoCardlessMandateCompleteSchema,
+) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
@@ -302,6 +307,38 @@ export class PortalController {
   ): Promise<PaymentMethodDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.registerMyPaymentMethod(tenantId, customerId, input);
+  }
+
+  @Public()
+  @Get('me/gocardless/enabled')
+  async goCardlessEnabled(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<{ enabled: boolean }> {
+    const { tenantId } = await this.requirePortalSession(auth);
+    return { enabled: await this.portal.isGoCardlessEnabled(tenantId) };
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/gocardless/mandate/start')
+  @HttpCode(HttpStatus.OK)
+  async startMyGoCardlessMandate(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<GoCardlessMandateStartDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.startMyGoCardlessMandate(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/gocardless/mandate/complete')
+  @HttpCode(HttpStatus.OK)
+  async completeMyGoCardlessMandate(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: PortalGoCardlessMandateCompleteDto,
+  ): Promise<PaymentMethodDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.completeMyGoCardlessMandate(tenantId, customerId, body.billingRequestId);
   }
 
   @Public()
