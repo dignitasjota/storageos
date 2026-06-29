@@ -130,6 +130,37 @@ export interface AdminAtRiskDto {
   inactive: AdminAtRiskTenantDto[];
 }
 
+/** Nivel de salud de un tenant según su score 0-100. */
+export type AdminTenantHealthLevel = 'healthy' | 'warm' | 'at_risk' | 'dormant';
+
+/** Un factor del health score (con su peso y puntuación 0-100). */
+export interface AdminTenantHealthFactorDto {
+  /** Clave estable: 'engagement' | 'billing' | 'subscription' | 'adoption'. */
+  key: string;
+  label: string;
+  /** Puntuación de este factor, 0-100. */
+  score: number;
+  /** Peso relativo en el score total, 0-1. */
+  weight: number;
+  /** Explicación legible de la señal (p. ej. "Último acceso hace 3 d"). */
+  detail: string;
+}
+
+/** Health score de un tenant: 0-100 ponderado + nivel + desglose por factor. */
+export interface AdminTenantHealthDto {
+  tenantId: string;
+  name: string;
+  slug: string;
+  status: string;
+  planName: string | null;
+  /** Score final 0-100. */
+  score: number;
+  level: AdminTenantHealthLevel;
+  factors: AdminTenantHealthFactorDto[];
+  /** Última actividad detectada (último login del equipo). */
+  lastActivityAt: string | null;
+}
+
 /** Un usuario (staff) de un tenant, visto desde el panel super admin. */
 export interface AdminTenantUserDto {
   id: string;

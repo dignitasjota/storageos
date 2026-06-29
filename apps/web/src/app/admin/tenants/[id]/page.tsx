@@ -20,6 +20,7 @@ import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
 import { TenantEmailDialog } from './tenant-email-dialog';
 import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
+import { TenantHealthCard } from './tenant-health-card';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
 import { TenantUsersDialog } from './tenant-users-dialog';
@@ -224,6 +225,8 @@ export default function AdminTenantDetailPage() {
                 />
               </CardContent>
             </Card>
+
+            <TenantHealthCard tenantId={id} />
           </div>
         </TabsContent>
 

@@ -18,6 +18,7 @@ import {
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantFacilityDto,
+  type AdminTenantHealthDto,
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
   type AdminTenantUserDto,
@@ -321,9 +322,21 @@ export class AdminTenantsController {
     return this.tenants.getAtRisk();
   }
 
+  /** Health score 0-100 de cada tenant (más urgente primero). */
+  @Get('health')
+  async health(): Promise<AdminTenantHealthDto[]> {
+    return this.tenants.getTenantsHealth();
+  }
+
   @Get(':id')
   async detail(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantDto> {
     return this.tenants.detail(id);
+  }
+
+  /** Health score de un tenant concreto (desglose por factor). */
+  @Get(':id/health')
+  async tenantHealth(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantHealthDto> {
+    return this.tenants.getTenantHealth(id);
   }
 
   /** Usuarios (staff) del tenant — para el desglose de la card «Uso». */

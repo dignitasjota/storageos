@@ -15,6 +15,9 @@ import type {
   AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantFacilityDto,
+  AdminTenantHealthDto,
+  AdminTenantHealthFactorDto,
+  AdminTenantHealthLevel,
   AdminTenantInvoicingDto,
   AdminTenantUnitDto,
   AdminTenantUserDto,
@@ -221,6 +224,223 @@ export class AdminTenantsService {
       });
 
     return { trialExpiring, pastDue: pastDueList, inactive };
+  }
+
+  // --- Health score por tenant -------------------------------------------
+
+  /**
+   * Health score 0-100 de cada tenant activo/trial, ordenado de menor (más
+   * urgente) a mayor. Combina 4 señales ponderadas: actividad del equipo,
+   * facturación reciente, estado de la suscripción y adopción (contratos +
+   * locales). Solo lectura/agregación cross-tenant.
+   */
+  async getTenantsHealth(): Promise<AdminTenantHealthDto[]> {
+    const now = new Date();
+    const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [tenants, lastLogins, recentInvoices, activeContracts, facilities] = await Promise.all([
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, status: { in: ['active', 'trial'] } },
+        include: { subscription: { include: { plan: { select: { name: true } } } } },
+      }),
+      this.admin.user.groupBy({ by: ['tenantId'], _max: { lastLoginAt: true } }),
+      this.admin.invoice.groupBy({
+        by: ['tenantId'],
+        where: {
+          deletedAt: null,
+          status: { in: ['issued', 'paid', 'overdue'] },
+          issueDate: { gte: since30d },
+        },
+        _count: { _all: true },
+      }),
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: { deletedAt: null, status: { in: ['active', 'ending'] } },
+        _count: { _all: true },
+      }),
+      this.admin.facility.groupBy({
+        by: ['tenantId'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const lastLoginBy = new Map(lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    const invoicesBy = new Map(recentInvoices.map((r) => [r.tenantId, r._count._all]));
+    const contractsBy = new Map(activeContracts.map((c) => [c.tenantId, c._count._all]));
+    const facilitiesBy = new Map(facilities.map((f) => [f.tenantId, f._count._all]));
+
+    const result = tenants.map((t) =>
+      this.scoreTenant({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        status: t.status,
+        planName: t.subscription?.plan?.name ?? null,
+        subStatus: t.subscription?.status ?? null,
+        cancelAtPeriodEnd: t.subscription?.cancelAtPeriodEnd ?? false,
+        trialEndsAt: t.trialEndsAt,
+        lastLoginAt: lastLoginBy.get(t.id) ?? null,
+        recentInvoices: invoicesBy.get(t.id) ?? 0,
+        activeContracts: contractsBy.get(t.id) ?? 0,
+        facilities: facilitiesBy.get(t.id) ?? 0,
+      }),
+    );
+    // Más urgentes primero (menor score).
+    result.sort((a, b) => a.score - b.score);
+    return result;
+  }
+
+  /** Health score de un tenant concreto (404 si no existe). */
+  async getTenantHealth(tenantId: string): Promise<AdminTenantHealthDto> {
+    const now = new Date();
+    const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      include: { subscription: { include: { plan: { select: { name: true } } } } },
+    });
+    if (!tenant) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const [lastLogin, recentInvoices, activeContracts, facilities] = await Promise.all([
+      this.admin.user.aggregate({ where: { tenantId }, _max: { lastLoginAt: true } }),
+      this.admin.invoice.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['issued', 'paid', 'overdue'] },
+          issueDate: { gte: since30d },
+        },
+      }),
+      this.admin.contract.count({
+        where: { tenantId, deletedAt: null, status: { in: ['active', 'ending'] } },
+      }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+    ]);
+    return this.scoreTenant({
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      status: tenant.status,
+      planName: tenant.subscription?.plan?.name ?? null,
+      subStatus: tenant.subscription?.status ?? null,
+      cancelAtPeriodEnd: tenant.subscription?.cancelAtPeriodEnd ?? false,
+      trialEndsAt: tenant.trialEndsAt,
+      lastLoginAt: lastLogin._max.lastLoginAt ?? null,
+      recentInvoices,
+      activeContracts,
+      facilities,
+    });
+  }
+
+  /** Cálculo puro del score a partir de las señales ya recopiladas. */
+  private scoreTenant(s: {
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    planName: string | null;
+    subStatus: string | null;
+    cancelAtPeriodEnd: boolean;
+    trialEndsAt: Date | null;
+    lastLoginAt: Date | null;
+    recentInvoices: number;
+    activeContracts: number;
+    facilities: number;
+  }): AdminTenantHealthDto {
+    const now = Date.now();
+    const daysSince = (d: Date | null): number =>
+      d ? (now - d.getTime()) / (24 * 60 * 60 * 1000) : Infinity;
+
+    // 1) Engagement: recencia del último login del equipo.
+    const loginDays = daysSince(s.lastLoginAt);
+    const engagement =
+      loginDays <= 7 ? 100 : loginDays <= 14 ? 80 : loginDays <= 30 ? 50 : loginDays <= 90 ? 20 : 0;
+    const engagementDetail = s.lastLoginAt
+      ? `Último acceso hace ${Math.floor(loginDays)} d`
+      : 'Ningún acceso registrado';
+
+    // 2) Facturación: facturas emitidas en los últimos 30 días.
+    const billing =
+      s.recentInvoices >= 5 ? 100 : s.recentInvoices >= 2 ? 75 : s.recentInvoices >= 1 ? 50 : 0;
+    const billingDetail = `${s.recentInvoices} factura(s) en 30 días`;
+
+    // 3) Suscripción: estado de pago / trial.
+    let subscription: number;
+    let subDetail: string;
+    if (s.subStatus === 'past_due') {
+      subscription = 10;
+      subDetail = 'Pago de la suscripción fallido';
+    } else if (s.cancelAtPeriodEnd) {
+      subscription = 20;
+      subDetail = 'Cancelación programada';
+    } else if (s.status === 'trial') {
+      const trialDaysLeft = s.trialEndsAt
+        ? (s.trialEndsAt.getTime() - now) / (24 * 60 * 60 * 1000)
+        : 0;
+      subscription = trialDaysLeft > 7 ? 70 : 40;
+      subDetail =
+        trialDaysLeft > 0 ? `Trial: ${Math.ceil(trialDaysLeft)} d restantes` : 'Trial vencido';
+    } else if (s.subStatus === 'active' || s.status === 'active') {
+      subscription = 100;
+      subDetail = 'Suscripción activa';
+    } else {
+      subscription = 50;
+      subDetail = s.subStatus ?? s.status;
+    }
+
+    // 4) Adopción: contratos activos + locales configurados.
+    const adoption =
+      s.activeContracts >= 10
+        ? 100
+        : s.activeContracts >= 3
+          ? 70
+          : s.activeContracts >= 1
+            ? 40
+            : s.facilities > 0
+              ? 15
+              : 0;
+    const adoptionDetail = `${s.activeContracts} contrato(s) activo(s) · ${s.facilities} local(es)`;
+
+    const factors: AdminTenantHealthFactorDto[] = [
+      {
+        key: 'engagement',
+        label: 'Actividad del equipo',
+        score: engagement,
+        weight: 0.35,
+        detail: engagementDetail,
+      },
+      {
+        key: 'billing',
+        label: 'Facturación reciente',
+        score: billing,
+        weight: 0.25,
+        detail: billingDetail,
+      },
+      {
+        key: 'subscription',
+        label: 'Suscripción',
+        score: subscription,
+        weight: 0.25,
+        detail: subDetail,
+      },
+      { key: 'adoption', label: 'Adopción', score: adoption, weight: 0.15, detail: adoptionDetail },
+    ];
+    const score = Math.round(factors.reduce((acc, f) => acc + f.score * f.weight, 0));
+    const level: AdminTenantHealthLevel =
+      score >= 75 ? 'healthy' : score >= 50 ? 'warm' : score >= 25 ? 'at_risk' : 'dormant';
+
+    return {
+      tenantId: s.id,
+      name: s.name,
+      slug: s.slug,
+      status: s.status,
+      planName: s.planName,
+      score,
+      level,
+      factors,
+      lastActivityAt: s.lastLoginAt ? s.lastLoginAt.toISOString() : null,
+    };
   }
 
   /** Lista los usuarios (staff) de un tenant con datos relevantes para soporte. */
