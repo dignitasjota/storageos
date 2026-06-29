@@ -6,7 +6,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -101,5 +101,61 @@ describe('Insurance / protección recurrente (e2e)', () => {
     expect(removed.status).toBe(200);
     expect(removed.body.insurancePlanId).toBeNull();
     expect(removed.body.insurancePrice).toBeNull();
+  });
+
+  it('gating por plan: asignar seguro sin la feature `insurance` da 403 (quitar sigue permitido)', async () => {
+    const owner = await registerVerifiedUser(app, 'insurance-gate');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // En `starter` (con la feature): crear plan + contrato con seguro.
+    const plan = await request(app.getHttpServer())
+      .post('/insurance-plans')
+      .set(auth)
+      .send({ name: 'Básica', monthlyPrice: 5, coverageAmount: 3000, taxRate: 21 });
+    expect(plan.status).toBe(201);
+    const planId = plan.body.id as string;
+
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    const customerId = await createCustomer(app, owner.accessToken);
+    const contract = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-06-01',
+      priceMonthly: 80,
+      depositAmount: 0,
+      insurancePlanId: planId,
+    });
+    expect(contract.status).toBe(201);
+    const contractId = contract.body.id as string;
+
+    // Downgrade a `free` (sin la feature `insurance`).
+    await setTenantPlan(owner.slug, 'free');
+
+    // Asignar/cambiar seguro vía el contrato → 403 feature_not_in_plan.
+    const assign = await request(app.getHttpServer())
+      .put(`/contracts/${contractId}/insurance`)
+      .set(auth)
+      .send({ planId });
+    expect(assign.status).toBe(403);
+    expect(assign.body.code).toBe('feature_not_in_plan');
+
+    // Alta de OTRO contrato con seguro → también 403.
+    const newWithInsurance = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[1],
+      startDate: '2026-06-01',
+      priceMonthly: 50,
+      depositAmount: 0,
+      insurancePlanId: planId,
+    });
+    expect(newWithInsurance.status).toBe(403);
+
+    // Pero QUITAR el seguro (planId null) sigue permitido aunque no haya feature.
+    const removed = await request(app.getHttpServer())
+      .put(`/contracts/${contractId}/insurance`)
+      .set(auth)
+      .send({ planId: null });
+    expect(removed.status).toBe(200);
+    expect(removed.body.insurancePlanId).toBeNull();
   });
 });
