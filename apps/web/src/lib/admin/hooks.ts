@@ -14,6 +14,7 @@ import type {
   AdminEmailTenantResultDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
+  AdminRetentionDto,
   AdminSystemHealthDto,
   AdminTenantActionInput,
   AdminTenantCustomerDto,
@@ -413,6 +414,14 @@ export function useAdminMrrMovements() {
   return useQuery({
     queryKey: ['admin', 'metrics', 'mrr-movements'] as const,
     queryFn: () => adminApiFetch<AdminMetricsMrrMovementsDto>('/admin/metrics/mrr-movements'),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminRetention() {
+  return useQuery({
+    queryKey: ['admin', 'metrics', 'retention'] as const,
+    queryFn: () => adminApiFetch<AdminRetentionDto>('/admin/metrics/retention'),
     staleTime: 60_000,
   });
 }

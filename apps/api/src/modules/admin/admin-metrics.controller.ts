@@ -6,7 +6,11 @@ import { AdminMetricsService } from './admin-metrics.service';
 import { AdminGuard } from './admin.guard';
 import { MrrSnapshotService } from './mrr-snapshot.service';
 
-import type { AdminMetricsDto, AdminMetricsMrrMovementsDto } from '@storageos/shared';
+import type {
+  AdminMetricsDto,
+  AdminMetricsMrrMovementsDto,
+  AdminRetentionDto,
+} from '@storageos/shared';
 
 @Public()
 @UseGuards(AdminGuard)
@@ -27,5 +31,12 @@ export class AdminMetricsController {
   async mrrMovements(@Query('months') months?: string): Promise<AdminMetricsMrrMovementsDto> {
     const n = months ? Number(months) : 12;
     return this.mrr.getMovements(Number.isFinite(n) ? n : 12);
+  }
+
+  /** Matriz de cohortes de retención de tenants (por mes de alta). */
+  @Get('retention')
+  async retention(@Query('months') months?: string): Promise<AdminRetentionDto> {
+    const n = months ? Number(months) : 12;
+    return this.metrics.getRetention(Number.isFinite(n) ? n : 12);
   }
 }

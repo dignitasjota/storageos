@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import type { AdminMetricsDto } from '@storageos/shared';
+import type { AdminMetricsDto, AdminRetentionDto } from '@storageos/shared';
 
 type TenantStatusKey = 'trial' | 'active' | 'suspended' | 'cancelled';
 
@@ -29,6 +29,19 @@ function startOfMonthUtc(d: Date): Date {
 
 function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function addMonthsUtc(d: Date, n: number): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
+}
+
+/** Meses transcurridos de `a` a `b` (ambos primeros de mes UTC). */
+function monthDiff(a: Date, b: Date): number {
+  return (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+}
+
+function monthLabel(d: Date): string {
+  return `${MONTHS_ES[d.getUTCMonth()]} ${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
 }
 
 /**
@@ -195,5 +208,57 @@ export class AdminMetricsService {
         collected: round2(revenueByKey.get(m.key) ?? 0),
       })),
     };
+  }
+
+  /**
+   * Matriz de cohortes de retención: agrupa los tenants por su mes de alta y,
+   * para cada offset de mes, calcula el % que seguía vivo. "Vivo" = no
+   * `cancelled`/`suspended`; la fecha de baja se aproxima por `updatedAt` (igual
+   * criterio que el resto de métricas). M0 es 100% por construcción.
+   */
+  async getRetention(months: number): Promise<AdminRetentionDto> {
+    const span = Math.min(Math.max(months, 1), 24);
+    const nowMonth = startOfMonthUtc(new Date());
+    const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
+
+    const tenants = await this.admin.tenant.findMany({
+      where: { deletedAt: null, createdAt: { gte: firstCohort } },
+      select: { createdAt: true, status: true, updatedAt: true },
+    });
+
+    // Por tenant: mes de alta + mes de baja (null si sigue vivo).
+    const records = tenants.map((t) => {
+      const cohortMonth = startOfMonthUtc(t.createdAt);
+      const churned = t.status === 'cancelled' || t.status === 'suspended';
+      return { cohortMonth, churnMonth: churned ? startOfMonthUtc(t.updatedAt) : null };
+    });
+
+    const maxOffset = monthDiff(firstCohort, nowMonth);
+    const cohorts = [];
+    for (let i = 0; i < span; i++) {
+      const c = addMonthsUtc(firstCohort, i);
+      const members = records.filter((r) => r.cohortMonth.getTime() === c.getTime());
+      const size = members.length;
+      const maxK = monthDiff(c, nowMonth); // offsets con datos para esta cohorte
+      const retention: (number | null)[] = [];
+      for (let k = 0; k <= maxOffset; k++) {
+        if (k > maxK) {
+          retention.push(null);
+          continue;
+        }
+        if (size === 0) {
+          retention.push(0);
+          continue;
+        }
+        const target = addMonthsUtc(c, k);
+        const alive = members.filter(
+          (r) => r.churnMonth === null || r.churnMonth.getTime() >= target.getTime(),
+        ).length;
+        retention.push(round2((alive / size) * 100));
+      }
+      cohorts.push({ cohort: monthLabel(c), size, retention });
+    }
+
+    return { maxOffset, cohorts };
   }
 }

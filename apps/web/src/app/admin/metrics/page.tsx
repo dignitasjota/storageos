@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 
 import { MrrMovementsCard } from './mrr-movements-card';
+import { RetentionCohortsCard } from './retention-cohorts-card';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMetrics } from '@/lib/admin/hooks';
@@ -235,6 +236,11 @@ export default function AdminMetricsPage() {
       {/* MRR movements */}
       <section>
         <MrrMovementsCard />
+      </section>
+
+      {/* Cohortes de retención */}
+      <section>
+        <RetentionCohortsCard />
       </section>
 
       {/* Totales de plataforma */}

@@ -385,6 +385,27 @@ export interface AdminMetricsMrrMovementsDto {
   warmingUp: boolean;
 }
 
+/** Una cohorte de retención (tenants registrados el mismo mes). */
+export interface AdminRetentionCohortDto {
+  /** Etiqueta del mes de alta, p. ej. "ene 26". */
+  cohort: string;
+  /** Nº de tenants registrados ese mes. */
+  size: number;
+  /**
+   * Retención % por offset de mes desde el alta: índice 0 = M0 (=100), 1 = M1…
+   * `null` para offsets que aún no han ocurrido (mes futuro para esa cohorte).
+   */
+  retention: (number | null)[];
+}
+
+/** Matriz de cohortes de retención de tenants (por mes de alta). */
+export interface AdminRetentionDto {
+  /** Nº máximo de offset (columnas M0..Mn). */
+  maxOffset: number;
+  /** Cohortes de la más antigua a la más reciente. */
+  cohorts: AdminRetentionCohortDto[];
+}
+
 /** Estado de un servicio de infraestructura (status page del admin). */
 export interface AdminSystemServiceDto {
   /** 'database' | 'redis' | 'minio' | 'worker'. */
