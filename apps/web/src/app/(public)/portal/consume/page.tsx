@@ -5,9 +5,11 @@ import {
   type PortalAccessCredentialDto,
   type PortalChargeResultDto,
   type PortalContractDto,
+  type PortalFacilityDto,
   type PortalIncidentDto,
   type PortalInvoiceDto,
   type PortalNightPassInfoDto,
+  type PortalPaymentDto,
   type PortalReferralDto,
   type PortalSessionDto,
   type PortalUnitChangeRequestDto,
@@ -23,7 +25,9 @@ import {
   Landmark,
   Loader2,
   LogOut,
+  MapPin,
   Plus,
+  Receipt,
   RefreshCw,
   Wrench,
 } from 'lucide-react';
@@ -48,6 +52,32 @@ import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
+/** Texto legible del estado de la fianza. */
+function depositLabel(status: string): string {
+  if (status === 'held') return 'retenida';
+  if (status === 'returned') return 'devuelta';
+  if (status === 'partially_returned') return 'devuelta parcialmente';
+  return 'pendiente';
+}
+
+function paymentMethodLabel(type: string): string {
+  if (type === 'card') return 'Tarjeta';
+  if (type === 'sepa_debit') return 'Domiciliación SEPA';
+  if (type === 'bank_transfer') return 'Transferencia';
+  if (type === 'cash') return 'Efectivo';
+  return 'Otro';
+}
+
+function paymentStatusLabel(status: string): string {
+  if (status === 'succeeded') return 'Cobrado';
+  if (status === 'processing') return 'En curso';
+  if (status === 'pending') return 'Pendiente';
+  if (status === 'failed') return 'Fallido';
+  if (status === 'refunded') return 'Reembolsado';
+  if (status === 'partially_refunded') return 'Reemb. parcial';
+  return status;
+}
+
 /** Convierte la clave pública VAPID (base64url) al formato que pide pushManager. */
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -69,6 +99,8 @@ function PortalConsumeContent() {
   const [buyingPass, setBuyingPass] = useState(false);
   const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
   const [contracts, setContracts] = useState<PortalContractDto[] | null>(null);
+  const [payments, setPayments] = useState<PortalPaymentDto[]>([]);
+  const [facilities, setFacilities] = useState<PortalFacilityDto[]>([]);
   const [incidents, setIncidents] = useState<PortalIncidentDto[] | null>(null);
   const [incidentTitle, setIncidentTitle] = useState('');
   const [incidentDesc, setIncidentDesc] = useState('');
@@ -157,6 +189,19 @@ function PortalConsumeContent() {
           if (!cancelled) setGoCardlessEnabled(gc.enabled);
         } catch {
           /* gocardless opcional */
+        }
+        // Historial de pagos + datos del local (best-effort).
+        try {
+          const [pays, facs] = await Promise.all([
+            portalFetch<PortalPaymentDto[]>(s, '/portal/me/payments'),
+            portalFetch<PortalFacilityDto[]>(s, '/portal/me/facilities'),
+          ]);
+          if (!cancelled) {
+            setPayments(pays);
+            setFacilities(facs);
+          }
+        } catch {
+          /* opcional */
         }
       } catch (err) {
         if (cancelled) return;
@@ -311,6 +356,19 @@ function PortalConsumeContent() {
     }
   }
 
+  async function downloadContract(contractId: string) {
+    if (!session) return;
+    try {
+      const { url } = await portalFetch<{ url: string }>(
+        session,
+        `/portal/me/contracts/${contractId}/signed-pdf`,
+      );
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo descargar el contrato.');
+    }
+  }
+
   async function requestMoveOut(id: string, endDate: string) {
     if (!session) return;
     try {
@@ -460,24 +518,49 @@ function PortalConsumeContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {contracts.map((c) => (
-              <div
-                key={c.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
-              >
-                <div>
-                  <p className="font-medium">
-                    {c.unitCode} · {c.facilityName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {c.contractNumber} · {c.effectivePrice.toFixed(2)} €/mes
-                    {c.status === 'ending' && c.endDate ? ` · baja prevista el ${c.endDate}` : ''}
-                  </p>
+              <div key={c.id} className="space-y-2 rounded-md border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">
+                      {c.unitCode} · {c.facilityName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {c.contractNumber} · {c.effectivePrice.toFixed(2)} €/mes
+                      {c.status === 'ending' && c.endDate ? ` · baja prevista el ${c.endDate}` : ''}
+                    </p>
+                  </div>
+                  {c.status === 'ending' ? (
+                    <Badge variant="secondary">Baja solicitada</Badge>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
+                      <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
+                    </Button>
+                  )}
                 </div>
-                {c.status === 'ending' ? (
-                  <Badge variant="secondary">Baja solicitada</Badge>
-                ) : (
-                  <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
-                    <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  {c.depositAmount > 0 && (
+                    <span>
+                      Fianza {c.depositAmount.toFixed(2)} € · {depositLabel(c.depositStatus)}
+                    </span>
+                  )}
+                  {c.insurancePlanName && (
+                    <span>
+                      Seguro: {c.insurancePlanName}
+                      {c.insurancePrice ? ` (${c.insurancePrice.toFixed(2)} €/mes)` : ''}
+                    </span>
+                  )}
+                  {c.freeMonthsRemaining > 0 && (
+                    <span className="text-green-600">
+                      {c.freeMonthsRemaining} mes(es) gratis pendientes
+                    </span>
+                  )}
+                  {c.discountAmount > 0 && (
+                    <span>Descuento {c.discountAmount.toFixed(2)} €/mes</span>
+                  )}
+                </div>
+                {c.hasSignedPdf && (
+                  <Button variant="ghost" size="sm" onClick={() => void downloadContract(c.id)}>
+                    <Download className="mr-1 h-4 w-4" /> Descargar contrato firmado
                   </Button>
                 )}
               </div>
@@ -492,6 +575,36 @@ function PortalConsumeContent() {
           onClose={() => setMoveOutId(null)}
           onConfirm={(endDate) => requestMoveOut(moveOutId, endDate)}
         />
+      )}
+
+      {facilities.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-muted-foreground" /> Tu local
+            </CardTitle>
+            <CardDescription>Dirección, horario de acceso y contacto.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {facilities.map((f) => (
+              <div key={f.id} className="rounded-md border p-3 text-sm">
+                <p className="font-medium">{f.name}</p>
+                {(f.address || f.city) && (
+                  <p className="text-muted-foreground">
+                    {[f.address, f.postalCode, f.city].filter(Boolean).join(', ')}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {f.accessCurfewEnabled && f.accessCurfewStart && f.accessCurfewEnd
+                    ? `Acceso cerrado de ${f.accessCurfewStart} a ${f.accessCurfewEnd}`
+                    : 'Acceso 24 h'}
+                  {f.contactPhone ? ` · Tel. ${f.contactPhone}` : ''}
+                  {f.contactEmail ? ` · ${f.contactEmail}` : ''}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       <Card>
@@ -568,6 +681,40 @@ function PortalConsumeContent() {
           )}
         </CardContent>
       </Card>
+
+      {payments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-muted-foreground" /> Historial de pagos
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y rounded-md border">
+              {payments.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                >
+                  <div>
+                    <p className="font-medium tabular-nums">
+                      {p.amount.toFixed(2)} {p.currency}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {paymentMethodLabel(p.methodType)}
+                      {p.invoiceNumber ? ` · factura ${p.invoiceNumber}` : ''}
+                      {p.paidAt ? ` · ${new Date(p.paidAt).toLocaleDateString('es-ES')}` : ''}
+                    </p>
+                  </div>
+                  <Badge variant={p.status === 'succeeded' ? 'secondary' : 'outline'}>
+                    {paymentStatusLabel(p.status)}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

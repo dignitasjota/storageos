@@ -18,10 +18,13 @@ import {
   type PaymentMethodDto,
   type PortalChargeResultDto,
   type PortalContractDto,
+  type PortalDownloadDto,
+  type PortalFacilityDto,
   type PortalIncidentDto,
   PortalCreateExtraAccessSchema,
   type PortalInvoiceDto,
   type PortalNightPassInfoDto,
+  type PortalPaymentDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalReportIncidentSchema,
@@ -103,6 +106,26 @@ export class PortalController {
     return this.portal.listMyInvoices(tenantId, customerId);
   }
 
+  /** Historial de cobros (transacciones de pago) del inquilino. */
+  @Public()
+  @Get('me/payments')
+  async myPayments(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalPaymentDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.listMyPayments(tenantId, customerId);
+  }
+
+  /** Locales del inquilino (dirección, horario de acceso, contacto). */
+  @Public()
+  @Get('me/facilities')
+  async myFacilities(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalFacilityDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.listMyFacilities(tenantId, customerId);
+  }
+
   // ----------------------- acceso por QR/PIN -------------------------------
 
   @Public()
@@ -123,6 +146,17 @@ export class PortalController {
   ): Promise<PortalContractDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.contracts.listForCustomer(tenantId, customerId);
+  }
+
+  /** URL temporal para descargar el PDF del contrato firmado. */
+  @Public()
+  @Get('me/contracts/:id/signed-pdf')
+  async myContractPdf(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalDownloadDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.getMyContractPdf(tenantId, customerId, id);
   }
 
   @Public()
