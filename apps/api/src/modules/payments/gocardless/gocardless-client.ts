@@ -266,6 +266,52 @@ export class GoCardlessClient {
     };
   }
 
+  /**
+   * Crea un cobro (Payment) contra un mandato. GoCardless lo lleva a
+   * `pending_submission` → `submitted` → `confirmed` (días); el resultado
+   * definitivo llega por webhook. Devuelve el id + status inicial.
+   */
+  async createPayment(
+    accessToken: string,
+    environment: GoCardlessEnvironment,
+    args: {
+      mandateId: string;
+      amountCents: number;
+      currency: string;
+      description: string;
+      metadata?: Record<string, string>;
+      idempotencyKey?: string;
+    },
+  ): Promise<{ id: string; status: string }> {
+    if (this.stub) {
+      return { id: `PM-stub-${stubSuffix()}`, status: 'pending_submission' };
+    }
+    const { status, data } = await this.request<{
+      payments?: { id: string; status: string };
+      error?: { message?: string };
+    }>({
+      accessToken,
+      environment,
+      method: 'POST',
+      path: '/payments',
+      body: {
+        payments: {
+          links: { mandate: args.mandateId },
+          amount: args.amountCents,
+          currency: args.currency,
+          description: args.description,
+          ...(args.metadata ? { metadata: args.metadata } : {}),
+        },
+      },
+      idempotencyKey: args.idempotencyKey ?? `payment-${stubSuffix()}`,
+    });
+    const p = data.payments;
+    if (status >= 300 || !p) {
+      throw new Error(`createPayment: ${data.error?.message ?? `HTTP ${status}`}`);
+    }
+    return { id: p.id, status: p.status };
+  }
+
   /** Lee la cuenta bancaria del cliente (para los últimos 4 del IBAN). */
   async getCustomerBankAccount(
     accessToken: string,

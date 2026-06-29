@@ -2,6 +2,7 @@ import { PaymentsService } from '../payments.service';
 
 import type { AuditService } from '../../auth/audit.service';
 import type { PrismaService } from '../../database/prisma.service';
+import type { GoCardlessChargeService } from '../gocardless/gocardless-charge.service';
 import type { PaymentGateway } from '../payment-gateway.interface';
 import type { PaymentMethodsService } from '../payment-methods.service';
 
@@ -34,7 +35,11 @@ function buildTx(): TxMock {
 
 function buildService(
   tx: TxMock,
-  deps: { gateway?: { charge: jest.Mock }; paymentMethods?: { decryptToken: jest.Mock } } = {},
+  deps: {
+    gateway?: { charge: jest.Mock };
+    paymentMethods?: { decryptToken: jest.Mock };
+    goCardlessCharge?: { charge: jest.Mock };
+  } = {},
 ) {
   const prisma = {
     withTenant: jest.fn((fn: (tx: TxMock) => unknown) => fn(tx)),
@@ -45,6 +50,7 @@ function buildService(
     audit,
     (deps.paymentMethods ?? null) as unknown as PaymentMethodsService,
     (deps.gateway ?? null) as unknown as PaymentGateway,
+    (deps.goCardlessCharge ?? { charge: jest.fn() }) as unknown as GoCardlessChargeService,
   );
 }
 

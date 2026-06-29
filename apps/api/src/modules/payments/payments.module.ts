@@ -6,6 +6,7 @@ import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 
 import { AutoChargeProcessor } from './auto-charge.processor';
 import { AutoChargeService } from './auto-charge.service';
+import { GoCardlessCoreModule } from './gocardless/gocardless-core.module';
 import { PAYMENT_GATEWAY } from './payment-gateway.interface';
 import { PaymentMethodsController } from './payment-methods.controller';
 import { PaymentMethodsService } from './payment-methods.service';
@@ -20,7 +21,7 @@ import { StripeGateway } from './stripe.gateway';
   // forwardRef rompe el ciclo PaymentsModule <-> BillingSaasModule:
   // BillingSaas depende de StripeGateway (aqui dentro), y el
   // StripeWebhookController depende de BillingSaasService (alli).
-  imports: [AuthModule, forwardRef(() => BillingSaasModule)],
+  imports: [AuthModule, forwardRef(() => BillingSaasModule), GoCardlessCoreModule],
   controllers: [PaymentMethodsController, PaymentsController, StripeWebhookController],
   providers: [
     StripeGateway,
