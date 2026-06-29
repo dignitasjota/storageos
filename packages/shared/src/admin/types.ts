@@ -4,6 +4,7 @@ import type {
   SuperAdminRoleValue,
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
+  TenantFollowupStatusValue,
   TenantInteractionTypeValue,
 } from './schemas';
 
@@ -626,6 +627,23 @@ export interface TenantInteractionDto {
   occurredAt: string;
   /** Super admin que la registró; null si su cuenta se borró. */
   authorId: string | null;
+  authorName: string | null;
+  createdAt: string;
+}
+
+/** Un seguimiento/recordatorio del super admin sobre un tenant. */
+export interface TenantFollowupDto {
+  id: string;
+  tenantId: string;
+  /** Nombre/slug del tenant (para la bandeja global). */
+  tenantName: string;
+  tenantSlug: string;
+  title: string;
+  note: string | null;
+  /** Fecha de recordatorio (YYYY-MM-DD). */
+  dueDate: string;
+  status: TenantFollowupStatusValue;
+  completedAt: string | null;
   authorName: string | null;
   createdAt: string;
 }

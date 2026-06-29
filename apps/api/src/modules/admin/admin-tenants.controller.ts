@@ -27,7 +27,9 @@ import {
   AdminUpdateTenantSchema,
   ChangePlanSchema,
   CreateManualSaasPaymentSchema,
+  CreateTenantFollowupSchema,
   CreateTenantInteractionSchema,
+  type TenantFollowupDto,
   ExtendTrialSchema,
   type ImpersonationTokenDto,
   ImpersonateSchema,
@@ -40,6 +42,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 
 import { AdminSupportService } from './admin-support.service';
+import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
@@ -54,6 +57,7 @@ class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
 class CreateTenantInteractionDto extends createZodDto(CreateTenantInteractionSchema) {}
+class CreateTenantFollowupDto extends createZodDto(CreateTenantFollowupSchema) {}
 class CreateManualSaasPaymentDto extends createZodDto(CreateManualSaasPaymentSchema) {}
 class AdminUpdateTenantDto extends createZodDto(AdminUpdateTenantSchema) {}
 
@@ -78,6 +82,7 @@ export class AdminTenantsController {
     private readonly impersonation: ImpersonationService,
     private readonly saasBilling: BillingSaasService,
     private readonly interactions: AdminTenantInteractionsService,
+    private readonly followups: AdminTenantFollowupsService,
     private readonly audit: SuperAdminAuditService,
     private readonly support: AdminSupportService,
   ) {}
@@ -198,6 +203,35 @@ export class AdminTenantsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<TenantInteractionDto[]> {
     return this.interactions.list(id);
+  }
+
+  /** Seguimientos/recordatorios sobre el tenant. */
+  @Get(':id/followups')
+  async listFollowups(@Param('id', new ParseUUIDPipe()) id: string): Promise<TenantFollowupDto[]> {
+    return this.followups.listForTenant(id);
+  }
+
+  /** Crea un seguimiento/recordatorio sobre el tenant. */
+  @Post(':id/followups')
+  async createFollowup(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: CreateTenantFollowupDto,
+    @Req() req: Request,
+  ): Promise<TenantFollowupDto> {
+    const meta = extractMeta(req);
+    const created = await this.followups.create({ tenantId: id, superAdminId: admin.sub, input });
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.followup_created',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { followupId: created.id, dueDate: created.dueDate },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return created;
   }
 
   /** Registra una conversación (llamada/email/reunión/nota) con el tenant. */
