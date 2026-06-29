@@ -1,6 +1,7 @@
 import { VersioningType } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
+import { raw } from 'express';
 
 import { AppModule } from '../../src/app.module';
 import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
@@ -48,6 +49,9 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   }).compile();
 
   const app = moduleRef.createNestApplication({ bufferLogs: true });
+  // Webhooks firmados sobre el raw body (deben ir antes del parser JSON).
+  app.use('/webhooks/stripe', raw({ type: 'application/json' }));
+  app.use('/webhooks/gocardless', raw({ type: 'application/json' }));
   app.use(cookieParser());
 
   if (rewriteLegacyToV1) {

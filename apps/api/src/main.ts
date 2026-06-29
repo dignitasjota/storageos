@@ -35,6 +35,8 @@ async function bootstrap() {
   // DEBE ir antes de cualquier parser JSON; las demas rutas pasan a JSON
   // via el parser que aplica NestJS internamente.
   app.use('/webhooks/stripe', raw({ type: 'application/json' }));
+  // GoCardless firma el raw body; la URL lleva el :tenantId.
+  app.use('/webhooks/gocardless', raw({ type: 'application/json' }));
   app.use(cookieParser());
   app.enableCors({
     origin: config.get('ALLOWED_ORIGINS', { infer: true }),

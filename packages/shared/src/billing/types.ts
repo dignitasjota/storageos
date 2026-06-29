@@ -270,6 +270,24 @@ export interface RedsysSettingsDto {
   hasSecretKey: boolean;
 }
 
+/** Config de GoCardless por tenant (nunca devuelve el token ni el secret). */
+export interface GoCardlessSettingsDto {
+  environment: 'sandbox' | 'live';
+  enabled: boolean;
+  /** true si hay access token guardado. */
+  hasAccessToken: boolean;
+  /** true si hay webhook secret guardado. */
+  hasWebhookSecret: boolean;
+}
+
+/** Resultado de probar la conexión con GoCardless. */
+export interface GoCardlessTestResultDto {
+  ok: boolean;
+  /** Nombre del acreedor (creditor) si la conexión funciona. */
+  creditorName: string | null;
+  error: string | null;
+}
+
 /** Parámetros del formulario que el navegador auto-envía a Redsys. */
 export interface RedsysRedirectDto {
   url: string;
