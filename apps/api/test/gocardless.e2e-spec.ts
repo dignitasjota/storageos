@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -82,5 +83,57 @@ describe('GoCardless settings + webhook (e2e)', () => {
       .send({ environment: 'sandbox', enabled: true });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('gocardless_credentials_required');
+  });
+
+  it('mandato (staff): start → complete → método de pago SEPA registrado', async () => {
+    const owner = await registerVerifiedUser(app, 'gocardless-mandate');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const customerId = await createCustomer(app, owner.accessToken, { email: 'gc-m@e2e.local' });
+
+    // start sin GoCardless activado → 400.
+    const notEnabled = await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/start')
+      .set(auth)
+      .send({ customerId });
+    expect(notEnabled.status).toBe(400);
+    expect(notEnabled.body.code).toBe('gocardless_not_enabled');
+
+    // Activar GoCardless.
+    await request(app.getHttpServer()).put('/settings/gocardless').set(auth).send({
+      accessToken: 'sandbox_token_mandate_123456',
+      webhookSecret: 'whsec_mandate_123456',
+      environment: 'sandbox',
+      enabled: true,
+    });
+
+    // start → URL de autorización (stub) + billingRequestId.
+    const start = await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/start')
+      .set(auth)
+      .send({ customerId });
+    expect(start.status).toBe(200);
+    expect(start.body.authorisationUrl).toContain('gocardless.com');
+    expect(typeof start.body.billingRequestId).toBe('string');
+
+    // complete → registra el PaymentMethod SEPA (gateway gocardless).
+    const complete = await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/complete')
+      .set(auth)
+      .send({ customerId, billingRequestId: start.body.billingRequestId });
+    expect(complete.status).toBe(200);
+    expect(complete.body).toMatchObject({
+      customerId,
+      gateway: 'gocardless',
+      type: 'sepa_debit',
+      isDefault: true,
+      last4: '0001',
+    });
+    expect(complete.body.mandateReference).toBeTruthy();
+
+    // Aparece en los métodos de pago del cliente.
+    const pms = await request(app.getHttpServer())
+      .get(`/customers/${customerId}/payment-methods`)
+      .set(auth);
+    expect(pms.body.some((pm: { gateway: string }) => pm.gateway === 'gocardless')).toBe(true);
   });
 });

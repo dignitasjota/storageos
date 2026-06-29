@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { OperationsModule } from '../operations/operations.module';
+import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
 import { PushModule } from '../push/push.module';
@@ -26,6 +27,7 @@ import { PortalService } from './portal.service';
     JwtModule.register({}),
     PaymentsModule,
     RedsysModule,
+    GoCardlessModule,
     AccessModule,
     // BillingModule: factura del pase nocturno (InvoicesService + serie).
     BillingModule,

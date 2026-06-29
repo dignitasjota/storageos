@@ -45,6 +45,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ApiError, apiFetch } from '@/lib/auth/api';
+import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
 /** Convierte la clave pública VAPID (base64url) al formato que pide pushManager. */
@@ -87,6 +88,8 @@ function PortalConsumeContent() {
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addPending, setAddPending] = useState(false);
+  const [goCardlessEnabled, setGoCardlessEnabled] = useState(false);
+  const [gcPending, setGcPending] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
 
   /** Fetch autenticado con el JWT corto del portal (no usa el auth store del staff). */
@@ -147,6 +150,13 @@ function PortalConsumeContent() {
           if (!cancelled) setPushKey(k.publicKey);
         } catch {
           /* push opcional */
+        }
+        // ¿Ofrece el negocio domiciliación GoCardless? (best-effort).
+        try {
+          const gc = await portalFetch<{ enabled: boolean }>(s, '/portal/me/gocardless/enabled');
+          if (!cancelled) setGoCardlessEnabled(gc.enabled);
+        } catch {
+          /* gocardless opcional */
         }
       } catch (err) {
         if (cancelled) return;
@@ -349,6 +359,27 @@ function PortalConsumeContent() {
       toast.success('Método de pago guardado. Ya puedes pagar tus facturas.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  async function startGoCardless() {
+    if (!session) return;
+    setGcPending(true);
+    try {
+      const res = await startGoCardlessMandatePortal(session.accessToken);
+      sessionStorage.setItem(
+        'gc_portal_mandate',
+        JSON.stringify({
+          portalToken: session.accessToken,
+          billingRequestId: res.billingRequestId,
+        }),
+      );
+      window.location.href = res.authorisationUrl;
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se pudo iniciar la domiciliación.',
+      );
+      setGcPending(false);
     }
   }
 
@@ -835,14 +866,26 @@ function PortalConsumeContent() {
             <CardTitle>Método de pago</CardTitle>
             <CardDescription>Domicilia tus recibos con tu IBAN o paga con tarjeta.</CardDescription>
           </div>
-          <Button onClick={() => void openAddDialog()} disabled={addPending} variant="outline">
-            {addPending ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="mr-1 h-4 w-4" />
+          <div className="flex flex-wrap gap-2">
+            {goCardlessEnabled && (
+              <Button onClick={() => void startGoCardless()} disabled={gcPending} variant="outline">
+                {gcPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Landmark className="mr-1 h-4 w-4" />
+                )}
+                Domiciliar (GoCardless)
+              </Button>
             )}
-            Añadir IBAN o tarjeta
-          </Button>
+            <Button onClick={() => void openAddDialog()} disabled={addPending} variant="outline">
+              {addPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="mr-1 h-4 w-4" />
+              )}
+              Añadir IBAN o tarjeta
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {!paymentMethods?.length ? (

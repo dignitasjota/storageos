@@ -112,6 +112,27 @@ export const UpdateGoCardlessSettingsSchema = z.object({
 });
 export type UpdateGoCardlessSettingsInput = z.infer<typeof UpdateGoCardlessSettingsSchema>;
 
+/** Staff: inicia el mandato GoCardless para un inquilino. */
+export const GoCardlessMandateStartSchema = z.object({
+  customerId: z.string().uuid(),
+});
+export type GoCardlessMandateStartInput = z.infer<typeof GoCardlessMandateStartSchema>;
+
+/** Staff: completa el mandato tras la autorización. */
+export const GoCardlessMandateCompleteSchema = z.object({
+  customerId: z.string().uuid(),
+  billingRequestId: z.string().trim().min(1).max(100),
+});
+export type GoCardlessMandateCompleteInput = z.infer<typeof GoCardlessMandateCompleteSchema>;
+
+/** Portal (inquilino): completa su mandato (el customer sale del token). */
+export const PortalGoCardlessMandateCompleteSchema = z.object({
+  billingRequestId: z.string().trim().min(1).max(100),
+});
+export type PortalGoCardlessMandateCompleteInput = z.infer<
+  typeof PortalGoCardlessMandateCompleteSchema
+>;
+
 export const UpdateRedsysSettingsSchema = z.object({
   merchantCode: z.string().trim().min(1).max(20),
   terminal: z.string().trim().min(1).max(3).default('1'),

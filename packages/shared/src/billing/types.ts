@@ -288,6 +288,12 @@ export interface GoCardlessTestResultDto {
   error: string | null;
 }
 
+/** Inicio del mandato GoCardless: URL a la que mandar al cliente a autorizar. */
+export interface GoCardlessMandateStartDto {
+  authorisationUrl: string;
+  billingRequestId: string;
+}
+
 /** Parámetros del formulario que el navegador auto-envía a Redsys. */
 export interface RedsysRedirectDto {
   url: string;

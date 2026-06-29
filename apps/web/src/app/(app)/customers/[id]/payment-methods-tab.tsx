@@ -26,14 +26,32 @@ import {
   useRegisterPaymentMethod,
   useRemovePaymentMethod,
 } from '@/lib/billing/hooks';
+import { useGoCardlessSettings, useStartGoCardlessMandate } from '@/lib/payments/gocardless';
 import { useCancelSepaMandate, useCreateSepaMandate, useSepaMandates } from '@/lib/sepa/hooks';
 
 export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }) {
   const methods = useCustomerPaymentMethods(customerId);
   const createSetupIntent = useCreateSetupIntent();
   const remove = useRemovePaymentMethod();
+  const gcSettings = useGoCardlessSettings();
+  const startGoCardless = useStartGoCardlessMandate();
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  async function startGoCardlessMandate() {
+    try {
+      const res = await startGoCardless.mutateAsync(customerId);
+      sessionStorage.setItem(
+        'gc_mandate',
+        JSON.stringify({ customerId, billingRequestId: res.billingRequestId }),
+      );
+      window.location.href = res.authorisationUrl;
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se pudo iniciar la domiciliación.',
+      );
+    }
+  }
 
   async function openAddDialog() {
     try {
@@ -60,14 +78,30 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Métodos de pago</CardTitle>
-          <Button onClick={openAddDialog} disabled={createSetupIntent.isPending}>
-            {createSetupIntent.isPending ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="mr-1 h-4 w-4" />
+          <div className="flex gap-2">
+            {gcSettings.data?.enabled && (
+              <Button
+                variant="outline"
+                onClick={startGoCardlessMandate}
+                disabled={startGoCardless.isPending}
+              >
+                {startGoCardless.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Landmark className="mr-1 h-4 w-4" />
+                )}
+                Domiciliar con GoCardless
+              </Button>
             )}
-            Añadir método de pago
-          </Button>
+            <Button onClick={openAddDialog} disabled={createSetupIntent.isPending}>
+              {createSetupIntent.isPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="mr-1 h-4 w-4" />
+              )}
+              Añadir método de pago
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {methods.isLoading ? (

@@ -10,12 +10,14 @@ import { Queue } from 'bullmq';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
+import { GoCardlessMandatesService } from '../payments/gocardless/gocardless-mandates.service';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
 import { PaymentsService } from '../payments/payments.service';
 import { QUEUE_EMAIL } from '../queues/queues.module';
 
 import type { Env } from '../../config/env.schema';
 import type {
+  GoCardlessMandateStartDto,
   PaymentMethodDto,
   PortalChargeResultDto,
   PortalInvoiceDto,
@@ -65,9 +67,44 @@ export class PortalService {
     private readonly config: ConfigService<Env, true>,
     private readonly paymentMethods: PaymentMethodsService,
     private readonly payments: PaymentsService,
+    private readonly goCardlessMandates: GoCardlessMandatesService,
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
+
+  /** Portal: inicia el mandato GoCardless del propio inquilino. */
+  async startMyGoCardlessMandate(
+    tenantId: string,
+    customerId: string,
+  ): Promise<GoCardlessMandateStartDto> {
+    await this.requireCustomer(tenantId, customerId);
+    return this.goCardlessMandates.startFlow({
+      tenantId,
+      customerId,
+      returnPath: '/portal/gocardless/complete',
+    });
+  }
+
+  /** Portal: completa el mandato GoCardless del propio inquilino. */
+  async completeMyGoCardlessMandate(
+    tenantId: string,
+    customerId: string,
+    billingRequestId: string,
+  ): Promise<PaymentMethodDto> {
+    await this.requireCustomer(tenantId, customerId);
+    return this.goCardlessMandates.completeFlow({
+      tenantId,
+      userId: null,
+      customerId,
+      billingRequestId,
+      meta: {},
+    });
+  }
+
+  /** Portal: ¿ofrece el negocio domiciliación por GoCardless? */
+  async isGoCardlessEnabled(tenantId: string): Promise<boolean> {
+    return this.goCardlessMandates.isEnabled(tenantId);
+  }
 
   private async storeMagicLink(tokenId: string, entry: MagicLinkEntry): Promise<void> {
     const client = await this.emailQueue.client;
