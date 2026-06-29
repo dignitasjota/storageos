@@ -49,7 +49,7 @@ interface AdminNavItem {
 const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
-  { href: '/admin/health', label: 'Salud de tenants', icon: HeartPulse },
+  { href: '/admin/health', label: 'Salud', icon: HeartPulse },
   { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
   { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
