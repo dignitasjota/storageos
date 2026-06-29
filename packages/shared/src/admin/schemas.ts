@@ -132,6 +132,24 @@ export const CreateTenantInteractionSchema = z.object({
 });
 export type CreateTenantInteractionInput = z.infer<typeof CreateTenantInteractionSchema>;
 
+export const TenantFollowupStatusEnum = z.enum(['pending', 'done']);
+export type TenantFollowupStatusValue = z.infer<typeof TenantFollowupStatusEnum>;
+
+/** Crear un seguimiento/recordatorio sobre un tenant. */
+export const CreateTenantFollowupSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  note: z.string().trim().max(2000).optional(),
+  /** Fecha de recordatorio (YYYY-MM-DD). */
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
+});
+export type CreateTenantFollowupInput = z.infer<typeof CreateTenantFollowupSchema>;
+
+/** Cambia el estado de un seguimiento (hecho / reabrir). */
+export const UpdateTenantFollowupSchema = z.object({
+  status: TenantFollowupStatusEnum,
+});
+export type UpdateTenantFollowupInput = z.infer<typeof UpdateTenantFollowupSchema>;
+
 // ============================================================================
 // Support tickets
 // ============================================================================

@@ -346,6 +346,7 @@ model Tenant {
   subscriptionPayments    TenantSubscriptionPayment[]
   mrrSnapshots            MrrSnapshot[]
   tenantInteractions      TenantInteraction[]
+  tenantFollowups         TenantFollowup[]
   auditLogs               AuditLog[]
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
@@ -2717,6 +2718,7 @@ model SuperAdmin {
   refreshSessions   SuperAdminSession[]
   auditLogs         SuperAdminAuditLog[]
   tenantInteractions TenantInteraction[]     @relation("TenantInteractionAuthor")
+  tenantFollowups    TenantFollowup[]        @relation("TenantFollowupAuthor")
 
   @@map("super_admins")
 }
@@ -3247,4 +3249,27 @@ model TenantInteraction {
   @@index([tenantId])
   @@index([tenantId, occurredAt])
   @@map("tenant_interactions")
+}
+
+/// Seguimiento/recordatorio del super admin sobre un tenant ("llamar el día X",
+/// "el trial vence, contactar"): tarea con fecha de recordatorio + estado.
+model TenantFollowup {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  title        String
+  note         String?
+  dueDate      DateTime  @map("due_date") @db.Date
+  /// "pending" | "done".
+  status       String    @default("pending")
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin? @relation("TenantFollowupAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([status, dueDate])
+  @@map("tenant_followups")
 }

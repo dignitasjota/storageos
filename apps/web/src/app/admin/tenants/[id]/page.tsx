@@ -20,6 +20,7 @@ import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
 import { TenantEmailDialog } from './tenant-email-dialog';
 import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
+import { TenantFollowupsCard } from './tenant-followups-card';
 import { TenantHealthCard } from './tenant-health-card';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
@@ -145,6 +146,7 @@ export default function AdminTenantDetailPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="payments">Pagos</TabsTrigger>
           <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
+          <TabsTrigger value="followups">Seguimientos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="mt-4">
@@ -236,6 +238,10 @@ export default function AdminTenantDetailPage() {
 
         <TabsContent value="conversations" className="mt-4">
           <TenantInteractionsCard tenantId={id} />
+        </TabsContent>
+
+        <TabsContent value="followups" className="mt-4">
+          <TenantFollowupsCard tenantId={id} />
         </TabsContent>
       </Tabs>
 

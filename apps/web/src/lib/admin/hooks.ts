@@ -48,7 +48,9 @@ import type {
   SupportTicketPriorityValue,
   SupportTicketStatusValue,
   CreateManualSaasPaymentInput,
+  CreateTenantFollowupInput,
   CreateTenantInteractionInput,
+  TenantFollowupDto,
   TenantInteractionDto,
   TenantSubscriptionPaymentDto,
   TransitionTicketInput,
@@ -836,5 +838,67 @@ export function useDeleteTenantInteraction(id: string) {
         method: 'DELETE',
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'interactions'] }),
+  });
+}
+
+// --- Seguimientos / recordatorios ------------------------------------------
+
+/** Bandeja global de seguimientos pendientes. */
+export function useAdminFollowupsPending() {
+  return useQuery({
+    queryKey: ['admin', 'followups', 'pending'] as const,
+    queryFn: () => adminApiFetch<TenantFollowupDto[]>('/admin/followups'),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAdminTenantFollowups(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'followups'] as const,
+    queryFn: () => adminApiFetch<TenantFollowupDto[]>(`/admin/tenants/${id}/followups`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateFollowup(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTenantFollowupInput) =>
+      adminApiFetch<TenantFollowupDto>(`/admin/tenants/${id}/followups`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'followups'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
+    },
+  });
+}
+
+/** Marca un seguimiento como hecho / lo reabre (bandeja global). */
+export function useUpdateFollowup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { followupId: string; status: 'pending' | 'done' }) =>
+      adminApiFetch<TenantFollowupDto>(`/admin/followups/${args.followupId}`, {
+        method: 'PATCH',
+        json: { status: args.status },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+export function useDeleteFollowup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (followupId: string) =>
+      adminApiFetch<void>(`/admin/followups/${followupId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
   });
 }

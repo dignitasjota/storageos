@@ -9,11 +9,13 @@ import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
+import { AdminFollowupsController } from './admin-followups.controller';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminQueuesController } from './admin-queues.controller';
 import { AdminSupportService } from './admin-support.service';
 import { AdminSystemController } from './admin-system.controller';
+import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
@@ -68,6 +70,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SupportTicketsAdminController,
     SupportTicketsTenantController,
     WebhooksCleanupController,
+    AdminFollowupsController,
   ],
   providers: [
     AdminGuard,
@@ -76,6 +79,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SuperAdminTwoFactorService,
     AdminTenantsService,
     AdminTenantInteractionsService,
+    AdminTenantFollowupsService,
     AdminSupportService,
     AdminCommsService,
     AdminMetricsService,
