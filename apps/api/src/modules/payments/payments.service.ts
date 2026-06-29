@@ -4,6 +4,7 @@ import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts } from '../../com
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway.interface';
 import { PaymentMethodsService } from './payment-methods.service';
 
@@ -20,6 +21,7 @@ export class PaymentsService {
     private readonly audit: AuditService,
     private readonly paymentMethods: PaymentMethodsService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    private readonly goCardlessCharge: GoCardlessChargeService,
   ) {}
 
   async list(
@@ -127,16 +129,28 @@ export class PaymentsService {
         });
       }
       const tokenPlain = await this.paymentMethods.decryptToken(tx, pm.id);
-      const result = await this.gateway.charge({
-        gatewayCustomerId: pm.gatewayCustomerId ?? '',
-        paymentMethodToken: tokenPlain,
-        paymentMethodType: pm.type,
-        amountCents: Math.round(amount * 100),
-        currency: invoice.currency,
-        description: `Factura ${invoice.invoiceNumber}`,
-        metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
-        offSession: true,
-      });
+      // Multi-gateway: GoCardless cobra contra el mandato (queda `processing`
+      // hasta el webhook); el resto va por el gateway por defecto (Stripe).
+      const result =
+        pm.gateway === 'gocardless'
+          ? await this.goCardlessCharge.charge({
+              tenantId: args.tenantId,
+              mandateId: tokenPlain,
+              amountCents: Math.round(amount * 100),
+              currency: invoice.currency,
+              description: `Factura ${invoice.invoiceNumber}`,
+              metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
+            })
+          : await this.gateway.charge({
+              gatewayCustomerId: pm.gatewayCustomerId ?? '',
+              paymentMethodToken: tokenPlain,
+              paymentMethodType: pm.type,
+              amountCents: Math.round(amount * 100),
+              currency: invoice.currency,
+              description: `Factura ${invoice.invoiceNumber}`,
+              metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
+              offSession: true,
+            });
       const status: PaymentStatus =
         result.status === 'succeeded'
           ? 'succeeded'

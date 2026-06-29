@@ -12,11 +12,19 @@ import {
 } from '@nestjs/common';
 
 import { Public } from '../../../common/decorators/public.decorator';
+import { PaymentsService } from '../payments.service';
 
 import { verifyGoCardlessSignature } from './gocardless-client';
 import { GoCardlessSettingsService } from './gocardless-settings.service';
 
 import type { Request } from 'express';
+
+interface GoCardlessWebhookEvent {
+  id?: string;
+  resource_type?: string;
+  action?: string;
+  links?: { payment?: string };
+}
 
 /**
  * Webhook público de GoCardless. La URL lleva el `:tenantId` porque GoCardless
@@ -32,7 +40,10 @@ import type { Request } from 'express';
 export class GoCardlessWebhookController {
   private readonly logger = new Logger(GoCardlessWebhookController.name);
 
-  constructor(private readonly settings: GoCardlessSettingsService) {}
+  constructor(
+    private readonly settings: GoCardlessSettingsService,
+    private readonly payments: PaymentsService,
+  ) {}
 
   @Public()
   @Post('gocardless/:tenantId')
@@ -57,12 +68,38 @@ export class GoCardlessWebhookController {
       throw new BadRequestException('Firma inválida');
     }
 
-    const events = (JSON.parse(rawBody.toString('utf8')) as { events?: { action?: string }[] })
-      .events;
+    const events =
+      (JSON.parse(rawBody.toString('utf8')) as { events?: GoCardlessWebhookEvent[] }).events ?? [];
     this.logger.log(
-      `Webhook GoCardless verificado (tenant ${tenantId}): ${events?.length ?? 0} evento(s)`,
+      `Webhook GoCardless verificado (tenant ${tenantId}): ${events.length} evento(s)`,
     );
-    // El despacho de mandates/payments a PaymentsService llega en la fase de cobro.
+
+    for (const ev of events) {
+      if (ev.resource_type !== 'payments') continue;
+      const paymentId = ev.links?.payment;
+      if (!paymentId) continue;
+      if (ev.action === 'confirmed' || ev.action === 'paid_out') {
+        // El cobro se ha hecho efectivo → marca la factura pagada (idempotente).
+        await this.payments.syncFromWebhook({
+          tenantId,
+          gatewayPaymentId: paymentId,
+          newStatus: 'succeeded',
+          paidAt: new Date(),
+        });
+      } else if (
+        ev.action === 'failed' ||
+        ev.action === 'cancelled' ||
+        ev.action === 'customer_approval_denied'
+      ) {
+        await this.payments.syncFromWebhook({
+          tenantId,
+          gatewayPaymentId: paymentId,
+          newStatus: 'failed',
+          failureReason: `gocardless:${ev.action}`,
+        });
+      }
+      // `charged_back` (devolución tras el cobro) → follow-up (reversión).
+    }
     return { received: true };
   }
 }

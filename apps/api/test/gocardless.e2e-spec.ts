@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -135,5 +136,71 @@ describe('GoCardless settings + webhook (e2e)', () => {
       .get(`/customers/${customerId}/payment-methods`)
       .set(auth);
     expect(pms.body.some((pm: { gateway: string }) => pm.gateway === 'gocardless')).toBe(true);
+  });
+
+  it('cobro: charge → payment processing → webhook confirmed marca la factura pagada', async () => {
+    const owner = await registerVerifiedUser(app, 'gocardless-charge');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const webhookSecret = 'whsec_charge_123456';
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken, { email: 'gc-c@e2e.local' });
+
+    // Activar GoCardless + crear el mandato (PM SEPA default).
+    await request(app.getHttpServer()).put('/settings/gocardless').set(auth).send({
+      accessToken: 'sandbox_token_charge_123456',
+      webhookSecret,
+      environment: 'sandbox',
+      enabled: true,
+    });
+    const start = await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/start')
+      .set(auth)
+      .send({ customerId });
+    await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/complete')
+      .set(auth)
+      .send({ customerId, billingRequestId: start.body.billingRequestId });
+
+    // Factura emitida.
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 50,
+    });
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+
+    // Cobro por GoCardless → queda `processing` (espera al webhook).
+    const charge = await request(app.getHttpServer())
+      .post(`/payments/invoices/${invoiceId}/charge`)
+      .set(auth)
+      .send({});
+    expect(charge.status).toBe(200);
+    expect(charge.body).toMatchObject({ gateway: 'gocardless', status: 'processing' });
+    const gatewayPaymentId = charge.body.gatewayPaymentId as string;
+    expect(gatewayPaymentId).toContain('PM-stub-');
+
+    // La factura aún no está pagada.
+    const before = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(before.body.status).not.toBe('paid');
+
+    // Webhook payments.confirmed → marca la factura pagada.
+    const body = JSON.stringify({
+      events: [
+        {
+          id: 'EV-pay',
+          resource_type: 'payments',
+          action: 'confirmed',
+          links: { payment: gatewayPaymentId },
+        },
+      ],
+    });
+    const sig = createHmac('sha256', webhookSecret).update(body).digest('hex');
+    const hook = await request(app.getHttpServer())
+      .post(`/webhooks/gocardless/${owner.tenantId}`)
+      .set('Content-Type', 'application/json')
+      .set('Webhook-Signature', sig)
+      .send(body);
+    expect(hook.status).toBe(200);
+
+    const after = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(after.body.status).toBe('paid');
   });
 });
