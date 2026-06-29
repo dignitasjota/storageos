@@ -6,6 +6,7 @@ import { useAdminAuthStore } from './auth-store';
 import type {
   AddTicketMessageInput,
   AdminAtRiskDto,
+  AdminTenantHealthDto,
   AdminBroadcastInput,
   AdminBroadcastResultDto,
   AdminEmailTenantInput,
@@ -681,6 +682,22 @@ export function useAdminAtRisk() {
     queryKey: ['admin', 'at-risk'],
     queryFn: () => adminApiFetch<AdminAtRiskDto>('/admin/tenants/at-risk'),
     refetchInterval: 60_000,
+  });
+}
+
+export function useAdminTenantsHealth() {
+  return useQuery({
+    queryKey: ['admin', 'tenants', 'health'] as const,
+    queryFn: () => adminApiFetch<AdminTenantHealthDto[]>('/admin/tenants/health'),
+    refetchInterval: 300_000,
+  });
+}
+
+export function useAdminTenantHealth(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'health'] as const,
+    queryFn: () => adminApiFetch<AdminTenantHealthDto>(`/admin/tenants/${id}/health`),
+    enabled: Boolean(id) && enabled,
   });
 }
 
