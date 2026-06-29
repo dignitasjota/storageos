@@ -357,6 +357,10 @@ export const CreatePromotionSchema = z
   .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
     message: 'El porcentaje no puede superar 100',
     path: ['discountValue'],
+  })
+  .refine((v) => v.discountType !== 'free_months' || Number.isInteger(v.discountValue), {
+    message: 'Los meses gratis deben ser un número entero',
+    path: ['discountValue'],
   });
 export type CreatePromotionInput = z.infer<typeof CreatePromotionSchema>;
 

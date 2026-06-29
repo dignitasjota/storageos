@@ -122,11 +122,25 @@ export class PromotionsService {
       discountType: null,
       discountAmount: 0,
       effectivePrice: round2(monthlyPrice),
+      freeMonths: null,
     });
     if (!promo) return fail('not_found');
     const check = this.checkUsable(promo);
     if (check) return fail(check);
-    if (promo.discountType === 'free_months') return fail('unsupported_type');
+
+    // free_months: no es un descuento mensual; son las primeras N facturas
+    // gratis. El precio mensual queda intacto y se informa `freeMonths`.
+    if (promo.discountType === 'free_months') {
+      return {
+        valid: true,
+        reason: null,
+        code: promo.code,
+        discountType: 'free_months',
+        discountAmount: 0,
+        effectivePrice: round2(monthlyPrice),
+        freeMonths: Math.max(0, Math.trunc(Number(promo.discountValue))),
+      };
+    }
 
     const discountAmount = this.computeDiscount(promo, monthlyPrice);
     return {
@@ -136,6 +150,7 @@ export class PromotionsService {
       discountType: promo.discountType,
       discountAmount,
       effectivePrice: round2(monthlyPrice - discountAmount),
+      freeMonths: null,
     };
   }
 
@@ -149,7 +164,12 @@ export class PromotionsService {
     tenantId: string,
     code: string,
     monthlyPrice: number,
-  ): Promise<{ discountAmount: number; discountReason: string }> {
+  ): Promise<{
+    discountAmount: number;
+    discountReason: string;
+    freeMonths: number;
+    promotionId: string;
+  }> {
     const normalized = code.trim().toUpperCase();
     const promo = await tx.promotion.findFirst({ where: { tenantId, code: normalized } });
     if (!promo) {
@@ -165,15 +185,26 @@ export class PromotionsService {
         message: this.reasonMessage(check),
       });
     }
-    if (promo.discountType === 'free_months') {
-      throw new ConflictException({
-        code: 'promotion_unsupported_type',
-        message: 'Los códigos de meses gratis aún no se pueden aplicar en el alta de contrato',
-      });
-    }
-    const discountAmount = this.computeDiscount(promo, monthlyPrice);
     await tx.promotion.update({ where: { id: promo.id }, data: { usedCount: { increment: 1 } } });
-    return { discountAmount, discountReason: `Promoción ${promo.code}` };
+
+    if (promo.discountType === 'free_months') {
+      const freeMonths = Math.max(0, Math.trunc(Number(promo.discountValue)));
+      const label = freeMonths === 1 ? '1 mes gratis' : `${freeMonths} meses gratis`;
+      return {
+        discountAmount: 0,
+        discountReason: `Promoción ${promo.code} (${label})`,
+        freeMonths,
+        promotionId: promo.id,
+      };
+    }
+
+    const discountAmount = this.computeDiscount(promo, monthlyPrice);
+    return {
+      discountAmount,
+      discountReason: `Promoción ${promo.code}`,
+      freeMonths: 0,
+      promotionId: promo.id,
+    };
   }
 
   // -------------------------------------------------------------------

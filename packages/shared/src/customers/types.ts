@@ -99,6 +99,8 @@ export interface ContractDto {
   discountAmount: number;
   discountReason: string | null;
   effectivePrice: number;
+  /** Meses gratis pendientes de consumir (promoción `free_months`). */
+  freeMonthsRemaining: number;
   depositAmount: number;
   depositStatus: ContractDepositStatusValue;
   signedPdfUrl: string | null;

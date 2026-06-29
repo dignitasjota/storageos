@@ -125,6 +125,11 @@ export class BillingJobsService {
         continue;
       }
 
+      // Promoción `free_months`: las primeras N facturas salen con el alquiler
+      // a 0 (el seguro/extras se siguen cobrando). Se decrementa al final.
+      const isFreeMonth = c.freeMonthsRemaining > 0;
+      const rentMonth = periodStart.toISOString().slice(0, 7);
+
       await this.invoices.create({
         tenantId,
         userId: c.customerId, // marcador: lo lanzo el sistema; en audit se filtrara
@@ -138,11 +143,11 @@ export class BillingJobsService {
           dueDate: this.addDays(periodEnd, 15).toISOString().slice(0, 10),
           items: [
             {
-              description: `Alquiler ${c.contractNumber} (${periodStart
-                .toISOString()
-                .slice(0, 7)})`,
+              description: `Alquiler ${c.contractNumber} (${rentMonth})${
+                isFreeMonth ? ' — mes gratis (promoción)' : ''
+              }`,
               quantity: 1,
-              unitPrice: pricing.effectivePrice,
+              unitPrice: isFreeMonth ? 0 : pricing.effectivePrice,
               taxRate: 21,
               relatedContractId: c.id,
               relatedUnitId: c.unit.id,
@@ -170,6 +175,12 @@ export class BillingJobsService {
         },
         meta: {},
       });
+      if (isFreeMonth) {
+        await this.admin.contract.update({
+          where: { id: c.id },
+          data: { freeMonthsRemaining: { decrement: 1 } },
+        });
+      }
       created += 1;
     }
     this.logger.log(`Tenant ${tenantId}: ${created} facturas borrador creadas para el periodo`);
