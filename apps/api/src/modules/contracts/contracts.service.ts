@@ -3,10 +3,12 @@ import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { featuresForPlan } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
@@ -151,6 +153,8 @@ export class ContractsService {
     facilityScope?: string[] | null;
   }): Promise<ContractDto> {
     const { tenantId, input } = args;
+    // Gating por plan: el seguro requiere la feature `insurance`.
+    if (input.insurancePlanId) await this.assertInsuranceFeature(tenantId);
     const created = await this.prisma.withTenant(async (tx) => {
       // Validar customer y unit pertenecientes a este tenant.
       const customer = await tx.customer.findFirst({
@@ -955,6 +959,30 @@ export class ContractsService {
   }
 
   /** Asigna o quita (planId null) el seguro de un contrato; congela la prima. */
+  /**
+   * Gating por plan: asignar un seguro requiere la feature `insurance`. Se
+   * comprueba en el service (no en el controller) porque solo aplica al
+   * ASIGNAR un plan, no al quitarlo — un tenant que perdió la feature
+   * (downgrade) debe poder seguir retirando un seguro ya asignado.
+   */
+  private async assertInsuranceFeature(tenantId: string): Promise<void> {
+    const sub = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenantSubscription.findUnique({
+          where: { tenantId },
+          include: { plan: { select: { slug: true } } },
+        }),
+      tenantId,
+    );
+    if (!featuresForPlan(sub?.plan.slug ?? '').includes('insurance')) {
+      throw new ForbiddenException({
+        code: 'feature_not_in_plan',
+        message: 'El seguro de contenido no está incluido en tu plan',
+        details: { requiredFeature: 'insurance' },
+      });
+    }
+  }
+
   async setInsurance(args: {
     tenantId: string;
     contractId: string;
@@ -962,6 +990,7 @@ export class ContractsService {
     planId: string | null;
   }): Promise<ContractDto> {
     await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    if (args.planId) await this.assertInsuranceFeature(args.tenantId);
     let insurancePlanId: string | null = null;
     let insurancePrice: number | null = null;
     if (args.planId) {
