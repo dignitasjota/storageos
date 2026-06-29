@@ -176,6 +176,8 @@ export class ContractsService {
       // `discountAmount` manual.
       let discountAmount = input.discountAmount;
       let discountReason = input.discountReason?.trim() || null;
+      let promotionId: string | null = null;
+      let freeMonthsRemaining = 0;
       if (input.promotionCode?.trim()) {
         const applied = await this.promotions.applyToContractTx(
           tx,
@@ -185,6 +187,8 @@ export class ContractsService {
         );
         discountAmount = applied.discountAmount;
         discountReason = applied.discountReason;
+        promotionId = applied.promotionId;
+        freeMonthsRemaining = applied.freeMonths;
       }
 
       // Seguro opcional: congela la prima del plan activo en el contrato.
@@ -219,6 +223,8 @@ export class ContractsService {
           priceMonthly: input.priceMonthly,
           discountAmount,
           discountReason,
+          promotionId,
+          freeMonthsRemaining,
           depositAmount: input.depositAmount,
           insurancePlanId,
           insurancePrice,
@@ -1255,6 +1261,7 @@ export class ContractsService {
       discountAmount: discount,
       discountReason: row.discountReason,
       effectivePrice: this.pricing.computeEffectivePrice({ base, discount }),
+      freeMonthsRemaining: row.freeMonthsRemaining,
       depositAmount: Number(row.depositAmount),
       depositStatus: row.depositStatus,
       signedPdfUrl: row.signedPdfUrl,

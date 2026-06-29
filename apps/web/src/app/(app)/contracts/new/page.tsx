@@ -311,7 +311,13 @@ function StepEconomics(props: {
         discountAmount: res.discountAmount,
         discountReason: `Promoción ${res.code}`,
       });
-      toast.success(`Descuento aplicado: ${res.discountAmount.toFixed(2)} €/mes.`);
+      if (res.freeMonths && res.freeMonths > 0) {
+        toast.success(
+          `${res.freeMonths} ${res.freeMonths === 1 ? 'mes' : 'meses'} gratis: las primeras facturas saldrán a 0 €.`,
+        );
+      } else {
+        toast.success(`Descuento aplicado: ${res.discountAmount.toFixed(2)} €/mes.`);
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
       props.onChange({ promotionCode: '' });
@@ -396,9 +402,7 @@ function StepEconomics(props: {
             </Button>
           </div>
           {props.promotionCode && (
-            <p className="mt-1 text-xs text-green-600">
-              Código {props.promotionCode} aplicado al descuento.
-            </p>
+            <p className="mt-1 text-xs text-green-600">Código {props.promotionCode} aplicado.</p>
           )}
         </div>
         <InsuranceSelect

@@ -984,6 +984,11 @@ model Contract {
   priceMonthly           Decimal               @map("price_monthly") @db.Decimal(10, 2)
   discountAmount         Decimal               @default(0) @map("discount_amount") @db.Decimal(10, 2)
   discountReason         String?               @map("discount_reason")
+  /// Promoción aplicada al alta (si la hubo) + meses gratis pendientes de
+  /// consumir (promociones `free_months`); la facturación recurrente emite las
+  /// primeras N facturas con el alquiler a 0 y decrementa el contador.
+  promotionId            String?               @map("promotion_id") @db.Uuid
+  freeMonthsRemaining    Int                   @default(0) @map("free_months_remaining")
   depositAmount          Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
   depositStatus          ContractDepositStatus @default(none) @map("deposit_status")
   signedPdfUrl           String?               @map("signed_pdf_url")
@@ -1015,6 +1020,7 @@ model Contract {
   reviews            Review[]
   rentIncreaseItems  RentIncreaseItem[]
   insurancePlan      InsurancePlan?            @relation(fields: [insurancePlanId], references: [id], onDelete: SetNull)
+  promotion          Promotion?                @relation(fields: [promotionId], references: [id], onDelete: SetNull)
   unitChangeRequests UnitChangeRequest[]
   inspectionPhotos   ContractInspectionPhoto[]
 
@@ -1413,6 +1419,7 @@ model Promotion {
 
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   referrals Referral[]
+  contracts Contract[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])

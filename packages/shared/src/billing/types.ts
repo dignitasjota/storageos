@@ -194,6 +194,8 @@ export interface ValidatePromotionResultDto {
   discountAmount: number;
   /** Precio mensual tras el descuento. */
   effectivePrice: number;
+  /** Meses gratis (solo promociones `free_months`); null en otros tipos. */
+  freeMonths: number | null;
 }
 
 export interface DataSubjectRequestDto {

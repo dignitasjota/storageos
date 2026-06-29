@@ -1,6 +1,9 @@
 import request from 'supertest';
 
+import { BillingJobsService } from '../src/modules/billing/billing-jobs.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -82,7 +85,7 @@ describe('Promotions (e2e)', () => {
       .send({ code: 'VERANO20', monthlyPrice: 100 });
     expect(valInactive.body).toMatchObject({ valid: false, reason: 'inactive' });
 
-    // free_months no soportado en validate de contrato
+    // free_months: válido; no descuenta la cuota, informa los meses gratis.
     await request(app.getHttpServer())
       .post('/promotions')
       .set(auth(owner.accessToken))
@@ -91,7 +94,21 @@ describe('Promotions (e2e)', () => {
       .post('/promotions/validate')
       .set(auth(owner.accessToken))
       .send({ code: 'GRATIS', monthlyPrice: 100 });
-    expect(valFree.body).toMatchObject({ valid: false, reason: 'unsupported_type' });
+    expect(valFree.body).toMatchObject({
+      valid: true,
+      discountType: 'free_months',
+      discountAmount: 0,
+      effectivePrice: 100,
+      freeMonths: 1,
+    });
+
+    // free_months con valor no entero → 400
+    const badFree = await request(app.getHttpServer())
+      .post('/promotions')
+      .set(auth(owner.accessToken))
+      .send({ code: 'MEDIO', name: 'x', discountType: 'free_months', discountValue: 1.5 });
+    expect(badFree.status).toBeGreaterThanOrEqual(400);
+    expect(badFree.status).toBeLessThan(500);
 
     const list = await request(app.getHttpServer()).get('/promotions').set(auth(owner.accessToken));
     expect(list.status).toBe(200);
@@ -142,5 +159,65 @@ describe('Promotions (e2e)', () => {
       });
     expect(bad.status).toBe(404);
     expect(bad.body.code).toBe('promotion_not_found');
+  });
+
+  it('free_months: contrato con N meses → facturas recurrentes a 0 € y contador que decrece', async () => {
+    const owner = await registerVerifiedUser(app, 'promo-free');
+    const a = auth(owner.accessToken);
+    await ensureDefaultSeries(app, owner.accessToken);
+    const cId = await createCustomer(app, owner.accessToken, { email: 'p-free@e2e.local' });
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    await request(app.getHttpServer())
+      .post('/promotions')
+      .set(a)
+      .send({
+        code: 'DOSMESES',
+        name: '2 meses gratis',
+        discountType: 'free_months',
+        discountValue: 2,
+      });
+
+    // Alta del contrato con el código → 2 meses gratis registrados, sin descuento €.
+    const contract = await request(app.getHttpServer()).post('/contracts').set(a).send({
+      customerId: cId,
+      unitId: unitIds[0],
+      startDate: '2026-06-01',
+      priceMonthly: 100,
+      depositAmount: 0,
+      promotionCode: 'DOSMESES',
+    });
+    expect(contract.status).toBe(201);
+    expect(Number(contract.body.discountAmount)).toBe(0);
+    expect(contract.body.freeMonthsRemaining).toBe(2);
+    const contractId = contract.body.id as string;
+
+    // Activar el contrato (la facturación recurrente solo coge active/ending).
+    await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(a).expect(200);
+
+    // Generar la factura recurrente del primer mes → alquiler a 0 €.
+    const billing = app.get(BillingJobsService);
+    await billing.processGenerateRecurring({
+      tenantId: owner.tenantId,
+      periodStart: '2026-06-01',
+      periodEnd: '2026-06-30',
+    });
+
+    const invoices = await request(app.getHttpServer()).get('/invoices').set(a);
+    const inv = invoices.body.find(
+      (i: { contractId: string | null }) => i.contractId === contractId,
+    );
+    expect(inv).toBeTruthy();
+    const detail = await request(app.getHttpServer()).get(`/invoices/${inv.id}`).set(a);
+    const rentLine = (detail.body.items as { description: string; unitPrice: number }[]).find(
+      (it) => it.description.startsWith('Alquiler'),
+    );
+    expect(rentLine).toBeTruthy();
+    expect(Number(rentLine?.unitPrice)).toBe(0);
+    expect(rentLine?.description).toContain('mes gratis');
+
+    // El contador bajó a 1.
+    const after = await request(app.getHttpServer()).get(`/contracts/${contractId}`).set(a);
+    expect(after.body.freeMonthsRemaining).toBe(1);
   });
 });
