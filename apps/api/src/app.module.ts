@@ -44,6 +44,7 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { MoveInModule } from './modules/move-in/move-in.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OperationsModule } from './modules/operations/operations.module';
+import { GoCardlessModule } from './modules/payments/gocardless/gocardless.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { RedsysModule } from './modules/payments/redsys/redsys.module';
 import { PortalModule } from './modules/portal/portal.module';
@@ -166,6 +167,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     LandingModule,
     AccountingModule,
     RedsysModule,
+    GoCardlessModule,
     NotificationsModule,
     ReviewsModule,
     PromotionsModule,

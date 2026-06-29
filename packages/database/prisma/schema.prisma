@@ -395,6 +395,7 @@ model Tenant {
   holdedSettings          HoldedSettings?
   redsysSettings          RedsysSettings?
   redsysOrders            RedsysOrder[]
+  goCardlessSettings      GoCardlessSettings?
   notifications           Notification[]
   apiKeys                 ApiKey[]
   webhooks                Webhook[]
@@ -2912,6 +2913,24 @@ model Review {
 }
 
 /// Configuración Redsys (TPV bancario) por tenant. Clave secreta cifrada.
+/// Config de GoCardless por tenant (domiciliación SEPA gestionada). El access
+/// token y el webhook secret se cifran AES-256-GCM (como Redsys/Holded).
+model GoCardlessSettings {
+  id                     String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String   @unique @map("tenant_id") @db.Uuid
+  accessTokenEncrypted   String   @map("access_token_encrypted")
+  webhookSecretEncrypted String   @map("webhook_secret_encrypted")
+  /// "sandbox" | "live".
+  environment            String   @default("sandbox")
+  enabled                Boolean  @default(false)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("gocardless_settings")
+}
+
 model RedsysSettings {
   id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId           String   @unique @map("tenant_id") @db.Uuid

@@ -99,6 +99,19 @@ export type PaymentGatewayProviderValue = z.infer<typeof PaymentGatewayProviderE
 export const RedsysEnvironmentEnum = z.enum(['test', 'live']);
 export type RedsysEnvironmentValue = z.infer<typeof RedsysEnvironmentEnum>;
 
+export const GoCardlessEnvironmentEnum = z.enum(['sandbox', 'live']);
+export type GoCardlessEnvironmentValue = z.infer<typeof GoCardlessEnvironmentEnum>;
+
+export const UpdateGoCardlessSettingsSchema = z.object({
+  /** Access token de GoCardless. Si se omite, se conserva el existente. */
+  accessToken: z.string().trim().min(10).max(200).optional(),
+  /** Secret del webhook de GoCardless. Si se omite, se conserva el existente. */
+  webhookSecret: z.string().trim().min(10).max(200).optional(),
+  environment: GoCardlessEnvironmentEnum.default('sandbox'),
+  enabled: z.boolean(),
+});
+export type UpdateGoCardlessSettingsInput = z.infer<typeof UpdateGoCardlessSettingsSchema>;
+
 export const UpdateRedsysSettingsSchema = z.object({
   merchantCode: z.string().trim().min(1).max(20),
   terminal: z.string().trim().min(1).max(3).default('1'),

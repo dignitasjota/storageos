@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { GoCardlessCard } from './gocardless-card';
 import { HoldedCard } from './holded-card';
 import { RedsysCard } from './redsys-card';
 
@@ -140,6 +141,8 @@ export default function BillingSettingsPage() {
       <HoldedCard />
 
       <RedsysCard />
+
+      <GoCardlessCard />
 
       <DataTable
         columns={columns}
