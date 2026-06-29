@@ -14,6 +14,7 @@ import {
   ScrollText,
   ShieldCheck,
   Trash2,
+  TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -50,6 +51,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
   { href: '/admin/health', label: 'Salud', icon: HeartPulse },
+  { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
   { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
   { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
