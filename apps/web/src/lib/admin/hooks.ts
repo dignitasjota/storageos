@@ -5,6 +5,7 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AddTicketMessageInput,
+  AdminAdoptionDto,
   AdminAtRiskDto,
   AdminTenantHealthDto,
   AdminBroadcastInput,
@@ -699,6 +700,14 @@ export function useAdminTenantsHealth() {
     queryKey: ['admin', 'tenants', 'health'] as const,
     queryFn: () => adminApiFetch<AdminTenantHealthDto[]>('/admin/tenants/health'),
     refetchInterval: 300_000,
+  });
+}
+
+export function useAdminAdoption() {
+  return useQuery({
+    queryKey: ['admin', 'tenants', 'adoption'] as const,
+    queryFn: () => adminApiFetch<AdminAdoptionDto>('/admin/tenants/adoption'),
+    staleTime: 60_000,
   });
 }
 

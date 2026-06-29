@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
+import { FEATURE_LABELS, TenantFeatures, featuresForPlan } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -10,8 +11,11 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { InvoiceStatus } from '@storageos/database';
 import type {
+  AdminAdoptionDto,
   AdminAtRiskDto,
   AdminAtRiskTenantDto,
+  AdminFeatureAdoptionDto,
+  AdminTenantAdoptionDto,
   AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantFacilityDto,
@@ -21,6 +25,7 @@ import type {
   AdminTenantInvoicingDto,
   AdminTenantUnitDto,
   AdminTenantUserDto,
+  TenantFeature,
 } from '@storageos/shared';
 
 /** Estados de factura que cuentan como facturación (excluye draft/cancelled). */
@@ -440,6 +445,176 @@ export class AdminTenantsService {
       level,
       factors,
       lastActivityAt: s.lastLoginAt ? s.lastLoginAt.toISOString() : null,
+    };
+  }
+
+  // --- Adopción de features + upsell -------------------------------------
+
+  /**
+   * Por cada tenant: qué features premium usa de verdad (señal por tabla), uso
+   * vs límites del plan, y si es candidato a subir de plan. El **plan
+   * recomendado** es el más barato que cubre todas sus features en uso y sus
+   * límites; es candidato si ese plan es más caro que el actual (engloba tanto
+   * "usa una feature fuera de su plan" como "topa límites"). Solo lectura.
+   */
+  async getAdoption(): Promise<AdminAdoptionDto> {
+    const [
+      tenants,
+      plans,
+      aiRows,
+      bankRows,
+      rentRows,
+      insuranceRows,
+      credentialRows,
+      deviceRows,
+      automationRows,
+      sepaRows,
+      unitRows,
+      facilityRows,
+      userRows,
+    ] = await Promise.all([
+      this.admin.tenant.findMany({
+        where: { deletedAt: null, status: { in: ['active', 'trial'] } },
+        include: { subscription: { include: { plan: true } } },
+      }),
+      this.admin.subscriptionPlan.findMany({ where: { isActive: true } }),
+      this.admin.aiConversation.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.bankStatement.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.rentIncrease.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.insurancePlan.groupBy({
+        by: ['tenantId'],
+        where: { isActive: true },
+        _count: { _all: true },
+      }),
+      this.admin.accessCredential.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.accessDevice.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.automationRule.groupBy({
+        by: ['tenantId'],
+        where: { isActive: true },
+        _count: { _all: true },
+      }),
+      this.admin.sepaSettings.findMany({ where: { enabled: true }, select: { tenantId: true } }),
+      this.admin.unit.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.facility.groupBy({
+        by: ['tenantId'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.admin.user.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+    ]);
+
+    const countMap = (
+      rows: { tenantId: string; _count: { _all: number } }[],
+    ): Map<string, number> => new Map(rows.map((r) => [r.tenantId, r._count._all]));
+    const ai = countMap(aiRows);
+    const bank = countMap(bankRows);
+    const rent = countMap(rentRows);
+    const insurance = countMap(insuranceRows);
+    const credentials = countMap(credentialRows);
+    const devices = countMap(deviceRows);
+    const automations = countMap(automationRows);
+    const sepaEnabled = new Set(sepaRows.map((r) => r.tenantId));
+    const units = countMap(unitRows);
+    const facilities = countMap(facilityRows);
+    const users = countMap(userRows);
+
+    /** Features que el tenant USA de verdad (señal por feature). */
+    const usedFeaturesOf = (id: string): Set<TenantFeature> => {
+      const s = new Set<TenantFeature>();
+      if ((ai.get(id) ?? 0) > 0) s.add('ai_assistant');
+      if (sepaEnabled.has(id)) s.add('sepa');
+      if ((bank.get(id) ?? 0) > 0) s.add('bank_reconciliation');
+      if ((rent.get(id) ?? 0) > 0) s.add('rent_increases');
+      if ((insurance.get(id) ?? 0) > 0) s.add('insurance');
+      if ((credentials.get(id) ?? 0) > 0 || (devices.get(id) ?? 0) > 0) s.add('access_control');
+      if ((automations.get(id) ?? 0) > 0) s.add('automations');
+      return s;
+    };
+
+    // Planes ordenados por precio asc para elegir el más barato que cubra.
+    const sortedPlans = [...plans].sort((a, b) => Number(a.priceMonthly) - Number(b.priceMonthly));
+    const planCovers = (
+      plan: (typeof plans)[number],
+      used: Set<TenantFeature>,
+      u: number,
+      f: number,
+      usr: number,
+    ): boolean => {
+      const feats = featuresForPlan(plan.slug);
+      for (const ft of used) if (!feats.includes(ft)) return false;
+      if (plan.maxUnits !== null && u > plan.maxUnits) return false;
+      if (plan.maxFacilities !== null && f > plan.maxFacilities) return false;
+      if (plan.maxUsers !== null && usr > plan.maxUsers) return false;
+      return true;
+    };
+
+    const tenantDtos: AdminTenantAdoptionDto[] = tenants.map((t) => {
+      const plan = t.subscription?.plan ?? null;
+      const planSlug = plan?.slug ?? null;
+      const inPlan = featuresForPlan(planSlug ?? '');
+      const used = usedFeaturesOf(t.id);
+      const u = units.get(t.id) ?? 0;
+      const f = facilities.get(t.id) ?? 0;
+      const usr = users.get(t.id) ?? 0;
+
+      const features = TenantFeatures.map((ft) => ({
+        feature: ft,
+        label: FEATURE_LABELS[ft],
+        inPlan: inPlan.includes(ft),
+        used: used.has(ft),
+      }));
+      const usesFeatureOutsidePlan = [...used].some((ft) => !inPlan.includes(ft));
+      const tapsLimit =
+        (plan?.maxUnits != null && u >= plan.maxUnits) ||
+        (plan?.maxFacilities != null && f >= plan.maxFacilities) ||
+        (plan?.maxUsers != null && usr >= plan.maxUsers);
+
+      const currentPrice = plan ? Number(plan.priceMonthly) : 0;
+      const recommended = sortedPlans.find((p) => planCovers(p, used, u, f, usr)) ?? null;
+      const isCandidate = !!recommended && Number(recommended.priceMonthly) > currentPrice;
+
+      return {
+        tenantId: t.id,
+        name: t.name,
+        slug: t.slug,
+        planSlug,
+        planName: plan?.name ?? null,
+        features,
+        usage: {
+          units: u,
+          maxUnits: plan?.maxUnits ?? null,
+          facilities: f,
+          maxFacilities: plan?.maxFacilities ?? null,
+          users: usr,
+          maxUsers: plan?.maxUsers ?? null,
+        },
+        usesFeatureOutsidePlan,
+        tapsLimit,
+        isCandidate,
+        recommendedPlanSlug: isCandidate ? (recommended?.slug ?? null) : null,
+        recommendedPlanName: isCandidate ? (recommended?.name ?? null) : null,
+      };
+    });
+
+    // Resumen de adopción por feature.
+    const featureAdoption: AdminFeatureAdoptionDto[] = TenantFeatures.map((ft) => ({
+      feature: ft,
+      label: FEATURE_LABELS[ft],
+      tenantsUsing: tenantDtos.filter((t) => t.features.find((x) => x.feature === ft)?.used).length,
+      tenantsWithAccess: tenantDtos.filter((t) => t.features.find((x) => x.feature === ft)?.inPlan)
+        .length,
+    }));
+
+    // Candidatos primero, luego por nombre.
+    tenantDtos.sort((a, b) => {
+      if (a.isCandidate !== b.isCandidate) return a.isCandidate ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return {
+      tenants: tenantDtos,
+      featureAdoption,
+      candidateCount: tenantDtos.filter((t) => t.isCandidate).length,
     };
   }
 

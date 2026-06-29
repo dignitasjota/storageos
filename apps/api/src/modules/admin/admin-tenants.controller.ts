@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  type AdminAdoptionDto,
   type AdminAtRiskDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
@@ -326,6 +327,12 @@ export class AdminTenantsController {
   @Get('health')
   async health(): Promise<AdminTenantHealthDto[]> {
     return this.tenants.getTenantsHealth();
+  }
+
+  /** Adopción de features + candidatos a upgrade. */
+  @Get('adoption')
+  async adoption(): Promise<AdminAdoptionDto> {
+    return this.tenants.getAdoption();
   }
 
   @Get(':id')

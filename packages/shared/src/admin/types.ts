@@ -1,3 +1,4 @@
+import type { TenantFeature } from '../features';
 import type {
   SecurityEventTypeValue,
   SuperAdminRoleValue,
@@ -159,6 +160,64 @@ export interface AdminTenantHealthDto {
   factors: AdminTenantHealthFactorDto[];
   /** Última actividad detectada (último login del equipo). */
   lastActivityAt: string | null;
+}
+
+/** Estado de una feature premium para un tenant (incluida en plan vs usada). */
+export interface AdminTenantAdoptionFeatureDto {
+  feature: TenantFeature;
+  label: string;
+  /** Incluida en el plan actual del tenant. */
+  inPlan: boolean;
+  /** La usa de verdad (hay datos/config). */
+  used: boolean;
+}
+
+/** Uso vs límite de un recurso (units/facilities/users); `max` null = ilimitado. */
+export interface AdminTenantAdoptionUsageDto {
+  units: number;
+  maxUnits: number | null;
+  facilities: number;
+  maxFacilities: number | null;
+  users: number;
+  maxUsers: number | null;
+}
+
+/** Adopción de features + señales de upsell de un tenant. */
+export interface AdminTenantAdoptionDto {
+  tenantId: string;
+  name: string;
+  slug: string;
+  planSlug: string | null;
+  planName: string | null;
+  features: AdminTenantAdoptionFeatureDto[];
+  usage: AdminTenantAdoptionUsageDto;
+  /** Usa alguna feature que su plan no incluye (downgrade/legacy). */
+  usesFeatureOutsidePlan: boolean;
+  /** Topa o supera algún límite del plan. */
+  tapsLimit: boolean;
+  /** Candidato a subir de plan (el plan recomendado es más caro que el actual). */
+  isCandidate: boolean;
+  recommendedPlanSlug: string | null;
+  recommendedPlanName: string | null;
+}
+
+/** Cuántos tenants usan cada feature premium (adopción global). */
+export interface AdminFeatureAdoptionDto {
+  feature: TenantFeature;
+  label: string;
+  tenantsUsing: number;
+  /** Tenants cuyo plan la incluye. */
+  tenantsWithAccess: number;
+}
+
+/** Vista de adopción/upsell del panel super admin. */
+export interface AdminAdoptionDto {
+  /** Tenants, candidatos a upgrade primero. */
+  tenants: AdminTenantAdoptionDto[];
+  /** Resumen de adopción por feature. */
+  featureAdoption: AdminFeatureAdoptionDto[];
+  /** Nº de tenants candidatos a upgrade. */
+  candidateCount: number;
 }
 
 /** Un usuario (staff) de un tenant, visto desde el panel super admin. */
