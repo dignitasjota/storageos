@@ -15,6 +15,8 @@ import {
   YAxis,
 } from 'recharts';
 
+import { MrrMovementsCard } from './mrr-movements-card';
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMetrics } from '@/lib/admin/hooks';
 
@@ -228,6 +230,11 @@ export default function AdminMetricsPage() {
             </CardContent>
           </Card>
         </div>
+      </section>
+
+      {/* MRR movements */}
+      <section>
+        <MrrMovementsCard />
       </section>
 
       {/* Totales de plataforma */}

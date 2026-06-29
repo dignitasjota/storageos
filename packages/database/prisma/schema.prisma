@@ -344,6 +344,7 @@ model Tenant {
   tenantRoles             TenantRole[]
   subscription            TenantSubscription?
   subscriptionPayments    TenantSubscriptionPayment[]
+  mrrSnapshots            MrrSnapshot[]
   tenantInteractions      TenantInteraction[]
   auditLogs               AuditLog[]
   sessions                Session[]
@@ -560,6 +561,28 @@ model SubscriptionPlan {
   subscriptions TenantSubscription[]
 
   @@map("subscription_plans")
+}
+
+/// Snapshot mensual del MRR de cada tenant (1 fila por tenant y mes). Permite
+/// calcular los MRR movements (new/expansion/contraction/churn/reactivation)
+/// comparando meses consecutivos. Lo escribe un cron mensual + captura
+/// on-demand del mes en curso + backfill desde el historial de pagos.
+model MrrSnapshot {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  /// Primer día del mes (UTC) que representa el snapshot.
+  month     DateTime @db.Date
+  planSlug  String   @map("plan_slug")
+  status    String
+  /// MRR mensual normalizado (priceMonthly del plan en ese mes).
+  mrr       Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, month])
+  @@index([month])
+  @@map("mrr_snapshots")
 }
 
 /// Suscripción activa de cada tenant.

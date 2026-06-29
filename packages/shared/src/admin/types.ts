@@ -297,6 +297,35 @@ export interface AdminMetricsRevenueMonthDto {
   collected: number;
 }
 
+/** Desglose del cambio de MRR de un mes (todos en la divisa del SaaS, EUR). */
+export interface AdminMetricsMrrMovementMonthDto {
+  label: string;
+  /** MRR de tenants nuevos (primer mes con suscripción). */
+  newMrr: number;
+  /** Aumento por upgrades de plan. */
+  expansion: number;
+  /** MRR recuperado de tenants que vuelven tras una baja. */
+  reactivation: number;
+  /** Reducción por downgrades (valor positivo; se resta). */
+  contraction: number;
+  /** MRR perdido por bajas (valor positivo; se resta). */
+  churn: number;
+  /** Net New MRR = new + expansion + reactivation − contraction − churn. */
+  net: number;
+  /** MRR total al cierre del mes. */
+  endingMrr: number;
+  /** Net Revenue Retention del mes (%); null si no había MRR base. */
+  nrr: number | null;
+}
+
+/** Serie de MRR movements para el panel de métricas. */
+export interface AdminMetricsMrrMovementsDto {
+  currency: string;
+  months: AdminMetricsMrrMovementMonthDto[];
+  /** true si aún no hay suficientes snapshots para mostrar movimientos. */
+  warmingUp: boolean;
+}
+
 /** Estado de un servicio de infraestructura (status page del admin). */
 export interface AdminSystemServiceDto {
   /** 'database' | 'redis' | 'minio' | 'worker'. */
