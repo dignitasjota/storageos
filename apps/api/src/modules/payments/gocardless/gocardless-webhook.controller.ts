@@ -97,8 +97,17 @@ export class GoCardlessWebhookController {
           newStatus: 'failed',
           failureReason: `gocardless:${ev.action}`,
         });
+      } else if (ev.action === 'charged_back') {
+        // Devolución SEPA tras un cobro ya confirmado: revierte el payment
+        // `succeeded` → `failed`, resta el `amountPaid` y devuelve la factura a
+        // `overdue`/`issued` (idempotente; reusa el mismo flujo que los disputes
+        // de Stripe).
+        await this.payments.syncDisputeFromWebhook({
+          tenantId,
+          gatewayPaymentId: paymentId,
+          reason: 'charged_back',
+        });
       }
-      // `charged_back` (devolución tras el cobro) → follow-up (reversión).
     }
     return { received: true };
   }

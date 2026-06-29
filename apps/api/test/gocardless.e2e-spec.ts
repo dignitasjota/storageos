@@ -202,5 +202,28 @@ describe('GoCardless settings + webhook (e2e)', () => {
 
     const after = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
     expect(after.body.status).toBe('paid');
+
+    // Devolución (charged_back): revierte el cobro → la factura deja de estar pagada.
+    const cbBody = JSON.stringify({
+      events: [
+        {
+          id: 'EV-cb',
+          resource_type: 'payments',
+          action: 'charged_back',
+          links: { payment: gatewayPaymentId },
+        },
+      ],
+    });
+    const cbSig = createHmac('sha256', webhookSecret).update(cbBody).digest('hex');
+    await request(app.getHttpServer())
+      .post(`/webhooks/gocardless/${owner.tenantId}`)
+      .set('Content-Type', 'application/json')
+      .set('Webhook-Signature', cbSig)
+      .send(cbBody)
+      .expect(200);
+
+    const reverted = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(reverted.body.status).not.toBe('paid');
+    expect(Number(reverted.body.amountPaid)).toBe(0);
   });
 });
