@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -13,10 +14,18 @@ import { useCustomerMessages, useSendCustomerMessage } from '@/lib/customers/hoo
 export function CustomerChatTab({ customerId }: { customerId: string }) {
   const messages = useCustomerMessages(customerId);
   const send = useSendCustomerMessage(customerId);
+  const qc = useQueryClient();
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
   const items = messages.data ?? [];
+
+  // Al cargar el hilo se marcan leídos en el server → refrescamos el badge.
+  useEffect(() => {
+    if (messages.isSuccess) {
+      void qc.invalidateQueries({ queryKey: ['customers', 'unread-summary'] });
+    }
+  }, [messages.isSuccess, messages.dataUpdatedAt, qc]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });

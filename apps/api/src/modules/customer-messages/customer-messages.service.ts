@@ -39,6 +39,31 @@ export class CustomerMessagesService {
     private readonly push: PushService,
   ) {}
 
+  /**
+   * Resumen de mensajes del inquilino sin leer por el staff (para los badges del
+   * menú/lista/ficha): total y desglose por cliente.
+   */
+  async unreadSummary(
+    tenantId: string,
+  ): Promise<{ total: number; byCustomer: Record<string, number> }> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.customerMessage.groupBy({
+          by: ['customerId'],
+          where: { tenantId, senderType: 'customer', readAt: null },
+          _count: { _all: true },
+        }),
+      tenantId,
+    );
+    const byCustomer: Record<string, number> = {};
+    let total = 0;
+    for (const r of rows) {
+      byCustomer[r.customerId] = r._count._all;
+      total += r._count._all;
+    }
+    return { total, byCustomer };
+  }
+
   private async assertCustomer(tenantId: string, customerId: string): Promise<{ name: string }> {
     const customer = await this.prisma.withTenant(
       (tx) =>

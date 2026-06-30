@@ -155,6 +155,14 @@ export interface CustomerInteractionDto {
   createdAt: string;
 }
 
+/** Resumen de mensajes del inquilino sin leer por el staff (para los badges). */
+export interface CustomerUnreadSummaryDto {
+  /** Total de mensajes sin leer en el tenant. */
+  total: number;
+  /** Nº de mensajes sin leer por cada cliente con pendientes. */
+  byCustomer: Record<string, number>;
+}
+
 /** Un mensaje del chat bidireccional inquilino <-> staff. */
 export interface CustomerMessageDto {
   id: string;
