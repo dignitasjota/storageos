@@ -42,6 +42,7 @@ import { ChatCard } from './chat-card';
 import { DocumentsCard } from './documents-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
+import { NightAccessCard } from './night-access-card';
 import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
 import { ShopCard } from './shop-card';
@@ -162,6 +163,7 @@ function PortalConsumeContent() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodDto[] | null>(null);
   const [access, setAccess] = useState<PortalAccessCredentialDto[] | null>(null);
   const [nightPass, setNightPass] = useState<PortalNightPassInfoDto | null>(null);
+  const [passRefresh, setPassRefresh] = useState(0);
   const [buyingPass, setBuyingPass] = useState(false);
   const [referrals, setReferrals] = useState<PortalReferralDto | null>(null);
   const [contracts, setContracts] = useState<PortalContractDto[] | null>(null);
@@ -371,6 +373,7 @@ function PortalConsumeContent() {
       setAccess((prev) => [created, ...(prev ?? [])]);
       const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
       setInvoices(inv);
+      setPassRefresh((n) => n + 1);
       toast.success('Pase nocturno comprado. Tu código es de un solo uso y caduca por la mañana.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprar el pase.');
@@ -1114,6 +1117,13 @@ function PortalConsumeContent() {
                   </Button>
                 </div>
               )}
+              <div className="mt-3">
+                <NightAccessCard
+                  session={session}
+                  facilities={facilities}
+                  refreshKey={passRefresh}
+                />
+              </div>
               {nightPass?.enabled && (
                 <div className="mt-3 rounded-md border bg-muted/30 p-3">
                   <p className="text-sm font-medium">Pase nocturno</p>

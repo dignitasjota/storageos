@@ -5,7 +5,11 @@ import { InvoiceSeriesService } from '../billing/invoice-series.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import type { PortalAccessCredentialDto, PortalNightPassInfoDto } from '@storageos/shared';
+import type {
+  PortalAccessCredentialDto,
+  PortalNightPassDto,
+  PortalNightPassInfoDto,
+} from '@storageos/shared';
 
 /**
  * Pase nocturno: el inquilino compra desde su portal un código de **un solo
@@ -32,6 +36,45 @@ export class NightPassService {
       enabled: tenant?.nightPassEnabled ?? false,
       price: Number(tenant?.nightPassPrice ?? 0),
     };
+  }
+
+  /** Historial de pases nocturnos comprados por el inquilino. */
+  async history(tenantId: string, customerId: string): Promise<PortalNightPassDto[]> {
+    const rows = await this.admin.accessCredential.findMany({
+      where: {
+        tenantId,
+        customerId,
+        metadata: { path: ['source'], equals: 'night_pass' },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        usesCount: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+    const now = new Date();
+    return rows.map((r) => {
+      let status: PortalNightPassDto['status'];
+      if (r.usesCount >= 1) status = 'used';
+      else if (
+        r.status === 'revoked' ||
+        r.status === 'expired' ||
+        (r.expiresAt !== null && r.expiresAt < now)
+      ) {
+        status = 'expired';
+      } else {
+        status = 'active';
+      }
+      return {
+        id: r.id,
+        status,
+        createdAt: r.createdAt.toISOString(),
+        expiresAt: r.expiresAt?.toISOString() ?? null,
+      };
+    });
   }
 
   /** Emite el pase (código single-use) y lo factura (best-effort). */
