@@ -172,6 +172,17 @@ export function useIncidents(params: IncidentsFilter = {}) {
   });
 }
 
+/** Nº de incidencias abiertas por estado — para los badges del menú (sondea cada 60 s). */
+export function useIncidentPendingCounts(enabled = true) {
+  return useQuery({
+    queryKey: ['incidents', 'pending-counts'] as const,
+    queryFn: () =>
+      apiFetch<{ reported: number; investigating: number }>('/incidents/pending-counts'),
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useIncident(id: string | undefined) {
   return useQuery({
     queryKey: id ? incidentKey(id) : ['incidents', 'none'],

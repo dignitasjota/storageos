@@ -49,10 +49,13 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useFeatures, usePermissions } from '@/lib/auth/hooks';
+import { useIncidentPendingCounts } from '@/lib/operations/hooks';
+import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 
 interface NavItem {
   href: string;
@@ -232,6 +235,15 @@ export function AppSidebar() {
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
 
+  // Badge de cambios de trastero pendientes (solo si el usuario ve esa sección).
+  const unitChangePending =
+    useUnitChangePendingCount(permissions.includes('contracts:read')).data?.count ?? 0;
+  // Incidencias abiertas por estado (reportadas + en investigación).
+  const incidentCounts = useIncidentPendingCounts(permissions.includes('incidents:read')).data ?? {
+    reported: 0,
+    investigating: 0,
+  };
+
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -260,6 +272,10 @@ export function AppSidebar() {
   function renderItem(item: NavItem) {
     const Icon = item.icon;
     const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    const unitChangeBadge = item.href === '/unit-change-requests' && unitChangePending > 0;
+    const incidentBadge =
+      item.href === '/incidents' &&
+      (incidentCounts.reported > 0 || incidentCounts.investigating > 0);
     return (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton asChild isActive={active} className="data-[active=true]:font-medium">
@@ -268,6 +284,32 @@ export function AppSidebar() {
             <span>{t(item.labelKey)}</span>
           </Link>
         </SidebarMenuButton>
+        {unitChangeBadge && (
+          <SidebarMenuBadge className="bg-primary text-primary-foreground">
+            {unitChangePending}
+          </SidebarMenuBadge>
+        )}
+        {incidentBadge && (
+          // Dos contadores: rojo = reportadas (sin atender), ámbar = en investigación.
+          <SidebarMenuBadge className="flex h-5 min-w-0 gap-1 px-0">
+            {incidentCounts.reported > 0 && (
+              <span
+                title="Reportadas"
+                className="flex h-5 min-w-5 items-center justify-center rounded-md bg-red-500 px-1 text-white"
+              >
+                {incidentCounts.reported}
+              </span>
+            )}
+            {incidentCounts.investigating > 0 && (
+              <span
+                title="En investigación"
+                className="flex h-5 min-w-5 items-center justify-center rounded-md bg-amber-500 px-1 text-white"
+              >
+                {incidentCounts.investigating}
+              </span>
+            )}
+          </SidebarMenuBadge>
+        )}
       </SidebarMenuItem>
     );
   }

@@ -84,6 +84,17 @@ export class IncidentsService {
     private readonly events: EventEmitter2,
   ) {}
 
+  /** Nº de incidencias abiertas por estado (para los badges del menú). */
+  async countOpenByStatus(tenantId: string): Promise<{ reported: number; investigating: number }> {
+    return this.prisma.withTenant(async (tx) => {
+      const [reported, investigating] = await Promise.all([
+        tx.incident.count({ where: { tenantId, deletedAt: null, status: 'reported' } }),
+        tx.incident.count({ where: { tenantId, deletedAt: null, status: 'investigating' } }),
+      ]);
+      return { reported, investigating };
+    }, tenantId);
+  }
+
   async list(tenantId: string, filters: ListFilters): Promise<IncidentDto[]> {
     const where: Prisma.IncidentWhereInput = { deletedAt: null };
     if (filters.status) where.status = filters.status as IncidentStatus;

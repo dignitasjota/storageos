@@ -92,6 +92,15 @@ export class IncidentsController {
     });
   }
 
+  /** Nº de incidencias abiertas por estado — para los badges del menú. */
+  @RequirePermission('incidents:read')
+  @Get('pending-counts')
+  async pendingCounts(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ reported: number; investigating: number }> {
+    return this.incidents.countOpenByStatus(user.tenantId);
+  }
+
   @RequirePermission('incidents:read')
   @Get(':id')
   async detail(

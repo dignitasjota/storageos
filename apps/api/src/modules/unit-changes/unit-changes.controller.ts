@@ -35,6 +35,13 @@ export class UnitChangesController {
     return this.service.list(user.tenantId, status);
   }
 
+  /** Nº de solicitudes pendientes — para el badge del menú. */
+  @RequirePermission('contracts:read')
+  @Get('pending-count')
+  async pendingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
+    return { count: await this.service.countPending(user.tenantId) };
+  }
+
   @RequirePermission('contracts:write')
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
