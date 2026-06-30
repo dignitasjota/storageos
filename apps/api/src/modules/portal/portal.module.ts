@@ -16,6 +16,7 @@ import { ProductsModule } from '../products/products.module';
 import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
+import { UnitRequestsModule } from '../unit-requests/unit-requests.module';
 
 import { NightPassService } from './night-pass.service';
 import { PortalLinkController } from './portal-link.controller';
@@ -45,6 +46,8 @@ import { PortalService } from './portal.service';
     PushModule,
     // UnitChangesModule: el inquilino solicita cambio de trastero.
     UnitChangesModule,
+    // UnitRequestsModule: el inquilino solicita un trastero adicional.
+    UnitRequestsModule,
     // ProductsModule: tienda de accesorios (compra → venta + factura).
     ProductsModule,
     // CustomerMessagesModule: chat bidireccional con el staff.

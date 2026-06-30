@@ -37,6 +37,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { AccessLogsCard } from './access-logs-card';
+import { AdditionalUnitCard } from './additional-unit-card';
 import { ChatCard } from './chat-card';
 import { DocumentsCard } from './documents-card';
 import { FaqCard } from './faq-card';
@@ -678,6 +679,7 @@ function PortalConsumeContent() {
               Cambio de trastero
               <TabBadge count={pendingUnitChanges} className="bg-amber-500" />
             </TabsTrigger>
+            <TabsTrigger value="nuevo">Contratar trastero</TabsTrigger>
             <TabsTrigger value="facturas">Facturas</TabsTrigger>
             <TabsTrigger value="accesos">Accesos</TabsTrigger>
             <TabsTrigger value="mensajes">
@@ -837,6 +839,10 @@ function PortalConsumeContent() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="nuevo" className="space-y-6">
+          <AdditionalUnitCard session={session} />
         </TabsContent>
 
         <TabsContent value="facturas" className="space-y-6">

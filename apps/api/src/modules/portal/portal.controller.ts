@@ -49,6 +49,9 @@ import {
   type PortalSessionDto,
   type PortalUnitChangeRequestDto,
   PortalUnitChangeRequestSchema,
+  PortalUnitRequestSchema,
+  type AvailableUnitDto,
+  type PortalUnitRequestDto,
   type PushPublicKeyDto,
   PushSubscribeSchema,
   PushUnsubscribeSchema,
@@ -70,6 +73,7 @@ import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { UnitChangesService } from '../unit-changes/unit-changes.service';
+import { UnitRequestsService } from '../unit-requests/unit-requests.service';
 
 import { NightPassService } from './night-pass.service';
 import { PortalService } from './portal.service';
@@ -92,6 +96,7 @@ class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSch
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
 class PortalUnitChangeRequestDto2 extends createZodDto(PortalUnitChangeRequestSchema) {}
+class PortalUnitRequestDto2 extends createZodDto(PortalUnitRequestSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -104,6 +109,7 @@ export class PortalController {
     private readonly incidents: IncidentsService,
     private readonly push: PushService,
     private readonly unitChanges: UnitChangesService,
+    private readonly unitRequests: UnitRequestsService,
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
@@ -435,6 +441,38 @@ export class PortalController {
   ): Promise<PortalUnitChangeRequestDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.unitChanges.createFromPortal({ tenantId, customerId, input });
+  }
+
+  // ------------------ contratar trastero adicional -------------------------
+
+  /** Trasteros disponibles en los locales del inquilino. */
+  @Public()
+  @Get('me/available-units')
+  async myAvailableUnits(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<AvailableUnitDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.unitRequests.availableForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @Get('me/unit-requests')
+  async myUnitRequests(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalUnitRequestDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.unitRequests.listForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/unit-requests')
+  async requestAdditionalUnit(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalUnitRequestDto2,
+  ): Promise<PortalUnitRequestDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.unitRequests.createFromPortal({ tenantId, customerId, input });
   }
 
   // ----------------------- referidos ---------------------------------------
