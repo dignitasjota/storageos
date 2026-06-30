@@ -1,6 +1,7 @@
 'use client';
 
 import { BellDot } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import type { NotificationDto } from '@storageos/shared';
@@ -83,6 +84,10 @@ export function NotificationBell() {
             </DropdownMenuItem>
           ))
         )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild className="cursor-pointer justify-center text-sm">
+          <Link href="/notifications">Ver todas</Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
