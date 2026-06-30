@@ -8,6 +8,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
+import { AuditService } from '../auth/audit.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
@@ -90,6 +91,7 @@ export class PortalService {
     private readonly contracts: ContractsService,
     private readonly products: ProductsService,
     private readonly productSales: ProductSalesService,
+    private readonly audit: AuditService,
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
@@ -146,6 +148,8 @@ export class PortalService {
   async createMagicLinkForCustomer(
     tenantId: string,
     customerId: string,
+    userId: string,
+    meta: { ipAddress: string | null; userAgent: string | null },
   ): Promise<PortalMagicLinkDto> {
     const customer = await this.admin.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
@@ -165,6 +169,18 @@ export class PortalService {
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     const url = `${webBase}/portal/consume?token=${tokenId}.${secret}`;
     const expiresAt = new Date(Date.now() + STAFF_MAGIC_LINK_TTL_SECONDS * 1000).toISOString();
+    // Trazabilidad: quién generó un acceso al portal de este inquilino (no se
+    // registra el token/secreto, solo el hecho y su caducidad).
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'portal.magic_link_generated',
+      entityType: 'Customer',
+      entityId: customerId,
+      changes: { expiresAt },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
     return { url, expiresAt };
   }
 
