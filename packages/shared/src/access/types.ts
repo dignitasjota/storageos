@@ -111,3 +111,13 @@ export interface PortalAccessCredentialDto {
   expiresAt: string | null;
   lastUsedAt: string | null;
 }
+
+/** Una entrada del historial de accesos del inquilino (slim, sin datos internos). */
+export interface PortalAccessLogDto {
+  id: string;
+  /** Nombre del dispositivo/puerta; null si se borró. */
+  deviceName: string | null;
+  method: AccessMethodValue;
+  result: AccessResultValue;
+  occurredAt: string;
+}

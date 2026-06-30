@@ -36,6 +36,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { AccessLogsCard } from './access-logs-card';
 import { ChatCard } from './chat-card';
 import { DocumentsCard } from './documents-card';
 import { FaqCard } from './faq-card';
@@ -1116,6 +1117,8 @@ function PortalConsumeContent() {
               )}
             </CardContent>
           </Card>
+
+          <AccessLogsCard session={session} />
         </TabsContent>
 
         <TabsContent value="mensajes" className="space-y-6">
