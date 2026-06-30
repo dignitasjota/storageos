@@ -315,3 +315,13 @@ export type CreateSuperAdminInput = z.infer<typeof CreateSuperAdminSchema>;
 
 export const SetSuperAdminActiveSchema = z.object({ isActive: z.boolean() });
 export type SetSuperAdminActiveInput = z.infer<typeof SetSuperAdminActiveSchema>;
+
+// --- Alertas proactivas de plataforma ---
+export const UpdatePlatformAlertSettingsSchema = z.object({
+  enabled: z.boolean(),
+  alertEmail: z.string().email().nullable().or(z.literal('')),
+  notifyPastDue: z.boolean(),
+  notifyTrialExpiring: z.boolean(),
+  trialExpiringDays: z.number().int().min(1).max(30),
+});
+export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
