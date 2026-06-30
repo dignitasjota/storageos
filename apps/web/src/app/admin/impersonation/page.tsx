@@ -1,9 +1,11 @@
 'use client';
 
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminImpersonationActivity, useAdminImpersonationLogs } from '@/lib/admin/hooks';
 
@@ -58,6 +60,16 @@ export default function ImpersonationPage() {
           Sesiones en las que un super admin entró como un tenant. Despliega para ver la actividad
           registrada durante la ventana de la sesión.
         </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-md border border-dashed bg-muted/30 px-4 py-3 text-sm">
+        <span className="text-muted-foreground">
+          Para <strong className="text-foreground">entrar como un tenant</strong>, abre su ficha y
+          pulsa «Impersonar».
+        </span>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/admin/tenants">Ir a tenants</Link>
+        </Button>
       </div>
 
       <Card>
