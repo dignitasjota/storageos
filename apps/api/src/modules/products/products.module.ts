@@ -14,5 +14,6 @@ import { ProductsService } from './products.service';
   imports: [AuthModule, BillingModule],
   controllers: [ProductsController, ProductStockController, ProductSalesController],
   providers: [ProductsService, ProductStockService, ProductSalesService],
+  exports: [ProductsService, ProductSalesService],
 })
 export class ProductsModule {}

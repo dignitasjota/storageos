@@ -28,9 +28,12 @@ import {
   type PortalNightPassInfoDto,
   type PortalPaymentDto,
   type PortalProfileDto,
+  PortalPurchaseSchema,
   PortalSetInsuranceSchema,
   PortalUpdateProfileSchema,
   type InsurancePlanDto,
+  type ProductDto,
+  type ProductSaleDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalReportIncidentSchema,
@@ -70,6 +73,7 @@ class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
 class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
+class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
@@ -112,6 +116,25 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  /** Accesorios a la venta (catálogo del negocio con stock). */
+  @Public()
+  @Get('me/products')
+  async myProducts(@Headers('authorization') auth: string | undefined): Promise<ProductDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.listProducts(tenantId, customerId);
+  }
+
+  /** El inquilino compra accesorios → venta + factura emitida (pagable en el portal). */
+  @Public()
+  @Post('me/purchases')
+  async purchase(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: PortalPurchaseDto,
+  ): Promise<ProductSaleDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.purchaseProducts(tenantId, customerId, body.items);
   }
 
   /** Planes de seguro/protección que ofrece el negocio. */

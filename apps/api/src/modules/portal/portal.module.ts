@@ -9,6 +9,7 @@ import { OperationsModule } from '../operations/operations.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { RedsysModule } from '../payments/redsys/redsys.module';
+import { ProductsModule } from '../products/products.module';
 import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
@@ -40,6 +41,8 @@ import { PortalService } from './portal.service';
     PushModule,
     // UnitChangesModule: el inquilino solicita cambio de trastero.
     UnitChangesModule,
+    // ProductsModule: tienda de accesorios (compra → venta + factura).
+    ProductsModule,
   ],
   controllers: [PortalController],
   providers: [PortalService, NightPassService],

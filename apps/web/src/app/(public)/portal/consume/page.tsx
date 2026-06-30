@@ -38,6 +38,7 @@ import { toast } from 'sonner';
 
 import { InsuranceCard } from './insurance-card';
 import { ProfileCard } from './profile-card';
+import { ShopCard } from './shop-card';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
@@ -359,6 +360,16 @@ function PortalConsumeContent() {
     }
   }
 
+  async function reloadInvoices() {
+    if (!session) return;
+    try {
+      const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
+      setInvoices(inv);
+    } catch {
+      /* opcional */
+    }
+  }
+
   async function downloadContract(contractId: string) {
     if (!session) return;
     try {
@@ -583,6 +594,8 @@ function PortalConsumeContent() {
       {session && contracts && contracts.length > 0 && (
         <InsuranceCard session={session} contracts={contracts} onContractsChange={setContracts} />
       )}
+
+      {session && <ShopCard session={session} onPurchased={reloadInvoices} />}
 
       {facilities.length > 0 && (
         <Card>
