@@ -379,6 +379,7 @@ model Tenant {
   messageTemplates        MessageTemplate[]
   communications          Communication[]
   customerInteractions    CustomerInteraction[]
+  customerMessages        CustomerMessage[]
   automationRules         AutomationRule[]
   automationRuns          AutomationRun[]
   tasks                   Task[]
@@ -480,6 +481,7 @@ model User {
   facilities               UserFacility[]
   inspectionPhotos         ContractInspectionPhoto[]
   customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
+  customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -956,6 +958,7 @@ model Customer {
   pushSubscriptions  PushSubscription[]
   unitChangeRequests UnitChangeRequest[]
   interactions       CustomerInteraction[]
+  messages           CustomerMessage[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -3200,6 +3203,30 @@ model CustomerInteraction {
   @@index([tenantId])
   @@index([tenantId, customerId])
   @@map("customer_interactions")
+}
+
+/// Chat bidireccional entre el inquilino (portal) y el staff. Un hilo por
+/// cliente; `senderType` distingue quién escribió.
+model CustomerMessage {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  customerId   String    @map("customer_id") @db.Uuid
+  /// "customer" | "staff".
+  senderType   String    @map("sender_type")
+  /// Usuario del staff que escribió (null si lo escribió el inquilino).
+  senderUserId String?   @map("sender_user_id") @db.Uuid
+  body         String
+  /// Cuándo lo leyó el destinatario (null = no leído).
+  readAt       DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sender   User?    @relation("CustomerMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, customerId, createdAt])
+  @@map("customer_messages")
 }
 
 /// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la

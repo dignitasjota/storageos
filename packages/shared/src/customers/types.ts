@@ -154,3 +154,14 @@ export interface CustomerInteractionDto {
   userName: string | null;
   createdAt: string;
 }
+
+/** Un mensaje del chat bidireccional inquilino <-> staff. */
+export interface CustomerMessageDto {
+  id: string;
+  senderType: 'customer' | 'staff';
+  /** Nombre del staff que escribió (null si lo escribió el inquilino). */
+  senderName: string | null;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}

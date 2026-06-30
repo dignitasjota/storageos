@@ -23,6 +23,7 @@ import type {
   CustomerDocumentUploadDto,
   CustomerDto,
   CustomerInteractionDto,
+  CustomerMessageDto,
   RegisterCustomerDocumentInput,
   RequestCustomerDocumentUploadInput,
   ReservationDto,
@@ -439,5 +440,28 @@ export function useDeleteInteraction(customerId: string) {
     mutationFn: (id: string) =>
       apiFetch<void>(`/customers/${customerId}/interactions/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'interactions'] }),
+  });
+}
+
+// --- Chat con el inquilino ---------------------------------------------------
+
+export function useCustomerMessages(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['customers', id, 'messages'],
+    queryFn: () => apiFetch<CustomerMessageDto[]>(`/customers/${id}/messages`),
+    enabled: !!id && enabled,
+    refetchInterval: 20_000,
+  });
+}
+
+export function useSendCustomerMessage(customerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: string) =>
+      apiFetch<CustomerMessageDto>(`/customers/${customerId}/messages`, {
+        method: 'POST',
+        json: { body },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'messages'] }),
   });
 }

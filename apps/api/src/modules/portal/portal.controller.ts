@@ -31,6 +31,8 @@ import {
   PortalPurchaseSchema,
   PortalSetInsuranceSchema,
   PortalUpdateProfileSchema,
+  SendCustomerMessageSchema,
+  type CustomerMessageDto,
   type InsurancePlanDto,
   type ProductDto,
   type ProductSaleDto,
@@ -54,6 +56,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { ContractsService } from '../contracts/contracts.service';
+import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
@@ -74,6 +77,7 @@ class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {
 class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
+class PortalSendMessageDto extends createZodDto(SendCustomerMessageSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
@@ -91,6 +95,7 @@ export class PortalController {
     private readonly push: PushService,
     private readonly unitChanges: UnitChangesService,
     private readonly nightPass: NightPassService,
+    private readonly messages: CustomerMessagesService,
   ) {}
 
   @Public()
@@ -116,6 +121,27 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  /** Chat con el staff: hilo del inquilino. */
+  @Public()
+  @Get('me/messages')
+  async myMessages(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<CustomerMessageDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.messages.list(tenantId, customerId, 'customer');
+  }
+
+  /** El inquilino envía un mensaje al staff. */
+  @Public()
+  @Post('me/messages')
+  async sendMessage(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: PortalSendMessageDto,
+  ): Promise<CustomerMessageDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.messages.sendFromCustomer(tenantId, customerId, body.body);
   }
 
   /** Accesorios a la venta (catálogo del negocio con stock). */
