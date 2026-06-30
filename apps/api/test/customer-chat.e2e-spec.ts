@@ -85,11 +85,24 @@ describe('Chat bidireccional inquilino <-> staff (e2e)', () => {
     expect(reply.body.senderType).toBe('staff');
     expect(reply.body.senderName).toBeTruthy();
 
+    // Badge del portal del inquilino: 1 mensaje del staff sin leer.
+    const portalBefore = await request(app.getHttpServer())
+      .get('/portal/me/messages/unread-count')
+      .set(pAuth);
+    expect(portalBefore.status).toBe(200);
+    expect(portalBefore.body.count).toBe(1);
+
     // El inquilino ve ambos mensajes; el del staff queda marcado leído al listar.
     const portalList = await request(app.getHttpServer()).get('/portal/me/messages').set(pAuth);
     expect(portalList.body).toHaveLength(2);
     const staffMsg = portalList.body.find((m: { senderType: string }) => m.senderType === 'staff');
     expect(staffMsg.readAt).toBeTruthy();
+
+    // Tras leerlos, el badge del portal vuelve a 0.
+    const portalAfter = await request(app.getHttpServer())
+      .get('/portal/me/messages/unread-count')
+      .set(pAuth);
+    expect(portalAfter.body.count).toBe(0);
   });
 
   it('exige sesión de portal / permiso de staff', async () => {

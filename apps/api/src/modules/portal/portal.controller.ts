@@ -144,6 +144,16 @@ export class PortalController {
     return this.messages.list(tenantId, customerId, 'customer');
   }
 
+  /** Nº de mensajes del staff sin leer — para el badge de la pestaña «Mensajes». */
+  @Public()
+  @Get('me/messages/unread-count')
+  async myMessagesUnread(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<{ count: number }> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return { count: await this.messages.countUnreadForCustomer(tenantId, customerId) };
+  }
+
   /** El inquilino envía un mensaje al staff. */
   @Public()
   @Post('me/messages')
