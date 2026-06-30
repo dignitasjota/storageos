@@ -512,12 +512,36 @@ function PortalConsumeContent() {
 
   return (
     <div className="container max-w-3xl space-y-6 py-10">
+      {/* Marca del operador (white-label) */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          {session.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={session.logoUrl}
+              alt={session.tenantName}
+              className="h-10 w-auto object-contain"
+            />
+          ) : null}
+          <span
+            className="text-lg font-semibold"
+            style={session.brandColor ? { color: session.brandColor } : undefined}
+          >
+            {session.tenantName}
+          </span>
+        </div>
+        {session.brandColor && (
+          <div
+            className="h-1 w-full rounded-full"
+            style={{ backgroundColor: session.brandColor }}
+          />
+        )}
+      </div>
+
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Hola, {session.customerName}</h1>
-          <p className="text-sm text-muted-foreground">
-            {session.tenantName} · {session.email}
-          </p>
+          <p className="text-sm text-muted-foreground">{session.email}</p>
         </div>
         <InstallPwaButton />
       </div>

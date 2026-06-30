@@ -213,6 +213,20 @@ export const UpdateTenantReviewsSettingsSchema = z.object({
 });
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
 
+/** White-label del portal del inquilino: color de marca (hex) + URL del logo. */
+export const UpdateTenantBrandingSchema = z.object({
+  /** Color de marca en hex (#RRGGBB); '' lo desactiva. */
+  portalBrandColor: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Color hex (#RRGGBB)')
+    .optional()
+    .or(z.literal('')),
+  /** URL pública del logo; '' lo quita. */
+  portalLogoUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
+});
+export type UpdateTenantBrandingInput = z.infer<typeof UpdateTenantBrandingSchema>;
+
 /** PATCH /settings/tenant/access — accesos adicionales + pase nocturno. */
 export const UpdateTenantAccessSettingsSchema = z.object({
   extraAccessLimit: z.number().int().min(0).max(10).optional(),

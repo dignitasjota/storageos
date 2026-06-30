@@ -2,11 +2,13 @@ import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
 import {
   type TenantAccessSettingsResponse,
   type TenantBillingSettingsResponse,
+  type TenantBrandingResponse,
   type TenantReferralSettingsResponse,
   type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
   UpdateTenantAccessSettingsSchema,
   UpdateTenantBillingSettingsSchema,
+  UpdateTenantBrandingSchema,
   UpdateTenantReferralSettingsSchema,
   UpdateTenantReviewsSettingsSchema,
   UpdateTenantSecuritySettingsSchema,
@@ -29,6 +31,7 @@ class UpdateTenantBillingSettingsDto extends createZodDto(UpdateTenantBillingSet
 class UpdateTenantReviewsSettingsDto extends createZodDto(UpdateTenantReviewsSettingsSchema) {}
 class UpdateTenantReferralSettingsDto extends createZodDto(UpdateTenantReferralSettingsSchema) {}
 class UpdateTenantAccessSettingsDto extends createZodDto(UpdateTenantAccessSettingsSchema) {}
+class UpdateTenantBrandingDto extends createZodDto(UpdateTenantBrandingSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -111,6 +114,28 @@ export class TenantSettingsController {
   @Get('reviews')
   async getReviews(@CurrentUser() user: AuthenticatedUser): Promise<TenantReviewsSettingsResponse> {
     return this.settings.getReviews(user.tenantId);
+  }
+
+  /** White-label del portal del inquilino (color de marca + logo). */
+  @RequirePermission('settings:read')
+  @Get('branding')
+  async getBranding(@CurrentUser() user: AuthenticatedUser): Promise<TenantBrandingResponse> {
+    return this.settings.getBranding(user.tenantId);
+  }
+
+  @RequirePermission('settings:manage')
+  @Patch('branding')
+  async updateBranding(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateTenantBrandingDto,
+    @Req() req: Request,
+  ): Promise<TenantBrandingResponse> {
+    return this.settings.updateBranding({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
   }
 
   /** Activa o desactiva la auto-solicitud de valoraciones (NPS) por tenant. */

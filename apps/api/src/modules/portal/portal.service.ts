@@ -232,6 +232,8 @@ export class PortalService {
       email: customer.email ?? '',
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
       accessToken,
       expiresIn: ttl,
     };
