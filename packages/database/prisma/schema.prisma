@@ -334,6 +334,9 @@ model Tenant {
   referralRewardType          PromotionDiscountType @default(fixed) @map("referral_reward_type")
   referralRewardValue         Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
   extraAccessLimit            Int                   @default(2) @map("extra_access_limit")
+  /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
+  portalBrandColor            String?               @map("portal_brand_color")
+  portalLogoUrl               String?               @map("portal_logo_url")
   nightPassEnabled            Boolean               @default(false) @map("night_pass_enabled")
   nightPassPrice              Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)

@@ -156,6 +156,11 @@ export interface TenantReviewsSettingsResponse {
   googleReviewUrl: string | null;
 }
 
+export interface TenantBrandingResponse {
+  portalBrandColor: string | null;
+  portalLogoUrl: string | null;
+}
+
 export interface TenantAccessSettingsResponse {
   /** Máximo de accesos adicionales que un inquilino puede crearse en el portal. */
   extraAccessLimit: number;

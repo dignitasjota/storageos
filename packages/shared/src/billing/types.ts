@@ -249,6 +249,9 @@ export interface PortalSessionDto {
   email: string;
   tenantName: string;
   tenantSlug: string;
+  /** White-label: color de marca (hex) y logo del operador (null si no configurado). */
+  brandColor: string | null;
+  logoUrl: string | null;
   /** JWT corto para autenticar requests del portal. */
   accessToken: string;
   expiresIn: number;

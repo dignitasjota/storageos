@@ -7,11 +7,13 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   TenantAccessSettingsResponse,
   TenantBillingSettingsResponse,
+  TenantBrandingResponse,
   TenantReferralSettingsResponse,
   TenantReviewsSettingsResponse,
   TenantSecuritySettingsResponse,
   UpdateTenantAccessSettingsInput,
   UpdateTenantBillingSettingsInput,
+  UpdateTenantBrandingInput,
   UpdateTenantReferralSettingsInput,
   UpdateTenantReviewsSettingsInput,
   UpdateTenantSecuritySettingsInput,
@@ -182,6 +184,50 @@ export class TenantSettingsService {
       reviewRequestDelayDays: updated.reviewRequestDelayDays,
       googleReviewUrl: updated.googleReviewUrl,
     };
+  }
+
+  /** White-label del portal del inquilino (color + logo). */
+  async getBranding(tenantId: string): Promise<TenantBrandingResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    return { portalBrandColor: tenant.portalBrandColor, portalLogoUrl: tenant.portalLogoUrl };
+  }
+
+  async updateBranding(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateTenantBrandingInput;
+    meta: RequestMeta;
+  }): Promise<TenantBrandingResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException('Tenant no encontrado');
+    }
+    const { input } = args;
+    const data: Record<string, string | null> = {};
+    if (input.portalBrandColor !== undefined)
+      data.portalBrandColor = input.portalBrandColor || null;
+    if (input.portalLogoUrl !== undefined) data.portalLogoUrl = input.portalLogoUrl || null;
+
+    const updated =
+      Object.keys(data).length === 0
+        ? tenant
+        : await this.admin.tenant.update({ where: { id: args.tenantId }, data });
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.branding.settings_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: data,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return { portalBrandColor: updated.portalBrandColor, portalLogoUrl: updated.portalLogoUrl };
   }
 
   async getReferrals(tenantId: string): Promise<TenantReferralSettingsResponse> {

@@ -20,6 +20,7 @@ interface NavTab {
     | 'billing'
     | 'verifactu'
     | 'widget'
+    | 'branding'
     | 'integrations';
   /**
    * Permiso requerido para ver la pestaña. Sin él, sólo se muestra a quien lo
@@ -36,6 +37,7 @@ const TABS: NavTab[] = [
   { href: '/settings/billing', labelKey: 'billing', permission: 'billing:configure' },
   { href: '/settings/billing/verifactu', labelKey: 'verifactu', permission: 'invoices:manage' },
   { href: '/settings/widget', labelKey: 'widget' },
+  { href: '/settings/branding', labelKey: 'branding', permission: 'settings:manage' },
   { href: '/settings/integrations', labelKey: 'integrations', permission: 'integrations:manage' },
 ];
 
