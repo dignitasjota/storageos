@@ -16,6 +16,7 @@ function toDto(row: InteractionRow): TenantInteractionDto {
     id: row.id,
     type: row.type as TenantInteractionDto['type'],
     content: row.content,
+    link: row.link,
     occurredAt: row.occurredAt.toISOString(),
     authorId: row.superAdminId,
     authorName: row.superAdmin?.fullName ?? null,
@@ -48,8 +49,10 @@ export class AdminTenantInteractionsService {
     tenantId: string;
     superAdminId: string | null;
     input: CreateTenantInteractionInput;
+    /** Enlace opcional asociado (p. ej. al ticket de soporte que la originó). */
+    link?: string | null;
   }): Promise<TenantInteractionDto> {
-    const { tenantId, superAdminId, input } = args;
+    const { tenantId, superAdminId, input, link } = args;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: { id: true },
@@ -63,6 +66,7 @@ export class AdminTenantInteractionsService {
         superAdminId,
         type: input.type,
         content: input.content,
+        ...(link ? { link } : {}),
         ...(input.occurredAt ? { occurredAt: new Date(input.occurredAt) } : {}),
       },
       include: interactionInclude,

@@ -623,6 +623,8 @@ export interface TenantInteractionDto {
   id: string;
   type: TenantInteractionTypeValue;
   content: string;
+  /** Enlace asociado (p. ej. al ticket de soporte que la originó); null si no tiene. */
+  link: string | null;
   /** Cuándo ocurrió la conversación (ISO). */
   occurredAt: string;
   /** Super admin que la registró; null si su cuenta se borró. */

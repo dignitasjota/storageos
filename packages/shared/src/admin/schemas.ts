@@ -120,6 +120,7 @@ export const TenantInteractionTypeEnum = z.enum([
   'email',
   'meeting',
   'whatsapp',
+  'support',
   'other',
 ]);
 export type TenantInteractionTypeValue = z.infer<typeof TenantInteractionTypeEnum>;
