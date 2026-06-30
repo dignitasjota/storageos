@@ -421,6 +421,7 @@ model Tenant {
   aiConversations         AiConversation[]
   aiMessages              AiMessage[]
   pushSubscriptions       PushSubscription[]
+  faqEntries              FaqEntry[]
   unitChangeRequests      UnitChangeRequest[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
@@ -3227,6 +3228,25 @@ model CustomerMessage {
   @@index([tenantId])
   @@index([tenantId, customerId, createdAt])
   @@map("customer_messages")
+}
+
+/// Pregunta frecuente del centro de ayuda: el staff las define y el inquilino
+/// las consulta en su portal.
+model FaqEntry {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  question    String
+  answer      String
+  /// Orden de aparición (asc).
+  position    Int      @default(0)
+  isPublished Boolean  @default(true) @map("is_published")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("faq_entries")
 }
 
 /// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la
