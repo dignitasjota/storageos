@@ -97,6 +97,11 @@ export class SupportTicketsService {
 
   // =========================== tenant facade ===============================
 
+  /** Nº de tickets esperando respuesta del tenant (el admin ya contestó) — badge del menú. */
+  async countWaitingForTenant(tenantId: string): Promise<number> {
+    return this.admin.supportTicket.count({ where: { tenantId, status: 'waiting_user' } });
+  }
+
   async listForTenant(tenantId: string): Promise<SupportTicketDto[]> {
     const rows = await this.admin.supportTicket.findMany({
       where: { tenantId },

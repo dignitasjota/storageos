@@ -17,6 +17,7 @@ import {
   KeyRound,
   Landmark,
   LayoutDashboard,
+  LifeBuoy,
   Mail,
   Megaphone,
   MessageSquare,
@@ -56,6 +57,7 @@ import {
 import { useFeatures, usePermissions } from '@/lib/auth/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
+import { useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 
 interface NavItem {
@@ -247,6 +249,8 @@ export function AppSidebar() {
   // Mensajes de inquilinos sin leer (total, para el item «Inquilinos»).
   const unreadMessages =
     useCustomerUnreadSummary(permissions.includes('customers:read')).data?.total ?? 0;
+  // Tickets de soporte esperando respuesta del tenant (el admin ya contestó).
+  const supportWaiting = useSupportWaitingCount().data?.count ?? 0;
 
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
@@ -376,6 +380,23 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === '/support' || pathname.startsWith('/support/')}
+              className="data-[active=true]:font-medium"
+            >
+              <Link href="/support">
+                <LifeBuoy />
+                <span>{t('support')}</span>
+              </Link>
+            </SidebarMenuButton>
+            {supportWaiting > 0 && (
+              <SidebarMenuBadge className="bg-blue-500 text-white">
+                {supportWaiting}
+              </SidebarMenuBadge>
+            )}
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
