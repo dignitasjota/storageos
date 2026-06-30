@@ -36,6 +36,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { InsuranceCard } from './insurance-card';
 import { ProfileCard } from './profile-card';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
@@ -577,6 +578,10 @@ function PortalConsumeContent() {
           onClose={() => setMoveOutId(null)}
           onConfirm={(endDate) => requestMoveOut(moveOutId, endDate)}
         />
+      )}
+
+      {session && contracts && contracts.length > 0 && (
+        <InsuranceCard session={session} contracts={contracts} onContractsChange={setContracts} />
       )}
 
       {facilities.length > 0 && (

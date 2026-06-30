@@ -616,6 +616,7 @@ export class ContractsService {
     depositAmount: unknown;
     depositStatus: string;
     freeMonthsRemaining: number;
+    insurancePlanId: string | null;
     insurancePrice: unknown;
     signedPdfUrl: string | null;
     unit: { code: string; facility: { name: string } };
@@ -639,6 +640,7 @@ export class ContractsService {
       depositStatus: row.depositStatus as PortalContractDto['depositStatus'],
       discountAmount: discount,
       freeMonthsRemaining: row.freeMonthsRemaining,
+      insurancePlanId: row.insurancePlanId,
       insurancePlanName: row.insurancePlan?.name ?? null,
       insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,
       hasSignedPdf: !!row.signedPdfUrl,

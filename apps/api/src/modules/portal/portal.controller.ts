@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -27,7 +28,9 @@ import {
   type PortalNightPassInfoDto,
   type PortalPaymentDto,
   type PortalProfileDto,
+  PortalSetInsuranceSchema,
   PortalUpdateProfileSchema,
+  type InsurancePlanDto,
   type PortalReferralDto,
   PortalRegisterPaymentMethodSchema,
   PortalReportIncidentSchema,
@@ -66,6 +69,7 @@ class PortalGoCardlessMandateCompleteDto extends createZodDto(
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
 class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
+class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
@@ -108,6 +112,28 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  /** Planes de seguro/protección que ofrece el negocio. */
+  @Public()
+  @Get('me/insurance-plans')
+  async myInsurancePlans(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<InsurancePlanDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.listInsurancePlans(tenantId, customerId);
+  }
+
+  /** El inquilino contrata (planId) o quita (null) el seguro en uno de sus contratos. */
+  @Public()
+  @Put('me/contracts/:id/insurance')
+  async setMyContractInsurance(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: PortalSetInsuranceDto,
+  ): Promise<PortalContractDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.setMyContractInsurance(tenantId, customerId, id, body.planId);
   }
 
   /** Datos de perfil del inquilino (contacto + facturación). */
