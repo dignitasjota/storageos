@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -8,17 +9,24 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 describe('Staff genera magic link del portal (e2e)', () => {
   let app: INestApplication;
+  let db: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     await deleteAllMessages();
+    db = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await db.$disconnect();
     await cleanupTestTenants();
     await deleteAllMessages();
   });
@@ -50,6 +58,13 @@ describe('Staff genera magic link del portal (e2e)', () => {
     // Single-use: un segundo consumo falla.
     const replay = await request(app.getHttpServer()).post('/portal/login/consume').send({ token });
     expect(replay.status).toBe(401);
+
+    // Queda auditado quién generó el enlace (sin el token/secreto).
+    const audit = await db.auditLog.findFirst({
+      where: { action: 'portal.magic_link_generated', entityId: customerId },
+    });
+    expect(audit).toBeTruthy();
+    expect(audit?.entityType).toBe('Customer');
   });
 
   it('404 si el cliente no existe, 401 sin autenticación', async () => {

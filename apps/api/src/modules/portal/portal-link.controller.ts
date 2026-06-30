@@ -1,4 +1,4 @@
-import { Controller, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Controller, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 
 import {
   type AuthenticatedUser,
@@ -9,6 +9,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { PortalService } from './portal.service';
 
 import type { PortalMagicLinkDto } from '@storageos/shared';
+import type { Request } from 'express';
 
 /**
  * Generación de magic links de acceso al portal POR EL STAFF (autenticado), para
@@ -25,7 +26,11 @@ export class PortalLinkController {
   async create(
     @CurrentUser() user: AuthenticatedUser,
     @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Req() req: Request,
   ): Promise<PortalMagicLinkDto> {
-    return this.portal.createMagicLinkForCustomer(user.tenantId, customerId);
+    return this.portal.createMagicLinkForCustomer(user.tenantId, customerId, user.sub, {
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
   }
 }
