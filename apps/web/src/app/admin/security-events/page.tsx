@@ -1,7 +1,7 @@
 'use client';
 
 import { type SecurityEventTypeValue } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAdminSecurityEvents } from '@/lib/admin/hooks';
+import { downloadCsv } from '@/lib/csv';
 
 const EVENT_TYPE_LABELS: Record<
   SecurityEventTypeValue,
@@ -78,13 +79,34 @@ export default function AdminSecurityEventsPage() {
     });
   }
 
+  function exportCsv() {
+    const items = events.data?.items ?? [];
+    const rows: (string | number)[][] = [['Fecha', 'Tipo', 'Email', 'Tenant', 'IP', 'Motivo']];
+    for (const ev of items) {
+      rows.push([
+        new Date(ev.occurredAt).toLocaleString('es-ES'),
+        ev.eventType,
+        ev.emailAttempted ?? '',
+        ev.tenantSlugAttempted ?? '',
+        ev.ipAddress ?? '',
+        ev.reason ?? '',
+      ]);
+    }
+    downloadCsv('eventos-seguridad.csv', rows);
+  }
+
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Eventos de seguridad</h1>
-        <p className="text-sm text-muted-foreground">
-          Intentos de login fallidos, throttles y reuso de refresh tokens. Retenidos 90 dias.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Eventos de seguridad</h1>
+          <p className="text-sm text-muted-foreground">
+            Intentos de login fallidos, throttles y reuso de refresh tokens. Retenidos 90 dias.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportCsv}>
+          <Download className="mr-1 size-4" /> Exportar CSV
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 rounded-md border bg-card p-4 md:grid-cols-4">
