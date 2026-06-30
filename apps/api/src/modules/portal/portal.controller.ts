@@ -33,6 +33,7 @@ import {
   PortalUpdateProfileSchema,
   SendCustomerMessageSchema,
   type CustomerMessageDto,
+  type FaqEntryDto,
   type InsurancePlanDto,
   type ProductDto,
   type ProductSaleDto,
@@ -57,6 +58,7 @@ import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
+import { FaqService } from '../faq/faq.service';
 import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
@@ -96,6 +98,7 @@ export class PortalController {
     private readonly unitChanges: UnitChangesService,
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
+    private readonly faq: FaqService,
   ) {}
 
   @Public()
@@ -121,6 +124,14 @@ export class PortalController {
   ): Promise<PortalInvoiceDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.listMyInvoices(tenantId, customerId);
+  }
+
+  /** Centro de ayuda: preguntas frecuentes publicadas del negocio. */
+  @Public()
+  @Get('me/faq')
+  async myFaq(@Headers('authorization') auth: string | undefined): Promise<FaqEntryDto[]> {
+    const { tenantId } = await this.requirePortalSession(auth);
+    return this.faq.listPublished(tenantId);
   }
 
   /** Chat con el staff: hilo del inquilino. */

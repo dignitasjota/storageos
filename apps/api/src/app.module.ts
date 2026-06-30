@@ -32,6 +32,7 @@ import { DatabaseModule } from './modules/database/database.module';
 import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
+import { FaqModule } from './modules/faq/faq.module';
 import { FilesModule } from './modules/files/files.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { HealthModule } from './modules/health/health.module';
@@ -145,6 +146,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FacilitiesModule,
     CustomersModule,
     CustomerMessagesModule,
+    FaqModule,
     ContractsModule,
     QueuesModule,
     PaymentsModule,

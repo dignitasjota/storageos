@@ -29,6 +29,7 @@ export * from './campaigns';
 export * from './rent-increases';
 export * from './insurance';
 export * from './portal';
+export * from './faq';
 export * from './sepa';
 export * from './bank-reconciliation';
 export * from './ai';
