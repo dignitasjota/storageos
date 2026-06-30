@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
+import { CustomersModule } from '../customers/customers.module';
 import { FaqModule } from '../faq/faq.module';
 import { OperationsModule } from '../operations/operations.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
@@ -50,6 +51,8 @@ import { PortalService } from './portal.service';
     CustomerMessagesModule,
     // FaqModule: centro de ayuda (preguntas frecuentes).
     FaqModule,
+    // CustomersModule: el inquilino sube/ve sus documentos (KYC) desde el portal.
+    CustomersModule,
   ],
   controllers: [PortalController, PortalLinkController],
   providers: [PortalService, NightPassService],

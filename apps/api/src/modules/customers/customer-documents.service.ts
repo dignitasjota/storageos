@@ -67,7 +67,8 @@ export class CustomerDocumentsService {
 
   async register(args: {
     tenantId: string;
-    userId: string;
+    /** `null` cuando el alta la hace el propio inquilino desde el portal. */
+    userId: string | null;
     customerId: string;
     input: RegisterCustomerDocumentInput;
     meta: RequestMeta;
