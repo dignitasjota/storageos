@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { adminApiFetch } from '@/lib/admin/api';
 import { useAdminAuthStore } from '@/lib/admin/auth-store';
-import { useAdminLogout } from '@/lib/admin/hooks';
+import { useAdminLogout, useAdminOpenTicketsCount } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { env } from '@/lib/env';
 import { cn } from '@/lib/utils';
@@ -177,6 +177,8 @@ function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const admin = useAdminAuthStore((s) => s.superAdmin);
   const logout = useAdminLogout();
+  // Tickets de soporte esperando respuesta del admin (badge en «Soporte»).
+  const openTickets = useAdminOpenTicketsCount().data?.count ?? 0;
 
   async function onLogout() {
     await logout.mutateAsync();
@@ -206,6 +208,11 @@ function AdminShell({ children }: { children: ReactNode }) {
               >
                 <Icon className="size-4" />
                 {item.label}
+                {item.href === '/admin/support' && openTickets > 0 && (
+                  <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
+                    {openTickets}
+                  </span>
+                )}
               </Link>
             );
           })}
