@@ -118,6 +118,18 @@ function paymentMethodLabel(type: string): string {
   return 'Otro';
 }
 
+/** Globo numérico para las pestañas (novedades del inquilino). */
+function TabBadge({ count, className }: { count: number; className?: string }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={`ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium text-white ${className ?? 'bg-primary'}`}
+    >
+      {count}
+    </span>
+  );
+}
+
 function paymentStatusLabel(status: string): string {
   if (status === 'succeeded') return 'Cobrado';
   if (status === 'processing') return 'En curso';
@@ -159,6 +171,7 @@ function PortalConsumeContent() {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [unitChanges, setUnitChanges] = useState<PortalUnitChangeRequestDto[] | null>(null);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const [ucNote, setUcNote] = useState('');
   const [ucContractId, setUcContractId] = useState('');
   const [ucBusy, setUcBusy] = useState(false);
@@ -264,6 +277,13 @@ function PortalConsumeContent() {
             setPayments(pays);
             setFacilities(facs);
           }
+        } catch {
+          /* opcional */
+        }
+        // Mensajes del staff sin leer (badge de la pestaña «Mensajes»).
+        try {
+          const u = await portalFetch<{ count: number }>(s, '/portal/me/messages/unread-count');
+          if (!cancelled) setUnreadMessages(u.count);
         } catch {
           /* opcional */
         }
@@ -586,6 +606,12 @@ function PortalConsumeContent() {
     );
   }
 
+  // Contadores de las pestañas (novedades del inquilino).
+  const pendingUnitChanges = (unitChanges ?? []).filter((r) => r.status === 'pending').length;
+  const openIncidents = (incidents ?? []).filter(
+    (i) => i.status === 'reported' || i.status === 'investigating',
+  ).length;
+
   return (
     <div className="container max-w-3xl space-y-6 py-10">
       {/* Marca del operador (white-label) */}
@@ -627,14 +653,30 @@ function PortalConsumeContent() {
         </div>
       </div>
 
-      <Tabs defaultValue="contratos">
+      <Tabs
+        defaultValue="contratos"
+        onValueChange={(v) => {
+          // Al abrir Mensajes se marcan leídos en el server → ocultamos el badge.
+          if (v === 'mensajes') setUnreadMessages(0);
+        }}
+      >
         <div className="overflow-x-auto">
           <TabsList>
             <TabsTrigger value="contratos">Contratos</TabsTrigger>
+            <TabsTrigger value="cambio">
+              Cambio de trastero
+              <TabBadge count={pendingUnitChanges} className="bg-amber-500" />
+            </TabsTrigger>
             <TabsTrigger value="facturas">Facturas</TabsTrigger>
             <TabsTrigger value="accesos">Accesos</TabsTrigger>
-            <TabsTrigger value="mensajes">Mensajes</TabsTrigger>
-            <TabsTrigger value="incidencias">Incidencias</TabsTrigger>
+            <TabsTrigger value="mensajes">
+              Mensajes
+              <TabBadge count={unreadMessages} className="bg-blue-500" />
+            </TabsTrigger>
+            <TabsTrigger value="incidencias">
+              Incidencias
+              <TabBadge count={openIncidents} className="bg-red-500" />
+            </TabsTrigger>
             <TabsTrigger value="local">Tu local</TabsTrigger>
             <TabsTrigger value="datos">Mis datos</TabsTrigger>
           </TabsList>
@@ -711,7 +753,9 @@ function PortalConsumeContent() {
               onContractsChange={setContracts}
             />
           )}
+        </TabsContent>
 
+        <TabsContent value="cambio" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

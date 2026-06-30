@@ -64,6 +64,17 @@ export class CustomerMessagesService {
     return { total, byCustomer };
   }
 
+  /** Mensajes del staff que el inquilino aún no ha leído (badge del portal). */
+  async countUnreadForCustomer(tenantId: string, customerId: string): Promise<number> {
+    return this.prisma.withTenant(
+      (tx) =>
+        tx.customerMessage.count({
+          where: { tenantId, customerId, senderType: 'staff', readAt: null },
+        }),
+      tenantId,
+    );
+  }
+
   private async assertCustomer(tenantId: string, customerId: string): Promise<{ name: string }> {
     const customer = await this.prisma.withTenant(
       (tx) =>
