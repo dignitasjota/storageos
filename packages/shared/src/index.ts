@@ -17,6 +17,7 @@ export * from './maintenance';
 export * from './reports';
 export * from './access';
 export * from './dashboard';
+export * from './search';
 export * from './admin';
 export * from './integrations';
 export * from './imports';
