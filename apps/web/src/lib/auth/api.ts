@@ -106,7 +106,11 @@ async function executeFetch(
   init: RequestInit,
   options: ApiFetchOptions,
 ): Promise<Response> {
-  const headers = new Headers(init.headers);
+  // Los headers que pasa el caller viven en `options.headers` (p. ej. el
+  // `Authorization: Bearer <portalToken>` del portal del inquilino, que usa
+  // `requiresAuth: false`). Hay que partir de ellos, no de `init.headers`
+  // (que `apiFetch` nunca rellena), o se perderían y el portal daría 401.
+  const headers = new Headers(options.headers);
   if (options.json !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
