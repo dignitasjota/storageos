@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
 import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
+import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqModule } from '../faq/faq.module';
 import { OperationsModule } from '../operations/operations.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
@@ -52,6 +53,10 @@ import { PortalService } from './portal.service';
     FaqModule,
   ],
   controllers: [PortalController, PortalLinkController],
-  providers: [PortalService, NightPassService],
+  // CustomerDocumentsService se PROVEE aquí (sus deps —Prisma/Files globales,
+  // AuditService de AuthModule— ya están disponibles) en vez de importar
+  // CustomersModule entero: importarlo reintroducía el JwtModule de AuthModule
+  // y rompía la verificación del token del portal (401 en /portal/me/*).
+  providers: [PortalService, NightPassService, CustomerDocumentsService],
 })
 export class PortalModule {}
