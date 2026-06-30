@@ -37,6 +37,7 @@ import type {
   ChangePlanInput,
   ExtendTrialInput,
   SubscriptionPlanDto,
+  UpsertSubscriptionPlanFormInput,
   ImpersonateInput,
   ImpersonationTokenDto,
   SecurityEventTypeValue,
@@ -1032,5 +1033,47 @@ export function useAdminImpersonationActivity(id: string | null) {
     queryFn: () =>
       adminApiFetch<AdminImpersonationActivityDto[]>(`/admin/impersonation-logs/${id}/activity`),
     enabled: Boolean(id),
+  });
+}
+
+// ============================================================================
+// Gestión de planes (CRUD)
+// ============================================================================
+
+/** Todos los planes incluyendo inactivos (gestión). */
+export function useAdminAllPlans() {
+  return useQuery({
+    queryKey: ['admin', 'subscription-plans', 'all'] as const,
+    queryFn: () => adminApiFetch<SubscriptionPlanDto[]>('/subscription-plans/admin'),
+  });
+}
+
+export function useCreatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpsertSubscriptionPlanFormInput) =>
+      adminApiFetch<SubscriptionPlanDto>('/subscription-plans', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
+  });
+}
+
+export function useUpdatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: Partial<UpsertSubscriptionPlanFormInput> }) =>
+      adminApiFetch<SubscriptionPlanDto>(`/subscription-plans/${args.id}`, {
+        method: 'PATCH',
+        json: args.input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
+  });
+}
+
+export function useDeactivatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/subscription-plans/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
   });
 }
