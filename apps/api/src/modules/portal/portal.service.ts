@@ -30,6 +30,7 @@ import type {
   PortalDownloadDto,
   PortalFacilityDto,
   PortalInvoiceDto,
+  PortalMagicLinkDto,
   PortalPaymentDto,
   PortalProfileDto,
   PortalPurchaseInput,
@@ -45,6 +46,8 @@ import type {
 const PORTAL_TOKEN_PREFIX_REGEX = /^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/;
 
 const MAGIC_LINK_TTL_SECONDS = 30 * 60;
+/** TTL más largo (7 días) para los enlaces que genera el staff y reparte a mano. */
+const STAFF_MAGIC_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
 const MAGIC_LINK_KEY_PREFIX = 'portal:magiclink:';
 
 interface MagicLinkEntry {
@@ -125,14 +128,44 @@ export class PortalService {
     return this.goCardlessMandates.isEnabled(tenantId);
   }
 
-  private async storeMagicLink(tokenId: string, entry: MagicLinkEntry): Promise<void> {
+  private async storeMagicLink(
+    tokenId: string,
+    entry: MagicLinkEntry,
+    ttlSeconds: number = MAGIC_LINK_TTL_SECONDS,
+  ): Promise<void> {
     const client = await this.emailQueue.client;
-    await client.set(
-      `${MAGIC_LINK_KEY_PREFIX}${tokenId}`,
-      JSON.stringify(entry),
-      'EX',
-      MAGIC_LINK_TTL_SECONDS,
+    await client.set(`${MAGIC_LINK_KEY_PREFIX}${tokenId}`, JSON.stringify(entry), 'EX', ttlSeconds);
+  }
+
+  /**
+   * El staff genera un magic link para un inquilino concreto y lo recibe de
+   * vuelta (no se envía por email): lo reparte a mano (WhatsApp, SMS…). Útil
+   * para inquilinos que no saben pedirlo. TTL largo (7 días) porque lo abren
+   * cuando pueden; single-use igualmente (lo consume el primer acceso).
+   */
+  async createMagicLinkForCustomer(
+    tenantId: string,
+    customerId: string,
+  ): Promise<PortalMagicLinkDto> {
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
+    }
+    const tokenId = randomBytes(16).toString('hex');
+    const secret = randomBytes(24).toString('base64url');
+    const secretHash = await argonHash(secret);
+    await this.storeMagicLink(
+      tokenId,
+      { secretHash, customerId, tenantId },
+      STAFF_MAGIC_LINK_TTL_SECONDS,
     );
+    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
+    const url = `${webBase}/portal/consume?token=${tokenId}.${secret}`;
+    const expiresAt = new Date(Date.now() + STAFF_MAGIC_LINK_TTL_SECONDS * 1000).toISOString();
+    return { url, expiresAt };
   }
 
   /** Lee Y borra el magic link en un solo paso atomico (single-use). */

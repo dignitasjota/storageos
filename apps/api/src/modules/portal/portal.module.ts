@@ -17,6 +17,7 @@ import { ReferralsModule } from '../referrals/referrals.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 
 import { NightPassService } from './night-pass.service';
+import { PortalLinkController } from './portal-link.controller';
 import { PortalController } from './portal.controller';
 import { PortalService } from './portal.service';
 
@@ -50,7 +51,7 @@ import { PortalService } from './portal.service';
     // FaqModule: centro de ayuda (preguntas frecuentes).
     FaqModule,
   ],
-  controllers: [PortalController],
+  controllers: [PortalController, PortalLinkController],
   providers: [PortalService, NightPassService],
 })
 export class PortalModule {}

@@ -11,8 +11,10 @@ import { CustomerContractsTab } from './contracts-tab';
 import { CustomerDocumentsTab } from './documents-tab';
 import { CustomerPaymentHistoryTab } from './payment-history-tab';
 import { CustomerPaymentMethodsTab } from './payment-methods-tab';
+import { PortalLinkButton } from './portal-link-button';
 import { CustomerReservationsTab } from './reservations-tab';
 
+import { Can } from '@/components/auth/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,10 +75,15 @@ export default function CustomerDetailPage() {
               {c.documentNumber && ` · ${c.documentType ?? 'Doc.'} ${c.documentNumber}`}
             </p>
           </div>
-          <Button variant="outline" onClick={toggleKyc} disabled={setKyc.isPending}>
-            <BadgeCheck className="mr-1 h-4 w-4" />
-            {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Can permission="customers:write">
+              <PortalLinkButton customerId={c.id} />
+            </Can>
+            <Button variant="outline" onClick={toggleKyc} disabled={setKyc.isPending}>
+              <BadgeCheck className="mr-1 h-4 w-4" />
+              {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
+            </Button>
+          </div>
         </div>
       </div>
 
