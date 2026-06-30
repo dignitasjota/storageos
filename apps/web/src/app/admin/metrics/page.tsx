@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import {
   Bar,
   BarChart,
@@ -18,8 +18,10 @@ import {
 import { MrrMovementsCard } from './mrr-movements-card';
 import { RetentionCohortsCard } from './retention-cohorts-card';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMetrics } from '@/lib/admin/hooks';
+import { downloadCsv } from '@/lib/csv';
 
 const STATUS_META: {
   key: 'active' | 'trial' | 'suspended' | 'cancelled';
@@ -74,13 +76,36 @@ export default function AdminMetricsPage() {
       color: PLAN_COLORS[i % PLAN_COLORS.length] ?? '#94a3b8',
     }));
 
+  function exportCsv() {
+    const byLabel = new Map<
+      string,
+      { signups: number; cancellations: number; collected: number }
+    >();
+    for (const g of m.monthlyGrowth) {
+      byLabel.set(g.label, { signups: g.signups, cancellations: g.cancellations, collected: 0 });
+    }
+    for (const r of m.monthlySaasRevenue) {
+      const e = byLabel.get(r.label) ?? { signups: 0, cancellations: 0, collected: 0 };
+      e.collected = r.collected;
+      byLabel.set(r.label, e);
+    }
+    const rows: (string | number)[][] = [['Mes', 'Altas', 'Bajas', 'Cobrado (EUR)']];
+    for (const [label, v] of byLabel) rows.push([label, v.signups, v.cancellations, v.collected]);
+    downloadCsv('metricas-mensuales.csv', rows);
+  }
+
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Métricas</h1>
-        <p className="text-sm text-muted-foreground">
-          Vista global de la plataforma. Datos en tiempo real.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Métricas</h1>
+          <p className="text-sm text-muted-foreground">
+            Vista global de la plataforma. Datos en tiempo real.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportCsv}>
+          <Download className="mr-1 size-4" /> Exportar CSV
+        </Button>
       </div>
 
       {/* Tenants por estado */}
