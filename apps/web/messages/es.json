@@ -243,7 +243,8 @@
       "widget": "Widget",
       "branding": "Marca del portal",
       "faq": "Centro de ayuda",
-      "integrations": "Integraciones"
+      "integrations": "Integraciones",
+      "audit": "Actividad"
     },
     "billing": {
       "verifactu": {

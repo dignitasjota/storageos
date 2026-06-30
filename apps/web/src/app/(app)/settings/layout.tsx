@@ -22,7 +22,8 @@ interface NavTab {
     | 'widget'
     | 'branding'
     | 'faq'
-    | 'integrations';
+    | 'integrations'
+    | 'audit';
   /**
    * Permiso requerido para ver la pestaña. Sin él, sólo se muestra a quien lo
    * tiene (RBAC v2: el backend ya rechaza, esto evita pestañas muertas).
@@ -41,6 +42,7 @@ const TABS: NavTab[] = [
   { href: '/settings/branding', labelKey: 'branding', permission: 'settings:manage' },
   { href: '/settings/faq', labelKey: 'faq', permission: 'settings:manage' },
   { href: '/settings/integrations', labelKey: 'integrations', permission: 'integrations:manage' },
+  { href: '/settings/audit', labelKey: 'audit', permission: 'settings:manage' },
 ];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
