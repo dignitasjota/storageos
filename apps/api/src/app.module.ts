@@ -23,6 +23,7 @@ import { AutomationsModule } from './modules/automations/automations.module';
 import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
@@ -165,6 +166,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AnalyticsModule,
     DashboardModule,
     SearchModule,
+    CalendarModule,
     ReportsModule,
     AccessModule,
     AdminModule,
