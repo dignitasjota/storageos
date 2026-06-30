@@ -28,6 +28,7 @@ import { CommunicationsModule } from './modules/communications/communications.mo
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { CustomerMessagesModule } from './modules/customer-messages/customer-messages.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
@@ -161,6 +162,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     OperationsModule,
     ProductsModule,
     AnalyticsModule,
+    DashboardModule,
     ReportsModule,
     AccessModule,
     AdminModule,

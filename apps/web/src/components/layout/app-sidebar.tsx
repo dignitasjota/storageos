@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Sun,
   Ticket,
   TrendingUp,
   Users,
@@ -76,8 +77,11 @@ interface NavGroup {
   items: NavItem[];
 }
 
-/** Item principal, fuera de cualquier grupo (siempre el primero). */
-const PRIMARY_ITEM: NavItem = { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard };
+/** Items principales, fuera de cualquier grupo (siempre los primeros). */
+const PRIMARY_ITEMS: NavItem[] = [
+  { href: '/today', labelKey: 'today', icon: Sun },
+  { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
+];
 
 const GROUPS: NavGroup[] = [
   {
@@ -345,7 +349,7 @@ export function AppSidebar() {
         {/* Item principal suelto (sin cabecera de grupo), siempre el primero. */}
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>{renderItem(PRIMARY_ITEM)}</SidebarMenu>
+            <SidebarMenu>{PRIMARY_ITEMS.map((item) => renderItem(item))}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
         {GROUPS.map((group) => {
