@@ -7,6 +7,7 @@ import type {
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
+  AdminOnboardingDto,
   AdminTenantFeaturesDto,
   AdminTenantHealthDto,
   TenantFeature,
@@ -934,5 +935,14 @@ export function useSetTenantFeatures(id: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant', id, 'features'] });
     },
+  });
+}
+
+/** Checklist de puesta a punto de un tenant. */
+export function useAdminTenantOnboarding(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenant', id, 'onboarding'] as const,
+    queryFn: () => adminApiFetch<AdminOnboardingDto>(`/admin/tenants/${id}/onboarding`),
+    enabled,
   });
 }

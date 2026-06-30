@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { FeatureOverridesCard } from './feature-overrides-card';
+import { OnboardingCard } from './onboarding-card';
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
@@ -230,6 +231,7 @@ export default function AdminTenantDetailPage() {
             </Card>
 
             <TenantHealthCard tenantId={id} />
+            <OnboardingCard tenantId={id} />
             <FeatureOverridesCard tenantId={id} />
           </div>
         </TabsContent>

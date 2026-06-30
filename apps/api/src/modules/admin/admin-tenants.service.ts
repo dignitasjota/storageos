@@ -20,6 +20,7 @@ import type {
   AdminAtRiskDto,
   AdminAtRiskTenantDto,
   AdminFeatureAdoptionDto,
+  AdminOnboardingDto,
   AdminTenantAdoptionDto,
   AdminTenantCustomerDto,
   AdminTenantDto,
@@ -989,6 +990,40 @@ export class AdminTenantsService {
    * mover un tenant entre planes (free/starter/pro) — controla, vía
    * `PLAN_FEATURES`, qué modulos premium ve. No toca Stripe (cambio manual).
    */
+  /** Checklist de puesta a punto del tenant (derivado de sus datos). */
+  async getOnboarding(tenantId: string): Promise<AdminOnboardingDto> {
+    await this.findOrThrow(tenantId);
+    const [tenant, ownerVerified, facilities, units, customers, contracts, aeat] =
+      await Promise.all([
+        this.admin.tenant.findUnique({
+          where: { id: tenantId },
+          select: { portalLogoUrl: true, portalBrandColor: true },
+        }),
+        this.admin.user.count({
+          where: { tenantId, role: 'owner', emailVerifiedAt: { not: null } },
+        }),
+        this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+        this.admin.unit.count({ where: { tenantId } }),
+        this.admin.customer.count({ where: { tenantId, deletedAt: null } }),
+        this.admin.contract.count({ where: { tenantId } }),
+        this.admin.tenantAeatCredential.count({ where: { tenantId, revokedAt: null } }),
+      ]);
+    const items: AdminOnboardingDto['items'] = [
+      { key: 'email_verified', label: 'Email del propietario verificado', done: ownerVerified > 0 },
+      { key: 'facility', label: 'Primer local creado', done: facilities > 0 },
+      { key: 'unit', label: 'Primer trastero creado', done: units > 0 },
+      { key: 'customer', label: 'Primer inquilino dado de alta', done: customers > 0 },
+      { key: 'contract', label: 'Primer contrato', done: contracts > 0 },
+      {
+        key: 'branding',
+        label: 'Marca del portal configurada',
+        done: Boolean(tenant?.portalLogoUrl || tenant?.portalBrandColor),
+      },
+      { key: 'verifactu', label: 'Veri*Factu (certificado AEAT)', done: aeat > 0 },
+    ];
+    return { items, completed: items.filter((i) => i.done).length, total: items.length };
+  }
+
   /** Features del tenant: plan + overrides + efectivas. */
   async getFeatures(tenantId: string): Promise<AdminTenantFeaturesDto> {
     await this.findOrThrow(tenantId);

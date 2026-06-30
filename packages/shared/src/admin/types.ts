@@ -660,3 +660,17 @@ export interface AdminTenantFeaturesDto {
   /** Features efectivas (plan + overrides). */
   effective: TenantFeature[];
 }
+
+/** Un paso del checklist de puesta a punto de un tenant. */
+export interface AdminOnboardingItemDto {
+  key: string;
+  label: string;
+  done: boolean;
+}
+
+/** Estado de configuración inicial de un tenant (para activación/customer success). */
+export interface AdminOnboardingDto {
+  items: AdminOnboardingItemDto[];
+  completed: number;
+  total: number;
+}
