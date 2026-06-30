@@ -15,6 +15,7 @@ import {
 import {
   type GoCardlessMandateStartDto,
   type PortalAccessCredentialDto,
+  type PortalAccessLogDto,
   PortalConsumeMagicLinkSchema,
   PortalGoCardlessMandateCompleteSchema,
   type PaymentMethodDto,
@@ -302,6 +303,18 @@ export class PortalController {
       contractId: id,
       endDate: input.endDate,
     });
+  }
+
+  // ----------------------- accesos (historial) -----------------------------
+
+  /** Historial de accesos del inquilino (sus entradas) — transparencia/seguridad. */
+  @Public()
+  @Get('me/access-logs')
+  async myAccessLogs(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalAccessLogDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.access.listLogsForCustomer(tenantId, customerId);
   }
 
   // ----------------------- documentos --------------------------------------
