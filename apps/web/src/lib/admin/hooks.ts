@@ -9,6 +9,8 @@ import type {
   AdminAtRiskDto,
   AdminOnboardingDto,
   AdminTenantFeaturesDto,
+  AdminImpersonationSessionDto,
+  AdminImpersonationActivityDto,
   PlatformAlertSettingsDto,
   PlatformAlertRunResultDto,
   UpdatePlatformAlertSettingsInput,
@@ -1010,5 +1012,25 @@ export function useRunPlatformAlerts() {
   return useMutation({
     mutationFn: () =>
       adminApiFetch<PlatformAlertRunResultDto>('/admin/platform-alerts/run', { method: 'POST' }),
+  });
+}
+
+// ============================================================================
+// Auditoría de impersonación
+// ============================================================================
+
+export function useAdminImpersonationLogs() {
+  return useQuery({
+    queryKey: ['admin', 'impersonation-logs'] as const,
+    queryFn: () => adminApiFetch<AdminImpersonationSessionDto[]>('/admin/impersonation-logs'),
+  });
+}
+
+export function useAdminImpersonationActivity(id: string | null) {
+  return useQuery({
+    queryKey: ['admin', 'impersonation-logs', id, 'activity'] as const,
+    queryFn: () =>
+      adminApiFetch<AdminImpersonationActivityDto[]>(`/admin/impersonation-logs/${id}/activity`),
+    enabled: Boolean(id),
   });
 }

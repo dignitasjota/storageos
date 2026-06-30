@@ -692,3 +692,29 @@ export interface PlatformAlertRunResultDto {
   trialExpiring: number;
   reason: string | null;
 }
+
+/** Una sesión de impersonación (super admin entrando como un tenant). */
+export interface AdminImpersonationSessionDto {
+  id: string;
+  superAdminId: string;
+  superAdminName: string | null;
+  superAdminEmail: string | null;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  reason: string;
+  ipAddress: string | null;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+}
+
+/** Una acción del tenant registrada durante la ventana de una impersonación. */
+export interface AdminImpersonationActivityDto {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  userName: string | null;
+  occurredAt: string;
+}
