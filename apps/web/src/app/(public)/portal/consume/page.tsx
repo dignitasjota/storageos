@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import { ChatCard } from './chat-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
+import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
 import { ShopCard } from './shop-card';
 
@@ -172,6 +173,7 @@ function PortalConsumeContent() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [unitChanges, setUnitChanges] = useState<PortalUnitChangeRequestDto[] | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [tab, setTab] = useState('inicio');
   const [ucNote, setUcNote] = useState('');
   const [ucContractId, setUcContractId] = useState('');
   const [ucBusy, setUcBusy] = useState(false);
@@ -654,14 +656,16 @@ function PortalConsumeContent() {
       </div>
 
       <Tabs
-        defaultValue="contratos"
+        value={tab}
         onValueChange={(v) => {
+          setTab(v);
           // Al abrir Mensajes se marcan leídos en el server → ocultamos el badge.
           if (v === 'mensajes') setUnreadMessages(0);
         }}
       >
         <div className="overflow-x-auto">
           <TabsList>
+            <TabsTrigger value="inicio">Inicio</TabsTrigger>
             <TabsTrigger value="contratos">Contratos</TabsTrigger>
             <TabsTrigger value="cambio">
               Cambio de trastero
@@ -681,6 +685,17 @@ function PortalConsumeContent() {
             <TabsTrigger value="datos">Mis datos</TabsTrigger>
           </TabsList>
         </div>
+
+        <TabsContent value="inicio" className="space-y-6">
+          <OverviewCard
+            customerName={session.customerName}
+            invoices={invoices}
+            contracts={contracts ?? []}
+            unreadMessages={unreadMessages}
+            brandColor={session.brandColor ?? null}
+            onNavigate={setTab}
+          />
+        </TabsContent>
 
         <TabsContent value="contratos" className="space-y-6">
           {contracts && contracts.length > 0 && (
