@@ -1,6 +1,7 @@
 'use client';
 
 import { FacilitySwitcher } from './facility-switcher';
+import { GlobalSearch } from './global-search';
 import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from './theme-toggle';
 import { UserMenu } from './user-menu';
@@ -12,6 +13,7 @@ export function AppHeader() {
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/70 bg-app/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-app/60">
       <SidebarTrigger className="-ml-1" />
       <FacilitySwitcher />
+      <GlobalSearch />
       <div className="ml-auto flex items-center gap-1.5">
         <NotificationBell />
         <ThemeToggle />

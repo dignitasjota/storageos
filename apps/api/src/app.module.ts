@@ -60,6 +60,7 @@ import { RentIncreasesModule } from './modules/rent-increases/rent-increases.mod
 import { ReportsModule } from './modules/reports/reports.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { RgpdModule } from './modules/rgpd/rgpd.module';
+import { SearchModule } from './modules/search/search.module';
 import { SecurityEventsModule } from './modules/security-events/security-events.module';
 import { SepaModule } from './modules/sepa/sepa.module';
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
@@ -163,6 +164,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ProductsModule,
     AnalyticsModule,
     DashboardModule,
+    SearchModule,
     ReportsModule,
     AccessModule,
     AdminModule,
