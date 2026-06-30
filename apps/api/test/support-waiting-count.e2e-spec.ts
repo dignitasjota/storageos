@@ -1,5 +1,6 @@
 import request from 'supertest';
 
+import { SupportTicketsService } from '../src/modules/admin/support-tickets.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -33,14 +34,11 @@ describe('Soporte: badge de tickets esperando respuesta del tenant (e2e)', () =>
     expect(empty.body.count).toBe(0);
 
     // El tenant abre un ticket (queda 'open', no cuenta aún).
-    const created = await request(app.getHttpServer())
-      .post('/support/tickets')
-      .set(auth)
-      .send({
-        subject: 'No me carga la facturación',
-        priority: 'normal',
-        body: 'Ayuda, por favor.',
-      });
+    const created = await request(app.getHttpServer()).post('/support/tickets').set(auth).send({
+      subject: 'No me carga la facturación',
+      priority: 'normal',
+      body: 'Ayuda, por favor.',
+    });
     expect(created.status).toBe(201);
     const ticketId = created.body.id as string;
 
@@ -48,6 +46,10 @@ describe('Soporte: badge de tickets esperando respuesta del tenant (e2e)', () =>
       .get('/support/tickets/waiting-count')
       .set(auth);
     expect(afterCreate.body.count).toBe(0);
+
+    // El badge del admin: el ticket recién creado (open) cuenta como pendiente.
+    const ticketsService = app.get(SupportTicketsService);
+    expect(await ticketsService.countOpenForAdmin()).toBeGreaterThanOrEqual(1);
 
     // Simulamos que el admin respondió → ticket a 'waiting_user'.
     const prismaAdmin = app.get(PrismaAdminService);

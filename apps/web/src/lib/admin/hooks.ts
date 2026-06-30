@@ -706,6 +706,15 @@ export function useAdminAtRisk() {
   });
 }
 
+/** Nº de tickets de soporte esperando respuesta del admin — para el badge del menú. */
+export function useAdminOpenTicketsCount() {
+  return useQuery({
+    queryKey: ['admin', 'support', 'open-count'],
+    queryFn: () => adminApiFetch<{ count: number }>('/admin/support/tickets/open-count'),
+    refetchInterval: 60_000,
+  });
+}
+
 export function useAdminTenantsHealth() {
   return useQuery({
     queryKey: ['admin', 'tenants', 'health'] as const,

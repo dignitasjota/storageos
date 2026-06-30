@@ -75,6 +75,12 @@ export class SupportTicketsAdminController {
     });
   }
 
+  /** Nº de tickets abiertos esperando respuesta del admin — badge del menú. */
+  @Get('open-count')
+  async openCount(): Promise<{ count: number }> {
+    return { count: await this.tickets.countOpenForAdmin() };
+  }
+
   @Get(':id')
   async detail(@Param('id', new ParseUUIDPipe()) id: string): Promise<SupportTicketDto> {
     return this.tickets.detailForAdmin(id);
