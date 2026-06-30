@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -39,10 +39,27 @@ export class PaymentMethodsService {
     return rows.map((r) => this.toDto(r));
   }
 
+  /**
+   * Stripe no está configurado si la clave es el placeholder por defecto
+   * (`sk_test_dummy`): cualquier llamada a la API fallaría con un 500 opaco, así
+   * que lo cortamos antes con un error claro.
+   */
+  private assertGatewayConfigured(): void {
+    const key = this.config.get('STRIPE_SECRET_KEY', { infer: true });
+    if (!key || key === 'sk_test_dummy') {
+      throw new ServiceUnavailableException({
+        code: 'payments_not_configured',
+        message:
+          'El pago online con tarjeta o IBAN no está disponible todavía. Contacta con tu operador.',
+      });
+    }
+  }
+
   async createSetupIntent(
     tenantId: string,
     input: CreateSetupIntentInput,
   ): Promise<SetupIntentResponseDto> {
+    this.assertGatewayConfigured();
     // Resolver/crear el Stripe customer del cliente final.
     const customer = await this.prisma.withTenant(
       (tx) =>
