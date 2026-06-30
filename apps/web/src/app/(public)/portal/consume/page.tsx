@@ -435,6 +435,12 @@ function PortalConsumeContent() {
     }
   }
 
+  /** Cierra la sesión: borra la sesión persistida y vuelve al acceso del portal. */
+  function logout() {
+    clearStoredPortalSession();
+    window.location.href = '/portal/login';
+  }
+
   async function downloadContract(contractId: string) {
     if (!session) return;
     try {
@@ -608,7 +614,12 @@ function PortalConsumeContent() {
           <h1 className="text-2xl font-semibold tracking-tight">Hola, {session.customerName}</h1>
           <p className="text-sm text-muted-foreground">{session.email}</p>
         </div>
-        <InstallPwaButton />
+        <div className="flex items-center gap-2">
+          <InstallPwaButton />
+          <Button variant="outline" size="sm" onClick={logout}>
+            <LogOut className="mr-1 h-4 w-4" /> Cerrar sesión
+          </Button>
+        </div>
       </div>
 
       {contracts && contracts.length > 0 && (
