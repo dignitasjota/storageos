@@ -27,6 +27,7 @@ import {
   type PortalIncidentDto,
   PortalCreateExtraAccessSchema,
   type PortalInvoiceDto,
+  type PortalNightPassDto,
   type PortalNightPassInfoDto,
   type PortalPaymentDto,
   type PortalProfileDto,
@@ -556,6 +557,16 @@ export class PortalController {
   ): Promise<PortalAccessCredentialDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.nightPass.buy(tenantId, customerId);
+  }
+
+  /** Historial de pases nocturnos comprados por el inquilino. */
+  @Public()
+  @Get('me/access/night-passes')
+  async nightPassHistory(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalNightPassDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.nightPass.history(tenantId, customerId);
   }
 
   @Public()
