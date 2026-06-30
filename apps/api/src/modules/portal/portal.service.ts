@@ -49,6 +49,12 @@ const PORTAL_TOKEN_PREFIX_REGEX = /^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/;
 const MAGIC_LINK_TTL_SECONDS = 30 * 60;
 /** TTL más largo (7 días) para los enlaces que genera el staff y reparte a mano. */
 const STAFF_MAGIC_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
+/**
+ * Duración de la sesión del inquilino una vez consumido el magic link: 48 h, para
+ * que pueda volver a entrar durante dos días sin pedir otro enlace (el front la
+ * persiste en localStorage). El enlace en sí sigue siendo de un solo uso.
+ */
+const PORTAL_SESSION_TTL_SECONDS = 48 * 60 * 60;
 const MAGIC_LINK_KEY_PREFIX = 'portal:magiclink:';
 
 interface MagicLinkEntry {
@@ -262,7 +268,7 @@ export class PortalService {
     const tenant = await this.admin.tenant.findUniqueOrThrow({
       where: { id: entry.tenantId },
     });
-    const ttl = 30 * 60;
+    const ttl = PORTAL_SESSION_TTL_SECONDS;
     const accessToken = await this.jwt.signAsync(
       { customerId: customer.id, tenantId: tenant.id, purpose: 'portal' },
       {

@@ -59,21 +59,23 @@ import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
 /**
- * La sesión del portal se persiste en sessionStorage tras consumir el magic
- * link (que es de un solo uso): así una recarga reutiliza la sesión en vez de
- * reintentar consumir un token ya gastado. Vive solo en esta pestaña.
+ * La sesión del portal se persiste en localStorage tras consumir el magic link
+ * (que es de un solo uso): una recarga la reutiliza en vez de reintentar
+ * consumir un token ya gastado. Se usa localStorage (no sessionStorage) para que
+ * sobreviva al cierre del navegador → el inquilino puede volver a entrar durante
+ * la vigencia de la sesión (48 h, fijada por el server vía `expiresIn`).
  */
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
 type StoredPortalSession = PortalSessionDto & { expiresAtMs: number };
 
 function loadStoredPortalSession(): PortalSessionDto | null {
   try {
-    const raw = sessionStorage.getItem(PORTAL_SESSION_KEY);
+    const raw = localStorage.getItem(PORTAL_SESSION_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as StoredPortalSession;
     // Margen de 10 s para no usar un token a punto de expirar en el server.
     if (!s.accessToken || s.expiresAtMs <= Date.now() + 10_000) {
-      sessionStorage.removeItem(PORTAL_SESSION_KEY);
+      localStorage.removeItem(PORTAL_SESSION_KEY);
       return null;
     }
     return s;
@@ -85,15 +87,15 @@ function loadStoredPortalSession(): PortalSessionDto | null {
 function storePortalSession(s: PortalSessionDto): void {
   try {
     const stored: StoredPortalSession = { ...s, expiresAtMs: Date.now() + s.expiresIn * 1000 };
-    sessionStorage.setItem(PORTAL_SESSION_KEY, JSON.stringify(stored));
+    localStorage.setItem(PORTAL_SESSION_KEY, JSON.stringify(stored));
   } catch {
-    /* sessionStorage no disponible: seguimos sin persistir */
+    /* localStorage no disponible: seguimos sin persistir */
   }
 }
 
 function clearStoredPortalSession(): void {
   try {
-    sessionStorage.removeItem(PORTAL_SESSION_KEY);
+    localStorage.removeItem(PORTAL_SESSION_KEY);
   } catch {
     /* ignore */
   }
