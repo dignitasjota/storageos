@@ -84,6 +84,17 @@ describe('Admin comms (email + broadcast) (e2e)', () => {
     expect(direct.body.recipients).toBeGreaterThanOrEqual(1);
     expect(direct.body.failed).toBe(0);
 
+    // El email queda registrado en el histórico de conversaciones del tenant.
+    const interactions = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/interactions`)
+      .set(auth);
+    expect(interactions.status).toBe(200);
+    const emailEntry = interactions.body.find(
+      (i: { type: string; content: string }) =>
+        i.type === 'email' && i.content.includes('Aviso importante'),
+    );
+    expect(emailEntry).toBeTruthy();
+
     // Validación: asunto demasiado corto -> 400
     const bad = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/email`)

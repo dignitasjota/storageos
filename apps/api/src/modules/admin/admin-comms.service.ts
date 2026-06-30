@@ -7,6 +7,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
+import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type {
@@ -44,6 +45,7 @@ export class AdminCommsService {
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
     private readonly superAdminAudit: SuperAdminAuditService,
+    private readonly interactions: AdminTenantInteractionsService,
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
 
@@ -125,6 +127,17 @@ export class AdminCommsService {
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
+    // Dejar constancia del email en el histórico de conversaciones del tenant
+    // (best-effort: el email ya se envió, no rompemos la respuesta si falla).
+    try {
+      await this.interactions.create({
+        tenantId,
+        superAdminId: meta.superAdminId,
+        input: { type: 'email', content: `Asunto: ${input.subject}\n\n${input.body}` },
+      });
+    } catch {
+      /* el registro es secundario */
+    }
     return { recipients: sent, failed };
   }
 
