@@ -24,6 +24,7 @@ import type {
   CustomerDto,
   CustomerInteractionDto,
   CustomerMessageDto,
+  PortalMagicLinkDto,
   RegisterCustomerDocumentInput,
   RequestCustomerDocumentUploadInput,
   ReservationDto,
@@ -440,6 +441,14 @@ export function useDeleteInteraction(customerId: string) {
     mutationFn: (id: string) =>
       apiFetch<void>(`/customers/${customerId}/interactions/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'interactions'] }),
+  });
+}
+
+/** El staff genera un magic link de acceso al portal para repartir a mano. */
+export function useCreatePortalLink(customerId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<PortalMagicLinkDto>(`/customers/${customerId}/portal-link`, { method: 'POST' }),
   });
 }
 

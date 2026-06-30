@@ -63,6 +63,13 @@ export interface PortalDownloadDto {
   url: string;
 }
 
+/** Magic link de acceso al portal generado por el staff para un inquilino. */
+export interface PortalMagicLinkDto {
+  url: string;
+  /** Caducidad del enlace (ISO). */
+  expiresAt: string;
+}
+
 /** Datos de perfil del inquilino que él mismo puede ver/editar en el portal. */
 export interface PortalProfileDto {
   customerType: 'individual' | 'business';
