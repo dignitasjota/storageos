@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -295,6 +296,47 @@ export class SuperAdminService {
     return this.toDto(created);
   }
 
+  /**
+   * Activa/desactiva un super admin. No permite modificarse a sí mismo ni
+   * desactivar al último super admin con rol `superadmin` (evita lock-out).
+   * Al desactivar, revoca sus sesiones.
+   */
+  async setActive(args: {
+    actorId: string;
+    targetId: string;
+    isActive: boolean;
+  }): Promise<SuperAdminDto> {
+    const target = await this.admin.superAdmin.findUnique({ where: { id: args.targetId } });
+    if (!target) {
+      throw new NotFoundException({ code: 'super_admin_not_found', message: 'No encontrado' });
+    }
+    if (args.targetId === args.actorId) {
+      throw new BadRequestException({
+        code: 'cannot_modify_self',
+        message: 'No puedes modificar tu propia cuenta',
+      });
+    }
+    if (!args.isActive && target.isActive && target.role === 'superadmin') {
+      const activeSuperadmins = await this.admin.superAdmin.count({
+        where: { isActive: true, role: 'superadmin' },
+      });
+      if (activeSuperadmins <= 1) {
+        throw new BadRequestException({
+          code: 'last_super_admin',
+          message: 'No puedes desactivar al último super admin',
+        });
+      }
+    }
+    const updated = await this.admin.superAdmin.update({
+      where: { id: args.targetId },
+      data: { isActive: args.isActive },
+    });
+    if (!args.isActive) {
+      await this.admin.superAdminSession.deleteMany({ where: { superAdminId: args.targetId } });
+    }
+    return this.toDto(updated);
+  }
+
   // ============================ helpers ====================================
 
   toDto(record: SuperAdmin): SuperAdminDto {
@@ -304,6 +346,7 @@ export class SuperAdminService {
       fullName: record.fullName,
       role: record.role,
       isActive: record.isActive,
+      twoFactorEnabled: record.twoFactorEnabled,
       lastLoginAt: record.lastLoginAt ? record.lastLoginAt.toISOString() : null,
       createdAt: record.createdAt.toISOString(),
     };

@@ -303,3 +303,15 @@ export const SetTenantFeaturesSchema = z.object({
   overrides: z.array(z.object({ feature: z.enum(TenantFeatures), enabled: z.boolean() })),
 });
 export type SetTenantFeaturesInput = z.infer<typeof SetTenantFeaturesSchema>;
+
+// --- Gestión de super admins (CRUD) ---
+export const CreateSuperAdminSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().trim().min(2).max(120),
+  password: z.string().min(12).max(200),
+  role: SuperAdminRoleEnum.optional(),
+});
+export type CreateSuperAdminInput = z.infer<typeof CreateSuperAdminSchema>;
+
+export const SetSuperAdminActiveSchema = z.object({ isActive: z.boolean() });
+export type SetSuperAdminActiveInput = z.infer<typeof SetSuperAdminActiveSchema>;

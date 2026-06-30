@@ -14,6 +14,7 @@ export interface SuperAdminDto {
   fullName: string;
   role: SuperAdminRoleValue;
   isActive: boolean;
+  twoFactorEnabled: boolean;
   lastLoginAt: string | null;
   createdAt: string;
 }
