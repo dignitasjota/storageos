@@ -3306,6 +3306,21 @@ model TenantInteraction {
   @@map("tenant_interactions")
 }
 
+/// Config (singleton) de las alertas proactivas de plataforma: el super admin
+/// recibe un digest por email de tenants en past_due o trials por expirar.
+model PlatformAlertSettings {
+  id                  String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  enabled             Boolean  @default(false)
+  alertEmail          String?  @map("alert_email")
+  notifyPastDue       Boolean  @default(true) @map("notify_past_due")
+  notifyTrialExpiring Boolean  @default(true) @map("notify_trial_expiring")
+  trialExpiringDays   Int      @default(3) @map("trial_expiring_days")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_alert_settings")
+}
+
 /// Override de feature premium por tenant (el super admin activa/desactiva una
 /// feature concreta sin cambiar el plan). `enabled=true` la añade, `false` la quita.
 model TenantFeatureOverride {

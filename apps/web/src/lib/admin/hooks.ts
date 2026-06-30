@@ -9,6 +9,9 @@ import type {
   AdminAtRiskDto,
   AdminOnboardingDto,
   AdminTenantFeaturesDto,
+  PlatformAlertSettingsDto,
+  PlatformAlertRunResultDto,
+  UpdatePlatformAlertSettingsInput,
   AdminTenantHealthDto,
   TenantFeature,
   AdminBroadcastInput,
@@ -977,5 +980,35 @@ export function useSetSuperAdminActive() {
         json: { isActive: args.isActive },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'super-admins'] }),
+  });
+}
+
+// ============================================================================
+// Alertas proactivas de plataforma
+// ============================================================================
+
+export function useAdminPlatformAlerts() {
+  return useQuery({
+    queryKey: ['admin', 'platform-alerts'] as const,
+    queryFn: () => adminApiFetch<PlatformAlertSettingsDto>('/admin/platform-alerts'),
+  });
+}
+
+export function useUpdatePlatformAlerts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformAlertSettingsInput) =>
+      adminApiFetch<PlatformAlertSettingsDto>('/admin/platform-alerts', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'platform-alerts'] }),
+  });
+}
+
+export function useRunPlatformAlerts() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<PlatformAlertRunResultDto>('/admin/platform-alerts/run', { method: 'POST' }),
   });
 }
