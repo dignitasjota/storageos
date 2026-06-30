@@ -8,6 +8,7 @@ import {
   Boxes,
   Building2,
   CalendarClock,
+  CalendarDays,
   ChevronDown,
   ClipboardList,
   CreditCard,
@@ -101,6 +102,7 @@ const GROUPS: NavGroup[] = [
         icon: Replace,
         permission: 'contracts:read',
       },
+      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays, permission: 'tasks:read' },
       { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
       {
         href: '/maintenance',
