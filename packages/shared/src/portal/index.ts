@@ -101,6 +101,19 @@ export const PortalUpdateProfileSchema = z.object({
 });
 export type PortalUpdateProfileInput = z.infer<typeof PortalUpdateProfileSchema>;
 
+/** Compra de accesorios desde el portal: líneas {producto, cantidad}. */
+export const PortalPurchaseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        quantity: z.number().int().positive().max(99),
+      }),
+    )
+    .min(1),
+});
+export type PortalPurchaseInput = z.infer<typeof PortalPurchaseSchema>;
+
 /** El inquilino contrata (planId) o quita (null) el seguro en uno de sus contratos. */
 export const PortalSetInsuranceSchema = z.object({
   planId: z.string().uuid().nullable(),

@@ -16,6 +16,8 @@ import { FilesService } from '../files/files.service';
 import { GoCardlessMandatesService } from '../payments/gocardless/gocardless-mandates.service';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
 import { PaymentsService } from '../payments/payments.service';
+import { ProductSalesService } from '../products/product-sales.service';
+import { ProductsService } from '../products/products.service';
 import { QUEUE_EMAIL } from '../queues/queues.module';
 
 import type { Env } from '../../config/env.schema';
@@ -30,8 +32,11 @@ import type {
   PortalInvoiceDto,
   PortalPaymentDto,
   PortalProfileDto,
+  PortalPurchaseInput,
   PortalRegisterPaymentMethodInput,
   PortalUpdateProfileInput,
+  ProductDto,
+  ProductSaleDto,
   PortalRequestMagicLinkInput,
   PortalSessionDto,
   SetupIntentResponseDto,
@@ -80,6 +85,8 @@ export class PortalService {
     private readonly goCardlessMandates: GoCardlessMandatesService,
     private readonly files: FilesService,
     private readonly contracts: ContractsService,
+    private readonly products: ProductsService,
+    private readonly productSales: ProductSalesService,
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
@@ -408,6 +415,44 @@ export class PortalService {
     }
     await this.contracts.setInsurance({ tenantId, contractId, planId });
     return this.contracts.listForCustomer(tenantId, customerId);
+  }
+
+  /** Accesorios a la venta (productos activos del tenant con stock disponible). */
+  async listProducts(tenantId: string, customerId: string): Promise<ProductDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const products = await this.products.list(tenantId, { isActive: true });
+    return products.filter((p) => p.totalStock > 0);
+  }
+
+  /**
+   * El inquilino compra accesorios desde el portal. La venta se factura
+   * (factura emitida que paga luego en «Tus facturas») reutilizando
+   * `ProductSalesService.create` con `userId: null`. El local se resuelve del
+   * contrato activo del inquilino (el stock se descuenta de ese local).
+   */
+  async purchaseProducts(
+    tenantId: string,
+    customerId: string,
+    items: PortalPurchaseInput['items'],
+  ): Promise<ProductSaleDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const contract = await this.admin.contract.findFirst({
+      where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
+      orderBy: { startDate: 'desc' },
+      select: { unit: { select: { facilityId: true } } },
+    });
+    if (!contract) {
+      throw new NotFoundException({
+        code: 'no_active_contract',
+        message: 'Necesitas un contrato activo para comprar accesorios',
+      });
+    }
+    return this.productSales.create({
+      tenantId,
+      userId: null,
+      input: { facilityId: contract.unit.facilityId, customerId, items },
+      meta: {},
+    });
   }
 
   /** Datos de perfil del inquilino (para precargar el formulario). */

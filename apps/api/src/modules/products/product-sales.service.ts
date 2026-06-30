@@ -92,7 +92,8 @@ export class ProductSalesService {
    */
   async create(args: {
     tenantId: string;
-    userId: string;
+    /** null en flujos públicos (compra del inquilino desde el portal). */
+    userId: string | null;
     input: CreateProductSaleInput;
     meta: RequestMeta;
   }): Promise<ProductSaleDto> {
