@@ -23,6 +23,7 @@ import type {
   AccessMethodValue,
   CreateCredentialInput,
   PortalAccessCredentialDto,
+  PortalAccessLogDto,
   RotateCredentialInput,
   SuspendCredentialInput,
   UpdateCredentialInput,
@@ -429,6 +430,30 @@ export class AccessCredentialsService {
       value: r.secretEncrypted ? this.crypto.decryptString(r.secretEncrypted) : null,
       expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
       lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+    }));
+  }
+
+  /**
+   * Historial de accesos del inquilino (sus entradas, para transparencia y
+   * seguridad). Devuelve un DTO slim: NO expone valores intentados ni IPs.
+   */
+  async listLogsForCustomer(tenantId: string, customerId: string): Promise<PortalAccessLogDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessLog.findMany({
+          where: { customerId },
+          orderBy: { occurredAt: 'desc' },
+          take: 50,
+          include: { device: { select: { name: true } } },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      deviceName: r.device?.name ?? null,
+      method: r.method as PortalAccessLogDto['method'],
+      result: r.result as PortalAccessLogDto['result'],
+      occurredAt: r.occurredAt.toISOString(),
     }));
   }
 
