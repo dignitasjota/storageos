@@ -10,6 +10,8 @@ import { TwoFactorModule } from '../two-factor/two-factor.module';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminFollowupsController } from './admin-followups.controller';
+import { AdminImpersonationAuditController } from './admin-impersonation-audit.controller';
+import { AdminImpersonationAuditService } from './admin-impersonation-audit.service';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminQueuesController } from './admin-queues.controller';
@@ -73,6 +75,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SuperAdminAuditController,
     AdminSuperAdminsController,
     PlatformAlertsController,
+    AdminImpersonationAuditController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
     WebhooksCleanupController,
@@ -82,6 +85,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminGuard,
     PlatformAlertsService,
     PlatformAlertsCron,
+    AdminImpersonationAuditService,
     SuperAdminService,
     SuperAdminSessionsService,
     SuperAdminTwoFactorService,
