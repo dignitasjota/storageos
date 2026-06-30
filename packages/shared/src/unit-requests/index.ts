@@ -63,3 +63,19 @@ export interface UnitRequestDto {
   createdAt: string;
   handledAt: string | null;
 }
+
+/** Self-service: contratar un trastero disponible desde el portal (con pago online). */
+export const PortalBookUnitSchema = z.object({
+  unitId: z.string().uuid(),
+  /** Nombre con el que firma (aceptación del contrato). */
+  signerName: z.string().trim().min(2).max(120),
+});
+export type PortalBookUnitInput = z.infer<typeof PortalBookUnitSchema>;
+
+export interface PortalBookUnitResultDto {
+  contractId: string;
+  /** Factura emitida a pagar (null si no se pudo emitir; el staff la generará). */
+  invoiceId: string | null;
+  /** Token de portal renovado (para pagar sin re-loguear). */
+  portalToken: string;
+}
