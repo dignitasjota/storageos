@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 
+import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
 import { CustomerDocumentsTab } from './documents-tab';
@@ -85,6 +86,7 @@ export default function CustomerDetailPage() {
           <TabsTrigger value="reservations">Reservas</TabsTrigger>
           <TabsTrigger value="documents">Documentos</TabsTrigger>
           <TabsTrigger value="communications">Comunicaciones</TabsTrigger>
+          <TabsTrigger value="chat">Mensajes</TabsTrigger>
           <TabsTrigger value="history">Historial de pagos</TabsTrigger>
           <TabsTrigger value="payments">Métodos de pago</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>
@@ -100,6 +102,9 @@ export default function CustomerDetailPage() {
         </TabsContent>
         <TabsContent value="communications" className="mt-6">
           <CustomerCommunicationsTab customerId={c.id} />
+        </TabsContent>
+        <TabsContent value="chat" className="mt-6">
+          <CustomerChatTab customerId={c.id} />
         </TabsContent>
         <TabsContent value="history" className="mt-6">
           <CustomerPaymentHistoryTab customerId={c.id} />

@@ -36,6 +36,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ChatCard } from './chat-card';
 import { InsuranceCard } from './insurance-card';
 import { ProfileCard } from './profile-card';
 import { ShopCard } from './shop-card';
@@ -620,6 +621,8 @@ function PortalConsumeContent() {
       )}
 
       {session && <ShopCard session={session} onPurchased={reloadInvoices} />}
+
+      {session && <ChatCard session={session} />}
 
       {facilities.length > 0 && (
         <Card>

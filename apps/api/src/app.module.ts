@@ -26,6 +26,7 @@ import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { CustomerMessagesModule } from './modules/customer-messages/customer-messages.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { DunningModule } from './modules/dunning/dunning.module';
@@ -143,6 +144,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FilesModule,
     FacilitiesModule,
     CustomersModule,
+    CustomerMessagesModule,
     ContractsModule,
     QueuesModule,
     PaymentsModule,

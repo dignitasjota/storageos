@@ -299,3 +299,9 @@ export const CreateCustomerInteractionSchema = z.object({
   occurredAt: z.string().datetime().optional(),
 });
 export type CreateCustomerInteractionInput = z.infer<typeof CreateCustomerInteractionSchema>;
+
+/** Enviar un mensaje en el chat con el inquilino (staff o portal). */
+export const SendCustomerMessageSchema = z.object({
+  body: z.string().trim().min(1).max(5000),
+});
+export type SendCustomerMessageInput = z.infer<typeof SendCustomerMessageSchema>;

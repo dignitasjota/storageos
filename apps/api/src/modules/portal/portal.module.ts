@@ -5,6 +5,7 @@ import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
+import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
 import { OperationsModule } from '../operations/operations.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -43,6 +44,8 @@ import { PortalService } from './portal.service';
     UnitChangesModule,
     // ProductsModule: tienda de accesorios (compra → venta + factura).
     ProductsModule,
+    // CustomerMessagesModule: chat bidireccional con el staff.
+    CustomerMessagesModule,
   ],
   controllers: [PortalController],
   providers: [PortalService, NightPassService],
