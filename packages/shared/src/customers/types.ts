@@ -173,3 +173,19 @@ export interface CustomerMessageDto {
   readAt: string | null;
   createdAt: string;
 }
+
+/** Un seguimiento/recordatorio del staff sobre un inquilino. */
+export interface CustomerFollowupDto {
+  id: string;
+  customerId: string;
+  /** Nombre del inquilino (para la bandeja global). */
+  customerName: string;
+  title: string;
+  note: string | null;
+  /** Fecha de vencimiento (ISO date). */
+  dueDate: string;
+  status: 'pending' | 'done';
+  completedAt: string | null;
+  authorName: string | null;
+  createdAt: string;
+}

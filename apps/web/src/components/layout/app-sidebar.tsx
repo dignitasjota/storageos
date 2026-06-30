@@ -189,6 +189,12 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/leads', labelKey: 'leads', icon: Sparkles, permission: 'leads:read' },
       {
+        href: '/followups',
+        labelKey: 'followups',
+        icon: CalendarClock,
+        permission: 'customers:read',
+      },
+      {
         href: '/campaigns',
         labelKey: 'campaigns',
         icon: Megaphone,

@@ -349,6 +349,7 @@ model Tenant {
   subscriptionPayments    TenantSubscriptionPayment[]
   mrrSnapshots            MrrSnapshot[]
   tenantInteractions      TenantInteraction[]
+  customerFollowups       CustomerFollowup[]
   tenantFollowups         TenantFollowup[]
   auditLogs               AuditLog[]
   sessions                Session[]
@@ -483,6 +484,7 @@ model User {
   inspectionPhotos         ContractInspectionPhoto[]
   customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
   customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
+  customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -960,6 +962,7 @@ model Customer {
   unitChangeRequests UnitChangeRequest[]
   interactions       CustomerInteraction[]
   messages           CustomerMessage[]
+  followups          CustomerFollowup[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -3300,6 +3303,31 @@ model TenantInteraction {
   @@index([tenantId])
   @@index([tenantId, occurredAt])
   @@map("tenant_interactions")
+}
+
+/// Seguimiento/recordatorio del staff sobre un inquilino (CRM): fecha + estado.
+model CustomerFollowup {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  customerId  String    @map("customer_id") @db.Uuid
+  userId      String?   @map("user_id") @db.Uuid
+  title       String
+  note        String?
+  dueDate     DateTime  @map("due_date") @db.Date
+  /// "pending" | "done".
+  status      String    @default("pending")
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User?    @relation("CustomerFollowupAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status, dueDate])
+  @@index([customerId])
+  @@map("customer_followups")
 }
 
 /// Seguimiento/recordatorio del super admin sobre un tenant ("llamar el día X",

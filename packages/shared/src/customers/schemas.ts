@@ -305,3 +305,19 @@ export const SendCustomerMessageSchema = z.object({
   body: z.string().trim().min(1).max(5000),
 });
 export type SendCustomerMessageInput = z.infer<typeof SendCustomerMessageSchema>;
+
+// --- Seguimientos / recordatorios del staff sobre un inquilino (CRM) ---
+
+export const CreateCustomerFollowupSchema = z.object({
+  title: z.string().trim().min(2).max(200),
+  note: z.string().trim().max(2000).optional(),
+  /** Fecha de vencimiento (YYYY-MM-DD). */
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+});
+export type CreateCustomerFollowupInput = z.infer<typeof CreateCustomerFollowupSchema>;
+
+export const FollowupStatusEnum = z.enum(['pending', 'done']);
+export type FollowupStatusValue = z.infer<typeof FollowupStatusEnum>;
+
+export const UpdateCustomerFollowupSchema = z.object({ status: FollowupStatusEnum });
+export type UpdateCustomerFollowupInput = z.infer<typeof UpdateCustomerFollowupSchema>;
