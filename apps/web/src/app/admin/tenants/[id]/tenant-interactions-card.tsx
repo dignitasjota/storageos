@@ -1,6 +1,16 @@
 'use client';
 
-import { Mail, MessageCircle, MessageSquare, Phone, StickyNote, Trash2, Users } from 'lucide-react';
+import {
+  LifeBuoy,
+  Mail,
+  MessageCircle,
+  MessageSquare,
+  Phone,
+  StickyNote,
+  Trash2,
+  Users,
+} from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -30,6 +40,7 @@ const TYPE_LABELS: Record<TenantInteractionTypeValue, string> = {
   email: 'Email',
   meeting: 'Reunión',
   whatsapp: 'WhatsApp',
+  support: 'Ticket de soporte',
   other: 'Otro',
 };
 
@@ -39,9 +50,11 @@ const TYPE_ICONS: Record<TenantInteractionTypeValue, typeof Phone> = {
   email: Mail,
   meeting: Users,
   whatsapp: MessageCircle,
+  support: LifeBuoy,
   other: MessageSquare,
 };
 
+// El admin solo crea manualmente estos; `support` lo genera el sistema al abrir un ticket.
 const TYPE_ORDER: TenantInteractionTypeValue[] = [
   'note',
   'call',
@@ -179,6 +192,14 @@ function InteractionRow({ row, onDelete }: { row: TenantInteractionDto; onDelete
         <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">
           {row.content}
         </p>
+        {row.link && (
+          <Link
+            href={row.link}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <LifeBuoy className="size-3.5" /> Ver y gestionar el ticket →
+          </Link>
+        )}
       </div>
       <Button
         type="button"

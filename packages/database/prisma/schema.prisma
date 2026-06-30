@@ -3289,6 +3289,7 @@ model TenantInteraction {
   superAdminId String?  @map("super_admin_id") @db.Uuid
   type         String   @default("note")
   content      String
+  link         String?
   occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

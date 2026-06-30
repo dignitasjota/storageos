@@ -8,6 +8,8 @@ import {
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+
 import type {
   AddTicketMessageInput,
   AssignTicketInput,
@@ -93,6 +95,7 @@ export class SupportTicketsService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    private readonly interactions: AdminTenantInteractionsService,
   ) {}
 
   // =========================== tenant facade ===============================
@@ -151,6 +154,21 @@ export class SupportTicketsService {
       ipAddress: args.meta?.ipAddress ?? null,
       userAgent: args.meta?.userAgent ?? null,
     });
+    // Dejar constancia en el histórico de conversaciones del tenant, con enlace
+    // al ticket para gestionarlo (best-effort; el ticket ya está creado).
+    try {
+      await this.interactions.create({
+        tenantId: args.tenantId,
+        superAdminId: null,
+        input: {
+          type: 'support',
+          content: `Ticket de soporte abierto — ${args.input.subject}\n\n${args.input.body}`,
+        },
+        link: `/admin/support/${created.id}`,
+      });
+    } catch {
+      /* el registro es secundario */
+    }
     return this.toDto(created);
   }
 
