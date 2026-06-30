@@ -13,6 +13,7 @@ import { AdminFollowupsController } from './admin-followups.controller';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminQueuesController } from './admin-queues.controller';
+import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
 import { AdminSystemController } from './admin-system.controller';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
@@ -67,6 +68,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SecurityEventsController,
     SecurityAlertsController,
     SuperAdminAuditController,
+    AdminSuperAdminsController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
     WebhooksCleanupController,

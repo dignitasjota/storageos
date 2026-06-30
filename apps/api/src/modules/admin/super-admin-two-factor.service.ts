@@ -392,6 +392,7 @@ export class SuperAdminTwoFactorService {
         fullName: record.fullName,
         role: record.role,
         isActive: record.isActive,
+        twoFactorEnabled: record.twoFactorEnabled,
         lastLoginAt: new Date().toISOString(),
         createdAt: record.createdAt.toISOString(),
       },
