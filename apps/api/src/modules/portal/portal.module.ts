@@ -8,6 +8,7 @@ import { ContractsModule } from '../contracts/contracts.module';
 import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqModule } from '../faq/faq.module';
+import { MoveInModule } from '../move-in/move-in.module';
 import { OperationsModule } from '../operations/operations.module';
 import { GoCardlessModule } from '../payments/gocardless/gocardless.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -48,6 +49,8 @@ import { PortalService } from './portal.service';
     UnitChangesModule,
     // UnitRequestsModule: el inquilino solicita un trastero adicional.
     UnitRequestsModule,
+    // MoveInModule: self-service de contratación de trastero (SignaturesService).
+    MoveInModule,
     // ProductsModule: tienda de accesorios (compra → venta + factura).
     ProductsModule,
     // CustomerMessagesModule: chat bidireccional con el staff.
