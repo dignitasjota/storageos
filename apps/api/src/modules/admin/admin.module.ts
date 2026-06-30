@@ -23,6 +23,9 @@ import { AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { ImpersonationService } from './impersonation.service';
 import { MrrModule } from './mrr.module';
+import { PlatformAlertsController } from './platform-alerts.controller';
+import { PlatformAlertsCron } from './platform-alerts.cron';
+import { PlatformAlertsService } from './platform-alerts.service';
 import { SecurityAlertsController } from './security-alerts.controller';
 import { SecurityEventsController } from './security-events.controller';
 import { SuperAdminAuditController } from './super-admin-audit.controller';
@@ -69,6 +72,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SecurityAlertsController,
     SuperAdminAuditController,
     AdminSuperAdminsController,
+    PlatformAlertsController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,
     WebhooksCleanupController,
@@ -76,6 +80,8 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
   ],
   providers: [
     AdminGuard,
+    PlatformAlertsService,
+    PlatformAlertsCron,
     SuperAdminService,
     SuperAdminSessionsService,
     SuperAdminTwoFactorService,

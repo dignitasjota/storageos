@@ -675,3 +675,20 @@ export interface AdminOnboardingDto {
   completed: number;
   total: number;
 }
+
+/** Config de las alertas proactivas de plataforma (super admin). */
+export interface PlatformAlertSettingsDto {
+  enabled: boolean;
+  alertEmail: string | null;
+  notifyPastDue: boolean;
+  notifyTrialExpiring: boolean;
+  trialExpiringDays: number;
+}
+
+/** Resultado de evaluar las alertas ahora. */
+export interface PlatformAlertRunResultDto {
+  sent: boolean;
+  pastDue: number;
+  trialExpiring: number;
+  reason: string | null;
+}
