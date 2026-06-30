@@ -111,6 +111,34 @@ export class ContractsService {
     return rows.map((r) => this.toDto(r));
   }
 
+  /** Contratos activos/en baja que vencen en los próximos `days` (renovación). */
+  async listRenewals(tenantId: string, days = 60): Promise<ContractDto[]> {
+    const now = new Date();
+    const limit = new Date(now.getTime() + days * 86_400_000);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findMany({
+          where: {
+            deletedAt: null,
+            status: { in: ['active', 'ending'] as ContractStatus[] },
+            endDate: { not: null, gte: now, lte: limit },
+          },
+          orderBy: [{ endDate: 'asc' }],
+          include: {
+            customer: {
+              select: { firstName: true, lastName: true, companyName: true, customerType: true },
+            },
+            unit: {
+              select: { code: true, facilityId: true, facility: { select: { name: true } } },
+            },
+            insurancePlan: { select: { name: true } },
+          },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => this.toDto(r));
+  }
+
   async detail(
     tenantId: string,
     id: string,

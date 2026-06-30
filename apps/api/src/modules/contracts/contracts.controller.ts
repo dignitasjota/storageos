@@ -77,6 +77,13 @@ export class ContractsController {
     });
   }
 
+  /** Contratos que vencen pronto (renovación) — declarado antes de @Get(':id'). */
+  @RequirePermission('contracts:read')
+  @Get('renewals')
+  async renewals(@CurrentUser() user: AuthenticatedUser): Promise<ContractDto[]> {
+    return this.contracts.listRenewals(user.tenantId);
+  }
+
   @RequirePermission('contracts:read')
   @Get(':id')
   async detail(
