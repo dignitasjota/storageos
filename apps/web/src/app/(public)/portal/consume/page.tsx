@@ -617,10 +617,15 @@ function PortalConsumeContent() {
   ).length;
 
   return (
-    <div className="container max-w-3xl space-y-6 py-10">
-      {/* Marca del operador (white-label) */}
+    <div className="container max-w-5xl space-y-6 py-10">
+      {/* Marca del operador (white-label) — clicable para volver al inicio */}
       <div className="space-y-2">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setTab('inicio')}
+          title="Volver al inicio"
+          className="flex items-center gap-3 transition-opacity hover:opacity-80"
+        >
           {session.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -635,7 +640,7 @@ function PortalConsumeContent() {
           >
             {session.tenantName}
           </span>
-        </div>
+        </button>
         {session.brandColor && (
           <div
             className="h-1 w-full rounded-full"
