@@ -22,6 +22,15 @@ export function useSupportTickets() {
   });
 }
 
+/** Nº de tickets esperando tu respuesta — para el badge del menú (sondea cada 60 s). */
+export function useSupportWaitingCount() {
+  return useQuery({
+    queryKey: ['support', 'waiting-count'] as const,
+    queryFn: () => apiFetch<{ count: number }>('/support/tickets/waiting-count'),
+    refetchInterval: 60_000,
+  });
+}
+
 export function useSupportTicket(id: string | undefined) {
   return useQuery({
     queryKey: ['support', 'tickets', id] as const,

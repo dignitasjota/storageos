@@ -54,6 +54,12 @@ export class SupportTicketsTenantController {
     return this.tickets.listForTenant(user.tenantId);
   }
 
+  /** Nº de tickets esperando tu respuesta (el admin ya contestó) — badge del menú. */
+  @Get('waiting-count')
+  async waitingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
+    return { count: await this.tickets.countWaitingForTenant(user.tenantId) };
+  }
+
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
