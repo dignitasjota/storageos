@@ -2,7 +2,12 @@ import { randomBytes } from 'node:crypto';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
-import { FEATURE_LABELS, TenantFeatures, featuresForPlan } from '@storageos/shared';
+import {
+  FEATURE_LABELS,
+  TenantFeatures,
+  effectiveFeatures,
+  featuresForPlan,
+} from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -19,6 +24,7 @@ import type {
   AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantFacilityDto,
+  AdminTenantFeaturesDto,
   AdminTenantHealthDto,
   AdminTenantHealthFactorDto,
   AdminTenantHealthLevel,
@@ -983,6 +989,81 @@ export class AdminTenantsService {
    * mover un tenant entre planes (free/starter/pro) — controla, vía
    * `PLAN_FEATURES`, qué modulos premium ve. No toca Stripe (cambio manual).
    */
+  /** Features del tenant: plan + overrides + efectivas. */
+  async getFeatures(tenantId: string): Promise<AdminTenantFeaturesDto> {
+    await this.findOrThrow(tenantId);
+    const [subscription, rows] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { slug: true } } },
+      }),
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId },
+        select: { feature: true, enabled: true },
+      }),
+    ]);
+    const planSlug = subscription?.plan.slug ?? null;
+    const overrides = rows as { feature: TenantFeature; enabled: boolean }[];
+    return {
+      planSlug,
+      planFeatures: featuresForPlan(planSlug ?? ''),
+      overrides,
+      effective: effectiveFeatures(planSlug ?? '', overrides),
+    };
+  }
+
+  /** Reescribe los overrides de feature del tenant (los redundantes se descartan). */
+  async setFeatures(
+    tenantId: string,
+    args: { overrides: { feature: TenantFeature; enabled: boolean }[] } & ActionMeta,
+  ): Promise<AdminTenantFeaturesDto> {
+    await this.findOrThrow(tenantId);
+    const subscription = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: { select: { slug: true } } },
+    });
+    const planFeatures = new Set(featuresForPlan(subscription?.plan.slug ?? ''));
+    // Solo guardamos los overrides que cambian algo respecto al plan.
+    const effectiveOverrides = args.overrides.filter(
+      (o) => o.enabled !== planFeatures.has(o.feature),
+    );
+    await this.admin.$transaction([
+      this.admin.tenantFeatureOverride.deleteMany({ where: { tenantId } }),
+      ...(effectiveOverrides.length
+        ? [
+            this.admin.tenantFeatureOverride.createMany({
+              data: effectiveOverrides.map((o) => ({
+                tenantId,
+                feature: o.feature,
+                enabled: o.enabled,
+              })),
+            }),
+          ]
+        : []),
+    ]);
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'admin.tenant.features_changed',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { superAdminId: args.superAdminId, overrides: effectiveOverrides },
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: args.superAdminId,
+      action: 'admin.tenant.features_changed',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+      changes: { overrides: effectiveOverrides },
+    });
+    return this.getFeatures(tenantId);
+  }
+
   async changePlan(
     tenantId: string,
     args: { planSlug: string; reason: string } & ActionMeta,

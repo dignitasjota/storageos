@@ -350,6 +350,7 @@ model Tenant {
   mrrSnapshots            MrrSnapshot[]
   tenantInteractions      TenantInteraction[]
   customerFollowups       CustomerFollowup[]
+  featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
   auditLogs               AuditLog[]
   sessions                Session[]
@@ -3303,6 +3304,22 @@ model TenantInteraction {
   @@index([tenantId])
   @@index([tenantId, occurredAt])
   @@map("tenant_interactions")
+}
+
+/// Override de feature premium por tenant (el super admin activa/desactiva una
+/// feature concreta sin cambiar el plan). `enabled=true` la añade, `false` la quita.
+model TenantFeatureOverride {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  feature   String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, feature])
+  @@map("tenant_feature_overrides")
 }
 
 /// Seguimiento/recordatorio del staff sobre un inquilino (CRM): fecha + estado.

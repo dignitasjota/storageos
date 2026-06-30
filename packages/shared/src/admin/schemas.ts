@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { TenantFeatures } from '../features';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 export const SuperAdminRoleEnum = z.enum(['superadmin', 'support']);
@@ -295,3 +297,9 @@ export const UpsertSubscriptionPlanSchema = z.object({
   isActive: z.boolean().default(true),
 });
 export type UpsertSubscriptionPlanFormInput = z.infer<typeof UpsertSubscriptionPlanSchema>;
+
+// --- Overrides de feature por tenant (super admin) ---
+export const SetTenantFeaturesSchema = z.object({
+  overrides: z.array(z.object({ feature: z.enum(TenantFeatures), enabled: z.boolean() })),
+});
+export type SetTenantFeaturesInput = z.infer<typeof SetTenantFeaturesSchema>;

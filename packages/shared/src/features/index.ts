@@ -31,6 +31,25 @@ export function featuresForPlan(slug: string): TenantFeature[] {
   return PLAN_FEATURES[slug] ?? [...TenantFeatures];
 }
 
+/** Un override de feature por tenant (lo fija el super admin). */
+export interface FeatureOverride {
+  feature: TenantFeature;
+  enabled: boolean;
+}
+
+/**
+ * Features efectivas de un tenant: las del plan, más las activadas por override
+ * (`enabled=true`) y menos las desactivadas (`enabled=false`).
+ */
+export function effectiveFeatures(slug: string, overrides: FeatureOverride[]): TenantFeature[] {
+  const set = new Set(featuresForPlan(slug));
+  for (const o of overrides) {
+    if (o.enabled) set.add(o.feature);
+    else set.delete(o.feature);
+  }
+  return [...set];
+}
+
 /** Etiquetas legibles (UI de upsell + super-admin). */
 export const FEATURE_LABELS: Record<TenantFeature, string> = {
   ai_assistant: 'Asistente IA',

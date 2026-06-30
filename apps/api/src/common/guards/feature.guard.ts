@@ -1,6 +1,6 @@
 import { CanActivate, type ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { featuresForPlan } from '@storageos/shared';
+import { effectiveFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../../modules/database/prisma-admin.service';
 import { FEATURE_KEY } from '../decorators/require-feature.decorator';
@@ -33,11 +33,20 @@ export class FeatureGuard implements CanActivate {
     const tenantId = request.user?.tenantId;
     if (!tenantId) return true; // rutas públicas (device key, portal) no se gatean por plan
 
-    const subscription = await this.admin.tenantSubscription.findUnique({
-      where: { tenantId },
-      include: { plan: { select: { slug: true } } },
-    });
-    const features = featuresForPlan(subscription?.plan.slug ?? '');
+    const [subscription, overrides] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { slug: true } } },
+      }),
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId },
+        select: { feature: true, enabled: true },
+      }),
+    ]);
+    const features = effectiveFeatures(
+      subscription?.plan.slug ?? '',
+      overrides as { feature: TenantFeature; enabled: boolean }[],
+    );
     if (!features.includes(required)) {
       throw new ForbiddenException({
         code: 'feature_not_in_plan',
