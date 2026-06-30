@@ -14,6 +14,7 @@ import {
   LifeBuoy,
   LogOut,
   Megaphone,
+  Package,
   ScrollText,
   UserCog,
   ShieldCheck,
@@ -54,6 +55,7 @@ interface AdminNavItem {
 const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
   { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
+  { href: '/admin/plans', label: 'Planes', icon: Package },
   { href: '/admin/health', label: 'Salud', icon: HeartPulse },
   { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
   { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },

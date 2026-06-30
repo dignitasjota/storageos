@@ -109,20 +109,30 @@ export class SubscriptionPlansService {
     id: string;
     slug: string;
     name: string;
+    description?: string | null;
     priceMonthly: { toString(): string } | number;
+    priceYearly?: { toString(): string } | number;
+    currency?: string;
     features: unknown;
     stripePriceId: string | null;
+    maxUnits?: number | null;
+    maxFacilities?: number | null;
+    maxUsers?: number | null;
     isActive: boolean;
   }): SubscriptionPlanDto {
     return {
       id: row.id,
       slug: row.slug,
       name: row.name,
-      description: null,
+      description: row.description ?? null,
       priceMonthly: Number(row.priceMonthly.toString()),
-      currency: 'EUR',
+      priceYearly: row.priceYearly !== undefined ? Number(row.priceYearly.toString()) : 0,
+      currency: row.currency ?? 'EUR',
       features: (row.features ?? {}) as Record<string, unknown>,
       stripePriceId: row.stripePriceId,
+      maxUnits: row.maxUnits ?? null,
+      maxFacilities: row.maxFacilities ?? null,
+      maxUsers: row.maxUsers ?? null,
       isActive: row.isActive,
     };
   }

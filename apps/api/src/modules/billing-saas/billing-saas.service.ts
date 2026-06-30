@@ -547,9 +547,13 @@ export class BillingSaasService {
       name: row.plan.name,
       description: null,
       priceMonthly: Number(row.plan.priceMonthly.toString()),
+      priceYearly: 0,
       currency: 'EUR',
       features: (row.plan.features ?? {}) as Record<string, unknown>,
       stripePriceId: row.plan.stripePriceId,
+      maxUnits: null,
+      maxFacilities: null,
+      maxUsers: null,
       isActive: row.plan.isActive,
     };
     return {
