@@ -20,12 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
-import { useCustomer, useSetKycVerified } from '@/lib/customers/hooks';
+import { useCustomer, useCustomerUnreadSummary, useSetKycVerified } from '@/lib/customers/hooks';
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const customer = useCustomer(id);
+  const unreadMessages = useCustomerUnreadSummary().data?.byCustomer[id ?? ''] ?? 0;
   const setKyc = useSetKycVerified();
 
   if (customer.isLoading || !customer.data) {
@@ -93,7 +94,14 @@ export default function CustomerDetailPage() {
           <TabsTrigger value="reservations">Reservas</TabsTrigger>
           <TabsTrigger value="documents">Documentos</TabsTrigger>
           <TabsTrigger value="communications">Comunicaciones</TabsTrigger>
-          <TabsTrigger value="chat">Mensajes</TabsTrigger>
+          <TabsTrigger value="chat">
+            Mensajes
+            {unreadMessages > 0 && (
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-medium text-white">
+                {unreadMessages}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="history">Historial de pagos</TabsTrigger>
           <TabsTrigger value="payments">Métodos de pago</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>

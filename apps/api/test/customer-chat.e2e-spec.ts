@@ -54,13 +54,27 @@ describe('Chat bidireccional inquilino <-> staff (e2e)', () => {
     expect(sent.body.senderType).toBe('customer');
     expect(sent.body.senderName).toBeNull();
 
-    // El staff ve el mensaje.
+    // El badge: hay 1 mensaje sin leer para este customer.
+    const before = await request(app.getHttpServer())
+      .get('/customer-messages/unread-summary')
+      .set(auth);
+    expect(before.status).toBe(200);
+    expect(before.body.total).toBeGreaterThanOrEqual(1);
+    expect(before.body.byCustomer[customerId]).toBe(1);
+
+    // El staff ve el mensaje (al listar se marcan leídos).
     const staffList = await request(app.getHttpServer())
       .get(`/customers/${customerId}/messages`)
       .set(auth);
     expect(staffList.status).toBe(200);
     expect(staffList.body).toHaveLength(1);
     expect(staffList.body[0].body).toContain('ampliar mi trastero');
+
+    // Tras abrir el chat, el customer ya no tiene mensajes sin leer.
+    const after = await request(app.getHttpServer())
+      .get('/customer-messages/unread-summary')
+      .set(auth);
+    expect(after.body.byCustomer[customerId] ?? 0).toBe(0);
 
     // El staff responde.
     const reply = await request(app.getHttpServer())

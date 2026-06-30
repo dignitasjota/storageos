@@ -49,10 +49,16 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useCreateCustomer, useCustomers, useDeleteCustomer } from '@/lib/customers/hooks';
+import {
+  useCreateCustomer,
+  useCustomerUnreadSummary,
+  useCustomers,
+  useDeleteCustomer,
+} from '@/lib/customers/hooks';
 
 export default function CustomersPage() {
   const customers = useCustomers();
+  const unreadByCustomer = useCustomerUnreadSummary().data?.byCustomer ?? {};
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
   // RBAC v2 (PR1): borrar inquilinos es owner-only (`customers:delete`).
@@ -102,11 +108,24 @@ export default function CustomersPage() {
     {
       accessorKey: 'displayName',
       header: 'Nombre',
-      cell: ({ row }) => (
-        <Link href={`/customers/${row.original.id}`} className="font-medium hover:underline">
-          {row.original.displayName}
-        </Link>
-      ),
+      cell: ({ row }) => {
+        const unread = unreadByCustomer[row.original.id] ?? 0;
+        return (
+          <span className="flex items-center gap-2">
+            <Link href={`/customers/${row.original.id}`} className="font-medium hover:underline">
+              {row.original.displayName}
+            </Link>
+            {unread > 0 && (
+              <span
+                title={`${unread} mensaje(s) sin leer`}
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1.5 text-xs font-medium text-white"
+              >
+                {unread}
+              </span>
+            )}
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'customerType',

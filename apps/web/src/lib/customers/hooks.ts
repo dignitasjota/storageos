@@ -24,6 +24,7 @@ import type {
   CustomerDto,
   CustomerInteractionDto,
   CustomerMessageDto,
+  CustomerUnreadSummaryDto,
   PortalMagicLinkDto,
   RegisterCustomerDocumentInput,
   RequestCustomerDocumentUploadInput,
@@ -441,6 +442,16 @@ export function useDeleteInteraction(customerId: string) {
     mutationFn: (id: string) =>
       apiFetch<void>(`/customers/${customerId}/interactions/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'interactions'] }),
+  });
+}
+
+/** Resumen de mensajes sin leer del inquilino — alimenta los badges (sondea cada 60 s). */
+export function useCustomerUnreadSummary(enabled = true) {
+  return useQuery({
+    queryKey: ['customers', 'unread-summary'] as const,
+    queryFn: () => apiFetch<CustomerUnreadSummaryDto>('/customer-messages/unread-summary'),
+    enabled,
+    refetchInterval: 60_000,
   });
 }
 
