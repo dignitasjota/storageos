@@ -282,8 +282,12 @@ function PortalConsumeContent() {
     return () => {
       cancelled = true;
     };
-    // portalFetch es estable (no captura estado), solo depende del token.
-  }, [token]);
+    // Solo al montar: el `startedRef` ya garantiza una única ejecución y, al
+    // limpiar el token de la URL con `replaceState`, `token` (de useSearchParams)
+    // cambia — si lo pusiéramos como dep, el effect haría cleanup (cancelled=true)
+    // a mitad de la carga y la página se quedaría colgada en "cargando".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function regenerateAccess(id: string) {
     if (!session) return;
