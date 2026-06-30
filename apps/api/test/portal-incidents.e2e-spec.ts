@@ -54,13 +54,10 @@ describe('Portal: incidencias (e2e)', () => {
     expect(empty.body).toHaveLength(0);
 
     // Reportar incidencia.
-    const report = await request(app.getHttpServer())
-      .post('/portal/me/incidents')
-      .set(pAuth)
-      .send({
-        title: 'La puerta del trastero no cierra bien',
-        description: 'Cuesta echar la llave.',
-      });
+    const report = await request(app.getHttpServer()).post('/portal/me/incidents').set(pAuth).send({
+      title: 'La puerta del trastero no cierra bien',
+      description: 'Cuesta echar la llave.',
+    });
     expect(report.status).toBe(201);
     expect(report.body.status).toBe('reported');
     expect(report.body.severity).toBe('medium');
@@ -75,6 +72,12 @@ describe('Portal: incidencias (e2e)', () => {
     const staffList = await request(app.getHttpServer()).get('/incidents').set(auth);
     expect(staffList.status).toBe(200);
     expect(staffList.body.some((i: { id: string }) => i.id === incidentId)).toBe(true);
+
+    // Los contadores del menú: al menos 1 reportada, 0 en investigación.
+    const counts = await request(app.getHttpServer()).get('/incidents/pending-counts').set(auth);
+    expect(counts.status).toBe(200);
+    expect(counts.body.reported).toBeGreaterThanOrEqual(1);
+    expect(typeof counts.body.investigating).toBe('number');
 
     // Validación: título demasiado corto → 400.
     const bad = await request(app.getHttpServer())
