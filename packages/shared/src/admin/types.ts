@@ -500,9 +500,13 @@ export interface SubscriptionPlanDto {
   name: string;
   description: string | null;
   priceMonthly: number;
+  priceYearly: number;
   currency: string;
   features: Record<string, unknown>;
   stripePriceId: string | null;
+  maxUnits: number | null;
+  maxFacilities: number | null;
+  maxUsers: number | null;
   isActive: boolean;
 }
 
