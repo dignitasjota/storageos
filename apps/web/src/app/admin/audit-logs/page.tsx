@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAdminAuditLogs } from '@/lib/admin/hooks';
+import { downloadCsv } from '@/lib/csv';
 
 /**
  * Acciones de super admin que conocemos hoy + etiqueta humana + color.
@@ -91,13 +92,34 @@ export default function AdminAuditLogsPage() {
     });
   }
 
+  function exportCsv() {
+    const items = logs.data?.items ?? [];
+    const rows: (string | number)[][] = [['Fecha', 'Acción', 'Admin', 'Email', 'Tenant', 'IP']];
+    for (const l of items) {
+      rows.push([
+        new Date(l.occurredAt).toLocaleString('es-ES'),
+        l.action,
+        l.superAdminFullName ?? '',
+        l.superAdminEmail ?? '',
+        l.targetTenantId ?? '',
+        l.ipAddress ?? '',
+      ]);
+    }
+    downloadCsv('audit-logs.csv', rows);
+  }
+
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit logs</h1>
-        <p className="text-sm text-muted-foreground">
-          Acciones globales del super admin: login, 2FA, impersonations y acciones sobre tenants.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Audit logs</h1>
+          <p className="text-sm text-muted-foreground">
+            Acciones globales del super admin: login, 2FA, impersonations y acciones sobre tenants.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportCsv}>
+          <Download className="mr-1 size-4" /> Exportar CSV
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 rounded-md border bg-card p-4 md:grid-cols-5">
