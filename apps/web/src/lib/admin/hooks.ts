@@ -37,6 +37,7 @@ import type {
   SecurityEventTypeValue,
   SecurityEventsListResponseDto,
   SuperAdminAuditLogsListResponseDto,
+  CreateSuperAdminInput,
   SuperAdminDto,
   SuperAdminLoginInput,
   SuperAdminLoginRequires2faResponse,
@@ -944,5 +945,37 @@ export function useAdminTenantOnboarding(id: string, enabled = true) {
     queryKey: ['admin', 'tenant', id, 'onboarding'] as const,
     queryFn: () => adminApiFetch<AdminOnboardingDto>(`/admin/tenants/${id}/onboarding`),
     enabled,
+  });
+}
+
+// ============================================================================
+// Super admins (CRUD)
+// ============================================================================
+
+export function useAdminSuperAdmins() {
+  return useQuery({
+    queryKey: ['admin', 'super-admins'] as const,
+    queryFn: () => adminApiFetch<SuperAdminDto[]>('/admin/super-admins'),
+  });
+}
+
+export function useCreateSuperAdmin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSuperAdminInput) =>
+      adminApiFetch<SuperAdminDto>('/admin/super-admins', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'super-admins'] }),
+  });
+}
+
+export function useSetSuperAdminActive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; isActive: boolean }) =>
+      adminApiFetch<SuperAdminDto>(`/admin/super-admins/${args.id}/active`, {
+        method: 'PATCH',
+        json: { isActive: args.isActive },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'super-admins'] }),
   });
 }
