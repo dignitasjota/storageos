@@ -205,6 +205,7 @@
     "contracts": "Contratos",
     "reservations": "Reservas",
     "invoices": "Facturas",
+    "renewals": "Renovaciones",
     "sepaRemittances": "Remesas SEPA",
     "bankReconciliation": "Conciliación bancaria",
     "fiscal": "Fiscalidad",

@@ -171,6 +171,12 @@ const GROUPS: NavGroup[] = [
         feature: 'rent_increases',
       },
       {
+        href: '/renewals',
+        labelKey: 'renewals',
+        icon: CalendarClock,
+        permission: 'contracts:read',
+      },
+      {
         href: '/fiscal',
         labelKey: 'fiscal',
         icon: FileSpreadsheet,
