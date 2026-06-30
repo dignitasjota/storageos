@@ -237,6 +237,11 @@ export class SupportTicketsService {
 
   // ============================ admin facade ===============================
 
+  /** Nº de tickets esperando respuesta del admin (cross-tenant) — badge del panel admin. */
+  async countOpenForAdmin(): Promise<number> {
+    return this.admin.supportTicket.count({ where: { status: 'open' } });
+  }
+
   async listForAdmin(filters: ListAdminFilters): Promise<SupportTicketDto[]> {
     const rows = await this.admin.supportTicket.findMany({
       where: {
