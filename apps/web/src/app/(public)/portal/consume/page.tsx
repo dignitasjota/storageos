@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { ChatCard } from './chat-card';
@@ -57,6 +57,47 @@ import {
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
+
+/**
+ * La sesión del portal se persiste en sessionStorage tras consumir el magic
+ * link (que es de un solo uso): así una recarga reutiliza la sesión en vez de
+ * reintentar consumir un token ya gastado. Vive solo en esta pestaña.
+ */
+const PORTAL_SESSION_KEY = 'storageos.portal.session';
+type StoredPortalSession = PortalSessionDto & { expiresAtMs: number };
+
+function loadStoredPortalSession(): PortalSessionDto | null {
+  try {
+    const raw = sessionStorage.getItem(PORTAL_SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as StoredPortalSession;
+    // Margen de 10 s para no usar un token a punto de expirar en el server.
+    if (!s.accessToken || s.expiresAtMs <= Date.now() + 10_000) {
+      sessionStorage.removeItem(PORTAL_SESSION_KEY);
+      return null;
+    }
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function storePortalSession(s: PortalSessionDto): void {
+  try {
+    const stored: StoredPortalSession = { ...s, expiresAtMs: Date.now() + s.expiresIn * 1000 };
+    sessionStorage.setItem(PORTAL_SESSION_KEY, JSON.stringify(stored));
+  } catch {
+    /* sessionStorage no disponible: seguimos sin persistir */
+  }
+}
+
+function clearStoredPortalSession(): void {
+  try {
+    sessionStorage.removeItem(PORTAL_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** Texto legible del estado de la fianza. */
 function depositLabel(status: string): string {
@@ -144,20 +185,34 @@ function PortalConsumeContent() {
     });
   }
 
+  const startedRef = useRef(false);
   useEffect(() => {
-    if (!token) {
-      setError('Enlace inválido');
-      setLoading(false);
-      return;
-    }
+    // Guard: una sola ejecución por montaje (evita doble consumo del token).
+    if (startedRef.current) return;
+    startedRef.current = true;
     let cancelled = false;
     (async () => {
       try {
-        const s = await apiFetch<PortalSessionDto>('/portal/login/consume', {
-          method: 'POST',
-          json: { token },
-          requiresAuth: false,
-        });
+        // 1) ¿Sesión persistida todavía válida? (recargas, volver a la pestaña).
+        let s = loadStoredPortalSession();
+        // 2) Si no, consumimos el magic link de la URL (un solo uso) y lo
+        //    quitamos de la URL para que las recargas no lo reintenten.
+        if (!s) {
+          if (!token) {
+            setError('Enlace inválido o caducado. Pide uno nuevo a tu gestor.');
+            setLoading(false);
+            return;
+          }
+          s = await apiFetch<PortalSessionDto>('/portal/login/consume', {
+            method: 'POST',
+            json: { token },
+            requiresAuth: false,
+          });
+          storePortalSession(s);
+          if (typeof window !== 'undefined') {
+            window.history.replaceState(null, '', '/portal/consume');
+          }
+        }
         if (cancelled) return;
         setSession(s);
         const [inv, pms, acc, refs, ctr, inc, ucr, ucr2] = await Promise.all([
@@ -211,7 +266,13 @@ function PortalConsumeContent() {
         }
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof ApiError ? err.body.message : 'Enlace inválido o caducado');
+        // La sesión persistida pudo caducar en el server: la descartamos.
+        clearStoredPortalSession();
+        setError(
+          err instanceof ApiError
+            ? err.body.message
+            : 'Enlace inválido o caducado. Pide uno nuevo a tu gestor.',
+        );
       } finally {
         if (!cancelled) setLoading(false);
       }
