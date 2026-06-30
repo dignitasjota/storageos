@@ -8,6 +8,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
+import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
@@ -20,8 +21,10 @@ import { QUEUE_EMAIL } from '../queues/queues.module';
 import type { Env } from '../../config/env.schema';
 import type {
   GoCardlessMandateStartDto,
+  InsurancePlanDto,
   PaymentMethodDto,
   PortalChargeResultDto,
+  PortalContractDto,
   PortalDownloadDto,
   PortalFacilityDto,
   PortalInvoiceDto,
@@ -76,6 +79,7 @@ export class PortalService {
     private readonly payments: PaymentsService,
     private readonly goCardlessMandates: GoCardlessMandatesService,
     private readonly files: FilesService,
+    private readonly contracts: ContractsService,
     // Solo para reutilizar su conexion Redis; no se encolan jobs aqui.
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
@@ -359,6 +363,51 @@ export class PortalService {
       });
     }
     return { url };
+  }
+
+  /** Planes de seguro/protección activos que ofrece el negocio (para contratar). */
+  async listInsurancePlans(tenantId: string, customerId: string): Promise<InsurancePlanDto[]> {
+    await this.requireCustomer(tenantId, customerId);
+    const rows = await this.admin.insurancePlan.findMany({
+      where: { tenantId, isActive: true },
+      orderBy: { monthlyPrice: 'asc' },
+    });
+    return rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      monthlyPrice: Number(p.monthlyPrice),
+      coverageAmount: Number(p.coverageAmount),
+      taxRate: Number(p.taxRate),
+      description: p.description,
+      isActive: p.isActive,
+      createdAt: p.createdAt.toISOString(),
+    }));
+  }
+
+  /**
+   * El inquilino contrata (planId) o quita (null) el seguro en uno de SUS
+   * contratos. Valida la propiedad del contrato y delega en ContractsService
+   * (snapshot del precio + gating por plan). Devuelve la lista de contratos
+   * actualizada para el portal.
+   */
+  async setMyContractInsurance(
+    tenantId: string,
+    customerId: string,
+    contractId: string,
+    planId: string | null,
+  ): Promise<PortalContractDto[]> {
+    const owns = await this.admin.contract.findFirst({
+      where: { id: contractId, customerId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!owns) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    await this.contracts.setInsurance({ tenantId, contractId, planId });
+    return this.contracts.listForCustomer(tenantId, customerId);
   }
 
   /** Datos de perfil del inquilino (para precargar el formulario). */

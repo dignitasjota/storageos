@@ -22,6 +22,7 @@ export interface PortalContractDto {
   discountAmount: number;
   freeMonthsRemaining: number;
   /** Seguro/protección de contenido contratado (null si no tiene). */
+  insurancePlanId: string | null;
   insurancePlanName: string | null;
   insurancePrice: number | null;
   /** true si hay PDF del contrato firmado disponible para descargar. */
@@ -99,6 +100,12 @@ export const PortalUpdateProfileSchema = z.object({
   documentNumber: optionalProfileText(60),
 });
 export type PortalUpdateProfileInput = z.infer<typeof PortalUpdateProfileSchema>;
+
+/** El inquilino contrata (planId) o quita (null) el seguro en uno de sus contratos. */
+export const PortalSetInsuranceSchema = z.object({
+  planId: z.string().uuid().nullable(),
+});
+export type PortalSetInsuranceInput = z.infer<typeof PortalSetInsuranceSchema>;
 
 /** Solicitud de baja (move-out) desde el portal. */
 export const RequestMoveOutSchema = z.object({
