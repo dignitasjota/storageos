@@ -17,6 +17,7 @@ import {
 import {
   type AdminAdoptionDto,
   type AdminAtRiskDto,
+  type AdminOnboardingDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantFacilityDto,
@@ -469,6 +470,11 @@ export class AdminTenantsController {
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
+  }
+
+  @Get(':id/onboarding')
+  async getOnboarding(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminOnboardingDto> {
+    return this.tenants.getOnboarding(id);
   }
 
   @Get(':id/features')
