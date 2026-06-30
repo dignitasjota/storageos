@@ -69,6 +69,13 @@ describe('Cambio de trastero (portal → staff) (e2e)', () => {
     expect(staffList.status).toBe(200);
     expect(staffList.body.some((r: { id: string }) => r.id === requestId)).toBe(true);
 
+    // El badge del menú cuenta 1 pendiente.
+    const count1 = await request(app.getHttpServer())
+      .get('/unit-change-requests/pending-count')
+      .set(auth);
+    expect(count1.status).toBe(200);
+    expect(count1.body.count).toBeGreaterThanOrEqual(1);
+
     // El staff la resuelve.
     const resolved = await request(app.getHttpServer())
       .patch(`/unit-change-requests/${requestId}`)
@@ -76,6 +83,12 @@ describe('Cambio de trastero (portal → staff) (e2e)', () => {
       .send({ status: 'handled', resolutionNote: 'Le hemos asignado el B-12.' });
     expect(resolved.status).toBe(200);
     expect(resolved.body.status).toBe('handled');
+
+    // Tras resolverla, el contador baja.
+    const count2 = await request(app.getHttpServer())
+      .get('/unit-change-requests/pending-count')
+      .set(auth);
+    expect(count2.body.count).toBe(count1.body.count - 1);
 
     // Reresolver → 400.
     const again = await request(app.getHttpServer())

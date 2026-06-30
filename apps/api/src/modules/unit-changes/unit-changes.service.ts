@@ -106,6 +106,14 @@ export class UnitChangesService {
 
   // ---- staff ----
 
+  /** Nº de solicitudes de cambio de trastero pendientes de atender. */
+  async countPending(tenantId: string): Promise<number> {
+    return this.prisma.withTenant(
+      (tx) => tx.unitChangeRequest.count({ where: { tenantId, status: 'pending' } }),
+      tenantId,
+    );
+  }
+
   async list(tenantId: string, status?: string): Promise<UnitChangeRequestDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>

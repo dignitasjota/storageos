@@ -49,10 +49,12 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useFeatures, usePermissions } from '@/lib/auth/hooks';
+import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 
 interface NavItem {
   href: string;
@@ -232,6 +234,10 @@ export function AppSidebar() {
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
 
+  // Badge de cambios de trastero pendientes (solo si el usuario ve esa sección).
+  const unitChangePending =
+    useUnitChangePendingCount(permissions.includes('contracts:read')).data?.count ?? 0;
+
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -260,6 +266,7 @@ export function AppSidebar() {
   function renderItem(item: NavItem) {
     const Icon = item.icon;
     const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    const badge = item.href === '/unit-change-requests' && unitChangePending > 0;
     return (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton asChild isActive={active} className="data-[active=true]:font-medium">
@@ -268,6 +275,11 @@ export function AppSidebar() {
             <span>{t(item.labelKey)}</span>
           </Link>
         </SidebarMenuButton>
+        {badge && (
+          <SidebarMenuBadge className="bg-primary text-primary-foreground">
+            {unitChangePending}
+          </SidebarMenuBadge>
+        )}
       </SidebarMenuItem>
     );
   }

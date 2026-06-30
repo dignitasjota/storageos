@@ -14,6 +14,16 @@ export function useUnitChangeRequests(status?: string) {
   });
 }
 
+/** Nº de cambios de trastero pendientes — para el badge del menú (sondea cada 60 s). */
+export function useUnitChangePendingCount(enabled = true) {
+  return useQuery({
+    queryKey: [...key, 'pending-count'] as const,
+    queryFn: () => apiFetch<{ count: number }>('/unit-change-requests/pending-count'),
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useResolveUnitChangeRequest() {
   const qc = useQueryClient();
   return useMutation({
