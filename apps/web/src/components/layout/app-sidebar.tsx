@@ -54,6 +54,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useFeatures, usePermissions } from '@/lib/auth/hooks';
+import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 
@@ -243,6 +244,9 @@ export function AppSidebar() {
     reported: 0,
     investigating: 0,
   };
+  // Mensajes de inquilinos sin leer (total, para el item «Inquilinos»).
+  const unreadMessages =
+    useCustomerUnreadSummary(permissions.includes('customers:read')).data?.total ?? 0;
 
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
@@ -276,6 +280,7 @@ export function AppSidebar() {
     const incidentBadge =
       item.href === '/incidents' &&
       (incidentCounts.reported > 0 || incidentCounts.investigating > 0);
+    const messagesBadge = item.href === '/customers' && unreadMessages > 0;
     return (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton asChild isActive={active} className="data-[active=true]:font-medium">
@@ -288,6 +293,9 @@ export function AppSidebar() {
           <SidebarMenuBadge className="bg-primary text-primary-foreground">
             {unitChangePending}
           </SidebarMenuBadge>
+        )}
+        {messagesBadge && (
+          <SidebarMenuBadge className="bg-blue-500 text-white">{unreadMessages}</SidebarMenuBadge>
         )}
         {incidentBadge && (
           // Dos contadores: rojo = reportadas (sin atender), ámbar = en investigación.
