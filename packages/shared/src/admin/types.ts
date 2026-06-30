@@ -649,3 +649,14 @@ export interface TenantFollowupDto {
   authorName: string | null;
   createdAt: string;
 }
+
+/** Features de un tenant en el panel admin: plan + overrides + efectivas. */
+export interface AdminTenantFeaturesDto {
+  planSlug: string | null;
+  /** Features incluidas en el plan actual. */
+  planFeatures: TenantFeature[];
+  /** Overrides activos (el super admin las añadió/quitó manualmente). */
+  overrides: { feature: TenantFeature; enabled: boolean }[];
+  /** Features efectivas (plan + overrides). */
+  effective: TenantFeature[];
+}

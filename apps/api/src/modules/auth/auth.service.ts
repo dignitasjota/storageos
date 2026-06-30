@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { featuresForPlan, permissionsForRole } from '@storageos/shared';
+import { effectiveFeatures, permissionsForRole } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -26,6 +26,7 @@ import { VerificationTokensService } from './verification-tokens.service';
 
 import type { Env } from '../../config/env.schema';
 import type { Tenant, TenantSubscription, User } from '@storageos/database';
+import type { TenantFeature } from '@storageos/shared';
 import type {
   AuthSuccessResponse,
   ForgotPasswordInput,
@@ -630,12 +631,19 @@ export class AuthService {
       if (!subscription) {
         throw new InternalServerErrorException('Suscripcion no encontrada');
       }
+      const overrides = await tx.tenantFeatureOverride.findMany({
+        where: { tenantId: args.tenantId },
+        select: { feature: true, enabled: true },
+      });
       return {
         user: this.toUserDto(user),
         tenant: this.toTenantDto(tenant),
         subscription: this.toSubscriptionDto(subscription, subscription.plan.slug),
         permissions: await this.resolvePermissions(args.tenantId, user),
-        features: featuresForPlan(subscription.plan.slug),
+        features: effectiveFeatures(
+          subscription.plan.slug,
+          overrides as { feature: TenantFeature; enabled: boolean }[],
+        ),
         facilityScope: await this.resolveFacilityScope(args.tenantId, args.userId),
       };
     }, args.tenantId);

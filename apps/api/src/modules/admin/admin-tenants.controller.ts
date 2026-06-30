@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,6 +20,8 @@ import {
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantFacilityDto,
+  type AdminTenantFeaturesDto,
+  SetTenantFeaturesSchema,
   type AdminTenantHealthDto,
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
@@ -60,6 +63,7 @@ class CreateTenantInteractionDto extends createZodDto(CreateTenantInteractionSch
 class CreateTenantFollowupDto extends createZodDto(CreateTenantFollowupSchema) {}
 class CreateManualSaasPaymentDto extends createZodDto(CreateManualSaasPaymentSchema) {}
 class AdminUpdateTenantDto extends createZodDto(AdminUpdateTenantSchema) {}
+class SetTenantFeaturesDto extends createZodDto(SetTenantFeaturesSchema) {}
 
 interface RequestMetaInfo {
   ipAddress: string | null;
@@ -462,6 +466,29 @@ export class AdminTenantsController {
       superAdminId: admin.sub,
       reason: input.reason,
       days: input.days,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  @Get(':id/features')
+  async getFeatures(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantFeaturesDto> {
+    return this.tenants.getFeatures(id);
+  }
+
+  @Put(':id/features')
+  @HttpCode(HttpStatus.OK)
+  async setFeatures(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetTenantFeaturesDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantFeaturesDto> {
+    const meta = extractMeta(req);
+    return this.tenants.setFeatures(id, {
+      superAdminId: admin.sub,
+      reason: 'feature_override',
+      overrides: input.overrides,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });

@@ -7,7 +7,9 @@ import type {
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
+  AdminTenantFeaturesDto,
   AdminTenantHealthDto,
+  TenantFeature,
   AdminBroadcastInput,
   AdminBroadcastResultDto,
   AdminEmailTenantInput,
@@ -908,6 +910,29 @@ export function useDeleteFollowup() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+/** Features (plan + overrides) de un tenant. */
+export function useAdminTenantFeatures(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenant', id, 'features'] as const,
+    queryFn: () => adminApiFetch<AdminTenantFeaturesDto>(`/admin/tenants/${id}/features`),
+    enabled,
+  });
+}
+
+export function useSetTenantFeatures(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (overrides: { feature: TenantFeature; enabled: boolean }[]) =>
+      adminApiFetch<AdminTenantFeaturesDto>(`/admin/tenants/${id}/features`, {
+        method: 'PUT',
+        json: { overrides },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', id, 'features'] });
     },
   });
 }
