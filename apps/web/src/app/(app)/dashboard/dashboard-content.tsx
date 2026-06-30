@@ -10,6 +10,7 @@ import { ForecastCard } from './forecast-card';
 import { KpiTiles } from './kpi-tiles';
 import { LeadsCard } from './leads-card';
 import { OccupancyCard } from './occupancy-card';
+import { QuickActions } from './quick-actions';
 import { RevenueTrendCard } from './revenue-trend-card';
 
 import { Badge } from '@/components/ui/badge';
@@ -78,6 +79,8 @@ export function DashboardContent() {
           )}
         </div>
       </header>
+
+      <QuickActions />
 
       {canSeeAnalytics ? (
         <>
