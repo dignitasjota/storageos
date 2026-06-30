@@ -9,6 +9,7 @@ import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
 import { CustomerDocumentsTab } from './documents-tab';
+import { FollowupsCard } from './followups-card';
 import { CustomerPaymentHistoryTab } from './payment-history-tab';
 import { CustomerPaymentMethodsTab } from './payment-methods-tab';
 import { PortalLinkButton } from './portal-link-button';
@@ -102,6 +103,7 @@ export default function CustomerDetailPage() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="followups">Seguimientos</TabsTrigger>
           <TabsTrigger value="history">Historial de pagos</TabsTrigger>
           <TabsTrigger value="payments">Métodos de pago</TabsTrigger>
           <TabsTrigger value="info">Datos</TabsTrigger>
@@ -120,6 +122,9 @@ export default function CustomerDetailPage() {
         </TabsContent>
         <TabsContent value="chat" className="mt-6">
           <CustomerChatTab customerId={c.id} />
+        </TabsContent>
+        <TabsContent value="followups" className="mt-6">
+          <FollowupsCard customerId={c.id} />
         </TabsContent>
         <TabsContent value="history" className="mt-6">
           <CustomerPaymentHistoryTab customerId={c.id} />
