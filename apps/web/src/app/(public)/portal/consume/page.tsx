@@ -37,6 +37,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { ChatCard } from './chat-card';
+import { DocumentsCard } from './documents-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
 import { OverviewCard } from './overview-card';
@@ -1217,6 +1218,8 @@ function PortalConsumeContent() {
 
         <TabsContent value="datos" className="space-y-6">
           <ProfileCard session={session} />
+
+          <DocumentsCard session={session} />
 
           {referrals?.enabled && referrals.referralCode && (
             <Card>

@@ -32,8 +32,12 @@ import {
   PortalSetInsuranceSchema,
   PortalUpdateProfileSchema,
   SendCustomerMessageSchema,
+  type CustomerDocumentDto,
+  type CustomerDocumentUploadDto,
   type CustomerMessageDto,
   type FaqEntryDto,
+  RegisterCustomerDocumentSchema,
+  RequestCustomerDocumentUploadSchema,
   type InsurancePlanDto,
   type ProductDto,
   type ProductSaleDto,
@@ -58,6 +62,7 @@ import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
+import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqService } from '../faq/faq.service';
 import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
@@ -80,6 +85,8 @@ class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
 class PortalSendMessageDto extends createZodDto(SendCustomerMessageSchema) {}
+class RequestDocumentUploadDto extends createZodDto(RequestCustomerDocumentUploadSchema) {}
+class RegisterDocumentDto extends createZodDto(RegisterCustomerDocumentSchema) {}
 class PortalCreateExtraAccessDto extends createZodDto(PortalCreateExtraAccessSchema) {}
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
@@ -99,6 +106,7 @@ export class PortalController {
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
+    private readonly documents: CustomerDocumentsService,
   ) {}
 
   @Public()
@@ -293,6 +301,47 @@ export class PortalController {
       customerId,
       contractId: id,
       endDate: input.endDate,
+    });
+  }
+
+  // ----------------------- documentos --------------------------------------
+
+  /** Documentos del inquilino (KYC): el inquilino los ve y sube los suyos. */
+  @Public()
+  @Get('me/documents')
+  async myDocuments(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<CustomerDocumentDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.documents.list(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/documents/upload-url')
+  async myDocumentUploadUrl(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: RequestDocumentUploadDto,
+  ): Promise<CustomerDocumentUploadDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.documents.requestUploadUrl(tenantId, customerId, input);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/documents')
+  async registerMyDocument(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: RegisterDocumentDto,
+  ): Promise<CustomerDocumentDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    // El inquilino sube su propio documento → sin usuario staff (`userId: null`).
+    return this.documents.register({
+      tenantId,
+      userId: null,
+      customerId,
+      input,
+      meta: { ipAddress: undefined, userAgent: undefined },
     });
   }
 
