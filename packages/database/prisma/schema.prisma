@@ -425,6 +425,7 @@ model Tenant {
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
   unitChangeRequests      UnitChangeRequest[]
+  unitRequests            UnitRequest[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
 
@@ -773,6 +774,7 @@ model Facility {
   tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   floors           FacilityFloor[]
   units            Unit[]
+  unitRequests     UnitRequest[]
   leadsPreferred   Lead[]            @relation("LeadPreferredFacility")
   tasks            Task[]            @relation("TaskFacility")
   maintenancePlans MaintenancePlan[]
@@ -831,6 +833,7 @@ model UnitType {
 
   tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   units          Unit[]
+  unitRequests   UnitRequest[]
   leadsPreferred Lead[] @relation("LeadPreferredUnitType")
 
   @@unique([tenantId, name])
@@ -872,6 +875,7 @@ model Unit {
   unitType      UnitType            @relation(fields: [unitTypeId], references: [id], onDelete: Restrict)
   statusHistory UnitStatusHistory[]
   contracts     Contract[]
+  unitRequests  UnitRequest[]
   reservations  Reservation[]
   tasks         Task[]              @relation("TaskUnit")
   incidents     Incident[]          @relation("IncidentUnit")
@@ -961,6 +965,7 @@ model Customer {
   sepaMandates       SepaMandate[]
   pushSubscriptions  PushSubscription[]
   unitChangeRequests UnitChangeRequest[]
+  unitRequests       UnitRequest[]
   interactions       CustomerInteraction[]
   messages           CustomerMessage[]
   followups          CustomerFollowup[]
@@ -1810,6 +1815,34 @@ model UnitChangeRequest {
   @@index([tenantId, status])
   @@index([tenantId, customerId])
   @@map("unit_change_requests")
+}
+
+/// Solicitud de un trastero adicional desde el portal del inquilino (ve la
+/// disponibilidad de su local y manda una solicitud que el staff gestiona).
+model UnitRequest {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  facilityId      String?   @map("facility_id") @db.Uuid
+  unitTypeId      String?   @map("unit_type_id") @db.Uuid
+  unitId          String?   @map("unit_id") @db.Uuid
+  note            String    @default("")
+  /// pending | handled | rejected
+  status          String    @default("pending")
+  resolutionNote  String?   @map("resolution_note")
+  handledByUserId String?   @map("handled_by_user_id") @db.Uuid
+  handledAt       DateTime? @map("handled_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  unitType UnitType? @relation(fields: [unitTypeId], references: [id], onDelete: SetNull)
+  unit     Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+  @@map("unit_requests")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).

@@ -23,6 +23,7 @@ import {
   Megaphone,
   MessageSquare,
   Package,
+  PackagePlus,
   Replace,
   Settings,
   Shield,
@@ -61,6 +62,7 @@ import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
+import { useUnitRequestPendingCount } from '@/lib/unit-requests/hooks';
 
 interface NavItem {
   href: string;
@@ -100,6 +102,12 @@ const GROUPS: NavGroup[] = [
         href: '/unit-change-requests',
         labelKey: 'unitChangeRequests',
         icon: Replace,
+        permission: 'contracts:read',
+      },
+      {
+        href: '/unit-requests',
+        labelKey: 'unitRequests',
+        icon: PackagePlus,
         permission: 'contracts:read',
       },
       { href: '/calendar', labelKey: 'calendar', icon: CalendarDays, permission: 'tasks:read' },
@@ -259,6 +267,8 @@ export function AppSidebar() {
   // Badge de cambios de trastero pendientes (solo si el usuario ve esa sección).
   const unitChangePending =
     useUnitChangePendingCount(permissions.includes('contracts:read')).data?.count ?? 0;
+  const unitRequestPending =
+    useUnitRequestPendingCount(permissions.includes('contracts:read')).data?.count ?? 0;
   // Incidencias abiertas por estado (reportadas + en investigación).
   const incidentCounts = useIncidentPendingCounts(permissions.includes('incidents:read')).data ?? {
     reported: 0,
@@ -299,6 +309,7 @@ export function AppSidebar() {
     const Icon = item.icon;
     const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
     const unitChangeBadge = item.href === '/unit-change-requests' && unitChangePending > 0;
+    const unitRequestBadge = item.href === '/unit-requests' && unitRequestPending > 0;
     const incidentBadge =
       item.href === '/incidents' &&
       (incidentCounts.reported > 0 || incidentCounts.investigating > 0);
@@ -314,6 +325,11 @@ export function AppSidebar() {
         {unitChangeBadge && (
           <SidebarMenuBadge className="bg-primary text-primary-foreground">
             {unitChangePending}
+          </SidebarMenuBadge>
+        )}
+        {unitRequestBadge && (
+          <SidebarMenuBadge className="bg-primary text-primary-foreground">
+            {unitRequestPending}
           </SidebarMenuBadge>
         )}
         {messagesBadge && (
