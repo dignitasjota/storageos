@@ -157,8 +157,7 @@ export default function PlansPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Planes</h1>
           <p className="text-sm text-muted-foreground">
-            Precios y límites de los planes de suscripción. Las features incluidas por plan se
-            definen en código (por slug).
+            Precios, límites y features premium de cada plan de suscripción.
           </p>
         </div>
         <Button onClick={openCreate}>Nuevo plan</Button>
@@ -226,7 +225,7 @@ export default function PlansPage() {
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar plan' : 'Nuevo plan'}</DialogTitle>
             <DialogDescription>
-              Las features por plan se gestionan en código; aquí defines precio y límites.
+              Define precio, límites y las features premium incluidas en el plan.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
