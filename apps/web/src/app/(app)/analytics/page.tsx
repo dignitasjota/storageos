@@ -465,9 +465,20 @@ function LeadsUtmCard() {
 // ============================================================================
 
 const RISK_BADGE: Record<ChurnRiskLevel, { label: string; className: string }> = {
-  high: { label: 'Alto', className: 'bg-red-100 text-red-700 hover:bg-red-100' },
-  medium: { label: 'Medio', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
-  low: { label: 'Bajo', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
+  high: {
+    label: 'Alto',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 hover:bg-red-100',
+  },
+  medium: {
+    label: 'Medio',
+    className:
+      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-950',
+  },
+  low: {
+    label: 'Bajo',
+    className:
+      'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950',
+  },
 };
 
 function ChurnRiskPanel() {
@@ -556,9 +567,21 @@ function ChurnRiskPanel() {
 // ============================================================================
 
 const PRICING_BADGE: Record<PricingAction, { label: string; className: string }> = {
-  raise: { label: 'Subir', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
-  lower: { label: 'Bajar', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
-  hold: { label: 'Mantener', className: 'bg-slate-100 text-slate-600 hover:bg-slate-100' },
+  raise: {
+    label: 'Subir',
+    className:
+      'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950',
+  },
+  lower: {
+    label: 'Bajar',
+    className:
+      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-950',
+  },
+  hold: {
+    label: 'Mantener',
+    className:
+      'bg-slate-100 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-800',
+  },
 };
 
 function PricingSuggestionsPanel() {

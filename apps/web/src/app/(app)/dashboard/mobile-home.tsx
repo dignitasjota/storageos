@@ -29,40 +29,45 @@ type Action = {
 };
 
 const ACTIONS: Action[] = [
-  { href: '/today', label: 'Hoy', icon: Sun, tint: 'bg-amber-100 text-amber-600' },
+  {
+    href: '/today',
+    label: 'Hoy',
+    icon: Sun,
+    tint: 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-300',
+  },
   {
     href: '/contracts/new',
     label: 'Nuevo contrato',
     icon: FileText,
-    tint: 'bg-blue-100 text-blue-600',
+    tint: 'bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300',
     permission: 'contracts:write',
   },
   {
     href: '/invoices',
     label: 'Cobros',
     icon: CreditCard,
-    tint: 'bg-emerald-100 text-emerald-600',
+    tint: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300',
     permission: 'invoices:read',
   },
   {
     href: '/customers',
     label: 'Inquilinos',
     icon: UserPlus,
-    tint: 'bg-violet-100 text-violet-600',
+    tint: 'bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300',
     permission: 'customers:read',
   },
   {
     href: '/units',
     label: 'Trasteros',
     icon: Boxes,
-    tint: 'bg-cyan-100 text-cyan-600',
+    tint: 'bg-cyan-100 text-cyan-600 dark:bg-cyan-950 dark:text-cyan-300',
     permission: 'units:read',
   },
   {
     href: '/access',
     label: 'Accesos',
     icon: KeyRound,
-    tint: 'bg-slate-200 text-slate-700',
+    tint: 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
     permission: 'access:read',
     feature: 'access_control',
   },
@@ -70,14 +75,14 @@ const ACTIONS: Action[] = [
     href: '/incidents',
     label: 'Incidencias',
     icon: AlertTriangle,
-    tint: 'bg-red-100 text-red-600',
+    tint: 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300',
     permission: 'incidents:read',
   },
   {
     href: '/tasks',
     label: 'Tareas',
     icon: ClipboardList,
-    tint: 'bg-orange-100 text-orange-600',
+    tint: 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-300',
     permission: 'tasks:read',
   },
 ];

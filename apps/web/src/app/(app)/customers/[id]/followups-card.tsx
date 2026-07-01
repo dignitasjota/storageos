@@ -94,6 +94,7 @@ export function FollowupsCard({ customerId }: { customerId: string }) {
                     className="size-8 text-muted-foreground hover:text-emerald-600"
                     title="Marcar hecho"
                     onClick={() => update.mutate({ id: f.id, status: 'done' })}
+                    aria-label="Marcar como hecho"
                   >
                     <Check className="size-4" />
                   </Button>
@@ -114,6 +115,7 @@ export function FollowupsCard({ customerId }: { customerId: string }) {
                   className="size-8 text-muted-foreground hover:text-destructive"
                   title="Borrar"
                   onClick={() => remove.mutate(f.id)}
+                  aria-label="Eliminar"
                 >
                   <Trash2 className="size-4" />
                 </Button>

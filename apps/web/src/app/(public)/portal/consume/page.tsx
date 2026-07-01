@@ -1175,6 +1175,7 @@ function PortalConsumeContent() {
                             title="Regenerar"
                             disabled={regeneratingId === c.id}
                             onClick={() => void regenerateAccess(c.id)}
+                            aria-label="Actualizar"
                           >
                             <RefreshCw
                               className={`h-4 w-4 ${regeneratingId === c.id ? 'animate-spin' : ''}`}

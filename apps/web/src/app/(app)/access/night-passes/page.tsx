@@ -10,8 +10,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useNightPasses } from '@/lib/access/hooks';
 
 const STATUS: Record<NightPassStaffDto['status'], { label: string; className: string }> = {
-  active: { label: 'Sin usar', className: 'bg-green-100 text-green-700' },
-  used: { label: 'Utilizado', className: 'bg-slate-100 text-slate-700' },
+  active: {
+    label: 'Sin usar',
+    className: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  },
+  used: {
+    label: 'Utilizado',
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  },
   expired: { label: 'Caducado', className: 'bg-slate-300 text-slate-800' },
 };
 

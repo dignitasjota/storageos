@@ -113,7 +113,12 @@ export default function PromotionsPage() {
       header: '',
       cell: ({ row }) =>
         canManage && (
-          <Button variant="ghost" size="icon" onClick={() => handleDelete(row.original.id)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleDelete(row.original.id)}
+            aria-label="Eliminar"
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         ),

@@ -216,7 +216,7 @@ function BookingPayment({
 
   if (paid) {
     return (
-      <div className="rounded-md border border-green-200 bg-green-50 p-3 text-green-800">
+      <div className="rounded-md border border-green-200 bg-green-50 p-3 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
         ✓ Pago completado. Tu acceso al trastero se activará en breve.
       </div>
     );

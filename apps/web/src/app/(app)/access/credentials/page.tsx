@@ -89,10 +89,22 @@ const METHOD_LABELS: Record<AccessMethodValue, { label: string; Icon: React.Elem
 };
 
 const STATUS_LABELS: Record<AccessCredentialStatusValue, { label: string; className: string }> = {
-  pending: { label: 'Pendiente', className: 'bg-slate-100 text-slate-700' },
-  active: { label: 'Activa', className: 'bg-green-100 text-green-700' },
-  suspended: { label: 'Suspendida', className: 'bg-orange-100 text-orange-700' },
-  revoked: { label: 'Revocada', className: 'bg-red-100 text-red-700' },
+  pending: {
+    label: 'Pendiente',
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  },
+  active: {
+    label: 'Activa',
+    className: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  },
+  suspended: {
+    label: 'Suspendida',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
+  },
+  revoked: {
+    label: 'Revocada',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  },
   expired: { label: 'Expirada', className: 'bg-slate-300 text-slate-800' },
 };
 
@@ -212,7 +224,7 @@ export default function CredentialsPage() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Acciones">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -861,13 +873,13 @@ function RevealedSecretDialog({
           <DialogTitle>Credencial generada</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="rounded-md border bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="rounded-md border bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
             Guarda este código ahora. <strong>No se mostrará otra vez.</strong>
           </div>
           {credential.revealedSecret ? (
             <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3 font-mono text-lg">
               <span className="flex-1 break-all">{credential.revealedSecret}</span>
-              <Button type="button" size="icon" variant="ghost" onClick={copy}>
+              <Button type="button" size="icon" variant="ghost" onClick={copy} aria-label="Copiar">
                 <Copy className="h-4 w-4" />
               </Button>
             </div>

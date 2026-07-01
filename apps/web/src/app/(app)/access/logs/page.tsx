@@ -19,17 +19,38 @@ import { useAccessLogs, useDevices } from '@/lib/access/hooks';
 const METHOD_LABELS: Record<string, string> = { pin: 'PIN', qr: 'QR', rfid: 'RFID' };
 
 const RESULT_LABELS: Record<AccessResultValue, { label: string; className: string }> = {
-  allowed: { label: 'Permitido', className: 'bg-green-100 text-green-700' },
-  denied_invalid_credential: { label: 'Credencial inválida', className: 'bg-red-100 text-red-700' },
+  allowed: {
+    label: 'Permitido',
+    className: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  },
+  denied_invalid_credential: {
+    label: 'Credencial inválida',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  },
   denied_inactive_credential: {
     label: 'Credencial inactiva',
-    className: 'bg-orange-100 text-orange-700',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
   },
-  denied_outside_hours: { label: 'Fuera de horario', className: 'bg-orange-100 text-orange-700' },
-  denied_wrong_facility: { label: 'Local incorrecto', className: 'bg-orange-100 text-orange-700' },
-  denied_dunning: { label: 'Impago', className: 'bg-red-100 text-red-700' },
-  denied_unknown: { label: 'Denegado', className: 'bg-red-100 text-red-700' },
-  error: { label: 'Error', className: 'bg-slate-200 text-slate-800' },
+  denied_outside_hours: {
+    label: 'Fuera de horario',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
+  },
+  denied_wrong_facility: {
+    label: 'Local incorrecto',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
+  },
+  denied_dunning: {
+    label: 'Impago',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  },
+  denied_unknown: {
+    label: 'Denegado',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  },
+  error: {
+    label: 'Error',
+    className: 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
+  },
 };
 
 const RESULTS = Object.keys(RESULT_LABELS) as AccessResultValue[];
@@ -84,7 +105,7 @@ export default function AccessLogsPage() {
       cell: ({ row }) => {
         const r = RESULT_LABELS[row.original.result] ?? {
           label: row.original.result,
-          className: 'bg-slate-100 text-slate-700',
+          className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
         };
         return (
           <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${r.className}`}>

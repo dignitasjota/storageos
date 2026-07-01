@@ -250,7 +250,7 @@ function CommRow({ comm }: { comm: CommunicationDto }) {
   const date = comm.sentAt ?? comm.scheduledFor ?? comm.createdAt;
   return (
     <li className="flex gap-3 rounded-lg border bg-card p-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300">
         <Icon className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
@@ -294,7 +294,7 @@ function NoteRow({
   const Icon = NOTE_ICON[note.type] ?? StickyNote;
   return (
     <li className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
         <Icon className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
@@ -312,6 +312,7 @@ function NoteRow({
               size="icon"
               className="size-6 text-muted-foreground hover:text-destructive"
               onClick={onDelete}
+              aria-label="Eliminar"
             >
               <Trash2 className="size-3.5" />
             </Button>

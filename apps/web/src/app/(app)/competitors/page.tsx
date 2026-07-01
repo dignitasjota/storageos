@@ -202,6 +202,7 @@ function CompetitorCard({
                 e.stopPropagation();
                 onDelete();
               }}
+              aria-label="Eliminar"
             >
               <Trash2 className="size-4" />
             </Button>
@@ -333,6 +334,7 @@ function CompetitorUnits({
                         size="icon"
                         className="h-7 w-7"
                         onClick={() => openEdit(u)}
+                        aria-label="Editar"
                       >
                         <Pencil className="size-4" />
                       </Button>
@@ -341,6 +343,7 @@ function CompetitorUnits({
                         size="icon"
                         className="h-7 w-7"
                         onClick={() => del.mutate(u.id)}
+                        aria-label="Eliminar"
                       >
                         <Trash2 className="size-4" />
                       </Button>

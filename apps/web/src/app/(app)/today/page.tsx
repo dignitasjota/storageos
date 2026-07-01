@@ -111,6 +111,7 @@ function SectionCard({
                     className="size-7 shrink-0 text-muted-foreground hover:text-green-600"
                     title={completeLabel ?? 'Marcar hecho'}
                     onClick={() => onComplete(it)}
+                    aria-label="Marcar como hecho"
                   >
                     <Check className="size-4" />
                   </Button>
@@ -143,7 +144,7 @@ function StatTile({
       <Card className={highlight ? 'border-amber-300' : undefined}>
         <CardContent className="flex items-center gap-3 pt-6">
           <span
-            className={`flex size-10 shrink-0 items-center justify-center rounded-full ${highlight ? 'bg-amber-100 text-amber-600' : 'bg-muted text-muted-foreground'}`}
+            className={`flex size-10 shrink-0 items-center justify-center rounded-full ${highlight ? 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-300' : 'bg-muted text-muted-foreground'}`}
           >
             <Icon className="size-5" />
           </span>

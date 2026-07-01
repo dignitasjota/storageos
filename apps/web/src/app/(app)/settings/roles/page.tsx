@@ -112,7 +112,12 @@ export default function RolesPage() {
                 <TableCell className="text-right">{r.userCount}</TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => setEditing(r)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setEditing(r)}
+                      aria-label="Editar"
+                    >
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
@@ -130,6 +135,7 @@ export default function RolesPage() {
                           });
                         }
                       }}
+                      aria-label="Eliminar"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
