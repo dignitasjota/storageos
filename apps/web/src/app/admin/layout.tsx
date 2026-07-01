@@ -14,6 +14,7 @@ import {
   LifeBuoy,
   LogOut,
   Megaphone,
+  Menu,
   Package,
   ScrollText,
   UserCog,
@@ -24,7 +25,7 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ThemeProvider } from 'next-themes';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared';
 
@@ -39,6 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { adminApiFetch } from '@/lib/admin/api';
 import { useAdminAuthStore } from '@/lib/admin/auth-store';
 import { useAdminLogout, useAdminOpenTicketsCount } from '@/lib/admin/hooks';
@@ -180,13 +182,60 @@ function AdminGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Lista de enlaces del nav admin (reutilizada en el aside desktop y el drawer móvil). */
+function AdminNavLinks({
+  pathname,
+  openTickets,
+  onNavigate,
+}: {
+  pathname: string;
+  openTickets: number;
+  onNavigate?: () => void;
+}) {
+  return (
+    <nav className="flex-1 space-y-1 px-2 py-3">
+      {ADMIN_NAV.map((item) => {
+        const Icon = item.icon;
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+              active
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            )}
+          >
+            <Icon className="size-4" />
+            {item.label}
+            {item.href === '/admin/support' && openTickets > 0 && (
+              <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
+                {openTickets}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const admin = useAdminAuthStore((s) => s.superAdmin);
   const logout = useAdminLogout();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Tickets de soporte esperando respuesta del admin (badge en «Soporte»).
   const openTickets = useAdminOpenTicketsCount().data?.count ?? 0;
+
+  // Cierra el drawer al navegar a otra ruta.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
   async function onLogout() {
     await logout.mutateAsync();
@@ -195,40 +244,42 @@ function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
+      {/* Sidebar fijo en desktop */}
       <aside className="hidden w-60 shrink-0 border-r border-border bg-muted/30 md:flex md:flex-col">
         <div className="flex h-14 items-center border-b border-border px-4 text-base font-semibold tracking-tight">
           StorageOS Admin
         </div>
-        <nav className="flex-1 space-y-1 px-2 py-3">
-          {ADMIN_NAV.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                  active
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4" />
-                {item.label}
-                {item.href === '/admin/support' && openTickets > 0 && (
-                  <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
-                    {openTickets}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <AdminNavLinks pathname={pathname} openTickets={openTickets} />
       </aside>
+
+      {/* Drawer del sidebar en móvil */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-64 p-0">
+          <SheetTitle className="flex h-14 items-center border-b border-border px-4 text-base font-semibold tracking-tight">
+            StorageOS Admin
+          </SheetTitle>
+          <AdminNavLinks
+            pathname={pathname}
+            openTickets={openTickets}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
+
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4">
-          <div className="text-sm font-medium text-muted-foreground">Panel super admin</div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              aria-label="Abrir menú"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu className="size-5" />
+            </Button>
+            <div className="text-sm font-medium text-muted-foreground">Panel super admin</div>
+          </div>
           <div className="flex items-center gap-1">
             <ThemeToggle />
             <DropdownMenu>

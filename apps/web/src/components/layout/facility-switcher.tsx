@@ -54,12 +54,12 @@ export function FacilitySwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="gap-2" aria-haspopup="listbox">
-          <Building2 className="size-4" aria-hidden />
-          <span className="text-sm truncate max-w-[180px]">
+        <Button variant="outline" className="min-w-0 gap-2 px-2 sm:px-3" aria-haspopup="listbox">
+          <Building2 className="size-4 shrink-0" aria-hidden />
+          <span className="max-w-[88px] truncate text-sm sm:max-w-[180px]">
             {current ? current.name : 'Todos los locales'}
           </span>
-          <ChevronsUpDown className="ml-1 size-4 opacity-60" aria-hidden />
+          <ChevronsUpDown className="ml-1 size-4 shrink-0 opacity-60" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72" align="start">
