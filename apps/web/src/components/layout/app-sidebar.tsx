@@ -98,12 +98,24 @@ const GROUPS: NavGroup[] = [
     labelKey: 'operations',
     items: [
       { href: '/customers', labelKey: 'customers', icon: Users, permission: 'customers:read' },
-      { href: '/contracts', labelKey: 'contracts', icon: FileText, permission: 'contracts:read' },
       {
-        href: '/reservations',
-        labelKey: 'reservations',
-        icon: CalendarClock,
-        permission: 'reservations:read',
+        href: 'ops-contracting',
+        labelKey: 'opsContracting',
+        icon: FileText,
+        children: [
+          {
+            href: '/contracts',
+            labelKey: 'contracts',
+            icon: FileText,
+            permission: 'contracts:read',
+          },
+          {
+            href: '/reservations',
+            labelKey: 'reservations',
+            icon: CalendarClock,
+            permission: 'reservations:read',
+          },
+        ],
       },
       {
         href: 'unit-petitions',
@@ -125,19 +137,21 @@ const GROUPS: NavGroup[] = [
           },
         ],
       },
-      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays, permission: 'tasks:read' },
-      { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
       {
-        href: '/maintenance',
-        labelKey: 'maintenance',
-        icon: Wrench,
-        permission: 'tasks:read',
-      },
-      {
-        href: '/incidents',
-        labelKey: 'incidents',
-        icon: AlertTriangle,
-        permission: 'incidents:read',
+        href: 'ops-daily',
+        labelKey: 'opsDaily',
+        icon: ClipboardList,
+        children: [
+          { href: '/calendar', labelKey: 'calendar', icon: CalendarDays, permission: 'tasks:read' },
+          { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
+          { href: '/maintenance', labelKey: 'maintenance', icon: Wrench, permission: 'tasks:read' },
+          {
+            href: '/incidents',
+            labelKey: 'incidents',
+            icon: AlertTriangle,
+            permission: 'incidents:read',
+          },
+        ],
       },
       {
         href: '/access',

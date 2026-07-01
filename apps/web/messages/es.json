@@ -79,6 +79,8 @@
       "rgpd": "Seguridad: 2FA, registro de auditoría y cumplimiento RGPD",
       "reports": "Informes exportables en PDF y Excel",
       "ai": "Asistente IA que responde sobre tus datos del negocio",
+      "opsContracting": "Contratación",
+      "opsDaily": "Operaciones diarias",
       "reservations": "Reservas online con pago y fianza, y move-out self-service"
     },
     "cta": {
