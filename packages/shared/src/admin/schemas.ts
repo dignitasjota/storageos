@@ -363,3 +363,11 @@ export const UpdatePlatformDunningSettingsSchema = z
 export type UpdatePlatformDunningSettingsInput = z.infer<
   typeof UpdatePlatformDunningSettingsSchema
 >;
+
+/** Banner global mostrado a todos los tenants. */
+export const UpdatePlatformBannerSchema = z.object({
+  message: z.string().trim().max(500).default(''),
+  level: z.enum(['info', 'warning', 'critical']).default('info'),
+  enabled: z.boolean().default(false),
+});
+export type UpdatePlatformBannerInput = z.infer<typeof UpdatePlatformBannerSchema>;

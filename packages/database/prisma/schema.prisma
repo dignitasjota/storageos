@@ -3551,3 +3551,28 @@ model PlatformDunningEvent {
   @@index([tenantId])
   @@map("platform_dunning_events")
 }
+
+/// Feed de notificaciones del super admin (eventos de plataforma). Global.
+model SuperAdminNotification {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  type      String
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)])
+  @@map("super_admin_notifications")
+}
+
+/// Banner global mostrado a todos los tenants en su panel. Singleton.
+model PlatformBanner {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  message   String   @default("")
+  level     String   @default("info")
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_banner")
+}

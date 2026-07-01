@@ -54,6 +54,7 @@ import { OperationsModule } from './modules/operations/operations.module';
 import { GoCardlessModule } from './modules/payments/gocardless/gocardless.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { RedsysModule } from './modules/payments/redsys/redsys.module';
+import { PlatformModule } from './modules/platform/platform.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ProductsModule } from './modules/products/products.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
@@ -176,6 +177,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ReportsModule,
     AccessModule,
     AdminModule,
+    PlatformModule,
     BillingSaasModule,
     IntegrationsModule,
     ImportsModule,

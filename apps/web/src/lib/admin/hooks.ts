@@ -10,6 +10,9 @@ import type {
   DunningRunResultDto,
   PlatformDunningSettingsDto,
   UpdatePlatformDunningSettingsInput,
+  PlatformBannerDto,
+  UpdatePlatformBannerInput,
+  SuperAdminNotificationDto,
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
@@ -1158,5 +1161,52 @@ export function useRunDunning() {
   return useMutation({
     mutationFn: () =>
       adminApiFetch<DunningRunResultDto>('/admin/platform-dunning/run', { method: 'POST' }),
+  });
+}
+
+// --- Banner global + notificaciones del super admin ---
+export function useAdminPlatformBanner() {
+  return useQuery({
+    queryKey: ['admin', 'platform', 'banner'] as const,
+    queryFn: () => adminApiFetch<PlatformBannerDto>('/admin/platform/banner'),
+  });
+}
+
+export function useUpdatePlatformBanner() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformBannerInput) =>
+      adminApiFetch<PlatformBannerDto>('/admin/platform/banner', { method: 'PUT', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'banner'] }),
+  });
+}
+
+export function useAdminNotifications() {
+  const token = useAdminAuthStore((s) => s.superAdminToken);
+  return useQuery({
+    queryKey: ['admin', 'platform', 'notifications'] as const,
+    queryFn: () => adminApiFetch<SuperAdminNotificationDto[]>('/admin/platform/notifications'),
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminNotifUnreadCount() {
+  const token = useAdminAuthStore((s) => s.superAdminToken);
+  return useQuery({
+    queryKey: ['admin', 'platform', 'notifications', 'unread'] as const,
+    queryFn: () => adminApiFetch<{ count: number }>('/admin/platform/notifications/unread-count'),
+    enabled: Boolean(token),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useMarkNotifsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<void>('/admin/platform/notifications/read-all', { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'notifications'] });
+    },
   });
 }

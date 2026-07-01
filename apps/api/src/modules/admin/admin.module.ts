@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 import { EmailModule } from '../email/email.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
+import { PlatformModule } from '../platform/platform.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminCommsController } from './admin-comms.controller';
@@ -56,6 +57,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
 @Module({
   imports: [
     AuthModule,
+    PlatformModule,
     TwoFactorModule,
     JwtModule.register({}),
     IntegrationsModule,

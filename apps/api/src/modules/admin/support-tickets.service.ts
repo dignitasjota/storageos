@@ -7,6 +7,7 @@ import {
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PlatformService } from '../platform/platform.service';
 
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 
@@ -96,6 +97,7 @@ export class SupportTicketsService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly interactions: AdminTenantInteractionsService,
+    private readonly platform: PlatformService,
   ) {}
 
   // =========================== tenant facade ===============================
@@ -174,6 +176,13 @@ export class SupportTicketsService {
     } catch {
       /* el registro es secundario */
     }
+    // Notificación en el feed del super admin.
+    await this.platform.notify({
+      type: 'support_ticket',
+      title: `Nuevo ticket de ${created.tenant.name}`,
+      body: args.input.subject,
+      link: `/admin/support/${created.id}`,
+    });
     return this.toDto(created);
   }
 
