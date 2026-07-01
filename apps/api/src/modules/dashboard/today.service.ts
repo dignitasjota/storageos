@@ -29,19 +29,37 @@ export class TodayService {
 
   async getToday(tenantId: string): Promise<TodayDto> {
     const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
     const endOfToday = new Date(now);
     endOfToday.setHours(23, 59, 59, 999);
     const contractsLimit = new Date(now.getTime() + SOON_DAYS * 86_400_000);
     const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
+    const today = { gte: startOfToday, lte: endOfToday };
+    const customerSelect = {
+      select: { customerType: true, firstName: true, lastName: true, companyName: true },
+    } as const;
 
     return this.prisma.withTenant(async (tx) => {
       const [
         tasks,
         tasksCount,
+        moveIns,
+        moveInsCount,
+        moveOuts,
+        moveOutsCount,
+        followups,
+        followupsCount,
+        leads,
+        leadsCount,
+        signatures,
+        signaturesCount,
         contracts,
         contractsCount,
         reservations,
         reservationsCount,
+        dueTodayAgg,
+        dueTodayCount,
         invoicesAgg,
         invoicesCount,
         incidentsOpen,
@@ -63,6 +81,63 @@ export class TodayService {
             dueDate: { not: null, lte: endOfToday },
           },
         }),
+        // Entradas de hoy: contratos que empiezan hoy.
+        tx.contract.findMany({
+          where: { status: { in: ['active', 'ending'] }, startDate: today },
+          orderBy: [{ startDate: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect, unit: { select: { code: true } } },
+        }),
+        tx.contract.count({ where: { status: { in: ['active', 'ending'] }, startDate: today } }),
+        // Salidas de hoy: contratos que terminan hoy.
+        tx.contract.findMany({
+          where: { status: { in: ['active', 'ending'] }, endDate: today },
+          orderBy: [{ endDate: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect, unit: { select: { code: true } } },
+        }),
+        tx.contract.count({ where: { status: { in: ['active', 'ending'] }, endDate: today } }),
+        // Seguimientos CRM vencidos o para hoy.
+        tx.customerFollowup.findMany({
+          where: { status: 'pending', dueDate: { lte: endOfToday } },
+          orderBy: [{ dueDate: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect },
+        }),
+        tx.customerFollowup.count({ where: { status: 'pending', dueDate: { lte: endOfToday } } }),
+        // Leads nuevos sin contactar.
+        tx.lead.findMany({
+          where: { status: 'new', deletedAt: null },
+          orderBy: [{ createdAt: 'desc' }],
+          take: TAKE,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            source: true,
+            createdAt: true,
+          },
+        }),
+        tx.lead.count({ where: { status: 'new', deletedAt: null } }),
+        // Firmas pendientes: token de firma vigente sin firmar.
+        tx.contract.findMany({
+          where: {
+            signedAt: null,
+            signingTokenHash: { not: null },
+            signingTokenExpiresAt: { gte: now },
+          },
+          orderBy: [{ signingTokenExpiresAt: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect, unit: { select: { code: true } } },
+        }),
+        tx.contract.count({
+          where: {
+            signedAt: null,
+            signingTokenHash: { not: null },
+            signingTokenExpiresAt: { gte: now },
+          },
+        }),
         tx.contract.findMany({
           where: {
             status: { in: ['active', 'ending'] },
@@ -70,12 +145,7 @@ export class TodayService {
           },
           orderBy: [{ endDate: 'asc' }],
           take: TAKE,
-          include: {
-            customer: {
-              select: { customerType: true, firstName: true, lastName: true, companyName: true },
-            },
-            unit: { select: { code: true } },
-          },
+          include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
         tx.contract.count({
           where: {
@@ -87,16 +157,17 @@ export class TodayService {
           where: { status: 'pending', validUntil: { gte: now, lte: reservationsLimit } },
           orderBy: [{ validUntil: 'asc' }],
           take: TAKE,
-          include: {
-            customer: {
-              select: { customerType: true, firstName: true, lastName: true, companyName: true },
-            },
-            unit: { select: { code: true } },
-          },
+          include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
         tx.reservation.count({
           where: { status: 'pending', validUntil: { gte: now, lte: reservationsLimit } },
         }),
+        // Facturas que vencen hoy.
+        tx.invoice.aggregate({
+          where: { status: 'issued', dueDate: today },
+          _sum: { total: true, amountPaid: true },
+        }),
+        tx.invoice.count({ where: { status: 'issued', dueDate: today } }),
         tx.invoice.aggregate({
           where: { status: 'overdue' },
           _sum: { total: true, amountPaid: true },
@@ -111,30 +182,79 @@ export class TodayService {
 
       const totalPending =
         Number(invoicesAgg._sum.total ?? 0) - Number(invoicesAgg._sum.amountPaid ?? 0);
+      const totalDueToday =
+        Number(dueTodayAgg._sum.total ?? 0) - Number(dueTodayAgg._sum.amountPaid ?? 0);
+
+      const contractItem = (c: {
+        id: string;
+        endDate: Date | null;
+        startDate?: Date;
+        customer: Parameters<typeof customerName>[0];
+        unit: { code: string } | null;
+      }): TodayItemDto => ({
+        id: c.id,
+        label: customerName(c.customer),
+        detail: c.unit?.code ?? null,
+        date: (c.endDate ?? c.startDate ?? null)?.toISOString() ?? null,
+      });
 
       const taskItems: TodayItemDto[] = tasks.map((t) => ({
         id: t.id,
         label: t.title,
         detail: t.priority,
         date: t.dueDate ? t.dueDate.toISOString() : null,
+        overdue: t.dueDate ? t.dueDate < startOfToday : false,
       }));
-      const contractItems: TodayItemDto[] = contracts.map((c) => ({
+      const followupItems: TodayItemDto[] = followups.map((f) => ({
+        id: f.id,
+        label: f.title,
+        detail: customerName(f.customer),
+        date: f.dueDate.toISOString(),
+        overdue: f.dueDate < startOfToday,
+        linkId: f.customerId,
+      }));
+      const leadItems: TodayItemDto[] = leads.map((l) => ({
+        id: l.id,
+        label: customerName({ ...l, customerType: l.companyName ? 'business' : 'individual' }),
+        detail: l.source,
+        date: l.createdAt.toISOString(),
+      }));
+      const signatureItems: TodayItemDto[] = signatures.map((c) => ({
         id: c.id,
         label: customerName(c.customer),
         detail: c.unit?.code ?? null,
-        date: c.endDate ? c.endDate.toISOString() : null,
-      }));
-      const reservationItems: TodayItemDto[] = reservations.map((r) => ({
-        id: r.id,
-        label: r.customer ? customerName(r.customer) : 'Reserva',
-        detail: r.unit?.code ?? null,
-        date: r.validUntil.toISOString(),
+        date: c.signingTokenExpiresAt ? c.signingTokenExpiresAt.toISOString() : null,
       }));
 
+      const urgentCount =
+        tasksCount + followupsCount + moveInsCount + moveOutsCount + dueTodayCount + invoicesCount;
+
       return {
+        date: startOfToday.toISOString(),
+        urgentCount,
+        moveInsToday: {
+          count: moveInsCount,
+          items: moveIns.map((c) => contractItem({ ...c, startDate: c.startDate })),
+        },
+        moveOutsToday: { count: moveOutsCount, items: moveOuts.map((c) => contractItem(c)) },
         tasksDue: { count: tasksCount, items: taskItems },
-        contractsEndingSoon: { count: contractsCount, items: contractItems },
-        reservationsExpiring: { count: reservationsCount, items: reservationItems },
+        followupsDue: { count: followupsCount, items: followupItems },
+        newLeads: { count: leadsCount, items: leadItems },
+        signaturesPending: { count: signaturesCount, items: signatureItems },
+        contractsEndingSoon: {
+          count: contractsCount,
+          items: contracts.map((c) => contractItem(c)),
+        },
+        reservationsExpiring: {
+          count: reservationsCount,
+          items: reservations.map((r) => ({
+            id: r.id,
+            label: r.customer ? customerName(r.customer) : 'Reserva',
+            detail: r.unit?.code ?? null,
+            date: r.validUntil.toISOString(),
+          })),
+        },
+        invoicesDueToday: { count: dueTodayCount, totalDue: Math.max(0, totalDueToday) },
         invoicesOverdue: { count: invoicesCount, totalPending: Math.max(0, totalPending) },
         incidentsOpen,
         unitChangesPending,
