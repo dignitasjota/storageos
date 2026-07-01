@@ -80,6 +80,7 @@ export default function NotificationsPage() {
                           e.preventDefault();
                           markRead.mutate(n.id);
                         }}
+                        aria-label="Marcar como hecho"
                       >
                         <Check className="size-4" />
                       </Button>

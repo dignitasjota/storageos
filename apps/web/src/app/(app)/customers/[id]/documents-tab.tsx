@@ -168,6 +168,7 @@ export function CustomerDocumentsTab({ customerId }: { customerId: string }) {
                   size="icon"
                   onClick={() => handleDelete(d.id)}
                   className="text-destructive"
+                  aria-label="Eliminar"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

@@ -9,10 +9,22 @@ import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card';
 import { useAdminTenantHealth } from '@/lib/admin/hooks';
 
 const LEVEL: Record<AdminTenantHealthLevel, { label: string; badge: string; bar: string }> = {
-  healthy: { label: 'Saludable', badge: 'bg-green-100 text-green-700', bar: 'bg-green-500' },
+  healthy: {
+    label: 'Saludable',
+    badge: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+    bar: 'bg-green-500',
+  },
   warm: { label: 'Tibio', badge: 'bg-sky-100 text-sky-700', bar: 'bg-sky-500' },
-  at_risk: { label: 'En riesgo', badge: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500' },
-  dormant: { label: 'Dormido', badge: 'bg-red-100 text-red-700', bar: 'bg-red-500' },
+  at_risk: {
+    label: 'En riesgo',
+    badge: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    bar: 'bg-amber-500',
+  },
+  dormant: {
+    label: 'Dormido',
+    badge: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+    bar: 'bg-red-500',
+  },
 };
 
 export function TenantHealthCard({ tenantId }: { tenantId: string }) {

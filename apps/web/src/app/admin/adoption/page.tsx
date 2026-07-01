@@ -117,7 +117,7 @@ function AdoptionRow({ t }: { t: AdminTenantAdoptionDto }) {
           <span className="text-xs text-muted-foreground">/{t.slug}</span>
           <Badge variant="outline">{t.planName ?? 'sin plan'}</Badge>
           {t.isCandidate && (
-            <Badge className="border-0 bg-amber-100 text-amber-700">
+            <Badge className="border-0 bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
               Subir a {t.recommendedPlanName}
             </Badge>
           )}
@@ -132,8 +132,8 @@ function AdoptionRow({ t }: { t: AdminTenantAdoptionDto }) {
                 key={f.feature}
                 className={`rounded px-1.5 py-0.5 text-xs ${
                   f.inPlan
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
+                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 ring-1 ring-amber-300'
                 }`}
                 title={f.inPlan ? 'En su plan' : 'Fuera de su plan'}
               >

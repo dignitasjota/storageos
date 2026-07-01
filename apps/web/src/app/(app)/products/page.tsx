@@ -199,7 +199,12 @@ function CatalogTab() {
       cell: ({ row }) =>
         row.original.isActive &&
         canManage && (
-          <Button variant="ghost" size="icon" onClick={() => handleDelete(row.original.id)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleDelete(row.original.id)}
+            aria-label="Eliminar"
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         ),
@@ -631,7 +636,13 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
                   </FormItem>
                 )}
               />
-              <Button type="button" variant="ghost" size="icon" onClick={() => remove(idx)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => remove(idx)}
+                aria-label="Eliminar"
+              >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>

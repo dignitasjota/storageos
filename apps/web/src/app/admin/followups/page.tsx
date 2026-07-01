@@ -17,8 +17,16 @@ function todayIso(): string {
 /** Etiqueta + color según el vencimiento del recordatorio. */
 function dueMeta(due: string): { label: string; className: string } {
   const today = todayIso();
-  if (due < today) return { label: `Vencido · ${due}`, className: 'bg-red-100 text-red-700' };
-  if (due === today) return { label: 'Hoy', className: 'bg-amber-100 text-amber-700' };
+  if (due < today)
+    return {
+      label: `Vencido · ${due}`,
+      className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+    };
+  if (due === today)
+    return {
+      label: 'Hoy',
+      className: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    };
   return { label: due, className: 'bg-muted text-muted-foreground' };
 }
 

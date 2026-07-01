@@ -244,6 +244,7 @@ export function PlanViewer({ facilityId, floorId }: Props) {
             size="icon"
             className="size-8"
             onClick={() => zoomTo(scale / 1.25)}
+            aria-label="Quitar"
           >
             <Minus className="h-4 w-4" />
           </Button>
@@ -252,10 +253,17 @@ export function PlanViewer({ facilityId, floorId }: Props) {
             size="icon"
             className="size-8"
             onClick={() => zoomTo(scale * 1.25)}
+            aria-label="Añadir"
           >
             <Plus className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" className="size-8" onClick={fitToViewport}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            onClick={fitToViewport}
+            aria-label="Ajustar vista"
+          >
             <Maximize className="h-4 w-4" />
           </Button>
         </div>

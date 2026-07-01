@@ -96,7 +96,7 @@ export function OverviewCard({
                 </p>
               </>
             ) : (
-              <p className="mt-1 flex items-center gap-2 text-lg font-medium text-emerald-600">
+              <p className="mt-1 flex items-center gap-2 text-lg font-medium text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 className="size-5" /> Estás al día con tus pagos
               </p>
             )}
@@ -142,28 +142,28 @@ export function OverviewCard({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <QuickAction
           icon={CreditCard}
-          tint="bg-emerald-100 text-emerald-600"
+          tint="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
           label={pending.length > 0 ? 'Pagar' : 'Facturas'}
           hint={pending.length > 0 ? `${pending.length} pend.` : 'Al día'}
           onClick={() => onNavigate('facturas')}
         />
         <QuickAction
           icon={Boxes}
-          tint="bg-cyan-100 text-cyan-600"
+          tint="bg-cyan-100 text-cyan-600 dark:bg-cyan-950 dark:text-cyan-300"
           label="Mis trasteros"
           hint={`${activeContracts.length} activo${activeContracts.length === 1 ? '' : 's'}`}
           onClick={() => onNavigate('contratos')}
         />
         <QuickAction
           icon={KeyRound}
-          tint="bg-slate-200 text-slate-700"
+          tint="bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
           label="Mi acceso"
           hint="PIN / QR"
           onClick={() => onNavigate('accesos')}
         />
         <QuickAction
           icon={MessageSquare}
-          tint="bg-blue-100 text-blue-600"
+          tint="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300"
           label="Mensajes"
           hint={unreadMessages > 0 ? `${unreadMessages} sin leer` : 'Chat'}
           badge={unreadMessages}
@@ -171,14 +171,14 @@ export function OverviewCard({
         />
         <QuickAction
           icon={AlertCircle}
-          tint="bg-red-100 text-red-600"
+          tint="bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300"
           label="Incidencias"
           hint="Reportar"
           onClick={() => onNavigate('incidencias')}
         />
         <QuickAction
           icon={Plus}
-          tint="bg-violet-100 text-violet-600"
+          tint="bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300"
           label="Contratar"
           hint="Otro trastero"
           onClick={() => onNavigate('nuevo')}

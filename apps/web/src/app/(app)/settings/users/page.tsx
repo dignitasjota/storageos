@@ -207,7 +207,7 @@ export default function UsersSettingsPage() {
                       {(canEdit || canTransfer) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
+                            <Button variant="ghost" size="icon" aria-label="Acciones">
                               <MoreHorizontal className="h-4 w-4" />
                               <span className="sr-only">{t('columns.actions')}</span>
                             </Button>
@@ -292,7 +292,7 @@ export default function UsersSettingsPage() {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button variant="ghost" size="icon" aria-label="Acciones">
                             <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">{t('columns.actions')}</span>
                           </Button>

@@ -198,7 +198,7 @@ export default function DevicesPage() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Acciones">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -675,12 +675,12 @@ function RevealedKeyDialog({
           <DialogTitle>API key del dispositivo</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="rounded-md border bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="rounded-md border bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
             Guarda esta API key ahora. <strong>No se mostrará otra vez.</strong>
           </div>
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3 font-mono text-sm">
             <span className="flex-1 break-all">{device.revealedApiKey}</span>
-            <Button type="button" size="icon" variant="ghost" onClick={copy}>
+            <Button type="button" size="icon" variant="ghost" onClick={copy} aria-label="Copiar">
               <Copy className="h-4 w-4" />
             </Button>
           </div>

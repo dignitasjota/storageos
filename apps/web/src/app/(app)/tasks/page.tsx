@@ -77,10 +77,22 @@ const STATUS_LABELS: Record<
 };
 
 const PRIORITY_LABELS: Record<TaskPriorityValue, { label: string; className: string }> = {
-  low: { label: 'Baja', className: 'bg-slate-100 text-slate-700' },
-  normal: { label: 'Normal', className: 'bg-blue-100 text-blue-700' },
-  high: { label: 'Alta', className: 'bg-orange-100 text-orange-700' },
-  urgent: { label: 'Urgente', className: 'bg-red-100 text-red-700' },
+  low: {
+    label: 'Baja',
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  },
+  normal: {
+    label: 'Normal',
+    className: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  },
+  high: {
+    label: 'Alta',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
+  },
+  urgent: {
+    label: 'Urgente',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  },
 };
 
 const NEXT_STATUS: Record<TaskStatusValue, TaskStatusValue[]> = {
