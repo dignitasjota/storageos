@@ -16,6 +16,7 @@ interface NavTab {
 const TABS: NavTab[] = [
   { href: '/access/credentials', label: 'Credenciales' },
   { href: '/access/devices', label: 'Dispositivos' },
+  { href: '/access/night-passes', label: 'Pases nocturnos' },
   { href: '/access/logs', label: 'Registro' },
 ];
 

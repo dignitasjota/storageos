@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  NightPassListDto,
   AccessCredentialDto,
   AccessCredentialStatusValue,
   AccessCredentialWithSecretDto,
@@ -247,5 +248,13 @@ export function useAccessLogs(params?: {
   return useQuery({
     queryKey: accessLogsKey(flat),
     queryFn: () => apiFetch<AccessLogDto[]>(`/access/logs${toQuery(flat)}`),
+  });
+}
+
+/** Pases nocturnos del tenant + ingresos (subpágina de accesos). */
+export function useNightPasses() {
+  return useQuery({
+    queryKey: ['access', 'night-passes'] as const,
+    queryFn: () => apiFetch<NightPassListDto>('/access/credentials/night-passes'),
   });
 }

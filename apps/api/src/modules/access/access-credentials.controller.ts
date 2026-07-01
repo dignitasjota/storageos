@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   type AccessCredentialDto,
+  type NightPassListDto,
   type AccessCredentialStatusValue,
   type AccessCredentialWithSecretDto,
   AccessCredentialStatusEnum,
@@ -83,6 +84,13 @@ export class AccessCredentialsController {
       ...(customerId ? { customerId } : {}),
       ...(parsedMethod ? { method: parsedMethod } : {}),
     });
+  }
+
+  /** Pases nocturnos del tenant (subpágina de accesos) + ingresos. */
+  @RequirePermission('access:read')
+  @Get('night-passes')
+  nightPasses(@CurrentUser() user: AuthenticatedUser): Promise<NightPassListDto> {
+    return this.service.listNightPasses(user.tenantId);
   }
 
   @RequirePermission('access:read')

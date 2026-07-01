@@ -136,10 +136,24 @@ export default function CredentialsPage() {
       cell: ({ row }) => {
         const m = METHOD_LABELS[row.original.method];
         const Icon = m.Icon;
+        const isNightPass =
+          row.original.label === 'Pase nocturno' ||
+          (row.original.maxUses === 1 && row.original.bypassCurfew);
         return (
           <div className="flex items-center gap-1.5 text-sm">
             <Icon className="size-4 text-muted-foreground" />
             <span>{m.label}</span>
+            {isNightPass ? (
+              <Badge variant="secondary" className="text-[10px]">
+                🌙 Pase nocturno · {row.original.usesCount}/1
+              </Badge>
+            ) : (
+              row.original.bypassCurfew && (
+                <Badge variant="outline" className="text-[10px]">
+                  24 h
+                </Badge>
+              )
+            )}
           </div>
         );
       },
