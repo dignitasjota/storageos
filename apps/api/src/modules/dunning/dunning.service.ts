@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
 import { subtractAmounts } from '../../common/money';
+import { isUniqueViolation } from '../../common/prisma-errors';
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
@@ -175,15 +176,22 @@ export class DunningService {
         },
       });
       if (existing) continue;
-      await this.admin.dunningAction.create({
-        data: {
-          tenantId: data.tenantId,
-          invoiceId: data.invoiceId,
-          actionType: step.type,
-          status: 'scheduled',
-          scheduledFor,
-        },
-      });
+      try {
+        await this.admin.dunningAction.create({
+          data: {
+            tenantId: data.tenantId,
+            invoiceId: data.invoiceId,
+            actionType: step.type,
+            status: 'scheduled',
+            scheduledFor,
+          },
+        });
+      } catch (err) {
+        // Índice parcial dunning_actions_active_unique: otro run concurrente ya
+        // agendó este paso → idempotente, se salta.
+        if (isUniqueViolation(err)) continue;
+        throw err;
+      }
     }
   }
 

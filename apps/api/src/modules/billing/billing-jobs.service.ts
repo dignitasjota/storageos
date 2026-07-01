@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
+import { isUniqueViolation } from '../../common/prisma-errors';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
 
@@ -130,58 +131,68 @@ export class BillingJobsService {
       const isFreeMonth = c.freeMonthsRemaining > 0;
       const rentMonth = periodStart.toISOString().slice(0, 7);
 
-      await this.invoices.create({
-        tenantId,
-        userId: c.customerId, // marcador: lo lanzo el sistema; en audit se filtrara
-        input: {
-          invoiceType: 'F1',
-          customerId: c.customerId,
-          contractId: c.id,
-          seriesId: series.id,
-          periodStart: periodStart.toISOString().slice(0, 10),
-          periodEnd: periodEnd.toISOString().slice(0, 10),
-          dueDate: this.addDays(periodEnd, 15).toISOString().slice(0, 10),
-          items: [
-            {
-              description: `Alquiler ${c.contractNumber} (${rentMonth})${
-                isFreeMonth ? ' — mes gratis (promoción)' : ''
-              }`,
-              quantity: 1,
-              unitPrice: isFreeMonth ? 0 : pricing.effectivePrice,
-              taxRate: 21,
-              relatedContractId: c.id,
-              relatedUnitId: c.unit.id,
-              periodStart: periodStart.toISOString().slice(0, 10),
-              periodEnd: periodEnd.toISOString().slice(0, 10),
-            },
-            // Línea de seguro/protección si el contrato tiene un plan asignado.
-            ...(c.insurancePlanId && c.insurancePrice && Number(c.insurancePrice) > 0
-              ? [
-                  {
-                    description: `Protección de contenido${
-                      c.insurancePlan?.name ? ` — ${c.insurancePlan.name}` : ''
-                    } (${periodStart.toISOString().slice(0, 7)})`,
-                    quantity: 1,
-                    unitPrice: Number(c.insurancePrice),
-                    taxRate: Number(c.insurancePlan?.taxRate ?? 21),
-                    relatedContractId: c.id,
-                    periodStart: periodStart.toISOString().slice(0, 10),
-                    periodEnd: periodEnd.toISOString().slice(0, 10),
-                  },
-                ]
-              : []),
-          ],
-          verifactuMode: 'verifactu',
-        },
-        meta: {},
-      });
-      if (isFreeMonth) {
-        await this.admin.contract.update({
-          where: { id: c.id },
-          data: { freeMonthsRemaining: { decrement: 1 } },
+      try {
+        await this.invoices.create({
+          tenantId,
+          userId: c.customerId, // marcador: lo lanzo el sistema; en audit se filtrara
+          input: {
+            invoiceType: 'F1',
+            customerId: c.customerId,
+            contractId: c.id,
+            seriesId: series.id,
+            periodStart: periodStart.toISOString().slice(0, 10),
+            periodEnd: periodEnd.toISOString().slice(0, 10),
+            dueDate: this.addDays(periodEnd, 15).toISOString().slice(0, 10),
+            items: [
+              {
+                description: `Alquiler ${c.contractNumber} (${rentMonth})${
+                  isFreeMonth ? ' — mes gratis (promoción)' : ''
+                }`,
+                quantity: 1,
+                unitPrice: isFreeMonth ? 0 : pricing.effectivePrice,
+                taxRate: 21,
+                relatedContractId: c.id,
+                relatedUnitId: c.unit.id,
+                periodStart: periodStart.toISOString().slice(0, 10),
+                periodEnd: periodEnd.toISOString().slice(0, 10),
+              },
+              // Línea de seguro/protección si el contrato tiene un plan asignado.
+              ...(c.insurancePlanId && c.insurancePrice && Number(c.insurancePrice) > 0
+                ? [
+                    {
+                      description: `Protección de contenido${
+                        c.insurancePlan?.name ? ` — ${c.insurancePlan.name}` : ''
+                      } (${periodStart.toISOString().slice(0, 7)})`,
+                      quantity: 1,
+                      unitPrice: Number(c.insurancePrice),
+                      taxRate: Number(c.insurancePlan?.taxRate ?? 21),
+                      relatedContractId: c.id,
+                      periodStart: periodStart.toISOString().slice(0, 10),
+                      periodEnd: periodEnd.toISOString().slice(0, 10),
+                    },
+                  ]
+                : []),
+            ],
+            verifactuMode: 'verifactu',
+          },
+          meta: {},
         });
+        if (isFreeMonth) {
+          await this.admin.contract.update({
+            where: { id: c.id },
+            data: { freeMonthsRemaining: { decrement: 1 } },
+          });
+        }
+        created += 1;
+      } catch (err) {
+        // Índice parcial invoices_recurring_period_unique: otra réplica/run ya
+        // creó la factura de este contrato+periodo → no es un error, se salta.
+        if (isUniqueViolation(err)) {
+          this.logger.warn(`Factura recurrente duplicada evitada (contrato ${c.id})`);
+          continue;
+        }
+        throw err;
       }
-      created += 1;
     }
     this.logger.log(`Tenant ${tenantId}: ${created} facturas borrador creadas para el periodo`);
     return { created };

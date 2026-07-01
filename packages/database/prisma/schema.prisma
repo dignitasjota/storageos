@@ -1293,7 +1293,9 @@ model Invoice {
   sepaRemittanceItem SepaRemittanceItem?
   bankStatementTxs   BankStatementTransaction[]
 
-  @@unique([tenantId, seriesId, sequenceNumber])
+  // La unicidad de numeración vive en SQL como índice PARCIAL (solo
+  // sequence_number > 0): los drafts llevan 0 y deben poder convivir.
+  // Ver migración 20260702140000 (Prisma no representa índices parciales).
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -3587,4 +3589,16 @@ model PlatformLegalDocument {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_legal_documents")
+}
+
+/// Dedupe de ejecuciones de crons entre réplicas: cada cron reclama su
+/// ejecución diaria insertando (name, run_on); la PK garantiza un solo ganador.
+/// Global (sin tenant, sin RLS).
+model CronRun {
+  name      String
+  runOn     DateTime @map("run_on") @db.Date
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([name, runOn])
+  @@map("cron_runs")
 }

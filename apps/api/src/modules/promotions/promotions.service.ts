@@ -185,7 +185,21 @@ export class PromotionsService {
         message: this.reasonMessage(check),
       });
     }
-    await tx.promotion.update({ where: { id: promo.id }, data: { usedCount: { increment: 1 } } });
+    // Claim ATÓMICO del uso: el increment condicionado a `usedCount < maxUses`
+    // evita que dos altas concurrentes superen el límite (check-then-act).
+    const claimed = await tx.promotion.updateMany({
+      where:
+        promo.maxUses === null
+          ? { id: promo.id }
+          : { id: promo.id, usedCount: { lt: promo.maxUses } },
+      data: { usedCount: { increment: 1 } },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException({
+        code: 'promotion_max_uses_reached',
+        message: this.reasonMessage('max_uses_reached'),
+      });
+    }
 
     if (promo.discountType === 'free_months') {
       const freeMonths = Math.max(0, Math.trunc(Number(promo.discountValue)));
