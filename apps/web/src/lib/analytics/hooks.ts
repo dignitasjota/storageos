@@ -13,6 +13,8 @@ import type {
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   PricingSuggestionsDto,
+  UnitPricingSuggestionsDto,
+  ApplyUnitPricingResultDto,
   RevenueForecastDto,
   RevenueKpiDto,
 } from '@storageos/shared';
@@ -29,6 +31,7 @@ export const analyticsKey = (
     | 'leads-utm'
     | 'churn-risk'
     | 'pricing-suggestions'
+    | 'unit-pricing-suggestions'
     | 'forecast',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
@@ -141,6 +144,30 @@ export function useApplyPricing() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: analyticsKey('pricing-suggestions') });
       void qc.invalidateQueries({ queryKey: ['unit-types'] });
+    },
+  });
+}
+
+/** Sugerencia de precio por trastero individual (ocupación de su tamaño + días vacío). */
+export function useUnitPricingSuggestions(facilityId?: string) {
+  const qs = facilityId ? `?facilityId=${facilityId}` : '';
+  return useQuery({
+    queryKey: analyticsKey('unit-pricing-suggestions', { facilityId }),
+    queryFn: () => apiFetch<UnitPricingSuggestionsDto>(`/analytics/unit-pricing-suggestions${qs}`),
+  });
+}
+
+export function useApplyUnitPricing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { unitId: string; price: number }) =>
+      apiFetch<ApplyUnitPricingResultDto>('/analytics/unit-pricing-suggestions/apply', {
+        method: 'POST',
+        json: args,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: analyticsKey('unit-pricing-suggestions') });
+      void qc.invalidateQueries({ queryKey: ['units'] });
     },
   });
 }

@@ -7,6 +7,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma } from '@storageos/database';
 import type {
   ApplyPricingResultDto,
+  ApplyUnitPricingResultDto,
   ChurnRiskItemDto,
   ChurnRiskKpiDto,
   ChurnRiskLevel,
@@ -15,6 +16,9 @@ import type {
   PricingSuggestionsDto,
   RevenueForecastDto,
   RevenueForecastPointDto,
+  UnitPricingFactorDto,
+  UnitPricingSuggestionDto,
+  UnitPricingSuggestionsDto,
 } from '@storageos/shared';
 
 function toNumber(value: Prisma.Decimal | number | null | undefined): number {
@@ -269,6 +273,160 @@ export class InsightsService {
       items.sort((a, b) => b.occupancy - a.occupancy);
       return { items };
     }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sugerencia de precio POR TRASTERO individual (revenue management v1).
+  // Combina la ocupación de su dimensión (tipo+local) y los días que lleva
+  // vacío. Solo trasteros `available` (donde el precio es accionable). Aplicar
+  // fija `unit.basePriceMonthly` → afecta solo a NUEVOS contratos.
+  // ---------------------------------------------------------------------------
+  async getUnitPricingSuggestions(
+    tenantId: string,
+    facilityId?: string,
+  ): Promise<UnitPricingSuggestionsDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const units = await tx.unit.findMany({
+        where: { status: 'available', ...(facilityId ? { facilityId } : {}) },
+        include: {
+          unitType: { select: { id: true, name: true } },
+          facility: { select: { name: true } },
+        },
+      });
+      if (units.length === 0) return { items: [] };
+
+      // Ocupación por dimensión = (tipo, local). No filtramos por facilityId aquí
+      // para poder resolver la dimensión de cada trastero disponible.
+      const [totalByDim, occByDim] = await Promise.all([
+        tx.unit.groupBy({ by: ['facilityId', 'unitTypeId'], _count: { _all: true } }),
+        tx.unit.groupBy({
+          by: ['facilityId', 'unitTypeId'],
+          where: { status: 'occupied' },
+          _count: { _all: true },
+        }),
+      ]);
+      const dimKey = (f: string, t: string) => `${f}:${t}`;
+      const totalMap = new Map(
+        totalByDim.map((g) => [dimKey(g.facilityId, g.unitTypeId), g._count._all]),
+      );
+      const occMap = new Map(
+        occByDim.map((g) => [dimKey(g.facilityId, g.unitTypeId), g._count._all]),
+      );
+
+      // Días vacío: último paso a `available` en el histórico (si no hay, desde el alta).
+      const history = await tx.unitStatusHistory.findMany({
+        where: { unitId: { in: units.map((u) => u.id) }, newStatus: 'available' },
+        orderBy: { occurredAt: 'desc' },
+        select: { unitId: true, occurredAt: true },
+      });
+      const vacantSince = new Map<string, Date>();
+      for (const h of history)
+        if (!vacantSince.has(h.unitId)) vacantSince.set(h.unitId, h.occurredAt);
+
+      const now = Date.now();
+      const items: UnitPricingSuggestionDto[] = units.map((u) => {
+        const key = dimKey(u.facilityId, u.unitTypeId);
+        const total = totalMap.get(key) ?? 1;
+        const occupied = occMap.get(key) ?? 0;
+        const occupancyPct = round2((occupied / total) * 100);
+        const since = vacantSince.get(u.id) ?? u.createdAt;
+        const daysVacant = Math.max(0, Math.floor((now - since.getTime()) / 86_400_000));
+
+        const factors: UnitPricingFactorDto[] = [];
+        // Factor 1: ocupación de la dimensión.
+        let occAdj = 0;
+        if (occupancyPct >= 90) occAdj = 8;
+        else if (occupancyPct >= 80) occAdj = 4;
+        else if (occupancyPct < 40) occAdj = -8;
+        else if (occupancyPct <= 60) occAdj = -4;
+        if (occAdj !== 0) {
+          factors.push({
+            label: 'Ocupación del tamaño',
+            detail: `${occupancyPct}% ocupado en su local`,
+            contribution: occAdj,
+          });
+        }
+        // Factor 2: días que lleva vacío.
+        let vacAdj = 0;
+        if (daysVacant > 90) vacAdj = -12;
+        else if (daysVacant >= 60) vacAdj = -8;
+        else if (daysVacant >= 30) vacAdj = -5;
+        else if (daysVacant >= 15) vacAdj = -2;
+        if (vacAdj !== 0) {
+          factors.push({
+            label: 'Tiempo vacío',
+            detail: `Lleva ${daysVacant} días disponible`,
+            contribution: vacAdj,
+          });
+        }
+
+        // Combinar + acotar (asimétrico: más cauto al subir).
+        const raw = occAdj + vacAdj;
+        const changePct = Math.max(-20, Math.min(15, raw));
+        const currentPrice = toNumber(u.basePriceMonthly);
+        // Redondeo a euro entero (precio "bonito").
+        let suggestedPrice = Math.round(currentPrice * (1 + changePct / 100));
+        let action: 'raise' | 'lower' | 'hold' = 'hold';
+        if (Math.abs(changePct) >= 2 && suggestedPrice !== currentPrice) {
+          action = changePct > 0 ? 'raise' : 'lower';
+        } else {
+          suggestedPrice = currentPrice;
+        }
+
+        return {
+          unitId: u.id,
+          code: u.code,
+          unitTypeName: u.unitType?.name ?? null,
+          facilityId: u.facilityId,
+          facilityName: u.facility.name,
+          occupancyPct,
+          daysVacant,
+          currentPrice,
+          suggestedPrice,
+          changePct,
+          action,
+          factors,
+        };
+      });
+
+      // Primero los que más piden acción (mayor cambio absoluto), luego más vacíos.
+      items.sort(
+        (a, b) => Math.abs(b.changePct) - Math.abs(a.changePct) || b.daysVacant - a.daysVacant,
+      );
+      return { items };
+    }, tenantId);
+  }
+
+  /** Aplica el precio sugerido a un trastero (fija `basePriceMonthly`). */
+  async applyUnitPricing(args: {
+    tenantId: string;
+    userId: string;
+    unitId: string;
+    price: number;
+    meta: RequestMeta;
+  }): Promise<ApplyUnitPricingResultDto> {
+    const result = await this.prisma.withTenant(async (tx) => {
+      const unit = await tx.unit.findUnique({ where: { id: args.unitId } });
+      if (!unit) {
+        throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
+      }
+      const previousPrice = toNumber(unit.basePriceMonthly);
+      const newPrice = round2(args.price);
+      await tx.unit.update({ where: { id: args.unitId }, data: { basePriceMonthly: newPrice } });
+      return { previousPrice, newPrice };
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'pricing.unit_suggestion_applied',
+      entityType: 'Unit',
+      entityId: args.unitId,
+      changes: { from: result.previousPrice, to: result.newPrice },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { unitId: args.unitId, previousPrice: result.previousPrice, newPrice: result.newPrice };
   }
 
   // ---------------------------------------------------------------------------
