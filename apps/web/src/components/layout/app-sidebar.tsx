@@ -173,43 +173,64 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/invoices', labelKey: 'invoices', icon: CreditCard, permission: 'invoices:read' },
       {
-        href: '/sepa-remittances',
-        labelKey: 'sepaRemittances',
+        href: 'billing-bank',
+        labelKey: 'billingBank',
         icon: Landmark,
-        permission: 'payments:read',
-        feature: 'sepa',
+        children: [
+          {
+            href: '/sepa-remittances',
+            labelKey: 'sepaRemittances',
+            icon: Landmark,
+            permission: 'payments:read',
+            feature: 'sepa',
+          },
+          {
+            href: '/bank-reconciliation',
+            labelKey: 'bankReconciliation',
+            icon: ArrowLeftRight,
+            permission: 'payments:read',
+            feature: 'bank_reconciliation',
+          },
+        ],
       },
       {
-        href: '/bank-reconciliation',
-        labelKey: 'bankReconciliation',
-        icon: ArrowLeftRight,
-        permission: 'payments:read',
-        feature: 'bank_reconciliation',
-      },
-      {
-        href: '/rent-increases',
-        labelKey: 'rentIncreases',
-        icon: TrendingUp,
-        permission: 'contracts:manage',
-        feature: 'rent_increases',
-      },
-      {
-        href: '/renewals',
-        labelKey: 'renewals',
-        icon: CalendarClock,
-        permission: 'contracts:read',
-      },
-      {
-        href: '/fiscal',
-        labelKey: 'fiscal',
+        href: 'billing-fiscal',
+        labelKey: 'billingFiscal',
         icon: FileSpreadsheet,
-        permission: 'invoices:manage',
+        children: [
+          {
+            href: '/fiscal',
+            labelKey: 'fiscal',
+            icon: FileSpreadsheet,
+            permission: 'invoices:manage',
+          },
+          {
+            href: '/settings/billing/verifactu',
+            labelKey: 'verifactu',
+            icon: ShieldCheck,
+            permission: 'invoices:manage',
+          },
+        ],
       },
       {
-        href: '/settings/billing/verifactu',
-        labelKey: 'verifactu',
-        icon: ShieldCheck,
-        permission: 'invoices:manage',
+        href: 'billing-portfolio',
+        labelKey: 'billingPortfolio',
+        icon: TrendingUp,
+        children: [
+          {
+            href: '/rent-increases',
+            labelKey: 'rentIncreases',
+            icon: TrendingUp,
+            permission: 'contracts:manage',
+            feature: 'rent_increases',
+          },
+          {
+            href: '/renewals',
+            labelKey: 'renewals',
+            icon: CalendarClock,
+            permission: 'contracts:read',
+          },
+        ],
       },
     ],
   },
@@ -332,6 +353,15 @@ export function AppSidebar() {
     });
   }
 
+  /** Nº de pendientes por href (0 si el item no lleva badge). */
+  function badgeCount(href: string): number {
+    if (href === '/unit-change-requests') return unitChangePending;
+    if (href === '/unit-requests') return unitRequestPending;
+    if (href === '/customers') return unreadMessages;
+    if (href === '/incidents') return incidentCounts.reported + incidentCounts.investigating;
+    return 0;
+  }
+
   /** Badge (JSX) por href, reutilizado en items normales y en sub-items. */
   function itemBadge(href: string) {
     if (href === '/unit-change-requests' && unitChangePending > 0) {
@@ -394,7 +424,7 @@ export function AppSidebar() {
       );
       const open = openSubs.has(item.href) || childActive;
       // Badge del padre = suma de los pendientes de sus hijos (solo peticiones de trastero).
-      const parentTotal = unitChangePending + unitRequestPending;
+      const parentTotal = children.reduce((sum, c) => sum + badgeCount(c.href), 0);
       return (
         <SidebarMenuItem key={item.href}>
           <SidebarMenuButton
@@ -471,8 +501,11 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
         {GROUPS.map((group) => {
-          const items = group.items.filter(
-            (item) => can(item.permission) && hasFeature(item.feature),
+          const items = group.items.filter((item) =>
+            // Un submenú solo cuenta si le queda algún hijo visible.
+            item.children
+              ? item.children.some((c) => can(c.permission) && hasFeature(c.feature))
+              : can(item.permission) && hasFeature(item.feature),
           );
           if (items.length === 0) return null;
           const isCollapsed = collapsed.has(group.labelKey);
