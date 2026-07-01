@@ -9,6 +9,7 @@ import { FacilityOccupancyCard } from './facility-occupancy-card';
 import { ForecastCard } from './forecast-card';
 import { KpiTiles } from './kpi-tiles';
 import { LeadsCard } from './leads-card';
+import { MobileHome } from './mobile-home';
 import { OccupancyCard } from './occupancy-card';
 import { QuickActions } from './quick-actions';
 import { RevenueTrendCard } from './revenue-trend-card';
@@ -16,6 +17,7 @@ import { RevenueTrendCard } from './revenue-trend-card';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useHasPermission, useMe } from '@/lib/auth/hooks';
 
 function daysUntil(iso: string | null): number | null {
@@ -29,6 +31,11 @@ export function DashboardContent() {
   const format = useFormatter();
   const me = useMe();
   const canSeeAnalytics = useHasPermission('analytics:read');
+  const isMobile = useIsMobile();
+
+  // En móvil, un «home tipo app» con acciones grandes en vez del dashboard de
+  // métricas (más ágil para operar desde el local).
+  if (isMobile) return <MobileHome />;
 
   if (me.isLoading || !me.data) {
     return (
