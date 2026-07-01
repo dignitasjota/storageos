@@ -162,3 +162,12 @@ export interface PortalNightPassInfoDto {
   /** Precio del pase (sin IVA; la factura añade el 21%). */
   price: number;
 }
+
+/** Un pase nocturno comprado por el inquilino (historial). */
+export interface PortalNightPassDto {
+  id: string;
+  /** active = sin usar y vigente · used = ya utilizado · expired = caducó sin usar. */
+  status: 'active' | 'used' | 'expired';
+  createdAt: string;
+  expiresAt: string | null;
+}
