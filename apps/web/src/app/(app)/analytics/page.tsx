@@ -85,8 +85,7 @@ export default function AnalyticsPage() {
           <TabsTrigger value="aging">Morosidad</TabsTrigger>
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
-          <TabsTrigger value="pricing">Precio dinámico</TabsTrigger>
-          <TabsTrigger value="unit-pricing">Precio por trastero</TabsTrigger>
+          <TabsTrigger value="pricing">Precios</TabsTrigger>
           <TabsTrigger value="forecast">Previsión</TabsTrigger>
         </TabsList>
         <TabsContent value="revenue" className="mt-4">
@@ -108,10 +107,18 @@ export default function AnalyticsPage() {
           <ChurnRiskPanel />
         </TabsContent>
         <TabsContent value="pricing" className="mt-4">
-          <PricingSuggestionsPanel />
-        </TabsContent>
-        <TabsContent value="unit-pricing" className="mt-4">
-          <UnitPricingPanel />
+          <Tabs defaultValue="by-type" className="w-full">
+            <TabsList>
+              <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
+              <TabsTrigger value="by-unit">Por trastero individual</TabsTrigger>
+            </TabsList>
+            <TabsContent value="by-type" className="mt-4">
+              <PricingSuggestionsPanel />
+            </TabsContent>
+            <TabsContent value="by-unit" className="mt-4">
+              <UnitPricingPanel />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
         <TabsContent value="forecast" className="mt-4">
           <ForecastPanel />
