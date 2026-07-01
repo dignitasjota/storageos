@@ -772,3 +772,20 @@ export interface DunningRunResultDto {
   reminders: number;
   suspended: number;
 }
+
+// --- Banner global + notificaciones del super admin ---
+export interface PlatformBannerDto {
+  message: string;
+  level: 'info' | 'warning' | 'critical';
+  enabled: boolean;
+}
+
+export interface SuperAdminNotificationDto {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  readAt: string | null;
+  createdAt: string;
+}

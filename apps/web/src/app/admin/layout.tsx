@@ -44,7 +44,11 @@ import {
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { adminApiFetch } from '@/lib/admin/api';
 import { useAdminAuthStore } from '@/lib/admin/auth-store';
-import { useAdminLogout, useAdminOpenTicketsCount } from '@/lib/admin/hooks';
+import {
+  useAdminLogout,
+  useAdminNotifUnreadCount,
+  useAdminOpenTicketsCount,
+} from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { env } from '@/lib/env';
 import { cn } from '@/lib/utils';
@@ -67,6 +71,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
   { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
   { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
+  { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
   { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
   { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
@@ -234,6 +239,7 @@ function AdminShell({ children }: { children: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Tickets de soporte esperando respuesta del admin (badge en «Soporte»).
   const openTickets = useAdminOpenTicketsCount().data?.count ?? 0;
+  const unreadNotifs = useAdminNotifUnreadCount().data?.count ?? 0;
 
   // Cierra el drawer al navegar a otra ruta.
   useEffect(() => {
@@ -284,6 +290,18 @@ function AdminShell({ children }: { children: ReactNode }) {
             <div className="text-sm font-medium text-muted-foreground">Panel super admin</div>
           </div>
           <div className="flex items-center gap-1">
+            <Link
+              href="/admin/platform-banner"
+              className="relative inline-flex size-9 items-center justify-center rounded-full hover:bg-accent"
+              aria-label="Notificaciones"
+            >
+              <BellRing className="size-4" />
+              {unreadNotifs > 0 && (
+                <span className="absolute right-1 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-medium text-white">
+                  {unreadNotifs}
+                </span>
+              )}
+            </Link>
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
