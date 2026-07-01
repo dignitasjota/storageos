@@ -11,6 +11,7 @@ import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import { isUniqueViolation } from '../../common/prisma-errors';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -153,67 +154,79 @@ export class InvoicesService {
       }
     }
 
-    const created = await this.prisma.withTenant(async (tx) => {
-      if (args.input.customerId) {
-        const customer = await tx.customer.findFirst({
-          where: { id: args.input.customerId, deletedAt: null },
-        });
-        if (!customer) {
-          throw new NotFoundException({
-            code: 'customer_not_found',
-            message: 'Inquilino no encontrado',
+    const created = await this.prisma
+      .withTenant(async (tx) => {
+        if (args.input.customerId) {
+          const customer = await tx.customer.findFirst({
+            where: { id: args.input.customerId, deletedAt: null },
+          });
+          if (!customer) {
+            throw new NotFoundException({
+              code: 'customer_not_found',
+              message: 'Inquilino no encontrado',
+            });
+          }
+        }
+        const series = args.input.seriesId
+          ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
+          : await tx.invoiceSeries.findFirst({
+              where: { isDefault: true, isActive: true },
+            });
+        if (!series) {
+          throw new BadRequestException({
+            code: 'no_default_series',
+            message: 'No hay serie por defecto configurada',
           });
         }
-      }
-      const series = args.input.seriesId
-        ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
-        : await tx.invoiceSeries.findFirst({
-            where: { isDefault: true, isActive: true },
-          });
-      if (!series) {
-        throw new BadRequestException({
-          code: 'no_default_series',
-          message: 'No hay serie por defecto configurada',
-        });
-      }
-      // En draft NO se asigna invoiceNumber; se asigna al issue.
-      const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
-      const baseNotes = args.input.notes?.trim();
-      // Si es F2 con justificacion, anotamos el motivo como prefijo del
-      // campo notes para que quede trazable (no anadimos columna nueva,
-      // por decision de modelo: F2 se deriva siempre de `invoice_type`).
-      const finalNotes =
-        invoiceType === 'F2' && args.input.simplifiedJustification
-          ? `[F2:${args.input.simplifiedJustification}]${baseNotes ? ` ${baseNotes}` : ''}`
-          : baseNotes || null;
-      return tx.invoice.create({
-        data: {
-          tenantId: args.tenantId,
-          ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
-          ...(args.input.contractId ? { contractId: args.input.contractId } : {}),
-          seriesId: series.id,
-          sequenceNumber: 0,
-          invoiceNumber: placeholderNumber,
-          status: 'draft',
-          invoiceType,
-          ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
-          ...(args.input.dueDate ? { dueDate: new Date(args.input.dueDate) } : {}),
-          ...(args.input.periodStart ? { periodStart: new Date(args.input.periodStart) } : {}),
-          ...(args.input.periodEnd ? { periodEnd: new Date(args.input.periodEnd) } : {}),
-          subtotal,
-          taxAmount,
-          total,
-          notes: finalNotes,
-          verifactuMode: args.input.verifactuMode,
-          items: {
-            create: args.input.items.map((item, idx) =>
-              this.toItemCreateData(item, args.tenantId, idx),
-            ),
+        // En draft NO se asigna invoiceNumber; se asigna al issue.
+        const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
+        const baseNotes = args.input.notes?.trim();
+        // Si es F2 con justificacion, anotamos el motivo como prefijo del
+        // campo notes para que quede trazable (no anadimos columna nueva,
+        // por decision de modelo: F2 se deriva siempre de `invoice_type`).
+        const finalNotes =
+          invoiceType === 'F2' && args.input.simplifiedJustification
+            ? `[F2:${args.input.simplifiedJustification}]${baseNotes ? ` ${baseNotes}` : ''}`
+            : baseNotes || null;
+        return tx.invoice.create({
+          data: {
+            tenantId: args.tenantId,
+            ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
+            ...(args.input.contractId ? { contractId: args.input.contractId } : {}),
+            seriesId: series.id,
+            sequenceNumber: 0,
+            invoiceNumber: placeholderNumber,
+            status: 'draft',
+            invoiceType,
+            ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
+            ...(args.input.dueDate ? { dueDate: new Date(args.input.dueDate) } : {}),
+            ...(args.input.periodStart ? { periodStart: new Date(args.input.periodStart) } : {}),
+            ...(args.input.periodEnd ? { periodEnd: new Date(args.input.periodEnd) } : {}),
+            subtotal,
+            taxAmount,
+            total,
+            notes: finalNotes,
+            verifactuMode: args.input.verifactuMode,
+            items: {
+              create: args.input.items.map((item, idx) =>
+                this.toItemCreateData(item, args.tenantId, idx),
+              ),
+            },
           },
-        },
-        include: this.includeRelations(),
+          include: this.includeRelations(),
+        });
+      }, args.tenantId)
+      .catch((err: unknown) => {
+        // Índice parcial invoices_recurring_period_unique: ya existe una F1 viva
+        // para este contrato+periodo → 409 legible en vez de un 500.
+        if (isUniqueViolation(err)) {
+          throw new ConflictException({
+            code: 'duplicate_period_invoice',
+            message: 'Ya existe una factura para este contrato y periodo',
+          });
+        }
+        throw err;
       });
-    }, args.tenantId);
 
     await this.audit.write({
       tenantId: args.tenantId,
