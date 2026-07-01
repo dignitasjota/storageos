@@ -33,8 +33,12 @@ packages/database/node_modules/.prisma
 !.env.example
 
 # --- Logs ---
+# OJO: NO usar `**/logs` a secas — excluye cualquier CARPETA llamada `logs`,
+# incluidas rutas de código como `apps/web/src/app/(app)/access/logs` (la página
+# "Registro de accesos"), que entonces NO se copia al build → 404 SOLO en prod
+# (en local no hay .dockerignore). Excluimos solo ARCHIVOS de log; para un
+# directorio de logs de runtime, usa una ruta concreta (p. ej. `/logs`).
 **/*.log
-**/logs
 
 # --- Tests ---
 **/coverage
