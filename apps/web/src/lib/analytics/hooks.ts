@@ -148,11 +148,17 @@ export function useApplyPricing() {
   });
 }
 
-/** Sugerencia de precio por trastero individual (ocupación de su tamaño + días vacío). */
-export function useUnitPricingSuggestions(facilityId?: string) {
-  const qs = facilityId ? `?facilityId=${facilityId}` : '';
+/** Sugerencia de precio por trastero individual (ocupación + días vacío + competencia opcional). */
+export function useUnitPricingSuggestions(facilityId?: string, includeCompetition = false) {
+  const params = new URLSearchParams();
+  if (facilityId) params.set('facilityId', facilityId);
+  if (includeCompetition) params.set('includeCompetition', 'true');
+  const qs = params.toString() ? `?${params}` : '';
   return useQuery({
-    queryKey: analyticsKey('unit-pricing-suggestions', { facilityId }),
+    queryKey: analyticsKey('unit-pricing-suggestions', {
+      facilityId,
+      includeCompetition: includeCompetition ? 'true' : undefined,
+    }),
     queryFn: () => apiFetch<UnitPricingSuggestionsDto>(`/analytics/unit-pricing-suggestions${qs}`),
   });
 }

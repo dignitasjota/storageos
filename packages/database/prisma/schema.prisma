@@ -426,6 +426,7 @@ model Tenant {
   faqEntries              FaqEntry[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
+  competitorFacilities    CompetitorFacility[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
 
@@ -775,6 +776,7 @@ model Facility {
   floors           FacilityFloor[]
   units            Unit[]
   unitRequests     UnitRequest[]
+  competitorFacilities CompetitorFacility[]
   leadsPreferred   Lead[]            @relation("LeadPreferredFacility")
   tasks            Task[]            @relation("TaskFacility")
   maintenancePlans MaintenancePlan[]
@@ -1843,6 +1845,48 @@ model UnitRequest {
   @@index([tenantId, status])
   @@index([tenantId, customerId])
   @@map("unit_requests")
+}
+
+/// Local de la competencia fichado manualmente por el operador (para anclar el
+/// precio). Opcionalmente vinculado a uno de mis locales (con quién compito).
+model CompetitorFacility {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  name       String
+  zone       String?
+  facilityId String?  @map("facility_id") @db.Uuid
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility Facility?        @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  units    CompetitorUnit[]
+
+  @@index([tenantId])
+  @@map("competitor_facilities")
+}
+
+/// Trastero de la competencia: m² + precio + disponible/ocupado + fecha de la
+/// última comprobación (= cuando se introdujo/actualizó el precio).
+model CompetitorUnit {
+  id                   String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  competitorFacilityId String   @map("competitor_facility_id") @db.Uuid
+  areaM2               Decimal  @map("area_m2") @db.Decimal(10, 2)
+  priceMonthly         Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  /// available | occupied
+  status               String   @default("available")
+  lastCheckedAt        DateTime @default(now()) @map("last_checked_at") @db.Timestamptz(6)
+  notes                String?
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  competitorFacility CompetitorFacility @relation(fields: [competitorFacilityId], references: [id], onDelete: Cascade)
+
+  @@index([competitorFacilityId])
+  @@index([tenantId, status])
+  @@map("competitor_units")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).
