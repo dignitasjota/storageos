@@ -1,3 +1,5 @@
+import { ThemeProvider } from 'next-themes';
+
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
@@ -28,9 +30,17 @@ export const viewport: Viewport = {
 
 export default function PortalLayout({ children }: { children: ReactNode }) {
   return (
-    <>
+    // El portal del inquilino tiene su propio tema (clave separada, claro por
+    // defecto), independiente del panel del tenant y del admin.
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="light"
+      enableSystem
+      disableTransitionOnChange
+      storageKey="storageos-portal-theme"
+    >
       <PwaRegister />
       {children}
-    </>
+    </ThemeProvider>
   );
 }
