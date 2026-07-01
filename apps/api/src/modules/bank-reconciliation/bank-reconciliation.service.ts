@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { subtractAmounts } from '../../common/money';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -208,7 +209,7 @@ export class BankReconciliationService {
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const pending = Math.max(0, Number(invoice.total) - Number(invoice.amountPaid));
+    const pending = Math.max(0, subtractAmounts(invoice.total, invoice.amountPaid));
     if (pending > 0) {
       await this.invoices.markPaidManually({
         tenantId,

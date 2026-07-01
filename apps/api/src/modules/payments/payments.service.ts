@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
-import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts } from '../../common/money';
+import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -136,7 +136,7 @@ export class PaymentsService {
           ? await this.goCardlessCharge.charge({
               tenantId: args.tenantId,
               mandateId: tokenPlain,
-              amountCents: Math.round(amount * 100),
+              amountCents: toCents(amount),
               currency: invoice.currency,
               description: `Factura ${invoice.invoiceNumber}`,
               metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
@@ -145,7 +145,7 @@ export class PaymentsService {
               gatewayCustomerId: pm.gatewayCustomerId ?? '',
               paymentMethodToken: tokenPlain,
               paymentMethodType: pm.type,
-              amountCents: Math.round(amount * 100),
+              amountCents: toCents(amount),
               currency: invoice.currency,
               description: `Factura ${invoice.invoiceNumber}`,
               metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
