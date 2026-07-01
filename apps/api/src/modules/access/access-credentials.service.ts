@@ -22,6 +22,7 @@ import type {
   AccessCredentialWithSecretDto,
   AccessMethodValue,
   CreateCredentialInput,
+  NightPassListDto,
   PortalAccessCredentialDto,
   PortalAccessLogDto,
   RotateCredentialInput,
@@ -108,6 +109,57 @@ export class AccessCredentialsService {
       tenantId,
     );
     return rows.map((r) => this.toDto(r));
+  }
+
+  /** Pases nocturnos del tenant (credenciales `metadata.source='night_pass'`) + ingresos. */
+  async listNightPasses(tenantId: string): Promise<NightPassListDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.accessCredential.findMany({
+        where: { tenantId, metadata: { path: ['source'], equals: 'night_pass' } },
+        include: CUSTOMER_SELECT,
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      const now = new Date();
+      const passes: NightPassListDto['passes'] = rows.map((r) => {
+        let status: 'active' | 'used' | 'expired';
+        if (r.usesCount >= 1) status = 'used';
+        else if (
+          r.status === 'revoked' ||
+          r.status === 'expired' ||
+          (r.expiresAt !== null && r.expiresAt < now)
+        ) {
+          status = 'expired';
+        } else {
+          status = 'active';
+        }
+        return {
+          id: r.id,
+          customerId: r.customerId,
+          customerName: customerDisplay(r.customer),
+          status,
+          createdAt: r.createdAt.toISOString(),
+          expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+        };
+      });
+      // Ingresos: suma de las líneas de factura «Pase nocturno» (excluye draft/cancelled).
+      const items = await tx.invoiceItem.findMany({
+        where: {
+          invoice: { tenantId, status: { notIn: ['draft', 'cancelled'] } },
+          description: { contains: 'Pase nocturno', mode: 'insensitive' },
+        },
+        select: { total: true },
+      });
+      const revenue = items.reduce((sum, it) => sum + Number(it.total), 0);
+      return {
+        passes,
+        total: passes.length,
+        active: passes.filter((p) => p.status === 'active').length,
+        used: passes.filter((p) => p.status === 'used').length,
+        expired: passes.filter((p) => p.status === 'expired').length,
+        revenue: Math.round(revenue * 100) / 100,
+      };
+    }, tenantId);
   }
 
   async detail(tenantId: string, id: string): Promise<AccessCredentialDto> {

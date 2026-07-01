@@ -121,3 +121,25 @@ export interface PortalAccessLogDto {
   result: AccessResultValue;
   occurredAt: string;
 }
+
+/** Un pase nocturno, visto por el staff (subpágina de accesos). */
+export interface NightPassStaffDto {
+  id: string;
+  customerId: string;
+  customerName: string;
+  /** active = sin usar y vigente · used = ya utilizado · expired = caducó sin usar. */
+  status: 'active' | 'used' | 'expired';
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+/** Listado de pases nocturnos del tenant + resumen (para la subpágina staff). */
+export interface NightPassListDto {
+  passes: NightPassStaffDto[];
+  total: number;
+  active: number;
+  used: number;
+  expired: number;
+  /** Ingresos facturados por pases nocturnos (suma de las líneas «Pase nocturno»). */
+  revenue: number;
+}
