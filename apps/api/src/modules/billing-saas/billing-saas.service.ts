@@ -13,6 +13,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 
+import { PlatformInvoicesService } from './platform-invoices.service';
+
 import type { RequestMeta } from '../auth/auth.service';
 import type { SubscriptionStatus } from '@storageos/database';
 import type {
@@ -160,6 +162,7 @@ export class BillingSaasService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    private readonly platformInvoices: PlatformInvoicesService,
     stripeGateway: StripeGateway,
   ) {
     this.stripe = stripeGateway.getClient();
@@ -651,6 +654,9 @@ export class BillingSaasService {
       }),
     ]);
 
+    // Factura del SaaS (best-effort; solo si la facturación está activada).
+    await this.platformInvoices.issueForPaymentBestEffort(payment.id);
+
     return toPaymentDto(payment);
   }
 
@@ -741,7 +747,11 @@ export class BillingSaasService {
       return;
     }
     try {
-      await this.admin.tenantSubscriptionPayment.create({ data });
+      const created = await this.admin.tenantSubscriptionPayment.create({ data });
+      // Factura del SaaS si el pago llegó cobrado (best-effort).
+      if (created.status === 'paid') {
+        await this.platformInvoices.issueForPaymentBestEffort(created.id);
+      }
     } catch (err) {
       // Race con el índice único parcial: ya existe, lo ignoramos.
       this.logger.debug(`recordStripeInvoice create race (invoice=${externalId}): ${String(err)}`);

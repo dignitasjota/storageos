@@ -427,6 +427,7 @@ model Tenant {
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   competitorFacilities    CompetitorFacility[]
+  platformInvoices        PlatformInvoice[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
 
@@ -3355,10 +3356,66 @@ model TenantSubscriptionPayment {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice PlatformInvoice?
 
   @@index([tenantId, paidAt])
   @@map("tenant_subscription_payments")
+}
+
+/// Datos fiscales del emisor (StorageOS) para las facturas de suscripción.
+/// Singleton (una sola fila). Tabla global sin RLS (solo super admin).
+model PlatformBillingSettings {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  legalName    String   @default("") @map("legal_name")
+  taxId        String   @default("") @map("tax_id")
+  address      String?
+  city         String?
+  postalCode   String?  @map("postal_code")
+  country      String   @default("ES")
+  email        String?
+  taxRate      Decimal  @default(21) @map("tax_rate") @db.Decimal(5, 2)
+  seriesPrefix String   @default("SAAS") @map("series_prefix")
+  enabled      Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_billing_settings")
+}
+
+/// Factura de suscripción emitida por StorageOS a un tenant. Tabla global
+/// (solo super admin la gestiona). Numeración secuencial por serie (año).
+model PlatformInvoice {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  series        String
+  number        Int
+  fullNumber    String    @map("full_number")
+  tenantId      String    @map("tenant_id") @db.Uuid
+  tenantName    String    @map("tenant_name")
+  tenantTaxId   String?   @map("tenant_tax_id")
+  tenantEmail   String?   @map("tenant_email")
+  tenantAddress String?   @map("tenant_address")
+  planSlug      String?   @map("plan_slug")
+  planName      String?   @map("plan_name")
+  periodStart   DateTime? @map("period_start") @db.Timestamptz(6)
+  periodEnd     DateTime? @map("period_end") @db.Timestamptz(6)
+  baseAmount    Decimal   @map("base_amount") @db.Decimal(12, 2)
+  taxRate       Decimal   @map("tax_rate") @db.Decimal(5, 2)
+  taxAmount     Decimal   @map("tax_amount") @db.Decimal(12, 2)
+  total         Decimal   @db.Decimal(12, 2)
+  currency      String    @default("EUR")
+  status        String    @default("issued")
+  issuedAt      DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  pdfUrl        String?   @map("pdf_url")
+  paymentId     String?   @unique @map("payment_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment TenantSubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([series, number])
+  @@index([tenantId, issuedAt(sort: Desc)])
+  @@map("platform_invoices")
 }
 
 /// Interaccion/conversacion del super admin con un tenant (llamada, email,

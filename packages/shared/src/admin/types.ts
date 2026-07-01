@@ -724,3 +724,37 @@ export interface AdminImpersonationActivityDto {
   userName: string | null;
   occurredAt: string;
 }
+
+// --- Facturación del SaaS (StorageOS → tenant) ---
+export interface PlatformBillingSettingsDto {
+  legalName: string;
+  taxId: string;
+  address: string | null;
+  city: string | null;
+  postalCode: string | null;
+  country: string;
+  email: string | null;
+  taxRate: number;
+  seriesPrefix: string;
+  enabled: boolean;
+}
+
+export interface PlatformInvoiceDto {
+  id: string;
+  fullNumber: string;
+  tenantId: string;
+  tenantName: string;
+  tenantTaxId: string | null;
+  planName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  baseAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  currency: string;
+  status: string;
+  issuedAt: string;
+  hasPdf: boolean;
+  paymentId: string | null;
+}

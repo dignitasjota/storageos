@@ -326,3 +326,25 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   trialExpiringDays: z.number().int().min(1).max(30),
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
+
+/** Datos fiscales del emisor (StorageOS) para las facturas de suscripción. */
+export const UpdatePlatformBillingSettingsSchema = z.object({
+  legalName: z.string().trim().max(200).default(''),
+  taxId: z.string().trim().max(40).default(''),
+  address: z.string().trim().max(300).nullable().optional(),
+  city: z.string().trim().max(120).nullable().optional(),
+  postalCode: z.string().trim().max(20).nullable().optional(),
+  country: z.string().trim().length(2).default('ES'),
+  email: z.string().trim().email().max(200).nullable().optional().or(z.literal('')),
+  taxRate: z.number().min(0).max(100).default(21),
+  seriesPrefix: z.string().trim().min(1).max(20).default('SAAS'),
+  enabled: z.boolean().default(false),
+});
+export type UpdatePlatformBillingSettingsInput = z.infer<
+  typeof UpdatePlatformBillingSettingsSchema
+>;
+
+/** Emitir manualmente la factura de un pago de suscripción. */
+export const IssuePlatformInvoiceSchema = z.object({
+  paymentId: z.string().uuid(),
+});
