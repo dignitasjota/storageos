@@ -15,6 +15,7 @@ import { useAdminLegalDoc, useUpdateLegalDoc } from '@/lib/admin/hooks';
 const SLUG_LABEL: Record<LegalSlug, string> = {
   terms: 'Términos y Condiciones',
   privacy: 'Política de Privacidad',
+  cookies: 'Política de Cookies',
 };
 
 export default function AdminLegalPage() {

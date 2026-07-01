@@ -15,6 +15,9 @@ export function PublicFooter() {
           <Link href="/privacidad" className="transition hover:text-foreground">
             {t('privacy')}
           </Link>
+          <Link href="/cookies" className="transition hover:text-foreground">
+            {t('cookies')}
+          </Link>
         </nav>
       </div>
     </footer>

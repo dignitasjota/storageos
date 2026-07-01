@@ -1,9 +1,24 @@
+import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
 import { cleanupSuperAdmins, seedSuperAdmin } from './helpers/super-admin';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
+
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  process.env.DATABASE_URL ??
+  'postgresql://storageos:storageos@localhost:5432/storageos?schema=public';
+
+async function resetLegalDocs(): Promise<void> {
+  const prisma = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
+  try {
+    await prisma.platformLegalDocument.deleteMany();
+  } finally {
+    await prisma.$disconnect();
+  }
+}
 
 /**
  * Documentos legales editables por el super admin: el endpoint público sirve el
@@ -16,6 +31,7 @@ describe('Páginas legales de la plataforma (e2e)', () => {
 
   beforeAll(async () => {
     await cleanupSuperAdmins();
+    await resetLegalDocs();
     app = await createTestApp();
     const admin = await seedSuperAdmin('legal');
     const login = await request(app.getHttpServer())
@@ -38,7 +54,12 @@ describe('Páginas legales de la plataforma (e2e)', () => {
     expect(pub.body.content).toContain('Información del prestador');
 
     // Slug inválido → 400.
-    await request(app.getHttpServer()).get('/platform-legal/cookies').expect(400);
+    await request(app.getHttpServer()).get('/platform-legal/aviso-legal').expect(400);
+
+    // El slug `cookies` sí es válido (contenido por defecto).
+    const cookies = await request(app.getHttpServer()).get('/platform-legal/cookies');
+    expect(cookies.status).toBe(200);
+    expect(cookies.body.content).toContain('cookies');
 
     // El admin edita los términos.
     const upd = await request(app.getHttpServer())
