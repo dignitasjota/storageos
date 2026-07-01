@@ -138,7 +138,7 @@ jobs:
   test-api-e2e:
     name: Tests API e2e (Jest + Supertest)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
 
     services:
       postgres:
@@ -274,7 +274,25 @@ jobs:
           done
           echo "::error::MinIO no respondió en 60s"; docker logs minio || true; exit 1
 
-      # El script `test:e2e` ya incluye `--runInBand`; pasar `-- --runInBand`
-      # extra hacía que jest lo tratara como patrón de ruta → "No tests found".
-      - name: Run API e2e tests
-        run: pnpm -F api test:e2e
+      # Ejecutamos el e2e en 3 shards SECUENCIALES en vez de una sola pasada.
+      # Motivo: las 100+ suites en un único proceso `jest --runInBand` acumulaban
+      # una fuga de memoria que agotaba el heap (OOM «Ineffective mark-compacts»)
+      # de forma intermitente. Cada `jest --shard=N/3` es un PROCESO NUEVO, así
+      # que el heap se libera por completo entre shards y nunca se acumula.
+      # Siguen siendo secuenciales → la BD compartida (Postgres/Redis/MinIO) no
+      # tiene conflictos. El nombre del job no cambia, así que el required check
+      # de branch protection sigue siendo el mismo.
+      #
+      # NODE_OPTIONS aquí replica lo que el script `test:e2e` ponía inline (VM
+      # modules para ESM + heap de 6 GB); llamamos a jest directamente para poder
+      # pasar `--shard` sin el problema del `--` de pnpm (que jest interpretaba
+      # como patrón de ruta → «No tests found»).
+      - name: Run API e2e tests (sharded to avoid OOM)
+        env:
+          NODE_OPTIONS: '--experimental-vm-modules --max-old-space-size=6144'
+        run: |
+          for shard in 1 2 3; do
+            echo "::group::E2E shard ${shard}/3"
+            pnpm -F api exec jest --config test/jest-e2e.config.js --runInBand --shard=${shard}/3
+            echo "::endgroup::"
+          done
