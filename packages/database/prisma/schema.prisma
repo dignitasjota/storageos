@@ -428,6 +428,7 @@ model Tenant {
   unitRequests            UnitRequest[]
   competitorFacilities    CompetitorFacility[]
   platformInvoices        PlatformInvoice[]
+  platformDunningEvents   PlatformDunningEvent[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
 
@@ -3519,4 +3520,34 @@ model TenantFollowup {
   @@index([tenantId])
   @@index([status, dueDate])
   @@map("tenant_followups")
+}
+
+/// Config del dunning del SaaS (cobro de tenants morosos). Singleton.
+model PlatformDunningSettings {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  enabled       Boolean  @default(false)
+  reminder1Days Int      @default(3) @map("reminder1_days")
+  reminder2Days Int      @default(10) @map("reminder2_days")
+  suspendDays   Int      @default(21) @map("suspend_days")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_dunning_settings")
+}
+
+/// Acción de dunning ejecutada sobre un tenant, para idempotencia. La clave
+/// única (tenant, step, period_end) evita repetir el mismo paso en un ciclo de
+/// impago; al pagar cambia el period_end → nuevo ciclo.
+model PlatformDunningEvent {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  step      String
+  periodEnd DateTime @map("period_end") @db.Timestamptz(6)
+  sentAt    DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, step, periodEnd])
+  @@index([tenantId])
+  @@map("platform_dunning_events")
 }

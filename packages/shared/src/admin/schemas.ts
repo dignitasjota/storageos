@@ -348,3 +348,18 @@ export type UpdatePlatformBillingSettingsInput = z.infer<
 export const IssuePlatformInvoiceSchema = z.object({
   paymentId: z.string().uuid(),
 });
+
+/** Config del dunning del SaaS. */
+export const UpdatePlatformDunningSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    reminder1Days: z.number().int().min(0).max(365).default(3),
+    reminder2Days: z.number().int().min(0).max(365).default(10),
+    suspendDays: z.number().int().min(1).max(365).default(21),
+  })
+  .refine((v) => v.reminder1Days <= v.reminder2Days && v.reminder2Days <= v.suspendDays, {
+    message: 'Los días deben ir en orden: recordatorio 1 ≤ recordatorio 2 ≤ suspensión',
+  });
+export type UpdatePlatformDunningSettingsInput = z.infer<
+  typeof UpdatePlatformDunningSettingsSchema
+>;

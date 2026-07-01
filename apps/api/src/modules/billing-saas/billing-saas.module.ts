@@ -9,6 +9,9 @@ import { PaymentsModule } from '../payments/payments.module';
 
 import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
+import { PlatformDunningController } from './platform-dunning.controller';
+import { PlatformDunningCron } from './platform-dunning.cron';
+import { PlatformDunningService } from './platform-dunning.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { SubscriptionPlansController } from './subscription-plans.controller';
@@ -46,8 +49,25 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     EmailModule,
     FilesModule,
   ],
-  controllers: [BillingSaasController, SubscriptionPlansController, PlatformInvoicesController],
-  providers: [BillingSaasService, SubscriptionPlansService, PlatformInvoicesService, AdminGuard],
-  exports: [BillingSaasService, SubscriptionPlansService, PlatformInvoicesService],
+  controllers: [
+    BillingSaasController,
+    SubscriptionPlansController,
+    PlatformInvoicesController,
+    PlatformDunningController,
+  ],
+  providers: [
+    BillingSaasService,
+    SubscriptionPlansService,
+    PlatformInvoicesService,
+    PlatformDunningService,
+    PlatformDunningCron,
+    AdminGuard,
+  ],
+  exports: [
+    BillingSaasService,
+    SubscriptionPlansService,
+    PlatformInvoicesService,
+    PlatformDunningService,
+  ],
 })
 export class BillingSaasModule {}

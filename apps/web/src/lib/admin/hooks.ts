@@ -7,6 +7,9 @@ import type {
   PlatformBillingSettingsDto,
   PlatformInvoiceDto,
   UpdatePlatformBillingSettingsInput,
+  DunningRunResultDto,
+  PlatformDunningSettingsDto,
+  UpdatePlatformDunningSettingsInput,
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
@@ -1128,4 +1131,32 @@ export function useIssuePlatformInvoice(tenantId: string) {
 export async function fetchPlatformInvoicePdf(id: string): Promise<string> {
   const res = await adminApiFetch<{ url: string }>(`/admin/platform-invoices/${id}/pdf`);
   return res.url;
+}
+
+// --- Dunning del SaaS ---
+export function useAdminPlatformDunningSettings() {
+  return useQuery({
+    queryKey: ['admin', 'platform-dunning', 'settings'] as const,
+    queryFn: () => adminApiFetch<PlatformDunningSettingsDto>('/admin/platform-dunning/settings'),
+  });
+}
+
+export function useUpdatePlatformDunningSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformDunningSettingsInput) =>
+      adminApiFetch<PlatformDunningSettingsDto>('/admin/platform-dunning/settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform-dunning', 'settings'] }),
+  });
+}
+
+export function useRunDunning() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<DunningRunResultDto>('/admin/platform-dunning/run', { method: 'POST' }),
+  });
 }
