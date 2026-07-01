@@ -8,6 +8,7 @@ import type { UnitPricingSuggestionDto } from '@storageos/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -42,7 +43,8 @@ const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', curren
 
 export function UnitPricingPanel() {
   const [facilityId, setFacilityId] = useState<string | undefined>();
-  const { data, isLoading } = useUnitPricingSuggestions(facilityId);
+  const [includeCompetition, setIncludeCompetition] = useState(false);
+  const { data, isLoading } = useUnitPricingSuggestions(facilityId, includeCompetition);
   const apply = useApplyUnitPricing();
   const canApply = useHasPermission('units:manage');
   const facilities = useFacilities();
@@ -67,22 +69,31 @@ export function UnitPricingPanel() {
           <strong>días que lleva vacío</strong>. Aplicar cambia su precio de catálogo (solo afecta a
           nuevos contratos; para subir a la cartera actual usa las subidas de precio).
         </p>
-        <Select
-          value={facilityId ?? 'all'}
-          onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
-        >
-          <SelectTrigger className="w-52">
-            <SelectValue placeholder="Todos los locales" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los locales</SelectItem>
-            {(facilities.data ?? []).map((f) => (
-              <SelectItem key={f.id} value={f.id}>
-                {f.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={includeCompetition}
+              onCheckedChange={(v) => setIncludeCompetition(v === true)}
+            />
+            Incluir competencia
+          </label>
+          <Select
+            value={facilityId ?? 'all'}
+            onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+          >
+            <SelectTrigger className="w-52">
+              <SelectValue placeholder="Todos los locales" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los locales</SelectItem>
+              {(facilities.data ?? []).map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card>

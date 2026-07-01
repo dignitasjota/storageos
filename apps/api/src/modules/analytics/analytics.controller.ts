@@ -157,13 +157,18 @@ export class AnalyticsController {
     });
   }
 
-  /** Sugerencia de precio por trastero individual (ocupación de su tamaño + días vacío). */
+  /** Sugerencia de precio por trastero individual (ocupación + días vacío + competencia opcional). */
   @Get('unit-pricing-suggestions')
   getUnitPricingSuggestions(
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
+    @Query('includeCompetition') includeCompetition?: string,
   ): Promise<UnitPricingSuggestionsDto> {
-    return this.insights.getUnitPricingSuggestions(user.tenantId, facilityId?.trim() || undefined);
+    return this.insights.getUnitPricingSuggestions(
+      user.tenantId,
+      facilityId?.trim() || undefined,
+      includeCompetition === 'true',
+    );
   }
 
   /** Aplica el precio sugerido a un trastero (fija su basePriceMonthly). */

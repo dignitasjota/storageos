@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Store,
   Sun,
   Ticket,
   TrendingUp,
@@ -242,6 +243,7 @@ const GROUPS: NavGroup[] = [
     labelKey: 'analysis',
     items: [
       { href: '/analytics', labelKey: 'analytics', icon: BarChart3, permission: 'analytics:read' },
+      { href: '/competitors', labelKey: 'competitors', icon: Store, permission: 'analytics:read' },
       { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, permission: 'reports:read' },
       {
         href: '/assistant',

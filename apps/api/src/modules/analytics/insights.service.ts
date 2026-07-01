@@ -31,6 +31,18 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Pricing por competencia: banda de tamaño (±%) para casar trasteros por m²,
+// margen de precio para decidir caro/barato, y el ajuste que aporta el factor.
+const COMP_BAND_PCT = 0.2;
+const COMP_MARGIN_PCT = 0.08;
+const COMP_ADJ = 6;
+
+function medianOf(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
 function levelFor(score: number): ChurnRiskLevel {
   if (score >= 60) return 'high';
   if (score >= 30) return 'medium';
@@ -284,6 +296,7 @@ export class InsightsService {
   async getUnitPricingSuggestions(
     tenantId: string,
     facilityId?: string,
+    includeCompetition = false,
   ): Promise<UnitPricingSuggestionsDto> {
     return this.prisma.withTenant(async (tx) => {
       const units = await tx.unit.findMany({
@@ -294,6 +307,20 @@ export class InsightsService {
         },
       });
       if (units.length === 0) return { items: [] };
+
+      // Factor competencia (opcional): precios de trasteros DISPONIBLES de la
+      // competencia, para casar por banda de m² con cada trastero mío.
+      let competitorPrices: { areaM2: number; price: number }[] = [];
+      if (includeCompetition) {
+        const comp = await tx.competitorUnit.findMany({
+          where: { status: 'available' },
+          select: { areaM2: true, priceMonthly: true },
+        });
+        competitorPrices = comp.map((c) => ({
+          areaM2: Number(c.areaM2),
+          price: Number(c.priceMonthly),
+        }));
+      }
 
       // Ocupación por dimensión = (tipo, local). No filtramos por facilityId aquí
       // para poder resolver la dimensión de cada trastero disponible.
@@ -360,10 +387,37 @@ export class InsightsService {
           });
         }
 
-        // Combinar + acotar (asimétrico: más cauto al subir).
-        const raw = occAdj + vacAdj;
-        const changePct = Math.max(-20, Math.min(15, raw));
+        // Factor 3 (opcional): competencia. Casa por banda de m² (±20%) los
+        // trasteros disponibles de la competencia y compara con la mediana.
         const currentPrice = toNumber(u.basePriceMonthly);
+        let compAdj = 0;
+        if (includeCompetition && competitorPrices.length > 0) {
+          const area = toNumber(u.areaM2);
+          if (area > 0) {
+            const band = competitorPrices
+              .filter((c) => Math.abs(c.areaM2 - area) <= area * COMP_BAND_PCT)
+              .map((c) => c.price);
+            if (band.length > 0) {
+              const median = medianOf(band);
+              if (currentPrice > median * (1 + COMP_MARGIN_PCT)) {
+                compAdj = -COMP_ADJ; // estás caro respecto a la competencia
+              } else if (currentPrice < median * (1 - COMP_MARGIN_PCT)) {
+                compAdj = COMP_ADJ; // hay hueco: estás barato
+              }
+              if (compAdj !== 0) {
+                factors.push({
+                  label: 'Competencia',
+                  detail: `Competencia ~${Math.round(median)} €/mes para ${area} m² (${band.length} ref.)`,
+                  contribution: compAdj,
+                });
+              }
+            }
+          }
+        }
+
+        // Combinar + acotar (asimétrico: más cauto al subir).
+        const raw = occAdj + vacAdj + compAdj;
+        const changePct = Math.max(-20, Math.min(15, raw));
         // Redondeo a euro entero (precio "bonito").
         let suggestedPrice = Math.round(currentPrice * (1 + changePct / 100));
         let action: 'raise' | 'lower' | 'hold' = 'hold';
