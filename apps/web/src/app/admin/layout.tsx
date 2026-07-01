@@ -72,6 +72,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
   { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
   { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
+  { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
   { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
   { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },

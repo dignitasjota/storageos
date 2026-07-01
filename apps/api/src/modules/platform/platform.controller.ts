@@ -1,6 +1,21 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put, UseGuards } from '@nestjs/common';
 import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  LegalSlugEnum,
+  UpdateLegalDocumentSchema,
   UpdatePlatformBannerSchema,
+  type LegalDocumentDto,
+  type LegalSlug,
   type PlatformBannerDto,
   type SuperAdminNotificationDto,
 } from '@storageos/shared';
@@ -12,6 +27,15 @@ import { AdminGuard } from '../admin/admin.guard';
 import { PlatformService } from './platform.service';
 
 class UpdateBannerDto extends createZodDto(UpdatePlatformBannerSchema) {}
+class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
+
+function parseSlug(slug: string): LegalSlug {
+  const parsed = LegalSlugEnum.safeParse(slug);
+  if (!parsed.success) {
+    throw new BadRequestException({ code: 'invalid_legal_slug', message: 'Documento no válido' });
+  }
+  return parsed.data;
+}
 
 /** Banner global visible por los tenants (endpoint público autenticado por tenant). */
 @Controller('platform-banner')
@@ -21,6 +45,18 @@ export class PlatformBannerPublicController {
   @Get()
   get(): Promise<PlatformBannerDto | null> {
     return this.service.getPublicBanner();
+  }
+}
+
+/** Documentos legales (términos, privacidad) — totalmente públicos (landing). */
+@Public()
+@Controller('platform-legal')
+export class PlatformLegalPublicController {
+  constructor(private readonly service: PlatformService) {}
+
+  @Get(':slug')
+  get(@Param('slug') slug: string): Promise<LegalDocumentDto> {
+    return this.service.getLegal(parseSlug(slug));
   }
 }
 
@@ -55,5 +91,18 @@ export class PlatformAdminController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async markAllRead(): Promise<void> {
     await this.service.markAllRead();
+  }
+
+  @Get('legal/:slug')
+  getLegal(@Param('slug') slug: string): Promise<LegalDocumentDto> {
+    return this.service.getLegal(parseSlug(slug));
+  }
+
+  @Put('legal/:slug')
+  updateLegal(
+    @Param('slug') slug: string,
+    @Body() body: UpdateLegalDto,
+  ): Promise<LegalDocumentDto> {
+    return this.service.updateLegal(parseSlug(slug), body);
   }
 }

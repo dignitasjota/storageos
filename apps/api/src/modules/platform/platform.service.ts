@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
+import { DEFAULT_LEGAL_DOCUMENTS } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type {
+  LegalDocumentDto,
+  LegalSlug,
   PlatformBannerDto,
   SuperAdminNotificationDto,
+  UpdateLegalDocumentInput,
   UpdatePlatformBannerInput,
 } from '@storageos/shared';
 
@@ -92,5 +96,40 @@ export class PlatformService {
       where: { readAt: null },
       data: { readAt: new Date() },
     });
+  }
+
+  // ---- documentos legales (términos, privacidad) ----
+
+  /**
+   * Documento legal por slug. Si no se ha guardado nunca en BD, devuelve el
+   * contenido por defecto (el redactado en `@storageos/shared`) con
+   * `updatedAt: null`, para que la landing siempre tenga texto que mostrar.
+   */
+  async getLegal(slug: LegalSlug): Promise<LegalDocumentDto> {
+    const row = await this.admin.platformLegalDocument.findUnique({ where: { slug } });
+    if (row) {
+      return {
+        slug,
+        title: row.title,
+        content: row.content,
+        updatedAt: row.updatedAt.toISOString(),
+      };
+    }
+    const def = DEFAULT_LEGAL_DOCUMENTS[slug];
+    return { slug, title: def.title, content: def.content, updatedAt: null };
+  }
+
+  async updateLegal(slug: LegalSlug, input: UpdateLegalDocumentInput): Promise<LegalDocumentDto> {
+    const row = await this.admin.platformLegalDocument.upsert({
+      where: { slug },
+      create: { slug, title: input.title, content: input.content },
+      update: { title: input.title, content: input.content },
+    });
+    return {
+      slug,
+      title: row.title,
+      content: row.content,
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 }
