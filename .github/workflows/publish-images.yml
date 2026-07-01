@@ -1,0 +1,104 @@
+name: Publish images (GHCR)
+
+# Construye las imágenes de producción (api, web, worker) en cada push a `main`
+# y las publica en GitHub Container Registry (GHCR). Esto SUSTITUYE al `build:`
+# de Portainer: el stack de producción usa `image:` (docker-compose.portainer-ghcr.yml)
+# y solo hace `pull` de una imagen ya construida y versionada, en vez de
+# reconstruir con `build:` (cuya capa `COPY` daba cache hit en Portainer y servía
+# versiones viejas → páginas/endpoints nuevos con 404). Ver docs/DEPLOYMENT.md §6D.
+#
+# `worker` y `web` comparten el mismo contexto (raíz del repo) que sus Dockerfiles.
+# `migrate`/`bootstrap` en el compose reutilizan la imagen de `api`.
+#
+# Requisitos (una vez):
+#   - El web hornea `NEXT_PUBLIC_*` en build-time → configúralas como
+#     **repository variables** en GitHub (Settings → Secrets and variables →
+#     Actions → Variables): `NEXT_PUBLIC_API_URL` (obligatoria) y
+#     `NEXT_PUBLIC_SITE_URL` (opcional).
+#   - Tras el primer push, en GitHub → Packages, marca los 3 paquetes como
+#     públicos (o configura credenciales de registry en Portainer si privados).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: Build & push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: apps/api/Dockerfile
+          - service: worker
+            dockerfile: apps/worker/Dockerfile
+          - service: web
+            dockerfile: apps/web/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set lowercase image name
+        id: img
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/storageos-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.img.outputs.name }}:latest
+            ${{ steps.img.outputs.name }}:${{ github.sha }}
+          # `web` hornea las NEXT_PUBLIC_* en build-time; para api/worker son no-op.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  redeploy:
+    name: Trigger Portainer redeploy
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST al webhook de Portainer (pull + redeploy)
+        env:
+          WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::warning::PORTAINER_WEBHOOK_URL no configurado; imágenes publicadas pero sin redeploy automático."
+            exit 0
+          fi
+          echo "Imágenes en GHCR listas; disparando redeploy del stack…"
+          code=$(curl -fsS -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" || echo "000")
+          echo "Respuesta del webhook: HTTP $code"
+          case "$code" in
+            2*) echo "✅ Redeploy disparado (Portainer hará pull de las imágenes GHCR)." ;;
+            000) echo "::error::No se pudo contactar con el webhook."; exit 1 ;;
+            *) echo "::error::El webhook devolvió HTTP $code."; exit 1 ;;
+          esac

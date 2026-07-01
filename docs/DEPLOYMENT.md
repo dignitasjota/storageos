@@ -442,6 +442,52 @@ follow-up si el webhook no resultara suficiente.
 
 ---
 
+## 6D. Despliegue determinista con imágenes en GHCR (recomendado)
+
+**Problema que resuelve.** Con el compose que usa `build:`
+(`docker-compose.portainer.yml`), Portainer reconstruye las imágenes al
+redeploy y la capa `COPY` puede dar **cache hit** → sirve **frontend o API
+viejos** (síntoma: una página o endpoint recién añadido devuelve **404** aunque
+el resto del deploy se vea bien). La solución de raíz es **no construir en
+Portainer**: las imágenes se construyen en CI, se publican en **GitHub Container
+Registry (GHCR)** con un tag inmutable, y Portainer solo hace `pull`.
+
+**Piezas** (ya en el repo):
+
+- **`.github/workflows/publish-images.yml`** — en cada push a `main` construye
+  `api`, `web` y `worker` y las publica en GHCR como
+  `ghcr.io/<owner>/storageos-{api,web,worker}` con tags `:latest` y `:<sha>`.
+  Al terminar, dispara el webhook de Portainer (reemplaza a `deploy.yml`).
+- **`docker-compose.portainer-ghcr.yml`** — igual que el de Portainer pero con
+  `image:` (GHCR) en vez de `build:`. `migrate`/`bootstrap` reutilizan la imagen
+  de `api`.
+
+**Puesta en marcha (una vez):**
+
+1. **Variables del web en GitHub** (Settings → Secrets and variables → Actions →
+   **Variables**): `NEXT_PUBLIC_API_URL` (obligatoria) y `NEXT_PUBLIC_SITE_URL`
+   (opcional). El web las **hornea en build-time**, por eso van en CI y no en
+   Portainer.
+2. Haz un push a `main` (o lanza el workflow con _Run workflow_). Se publican los
+   3 paquetes.
+3. **Haz públicos los paquetes**: GitHub → tu perfil/org → **Packages** →
+   cada `storageos-*` → _Package settings_ → _Change visibility_ → **Public**.
+   (Si prefieres privados, añade credenciales de _Registry_ en Portainer con un
+   PAT de `read:packages`.)
+4. En Portainer, cambia el stack para usar **`docker-compose.portainer-ghcr.yml`**
+   como _Compose path_ (mismas variables de entorno que antes). Si el `<owner>`
+   no es `dignitasjota`, define `STORAGEOS_API_IMAGE` / `STORAGEOS_WORKER_IMAGE`
+   / `STORAGEOS_WEB_IMAGE` apuntando a tu registro.
+5. Guarda el `PORTAINER_WEBHOOK_URL` como secret (igual que en §6C).
+
+**A partir de ahí**, cada merge a `main` → CI construye y publica las imágenes →
+webhook → Portainer hace `pull` de las imágenes nuevas y recrea los servicios.
+Sin `build:` local, no hay cache del `COPY`: lo que despliega es **exactamente**
+lo que se construyó en CI. Para desplegar una versión concreta (rollback), fija
+`STORAGEOS_*_IMAGE` al tag `...:<sha>` deseado.
+
+---
+
 ## 7. Bootstrap: planes de suscripción + super admin
 
 `pnpm db:seed` (que crea planes y datos demo) **no puede correr en producción**:
