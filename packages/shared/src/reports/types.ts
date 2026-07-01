@@ -200,3 +200,40 @@ export interface RevenueForecastDto {
   };
   points: RevenueForecastPointDto[];
 }
+
+// --- Sugerencia de precio por trastero individual (revenue management v1) ---
+/** Un factor que contribuye a la sugerencia (transparencia). `contribution` en %. */
+export interface UnitPricingFactorDto {
+  label: string;
+  detail: string;
+  contribution: number;
+}
+
+/** Sugerencia de precio para UN trastero disponible (ocupación de su dimensión + días vacío). */
+export interface UnitPricingSuggestionDto {
+  unitId: string;
+  code: string;
+  unitTypeName: string | null;
+  facilityId: string;
+  facilityName: string;
+  /** Ocupación (%) de trasteros del mismo tipo en el mismo local. */
+  occupancyPct: number;
+  /** Días que este trastero lleva disponible (stock parado). */
+  daysVacant: number;
+  currentPrice: number;
+  suggestedPrice: number;
+  /** Cambio neto sugerido en % (acotado). */
+  changePct: number;
+  action: 'raise' | 'lower' | 'hold';
+  factors: UnitPricingFactorDto[];
+}
+
+export interface UnitPricingSuggestionsDto {
+  items: UnitPricingSuggestionDto[];
+}
+
+export interface ApplyUnitPricingResultDto {
+  unitId: string;
+  previousPrice: number;
+  newPrice: number;
+}

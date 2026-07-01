@@ -34,3 +34,10 @@ export const ApplyPricingSchema = z.object({
   price: z.number().positive().max(100000),
 });
 export type ApplyPricingInput = z.infer<typeof ApplyPricingSchema>;
+
+/** Aplicar la sugerencia de precio a un trastero individual (fija basePriceMonthly). */
+export const ApplyUnitPricingSchema = z.object({
+  unitId: z.string().uuid(),
+  price: z.number().nonnegative().max(1_000_000),
+});
+export type ApplyUnitPricingInput = z.infer<typeof ApplyUnitPricingSchema>;

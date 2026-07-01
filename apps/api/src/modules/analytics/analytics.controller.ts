@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
-import { ApplyPricingSchema } from '@storageos/shared';
+import { ApplyPricingSchema, ApplyUnitPricingSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -15,6 +15,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
   ApplyPricingResultDto,
+  ApplyUnitPricingResultDto,
   ChurnKpiDto,
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
@@ -25,10 +26,12 @@ import type {
   PricingSuggestionsDto,
   RevenueForecastDto,
   RevenueKpiDto,
+  UnitPricingSuggestionsDto,
 } from '@storageos/shared';
 import type { Request } from 'express';
 
 class ApplyPricingDto extends createZodDto(ApplyPricingSchema) {}
+class ApplyUnitPricingDto extends createZodDto(ApplyUnitPricingSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -149,6 +152,32 @@ export class AnalyticsController {
       tenantId: user.tenantId,
       userId: user.sub,
       unitTypeId: body.unitTypeId,
+      price: body.price,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Sugerencia de precio por trastero individual (ocupación de su tamaño + días vacío). */
+  @Get('unit-pricing-suggestions')
+  getUnitPricingSuggestions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<UnitPricingSuggestionsDto> {
+    return this.insights.getUnitPricingSuggestions(user.tenantId, facilityId?.trim() || undefined);
+  }
+
+  /** Aplica el precio sugerido a un trastero (fija su basePriceMonthly). */
+  @RequirePermission('units:manage')
+  @Post('unit-pricing-suggestions/apply')
+  applyUnitPricing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ApplyUnitPricingDto,
+    @Req() req: Request,
+  ): Promise<ApplyUnitPricingResultDto> {
+    return this.insights.applyUnitPricing({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      unitId: body.unitId,
       price: body.price,
       meta: extractMeta(req),
     });

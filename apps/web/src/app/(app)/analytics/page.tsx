@@ -19,6 +19,8 @@ import {
 } from 'recharts';
 import { toast } from 'sonner';
 
+import { UnitPricingPanel } from './unit-pricing-panel';
+
 import type { ChurnRiskLevel, PricingAction } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
@@ -84,6 +86,7 @@ export default function AnalyticsPage() {
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
           <TabsTrigger value="pricing">Precio dinámico</TabsTrigger>
+          <TabsTrigger value="unit-pricing">Precio por trastero</TabsTrigger>
           <TabsTrigger value="forecast">Previsión</TabsTrigger>
         </TabsList>
         <TabsContent value="revenue" className="mt-4">
@@ -106,6 +109,9 @@ export default function AnalyticsPage() {
         </TabsContent>
         <TabsContent value="pricing" className="mt-4">
           <PricingSuggestionsPanel />
+        </TabsContent>
+        <TabsContent value="unit-pricing" className="mt-4">
+          <UnitPricingPanel />
         </TabsContent>
         <TabsContent value="forecast" className="mt-4">
           <ForecastPanel />
