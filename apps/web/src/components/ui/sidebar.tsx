@@ -319,7 +319,10 @@ const SidebarInset = React.forwardRef<HTMLDivElement, React.ComponentProps<'main
       <main
         ref={ref}
         className={cn(
-          'relative flex w-full flex-1 flex-col bg-background',
+          // `min-w-0` es imprescindible: sin él, el contenido ancho (tablas) rompe
+          // el layout en móvil (scroll horizontal de toda la página) en vez de
+          // scrollear localmente dentro de su contenedor.
+          'relative flex w-full min-w-0 flex-1 flex-col bg-background',
           'md:peer-data-[variant=inset]:m-2 md:peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow',
           className,
         )}
