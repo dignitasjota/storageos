@@ -758,3 +758,17 @@ export interface PlatformInvoiceDto {
   hasPdf: boolean;
   paymentId: string | null;
 }
+
+// --- Dunning del SaaS (cobro de tenants morosos) ---
+export interface PlatformDunningSettingsDto {
+  enabled: boolean;
+  reminder1Days: number;
+  reminder2Days: number;
+  suspendDays: number;
+}
+
+export interface DunningRunResultDto {
+  evaluated: number;
+  reminders: number;
+  suspended: number;
+}
