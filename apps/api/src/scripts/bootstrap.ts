@@ -31,6 +31,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
     maxFacilities: 1,
     maxUsers: 2,
     features: { support: 'community', branding: false, api: false },
+    tenantFeatures: [],
   },
   {
     name: 'Starter',
@@ -41,6 +42,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
     maxFacilities: 3,
     maxUsers: 10,
     features: { support: 'email', branding: false, api: false },
+    tenantFeatures: ['rent_increases', 'insurance', 'access_control', 'automations'],
   },
   {
     name: 'Pro',
@@ -51,6 +53,15 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
     maxFacilities: null,
     maxUsers: null,
     features: { support: 'priority', branding: true, api: true },
+    tenantFeatures: [
+      'ai_assistant',
+      'sepa',
+      'bank_reconciliation',
+      'rent_increases',
+      'insurance',
+      'access_control',
+      'automations',
+    ],
   },
 ];
 

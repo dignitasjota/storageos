@@ -503,6 +503,8 @@ export interface SubscriptionPlanDto {
   priceYearly: number;
   currency: string;
   features: Record<string, unknown>;
+  /** Features premium que incluye este plan (gating por plan, editable). */
+  tenantFeatures: TenantFeature[];
   stripePriceId: string | null;
   maxUnits: number | null;
   maxFacilities: number | null;

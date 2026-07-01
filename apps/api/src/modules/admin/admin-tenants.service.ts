@@ -5,8 +5,8 @@ import { hash as argonHash } from '@node-rs/argon2';
 import {
   FEATURE_LABELS,
   TenantFeatures,
-  effectiveFeatures,
-  featuresForPlan,
+  effectiveFeaturesFromList,
+  resolvePlanFeatures,
 } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
@@ -547,7 +547,7 @@ export class AdminTenantsService {
       f: number,
       usr: number,
     ): boolean => {
-      const feats = featuresForPlan(plan.slug);
+      const feats = resolvePlanFeatures(plan);
       for (const ft of used) if (!feats.includes(ft)) return false;
       if (plan.maxUnits !== null && u > plan.maxUnits) return false;
       if (plan.maxFacilities !== null && f > plan.maxFacilities) return false;
@@ -558,7 +558,7 @@ export class AdminTenantsService {
     const tenantDtos: AdminTenantAdoptionDto[] = tenants.map((t) => {
       const plan = t.subscription?.plan ?? null;
       const planSlug = plan?.slug ?? null;
-      const inPlan = featuresForPlan(planSlug ?? '');
+      const inPlan = plan ? resolvePlanFeatures(plan) : [];
       const used = usedFeaturesOf(t.id);
       const u = units.get(t.id) ?? 0;
       const f = facilities.get(t.id) ?? 0;
@@ -1030,7 +1030,7 @@ export class AdminTenantsService {
     const [subscription, rows] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        include: { plan: { select: { slug: true } } },
+        include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
         where: { tenantId },
@@ -1039,11 +1039,12 @@ export class AdminTenantsService {
     ]);
     const planSlug = subscription?.plan.slug ?? null;
     const overrides = rows as { feature: TenantFeature; enabled: boolean }[];
+    const planFeatures = subscription ? resolvePlanFeatures(subscription.plan) : [];
     return {
       planSlug,
-      planFeatures: featuresForPlan(planSlug ?? ''),
+      planFeatures,
       overrides,
-      effective: effectiveFeatures(planSlug ?? '', overrides),
+      effective: effectiveFeaturesFromList(planFeatures, overrides),
     };
   }
 
@@ -1055,9 +1056,9 @@ export class AdminTenantsService {
     await this.findOrThrow(tenantId);
     const subscription = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
-      include: { plan: { select: { slug: true } } },
+      include: { plan: { select: { slug: true, tenantFeatures: true } } },
     });
-    const planFeatures = new Set(featuresForPlan(subscription?.plan.slug ?? ''));
+    const planFeatures = new Set(subscription ? resolvePlanFeatures(subscription.plan) : []);
     // Solo guardamos los overrides que cambian algo respecto al plan.
     const effectiveOverrides = args.overrides.filter(
       (o) => o.enabled !== planFeatures.has(o.feature),

@@ -8,7 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { featuresForPlan } from '@storageos/shared';
+import { resolvePlanFeatures } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
@@ -1017,11 +1017,11 @@ export class ContractsService {
       (tx) =>
         tx.tenantSubscription.findUnique({
           where: { tenantId },
-          include: { plan: { select: { slug: true } } },
+          include: { plan: { select: { slug: true, tenantFeatures: true } } },
         }),
       tenantId,
     );
-    if (!featuresForPlan(sub?.plan.slug ?? '').includes('insurance')) {
+    if (!(sub ? resolvePlanFeatures(sub.plan) : []).includes('insurance')) {
       throw new ForbiddenException({
         code: 'feature_not_in_plan',
         message: 'El seguro de contenido no está incluido en tu plan',

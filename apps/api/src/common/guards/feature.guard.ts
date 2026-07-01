@@ -1,6 +1,6 @@
 import { CanActivate, type ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { effectiveFeatures } from '@storageos/shared';
+import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../../modules/database/prisma-admin.service';
 import { FEATURE_KEY } from '../decorators/require-feature.decorator';
@@ -36,15 +36,16 @@ export class FeatureGuard implements CanActivate {
     const [subscription, overrides] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        include: { plan: { select: { slug: true } } },
+        include: { plan: { select: { slug: true, tenantFeatures: true } } },
       }),
       this.admin.tenantFeatureOverride.findMany({
         where: { tenantId },
         select: { feature: true, enabled: true },
       }),
     ]);
-    const features = effectiveFeatures(
-      subscription?.plan.slug ?? '',
+    const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
+    const features = effectiveFeaturesFromList(
+      base,
       overrides as { feature: TenantFeature; enabled: boolean }[],
     );
     if (!features.includes(required)) {
