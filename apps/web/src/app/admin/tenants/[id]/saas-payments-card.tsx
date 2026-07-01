@@ -26,9 +26,12 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  fetchPlatformInvoicePdf,
   useAddManualPaymentDeps,
   useAddManualSaasPayment,
+  useAdminTenantPlatformInvoices,
   useAdminTenantSaasPayments,
+  useIssuePlatformInvoice,
   useSyncTenantSaasPayments,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -77,7 +80,30 @@ const PROVIDER_OPTIONS: { value: SaasPaymentProviderValue; label: string }[] = [
 export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
   const payments = useAdminTenantSaasPayments(tenantId);
   const sync = useSyncTenantSaasPayments();
+  const platformInvoices = useAdminTenantPlatformInvoices(tenantId);
+  const issueInvoice = useIssuePlatformInvoice(tenantId);
+  const invoiceByPayment = useMemo(
+    () => new Map((platformInvoices.data ?? []).map((inv) => [inv.paymentId, inv])),
+    [platformInvoices.data],
+  );
   const [manualOpen, setManualOpen] = useState(false);
+
+  async function onIssue(paymentId: string) {
+    try {
+      await issueInvoice.mutateAsync(paymentId);
+      toast.success('Factura emitida.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+  async function onDownload(invoiceId: string) {
+    try {
+      const url = await fetchPlatformInvoicePdf(invoiceId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Sin PDF disponible');
+    }
+  }
 
   async function onSync() {
     try {
@@ -152,19 +178,44 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
                         ) : null}
                       </td>
                       <td className="p-2">{STATUS_LABELS[p.status] ?? p.status}</td>
-                      <td className="p-2">
-                        {p.invoiceUrl ? (
+                      <td className="space-x-2 p-2">
+                        {p.invoiceUrl && (
                           <a
                             href={p.invoiceUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-primary hover:underline"
                           >
-                            Ver
+                            Stripe
                           </a>
-                        ) : (
-                          '—'
                         )}
+                        {(() => {
+                          const inv = invoiceByPayment.get(p.id);
+                          if (inv) {
+                            return (
+                              <button
+                                type="button"
+                                className="text-primary hover:underline"
+                                onClick={() => onDownload(inv.id)}
+                              >
+                                {inv.fullNumber}
+                              </button>
+                            );
+                          }
+                          if (p.status === 'paid') {
+                            return (
+                              <button
+                                type="button"
+                                className="text-muted-foreground hover:underline"
+                                disabled={issueInvoice.isPending}
+                                onClick={() => onIssue(p.id)}
+                              >
+                                Emitir
+                              </button>
+                            );
+                          }
+                          return !p.invoiceUrl ? '—' : null;
+                        })()}
                       </td>
                     </tr>
                   ))}

@@ -3,10 +3,14 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { AdminGuard } from '../admin/admin.guard';
 import { AuthModule } from '../auth/auth.module';
+import { EmailModule } from '../email/email.module';
+import { FilesModule } from '../files/files.module';
 import { PaymentsModule } from '../payments/payments.module';
 
 import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
+import { PlatformInvoicesController } from './platform-invoices.controller';
+import { PlatformInvoicesService } from './platform-invoices.service';
 import { SubscriptionPlansController } from './subscription-plans.controller';
 import { SubscriptionPlansService } from './subscription-plans.service';
 
@@ -35,9 +39,15 @@ import { SubscriptionPlansService } from './subscription-plans.service';
  * igual que hace `AdminModule`, sin acoplar este modulo a todo `AdminModule`.
  */
 @Module({
-  imports: [AuthModule, forwardRef(() => PaymentsModule), JwtModule.register({})],
-  controllers: [BillingSaasController, SubscriptionPlansController],
-  providers: [BillingSaasService, SubscriptionPlansService, AdminGuard],
-  exports: [BillingSaasService, SubscriptionPlansService],
+  imports: [
+    AuthModule,
+    forwardRef(() => PaymentsModule),
+    JwtModule.register({}),
+    EmailModule,
+    FilesModule,
+  ],
+  controllers: [BillingSaasController, SubscriptionPlansController, PlatformInvoicesController],
+  providers: [BillingSaasService, SubscriptionPlansService, PlatformInvoicesService, AdminGuard],
+  exports: [BillingSaasService, SubscriptionPlansService, PlatformInvoicesService],
 })
 export class BillingSaasModule {}

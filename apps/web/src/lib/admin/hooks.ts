@@ -4,6 +4,9 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  PlatformBillingSettingsDto,
+  PlatformInvoiceDto,
+  UpdatePlatformBillingSettingsInput,
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
@@ -1076,4 +1079,53 @@ export function useDeactivatePlan() {
       adminApiFetch<void>(`/subscription-plans/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'subscription-plans'] }),
   });
+}
+
+// --- Facturación del SaaS (StorageOS → tenant) ---
+export function useAdminPlatformBillingSettings() {
+  return useQuery({
+    queryKey: ['admin', 'platform-billing', 'settings'] as const,
+    queryFn: () => adminApiFetch<PlatformBillingSettingsDto>('/admin/platform-billing/settings'),
+  });
+}
+
+export function useUpdatePlatformBillingSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformBillingSettingsInput) =>
+      adminApiFetch<PlatformBillingSettingsDto>('/admin/platform-billing/settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform-billing', 'settings'] }),
+  });
+}
+
+export function useAdminTenantPlatformInvoices(tenantId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] as const,
+    queryFn: () =>
+      adminApiFetch<PlatformInvoiceDto[]>(`/admin/tenants/${tenantId}/platform-invoices`),
+    enabled,
+  });
+}
+
+export function useIssuePlatformInvoice(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (paymentId: string) =>
+      adminApiFetch<PlatformInvoiceDto>('/admin/platform-invoices/issue', {
+        method: 'POST',
+        json: { paymentId },
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] }),
+  });
+}
+
+/** Devuelve la URL firmada del PDF para abrirla. */
+export async function fetchPlatformInvoicePdf(id: string): Promise<string> {
+  const res = await adminApiFetch<{ url: string }>(`/admin/platform-invoices/${id}/pdf`);
+  return res.url;
 }
