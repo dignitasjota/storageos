@@ -23,7 +23,8 @@
   "publicFooter": {
     "copyright": "© {year} StorageOS",
     "terms": "Términos",
-    "privacy": "Privacidad"
+    "privacy": "Privacidad",
+    "cookies": "Cookies"
   },
   "landing": {
     "heroTitle": "El software todo-en-uno para tu self-storage",

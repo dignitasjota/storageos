@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Slugs de los documentos legales de la plataforma. */
-export const LEGAL_SLUGS = ['terms', 'privacy'] as const;
+export const LEGAL_SLUGS = ['terms', 'privacy', 'cookies'] as const;
 export const LegalSlugEnum = z.enum(LEGAL_SLUGS);
 export type LegalSlug = (typeof LEGAL_SLUGS)[number];
 
@@ -185,8 +185,40 @@ Podemos actualizar esta política para adaptarla a cambios normativos o del serv
 
 Para cualquier cuestión relativa a esta política o al tratamiento de tus datos, contacta con nosotros en **[correo@dominio]**.`;
 
+const COOKIES_MD = `Esta política explica qué son las cookies y tecnologías similares, cuáles utiliza StorageOS y cómo puedes gestionarlas.
+
+## 1. ¿Qué son las cookies?
+
+Una cookie es un pequeño fichero de texto que un sitio web almacena en tu navegador cuando lo visitas. Sirve, entre otras cosas, para que la web recuerde tu sesión y funcione correctamente. Junto a las cookies existen tecnologías equivalentes (como el almacenamiento local del navegador) que tratamos de forma análoga en esta política.
+
+## 2. Cookies que utilizamos
+
+StorageOS utiliza únicamente las cookies y el almacenamiento **estrictamente necesarios** para el funcionamiento y la seguridad de la plataforma. En particular:
+
+- **Sesión y autenticación:** para mantener tu sesión iniciada de forma segura y proteger frente a accesos no autorizados. Sin ellas no es posible usar el panel ni el portal.
+- **Preferencias:** para recordar ajustes como el tema (claro/oscuro) o el idioma.
+
+No utilizamos cookies de **publicidad** ni de **seguimiento de terceros**. Si en el futuro incorporáramos cookies **analíticas** o de terceros no necesarias, se recabaría tu consentimiento previo mediante el correspondiente aviso, y podrías aceptarlas o rechazarlas.
+
+## 3. Base jurídica
+
+Las cookies estrictamente necesarias no requieren consentimiento, conforme al artículo 22.2 de la LSSI-CE y a las directrices de la Agencia Española de Protección de Datos. Cualquier otra categoría de cookies se instalaría solo con tu consentimiento.
+
+## 4. Cómo gestionar o eliminar las cookies
+
+Puedes configurar tu navegador para bloquear o eliminar las cookies. Ten en cuenta que, si bloqueas las cookies estrictamente necesarias, es posible que la plataforma no funcione correctamente. Consulta la ayuda de tu navegador (Chrome, Firefox, Safari, Edge…) para más información sobre cómo hacerlo.
+
+## 5. Cambios en esta política
+
+Podemos actualizar esta política de cookies para adaptarla a cambios legales o técnicos. Publicaremos la versión vigente en esta misma página con su fecha de actualización.
+
+## 6. Contacto
+
+Para cualquier duda sobre el uso de cookies, escríbenos a **[correo@dominio]**. Puedes consultar también nuestra [Política de Privacidad](/privacidad).`;
+
 /** Contenido por defecto (seed + fallback si la BD está vacía). */
 export const DEFAULT_LEGAL_DOCUMENTS: Record<LegalSlug, { title: string; content: string }> = {
   terms: { title: 'Términos y Condiciones de Uso', content: TERMS_MD },
   privacy: { title: 'Política de Privacidad', content: PRIVACY_MD },
+  cookies: { title: 'Política de Cookies', content: COOKIES_MD },
 };
