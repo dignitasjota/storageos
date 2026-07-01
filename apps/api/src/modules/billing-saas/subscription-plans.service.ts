@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { normalizePlanFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -52,6 +53,7 @@ export class SubscriptionPlansService {
         priceMonthly: input.priceMonthly,
         priceYearly: input.priceYearly,
         features: (input.features ?? {}) as Prisma.InputJsonValue,
+        tenantFeatures: input.tenantFeatures ?? [],
         ...(input.stripePriceId !== undefined ? { stripePriceId: input.stripePriceId } : {}),
         ...(input.maxUnits !== undefined ? { maxUnits: input.maxUnits } : {}),
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
@@ -82,6 +84,7 @@ export class SubscriptionPlansService {
         ...(input.features !== undefined
           ? { features: input.features as Prisma.InputJsonValue }
           : {}),
+        ...(input.tenantFeatures !== undefined ? { tenantFeatures: input.tenantFeatures } : {}),
         ...(input.stripePriceId !== undefined ? { stripePriceId: input.stripePriceId } : {}),
         ...(input.maxUnits !== undefined ? { maxUnits: input.maxUnits } : {}),
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
@@ -114,6 +117,7 @@ export class SubscriptionPlansService {
     priceYearly?: { toString(): string } | number;
     currency?: string;
     features: unknown;
+    tenantFeatures?: string[];
     stripePriceId: string | null;
     maxUnits?: number | null;
     maxFacilities?: number | null;
@@ -129,6 +133,7 @@ export class SubscriptionPlansService {
       priceYearly: row.priceYearly !== undefined ? Number(row.priceYearly.toString()) : 0,
       currency: row.currency ?? 'EUR',
       features: (row.features ?? {}) as Record<string, unknown>,
+      tenantFeatures: normalizePlanFeatures(row.tenantFeatures),
       stripePriceId: row.stripePriceId,
       maxUnits: row.maxUnits ?? null,
       maxFacilities: row.maxFacilities ?? null,

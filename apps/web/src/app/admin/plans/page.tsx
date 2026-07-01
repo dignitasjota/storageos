@@ -1,8 +1,11 @@
 'use client';
 
 import {
+  FEATURE_LABELS,
+  TenantFeatures,
   UpsertSubscriptionPlanSchema,
   type SubscriptionPlanDto,
+  type TenantFeature,
   type UpsertSubscriptionPlanFormInput,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
@@ -47,6 +50,7 @@ type FormState = {
   maxUnits: string;
   maxFacilities: string;
   maxUsers: string;
+  tenantFeatures: TenantFeature[];
   isActive: boolean;
 };
 
@@ -59,6 +63,7 @@ const emptyForm: FormState = {
   maxUnits: '',
   maxFacilities: '',
   maxUsers: '',
+  tenantFeatures: [],
   isActive: true,
 };
 
@@ -72,6 +77,7 @@ function toForm(p: SubscriptionPlanDto): FormState {
     maxUnits: p.maxUnits?.toString() ?? '',
     maxFacilities: p.maxFacilities?.toString() ?? '',
     maxUsers: p.maxUsers?.toString() ?? '',
+    tenantFeatures: p.tenantFeatures,
     isActive: p.isActive,
   };
 }
@@ -105,6 +111,7 @@ export default function PlansPage() {
       priceYearly: form.priceYearly,
       currency: 'EUR',
       features: {},
+      tenantFeatures: form.tenantFeatures,
       maxUnits: form.maxUnits ? Number(form.maxUnits) : null,
       maxFacilities: form.maxFacilities ? Number(form.maxFacilities) : null,
       maxUsers: form.maxUsers ? Number(form.maxUsers) : null,
@@ -150,8 +157,7 @@ export default function PlansPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Planes</h1>
           <p className="text-sm text-muted-foreground">
-            Precios y límites de los planes de suscripción. Las features incluidas por plan se
-            definen en código (por slug).
+            Precios, límites y features premium de cada plan de suscripción.
           </p>
         </div>
         <Button onClick={openCreate}>Nuevo plan</Button>
@@ -219,7 +225,7 @@ export default function PlansPage() {
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar plan' : 'Nuevo plan'}</DialogTitle>
             <DialogDescription>
-              Las features por plan se gestionan en código; aquí defines precio y límites.
+              Define precio, límites y las features premium incluidas en el plan.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
@@ -285,6 +291,35 @@ export default function PlansPage() {
                 value={form.maxUsers}
                 onChange={(e) => setForm((f) => ({ ...f, maxUsers: e.target.value }))}
               />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Features premium incluidas</Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {TenantFeatures.map((feat) => {
+                  const checked = form.tenantFeatures.includes(feat);
+                  return (
+                    <label key={feat} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            tenantFeatures: e.target.checked
+                              ? [...f.tenantFeatures, feat]
+                              : f.tenantFeatures.filter((x) => x !== feat),
+                          }))
+                        }
+                      />
+                      {FEATURE_LABELS[feat]}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Los tenants con este plan verán estos módulos. Si no marcas ninguno, se usa el mapa
+                por defecto del código para ese slug.
+              </p>
             </div>
             <label className="col-span-2 flex items-center gap-2 text-sm">
               <input

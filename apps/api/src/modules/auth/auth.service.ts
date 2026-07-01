@@ -9,7 +9,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { effectiveFeatures, permissionsForRole } from '@storageos/shared';
+import {
+  effectiveFeaturesFromList,
+  permissionsForRole,
+  resolvePlanFeatures,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -640,8 +644,8 @@ export class AuthService {
         tenant: this.toTenantDto(tenant),
         subscription: this.toSubscriptionDto(subscription, subscription.plan.slug),
         permissions: await this.resolvePermissions(args.tenantId, user),
-        features: effectiveFeatures(
-          subscription.plan.slug,
+        features: effectiveFeaturesFromList(
+          resolvePlanFeatures(subscription.plan),
           overrides as { feature: TenantFeature; enabled: boolean }[],
         ),
         facilityScope: await this.resolveFacilityScope(args.tenantId, args.userId),

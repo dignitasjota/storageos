@@ -565,6 +565,8 @@ model SubscriptionPlan {
   maxFacilities Int?     @map("max_facilities")
   maxUsers      Int?     @map("max_users")
   features      Json     @default("{}")
+  /// Features premium gateadas por este plan (editable desde /admin/plans).
+  tenantFeatures String[] @map("tenant_features")
   stripePriceId String?  @map("stripe_price_id")
   isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

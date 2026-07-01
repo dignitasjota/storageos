@@ -290,6 +290,7 @@ export const UpsertSubscriptionPlanSchema = z.object({
   priceYearly: z.number().nonnegative().max(10_000_000),
   currency: z.string().trim().length(3).default('EUR'),
   features: z.record(z.unknown()).default({}),
+  tenantFeatures: z.array(z.enum(TenantFeatures)).default([]),
   stripePriceId: z.string().trim().max(120).nullable().optional(),
   maxUnits: z.number().int().nonnegative().nullable().optional(),
   maxFacilities: z.number().int().nonnegative().nullable().optional(),

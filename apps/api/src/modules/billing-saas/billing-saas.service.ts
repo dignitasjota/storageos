@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { normalizePlanFeatures } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
 import { AuditService } from '../auth/audit.service';
@@ -537,6 +538,7 @@ export class BillingSaasService {
       name: string;
       priceMonthly: { toString(): string };
       features: unknown;
+      tenantFeatures?: string[];
       stripePriceId: string | null;
       isActive: boolean;
     };
@@ -550,6 +552,7 @@ export class BillingSaasService {
       priceYearly: 0,
       currency: 'EUR',
       features: (row.plan.features ?? {}) as Record<string, unknown>,
+      tenantFeatures: normalizePlanFeatures(row.plan.tenantFeatures),
       stripePriceId: row.plan.stripePriceId,
       maxUnits: null,
       maxFacilities: null,
