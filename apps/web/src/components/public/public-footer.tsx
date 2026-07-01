@@ -9,10 +9,10 @@ export function PublicFooter() {
       <div className="container flex flex-col gap-3 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <p>{t('copyright', { year })}</p>
         <nav className="flex items-center gap-4">
-          <Link href="#" className="transition hover:text-foreground">
+          <Link href="/terminos" className="transition hover:text-foreground">
             {t('terms')}
           </Link>
-          <Link href="#" className="transition hover:text-foreground">
+          <Link href="/privacidad" className="transition hover:text-foreground">
             {t('privacy')}
           </Link>
         </nav>
