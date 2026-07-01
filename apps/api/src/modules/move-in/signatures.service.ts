@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
@@ -330,5 +336,101 @@ export class SignaturesService {
         }`,
       );
     }
+  }
+
+  /**
+   * Self-service del inquilino existente: contrata un trastero adicional
+   * disponible desde su portal. Crea el contrato, lo firma (acceso diferido al
+   * pago), emite la 1ª factura y devuelve los ids para pagar online. El acceso
+   * se emite al pagar la 1ª factura (mismo flujo que el booking público).
+   */
+  async bookForExistingCustomer(args: {
+    tenantId: string;
+    customerId: string;
+    unitId: string;
+    signerName: string;
+    meta: RequestMeta;
+  }): Promise<{ contractId: string; invoiceId: string | null; portalToken: string }> {
+    const { tenantId, customerId, unitId } = args;
+    // El trastero debe estar disponible y en un local donde el inquilino ya
+    // tiene un contrato activo (mismo criterio que la disponibilidad del portal).
+    const unit = await this.admin.unit.findFirst({
+      where: { id: unitId, tenantId },
+      include: { unitType: { select: { defaultDepositAmount: true } } },
+    });
+    if (!unit || unit.status !== 'available') {
+      throw new BadRequestException({
+        code: 'unit_not_available',
+        message: 'El trastero ya no está disponible',
+      });
+    }
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { email: true },
+    });
+    if (!customer) {
+      throw new NotFoundException({
+        code: 'customer_not_found',
+        message: 'Inquilino no encontrado',
+      });
+    }
+    const ownsFacility = await this.admin.contract.findFirst({
+      where: {
+        tenantId,
+        customerId,
+        status: { in: ['active', 'ending'] },
+        deletedAt: null,
+        unit: { facilityId: unit.facilityId },
+      },
+      select: { id: true },
+    });
+    if (!ownsFacility) {
+      throw new BadRequestException({
+        code: 'facility_not_allowed',
+        message: 'Solo puedes contratar trasteros de tu mismo local',
+      });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const contract = await this.contracts.create({
+      tenantId,
+      userId: null,
+      input: {
+        customerId,
+        unitId,
+        startDate: today,
+        billingCycle: 'monthly',
+        priceMonthly: Number(unit.basePriceMonthly),
+        discountAmount: 0,
+        depositAmount: Number(unit.unitType.defaultDepositAmount ?? 0),
+        cancellationNoticeDays: 15,
+        autoRenew: true,
+      },
+      meta: args.meta,
+    });
+    await this.contracts.sign({
+      tenantId,
+      userId: null,
+      contractId: contract.id,
+      meta: args.meta,
+      signature: {
+        signerName: args.signerName,
+        signerEmail: customer.email,
+        method: 'typed',
+        typedSignature: args.signerName,
+        channel: 'portal',
+      },
+      deferAccessUntilPaid: true,
+    });
+    await this.maybeIssueFirstInvoice(tenantId, contract.id, customerId);
+    const invoice = await this.admin.invoice.findFirst({
+      where: { tenantId, contractId: contract.id, deletedAt: null },
+      select: { id: true },
+    });
+    return {
+      contractId: contract.id,
+      invoiceId: invoice?.id ?? null,
+      portalToken: this.mintPortalToken(tenantId, customerId),
+    };
   }
 }

@@ -842,7 +842,13 @@ function PortalConsumeContent() {
         </TabsContent>
 
         <TabsContent value="nuevo" className="space-y-6">
-          <AdditionalUnitCard session={session} />
+          <AdditionalUnitCard
+            session={session}
+            onBooked={() => {
+              void reloadInvoices();
+              setTab('facturas');
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="facturas" className="space-y-6">

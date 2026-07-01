@@ -19,5 +19,6 @@ import { SignaturesService } from './signatures.service';
   imports: [ContractsModule, BillingModule, ReferralsModule, JwtModule.register({})],
   controllers: [MoveInPublicController, ContractSignaturesController],
   providers: [SignaturesService, BookingService],
+  exports: [SignaturesService],
 })
 export class MoveInModule {}

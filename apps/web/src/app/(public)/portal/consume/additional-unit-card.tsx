@@ -4,11 +4,27 @@ import { Loader2, PackagePlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { AvailableUnitDto, PortalSessionDto, PortalUnitRequestDto } from '@storageos/shared';
+import type {
+  AvailableUnitDto,
+  PortalBookUnitResultDto,
+  PortalSessionDto,
+  PortalUnitRequestDto,
+} from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
@@ -18,13 +34,25 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: 'Rechazada',
 };
 
-export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
+export function AdditionalUnitCard({
+  session,
+  onBooked,
+}: {
+  session: PortalSessionDto;
+  /** Tras contratar: refresca facturas y lleva al inquilino a pagar. */
+  onBooked?: () => void;
+}) {
   const auth = { Authorization: `Bearer ${session.accessToken}` };
   const [units, setUnits] = useState<AvailableUnitDto[] | null>(null);
   const [requests, setRequests] = useState<PortalUnitRequestDto[]>([]);
   const [note, setNote] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [genericBusy, setGenericBusy] = useState(false);
+
+  // Estado del diálogo «Contratar ahora».
+  const [target, setTarget] = useState<AvailableUnitDto | null>(null);
+  const [signerName, setSignerName] = useState(session.customerName ?? '');
+  const [accepted, setAccepted] = useState(false);
+  const [booking, setBooking] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,13 +81,35 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.accessToken]);
 
-  async function request(body: { unitId?: string; note?: string }, key: string) {
-    if (key === 'generic') setGenericBusy(true);
-    else setBusyId(key);
+  async function confirmBooking() {
+    if (!target) return;
+    setBooking(true);
+    try {
+      await apiFetch<PortalBookUnitResultDto>('/portal/me/contracts', {
+        method: 'POST',
+        json: { unitId: target.id, signerName: signerName.trim() },
+        headers: auth,
+        requiresAuth: false,
+      });
+      toast.success('¡Trastero contratado! Paga la primera factura para activar tu acceso.');
+      setTarget(null);
+      setAccepted(false);
+      // Quitamos el trastero de la lista de disponibles.
+      setUnits((prev) => (prev ?? []).filter((u) => u.id !== target.id));
+      onBooked?.();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo contratar el trastero.');
+    } finally {
+      setBooking(false);
+    }
+  }
+
+  async function requestGeneric() {
+    setGenericBusy(true);
     try {
       const created = await apiFetch<PortalUnitRequestDto>('/portal/me/unit-requests', {
         method: 'POST',
-        json: body,
+        json: { note: note.trim() },
         headers: auth,
         requiresAuth: false,
       });
@@ -69,7 +119,6 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar la solicitud.');
     } finally {
-      setBusyId(null);
       setGenericBusy(false);
     }
   }
@@ -81,8 +130,8 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
           <PackagePlus className="size-4" /> Contratar otro trastero
         </CardTitle>
         <CardDescription>
-          Mira los trasteros disponibles en tu local y solicita el que te interese. Tu gestor lo
-          formaliza.
+          Elige un trastero disponible en tu local, fírmalo y paga online. El acceso se activa al
+          pagar la primera factura.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -112,10 +161,12 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
                 </div>
                 <Button
                   size="sm"
-                  disabled={busyId === u.id}
-                  onClick={() => request({ unitId: u.id }, u.id)}
+                  onClick={() => {
+                    setTarget(u);
+                    setAccepted(false);
+                  }}
                 >
-                  {busyId === u.id ? <Loader2 className="size-4 animate-spin" /> : 'Solicitar'}
+                  Contratar ahora
                 </Button>
               </div>
             ))}
@@ -134,9 +185,9 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
             variant="outline"
             size="sm"
             disabled={genericBusy || note.trim().length === 0}
-            onClick={() => request({ note: note.trim() }, 'generic')}
+            onClick={requestGeneric}
           >
-            Enviar solicitud
+            Enviar solicitud al gestor
           </Button>
         </div>
 
@@ -157,6 +208,41 @@ export function AdditionalUnitCard({ session }: { session: PortalSessionDto }) {
           </div>
         )}
       </CardContent>
+
+      <Dialog open={target !== null} onOpenChange={(o) => !o && setTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Contratar trastero {target?.code}</DialogTitle>
+            <DialogDescription>
+              {target?.facilityName}
+              {target?.priceMonthly != null ? ` · ${target.priceMonthly} €/mes` : ''}. Se generará
+              tu contrato y la primera factura, que podrás pagar a continuación.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Nombre completo (firma)</Label>
+              <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} />
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={accepted} onCheckedChange={(v) => setAccepted(v === true)} />
+              <span>
+                He leído y acepto las condiciones del contrato de alquiler de trastero y la política
+                de tratamiento de datos.
+              </span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={confirmBooking}
+              disabled={booking || !accepted || signerName.trim().length < 2}
+            >
+              {booking ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}
+              Firmar y continuar al pago
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Put,
+  Req,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -50,8 +51,10 @@ import {
   type PortalUnitChangeRequestDto,
   PortalUnitChangeRequestSchema,
   PortalUnitRequestSchema,
+  PortalBookUnitSchema,
   type AvailableUnitDto,
   type PortalUnitRequestDto,
+  type PortalBookUnitResultDto,
   type PushPublicKeyDto,
   PushSubscribeSchema,
   PushUnsubscribeSchema,
@@ -68,6 +71,7 @@ import { ContractsService } from '../contracts/contracts.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqService } from '../faq/faq.service';
+import { SignaturesService } from '../move-in/signatures.service';
 import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
@@ -77,6 +81,8 @@ import { UnitRequestsService } from '../unit-requests/unit-requests.service';
 
 import { NightPassService } from './night-pass.service';
 import { PortalService } from './portal.service';
+
+import type { Request } from 'express';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
@@ -97,6 +103,7 @@ class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
 class PortalUnitChangeRequestDto2 extends createZodDto(PortalUnitChangeRequestSchema) {}
 class PortalUnitRequestDto2 extends createZodDto(PortalUnitRequestSchema) {}
+class PortalBookUnitDto2 extends createZodDto(PortalBookUnitSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -110,6 +117,7 @@ export class PortalController {
     private readonly push: PushService,
     private readonly unitChanges: UnitChangesService,
     private readonly unitRequests: UnitRequestsService,
+    private readonly signatures: SignaturesService,
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
@@ -473,6 +481,25 @@ export class PortalController {
   ): Promise<PortalUnitRequestDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.unitRequests.createFromPortal({ tenantId, customerId, input });
+  }
+
+  /** Self-service: contrata un trastero disponible (crea contrato + 1ª factura). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts')
+  async bookUnit(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalBookUnitDto2,
+    @Req() req: Request,
+  ): Promise<PortalBookUnitResultDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.signatures.bookForExistingCustomer({
+      tenantId,
+      customerId,
+      unitId: input.unitId,
+      signerName: input.signerName,
+      meta: { ipAddress: req.ip, userAgent: req.header('user-agent') },
+    });
   }
 
   // ----------------------- referidos ---------------------------------------
