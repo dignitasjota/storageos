@@ -8,6 +8,7 @@ import {
   CreditCard,
   KeyRound,
   MessageSquare,
+  Plus,
   Wallet,
 } from 'lucide-react';
 
@@ -137,31 +138,50 @@ export function OverviewCard({
         </Card>
       )}
 
-      {/* Accesos rápidos */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <QuickAction
-          icon={Boxes}
-          label="Mis trasteros"
-          hint={`${activeContracts.length}`}
-          onClick={() => onNavigate('contratos')}
-        />
+      {/* Accesos rápidos — lanzador «tipo app» (grande y táctil) */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <QuickAction
           icon={CreditCard}
-          label="Facturas"
+          tint="bg-emerald-100 text-emerald-600"
+          label={pending.length > 0 ? 'Pagar' : 'Facturas'}
           hint={pending.length > 0 ? `${pending.length} pend.` : 'Al día'}
           onClick={() => onNavigate('facturas')}
         />
         <QuickAction
+          icon={Boxes}
+          tint="bg-cyan-100 text-cyan-600"
+          label="Mis trasteros"
+          hint={`${activeContracts.length} activo${activeContracts.length === 1 ? '' : 's'}`}
+          onClick={() => onNavigate('contratos')}
+        />
+        <QuickAction
           icon={KeyRound}
+          tint="bg-slate-200 text-slate-700"
           label="Mi acceso"
           hint="PIN / QR"
           onClick={() => onNavigate('accesos')}
         />
         <QuickAction
           icon={MessageSquare}
+          tint="bg-blue-100 text-blue-600"
           label="Mensajes"
           hint={unreadMessages > 0 ? `${unreadMessages} sin leer` : 'Chat'}
+          badge={unreadMessages}
           onClick={() => onNavigate('mensajes')}
+        />
+        <QuickAction
+          icon={AlertCircle}
+          tint="bg-red-100 text-red-600"
+          label="Incidencias"
+          hint="Reportar"
+          onClick={() => onNavigate('incidencias')}
+        />
+        <QuickAction
+          icon={Plus}
+          tint="bg-violet-100 text-violet-600"
+          label="Contratar"
+          hint="Otro trastero"
+          onClick={() => onNavigate('nuevo')}
         />
       </div>
     </div>
@@ -170,24 +190,35 @@ export function OverviewCard({
 
 function QuickAction({
   icon: Icon,
+  tint,
   label,
   hint,
+  badge = 0,
   onClick,
 }: {
   icon: typeof Boxes;
+  tint: string;
   label: string;
   hint: string;
+  badge?: number;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+      className="relative flex flex-col items-center gap-2 rounded-2xl border border-border bg-card p-5 text-center shadow-sm transition-colors active:bg-accent hover:bg-muted"
     >
-      <Icon className="size-5 text-muted-foreground" />
+      <span className={`flex size-12 items-center justify-center rounded-full ${tint}`}>
+        <Icon className="size-6" />
+      </span>
       <span className="text-sm font-medium">{label}</span>
       <span className="text-xs text-muted-foreground">{hint}</span>
+      {badge > 0 && (
+        <span className="absolute right-3 top-3 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
