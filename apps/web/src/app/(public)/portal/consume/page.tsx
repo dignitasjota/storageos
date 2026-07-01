@@ -48,6 +48,7 @@ import { ProfileCard } from './profile-card';
 import { ShopCard } from './shop-card';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -659,6 +660,7 @@ function PortalConsumeContent() {
           <p className="text-sm text-muted-foreground">{session.email}</p>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <InstallPwaButton />
           <Button variant="outline" size="sm" onClick={logout}>
             <LogOut className="mr-1 h-4 w-4" /> Cerrar sesión
