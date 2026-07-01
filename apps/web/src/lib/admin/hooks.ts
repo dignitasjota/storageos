@@ -11,6 +11,9 @@ import type {
   PlatformDunningSettingsDto,
   UpdatePlatformDunningSettingsInput,
   PlatformBannerDto,
+  LegalDocumentDto,
+  LegalSlug,
+  UpdateLegalDocumentInput,
   UpdatePlatformBannerInput,
   SuperAdminNotificationDto,
   AddTicketMessageInput,
@@ -1208,5 +1211,28 @@ export function useMarkNotifsRead() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'notifications'] });
     },
+  });
+}
+
+// ============================================================================
+// Documentos legales (términos, privacidad)
+// ============================================================================
+
+export function useAdminLegalDoc(slug: LegalSlug) {
+  return useQuery({
+    queryKey: ['admin', 'legal', slug] as const,
+    queryFn: () => adminApiFetch<LegalDocumentDto>(`/admin/platform/legal/${slug}`),
+  });
+}
+
+export function useUpdateLegalDoc(slug: LegalSlug) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateLegalDocumentInput) =>
+      adminApiFetch<LegalDocumentDto>(`/admin/platform/legal/${slug}`, {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'legal', slug] }),
   });
 }

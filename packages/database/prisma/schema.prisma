@@ -3576,3 +3576,15 @@ model PlatformBanner {
 
   @@map("platform_banner")
 }
+
+/// Documentos legales de la plataforma (términos, privacidad), editables por el
+/// super admin. Global (sin tenant): son las condiciones del prestador del SaaS.
+model PlatformLegalDocument {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  slug      String   @unique
+  title     String
+  content   String   @default("")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_legal_documents")
+}

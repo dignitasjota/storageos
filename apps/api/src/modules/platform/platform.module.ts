@@ -3,13 +3,21 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { AdminGuard } from '../admin/admin.guard';
 
-import { PlatformAdminController, PlatformBannerPublicController } from './platform.controller';
+import {
+  PlatformAdminController,
+  PlatformBannerPublicController,
+  PlatformLegalPublicController,
+} from './platform.controller';
 import { PlatformService } from './platform.service';
 
-/** Banner global + notificaciones del super admin (feed de eventos de plataforma). */
+/** Banner global + notificaciones del super admin + documentos legales. */
 @Module({
   imports: [JwtModule.register({})],
-  controllers: [PlatformAdminController, PlatformBannerPublicController],
+  controllers: [
+    PlatformAdminController,
+    PlatformBannerPublicController,
+    PlatformLegalPublicController,
+  ],
   providers: [PlatformService, AdminGuard],
   exports: [PlatformService],
 })
