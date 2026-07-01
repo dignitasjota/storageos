@@ -209,6 +209,7 @@
     "sepaRemittances": "Remesas SEPA",
     "bankReconciliation": "Conciliación bancaria",
     "fiscal": "Fiscalidad",
+    "unitPetitions": "Peticiones de trastero",
     "unitChangeRequests": "Cambios de trastero",
     "unitRequests": "Solicitudes de trastero",
     "billing": "Facturación",

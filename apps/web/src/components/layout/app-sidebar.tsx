@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   FileText,
   Gift,
+  Inbox,
   KeyRound,
   Landmark,
   LayoutDashboard,
@@ -56,6 +57,9 @@ import {
   SidebarMenu,
   SidebarMenuBadge,
   SidebarMenuButton,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { useFeatures, usePermissions } from '@/lib/auth/hooks';
@@ -73,6 +77,8 @@ interface NavItem {
   permission?: Permission;
   /** Si se define, solo si el plan del tenant incluye esta feature. */
   feature?: TenantFeature;
+  /** Sub-items desplegables; si está, el item agrupa y no navega él mismo. */
+  children?: NavItem[];
 }
 
 interface NavGroup {
@@ -100,16 +106,24 @@ const GROUPS: NavGroup[] = [
         permission: 'reservations:read',
       },
       {
-        href: '/unit-change-requests',
-        labelKey: 'unitChangeRequests',
-        icon: Replace,
+        href: 'unit-petitions',
+        labelKey: 'unitPetitions',
+        icon: Inbox,
         permission: 'contracts:read',
-      },
-      {
-        href: '/unit-requests',
-        labelKey: 'unitRequests',
-        icon: PackagePlus,
-        permission: 'contracts:read',
+        children: [
+          {
+            href: '/unit-change-requests',
+            labelKey: 'unitChangeRequests',
+            icon: Replace,
+            permission: 'contracts:read',
+          },
+          {
+            href: '/unit-requests',
+            labelKey: 'unitRequests',
+            icon: PackagePlus,
+            permission: 'contracts:read',
+          },
+        ],
       },
       { href: '/calendar', labelKey: 'calendar', icon: CalendarDays, permission: 'tasks:read' },
       { href: '/tasks', labelKey: 'tasks', icon: ClipboardList, permission: 'tasks:read' },
@@ -307,15 +321,120 @@ export function AppSidebar() {
     });
   }
 
+  // Sub-menús desplegables (p. ej. «Peticiones de trastero»); expandidos por clic.
+  const [openSubs, setOpenSubs] = useState<Set<string>>(new Set());
+  function toggleSub(key: string) {
+    setOpenSubs((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /** Badge (JSX) por href, reutilizado en items normales y en sub-items. */
+  function itemBadge(href: string) {
+    if (href === '/unit-change-requests' && unitChangePending > 0) {
+      return (
+        <SidebarMenuBadge className="bg-primary text-primary-foreground">
+          {unitChangePending}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/unit-requests' && unitRequestPending > 0) {
+      return (
+        <SidebarMenuBadge className="bg-primary text-primary-foreground">
+          {unitRequestPending}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/customers' && unreadMessages > 0) {
+      return (
+        <SidebarMenuBadge className="bg-blue-500 text-white">{unreadMessages}</SidebarMenuBadge>
+      );
+    }
+    if (
+      href === '/incidents' &&
+      (incidentCounts.reported > 0 || incidentCounts.investigating > 0)
+    ) {
+      return (
+        // Dos contadores: rojo = reportadas (sin atender), ámbar = en investigación.
+        <SidebarMenuBadge className="flex h-5 min-w-0 gap-1 px-0">
+          {incidentCounts.reported > 0 && (
+            <span
+              title="Reportadas"
+              className="flex h-5 min-w-5 items-center justify-center rounded-md bg-red-500 px-1 text-white"
+            >
+              {incidentCounts.reported}
+            </span>
+          )}
+          {incidentCounts.investigating > 0 && (
+            <span
+              title="En investigación"
+              className="flex h-5 min-w-5 items-center justify-center rounded-md bg-amber-500 px-1 text-white"
+            >
+              {incidentCounts.investigating}
+            </span>
+          )}
+        </SidebarMenuBadge>
+      );
+    }
+    return null;
+  }
+
   function renderItem(item: NavItem) {
     const Icon = item.icon;
+
+    // Item con sub-items desplegables (p. ej. «Peticiones de trastero»).
+    if (item.children && item.children.length > 0) {
+      const children = item.children.filter((c) => can(c.permission) && hasFeature(c.feature));
+      if (children.length === 0) return null;
+      const childActive = children.some(
+        (c) => pathname === c.href || pathname.startsWith(`${c.href}/`),
+      );
+      const open = openSubs.has(item.href) || childActive;
+      // Badge del padre = suma de los pendientes de sus hijos (solo peticiones de trastero).
+      const parentTotal = unitChangePending + unitRequestPending;
+      return (
+        <SidebarMenuItem key={item.href}>
+          <SidebarMenuButton
+            onClick={() => toggleSub(item.href)}
+            isActive={childActive}
+            className="data-[active=true]:font-medium"
+          >
+            <Icon />
+            <span>{t(item.labelKey)}</span>
+            <ChevronDown className={`ml-auto transition-transform ${open ? '' : '-rotate-90'}`} />
+          </SidebarMenuButton>
+          {!open && parentTotal > 0 && (
+            <SidebarMenuBadge className="bg-primary text-primary-foreground">
+              {parentTotal}
+            </SidebarMenuBadge>
+          )}
+          {open && (
+            <SidebarMenuSub>
+              {children.map((c) => {
+                const cActive = pathname === c.href || pathname.startsWith(`${c.href}/`);
+                const CIcon = c.icon;
+                return (
+                  <SidebarMenuSubItem key={c.href}>
+                    <SidebarMenuSubButton asChild isActive={cActive}>
+                      <Link href={c.href}>
+                        <CIcon />
+                        <span>{t(c.labelKey)}</span>
+                      </Link>
+                    </SidebarMenuSubButton>
+                    {itemBadge(c.href)}
+                  </SidebarMenuSubItem>
+                );
+              })}
+            </SidebarMenuSub>
+          )}
+        </SidebarMenuItem>
+      );
+    }
+
     const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-    const unitChangeBadge = item.href === '/unit-change-requests' && unitChangePending > 0;
-    const unitRequestBadge = item.href === '/unit-requests' && unitRequestPending > 0;
-    const incidentBadge =
-      item.href === '/incidents' &&
-      (incidentCounts.reported > 0 || incidentCounts.investigating > 0);
-    const messagesBadge = item.href === '/customers' && unreadMessages > 0;
     return (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton asChild isActive={active} className="data-[active=true]:font-medium">
@@ -324,40 +443,7 @@ export function AppSidebar() {
             <span>{t(item.labelKey)}</span>
           </Link>
         </SidebarMenuButton>
-        {unitChangeBadge && (
-          <SidebarMenuBadge className="bg-primary text-primary-foreground">
-            {unitChangePending}
-          </SidebarMenuBadge>
-        )}
-        {unitRequestBadge && (
-          <SidebarMenuBadge className="bg-primary text-primary-foreground">
-            {unitRequestPending}
-          </SidebarMenuBadge>
-        )}
-        {messagesBadge && (
-          <SidebarMenuBadge className="bg-blue-500 text-white">{unreadMessages}</SidebarMenuBadge>
-        )}
-        {incidentBadge && (
-          // Dos contadores: rojo = reportadas (sin atender), ámbar = en investigación.
-          <SidebarMenuBadge className="flex h-5 min-w-0 gap-1 px-0">
-            {incidentCounts.reported > 0 && (
-              <span
-                title="Reportadas"
-                className="flex h-5 min-w-5 items-center justify-center rounded-md bg-red-500 px-1 text-white"
-              >
-                {incidentCounts.reported}
-              </span>
-            )}
-            {incidentCounts.investigating > 0 && (
-              <span
-                title="En investigación"
-                className="flex h-5 min-w-5 items-center justify-center rounded-md bg-amber-500 px-1 text-white"
-              >
-                {incidentCounts.investigating}
-              </span>
-            )}
-          </SidebarMenuBadge>
-        )}
+        {itemBadge(item.href)}
       </SidebarMenuItem>
     );
   }
