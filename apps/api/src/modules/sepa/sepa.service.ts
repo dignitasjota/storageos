@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { subtractAmounts, toCents } from '../../common/money';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -236,7 +237,7 @@ export class SepaService {
     const eligible: RemittanceEligibleInvoiceDto[] = [];
     const withoutMandate: RemittancePreviewDto['withoutMandate'] = [];
     for (const inv of invoices) {
-      const pending = Math.max(0, Number(inv.total) - Number(inv.amountPaid));
+      const pending = Math.max(0, subtractAmounts(inv.total, inv.amountPaid));
       if (pending <= 0) continue;
       const name = inv.customer ? customerName(inv.customer) : 'Cliente';
       const mandate = inv.customerId ? byCustomer.get(inv.customerId) : undefined;
@@ -258,7 +259,8 @@ export class SepaService {
         sequenceType: mandate.sequenceType as 'FRST' | 'RCUR',
       });
     }
-    const total = Math.round(eligible.reduce((s, e) => s + e.amount, 0) * 100) / 100;
+    // Suma en céntimos enteros (sumar decimales acumula drift antes del redondeo).
+    const total = eligible.reduce((s, e) => s + toCents(e.amount), 0) / 100;
     return { eligible, total, withoutMandate };
   }
 
@@ -295,11 +297,11 @@ export class SepaService {
       endToEndId: string;
     }[] = [];
     for (const inv of selected) {
-      const pending = Math.max(0, Number(inv.total) - Number(inv.amountPaid));
+      const pending = Math.max(0, subtractAmounts(inv.total, inv.amountPaid));
       if (pending <= 0) continue;
       const mandate = inv.customerId ? byCustomer.get(inv.customerId) : undefined;
       if (!mandate) continue;
-      const cents = Math.round(pending * 100);
+      const cents = toCents(pending);
       const endToEndId = `E2E-${inv.invoiceNumber}`.replace(/[^A-Za-z0-9-]/g, '').slice(0, 35);
       txs.push({
         endToEndId,

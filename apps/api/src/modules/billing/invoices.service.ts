@@ -10,7 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
-import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts } from '../../common/money';
+import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -432,10 +432,11 @@ export class InvoicesService {
       });
       const base = Number(original.total);
       const value = Number(tenant.lateFeeValue);
+      // Cálculo en céntimos enteros: base*% sobre floats arrastra drift al recargo.
       const fee =
         tenant.lateFeeType === 'percentage'
-          ? Math.round(base * (value / 100) * 100) / 100
-          : Math.round(value * 100) / 100;
+          ? Math.round(toCents(base) * (value / 100)) / 100
+          : toCents(value) / 100;
       if (fee <= 0) {
         throw new BadRequestException({
           code: 'late_fee_zero',
@@ -967,18 +968,24 @@ export class InvoicesService {
     taxAmount: number;
     total: number;
   } {
-    let subtotal = 0;
-    let tax = 0;
+    // Redondeo POR LÍNEA (el mismo criterio que `toItemCreateData`): la
+    // cabecera debe ser la suma EXACTA de las líneas ya redondeadas, o con
+    // varias líneas los totales de la factura difieren céntimos de la suma de
+    // sus items (y AEAT/Veri*Factu exige que cuadren). total = Σ totales de
+    // línea; cuota = Σ cuotas de línea; base = total − cuota.
+    let taxCents = 0;
+    let totalCents = 0;
     for (const it of items) {
       const lineSubtotal = it.quantity * it.unitPrice;
       const lineTax = (lineSubtotal * it.taxRate) / 100;
-      subtotal += lineSubtotal;
-      tax += lineTax;
+      taxCents += Math.round(lineTax * 100);
+      totalCents += Math.round((lineSubtotal + lineTax) * 100);
     }
-    const round = (n: number) => Math.round(n * 100) / 100;
-    const sub = round(subtotal);
-    const t = round(tax);
-    return { subtotal: sub, taxAmount: t, total: round(sub + t) };
+    return {
+      subtotal: (totalCents - taxCents) / 100,
+      taxAmount: taxCents / 100,
+      total: totalCents / 100,
+    };
   }
 
   private toItemCreateData(
@@ -1014,18 +1021,24 @@ export class InvoicesService {
     taxAmount: number;
     total: number;
   } {
-    let subtotal = 0;
-    let tax = 0;
+    // Redondeo POR LÍNEA (el mismo criterio que `toItemCreateData`): la
+    // cabecera debe ser la suma EXACTA de las líneas ya redondeadas, o con
+    // varias líneas los totales de la factura difieren céntimos de la suma de
+    // sus items (y AEAT/Veri*Factu exige que cuadren). total = Σ totales de
+    // línea; cuota = Σ cuotas de línea; base = total − cuota.
+    let taxCents = 0;
+    let totalCents = 0;
     for (const it of items) {
       const lineSubtotal = it.quantity * it.unitPrice;
       const lineTax = (lineSubtotal * it.taxRate) / 100;
-      subtotal += lineSubtotal;
-      tax += lineTax;
+      taxCents += Math.round(lineTax * 100);
+      totalCents += Math.round((lineSubtotal + lineTax) * 100);
     }
-    const round = (n: number) => Math.round(n * 100) / 100;
-    const sub = round(subtotal);
-    const t = round(tax);
-    return { subtotal: sub, taxAmount: t, total: round(sub + t) };
+    return {
+      subtotal: (totalCents - taxCents) / 100,
+      taxAmount: taxCents / 100,
+      total: totalCents / 100,
+    };
   }
 
   private toRectifyItemCreateData(
@@ -1053,7 +1066,9 @@ export class InvoicesService {
 
   private computeDefaultDueDate(issueDate: Date): Date {
     const due = new Date(issueDate);
-    due.setDate(due.getDate() + 15);
+    // UTC como el resto de fechas de facturación (setDate usa la TZ local del
+    // servidor y podía mover el vencimiento un día según la hora de emisión).
+    due.setUTCDate(due.getUTCDate() + 15);
     return due;
   }
 

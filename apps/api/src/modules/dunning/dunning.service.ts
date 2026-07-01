@@ -3,6 +3,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
+import { subtractAmounts } from '../../common/money';
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
@@ -335,8 +336,10 @@ export class DunningService {
       return false;
     }
 
-    const amountPending =
-      Number(invoice.total) - Number(invoice.amountPaid) - Number(invoice.amountRefunded);
+    const amountPending = subtractAmounts(
+      subtractAmounts(invoice.total, invoice.amountPaid),
+      invoice.amountRefunded,
+    );
     const daysOverdue = invoice.dueDate ? this.daysBetween(invoice.dueDate, new Date()) : 0;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },

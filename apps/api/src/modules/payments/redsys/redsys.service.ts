@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { toCents } from '../../../common/money';
 import { InvoicesService } from '../../billing/invoices.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -68,7 +69,9 @@ export class RedsysService {
         message: 'La factura no está en estado pagable',
       });
     }
-    const amountCents = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100);
+    // Céntimos enteros ANTES de restar: restar decimales y redondear después
+    // arrastra el drift de coma flotante al importe enviado a Redsys.
+    const amountCents = toCents(invoice.total) - toCents(invoice.amountPaid);
     if (amountCents <= 0) {
       throw new BadRequestException({
         code: 'nothing_to_pay',
