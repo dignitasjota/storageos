@@ -16,19 +16,26 @@ import {
   type SetupIntentResponseDto,
 } from '@storageos/shared';
 import {
+  AlertTriangle,
   Bell,
   Boxes,
   CreditCard,
   Download,
   Gift,
+  Home,
   KeyRound,
   Landmark,
   Loader2,
   LogOut,
   MapPin,
+  MessageSquare,
+  MoreHorizontal,
+  PackagePlus,
   Plus,
   Receipt,
   RefreshCw,
+  Replace,
+  User,
   Wrench,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
@@ -60,7 +67,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { startGoCardlessMandatePortal } from '@/lib/payments/gocardless';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
@@ -124,15 +132,92 @@ function paymentMethodLabel(type: string): string {
   return 'Otro';
 }
 
-/** Globo numérico para las pestañas (novedades del inquilino). */
-function TabBadge({ count, className }: { count: number; className?: string }) {
-  if (count <= 0) return null;
+type PortalNavDef = { value: string; label: string; icon: typeof Home };
+type NavBadge = { count: number; color: string } | null;
+
+/** Secciones del portal. En móvil, las 4 primeras van a la barra inferior. */
+const PORTAL_NAV: PortalNavDef[] = [
+  { value: 'inicio', label: 'Inicio', icon: Home },
+  { value: 'contratos', label: 'Contratos', icon: Boxes },
+  { value: 'facturas', label: 'Facturas', icon: Receipt },
+  { value: 'accesos', label: 'Accesos', icon: KeyRound },
+  { value: 'mensajes', label: 'Mensajes', icon: MessageSquare },
+  { value: 'incidencias', label: 'Incidencias', icon: AlertTriangle },
+  { value: 'cambio', label: 'Cambio de trastero', icon: Replace },
+  { value: 'nuevo', label: 'Contratar trastero', icon: PackagePlus },
+  { value: 'local', label: 'Tu local', icon: MapPin },
+  { value: 'datos', label: 'Mis datos', icon: User },
+];
+const PORTAL_PRIMARY = PORTAL_NAV.slice(0, 4);
+const PORTAL_MORE = PORTAL_NAV.slice(4);
+
+/** Item del menú lateral (ordenador). */
+function PortalNavItem({
+  item,
+  active,
+  badge,
+  onClick,
+}: {
+  item: PortalNavDef;
+  active: boolean;
+  badge: NavBadge;
+  onClick: () => void;
+}) {
+  const Icon = item.icon;
   return (
-    <span
-      className={`ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium text-white ${className ?? 'bg-primary'}`}
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+        active
+          ? 'bg-accent font-medium text-accent-foreground'
+          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+      }`}
     >
-      {count}
-    </span>
+      <Icon className="size-4 shrink-0" />
+      <span className="flex-1 text-left">{item.label}</span>
+      {badge && badge.count > 0 && (
+        <span
+          className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium text-white ${badge.color}`}
+        >
+          {badge.count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** Item de la barra inferior (móvil). */
+function PortalBottomItem({
+  item,
+  active,
+  badge,
+  onClick,
+}: {
+  item: PortalNavDef;
+  active: boolean;
+  badge: NavBadge;
+  onClick: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${
+        active ? 'text-primary' : 'text-muted-foreground'
+      }`}
+    >
+      <Icon className="size-5" />
+      {item.label}
+      {badge && badge.count > 0 && (
+        <span
+          className={`absolute right-3 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-medium text-white ${badge.color}`}
+        >
+          {badge.count}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -180,6 +265,7 @@ function PortalConsumeContent() {
   const [unitChanges, setUnitChanges] = useState<PortalUnitChangeRequestDto[] | null>(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [tab, setTab] = useState('inicio');
+  const [moreOpen, setMoreOpen] = useState(false);
   const [ucNote, setUcNote] = useState('');
   const [ucContractId, setUcContractId] = useState('');
   const [ucBusy, setUcBusy] = useState(false);
@@ -621,6 +707,22 @@ function PortalConsumeContent() {
     (i) => i.status === 'reported' || i.status === 'investigating',
   ).length;
 
+  function navBadge(value: string): NavBadge {
+    if (value === 'cambio' && pendingUnitChanges > 0)
+      return { count: pendingUnitChanges, color: 'bg-amber-500' };
+    if (value === 'mensajes' && unreadMessages > 0)
+      return { count: unreadMessages, color: 'bg-blue-500' };
+    if (value === 'incidencias' && openIncidents > 0)
+      return { count: openIncidents, color: 'bg-red-500' };
+    return null;
+  }
+  function handleNav(value: string) {
+    setTab(value);
+    if (value === 'mensajes') setUnreadMessages(0);
+    setMoreOpen(false);
+  }
+  const moreBadgeTotal = PORTAL_MORE.reduce((sum, i) => sum + (navBadge(i.value)?.count ?? 0), 0);
+
   return (
     <div className="container max-w-5xl space-y-6 py-10">
       {/* Marca del operador (white-label) — clicable para volver al inicio */}
@@ -668,672 +770,732 @@ function PortalConsumeContent() {
         </div>
       </div>
 
-      <Tabs
-        value={tab}
-        onValueChange={(v) => {
-          setTab(v);
-          // Al abrir Mensajes se marcan leídos en el server → ocultamos el badge.
-          if (v === 'mensajes') setUnreadMessages(0);
-        }}
-      >
-        <div className="overflow-x-auto">
-          <TabsList>
-            <TabsTrigger value="inicio">Inicio</TabsTrigger>
-            <TabsTrigger value="contratos">Contratos</TabsTrigger>
-            <TabsTrigger value="cambio">
-              Cambio de trastero
-              <TabBadge count={pendingUnitChanges} className="bg-amber-500" />
-            </TabsTrigger>
-            <TabsTrigger value="nuevo">Contratar trastero</TabsTrigger>
-            <TabsTrigger value="facturas">Facturas</TabsTrigger>
-            <TabsTrigger value="accesos">Accesos</TabsTrigger>
-            <TabsTrigger value="mensajes">
-              Mensajes
-              <TabBadge count={unreadMessages} className="bg-blue-500" />
-            </TabsTrigger>
-            <TabsTrigger value="incidencias">
-              Incidencias
-              <TabBadge count={openIncidents} className="bg-red-500" />
-            </TabsTrigger>
-            <TabsTrigger value="local">Tu local</TabsTrigger>
-            <TabsTrigger value="datos">Mis datos</TabsTrigger>
-          </TabsList>
-        </div>
+      <div className="flex gap-6">
+        {/* Menú lateral (ordenador) */}
+        <nav className="hidden w-52 shrink-0 space-y-1 md:block">
+          {PORTAL_NAV.map((item) => (
+            <PortalNavItem
+              key={item.value}
+              item={item}
+              active={tab === item.value}
+              badge={navBadge(item.value)}
+              onClick={() => handleNav(item.value)}
+            />
+          ))}
+        </nav>
 
-        <TabsContent value="inicio" className="space-y-6">
-          <OverviewCard
-            customerName={session.customerName}
-            invoices={invoices}
-            contracts={contracts ?? []}
-            unreadMessages={unreadMessages}
-            brandColor={session.brandColor ?? null}
-            onNavigate={setTab}
-          />
-        </TabsContent>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => {
+            setTab(v);
+            // Al abrir Mensajes se marcan leídos en el server → ocultamos el badge.
+            if (v === 'mensajes') setUnreadMessages(0);
+          }}
+          className="min-w-0 flex-1 pb-20 md:pb-0"
+        >
+          <TabsContent value="inicio" className="space-y-6">
+            <OverviewCard
+              customerName={session.customerName}
+              invoices={invoices}
+              contracts={contracts ?? []}
+              unreadMessages={unreadMessages}
+              brandColor={session.brandColor ?? null}
+              onNavigate={setTab}
+            />
+          </TabsContent>
 
-        <TabsContent value="contratos" className="space-y-6">
-          {contracts && contracts.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Mis contratos</CardTitle>
-                <CardDescription>
-                  Tus trasteros activos. Puedes solicitar la baja online.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {contracts.map((c) => (
-                  <div key={c.id} className="space-y-2 rounded-md border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium">
-                          {c.unitCode} · {c.facilityName}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {c.contractNumber} · {c.effectivePrice.toFixed(2)} €/mes
-                          {c.status === 'ending' && c.endDate
-                            ? ` · baja prevista el ${c.endDate}`
-                            : ''}
-                        </p>
+          <TabsContent value="contratos" className="space-y-6">
+            {contracts && contracts.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Mis contratos</CardTitle>
+                  <CardDescription>
+                    Tus trasteros activos. Puedes solicitar la baja online.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {contracts.map((c) => (
+                    <div key={c.id} className="space-y-2 rounded-md border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium">
+                            {c.unitCode} · {c.facilityName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {c.contractNumber} · {c.effectivePrice.toFixed(2)} €/mes
+                            {c.status === 'ending' && c.endDate
+                              ? ` · baja prevista el ${c.endDate}`
+                              : ''}
+                          </p>
+                        </div>
+                        {c.status === 'ending' ? (
+                          <Badge variant="secondary">Baja solicitada</Badge>
+                        ) : (
+                          <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
+                            <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
+                          </Button>
+                        )}
                       </div>
-                      {c.status === 'ending' ? (
-                        <Badge variant="secondary">Baja solicitada</Badge>
-                      ) : (
-                        <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
-                          <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        {c.depositAmount > 0 && (
+                          <span>
+                            Fianza {c.depositAmount.toFixed(2)} € · {depositLabel(c.depositStatus)}
+                          </span>
+                        )}
+                        {c.insurancePlanName && (
+                          <span>
+                            Seguro: {c.insurancePlanName}
+                            {c.insurancePrice ? ` (${c.insurancePrice.toFixed(2)} €/mes)` : ''}
+                          </span>
+                        )}
+                        {c.freeMonthsRemaining > 0 && (
+                          <span className="text-green-600">
+                            {c.freeMonthsRemaining} mes(es) gratis pendientes
+                          </span>
+                        )}
+                        {c.discountAmount > 0 && (
+                          <span>Descuento {c.discountAmount.toFixed(2)} €/mes</span>
+                        )}
+                      </div>
+                      {c.hasSignedPdf && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void downloadContract(c.id)}
+                        >
+                          <Download className="mr-1 h-4 w-4" /> Descargar contrato firmado
                         </Button>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      {c.depositAmount > 0 && (
-                        <span>
-                          Fianza {c.depositAmount.toFixed(2)} € · {depositLabel(c.depositStatus)}
-                        </span>
-                      )}
-                      {c.insurancePlanName && (
-                        <span>
-                          Seguro: {c.insurancePlanName}
-                          {c.insurancePrice ? ` (${c.insurancePrice.toFixed(2)} €/mes)` : ''}
-                        </span>
-                      )}
-                      {c.freeMonthsRemaining > 0 && (
-                        <span className="text-green-600">
-                          {c.freeMonthsRemaining} mes(es) gratis pendientes
-                        </span>
-                      )}
-                      {c.discountAmount > 0 && (
-                        <span>Descuento {c.discountAmount.toFixed(2)} €/mes</span>
-                      )}
-                    </div>
-                    {c.hasSignedPdf && (
-                      <Button variant="ghost" size="sm" onClick={() => void downloadContract(c.id)}>
-                        <Download className="mr-1 h-4 w-4" /> Descargar contrato firmado
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {session && contracts && contracts.length > 0 && (
-            <InsuranceCard
-              session={session}
-              contracts={contracts}
-              onContractsChange={setContracts}
-            />
-          )}
-        </TabsContent>
-
-        <TabsContent value="cambio" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Boxes className="h-4 w-4" /> Cambiar de trastero
-              </CardTitle>
-              <CardDescription>
-                ¿Necesitas más espacio o un trastero distinto? Pídelo y te ayudamos con el cambio.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(contracts ?? []).length > 0 && (
-                <select
-                  value={ucContractId}
-                  onChange={(e) => setUcContractId(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">Trastero actual (opcional)</option>
-                  {(contracts ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.unitCode} · {c.facilityName}
-                    </option>
                   ))}
-                </select>
-              )}
-              <textarea
-                value={ucNote}
-                onChange={(e) => setUcNote(e.target.value)}
-                placeholder="¿Qué necesitas? (p. ej. uno más grande, planta baja…)"
-                maxLength={1000}
-                rows={3}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                </CardContent>
+              </Card>
+            )}
+
+            {session && contracts && contracts.length > 0 && (
+              <InsuranceCard
+                session={session}
+                contracts={contracts}
+                onContractsChange={setContracts}
               />
-              <Button onClick={requestUnitChange} disabled={ucBusy || ucNote.trim().length < 5}>
-                {ucBusy ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="mr-1 h-4 w-4" />
-                )}
-                Solicitar cambio
-              </Button>
+            )}
+          </TabsContent>
 
-              {(unitChanges ?? []).length > 0 && (
-                <ul className="space-y-2 border-t pt-3">
-                  {(unitChanges ?? []).map((r) => (
-                    <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="line-clamp-1">{r.note}</span>
-                      <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
-                        {r.status === 'pending'
-                          ? 'Pendiente'
-                          : r.status === 'handled'
-                            ? 'Gestionada'
-                            : 'Rechazada'}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="nuevo" className="space-y-6">
-          <AdditionalUnitCard
-            session={session}
-            onBooked={() => {
-              void reloadInvoices();
-              setTab('facturas');
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="facturas" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Tus facturas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {invoices.length === 0 && (
-                <p className="text-sm text-muted-foreground">Aún no tienes facturas.</p>
-              )}
-              {invoices.length > 0 && (
-                <ul className="divide-y rounded-md border">
-                  {invoices.map((i) => (
-                    <li
-                      key={i.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-3 py-3"
-                    >
-                      <div>
-                        <p className="font-mono text-sm font-medium">{i.invoiceNumber}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Emitida {i.issueDate ?? '—'} · Vence {i.dueDate ?? '—'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm tabular-nums">
-                          {i.total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
-                        </span>
-                        <Badge
-                          variant={
-                            i.status === 'paid'
-                              ? 'default'
-                              : i.status === 'overdue'
-                                ? 'destructive'
-                                : 'secondary'
-                          }
-                        >
-                          {i.status}
-                        </Badge>
-                        {i.amountPending > 0 && (
-                          <Button onClick={() => void handlePay(i)} disabled={payingId !== null}>
-                            {payingId === i.id && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                            Pagar
-                          </Button>
-                        )}
-                        {i.amountPending > 0 && (
-                          <Button
-                            variant="outline"
-                            onClick={async () => {
-                              try {
-                                submitRedsysForm(
-                                  await fetchPortalRedsysRedirect(session.accessToken, i.id),
-                                );
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof ApiError
-                                    ? err.body.message
-                                    : 'Redsys no disponible',
-                                );
-                              }
-                            }}
-                          >
-                            Pagar con tarjeta
-                          </Button>
-                        )}
-                        {i.pdfUrl && (
-                          <Button variant="outline" asChild>
-                            <a href={i.pdfUrl} target="_blank" rel="noreferrer">
-                              <Download className="mr-1 h-4 w-4" /> PDF
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-
-          {payments.length > 0 && (
+          <TabsContent value="cambio" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Receipt className="h-5 w-5 text-muted-foreground" /> Historial de pagos
+                  <Boxes className="h-4 w-4" /> Cambiar de trastero
                 </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="divide-y rounded-md border">
-                  {payments.map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                    >
-                      <div>
-                        <p className="font-medium tabular-nums">
-                          {p.amount.toFixed(2)} {p.currency}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {paymentMethodLabel(p.methodType)}
-                          {p.invoiceNumber ? ` · factura ${p.invoiceNumber}` : ''}
-                          {p.paidAt ? ` · ${new Date(p.paidAt).toLocaleDateString('es-ES')}` : ''}
-                        </p>
-                      </div>
-                      <Badge variant={p.status === 'succeeded' ? 'secondary' : 'outline'}>
-                        {paymentStatusLabel(p.status)}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-
-          {session && <ShopCard session={session} onPurchased={reloadInvoices} />}
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Método de pago</CardTitle>
                 <CardDescription>
-                  Domicilia tus recibos con tu IBAN o paga con tarjeta.
+                  ¿Necesitas más espacio o un trastero distinto? Pídelo y te ayudamos con el cambio.
                 </CardDescription>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {goCardlessEnabled && (
-                  <Button
-                    onClick={() => void startGoCardless()}
-                    disabled={gcPending}
-                    variant="outline"
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(contracts ?? []).length > 0 && (
+                  <select
+                    value={ucContractId}
+                    onChange={(e) => setUcContractId(e.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    {gcPending ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Landmark className="mr-1 h-4 w-4" />
-                    )}
-                    Domiciliar (GoCardless)
-                  </Button>
+                    <option value="">Trastero actual (opcional)</option>
+                    {(contracts ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.unitCode} · {c.facilityName}
+                      </option>
+                    ))}
+                  </select>
                 )}
-                <Button
-                  onClick={() => void openAddDialog()}
-                  disabled={addPending}
-                  variant="outline"
-                >
-                  {addPending ? (
+                <textarea
+                  value={ucNote}
+                  onChange={(e) => setUcNote(e.target.value)}
+                  placeholder="¿Qué necesitas? (p. ej. uno más grande, planta baja…)"
+                  maxLength={1000}
+                  rows={3}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button onClick={requestUnitChange} disabled={ucBusy || ucNote.trim().length < 5}>
+                  {ucBusy ? (
                     <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                   ) : (
                     <Plus className="mr-1 h-4 w-4" />
                   )}
-                  Añadir IBAN o tarjeta
+                  Solicitar cambio
                 </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {!paymentMethods?.length ? (
-                <p className="text-sm text-muted-foreground">
-                  Sin método de pago guardado. Añade tu IBAN para domiciliar los recibos.
-                </p>
-              ) : (
-                <ul className="divide-y">
-                  {paymentMethods.map((pm) => (
-                    <li key={pm.id} className="flex items-center gap-3 py-3">
-                      {pm.type === 'sepa_debit' ? (
-                        <Landmark className="h-5 w-5 text-muted-foreground" />
-                      ) : (
-                        <CreditCard className="h-5 w-5 text-muted-foreground" />
-                      )}
-                      <div>
-                        <p className="text-sm font-medium">
-                          {pm.type === 'sepa_debit'
-                            ? `IBAN •••• ${pm.last4 ?? '????'}`
-                            : `${pm.brand ?? 'Tarjeta'} •••• ${pm.last4 ?? '????'}`}
-                        </p>
-                        {pm.type === 'sepa_debit' && pm.mandateReference && (
-                          <p className="text-xs text-muted-foreground">
-                            Mandato {pm.mandateReference}
-                          </p>
-                        )}
-                      </div>
-                      {pm.isDefault && <Badge variant="secondary">Predeterminado</Badge>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        <TabsContent value="accesos" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4" /> Tu acceso
-              </CardTitle>
-              <CardDescription>
-                Presenta tu código QR o teclea tu PIN en el lector de la puerta.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {access === null ? (
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              ) : access.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No tienes credenciales de acceso activas. Pídeselas a tu operador.
-                </p>
-              ) : (
-                <ul className="grid gap-4 sm:grid-cols-2">
-                  {access.map((c) => (
-                    <li key={c.id} className="rounded-md border p-4">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-sm font-medium">
-                          {c.label ?? (c.method === 'qr' ? 'Código QR' : 'PIN')}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Regenerar"
-                          disabled={regeneratingId === c.id}
-                          onClick={() => void regenerateAccess(c.id)}
-                        >
-                          <RefreshCw
-                            className={`h-4 w-4 ${regeneratingId === c.id ? 'animate-spin' : ''}`}
-                          />
-                        </Button>
-                      </div>
-                      {c.value === null ? (
-                        <p className="text-xs text-muted-foreground">
-                          Esta credencial es antigua y no se puede mostrar. Pulsa regenerar para
-                          obtener un código nuevo.
-                        </p>
-                      ) : c.method === 'qr' ? (
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="rounded bg-white p-2">
-                            <QRCodeSVG value={c.value} size={148} />
-                          </div>
-                          <span className="break-all text-center font-mono text-[10px] text-muted-foreground">
-                            {c.value}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="text-center">
-                          <span className="font-mono text-3xl tracking-[0.3em]">{c.value}</span>
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {access !== null && (
-                <div className="mt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={addingAccess}
-                    onClick={() => void addExtraAccess()}
-                  >
-                    {addingAccess ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="mr-1 h-4 w-4" />
-                    )}
-                    Añadir acceso (familiar, etc.)
-                  </Button>
-                </div>
-              )}
-              <div className="mt-3">
-                <NightAccessCard
-                  session={session}
-                  facilities={facilities}
-                  refreshKey={passRefresh}
-                />
-              </div>
-              {nightPass?.enabled && (
-                <div className="mt-3 rounded-md border bg-muted/30 p-3">
-                  <p className="text-sm font-medium">Pase nocturno</p>
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Código de un solo uso para entrar fuera de horario (toque de queda). Caduca a la
-                    mañana siguiente. Se factura a tu cuenta.
-                  </p>
-                  <Button size="sm" disabled={buyingPass} onClick={() => void buyNightPass()}>
-                    {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                    Comprar pase nocturno (
-                    {nightPass.price.toLocaleString('es-ES', {
-                      style: 'currency',
-                      currency: 'EUR',
-                    })}{' '}
-                    + IVA)
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <AccessLogsCard session={session} />
-        </TabsContent>
-
-        <TabsContent value="mensajes" className="space-y-6">
-          {session && <ChatCard session={session} />}
-        </TabsContent>
-
-        <TabsContent value="incidencias" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wrench className="h-4 w-4" /> Incidencias
-              </CardTitle>
-              <CardDescription>
-                ¿Algún problema con tu trastero o el acceso? Cuéntanoslo y lo revisaremos.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <input
-                value={incidentTitle}
-                onChange={(e) => setIncidentTitle(e.target.value)}
-                placeholder="Asunto (p. ej. la puerta no cierra)"
-                maxLength={160}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <textarea
-                value={incidentDesc}
-                onChange={(e) => setIncidentDesc(e.target.value)}
-                placeholder="Detalles (opcional)"
-                maxLength={2000}
-                rows={3}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <Button
-                onClick={reportIncident}
-                disabled={reportingIncident || incidentTitle.trim().length < 3}
-              >
-                {reportingIncident ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="mr-1 h-4 w-4" />
-                )}
-                Reportar incidencia
-              </Button>
-
-              {(incidents ?? []).length > 0 && (
-                <ul className="space-y-2 border-t pt-3">
-                  {(incidents ?? []).map((i) => (
-                    <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="line-clamp-1">{i.title}</span>
-                      <Badge variant={i.status === 'resolved' ? 'default' : 'secondary'}>
-                        {i.status === 'reported'
-                          ? 'Recibida'
-                          : i.status === 'investigating'
-                            ? 'En curso'
-                            : i.status === 'resolved'
-                              ? 'Resuelta'
-                              : 'Cerrada'}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="local" className="space-y-6">
-          {facilities.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MapPin className="h-5 w-5 text-muted-foreground" /> Tu local
-                </CardTitle>
-                <CardDescription>Dirección, horario de acceso y contacto.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {facilities.map((f) => (
-                  <div key={f.id} className="rounded-md border p-3 text-sm">
-                    <p className="font-medium">{f.name}</p>
-                    {(f.address || f.city) && (
-                      <p className="text-muted-foreground">
-                        {[f.address, f.postalCode, f.city].filter(Boolean).join(', ')}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {f.accessCurfewEnabled && f.accessCurfewStart && f.accessCurfewEnd
-                        ? `Acceso cerrado de ${f.accessCurfewStart} a ${f.accessCurfewEnd}`
-                        : 'Acceso 24 h'}
-                      {f.contactPhone ? ` · Tel. ${f.contactPhone}` : ''}
-                      {f.contactEmail ? ` · ${f.contactEmail}` : ''}
-                    </p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {session && <FaqCard session={session} />}
-        </TabsContent>
-
-        <TabsContent value="datos" className="space-y-6">
-          <ProfileCard session={session} />
-
-          <DocumentsCard session={session} />
-
-          {referrals?.enabled && referrals.referralCode && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Gift className="h-4 w-4" /> Recomienda y gana
-                </CardTitle>
-                <CardDescription>
-                  Comparte tu código. Cuando tu recomendado firme su contrato, recibirás una
-                  recompensa.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-md border bg-muted/40 px-3 py-2 font-mono text-lg tracking-widest">
-                    {referrals.referralCode}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(referrals.referralCode ?? '');
-                      toast.success('Código copiado.');
-                    }}
-                  >
-                    Copiar
-                  </Button>
-                </div>
-                {referrals.rewards.length > 0 && (
-                  <p className="text-sm">
-                    Tus recompensas:{' '}
-                    {referrals.rewards.map((c) => (
-                      <span key={c} className="mr-1 font-mono text-xs">
-                        {c}
-                      </span>
-                    ))}
-                  </p>
-                )}
-                {referrals.referrals.length > 0 && (
-                  <ul className="text-sm text-muted-foreground">
-                    {referrals.referrals.map((r, i) => (
-                      <li key={i}>
-                        {r.referredName} —{' '}
-                        {r.status === 'converted' ? 'recompensa concedida' : 'pendiente'}
+                {(unitChanges ?? []).length > 0 && (
+                  <ul className="space-y-2 border-t pt-3">
+                    {(unitChanges ?? []).map((r) => (
+                      <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="line-clamp-1">{r.note}</span>
+                        <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
+                          {r.status === 'pending'
+                            ? 'Pendiente'
+                            : r.status === 'handled'
+                              ? 'Gestionada'
+                              : 'Rechazada'}
+                        </Badge>
                       </li>
                     ))}
                   </ul>
                 )}
               </CardContent>
             </Card>
-          )}
+          </TabsContent>
 
-          {pushKey && (
+          <TabsContent value="nuevo" className="space-y-6">
+            <AdditionalUnitCard
+              session={session}
+              onBooked={() => {
+                void reloadInvoices();
+                setTab('facturas');
+              }}
+            />
+          </TabsContent>
+
+          <TabsContent value="facturas" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Bell className="h-4 w-4" /> Notificaciones
-                </CardTitle>
-                <CardDescription>
-                  Recibe avisos de pagos y vencimientos en este dispositivo.
-                </CardDescription>
+                <CardTitle>Tus facturas</CardTitle>
               </CardHeader>
               <CardContent>
-                {pushEnabled ? (
-                  <p className="text-sm text-emerald-600">
-                    ✓ Notificaciones activadas en este dispositivo.
-                  </p>
-                ) : (
-                  <Button onClick={enablePush} disabled={pushBusy} variant="outline">
-                    {pushBusy ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Bell className="mr-1 h-4 w-4" />
-                    )}
-                    Activar notificaciones
-                  </Button>
+                {invoices.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Aún no tienes facturas.</p>
+                )}
+                {invoices.length > 0 && (
+                  <ul className="divide-y rounded-md border">
+                    {invoices.map((i) => (
+                      <li
+                        key={i.id}
+                        className="flex flex-wrap items-center justify-between gap-3 px-3 py-3"
+                      >
+                        <div>
+                          <p className="font-mono text-sm font-medium">{i.invoiceNumber}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Emitida {i.issueDate ?? '—'} · Vence {i.dueDate ?? '—'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm tabular-nums">
+                            {i.total.toLocaleString('es-ES', {
+                              style: 'currency',
+                              currency: 'EUR',
+                            })}
+                          </span>
+                          <Badge
+                            variant={
+                              i.status === 'paid'
+                                ? 'default'
+                                : i.status === 'overdue'
+                                  ? 'destructive'
+                                  : 'secondary'
+                            }
+                          >
+                            {i.status}
+                          </Badge>
+                          {i.amountPending > 0 && (
+                            <Button onClick={() => void handlePay(i)} disabled={payingId !== null}>
+                              {payingId === i.id && (
+                                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                              )}
+                              Pagar
+                            </Button>
+                          )}
+                          {i.amountPending > 0 && (
+                            <Button
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  submitRedsysForm(
+                                    await fetchPortalRedsysRedirect(session.accessToken, i.id),
+                                  );
+                                } catch (err) {
+                                  toast.error(
+                                    err instanceof ApiError
+                                      ? err.body.message
+                                      : 'Redsys no disponible',
+                                  );
+                                }
+                              }}
+                            >
+                              Pagar con tarjeta
+                            </Button>
+                          )}
+                          {i.pdfUrl && (
+                            <Button variant="outline" asChild>
+                              <a href={i.pdfUrl} target="_blank" rel="noreferrer">
+                                <Download className="mr-1 h-4 w-4" /> PDF
+                              </a>
+                            </Button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </CardContent>
             </Card>
+
+            {payments.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Receipt className="h-5 w-5 text-muted-foreground" /> Historial de pagos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="divide-y rounded-md border">
+                    {payments.map((p) => (
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                      >
+                        <div>
+                          <p className="font-medium tabular-nums">
+                            {p.amount.toFixed(2)} {p.currency}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {paymentMethodLabel(p.methodType)}
+                            {p.invoiceNumber ? ` · factura ${p.invoiceNumber}` : ''}
+                            {p.paidAt ? ` · ${new Date(p.paidAt).toLocaleDateString('es-ES')}` : ''}
+                          </p>
+                        </div>
+                        <Badge variant={p.status === 'succeeded' ? 'secondary' : 'outline'}>
+                          {paymentStatusLabel(p.status)}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
+
+            {session && <ShopCard session={session} onPurchased={reloadInvoices} />}
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Método de pago</CardTitle>
+                  <CardDescription>
+                    Domicilia tus recibos con tu IBAN o paga con tarjeta.
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {goCardlessEnabled && (
+                    <Button
+                      onClick={() => void startGoCardless()}
+                      disabled={gcPending}
+                      variant="outline"
+                    >
+                      {gcPending ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Landmark className="mr-1 h-4 w-4" />
+                      )}
+                      Domiciliar (GoCardless)
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => void openAddDialog()}
+                    disabled={addPending}
+                    variant="outline"
+                  >
+                    {addPending ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="mr-1 h-4 w-4" />
+                    )}
+                    Añadir IBAN o tarjeta
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {!paymentMethods?.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    Sin método de pago guardado. Añade tu IBAN para domiciliar los recibos.
+                  </p>
+                ) : (
+                  <ul className="divide-y">
+                    {paymentMethods.map((pm) => (
+                      <li key={pm.id} className="flex items-center gap-3 py-3">
+                        {pm.type === 'sepa_debit' ? (
+                          <Landmark className="h-5 w-5 text-muted-foreground" />
+                        ) : (
+                          <CreditCard className="h-5 w-5 text-muted-foreground" />
+                        )}
+                        <div>
+                          <p className="text-sm font-medium">
+                            {pm.type === 'sepa_debit'
+                              ? `IBAN •••• ${pm.last4 ?? '????'}`
+                              : `${pm.brand ?? 'Tarjeta'} •••• ${pm.last4 ?? '????'}`}
+                          </p>
+                          {pm.type === 'sepa_debit' && pm.mandateReference && (
+                            <p className="text-xs text-muted-foreground">
+                              Mandato {pm.mandateReference}
+                            </p>
+                          )}
+                        </div>
+                        {pm.isDefault && <Badge variant="secondary">Predeterminado</Badge>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="accesos" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" /> Tu acceso
+                </CardTitle>
+                <CardDescription>
+                  Presenta tu código QR o teclea tu PIN en el lector de la puerta.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {access === null ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : access.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No tienes credenciales de acceso activas. Pídeselas a tu operador.
+                  </p>
+                ) : (
+                  <ul className="grid gap-4 sm:grid-cols-2">
+                    {access.map((c) => (
+                      <li key={c.id} className="rounded-md border p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-sm font-medium">
+                            {c.label ?? (c.method === 'qr' ? 'Código QR' : 'PIN')}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Regenerar"
+                            disabled={regeneratingId === c.id}
+                            onClick={() => void regenerateAccess(c.id)}
+                          >
+                            <RefreshCw
+                              className={`h-4 w-4 ${regeneratingId === c.id ? 'animate-spin' : ''}`}
+                            />
+                          </Button>
+                        </div>
+                        {c.value === null ? (
+                          <p className="text-xs text-muted-foreground">
+                            Esta credencial es antigua y no se puede mostrar. Pulsa regenerar para
+                            obtener un código nuevo.
+                          </p>
+                        ) : c.method === 'qr' ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="rounded bg-white p-2">
+                              <QRCodeSVG value={c.value} size={148} />
+                            </div>
+                            <span className="break-all text-center font-mono text-[10px] text-muted-foreground">
+                              {c.value}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-center">
+                            <span className="font-mono text-3xl tracking-[0.3em]">{c.value}</span>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {access !== null && (
+                  <div className="mt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={addingAccess}
+                      onClick={() => void addExtraAccess()}
+                    >
+                      {addingAccess ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="mr-1 h-4 w-4" />
+                      )}
+                      Añadir acceso (familiar, etc.)
+                    </Button>
+                  </div>
+                )}
+                <div className="mt-3">
+                  <NightAccessCard
+                    session={session}
+                    facilities={facilities}
+                    refreshKey={passRefresh}
+                  />
+                </div>
+                {nightPass?.enabled && (
+                  <div className="mt-3 rounded-md border bg-muted/30 p-3">
+                    <p className="text-sm font-medium">Pase nocturno</p>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Código de un solo uso para entrar fuera de horario (toque de queda). Caduca a
+                      la mañana siguiente. Se factura a tu cuenta.
+                    </p>
+                    <Button size="sm" disabled={buyingPass} onClick={() => void buyNightPass()}>
+                      {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                      Comprar pase nocturno (
+                      {nightPass.price.toLocaleString('es-ES', {
+                        style: 'currency',
+                        currency: 'EUR',
+                      })}{' '}
+                      + IVA)
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <AccessLogsCard session={session} />
+          </TabsContent>
+
+          <TabsContent value="mensajes" className="space-y-6">
+            {session && <ChatCard session={session} />}
+          </TabsContent>
+
+          <TabsContent value="incidencias" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wrench className="h-4 w-4" /> Incidencias
+                </CardTitle>
+                <CardDescription>
+                  ¿Algún problema con tu trastero o el acceso? Cuéntanoslo y lo revisaremos.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <input
+                  value={incidentTitle}
+                  onChange={(e) => setIncidentTitle(e.target.value)}
+                  placeholder="Asunto (p. ej. la puerta no cierra)"
+                  maxLength={160}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <textarea
+                  value={incidentDesc}
+                  onChange={(e) => setIncidentDesc(e.target.value)}
+                  placeholder="Detalles (opcional)"
+                  maxLength={2000}
+                  rows={3}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button
+                  onClick={reportIncident}
+                  disabled={reportingIncident || incidentTitle.trim().length < 3}
+                >
+                  {reportingIncident ? (
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-1 h-4 w-4" />
+                  )}
+                  Reportar incidencia
+                </Button>
+
+                {(incidents ?? []).length > 0 && (
+                  <ul className="space-y-2 border-t pt-3">
+                    {(incidents ?? []).map((i) => (
+                      <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="line-clamp-1">{i.title}</span>
+                        <Badge variant={i.status === 'resolved' ? 'default' : 'secondary'}>
+                          {i.status === 'reported'
+                            ? 'Recibida'
+                            : i.status === 'investigating'
+                              ? 'En curso'
+                              : i.status === 'resolved'
+                                ? 'Resuelta'
+                                : 'Cerrada'}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="local" className="space-y-6">
+            {facilities.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-muted-foreground" /> Tu local
+                  </CardTitle>
+                  <CardDescription>Dirección, horario de acceso y contacto.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {facilities.map((f) => (
+                    <div key={f.id} className="rounded-md border p-3 text-sm">
+                      <p className="font-medium">{f.name}</p>
+                      {(f.address || f.city) && (
+                        <p className="text-muted-foreground">
+                          {[f.address, f.postalCode, f.city].filter(Boolean).join(', ')}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {f.accessCurfewEnabled && f.accessCurfewStart && f.accessCurfewEnd
+                          ? `Acceso cerrado de ${f.accessCurfewStart} a ${f.accessCurfewEnd}`
+                          : 'Acceso 24 h'}
+                        {f.contactPhone ? ` · Tel. ${f.contactPhone}` : ''}
+                        {f.contactEmail ? ` · ${f.contactEmail}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {session && <FaqCard session={session} />}
+          </TabsContent>
+
+          <TabsContent value="datos" className="space-y-6">
+            <ProfileCard session={session} />
+
+            <DocumentsCard session={session} />
+
+            {referrals?.enabled && referrals.referralCode && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Gift className="h-4 w-4" /> Recomienda y gana
+                  </CardTitle>
+                  <CardDescription>
+                    Comparte tu código. Cuando tu recomendado firme su contrato, recibirás una
+                    recompensa.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md border bg-muted/40 px-3 py-2 font-mono text-lg tracking-widest">
+                      {referrals.referralCode}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(referrals.referralCode ?? '');
+                        toast.success('Código copiado.');
+                      }}
+                    >
+                      Copiar
+                    </Button>
+                  </div>
+                  {referrals.rewards.length > 0 && (
+                    <p className="text-sm">
+                      Tus recompensas:{' '}
+                      {referrals.rewards.map((c) => (
+                        <span key={c} className="mr-1 font-mono text-xs">
+                          {c}
+                        </span>
+                      ))}
+                    </p>
+                  )}
+                  {referrals.referrals.length > 0 && (
+                    <ul className="text-sm text-muted-foreground">
+                      {referrals.referrals.map((r, i) => (
+                        <li key={i}>
+                          {r.referredName} —{' '}
+                          {r.status === 'converted' ? 'recompensa concedida' : 'pendiente'}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {pushKey && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bell className="h-4 w-4" /> Notificaciones
+                  </CardTitle>
+                  <CardDescription>
+                    Recibe avisos de pagos y vencimientos en este dispositivo.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {pushEnabled ? (
+                    <p className="text-sm text-emerald-600">
+                      ✓ Notificaciones activadas en este dispositivo.
+                    </p>
+                  ) : (
+                    <Button onClick={enablePush} disabled={pushBusy} variant="outline">
+                      {pushBusy ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Bell className="mr-1 h-4 w-4" />
+                      )}
+                      Activar notificaciones
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* Barra de navegación inferior (móvil): principales + «Más» */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur md:hidden">
+        {PORTAL_PRIMARY.map((item) => (
+          <PortalBottomItem
+            key={item.value}
+            item={item}
+            active={tab === item.value}
+            badge={navBadge(item.value)}
+            onClick={() => handleNav(item.value)}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={() => setMoreOpen(true)}
+          className="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground"
+        >
+          <MoreHorizontal className="size-5" />
+          Más
+          {moreBadgeTotal > 0 && (
+            <span className="absolute right-3 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-white">
+              {moreBadgeTotal}
+            </span>
           )}
-        </TabsContent>
-      </Tabs>
+        </button>
+      </nav>
+
+      {/* Cajón «Más» (móvil): el resto de secciones */}
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="rounded-t-xl">
+          <SheetTitle className="mb-2">Más opciones</SheetTitle>
+          <div className="grid grid-cols-3 gap-2 pb-4">
+            {PORTAL_MORE.map((item) => {
+              const Icon = item.icon;
+              const b = navBadge(item.value);
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => handleNav(item.value)}
+                  className={`relative flex flex-col items-center gap-1 rounded-lg border p-3 text-xs ${
+                    tab === item.value ? 'border-primary bg-accent' : 'border-border'
+                  }`}
+                >
+                  <Icon className="size-5" />
+                  <span className="text-center leading-tight">{item.label}</span>
+                  {b && b.count > 0 && (
+                    <span
+                      className={`absolute right-2 top-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-medium text-white ${b.color}`}
+                    >
+                      {b.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {moveOutId && (
         <MoveOutDialog
