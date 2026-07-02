@@ -52,6 +52,9 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   // Webhooks firmados sobre el raw body (deben ir antes del parser JSON).
   app.use('/webhooks/stripe', raw({ type: 'application/json' }));
   app.use('/webhooks/gocardless', raw({ type: 'application/json' }));
+  // Redsys postea urlencoded (los tests, JSON): raw para ambos y el
+  // controller parsea estricto (defensa en profundidad, auditoría 2026-07).
+  app.use('/webhooks/redsys', raw({ type: () => true }));
   app.use(cookieParser());
 
   if (rewriteLegacyToV1) {

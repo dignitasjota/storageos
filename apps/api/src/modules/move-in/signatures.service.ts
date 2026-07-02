@@ -56,6 +56,19 @@ export class SignaturesService {
   ) {}
 
   /**
+   * Secret del JWT del portal: dedicado (`PORTAL_JWT_SECRET`) si está definido,
+   * con fallback a `JWT_2FA_PENDING_SECRET` por compatibilidad (auditoría
+   * 2026-07: no mezclar propósitos de secrets). Cambiarlo invalida las
+   * sesiones de portal vivas (48 h), no los magic links pendientes.
+   */
+  private portalSecret(): string {
+    return (
+      this.config.get('PORTAL_JWT_SECRET', { infer: true }) ??
+      this.config.get('JWT_2FA_PENDING_SECRET', { infer: true })
+    );
+  }
+
+  /**
    * Genera un token de firma para un contrato draft y lo persiste (hash).
    * Devuelve el token en claro (solo aquí) y su expiración.
    */
@@ -251,7 +264,7 @@ export class SignaturesService {
     return this.jwt.sign(
       { customerId, tenantId, purpose: 'portal' },
       {
-        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+        secret: this.portalSecret(),
         expiresIn: PORTAL_TOKEN_TTL_SECONDS,
       },
     );

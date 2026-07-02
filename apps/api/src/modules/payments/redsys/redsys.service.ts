@@ -115,8 +115,8 @@ export class RedsysService {
 
   /** Procesa la notificación servidor-a-servidor de Redsys. */
   async handleNotification(body: {
-    Ds_MerchantParameters?: string;
-    Ds_Signature?: string;
+    Ds_MerchantParameters?: string | undefined;
+    Ds_Signature?: string | undefined;
   }): Promise<void> {
     const mp = body.Ds_MerchantParameters;
     const sig = body.Ds_Signature;

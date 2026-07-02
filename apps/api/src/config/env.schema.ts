@@ -23,6 +23,9 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   JWT_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
   /** Secret independiente para firmar el pendingToken del flujo 2FA. */
+  // Secret dedicado del token del portal del inquilino. Opcional: sin él se
+  // usa JWT_2FA_PENDING_SECRET (compatibilidad con despliegues existentes).
+  PORTAL_JWT_SECRET: z.string().min(32).optional(),
   JWT_2FA_PENDING_SECRET: z
     .string()
     .min(32, 'JWT_2FA_PENDING_SECRET debe tener al menos 32 caracteres'),
