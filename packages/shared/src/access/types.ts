@@ -1,4 +1,5 @@
 import type {
+  AccessAllowedHours,
   AccessCredentialStatusValue,
   AccessDeviceTypeValue,
   AccessMethodValue,
