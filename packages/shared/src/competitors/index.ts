@@ -51,3 +51,25 @@ export interface CompetitorUnitDto {
   lastCheckedAt: string;
   notes: string | null;
 }
+
+// --- Ocupación de mercado: mi ocupación vs la de la competencia ---
+export interface CompetitorOccupancyRowDto {
+  id: string;
+  name: string;
+  unitCount: number;
+  occupiedCount: number;
+  /** 0-1; null si el competidor no tiene trasteros fichados. */
+  occupancyPct: number | null;
+}
+
+export interface MarketOccupancyDto {
+  /** Mi ocupación física (trasteros ocupados / total activos), 0-1. */
+  myOccupancyPct: number;
+  myOccupiedUnits: number;
+  myTotalUnits: number;
+  /** Ocupación media de la competencia (ponderada por nº de trasteros), 0-1. */
+  competitionOccupancyPct: number | null;
+  competitionOccupiedUnits: number;
+  competitionTotalUnits: number;
+  competitors: CompetitorOccupancyRowDto[];
+}

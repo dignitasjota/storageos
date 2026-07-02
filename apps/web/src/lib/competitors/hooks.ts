@@ -7,6 +7,7 @@ import type {
   CompetitorUnitDto,
   CreateCompetitorFacilityInput,
   CreateCompetitorUnitInput,
+  MarketOccupancyDto,
   UpdateCompetitorFacilityInput,
   UpdateCompetitorUnitInput,
 } from '@storageos/shared';
@@ -18,6 +19,14 @@ export function useCompetitorFacilities() {
   return useQuery({
     queryKey: facilitiesKey,
     queryFn: () => apiFetch<CompetitorFacilityDto[]>('/competitors'),
+  });
+}
+
+/** Ocupación de mercado: la mía vs la de la competencia. */
+export function useMarketOccupancy() {
+  return useQuery({
+    queryKey: ['competitors', 'occupancy'] as const,
+    queryFn: () => apiFetch<MarketOccupancyDto>('/competitors/occupancy'),
   });
 }
 
