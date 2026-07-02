@@ -102,6 +102,19 @@ export class PortalService {
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
 
+  /**
+   * Secret del JWT del portal: dedicado (`PORTAL_JWT_SECRET`) si está definido,
+   * con fallback a `JWT_2FA_PENDING_SECRET` por compatibilidad (auditoría
+   * 2026-07: no mezclar propósitos de secrets). Cambiarlo invalida las
+   * sesiones de portal vivas (48 h), no los magic links pendientes.
+   */
+  private portalSecret(): string {
+    return (
+      this.config.get('PORTAL_JWT_SECRET', { infer: true }) ??
+      this.config.get('JWT_2FA_PENDING_SECRET', { infer: true })
+    );
+  }
+
   /** Portal: inicia el mandato GoCardless del propio inquilino. */
   async startMyGoCardlessMandate(
     tenantId: string,
@@ -273,7 +286,7 @@ export class PortalService {
       { customerId: customer.id, tenantId: tenant.id, purpose: 'portal' },
       {
         subject: customer.id,
-        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+        secret: this.portalSecret(),
         expiresIn: ttl,
       },
     );
@@ -302,7 +315,7 @@ export class PortalService {
         tenantId: string;
         purpose: string;
       }>(token, {
-        secret: this.config.get('JWT_2FA_PENDING_SECRET', { infer: true }),
+        secret: this.portalSecret(),
       });
       if (payload.purpose !== 'portal') {
         throw new Error('purpose');
