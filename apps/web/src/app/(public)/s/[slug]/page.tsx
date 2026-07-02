@@ -46,10 +46,13 @@ export async function generateMetadata({
   const description = `Alquila tu trastero con ${data.tenantName}${
     where ? ` en ${where}` : ''
   }. Consulta disponibilidad y precios y reserva online en minutos.`;
+  // Con dominio propio activo, el canonical apunta a él (versión canónica);
+  // así la ruta `/s/<slug>` de la plataforma no compite por SEO.
+  const canonical = data.customDomain ? `https://${data.customDomain}/` : `/s/${slug}`;
   return {
     title,
     description,
-    alternates: { canonical: `/s/${slug}` },
+    alternates: { canonical },
     robots: { index: true, follow: true },
     openGraph: { title, description, type: 'website' },
   };
