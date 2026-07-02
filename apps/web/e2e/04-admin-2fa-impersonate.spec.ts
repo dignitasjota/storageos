@@ -49,7 +49,13 @@ test.describe('Super admin + impersonación', () => {
     // dura pierde el token admin en memoria y el bootstrap redirige a
     // /admin/login. El endpoint de tenants no está capado y ordena por
     // createdAt desc, así que el tenant recién creado sale el primero.
-    await page.getByRole('link', { name: 'Tenants' }).click();
+    // El nav agrupa en submenús desplegables: si el enlace «Tenants» no está
+    // visible (grupo colapsado), abrimos su grupo primero.
+    const tenantsLink = page.getByRole('link', { name: 'Tenants', exact: true });
+    if (!(await tenantsLink.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'Tenants' }).click();
+    }
+    await tenantsLink.click();
     await expect(page).toHaveURL(/\/admin\/tenants$/, { timeout: 10_000 });
     const tenantCard = page.locator('button', { hasText: tenant.slug });
     await expect(tenantCard.first()).toBeVisible({ timeout: 10_000 });
