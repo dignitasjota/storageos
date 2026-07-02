@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -57,15 +58,12 @@ describe('Dashboard: bandeja «Hoy» (e2e)', () => {
       .send({ firstName: 'Lea', lastName: 'Nuevo', email: 'lea-today@x.com' })
       .expect(201);
     // Cliente + seguimiento con vencimiento hoy.
-    const customer = await request(app.getHttpServer())
-      .post('/customers')
-      .set(auth)
-      .send({
-        customerType: 'individual',
-        firstName: 'Cli',
-        lastName: 'Ente',
-        email: 'cli-today@x.com',
-      });
+    const customer = await request(app.getHttpServer()).post('/customers').set(auth).send({
+      customerType: 'individual',
+      firstName: 'Cli',
+      lastName: 'Ente',
+      email: 'cli-today@x.com',
+    });
     const todayStr = new Date().toISOString().slice(0, 10);
     await request(app.getHttpServer())
       .post(`/customers/${customer.body.id}/followups`)
@@ -79,5 +77,54 @@ describe('Dashboard: bandeja «Hoy» (e2e)', () => {
     expect(res.body.followupsDue.count).toBe(1);
     expect(res.body.followupsDue.items[0].linkId).toBe(customer.body.id);
     expect(res.body.urgentCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('filtra por local las secciones ancladas y deja las de empresa', async () => {
+    const owner = await registerVerifiedUser(app, 'today3');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const { facilityId: facA } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+    });
+    const { facilityId: facB } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+    });
+
+    // Incidencia abierta en el local A (facilityId directo).
+    await request(app.getHttpServer())
+      .post('/incidents')
+      .set(auth)
+      .send({ title: 'Puerta rota', facilityId: facA, severity: 'medium' })
+      .expect(201);
+    // Un lead: NO está anclado a local, debe verse siempre.
+    await request(app.getHttpServer())
+      .post('/leads')
+      .set(auth)
+      .send({ firstName: 'Sin', lastName: 'Local', email: 'sinlocal@x.com' })
+      .expect(201);
+
+    // Filtro por A: cuenta la incidencia + el lead (empresa).
+    const a = await request(app.getHttpServer())
+      .get('/dashboard/today')
+      .query({ facilityId: facA })
+      .set(auth);
+    expect(a.status).toBe(200);
+    expect(a.body.incidentsOpen).toBe(1);
+    expect(a.body.newLeads.count).toBe(1);
+
+    // Filtro por B: la incidencia de A NO cuenta; el lead (empresa) sí.
+    const b = await request(app.getHttpServer())
+      .get('/dashboard/today')
+      .query({ facilityId: facB })
+      .set(auth);
+    expect(b.body.incidentsOpen).toBe(0);
+    expect(b.body.newLeads.count).toBe(1);
+
+    // facilityId inválido → 400.
+    await request(app.getHttpServer())
+      .get('/dashboard/today')
+      .query({ facilityId: 'no-es-uuid' })
+      .set(auth)
+      .expect(400);
   });
 });
