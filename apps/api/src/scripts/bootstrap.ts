@@ -61,6 +61,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'insurance',
       'access_control',
       'automations',
+      'custom_domain',
     ],
   },
 ];
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
     for (const data of PLANS) {
       await prisma.subscriptionPlan.upsert({
         where: { slug: data.slug },
-        update: {},
+        update: { tenantFeatures: data.tenantFeatures },
         create: data,
       });
     }

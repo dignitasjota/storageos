@@ -18,6 +18,7 @@ import type { InvoiceStatus } from '@storageos/database';
 import type {
   AdminAdoptionDto,
   AdminAtRiskDto,
+  AdminCustomDomainDto,
   AdminAtRiskTenantDto,
   AdminFeatureAdoptionDto,
   AdminOnboardingDto,
@@ -1098,6 +1099,97 @@ export class AdminTenantsService {
       changes: { overrides: effectiveOverrides },
     });
     return this.getFeatures(tenantId);
+  }
+
+  /** Cola de dominios propios (pendientes de activar + activos). */
+  async listCustomDomains(): Promise<AdminCustomDomainDto[]> {
+    const tenants = await this.admin.tenant.findMany({
+      where: { customDomain: { not: null }, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        subscription: { select: { plan: { select: { slug: true } } } },
+      },
+      orderBy: [{ customDomainVerifiedAt: 'asc' }, { name: 'asc' }],
+    });
+    return tenants.map((t) => ({
+      tenantId: t.id,
+      tenantName: t.name,
+      tenantSlug: t.slug,
+      customDomain: t.customDomain!,
+      verifiedAt: t.customDomainVerifiedAt?.toISOString() ?? null,
+      planSlug: t.subscription?.plan.slug ?? 'free',
+    }));
+  }
+
+  /** Activa (verifica) el dominio propio de un tenant tras configurar NPM. */
+  async verifyCustomDomain(tenantId: string, args: ActionMeta): Promise<AdminCustomDomainDto> {
+    const tenant = await this.findOrThrow(tenantId);
+    if (!tenant.customDomain) {
+      throw new NotFoundException({ code: 'no_custom_domain', message: 'Sin dominio propio' });
+    }
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: { customDomainVerifiedAt: new Date() },
+    });
+    await this.traceCustomDomain(
+      tenantId,
+      'admin.tenant.custom_domain_verified',
+      tenant.customDomain,
+      args,
+    );
+    return (await this.listCustomDomains()).find((d) => d.tenantId === tenantId)!;
+  }
+
+  /** Desactiva (revoca) el dominio propio: deja de servirse bajo la marca. */
+  async revokeCustomDomain(tenantId: string, args: ActionMeta): Promise<AdminCustomDomainDto> {
+    const tenant = await this.findOrThrow(tenantId);
+    if (!tenant.customDomain) {
+      throw new NotFoundException({ code: 'no_custom_domain', message: 'Sin dominio propio' });
+    }
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: { customDomainVerifiedAt: null },
+    });
+    await this.traceCustomDomain(
+      tenantId,
+      'admin.tenant.custom_domain_revoked',
+      tenant.customDomain,
+      args,
+    );
+    return (await this.listCustomDomains()).find((d) => d.tenantId === tenantId)!;
+  }
+
+  private async traceCustomDomain(
+    tenantId: string,
+    action: string,
+    domain: string,
+    args: ActionMeta,
+  ): Promise<void> {
+    const changes = { customDomain: domain };
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action,
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { superAdminId: args.superAdminId, ...changes },
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: args.superAdminId,
+      action,
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: args.ipAddress ?? null,
+      userAgent: args.userAgent ?? null,
+      changes,
+    });
   }
 
   async changePlan(

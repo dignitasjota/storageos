@@ -1,4 +1,4 @@
-import { Controller, Get, Param, VERSION_NEUTRAL } from '@nestjs/common';
+import { Controller, Get, Param, Query, VERSION_NEUTRAL } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -9,6 +9,7 @@ import type {
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicSitemapDto,
+  ResolveDomainDto,
 } from '@storageos/shared';
 
 /**
@@ -20,11 +21,19 @@ import type {
 export class LandingController {
   constructor(private readonly landing: LandingService) {}
 
-  // `sitemap` se declara antes que `:slug` para que no lo capture el param.
+  // `sitemap` y `resolve-domain` se declaran antes que `:slug` para que el
+  // param no los capture.
   @Get('sitemap')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   sitemap(): Promise<PublicSitemapDto> {
     return this.landing.sitemap();
+  }
+
+  /** Resolución dominio propio → tenant, que consume el middleware del web. */
+  @Get('resolve-domain')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  resolveDomain(@Query('host') host: string): Promise<ResolveDomainDto> {
+    return this.landing.resolveDomain(host ?? '');
   }
 
   @Get(':slug')

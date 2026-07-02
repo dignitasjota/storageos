@@ -337,6 +337,8 @@ model Tenant {
   /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
   portalBrandColor            String?               @map("portal_brand_color")
   portalLogoUrl               String?               @map("portal_logo_url")
+  customDomain                String?               @unique @map("custom_domain")
+  customDomainVerifiedAt      DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
   nightPassEnabled            Boolean               @default(false) @map("night_pass_enabled")
   nightPassPrice              Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)

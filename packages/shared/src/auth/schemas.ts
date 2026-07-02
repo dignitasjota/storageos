@@ -214,6 +214,19 @@ export const UpdateTenantReviewsSettingsSchema = z.object({
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
 
 /** White-label del portal del inquilino: color de marca (hex) + URL del logo. */
+/**
+ * Nombre de host de un dominio propio: sin esquema, puerto ni ruta; al menos un
+ * punto (dominio con TLD). Se valida el formato aquí y se normaliza a
+ * minúsculas en el backend.
+ */
+export const HOSTNAME_REGEX = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/i;
+
+/** ¿Es un hostname de dominio propio válido (formato, no resolución DNS)? */
+export function isValidCustomDomain(value: string): boolean {
+  const v = value.trim();
+  return v.length > 0 && v.length <= 253 && HOSTNAME_REGEX.test(v);
+}
+
 export const UpdateTenantBrandingSchema = z.object({
   /** Color de marca en hex (#RRGGBB); '' lo desactiva. */
   portalBrandColor: z
@@ -224,6 +237,14 @@ export const UpdateTenantBrandingSchema = z.object({
     .or(z.literal('')),
   /** URL pública del logo; '' lo quita. */
   portalLogoUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
+  /** Dominio propio (white-label); '' lo quita. Requiere el plan/feature. */
+  customDomain: z
+    .string()
+    .trim()
+    .max(253)
+    .regex(HOSTNAME_REGEX, 'Dominio no válido (p. ej. trasteros.com)')
+    .optional()
+    .or(z.literal('')),
 });
 export type UpdateTenantBrandingInput = z.infer<typeof UpdateTenantBrandingSchema>;
 

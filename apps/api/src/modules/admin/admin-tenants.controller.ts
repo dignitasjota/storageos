@@ -17,6 +17,7 @@ import {
 import {
   type AdminAdoptionDto,
   type AdminAtRiskDto,
+  type AdminCustomDomainDto,
   type AdminOnboardingDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
@@ -372,6 +373,46 @@ export class AdminTenantsController {
   @Get('adoption')
   async adoption(): Promise<AdminAdoptionDto> {
     return this.tenants.getAdoption();
+  }
+
+  /** Cola de dominios propios (pendientes de activar + activos). */
+  @Get('custom-domains')
+  async customDomains(): Promise<AdminCustomDomainDto[]> {
+    return this.tenants.listCustomDomains();
+  }
+
+  /** Activa el dominio propio de un tenant (tras configurar NPM + SSL). */
+  @Post(':id/custom-domain/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyCustomDomain(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<AdminCustomDomainDto> {
+    const meta = extractMeta(req);
+    return this.tenants.verifyCustomDomain(id, {
+      superAdminId: admin.sub,
+      reason: 'custom_domain_verify',
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  /** Desactiva el dominio propio de un tenant. */
+  @Post(':id/custom-domain/revoke')
+  @HttpCode(HttpStatus.OK)
+  async revokeCustomDomain(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<AdminCustomDomainDto> {
+    const meta = extractMeta(req);
+    return this.tenants.revokeCustomDomain(id, {
+      superAdminId: admin.sub,
+      reason: 'custom_domain_revoke',
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
   }
 
   @Get(':id')

@@ -15,6 +15,7 @@ export const TenantFeatures = [
   'insurance', // /insurance-plans
   'access_control', // /access
   'automations', // /automations
+  'custom_domain', // dominio propio en la landing/portal (white-label)
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -91,4 +92,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   insurance: 'Seguros',
   access_control: 'Control de accesos',
   automations: 'Automatizaciones',
+  custom_domain: 'Dominio propio (white-label)',
 };

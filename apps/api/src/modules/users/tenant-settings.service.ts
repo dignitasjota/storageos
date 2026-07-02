@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@storageos/database';
+import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -8,6 +15,7 @@ import type {
   TenantAccessSettingsResponse,
   TenantBillingSettingsResponse,
   TenantBrandingResponse,
+  TenantFeature,
   TenantReferralSettingsResponse,
   TenantReviewsSettingsResponse,
   TenantSecuritySettingsResponse,
@@ -192,7 +200,41 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
-    return { portalBrandColor: tenant.portalBrandColor, portalLogoUrl: tenant.portalLogoUrl };
+    return this.toBrandingResponse(tenant);
+  }
+
+  private toBrandingResponse(tenant: {
+    portalBrandColor: string | null;
+    portalLogoUrl: string | null;
+    customDomain: string | null;
+    customDomainVerifiedAt: Date | null;
+  }): TenantBrandingResponse {
+    return {
+      portalBrandColor: tenant.portalBrandColor,
+      portalLogoUrl: tenant.portalLogoUrl,
+      customDomain: tenant.customDomain,
+      customDomainVerifiedAt: tenant.customDomainVerifiedAt?.toISOString() ?? null,
+    };
+  }
+
+  /** ¿El tenant tiene la feature `custom_domain` (plan + overrides)? */
+  private async hasCustomDomainFeature(tenantId: string): Promise<boolean> {
+    const [subscription, overrides] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { slug: true, tenantFeatures: true } } },
+      }),
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId },
+        select: { feature: true, enabled: true },
+      }),
+    ]);
+    const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
+    const features = effectiveFeaturesFromList(
+      base,
+      overrides as { feature: TenantFeature; enabled: boolean }[],
+    );
+    return features.includes('custom_domain');
   }
 
   async updateBranding(args: {
@@ -206,10 +248,42 @@ export class TenantSettingsService {
       throw new NotFoundException('Tenant no encontrado');
     }
     const { input } = args;
-    const data: Record<string, string | null> = {};
+    const data: Prisma.TenantUpdateInput = {};
     if (input.portalBrandColor !== undefined)
       data.portalBrandColor = input.portalBrandColor || null;
     if (input.portalLogoUrl !== undefined) data.portalLogoUrl = input.portalLogoUrl || null;
+
+    if (input.customDomain !== undefined) {
+      const domain = input.customDomain.trim().toLowerCase();
+      if (domain === '') {
+        // Quitar el dominio siempre se permite (p. ej. tras un downgrade).
+        data.customDomain = null;
+        data.customDomainVerifiedAt = null;
+      } else if (domain !== tenant.customDomain) {
+        // Setear/cambiar el dominio requiere la feature del plan.
+        if (!(await this.hasCustomDomainFeature(args.tenantId))) {
+          throw new ForbiddenException({
+            code: 'feature_not_in_plan',
+            message: 'El dominio propio no está incluido en tu plan',
+            details: { requiredFeature: 'custom_domain' },
+          });
+        }
+        const taken = await this.admin.tenant.findFirst({
+          where: { customDomain: domain, id: { not: args.tenantId } },
+          select: { id: true },
+        });
+        if (taken) {
+          throw new ConflictException({
+            code: 'domain_taken',
+            message: 'Ese dominio ya está en uso por otra cuenta',
+          });
+        }
+        data.customDomain = domain;
+        // Cambiar el dominio invalida la verificación previa (el admin debe
+        // reconfigurar el Proxy Host + SSL y reactivarlo).
+        data.customDomainVerifiedAt = null;
+      }
+    }
 
     const updated =
       Object.keys(data).length === 0
@@ -222,12 +296,12 @@ export class TenantSettingsService {
       action: 'tenant.branding.settings_changed',
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: data,
+      changes: data as unknown as Prisma.InputJsonValue,
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
 
-    return { portalBrandColor: updated.portalBrandColor, portalLogoUrl: updated.portalLogoUrl };
+    return this.toBrandingResponse(updated);
   }
 
   async getReferrals(tenantId: string): Promise<TenantReferralSettingsResponse> {

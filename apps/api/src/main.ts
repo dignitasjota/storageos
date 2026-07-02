@@ -14,8 +14,10 @@ import { Logger } from 'nestjs-pino';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 
 import { AppModule } from './app.module';
+import { createCorsOrigin } from './common/cors-origin';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { legacyRedirectHandler } from './common/middleware/legacy-redirect.middleware';
+import { PrismaAdminService } from './modules/database/prisma-admin.service';
 
 import type { Env } from './config/env.schema';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -43,8 +45,17 @@ async function bootstrap() {
   // WhatsApp inbound (Meta): raw para verificar la firma X-Hub-Signature-256.
   app.use('/webhooks/whatsapp', raw({ type: () => true }));
   app.use(cookieParser());
+  // CORS dinámico: orígenes fijos + dominios propios de tenant verificados
+  // (white-label), resueltos con caché en memoria (TTL 5 min).
+  const adminPrisma = app.get(PrismaAdminService);
   app.enableCors({
-    origin: config.get('ALLOWED_ORIGINS', { infer: true }),
+    origin: createCorsOrigin(config.get('ALLOWED_ORIGINS', { infer: true }), async (host) => {
+      const t = await adminPrisma.tenant.findFirst({
+        where: { customDomain: host, customDomainVerifiedAt: { not: null }, deletedAt: null },
+        select: { id: true },
+      });
+      return t !== null;
+    }),
     credentials: true,
   });
 

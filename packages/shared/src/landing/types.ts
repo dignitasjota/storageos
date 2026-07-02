@@ -31,6 +31,8 @@ export interface PublicLandingDto {
   /** Marca del operador (white-label): color hex y logo, o null. */
   brandColor: string | null;
   logoUrl: string | null;
+  /** Dominio propio activo (verificado), o null → canonical al dominio custom. */
+  customDomain: string | null;
   facilities: PublicLandingFacilityDto[];
 }
 
@@ -40,6 +42,7 @@ export interface PublicFacilityLandingDto {
   tenantSlug: string;
   brandColor: string | null;
   logoUrl: string | null;
+  customDomain: string | null;
   facility: PublicLandingFacilityDto;
 }
 
@@ -51,4 +54,9 @@ export interface PublicSitemapEntryDto {
 }
 export interface PublicSitemapDto {
   entries: PublicSitemapEntryDto[];
+}
+
+/** Resolución dominio propio → tenant (la usa el middleware del web). */
+export interface ResolveDomainDto {
+  tenantSlug: string;
 }

@@ -159,6 +159,10 @@ export interface TenantReviewsSettingsResponse {
 export interface TenantBrandingResponse {
   portalBrandColor: string | null;
   portalLogoUrl: string | null;
+  /** Dominio propio configurado (white-label), o null. */
+  customDomain: string | null;
+  /** null = pendiente de activación por el super admin; ISO = activo. */
+  customDomainVerifiedAt: string | null;
 }
 
 export interface TenantAccessSettingsResponse {
