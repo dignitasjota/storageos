@@ -877,6 +877,46 @@ Permite a los inquilinos pagar facturas con tarjeta vía la pasarela alojada del
 
 ---
 
+## 18. Dominio propio por tenant (white-label)
+
+Un tenant del plan **`pro`** (o con la feature `custom_domain` activada por override) puede servir su web pública bajo **su propio dominio** (`trasteros-garcia.com`) en vez de `app.tu-dominio.com/s/garcia`. La landing, las páginas por local y la reserva (`/reservar`) se sirven bajo su marca; el panel del staff y el portal siguen en el dominio de la plataforma.
+
+**Cómo funciona**: el middleware del web (`apps/web/src/middleware.ts`) mira la cabecera `Host`. Si no es el de la plataforma (`NEXT_PUBLIC_SITE_URL`), consulta `GET /public/landing/resolve-domain?host=<host>` (con caché 60 s); si el dominio está **verificado**, reescribe internamente `/` → `/s/<slug>` (la URL del usuario queda limpia) y redirige el panel/admin al dominio de la plataforma. El CORS del API permite además los dominios verificados.
+
+### 18.1 Flujo de alta (por dominio)
+
+1. **El tenant** introduce su dominio en **Ajustes → Marca del portal y la web pública → Dominio propio** (`/settings/branding`). Queda **pendiente de activación** (`custom_domain_verified_at` nulo). Requiere el plan/feature (si no, 403).
+2. **El tenant** crea en su proveedor de DNS un registro que apunte su dominio al VPS:
+   - `A` → la IP pública del VPS (recomendado para el dominio raíz), o
+   - `CNAME` → `app.tu-dominio.com` (para un subdominio como `www.` o `reservas.`).
+3. **El super admin**, cuando el DNS ya resuelve al VPS, crea el **Proxy Host en NPM** para ese dominio:
+
+   | Domain                 | Scheme | Forward Hostname | Forward Port | Cache | Block Common Exploits | Websockets |
+   | ---------------------- | ------ | ---------------- | ------------ | ----- | --------------------- | ---------- |
+   | `trasteros-garcia.com` | http   | `web`            | 3000         | yes   | yes                   | yes        |
+
+   Pestaña **SSL** → Request a new SSL Certificate (Let's Encrypt) + Force SSL + HTTP/2. **No** hace falta un Proxy Host para el API: el navegador del inquilino llama al `api.tu-dominio.com` de siempre (el CORS ya permite el dominio custom una vez verificado).
+
+4. **El super admin** entra en **`/admin/custom-domains`** (menú → Tenants → Dominios propios), comprueba el dominio en la lista de pendientes y pulsa **Activar**. A partir de ahí, `resolve-domain` lo resuelve y la web del tenant se sirve bajo su dominio (propagación ≤ 60 s por la caché del middleware).
+
+Para desactivarlo: botón **Desactivar** en `/admin/custom-domains` (o el tenant lo borra en su branding). El dominio deja de servirse en ≤ 60 s.
+
+### 18.2 Requisitos e infra
+
+- **No hay wildcard posible** (son dominios de terceros): cada dominio necesita su propio Proxy Host + certificado Let's Encrypt. Let's Encrypt limita a ~50 certificados por semana y por dominio registrable — suficiente para el alta manual.
+- El certificado **solo emite si el DNS ya resuelve al VPS**; por eso el flujo es pending → (DNS + NPM) → activar. Si NPM falla al emitir el certificado, casi siempre es que el DNS aún no ha propagado (esperar y reintentar).
+- El dominio se guarda en minúsculas y es **único** a nivel de plataforma (409 `domain_taken` si otro tenant lo reclama).
+
+### 18.3 Troubleshooting
+
+- **La web del tenant carga la landing de la plataforma / 404**: el dominio no está verificado (`/admin/custom-domains` → Activar) o el Host no llega bien (revisar el Proxy Host y que `NEXT_PUBLIC_SITE_URL` sea el dominio de plataforma, no el custom).
+- **CORS bloquea las llamadas al API desde el dominio custom**: el dominio no está verificado (el CORS solo permite los `custom_domain_verified_at` no nulos) — activar y esperar ≤ 5 min (caché del CORS).
+- **Cambió el dominio y dejó de funcionar**: cambiar el dominio en el branding **resetea la verificación** → hay que reconfigurar el Proxy Host + reactivar.
+
+> **Pendiente (v2)**: automatizar la creación del Proxy Host + certificado vía la API de NPM al activar, y verificación DNS por registro TXT sin intervención del admin. El email saliente sigue usando el dominio de la plataforma (SPF/DKIM por tenant es un bloque aparte).
+
+---
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.

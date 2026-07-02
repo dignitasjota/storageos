@@ -431,10 +431,11 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 - **Apps separadas** portal e admin (hoy rutas en `apps/web`).
 - **Marketplace público de trasteros**.
 - Más endpoints públicos `/v1/integrations/*` según el primer integrador.
-- **White-label por tenant** _(propuesta 2026-06-22)_: logo, colores y dominio propio en el portal del inquilino y la landing pública. Abre un **tier de pricing superior** del SaaS.
-  - ~~Portal del inquilino~~ ✅ **Implementado** (#122): `tenants.portal_brand_color`/`portal_logo_url` + config en `/settings/branding`; el header del portal muestra logo + color del operador.
-  - ~~Landing pública `/s/[slug]`~~ ✅ **Implementado**: la landing y las páginas por local aplican el logo + color de marca del operador (reutiliza `portal_brand_color`/`portal_logo_url`) — header con logo, acento de marca en los CTA.
-  - **Pendiente**: dominio propio por tenant (requiere config de DNS/proxy inverso, infra) + upload del logo al bucket público (hoy es una URL que pega el operador).
+- ~~**White-label por tenant**~~ ✅ **Implementado** _(tier de pricing superior del SaaS)_: logo, colores y **dominio propio** por tenant.
+  - ~~Portal del inquilino~~ ✅ (#122): `tenants.portal_brand_color`/`portal_logo_url` + config en `/settings/branding`; el header del portal muestra logo + color del operador.
+  - ~~Landing pública `/s/[slug]`~~ ✅: la landing y las páginas por local aplican logo + color de marca (header con logo, acento en los CTA).
+  - ~~Dominio propio por tenant~~ ✅ (#227/#228, PR 1+2): feature `custom_domain` (plan `pro` o override); `tenants.custom_domain` (único) + `custom_domain_verified_at`. El tenant lo configura en `/settings/branding` (gated), el super admin lo activa en `/admin/custom-domains` tras crear el Proxy Host + SSL en NPM. Middleware de Next por `Host` (resuelve el slug con caché → reescribe `midominio.com/` a la landing) + canonical al dominio propio + CORS dinámico. Función pura `resolveCustomDomainRoute` con unit tests. Guía en `DEPLOYMENT.md §18`.
+  - **Pendiente (v2)**: automatizar NPM (Proxy Host + cert vía su API) + verificación DNS por TXT; upload del logo al bucket público (hoy es una URL que pega el operador); email saliente con dominio propio (SPF/DKIM por tenant).
 - ~~**Permisos por local (multi-local real)**~~ ✅ **Implementado** (2026-06-23, v1): tabla `user_facilities` (migración `20260623160000`); el scope se resuelve en el JWT (`facilityScope`) + `/auth/me`. Asignación en el diálogo de editar usuario (`PATCH /settings/users/:id/facilities`). Enforcement: lists filtradas por scope (facilities, units, contracts, reservations, ocupación, access-devices) + guards de escritura (crear unit/contract/device fuera de scope → 403). Sin filas = ve todo. Inquilinos/facturas a nivel tenant; guards `:id` de mutación en units/contracts/reservas/devices = follow-up. e2e `facility-scope` 1/1.
 
 ### Prioridad recomendada

@@ -103,6 +103,8 @@ según lo que use el cliente.
 - [ ] **Push (Web Push/PWA)**: `npx web-push generate-vapid-keys` → `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` + `VAPID_SUBJECT` (mismas en api **y** worker).
 - [ ] **Asistente IA**: `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` (+ `AI_MODEL`, default `claude-sonnet-4-6`). Sin esto corre el stub (dev) o devuelve `ai_not_configured`.
 - [ ] **Observabilidad Loki/Grafana** → `§13.1`: `COMPOSE_PROFILES=observability` + `GF_ADMIN_PASSWORD`/`GF_SMTP_*` + Proxy Host `grafana.<dominio>`.
+- [ ] **Inbound de mensajes** (respuestas del inquilino por WhatsApp/email al chat): `WHATSAPP_VERIFY_TOKEN` + `WHATSAPP_APP_SECRET` (webhook `/webhooks/whatsapp` en Meta) y/o `EMAIL_INBOUND_SECRET` (routing entrante del proveedor a `/webhooks/email-inbound`).
+- [ ] **Dominio propio del tenant (white-label)** → `§18`: solo para clientes del plan `pro` (o con la feature `custom_domain` por override). El cliente añade su dominio en `/settings/branding` + crea el DNS; tú creas el **Proxy Host + SSL en NPM** y lo **activas** en `/admin/custom-domains`. Sin variables globales. **Cobro del extra**: si no está incluido en su plan, ajusta el precio de su suscripción (Stripe dashboard) o regístralo como pago manual con nota.
 
 ---
 
