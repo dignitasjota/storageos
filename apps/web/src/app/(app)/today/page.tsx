@@ -16,16 +16,25 @@ import {
   UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import type { TodayItemDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useToday } from '@/lib/dashboard/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
 import { useUpdateFollowup } from '@/lib/followups/hooks';
 import { useTransitionTask } from '@/lib/operations/hooks';
 
@@ -159,7 +168,9 @@ function StatTile({
 }
 
 export default function TodayPage() {
-  const { data, isLoading } = useToday();
+  const [facilityId, setFacilityId] = useState<string>('all');
+  const facilities = useFacilities();
+  const { data, isLoading } = useToday(facilityId === 'all' ? undefined : facilityId);
   const canTasks = useHasPermission('tasks:write');
   const canFollowups = useHasPermission('customers:write');
   const transitionTask = useTransitionTask();
@@ -190,17 +201,41 @@ export default function TodayPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Hoy</h1>
-        <p className="text-sm capitalize text-muted-foreground">
-          {todayLabel}
-          {data && data.urgentCount > 0 && (
-            <span className="ml-1 font-medium text-amber-600">
-              · {data.urgentCount} {data.urgentCount === 1 ? 'cosa urgente' : 'cosas urgentes'}
-            </span>
-          )}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Hoy</h1>
+          <p className="text-sm capitalize text-muted-foreground">
+            {todayLabel}
+            {data && data.urgentCount > 0 && (
+              <span className="ml-1 font-medium text-amber-600">
+                · {data.urgentCount} {data.urgentCount === 1 ? 'cosa urgente' : 'cosas urgentes'}
+              </span>
+            )}
+          </p>
+        </div>
+        {(facilities.data?.length ?? 0) > 1 && (
+          <Select value={facilityId} onValueChange={setFacilityId}>
+            <SelectTrigger className="w-full sm:w-56">
+              <SelectValue placeholder="Todos los locales" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los locales</SelectItem>
+              {facilities.data?.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
+
+      {facilityId !== 'all' && (
+        <p className="text-xs text-muted-foreground">
+          Filtrado por local. Los leads, seguimientos y mensajes se muestran de toda la empresa (no
+          están asociados a un local).
+        </p>
+      )}
 
       {isLoading || !data ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

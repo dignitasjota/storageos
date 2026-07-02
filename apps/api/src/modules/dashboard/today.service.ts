@@ -27,7 +27,7 @@ function customerName(c: {
 export class TodayService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getToday(tenantId: string): Promise<TodayDto> {
+  async getToday(tenantId: string, facilityId?: string): Promise<TodayDto> {
     const now = new Date();
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
@@ -39,6 +39,16 @@ export class TodayService {
     const customerSelect = {
       select: { customerType: true, firstName: true, lastName: true, companyName: true },
     } as const;
+
+    // Filtro por local: las secciones ancladas a un local (entradas/salidas,
+    // firmas, contratos, reservas, facturas, tareas, incidencias) se acotan al
+    // `facilityId` elegido; las de empresa (leads, seguimientos, mensajes,
+    // cambios) se dejan a nivel tenant. `contract → unit.facilityId`,
+    // `reservation → unit.facilityId`, `invoice → contract.unit.facilityId`,
+    // y task/incident tienen `facilityId` propio.
+    const facContract = facilityId ? { unit: { is: { facilityId } } } : {};
+    const facTaskIncident = facilityId ? { facilityId } : {};
+    const facInvoice = facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {};
 
     return this.prisma.withTenant(async (tx) => {
       const [
@@ -70,6 +80,7 @@ export class TodayService {
           where: {
             status: { in: ['open', 'in_progress'] },
             dueDate: { not: null, lte: endOfToday },
+            ...facTaskIncident,
           },
           orderBy: [{ dueDate: 'asc' }],
           take: TAKE,
@@ -79,24 +90,29 @@ export class TodayService {
           where: {
             status: { in: ['open', 'in_progress'] },
             dueDate: { not: null, lte: endOfToday },
+            ...facTaskIncident,
           },
         }),
         // Entradas de hoy: contratos que empiezan hoy.
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, startDate: today },
+          where: { status: { in: ['active', 'ending'] }, startDate: today, ...facContract },
           orderBy: [{ startDate: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
-        tx.contract.count({ where: { status: { in: ['active', 'ending'] }, startDate: today } }),
+        tx.contract.count({
+          where: { status: { in: ['active', 'ending'] }, startDate: today, ...facContract },
+        }),
         // Salidas de hoy: contratos que terminan hoy.
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, endDate: today },
+          where: { status: { in: ['active', 'ending'] }, endDate: today, ...facContract },
           orderBy: [{ endDate: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
-        tx.contract.count({ where: { status: { in: ['active', 'ending'] }, endDate: today } }),
+        tx.contract.count({
+          where: { status: { in: ['active', 'ending'] }, endDate: today, ...facContract },
+        }),
         // Seguimientos CRM vencidos o para hoy.
         tx.customerFollowup.findMany({
           where: { status: 'pending', dueDate: { lte: endOfToday } },
@@ -126,6 +142,7 @@ export class TodayService {
             signedAt: null,
             signingTokenHash: { not: null },
             signingTokenExpiresAt: { gte: now },
+            ...facContract,
           },
           orderBy: [{ signingTokenExpiresAt: 'asc' }],
           take: TAKE,
@@ -136,12 +153,14 @@ export class TodayService {
             signedAt: null,
             signingTokenHash: { not: null },
             signingTokenExpiresAt: { gte: now },
+            ...facContract,
           },
         }),
         tx.contract.findMany({
           where: {
             status: { in: ['active', 'ending'] },
             endDate: { not: null, gte: now, lte: contractsLimit },
+            ...facContract,
           },
           orderBy: [{ endDate: 'asc' }],
           take: TAKE,
@@ -151,30 +170,43 @@ export class TodayService {
           where: {
             status: { in: ['active', 'ending'] },
             endDate: { not: null, gte: now, lte: contractsLimit },
+            ...facContract,
           },
         }),
         tx.reservation.findMany({
-          where: { status: 'pending', validUntil: { gte: now, lte: reservationsLimit } },
+          where: {
+            status: 'pending',
+            validUntil: { gte: now, lte: reservationsLimit },
+            ...facContract,
+          },
           orderBy: [{ validUntil: 'asc' }],
           take: TAKE,
           include: { customer: customerSelect, unit: { select: { code: true } } },
         }),
         tx.reservation.count({
-          where: { status: 'pending', validUntil: { gte: now, lte: reservationsLimit } },
+          where: {
+            status: 'pending',
+            validUntil: { gte: now, lte: reservationsLimit },
+            ...facContract,
+          },
         }),
         // Facturas que vencen hoy.
         tx.invoice.aggregate({
-          where: { status: 'issued', dueDate: today },
+          where: { status: 'issued', dueDate: today, ...facInvoice },
           _sum: { total: true, amountPaid: true },
         }),
-        tx.invoice.count({ where: { status: 'issued', dueDate: today } }),
+        tx.invoice.count({ where: { status: 'issued', dueDate: today, ...facInvoice } }),
         tx.invoice.aggregate({
-          where: { status: 'overdue' },
+          where: { status: 'overdue', ...facInvoice },
           _sum: { total: true, amountPaid: true },
         }),
-        tx.invoice.count({ where: { status: 'overdue' } }),
+        tx.invoice.count({ where: { status: 'overdue', ...facInvoice } }),
         tx.incident.count({
-          where: { status: { in: ['reported', 'investigating'] }, deletedAt: null },
+          where: {
+            status: { in: ['reported', 'investigating'] },
+            deletedAt: null,
+            ...facTaskIncident,
+          },
         }),
         tx.unitChangeRequest.count({ where: { status: 'pending' } }),
         tx.customerMessage.count({ where: { senderType: 'customer', readAt: null } }),
