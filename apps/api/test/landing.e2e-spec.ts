@@ -44,6 +44,37 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('white-label: la landing devuelve el color y logo de marca del operador', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-brand');
+    await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Marca',
+      unitsCount: 1,
+      pricePerUnit: 40,
+    });
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // Sin branding configurado → null.
+    const before = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(before.body.brandColor).toBeNull();
+    expect(before.body.logoUrl).toBeNull();
+
+    // Configura marca (reutiliza el white-label del portal).
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/branding')
+      .set(auth)
+      .send({ portalBrandColor: '#ff6600', portalLogoUrl: 'https://cdn.example.com/logo.png' })
+      .expect(200);
+
+    const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(after.body.brandColor).toBe('#ff6600');
+    expect(after.body.logoUrl).toBe('https://cdn.example.com/logo.png');
+
+    // También en la página por local.
+    const fac = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/local-marca`);
+    expect(fac.body.brandColor).toBe('#ff6600');
+    expect(fac.body.logoUrl).toBe('https://cdn.example.com/logo.png');
+  });
+
   it('página por local: GET /public/landing/:slug/:facilitySlug devuelve el local', async () => {
     const owner = await registerVerifiedUser(app, 'landing-fac');
     await createFacilityWithUnits(app, owner.accessToken, {
