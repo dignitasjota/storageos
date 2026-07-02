@@ -19,6 +19,7 @@ import type {
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
+  AdminCustomDomainDto,
   AdminOnboardingDto,
   AdminTenantFeaturesDto,
   AdminImpersonationSessionDto,
@@ -725,6 +726,27 @@ export function useAdminAtRisk() {
     queryKey: ['admin', 'at-risk'],
     queryFn: () => adminApiFetch<AdminAtRiskDto>('/admin/tenants/at-risk'),
     refetchInterval: 60_000,
+  });
+}
+
+export function useAdminCustomDomains() {
+  return useQuery({
+    queryKey: ['admin', 'custom-domains'],
+    queryFn: () => adminApiFetch<AdminCustomDomainDto[]>('/admin/tenants/custom-domains'),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useCustomDomainAction(action: 'verify' | 'revoke') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tenantId: string) =>
+      adminApiFetch<AdminCustomDomainDto>(`/admin/tenants/${tenantId}/custom-domain/${action}`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'custom-domains'] });
+    },
   });
 }
 

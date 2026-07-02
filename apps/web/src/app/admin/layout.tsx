@@ -10,6 +10,7 @@ import {
   Eye,
   FileText,
   CalendarClock,
+  Globe,
   Gauge,
   HeartPulse,
   Layers,
@@ -92,6 +93,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
     children: [
       { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
       { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
+      { href: '/admin/custom-domains', label: 'Dominios propios', icon: Globe },
     ],
   },
   {
