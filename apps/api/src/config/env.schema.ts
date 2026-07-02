@@ -148,6 +148,11 @@ export const envSchema = z.object({
   WHATSAPP_PROVIDER: z.enum(['stub', 'meta_waba']).default('stub'),
   WHATSAPP_FROM_PHONE_ID: z.string().default(''),
   WHATSAPP_ACCESS_TOKEN: z.string().default(''),
+  // Inbound: token de verificación del webhook de Meta + app secret (firma).
+  WHATSAPP_VERIFY_TOKEN: z.string().default(''),
+  WHATSAPP_APP_SECRET: z.string().default(''),
+  // Inbound de email: secret compartido con el proveedor de routing entrante.
+  EMAIL_INBOUND_SECRET: z.string().default(''),
 
   // --- Lock provider (Fase 7) ---
   /** Selecciona la implementacion del control de accesos. `stub` registra

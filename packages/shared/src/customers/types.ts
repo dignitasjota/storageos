@@ -167,6 +167,8 @@ export interface CustomerUnreadSummaryDto {
 export interface CustomerMessageDto {
   id: string;
   senderType: 'customer' | 'staff';
+  /** Canal de origen del mensaje del inquilino: portal, whatsapp o email. */
+  channel: 'portal' | 'whatsapp' | 'email';
   /** Nombre del staff que escribió (null si lo escribió el inquilino). */
   senderName: string | null;
   body: string;
