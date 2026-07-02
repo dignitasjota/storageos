@@ -88,6 +88,14 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
       />
 
       <header className="mb-10 text-center">
+        {data.logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={data.logoUrl}
+            alt={data.tenantName}
+            className="mx-auto mb-6 h-14 w-auto object-contain"
+          />
+        )}
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
           Trasteros{where ? ` en ${where}` : ''}
         </h1>
@@ -96,7 +104,8 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
         </p>
         <Link
           href={`/book/${data.tenantSlug}`}
-          className="mt-6 inline-flex h-11 items-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
+          style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
         >
           Reservar ahora
         </Link>

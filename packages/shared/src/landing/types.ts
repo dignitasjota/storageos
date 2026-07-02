@@ -28,6 +28,9 @@ export interface PublicLandingFacilityDto {
 export interface PublicLandingDto {
   tenantName: string;
   tenantSlug: string;
+  /** Marca del operador (white-label): color hex y logo, o null. */
+  brandColor: string | null;
+  logoUrl: string | null;
   facilities: PublicLandingFacilityDto[];
 }
 
@@ -35,6 +38,8 @@ export interface PublicLandingDto {
 export interface PublicFacilityLandingDto {
   tenantName: string;
   tenantSlug: string;
+  brandColor: string | null;
+  logoUrl: string | null;
   facility: PublicLandingFacilityDto;
 }
 

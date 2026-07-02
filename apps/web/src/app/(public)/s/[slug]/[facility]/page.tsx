@@ -89,6 +89,11 @@ export default async function FacilityLandingPage({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
+      {data.logoUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={data.logoUrl} alt={data.tenantName} className="mb-6 h-12 w-auto object-contain" />
+      )}
+
       <nav className="mb-4 text-sm text-muted-foreground">
         <Link href={`/s/${data.tenantSlug}`} className="hover:text-foreground">
           {data.tenantName}
@@ -143,7 +148,8 @@ export default async function FacilityLandingPage({
 
       <Link
         href={`/book/${data.tenantSlug}`}
-        className="mt-6 inline-flex h-11 items-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
+        style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
       >
         Reservar ahora
       </Link>

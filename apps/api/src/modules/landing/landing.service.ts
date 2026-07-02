@@ -65,6 +65,8 @@ export class LandingService {
     return {
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -100,7 +102,13 @@ export class LandingService {
     if (!facility) {
       throw new NotFoundException({ code: 'facility_not_found', message: 'No encontrado' });
     }
-    return { tenantName: full.tenantName, tenantSlug: full.tenantSlug, facility };
+    return {
+      tenantName: full.tenantName,
+      tenantSlug: full.tenantSlug,
+      brandColor: full.brandColor,
+      logoUrl: full.logoUrl,
+      facility,
+    };
   }
 
   /**
