@@ -449,8 +449,8 @@ model User {
   /// `role` enum se mantiene como base para los endpoints @Roles. Ver ADR-RBAC.
   tenantRoleId           String?   @map("tenant_role_id") @db.Uuid
   emailVerifiedAt        DateTime? @map("email_verified_at") @db.Timestamptz(6)
-  twoFactorSecret        String?   @map("two_factor_secret")
-  twoFactorPendingSecret String?   @map("two_factor_pending_secret")
+  twoFactorSecretEncrypted        String?   @map("two_factor_secret")
+  twoFactorPendingSecretEncrypted String?   @map("two_factor_pending_secret")
   twoFactorEnabled       Boolean   @default(false) @map("two_factor_enabled")
   twoFactorEnrolledAt    DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt            DateTime? @map("last_login_at") @db.Timestamptz(6)
@@ -2797,8 +2797,8 @@ model SuperAdmin {
   fullName               String         @map("full_name")
   role                   SuperAdminRole @default(support)
   isActive               Boolean        @default(true) @map("is_active")
-  twoFactorSecret        String?        @map("two_factor_secret")
-  twoFactorPendingSecret String?        @map("two_factor_pending_secret")
+  twoFactorSecretEncrypted        String?        @map("two_factor_secret")
+  twoFactorPendingSecretEncrypted String?        @map("two_factor_pending_secret")
   twoFactorEnabled       Boolean        @default(false) @map("two_factor_enabled")
   twoFactorEnrolledAt    DateTime?      @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt            DateTime?      @map("last_login_at") @db.Timestamptz(6)

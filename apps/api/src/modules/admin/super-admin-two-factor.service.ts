@@ -124,7 +124,7 @@ export class SuperAdminTwoFactorService {
     const encrypted = this.crypto.encryptString(secret);
     await this.admin.superAdmin.update({
       where: { id: adminId },
-      data: { twoFactorPendingSecret: encrypted },
+      data: { twoFactorPendingSecretEncrypted: encrypted },
     });
     const otpauthUri = this.totp.buildOtpAuthUri(secret, record.email);
     const qrCode = await QRCode.toDataURL(otpauthUri);
@@ -149,13 +149,13 @@ export class SuperAdminTwoFactorService {
         message: '2FA ya esta activado',
       });
     }
-    if (!record.twoFactorPendingSecret) {
+    if (!record.twoFactorPendingSecretEncrypted) {
       throw new BadRequestException({
         code: 'setup_required',
         message: 'No hay un setup 2FA en curso',
       });
     }
-    const secret = this.crypto.decryptString(record.twoFactorPendingSecret);
+    const secret = this.crypto.decryptString(record.twoFactorPendingSecretEncrypted);
     if (!this.totp.verify(secret, code)) {
       throw new ForbiddenException({
         code: 'invalid_code',
@@ -167,8 +167,8 @@ export class SuperAdminTwoFactorService {
     await this.admin.superAdmin.update({
       where: { id: adminId },
       data: {
-        twoFactorSecret: record.twoFactorPendingSecret,
-        twoFactorPendingSecret: null,
+        twoFactorSecretEncrypted: record.twoFactorPendingSecretEncrypted,
+        twoFactorPendingSecretEncrypted: null,
         twoFactorEnabled: true,
         twoFactorEnrolledAt: new Date(),
       },
@@ -193,7 +193,7 @@ export class SuperAdminTwoFactorService {
     meta: { ipAddress?: string | undefined; userAgent?: string | undefined },
   ): Promise<void> {
     const record = await this.admin.superAdmin.findUniqueOrThrow({ where: { id: adminId } });
-    if (!record.twoFactorEnabled || !record.twoFactorSecret) {
+    if (!record.twoFactorEnabled || !record.twoFactorSecretEncrypted) {
       throw new BadRequestException({
         code: 'not_enabled',
         message: '2FA no esta activado',
@@ -210,8 +210,8 @@ export class SuperAdminTwoFactorService {
       this.admin.superAdmin.update({
         where: { id: adminId },
         data: {
-          twoFactorSecret: null,
-          twoFactorPendingSecret: null,
+          twoFactorSecretEncrypted: null,
+          twoFactorPendingSecretEncrypted: null,
           twoFactorEnabled: false,
           twoFactorEnrolledAt: null,
         },
@@ -310,7 +310,7 @@ export class SuperAdminTwoFactorService {
         message: 'Cuenta desactivada',
       });
     }
-    if (!record.twoFactorEnabled || !record.twoFactorSecret) {
+    if (!record.twoFactorEnabled || !record.twoFactorSecretEncrypted) {
       // El admin desactivo 2FA entre login y challenge: rechazamos limpio.
       throw new ForbiddenException({
         code: 'not_enabled',
@@ -324,7 +324,7 @@ export class SuperAdminTwoFactorService {
       ok = await this.consumeRecoveryCode(record.id, code);
     } else {
       try {
-        const secret = this.crypto.decryptString(record.twoFactorSecret);
+        const secret = this.crypto.decryptString(record.twoFactorSecretEncrypted);
         ok = this.totp.verify(secret, code);
       } catch (err) {
         this.logger.error('Error descifrando secret 2FA del super admin', err as Error);

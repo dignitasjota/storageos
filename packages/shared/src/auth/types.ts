@@ -4,7 +4,7 @@ import type { TenantFeature } from '../features';
 
 /**
  * Representacion publica de un usuario para el frontend. Nunca incluye
- * `passwordHash`, `twoFactorSecret` ni datos sensibles.
+ * `passwordHash`, `twoFactorSecretEncrypted` ni datos sensibles.
  */
 export interface UserDto {
   id: string;
