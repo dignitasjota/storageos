@@ -135,6 +135,9 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_ADMIN_URL }}
         run: pnpm -F @storageos/database test
 
+      - name: Run Vitest (shared — lógica pura, sin BD)
+        run: pnpm -F @storageos/shared test
+
   test-api-e2e:
     name: Tests API e2e (Jest + Supertest)
     runs-on: ubuntu-latest

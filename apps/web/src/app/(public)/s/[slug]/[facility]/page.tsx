@@ -45,10 +45,15 @@ export async function generateMetadata({
   const description = `Alquila un trastero en ${f.name}${
     f.city ? ` (${f.city})` : ''
   }. Consulta tamaños, precios y disponibilidad y reserva online.`;
+  // Con dominio propio activo, el canonical apunta a él (el local vive en
+  // `midominio.com/<facilitySlug>`).
+  const canonical = data.customDomain
+    ? `https://${data.customDomain}/${facility}`
+    : `/s/${slug}/${facility}`;
   return {
     title,
     description,
-    alternates: { canonical: `/s/${slug}/${facility}` },
+    alternates: { canonical },
     robots: { index: true, follow: true },
     openGraph: { title, description, type: 'website' },
   };
