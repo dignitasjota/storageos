@@ -240,6 +240,9 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del
+    # host mata contenedores al azar cuando la RAM se agota.
+    mem_limit: 1g
     environment:
       <<: *app-env
       # API HTTP-only: los Processors/Crons los ejecuta el `worker`.
@@ -266,6 +269,9 @@ services:
       context: .
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
+    # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del
+    # host mata contenedores al azar cuando la RAM se agota.
+    mem_limit: 1g
     healthcheck:
       # El worker no expone HTTP: el check verifica el latido en Redis (lo
       # escribe WorkersHeartbeatCron cada minuto, TTL 3 min).
@@ -296,6 +302,9 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
     restart: unless-stopped
+    # Tope de memoria (auditoría 2026-07): sin límites, el OOM killer del
+    # host mata contenedores al azar cuando la RAM se agota.
+    mem_limit: 512m
     environment:
       NODE_ENV: production
       PORT: '3000'

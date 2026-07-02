@@ -61,3 +61,34 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [20] }
+
+      # Redis cerca de maxmemory: con noeviction (obligatorio para BullMQ),
+      # al llenarse RECHAZA escrituras y las colas fallan en silencio. El log
+      # `redis_memory_high` lo emite RedisMemoryCron (api/worker) al superar
+      # el 80% de uso.
+      - uid: redis-memory-high
+        title: Redis cerca de maxmemory
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: Redis por encima del 80% de maxmemory — riesgo de fallo de colas BullMQ (noeviction)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service=~"api|worker"} |= `redis_memory_high` [15m]))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
