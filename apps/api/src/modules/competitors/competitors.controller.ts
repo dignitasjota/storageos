@@ -17,6 +17,7 @@ import {
   UpdateCompetitorUnitSchema,
   type CompetitorFacilityDto,
   type CompetitorUnitDto,
+  type MarketOccupancyDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -45,6 +46,13 @@ export class CompetitorsController {
   @Get()
   listFacilities(@CurrentUser() user: AuthenticatedUser): Promise<CompetitorFacilityDto[]> {
     return this.service.listFacilities(user.tenantId);
+  }
+
+  /** Ocupación de mercado (mi ocupación vs la de la competencia). Antes de `:id`. */
+  @RequirePermission('analytics:read')
+  @Get('occupancy')
+  marketOccupancy(@CurrentUser() user: AuthenticatedUser): Promise<MarketOccupancyDto> {
+    return this.service.getMarketOccupancy(user.tenantId);
   }
 
   @RequirePermission('units:manage')

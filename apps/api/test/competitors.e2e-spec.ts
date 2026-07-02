@@ -83,4 +83,61 @@ describe('Competencia + precio por competencia (e2e)', () => {
     const item2 = afterOccupied.body.items.find((i: { unitId: string }) => i.unitId === unitId);
     expect(item2.changePct).toBe(-8); // sin referencias disponibles → vuelve al base
   });
+
+  it('ocupación de mercado: la mía (0%) vs la de la competencia (inferida)', async () => {
+    const owner = await registerVerifiedUser(app, 'market-occ');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // Mi local con 1 trastero disponible → mi ocupación 0%.
+    const facility = await request(app.getHttpServer())
+      .post('/facilities')
+      .set(auth)
+      .send({ name: 'Local', addressLine1: 'C/ X', city: 'Madrid', postalCode: '28001' });
+    const ut = await request(app.getHttpServer())
+      .post('/unit-types')
+      .set(auth)
+      .send({ name: 'Std', defaultPriceMonthly: 100 });
+    await request(app.getHttpServer()).post('/units').set(auth).send({
+      facilityId: facility.body.id,
+      unitTypeId: ut.body.id,
+      code: 'A-1',
+      widthM: 2,
+      depthM: 2,
+      heightM: 2.5,
+      basePriceMonthly: 100,
+    });
+
+    // Sin competencia fichada → competitionOccupancyPct null, totales 0.
+    const empty = await request(app.getHttpServer()).get('/competitors/occupancy').set(auth);
+    expect(empty.status).toBe(200);
+    expect(empty.body.myTotalUnits).toBe(1);
+    expect(empty.body.myOccupancyPct).toBe(0);
+    expect(empty.body.competitionOccupancyPct).toBeNull();
+    expect(empty.body.competitionTotalUnits).toBe(0);
+
+    // Competidor con 4 trasteros: 3 ocupados, 1 disponible → 75%.
+    const comp = await request(app.getHttpServer())
+      .post('/competitors')
+      .set(auth)
+      .send({ name: 'Rival', zone: 'Z' });
+    for (const st of ['occupied', 'occupied', 'occupied', 'available']) {
+      await request(app.getHttpServer())
+        .post(`/competitors/${comp.body.id}/units`)
+        .set(auth)
+        .send({ areaM2: 5, priceMonthly: 90, status: st })
+        .expect(201);
+    }
+
+    const occ = await request(app.getHttpServer()).get('/competitors/occupancy').set(auth);
+    expect(occ.body.competitionTotalUnits).toBe(4);
+    expect(occ.body.competitionOccupiedUnits).toBe(3);
+    expect(occ.body.competitionOccupancyPct).toBe(0.75);
+    expect(occ.body.competitors).toHaveLength(1);
+    expect(occ.body.competitors[0]).toMatchObject({
+      name: 'Rival',
+      unitCount: 4,
+      occupiedCount: 3,
+      occupancyPct: 0.75,
+    });
+  });
 });

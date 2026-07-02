@@ -8,6 +8,7 @@ import type {
   CompetitorUnitStatus,
   CreateCompetitorFacilityInput,
   CreateCompetitorUnitInput,
+  MarketOccupancyDto,
   UpdateCompetitorFacilityInput,
   UpdateCompetitorUnitInput,
 } from '@storageos/shared';
@@ -46,6 +47,51 @@ export class CompetitorsService {
       availableCount: r.units.filter((u) => u.status === 'available').length,
       createdAt: r.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * Ocupación de mercado: compara mi ocupación física con la de la competencia
+   * (inferida de los trasteros fichados con su estado available/occupied). La
+   * ocupación de la competencia se pondera por nº de trasteros, no por local
+   * (un competidor con 100 trasteros pesa más que uno con 5).
+   */
+  async getMarketOccupancy(tenantId: string): Promise<MarketOccupancyDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const [myTotalUnits, myOccupiedUnits, competitors] = await Promise.all([
+        tx.unit.count(),
+        tx.unit.count({ where: { status: 'occupied' } }),
+        tx.competitorFacility.findMany({
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, name: true, units: { select: { status: true } } },
+        }),
+      ]);
+
+      const rows = competitors.map((c) => {
+        const unitCount = c.units.length;
+        const occupiedCount = c.units.filter((u) => u.status === 'occupied').length;
+        return {
+          id: c.id,
+          name: c.name,
+          unitCount,
+          occupiedCount,
+          occupancyPct: unitCount === 0 ? null : occupiedCount / unitCount,
+        };
+      });
+
+      const competitionTotalUnits = rows.reduce((s, r) => s + r.unitCount, 0);
+      const competitionOccupiedUnits = rows.reduce((s, r) => s + r.occupiedCount, 0);
+
+      return {
+        myOccupancyPct: myTotalUnits === 0 ? 0 : myOccupiedUnits / myTotalUnits,
+        myOccupiedUnits,
+        myTotalUnits,
+        competitionOccupancyPct:
+          competitionTotalUnits === 0 ? null : competitionOccupiedUnits / competitionTotalUnits,
+        competitionOccupiedUnits,
+        competitionTotalUnits,
+        competitors: rows,
+      };
+    }, tenantId);
   }
 
   async createFacility(

@@ -37,6 +37,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useCompetitorFacilities,
+  useMarketOccupancy,
   useCompetitorUnits,
   useCreateCompetitorFacility,
   useCreateCompetitorUnit,
@@ -99,6 +100,8 @@ export default function CompetitorsPage() {
         </div>
         {canManage && <Button onClick={() => setNewOpen(true)}>Añadir competidor</Button>}
       </div>
+
+      <MarketOccupancyCard />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(facilities ?? []).map((f) => (
@@ -208,9 +211,17 @@ function CompetitorCard({
             </Button>
           )}
         </div>
-        <div className="mt-2 flex gap-2 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
           <Badge variant="outline">{facility.unitCount} trasteros</Badge>
           <Badge variant="outline">{facility.availableCount} disponibles</Badge>
+          {facility.unitCount > 0 && (
+            <Badge variant="outline">
+              {Math.round(
+                ((facility.unitCount - facility.availableCount) / facility.unitCount) * 100,
+              )}
+              % ocupación
+            </Badge>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -404,6 +415,61 @@ function CompetitorUnits({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </Card>
+  );
+}
+
+/** Comparativa de ocupación: la mía vs la de la competencia fichada. */
+function MarketOccupancyCard() {
+  const { data } = useMarketOccupancy();
+  if (!data || data.competitionTotalUnits === 0) return null;
+
+  const mine = Math.round(data.myOccupancyPct * 100);
+  const comp = Math.round((data.competitionOccupancyPct ?? 0) * 100);
+  const delta = mine - comp;
+
+  const Bar = ({ pct, tint }: { pct: number; tint: string }) => (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div className={`h-full rounded-full ${tint}`} style={{ width: `${Math.min(100, pct)}%` }} />
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Ocupación de mercado</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm font-medium">Tú</span>
+              <span className="text-sm text-muted-foreground">
+                {mine}% · {data.myOccupiedUnits}/{data.myTotalUnits}
+              </span>
+            </div>
+            <Bar pct={mine} tint="bg-blue-500" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm font-medium">Competencia</span>
+              <span className="text-sm text-muted-foreground">
+                {comp}% · {data.competitionOccupiedUnits}/{data.competitionTotalUnits}
+              </span>
+            </div>
+            <Bar pct={comp} tint="bg-slate-400" />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {delta > 3
+            ? `Tu ocupación va ${delta} puntos por encima del mercado local: hay margen para subir precio en las dimensiones más demandadas.`
+            : delta < -3
+              ? `Tu ocupación va ${Math.abs(delta)} puntos por debajo del mercado local: revisa precio y captación.`
+              : 'Tu ocupación está en línea con el mercado local.'}{' '}
+          Ocupación de la competencia inferida de los trasteros fichados con su estado
+          (disponible/ocupado).
+        </p>
+      </CardContent>
     </Card>
   );
 }
