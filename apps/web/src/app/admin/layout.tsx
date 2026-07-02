@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   BellRing,
+  ChevronDown,
   Building2,
   Eye,
   FileText,
@@ -59,29 +60,79 @@ interface AdminNavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const ADMIN_NAV: AdminNavItem[] = [
-  { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
-  { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
-  { href: '/admin/plans', label: 'Planes', icon: Package },
-  { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
-  { href: '/admin/health', label: 'Salud', icon: HeartPulse },
-  { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
-  { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
-  { href: '/admin/platform-alerts', label: 'Alertas', icon: BellRing },
-  { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
-  { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
-  { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
-  { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
-  { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
+interface AdminNavGroup {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children: AdminNavItem[];
+}
+
+type AdminNavEntry = AdminNavItem | AdminNavGroup;
+
+function isGroup(e: AdminNavEntry): e is AdminNavGroup {
+  return 'children' in e;
+}
+
+// Menú agrupado: los items afines cuelgan de un grupo desplegable; «Soporte»
+// queda suelto (lleva badge). La página de 2FA del super admin (/admin/security)
+// vive en el menú de usuario, no aquí.
+const ADMIN_NAV: AdminNavEntry[] = [
+  {
+    label: 'Negocio',
+    icon: BarChart3,
+    children: [
+      { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
+      { href: '/admin/health', label: 'Salud', icon: HeartPulse },
+      { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
+      { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
+    ],
+  },
+  {
+    label: 'Tenants',
+    icon: Building2,
+    children: [
+      { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
+      { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
+    ],
+  },
+  {
+    label: 'Facturación',
+    icon: Package,
+    children: [
+      { href: '/admin/plans', label: 'Planes', icon: Package },
+      { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
+      { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
+    ],
+  },
+  {
+    label: 'Comunicación',
+    icon: Megaphone,
+    children: [
+      { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
+      { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
+      { href: '/admin/platform-alerts', label: 'Alertas', icon: BellRing },
+      { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
+    ],
+  },
   { href: '/admin/support', label: 'Soporte', icon: LifeBuoy },
-  { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
-  { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
-  { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
-  { href: '/admin/impersonation', label: 'Impersonaciones', icon: Eye },
-  { href: '/admin/super-admins', label: 'Super admins', icon: UserCog },
-  { href: '/admin/queues', label: 'Sistema', icon: Layers },
-  { href: '/admin/webhooks-cleanup', label: 'Cleanup webhooks', icon: Trash2 },
-  { href: '/admin/security', label: 'Seguridad', icon: ShieldCheck },
+  {
+    label: 'Seguridad',
+    icon: ShieldCheck,
+    children: [
+      { href: '/admin/security-dashboard', label: 'Dashboard seguridad', icon: Gauge },
+      { href: '/admin/security-events', label: 'Eventos de seguridad', icon: Activity },
+      { href: '/admin/audit-logs', label: 'Audit logs', icon: ScrollText },
+      { href: '/admin/impersonation', label: 'Impersonaciones', icon: Eye },
+      { href: '/admin/super-admins', label: 'Super admins', icon: UserCog },
+    ],
+  },
+  {
+    label: 'Sistema',
+    icon: Layers,
+    children: [
+      { href: '/admin/queues', label: 'Sistema y colas', icon: Layers },
+      { href: '/admin/webhooks-cleanup', label: 'Cleanup webhooks', icon: Trash2 },
+    ],
+  },
 ];
 
 /**
@@ -191,6 +242,45 @@ function AdminGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Un enlace de hoja del nav (con badge opcional de tickets en «Soporte»). */
+function AdminNavLink({
+  item,
+  pathname,
+  openTickets,
+  onNavigate,
+  nested,
+}: {
+  item: AdminNavItem;
+  pathname: string;
+  openTickets: number;
+  onNavigate?: () => void;
+  nested?: boolean;
+}) {
+  const Icon = item.icon;
+  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        'flex items-center gap-2 rounded-md py-2 text-sm transition-colors',
+        nested ? 'pl-9 pr-3' : 'px-3',
+        active
+          ? 'bg-accent text-accent-foreground'
+          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+      )}
+    >
+      <Icon className="size-4" />
+      {item.label}
+      {item.href === '/admin/support' && openTickets > 0 && (
+        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
+          {openTickets}
+        </span>
+      )}
+    </Link>
+  );
+}
+
 /** Lista de enlaces del nav admin (reutilizada en el aside desktop y el drawer móvil). */
 function AdminNavLinks({
   pathname,
@@ -201,31 +291,61 @@ function AdminNavLinks({
   openTickets: number;
   onNavigate?: () => void;
 }) {
+  // Grupos abiertos manualmente por el usuario. Un grupo también se muestra
+  // abierto si contiene la ruta activa (para que al navegar quede desplegado).
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+
   return (
     <nav className="flex-1 space-y-1 px-2 py-3">
-      {ADMIN_NAV.map((item) => {
-        const Icon = item.icon;
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+      {ADMIN_NAV.map((entry) => {
+        if (!isGroup(entry)) {
+          return (
+            <AdminNavLink
+              key={entry.href}
+              item={entry}
+              pathname={pathname}
+              openTickets={openTickets}
+              onNavigate={onNavigate}
+            />
+          );
+        }
+        const hasActiveChild = entry.children.some((c) => isActive(c.href));
+        const open = openGroups[entry.label] ?? hasActiveChild;
+        const Icon = entry.icon;
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-              active
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+          <div key={entry.label}>
+            <button
+              type="button"
+              onClick={() => setOpenGroups((s) => ({ ...s, [entry.label]: !open }))}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                hasActiveChild
+                  ? 'font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+              )}
+            >
+              <Icon className="size-4" />
+              {entry.label}
+              <ChevronDown
+                className={cn('ml-auto size-4 transition-transform', open ? '' : '-rotate-90')}
+              />
+            </button>
+            {open && (
+              <div className="mt-1 space-y-1">
+                {entry.children.map((child) => (
+                  <AdminNavLink
+                    key={child.href}
+                    item={child}
+                    pathname={pathname}
+                    openTickets={openTickets}
+                    onNavigate={onNavigate}
+                    nested
+                  />
+                ))}
+              </div>
             )}
-          >
-            <Icon className="size-4" />
-            {item.label}
-            {item.href === '/admin/support' && openTickets > 0 && (
-              <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
-                {openTickets}
-              </span>
-            )}
-          </Link>
+          </div>
         );
       })}
     </nav>
