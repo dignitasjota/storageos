@@ -53,7 +53,7 @@ export class AccessIntegrationsService {
         label: args.label,
         allowedFacilityIds: [],
         allowedUnitIds: [],
-        allowedHours: {},
+        allowedHours: { windows: [] },
         bypassCurfew: false,
         metadata: { source: args.source, entityId: args.entityId },
       } as Parameters<AccessCredentialsService['create']>[0]['input'],

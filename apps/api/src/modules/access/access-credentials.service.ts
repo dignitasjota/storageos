@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
+import { accessWindowsFrom } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { AuditService } from '../auth/audit.service';
@@ -610,7 +611,7 @@ export class AccessCredentialsService {
         label: label.trim() || 'Acceso adicional',
         allowedFacilityIds: [],
         allowedUnitIds: [],
-        allowedHours: {},
+        allowedHours: { windows: [] },
         bypassCurfew: false,
         metadata: { source: 'portal_self_service' },
       } as CreateCredentialInput,
@@ -645,7 +646,7 @@ export class AccessCredentialsService {
         label: 'Pase nocturno',
         allowedFacilityIds: [],
         allowedUnitIds: [],
-        allowedHours: {},
+        allowedHours: { windows: [] },
         bypassCurfew: true,
         maxUses: 1,
         expiresAt: nextMorningIso(),
@@ -710,7 +711,7 @@ export class AccessCredentialsService {
       rfidUid: c.rfidUid,
       allowedFacilityIds: c.allowedFacilityIds,
       allowedUnitIds: c.allowedUnitIds,
-      allowedHours: (c.allowedHours ?? {}) as Record<string, unknown>,
+      allowedHours: { windows: accessWindowsFrom(c.allowedHours) },
       bypassCurfew: c.bypassCurfew,
       maxUses: c.maxUses,
       usesCount: c.usesCount,

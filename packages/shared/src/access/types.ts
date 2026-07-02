@@ -16,7 +16,7 @@ export interface AccessCredentialDto {
   rfidUid: string | null;
   allowedFacilityIds: string[];
   allowedUnitIds: string[];
-  allowedHours: Record<string, unknown>;
+  allowedHours: AccessAllowedHours;
   /** Acceso 24h: salta el toque de queda del local. */
   bypassCurfew: boolean;
   /** Usos máximos (single-use = 1, pase nocturno). null = ilimitado. */

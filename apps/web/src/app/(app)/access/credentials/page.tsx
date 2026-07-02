@@ -6,6 +6,7 @@ import {
   type AccessCredentialStatusValue,
   type AccessCredentialWithSecretDto,
   type AccessMethodValue,
+  type AccessWindow,
   type CreateCredentialInput,
   CreateCredentialSchema,
   type RotateCredentialInput,
@@ -23,13 +24,14 @@ import {
   Plus,
   QrCode,
   RotateCw,
+  Trash2,
   ShieldOff,
   Pause,
   Play,
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { DataTable } from '@/components/data-table';
@@ -405,7 +407,7 @@ function CreateCredentialDialog({
       customerId: '',
       allowedFacilityIds: [],
       allowedUnitIds: [],
-      allowedHours: {},
+      allowedHours: { windows: [] },
       bypassCurfew: false,
       metadata: {},
     },
@@ -421,7 +423,7 @@ function CreateCredentialDialog({
         customerId: values.customerId,
         allowedFacilityIds: values.allowedFacilityIds ?? [],
         allowedUnitIds: values.allowedUnitIds ?? [],
-        allowedHours: values.allowedHours ?? {},
+        allowedHours: values.allowedHours ?? { windows: [] },
         bypassCurfew: values.bypassCurfew ?? false,
         metadata: values.metadata ?? {},
         ...(values.label ? { label: values.label } : {}),
@@ -612,6 +614,19 @@ function CreateCredentialDialog({
                     Acceso 24h (salta el toque de queda del local) — staff
                   </FormLabel>
                 </FormItem>
+              )}
+            />
+            <Controller
+              control={form.control}
+              name="allowedHours"
+              render={({ field }) => (
+                <div className="space-y-1">
+                  <FormLabel>Ventanas horarias de acceso</FormLabel>
+                  <AccessWindowsEditor
+                    windows={field.value?.windows ?? []}
+                    onChange={(windows) => field.onChange({ windows })}
+                  />
+                </div>
               )}
             />
             <DialogFooter>
@@ -1036,5 +1051,101 @@ function NightPassSettingsCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const WEEK_DAYS: { v: number; l: string }[] = [
+  { v: 1, l: 'L' },
+  { v: 2, l: 'M' },
+  { v: 3, l: 'X' },
+  { v: 4, l: 'J' },
+  { v: 5, l: 'V' },
+  { v: 6, l: 'S' },
+  { v: 0, l: 'D' },
+];
+
+/**
+ * Editor de ventanas horarias de una credencial: cada franja son unos días de
+ * la semana + un rango [inicio, fin) (sin cruzar medianoche). Sin franjas =
+ * acceso a cualquier hora (sujeto al toque de queda del local).
+ */
+function AccessWindowsEditor({
+  windows,
+  onChange,
+}: {
+  windows: AccessWindow[];
+  onChange: (windows: AccessWindow[]) => void;
+}) {
+  const update = (i: number, patch: Partial<AccessWindow>) =>
+    onChange(windows.map((w, idx) => (idx === i ? { ...w, ...patch } : w)));
+  const toggleDay = (i: number, day: number) => {
+    const w = windows[i]!;
+    const days = w.days.includes(day) ? w.days.filter((d) => d !== day) : [...w.days, day];
+    update(i, { days });
+  };
+
+  return (
+    <div className="space-y-2">
+      {windows.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Sin restricción: acceso a cualquier hora (sujeto al toque de queda del local).
+        </p>
+      )}
+      {windows.map((w, i) => (
+        <div key={i} className="space-y-2 rounded-md border p-3">
+          <div className="flex flex-wrap gap-1">
+            {WEEK_DAYS.map((d) => (
+              <button
+                key={d.v}
+                type="button"
+                onClick={() => toggleDay(i, d.v)}
+                className={`flex size-7 items-center justify-center rounded-full text-xs font-medium ${
+                  w.days.includes(d.v)
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {d.l}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="time"
+              value={w.start}
+              onChange={(e) => update(i, { start: e.target.value })}
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            />
+            <span className="text-sm text-muted-foreground">a</span>
+            <input
+              type="time"
+              value={w.end}
+              onChange={(e) => update(i, { end: e.target.value })}
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="ml-auto size-8"
+              aria-label="Eliminar franja"
+              onClick={() => onChange(windows.filter((_, idx) => idx !== i))}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() =>
+          onChange([...windows, { days: [1, 2, 3, 4, 5], start: '08:00', end: '20:00' }])
+        }
+      >
+        <Plus className="mr-1 size-4" /> Añadir franja horaria
+      </Button>
+    </div>
   );
 }
