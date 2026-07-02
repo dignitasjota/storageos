@@ -16,6 +16,7 @@ export const TenantFeatures = [
   'access_control', // /access
   'automations', // /automations
   'custom_domain', // dominio propio en la landing/portal (white-label)
+  'collections', // expedientes de impago (overlock → disposición)
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -23,7 +24,7 @@ export type TenantFeature = (typeof TenantFeatures)[number];
 /** Features incluidas en cada plan (por slug). */
 export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
   free: [],
-  starter: ['rent_increases', 'insurance', 'access_control', 'automations'],
+  starter: ['rent_increases', 'insurance', 'access_control', 'automations', 'collections'],
   pro: [...TenantFeatures],
 };
 
@@ -93,4 +94,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   access_control: 'Control de accesos',
   automations: 'Automatizaciones',
   custom_domain: 'Dominio propio (white-label)',
+  collections: 'Gestión de impagos (overlock)',
 };

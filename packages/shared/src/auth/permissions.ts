@@ -61,6 +61,8 @@ export const Permissions = [
   'promotions:manage', // crear/editar códigos promocionales (owner+manager)
   'insurance:read',
   'insurance:manage', // crear/editar planes de seguro (owner+manager)
+  'collections:read',
+  'collections:manage', // gestionar expedientes de impago (owner+manager)
   'referrals:read',
   'access:read',
   'access:manage',

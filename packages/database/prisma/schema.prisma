@@ -341,6 +341,10 @@ model Tenant {
   customDomainVerifiedAt      DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
   nightPassEnabled            Boolean               @default(false) @map("night_pass_enabled")
   nightPassPrice              Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
+  collectionsEnabled          Boolean               @default(false) @map("collections_enabled")
+  collectionsOpenAfterDays    Int                   @default(30) @map("collections_open_after_days")
+  collectionsNoticeDays       Int                   @default(15) @map("collections_notice_days")
+  collectionsClauseRef        String?               @map("collections_clause_ref")
   deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt                   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -433,6 +437,9 @@ model Tenant {
   platformDunningEvents   PlatformDunningEvent[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
+  delinquencyCases        DelinquencyCase[]
+  delinquencyCaseEvents   DelinquencyCaseEvent[]
+  delinquencyCaseFiles    DelinquencyCaseFile[]
 
   @@map("tenants")
 }
@@ -495,6 +502,10 @@ model User {
 
   @@unique([tenantId, email])
   @@index([tenantId])
+  delinquencyCasesOpened  DelinquencyCase[]      @relation("DelinquencyCaseOpenedBy")
+  delinquencyCaseEvents   DelinquencyCaseEvent[] @relation("DelinquencyCaseEventCreatedBy")
+  delinquencyCaseFiles    DelinquencyCaseFile[]  @relation("DelinquencyCaseFileCreatedBy")
+
   @@map("users")
 }
 
@@ -893,6 +904,8 @@ model Unit {
   @@index([tenantId])
   @@index([facilityId, status])
   @@index([floorId])
+  delinquencyCases    DelinquencyCase[]
+
   @@map("units")
 }
 
@@ -982,6 +995,8 @@ model Customer {
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
   @@index([tenantId, email])
+  delinquencyCases    DelinquencyCase[]
+
   @@map("customers")
 }
 
@@ -1078,6 +1093,8 @@ model Contract {
   @@index([tenantId, status])
   @@index([customerId])
   @@index([unitId])
+  delinquencyCases    DelinquencyCase[]
+
   @@map("contracts")
 }
 
@@ -3605,4 +3622,96 @@ model CronRun {
 
   @@id([name, runOn])
   @@map("cron_runs")
+}
+
+/// Máquina de estados del expediente de impago (overlock → requerimiento →
+/// disposición). El software orquesta; nunca dispone solo.
+enum DelinquencyCaseStatus {
+  open
+  overlocked
+  final_notice
+  resolution_pending
+  disposal
+  closed_paid
+  closed_disposed
+  closed_cancelled
+
+  @@map("delinquency_case_status")
+}
+
+/// Expediente de impago de un contrato. La deuda viva se recalcula de las
+/// facturas; `debtSnapshot` es la foto (céntimos) al abrir.
+model DelinquencyCase {
+  id                  String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  contractId          String                @map("contract_id") @db.Uuid
+  customerId          String                @map("customer_id") @db.Uuid
+  unitId              String?               @map("unit_id") @db.Uuid
+  facilityId          String?               @map("facility_id") @db.Uuid
+  status              DelinquencyCaseStatus  @default(open)
+  debtSnapshot        Int                   @default(0) @map("debt_snapshot")
+  disposalType        String?               @map("disposal_type")
+  openedAt            DateTime              @default(now()) @map("opened_at") @db.Timestamptz(6)
+  overlockedAt        DateTime?             @map("overlocked_at") @db.Timestamptz(6)
+  finalNoticeAt       DateTime?             @map("final_notice_at") @db.Timestamptz(6)
+  finalNoticeDeadline DateTime?             @map("final_notice_deadline") @db.Timestamptz(6)
+  resolutionPendingAt DateTime?             @map("resolution_pending_at") @db.Timestamptz(6)
+  disposedAt          DateTime?             @map("disposed_at") @db.Timestamptz(6)
+  closedAt            DateTime?             @map("closed_at") @db.Timestamptz(6)
+  openedByUserId      String?               @map("opened_by_user_id") @db.Uuid
+  notes               String?
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  unit     Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  openedBy User?    @relation("DelinquencyCaseOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
+  events   DelinquencyCaseEvent[]
+  files    DelinquencyCaseFile[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([contractId])
+  @@map("delinquency_cases")
+}
+
+/// Timeline inmutable del expediente (patrón contract_events).
+model DelinquencyCaseEvent {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  caseId          String   @map("case_id") @db.Uuid
+  eventType       String   @map("event_type")
+  payload         Json     @default("{}")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  occurredAt      DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case      DelinquencyCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation("DelinquencyCaseEventCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([caseId, occurredAt])
+  @@map("delinquency_case_events")
+}
+
+/// Evidencias del expediente en MinIO privado (patrón inspection photos).
+model DelinquencyCaseFile {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  caseId          String   @map("case_id") @db.Uuid
+  kind            String
+  objectKey       String   @map("object_key")
+  contentType     String?  @map("content_type")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case      DelinquencyCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation("DelinquencyCaseFileCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([caseId, createdAt])
+  @@map("delinquency_case_files")
 }

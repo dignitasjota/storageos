@@ -1,0 +1,216 @@
+import request from 'supertest';
+
+import { CollectionsService } from '../src/modules/collections/collections.service';
+
+import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
+import { createTestApp } from './helpers/test-app.factory';
+
+import type { INestApplication } from '@nestjs/common';
+
+/**
+ * Expedientes de impago (overlock → requerimiento → disposición). Ciclo
+ * completo de la máquina de estados + cierre automático por pago + guards +
+ * gating por feature.
+ */
+describe('Collections / expedientes de impago (e2e)', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    await cleanupTestTenants();
+    app = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await cleanupTestTenants();
+  });
+
+  /** Crea contrato + factura emitida con deuda; devuelve ids. */
+  async function seedContractWithDebt(accessToken: string) {
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const { unitIds } = await createFacilityWithUnits(app, accessToken, {
+      facilityName: 'Local Impago',
+      unitsCount: 1,
+      pricePerUnit: 100,
+    });
+    const unitId = unitIds[0]!;
+    const customer = await request(app.getHttpServer())
+      .post('/customers')
+      .set(auth)
+      .send({ customerType: 'individual', firstName: 'Moro', lastName: 'So', country: 'ES' });
+    const customerId = customer.body.id as string;
+    const contract = await request(app.getHttpServer())
+      .post('/contracts')
+      .set(auth)
+      .send({
+        customerId,
+        unitId,
+        startDate: new Date().toISOString().slice(0, 10),
+        priceMonthly: 100,
+        billingCycle: 'monthly',
+        cancellationNoticeDays: 30,
+      });
+    expect(contract.status).toBe(201);
+    const contractId = contract.body.id as string;
+
+    await ensureDefaultSeries(app, accessToken);
+    const invoice = await request(app.getHttpServer())
+      .post('/invoices')
+      .set(auth)
+      .send({
+        customerId,
+        contractId,
+        items: [{ description: 'Cuota', quantity: 1, unitPrice: 100, taxRate: 21 }],
+      });
+    expect(invoice.status).toBe(201);
+    const invoiceId = invoice.body.id as string;
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+
+    return { customerId, contractId, invoiceId };
+  }
+
+  it('gating: un tenant sin la feature no accede a collections', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-free');
+    await setTenantPlan(owner.slug, 'free');
+    await request(app.getHttpServer())
+      .get('/collections')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .expect(403);
+  });
+
+  it('ciclo completo: abrir → overlock → requerimiento → disposición', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-cycle');
+    await setTenantPlan(owner.slug, 'starter'); // starter incluye collections
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { contractId } = await seedContractWithDebt(owner.accessToken);
+
+    // Abrir expediente.
+    const open = await request(app.getHttpServer())
+      .post('/collections')
+      .set(auth)
+      .send({ contractId });
+    expect(open.status).toBe(201);
+    expect(open.body.status).toBe('open');
+    expect(open.body.debtCents).toBe(12100); // 100 + 21% IVA
+    const caseId = open.body.id as string;
+
+    // Abrir un 2º expediente del mismo contrato → 409 (índice único parcial).
+    const dup = await request(app.getHttpServer())
+      .post('/collections')
+      .set(auth)
+      .send({ contractId });
+    expect(dup.status).toBeGreaterThanOrEqual(400);
+
+    // Transición inválida: no se puede ir a disposición directamente.
+    await request(app.getHttpServer())
+      .post(`/collections/${caseId}/disposal`)
+      .set(auth)
+      .send({ disposalType: 'auction_notarial' })
+      .expect(400);
+
+    // overlock → final_notice → resolution_pending → disposal → closed_disposed.
+    const over = await request(app.getHttpServer())
+      .post(`/collections/${caseId}/overlock`)
+      .set(auth)
+      .send({ notes: 'Candado colocado' });
+    expect(over.body.status).toBe('overlocked');
+    expect(over.body.overlockedAt).not.toBeNull();
+
+    const notice = await request(app.getHttpServer())
+      .post(`/collections/${caseId}/notice`)
+      .set(auth)
+      .send({ noticeDays: 15 });
+    expect(notice.body.status).toBe('final_notice');
+    expect(notice.body.finalNoticeDeadline).not.toBeNull();
+
+    await request(app.getHttpServer())
+      .post(`/collections/${caseId}/resolution-pending`)
+      .set(auth)
+      .expect(200);
+
+    const disp = await request(app.getHttpServer())
+      .post(`/collections/${caseId}/disposal`)
+      .set(auth)
+      .send({ disposalType: 'auction_notarial' });
+    expect(disp.body.status).toBe('disposal');
+
+    const done = await request(app.getHttpServer())
+      .post(`/collections/${caseId}/complete-disposal`)
+      .set(auth)
+      .send({ proceedsCents: 5000 });
+    expect(done.body.status).toBe('closed_disposed');
+    expect(done.body.closedAt).not.toBeNull();
+
+    // El detalle tiene el timeline completo.
+    const detail = await request(app.getHttpServer()).get(`/collections/${caseId}`).set(auth);
+    const types = (detail.body.events as { eventType: string }[]).map((e) => e.eventType);
+    expect(types).toEqual(
+      expect.arrayContaining(['opened', 'overlock_placed', 'notice_sent', 'disposal_done']),
+    );
+  });
+
+  it('cierre automático al pagar la deuda', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-paid');
+    await setTenantPlan(owner.slug, 'starter');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { customerId, contractId, invoiceId } = await seedContractWithDebt(owner.accessToken);
+    const me = await request(app.getHttpServer()).get('/auth/me').set(auth);
+    const tenantId = me.body.tenant.id as string;
+
+    const open = await request(app.getHttpServer())
+      .post('/collections')
+      .set(auth)
+      .send({ contractId });
+    const caseId = open.body.id as string;
+    await request(app.getHttpServer()).post(`/collections/${caseId}/overlock`).set(auth).send({});
+
+    // Pagar la factura → la deuda del contrato baja a 0.
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/mark-paid`)
+      .set(auth)
+      .send({ amount: 121, methodType: 'cash' })
+      .expect(200);
+
+    // El cierre lo dispara el listener invoice_paid; lo invocamos explícito para
+    // no depender del timing del EventEmitter en el test.
+    await app.get(CollectionsService).onInvoicePaid(tenantId, customerId);
+
+    const detail = await request(app.getHttpServer()).get(`/collections/${caseId}`).set(auth);
+    expect(detail.body.status).toBe('closed_paid');
+    expect(detail.body.debtCents).toBe(0);
+  });
+
+  it('apertura manual exige deuda (400 si el contrato no debe nada)', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-nodebt');
+    await setTenantPlan(owner.slug, 'starter');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Sano',
+      unitsCount: 1,
+    });
+    const customer = await request(app.getHttpServer())
+      .post('/customers')
+      .set(auth)
+      .send({ customerType: 'individual', firstName: 'Al', lastName: 'Día', country: 'ES' });
+    const contract = await request(app.getHttpServer())
+      .post('/contracts')
+      .set(auth)
+      .send({
+        customerId: customer.body.id,
+        unitId: unitIds[0],
+        startDate: new Date().toISOString().slice(0, 10),
+        priceMonthly: 100,
+        billingCycle: 'monthly',
+        cancellationNoticeDays: 30,
+      });
+    const res = await request(app.getHttpServer())
+      .post('/collections')
+      .set(auth)
+      .send({ contractId: contract.body.id });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('no_debt');
+  });
+});
