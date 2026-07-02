@@ -86,7 +86,7 @@ export class TwoFactorService {
     const encrypted = this.crypto.encryptString(secret);
     await this.admin.user.update({
       where: { id: userId },
-      data: { twoFactorPendingSecret: encrypted },
+      data: { twoFactorPendingSecretEncrypted: encrypted },
     });
     return {
       otpauthUri: this.totp.buildOtpAuthUri(secret, user.email),
@@ -106,13 +106,13 @@ export class TwoFactorService {
         code: 'already_enabled',
       });
     }
-    if (!user.twoFactorPendingSecret) {
+    if (!user.twoFactorPendingSecretEncrypted) {
       throw new BadRequestException({
         message: 'No hay un setup 2FA en curso',
         code: 'setup_required',
       });
     }
-    const secret = this.crypto.decryptString(user.twoFactorPendingSecret);
+    const secret = this.crypto.decryptString(user.twoFactorPendingSecretEncrypted);
     if (!this.totp.verify(secret, code)) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -124,8 +124,8 @@ export class TwoFactorService {
     await this.admin.user.update({
       where: { id: userId },
       data: {
-        twoFactorSecret: user.twoFactorPendingSecret,
-        twoFactorPendingSecret: null,
+        twoFactorSecretEncrypted: user.twoFactorPendingSecretEncrypted,
+        twoFactorPendingSecretEncrypted: null,
         twoFactorEnabled: true,
         twoFactorEnrolledAt: new Date(),
       },
@@ -144,7 +144,7 @@ export class TwoFactorService {
 
   async disable(userId: string, input: Disable2faInput, meta: RequestMeta): Promise<void> {
     const user = await this.admin.user.findUniqueOrThrow({ where: { id: userId } });
-    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+    if (!user.twoFactorEnabled || !user.twoFactorSecretEncrypted) {
       throw new BadRequestException({
         message: '2FA no esta activado',
         code: 'not_enabled',
@@ -157,7 +157,7 @@ export class TwoFactorService {
         code: 'wrong_current_password',
       });
     }
-    const ok = await this.verifyChallenge(user.twoFactorSecret, userId, input);
+    const ok = await this.verifyChallenge(user.twoFactorSecretEncrypted, userId, input);
     if (!ok) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -168,8 +168,8 @@ export class TwoFactorService {
     await this.admin.user.update({
       where: { id: userId },
       data: {
-        twoFactorSecret: null,
-        twoFactorPendingSecret: null,
+        twoFactorSecretEncrypted: null,
+        twoFactorPendingSecretEncrypted: null,
         twoFactorEnabled: false,
         twoFactorEnrolledAt: null,
       },
@@ -192,7 +192,7 @@ export class TwoFactorService {
     meta: RequestMeta,
   ): Promise<{ recoveryCodes: string[] }> {
     const user = await this.admin.user.findUniqueOrThrow({ where: { id: userId } });
-    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+    if (!user.twoFactorEnabled || !user.twoFactorSecretEncrypted) {
       throw new BadRequestException({
         message: '2FA no esta activado',
         code: 'not_enabled',
@@ -205,7 +205,7 @@ export class TwoFactorService {
         code: 'wrong_current_password',
       });
     }
-    const secret = this.crypto.decryptString(user.twoFactorSecret);
+    const secret = this.crypto.decryptString(user.twoFactorSecretEncrypted);
     if (!this.totp.verify(secret, input.code)) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -237,7 +237,7 @@ export class TwoFactorService {
         code: 'user_not_found',
       });
     }
-    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+    if (!user.twoFactorEnabled || !user.twoFactorSecretEncrypted) {
       // El user quito 2FA entre login y challenge: dejamos que vuelva a empezar.
       throw new ForbiddenException({
         message: '2FA no activo',
@@ -245,7 +245,7 @@ export class TwoFactorService {
       });
     }
 
-    const ok = await this.verifyChallenge(user.twoFactorSecret, sub, input);
+    const ok = await this.verifyChallenge(user.twoFactorSecretEncrypted, sub, input);
     if (!ok) {
       await this.audit.write({
         tenantId,
@@ -306,7 +306,7 @@ export class TwoFactorService {
     const encrypted = this.crypto.encryptString(secret);
     await this.admin.user.update({
       where: { id: userId },
-      data: { twoFactorPendingSecret: encrypted },
+      data: { twoFactorPendingSecretEncrypted: encrypted },
     });
     return {
       otpauthUri: this.totp.buildOtpAuthUri(secret, user.email),
@@ -340,13 +340,13 @@ export class TwoFactorService {
         code: 'already_enabled',
       });
     }
-    if (!user.twoFactorPendingSecret) {
+    if (!user.twoFactorPendingSecretEncrypted) {
       throw new BadRequestException({
         message: 'No hay un setup 2FA en curso',
         code: 'setup_required',
       });
     }
-    const secret = this.crypto.decryptString(user.twoFactorPendingSecret);
+    const secret = this.crypto.decryptString(user.twoFactorPendingSecretEncrypted);
     if (!this.totp.verify(secret, input.code)) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -358,8 +358,8 @@ export class TwoFactorService {
     await this.admin.user.update({
       where: { id: userId },
       data: {
-        twoFactorSecret: user.twoFactorPendingSecret,
-        twoFactorPendingSecret: null,
+        twoFactorSecretEncrypted: user.twoFactorPendingSecretEncrypted,
+        twoFactorPendingSecretEncrypted: null,
         twoFactorEnabled: true,
         twoFactorEnrolledAt: new Date(),
       },

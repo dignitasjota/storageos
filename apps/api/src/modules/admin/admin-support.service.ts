@@ -165,8 +165,8 @@ export class AdminSupportService {
     await this.admin.user.update({
       where: { id: userId },
       data: {
-        twoFactorSecret: null,
-        twoFactorPendingSecret: null,
+        twoFactorSecretEncrypted: null,
+        twoFactorPendingSecretEncrypted: null,
         twoFactorEnabled: false,
         twoFactorEnrolledAt: null,
       },
