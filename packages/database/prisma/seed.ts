@@ -80,7 +80,7 @@ async function seedPlans() {
     plans.map((data) =>
       prisma.subscriptionPlan.upsert({
         where: { slug: data.slug },
-        update: { tenantFeatures: data.tenantFeatures },
+        update: { tenantFeatures: data.tenantFeatures as string[] },
         create: data,
       }),
     ),

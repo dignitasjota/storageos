@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     for (const data of PLANS) {
       await prisma.subscriptionPlan.upsert({
         where: { slug: data.slug },
-        update: { tenantFeatures: data.tenantFeatures },
+        update: { tenantFeatures: data.tenantFeatures as string[] },
         create: data,
       });
     }
