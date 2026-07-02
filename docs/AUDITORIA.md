@@ -80,29 +80,34 @@ primera tras semanas de reruns.
   informático AEAT, super admin JWT/TTLs, `API_BASE_URL`, `LOCK_PROVIDER`/MQTT,
   WhatsApp, retención de webhooks, `REDIS_PASSWORD`).
 
+### Testing — smoke Playwright del flujo navegador del portal (PR de este punto)
+
+Nuevo `apps/web/e2e/06-portal-consume.spec.ts`: el staff genera el magic link →
+un navegador real lo consume → la sesión carga las facturas con el **header
+manual `Authorization`** (el camino exacto del bug histórico de `apiFetch` que
+dejó el portal roto en producción sin que ningún test lo viera) → navega a
+Facturas y ve la factura emitida → la recarga restaura la sesión de
+localStorage. Corre en el gate de CI con los otros 5 smoke tests.
+
 ---
 
 ## ⏳ Pendiente (priorizado)
 
-1. **Smoke Playwright del flujo NAVEGADOR del portal** _(en curso)_ — el bug
-   histórico del `apiFetch` (el portal nunca funcionó en navegador y ningún test
-   lo vio, porque los e2e usan supertest) puede repetirse. Un smoke magic link →
-   consume → ver facturas es el test más rentable que falta.
-2. **Unit tests de `billing-saas.service` (~760 líneas) y `portal.service`
+1. **Unit tests de `billing-saas.service` (~760 líneas) y `portal.service`
    (~670)** — lógica de suscripciones/pagos manuales sin specs propios.
-3. **Secret dedicado para el token del portal** — hoy reutiliza
+2. **Secret dedicado para el token del portal** — hoy reutiliza
    `JWT_2FA_PENDING_SECRET` (el claim `purpose` lo mitiga); un env var propio
    (`PORTAL_JWT_SECRET` con fallback) es más limpio.
-4. **Raw middleware para el webhook Redsys** — Stripe/GoCardless lo tienen; Redsys
+3. **Raw middleware para el webhook Redsys** — Stripe/GoCardless lo tienen; Redsys
    verifica la firma sobre `Ds_MerchantParameters` (mitigado), pero por defensa en
    profundidad conviene igualarlo.
-5. **`mem_limit` en el compose** de api/worker/web — sin límites, el OOM killer
+4. **`mem_limit` en el compose** de api/worker/web — sin límites, el OOM killer
    del host elige al azar.
-6. **Alerta de memoria de Redis en Grafana** — con `noeviction` (obligatorio para
+5. **Alerta de memoria de Redis en Grafana** — con `noeviction` (obligatorio para
    BullMQ), si Redis se llena rechaza escrituras; hay que enterarse antes.
-7. **Renombrar `twoFactorSecret` → `twoFactorSecretEncrypted`** — ya está cifrado
+6. **Renombrar `twoFactorSecret` → `twoFactorSecretEncrypted`** — ya está cifrado
    (AES-GCM); es claridad de esquema, no un fallo.
-8. **Unificar i18n del panel tenant** — mezcla de `useTranslations` y textos
+7. **Unificar i18n del panel tenant** — mezcla de `useTranslations` y textos
    hardcodeados (toasts, títulos). Esfuerzo grande; solo tiene sentido si entra el
    multi-idioma EN/CA del backlog.
 
@@ -110,7 +115,7 @@ primera tras semanas de reruns.
 
 - **Redis `maxmemory-policy noeviction`**: una auditoría sugirió `allkeys-lru` —
   **incorrecto**: con BullMQ la política DEBE ser `noeviction` (desalojar claves
-  pierde jobs). La mejora real es el punto 6 de pendientes (alertar memoria).
+  pierde jobs). La mejora real es el punto 5 de pendientes (alertar memoria).
 - **`useQueryClient()` en deps de `useEffect`**: el cliente es estable entre
   renders (React Query lo garantiza); no es una fuga.
 - **`bg-white` en contenedores de QR** (2FA, acceso del portal): intencionado —
