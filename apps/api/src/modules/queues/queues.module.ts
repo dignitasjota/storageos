@@ -16,6 +16,7 @@ import {
   QUEUE_VERIFACTU,
   QUEUE_WEBHOOKS,
 } from './queue-names';
+import { RedisMemoryCron } from './redis-memory.cron';
 import { WorkersHeartbeatCron } from './workers-heartbeat.cron';
 
 import type { Env } from '../../config/env.schema';
@@ -102,7 +103,7 @@ export const JOB_WEBHOOK_DELIVER = 'deliver';
   // Heartbeat de los workers: lo escribe el proceso que los ejecuta (el
   // worker en prod, el API en dev/test). QueuesModule esta en el grafo DI
   // de AMBOS procesos, por eso vive aqui y no en HealthModule (HTTP-only).
-  providers: [...(WORKERS_ENABLED_IN_API ? [WorkersHeartbeatCron] : [])],
+  providers: [...(WORKERS_ENABLED_IN_API ? [WorkersHeartbeatCron, RedisMemoryCron] : [])],
   exports: [BullModule],
 })
 export class QueuesModule {}
