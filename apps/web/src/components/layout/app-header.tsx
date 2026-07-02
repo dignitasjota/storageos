@@ -6,6 +6,7 @@ import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from './theme-toggle';
 import { UserMenu } from './user-menu';
 
+import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 
 export function AppHeader() {
@@ -15,6 +16,7 @@ export function AppHeader() {
       <FacilitySwitcher />
       <GlobalSearch />
       <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1.5">
+        <InstallPwaButton />
         <NotificationBell />
         <ThemeToggle />
         <UserMenu />
