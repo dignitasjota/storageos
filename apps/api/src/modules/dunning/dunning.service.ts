@@ -9,6 +9,7 @@ import { AccessIntegrationsService } from '../access/access-integrations.service
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
+import { CollectionsService } from '../collections/collections.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
@@ -66,6 +67,7 @@ export class DunningService {
     private readonly events: EventEmitter2,
     private readonly invoices: InvoicesService,
     @Optional() private readonly access: AccessIntegrationsService | null = null,
+    @Optional() private readonly collections: CollectionsService | null = null,
   ) {}
 
   /**
@@ -264,6 +266,12 @@ export class DunningService {
           invoiceId: action.invoiceId,
         });
         result = { ...result, accessBlocked: true };
+      }
+      if (action.actionType === 'legal_notice' && this.collections) {
+        // Abre un expediente de impago si el tenant activó los impagos físicos
+        // (opt-in). Best-effort e idempotente (índice único por contrato).
+        await this.collections.openFromDunning(action.tenantId, action.invoiceId);
+        result = { ...result, collectionsCaseOpened: true };
       }
       if (action.actionType === 'late_fee') {
         // Re-chequea el opt-in (pudo desactivarse tras agendar). Idempotente:

@@ -52,7 +52,13 @@ async function seedPlans() {
       maxFacilities: 3,
       maxUsers: 10,
       features: { support: 'email', branding: false, api: false },
-      tenantFeatures: ['rent_increases', 'insurance', 'access_control', 'automations'],
+      tenantFeatures: [
+        'rent_increases',
+        'insurance',
+        'access_control',
+        'automations',
+        'collections',
+      ],
     },
     {
       name: 'Pro',
@@ -72,6 +78,7 @@ async function seedPlans() {
         'access_control',
         'automations',
         'custom_domain',
+        'collections',
       ],
     },
   ];
