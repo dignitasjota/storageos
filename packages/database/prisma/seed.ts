@@ -71,6 +71,7 @@ async function seedPlans() {
         'insurance',
         'access_control',
         'automations',
+        'custom_domain',
       ],
     },
   ];
@@ -79,7 +80,7 @@ async function seedPlans() {
     plans.map((data) =>
       prisma.subscriptionPlan.upsert({
         where: { slug: data.slug },
-        update: {},
+        update: { tenantFeatures: data.tenantFeatures as string[] },
         create: data,
       }),
     ),

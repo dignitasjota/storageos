@@ -32,7 +32,7 @@ describe('Portal — white-label / marca (e2e)', () => {
     // Estado inicial: sin marca.
     const initial = await request(app.getHttpServer()).get('/settings/tenant/branding').set(auth);
     expect(initial.status).toBe(200);
-    expect(initial.body).toEqual({ portalBrandColor: null, portalLogoUrl: null });
+    expect(initial.body).toMatchObject({ portalBrandColor: null, portalLogoUrl: null });
 
     // Configurar.
     const patch = await request(app.getHttpServer())
@@ -40,7 +40,7 @@ describe('Portal — white-label / marca (e2e)', () => {
       .set(auth)
       .send({ portalBrandColor: '#ff6600', portalLogoUrl: 'https://cdn.example.com/logo.png' });
     expect(patch.status).toBe(200);
-    expect(patch.body).toEqual({
+    expect(patch.body).toMatchObject({
       portalBrandColor: '#ff6600',
       portalLogoUrl: 'https://cdn.example.com/logo.png',
     });

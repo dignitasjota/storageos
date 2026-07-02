@@ -789,3 +789,14 @@ export interface SuperAdminNotificationDto {
   readAt: string | null;
   createdAt: string;
 }
+
+/** Un dominio propio de tenant en la cola de activación del super admin. */
+export interface AdminCustomDomainDto {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  customDomain: string;
+  /** null = pendiente de activar; ISO = activo. */
+  verifiedAt: string | null;
+  planSlug: string;
+}

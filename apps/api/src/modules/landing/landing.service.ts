@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { isValidCustomDomain } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
@@ -8,6 +9,7 @@ import type {
   PublicLandingDto,
   PublicLandingFacilityDto,
   PublicSitemapDto,
+  ResolveDomainDto,
 } from '@storageos/shared';
 
 /**
@@ -67,6 +69,7 @@ export class LandingService {
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
+      customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -107,8 +110,29 @@ export class LandingService {
       tenantSlug: full.tenantSlug,
       brandColor: full.brandColor,
       logoUrl: full.logoUrl,
+      customDomain: full.customDomain,
       facility,
     };
+  }
+
+  /**
+   * Resuelve un dominio propio ACTIVO (verificado) → slug del tenant. Lo
+   * consume el middleware del web para reescribir `midominio.com/` a la landing
+   * del tenant. 404 si el host no está registrado y verificado.
+   */
+  async resolveDomain(host: string): Promise<ResolveDomainDto> {
+    const domain = host.trim().toLowerCase();
+    if (!isValidCustomDomain(domain)) {
+      throw new NotFoundException({ code: 'domain_not_found', message: 'No encontrado' });
+    }
+    const tenant = await this.admin.tenant.findFirst({
+      where: { customDomain: domain, customDomainVerifiedAt: { not: null }, deletedAt: null },
+      select: { slug: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException({ code: 'domain_not_found', message: 'No encontrado' });
+    }
+    return { tenantSlug: tenant.slug };
   }
 
   /**
