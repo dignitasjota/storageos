@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { verify as argonVerify } from '@node-rs/argon2';
+import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -40,6 +41,37 @@ function nowMinutesInTz(timezone: string): number {
 function hhmmToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':');
   return Number(h) * 60 + Number(m);
+}
+
+/** Día de la semana "ahora" (0=domingo … 6=sábado) en una zona horaria. */
+function nowWeekdayInTz(timezone: string): number {
+  const short = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(
+    new Date(),
+  );
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[short] ?? new Date().getDay();
+}
+
+/**
+ * Ventanas horarias por credencial: si la credencial define franjas
+ * (`allowedHours.windows`) y "ahora" (en la TZ del local) no cae en ninguna,
+ * se deniega. Sin ventanas → sin restricción. Independiente del toque de queda
+ * del local (que aplica a todas las credenciales sin `bypassCurfew`).
+ */
+function checkAccessWindows(
+  credential: { allowedHours: unknown },
+  facility: { timezone: string } | null,
+): { result: AccessResultValue; reason: string } | null {
+  const windows = accessWindowsFrom(credential.allowedHours);
+  if (windows.length === 0) return null;
+  const tz = facility?.timezone ?? 'Europe/Madrid';
+  const ok = isWithinAccessWindows(windows, nowWeekdayInTz(tz), nowMinutesInTz(tz));
+  return ok
+    ? null
+    : {
+        result: 'denied_outside_hours',
+        reason: 'Fuera del horario permitido para esta credencial',
+      };
 }
 
 /** ¿Es ahora dentro del toque de queda [start, end)? Soporta cruzar medianoche. */
@@ -200,7 +232,9 @@ export class AccessVerifyService {
       },
     });
     const denied =
-      this.evaluateCredential(credentialRow, device) ?? checkCurfew(facility, credentialRow);
+      this.evaluateCredential(credentialRow, device) ??
+      checkAccessWindows(credentialRow, facility) ??
+      checkCurfew(facility, credentialRow);
     if (denied) {
       await this.log({
         tenantId,
@@ -394,14 +428,8 @@ export class AccessVerifyService {
         reason: 'Unit no permitida',
       };
     }
-    // allowedHours: MVP solo respeta `always !== false`.
-    const hours = (credential.allowedHours ?? {}) as Record<string, unknown>;
-    if (Object.keys(hours).length > 0 && hours['always'] === false) {
-      return {
-        result: 'denied_outside_hours',
-        reason: 'Fuera de horario permitido',
-      };
-    }
+    // Las ventanas horarias (allowedHours.windows) se evalúan aparte en
+    // `checkAccessWindows` (necesita la TZ del local).
     return null;
   }
 

@@ -34,6 +34,61 @@ export const AccessResultEnum = z.enum([
 export type AccessResultValue = z.infer<typeof AccessResultEnum>;
 
 // ============================================================================
+// Ventanas horarias por credencial
+// ============================================================================
+
+const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM');
+
+/**
+ * Una franja horaria permitida para una credencial: días de la semana
+ * (0=domingo … 6=sábado) + rango [start, end). No cruza medianoche (para el
+ * bloqueo nocturno está el toque de queda del local); `start` < `end`.
+ */
+export const AccessWindowSchema = z
+  .object({
+    days: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+    start: HHMM,
+    end: HHMM,
+  })
+  .refine((v) => v.start < v.end, {
+    message: 'La hora de inicio debe ser anterior a la de fin',
+    path: ['end'],
+  });
+export type AccessWindow = z.infer<typeof AccessWindowSchema>;
+
+/** Ventanas horarias de una credencial. Sin ventanas = acceso a cualquier hora. */
+export const AccessAllowedHoursSchema = z
+  .object({ windows: z.array(AccessWindowSchema).max(14).default([]) })
+  .default({ windows: [] });
+export type AccessAllowedHours = z.infer<typeof AccessAllowedHoursSchema>;
+
+/** Parseo defensivo del JSON `allowedHours` de una credencial (tolera `{}`). */
+export function accessWindowsFrom(raw: unknown): AccessWindow[] {
+  const parsed = AccessAllowedHoursSchema.safeParse(raw);
+  return parsed.success ? parsed.data.windows : [];
+}
+
+const hhmmToMin = (hhmm: string): number => {
+  const [h, m] = hhmm.split(':');
+  return Number(h) * 60 + Number(m);
+};
+
+/**
+ * ¿El momento (día 0-6 + minutos desde medianoche) cae dentro de alguna
+ * ventana? Sin ventanas → true (sin restricción horaria por credencial).
+ */
+export function isWithinAccessWindows(
+  windows: AccessWindow[],
+  weekday: number,
+  minutes: number,
+): boolean {
+  if (windows.length === 0) return true;
+  return windows.some(
+    (w) => w.days.includes(weekday) && minutes >= hhmmToMin(w.start) && minutes < hhmmToMin(w.end),
+  );
+}
+
+// ============================================================================
 // Credentials
 // ============================================================================
 
@@ -52,7 +107,7 @@ export const CreateCredentialSchema = z
       .optional(),
     allowedFacilityIds: z.array(z.string().uuid()).default([]),
     allowedUnitIds: z.array(z.string().uuid()).default([]),
-    allowedHours: z.record(z.unknown()).default({}),
+    allowedHours: AccessAllowedHoursSchema,
     /** Acceso 24h: salta el toque de queda del local (típico de staff). */
     bypassCurfew: z.boolean().default(false),
     /** Usos máximos (single-use = 1). Sin valor = ilimitado. */
@@ -72,7 +127,7 @@ export const UpdateCredentialSchema = z
     label: optionalText(120),
     allowedFacilityIds: z.array(z.string().uuid()).optional(),
     allowedUnitIds: z.array(z.string().uuid()).optional(),
-    allowedHours: z.record(z.unknown()).optional(),
+    allowedHours: AccessAllowedHoursSchema.optional(),
     bypassCurfew: z.boolean().optional(),
     expiresAt: z.string().datetime().optional().nullable(),
     metadata: z.record(z.unknown()).optional(),
