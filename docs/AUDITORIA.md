@@ -89,12 +89,22 @@ dejó el portal roto en producción sin que ningún test lo viera) → navega a
 Facturas y ve la factura emitida → la recarga restaura la sesión de
 localStorage. Corre en el gate de CI con los otros 5 smoke tests.
 
+### Testing — unit tests de `billing-saas.service` (12 specs)
+
+`__tests__/billing-saas.service.spec.ts`: pagos manuales (extiende desde el fin
+de periodo futuro / desde AHORA si está vencida, acumula `manualExtensionDays`,
+ajuste de fin de mes 31 ene → 28 feb, 404 sin suscripción), sync de Stripe
+(SUMA el crédito manual al periodo del webhook, mapeo de status, tenant no
+resoluble = no-op) y registro de facturas de Stripe (céntimos→euros, upsert
+idempotente por `external_id` sin re-facturar, race P2002 tragada, pagos no
+cobrados sin factura del SaaS).
+
 ---
 
 ## ⏳ Pendiente (priorizado)
 
-1. **Unit tests de `billing-saas.service` (~760 líneas) y `portal.service`
-   (~670)** — lógica de suscripciones/pagos manuales sin specs propios.
+1. **Unit tests de `portal.service` (~670 líneas)** — los de `billing-saas` ya
+   están (ver Solucionado); el del portal queda para cuando se toque ese código.
 2. **Secret dedicado para el token del portal** — hoy reutiliza
    `JWT_2FA_PENDING_SECRET` (el claim `purpose` lo mitiga); un env var propio
    (`PORTAL_JWT_SECRET` con fallback) es más limpio.
