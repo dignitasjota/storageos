@@ -99,33 +99,41 @@ resoluble = no-op) y registro de facturas de Stripe (céntimos→euros, upsert
 idempotente por `external_id` sin re-facturar, race P2002 tragada, pagos no
 cobrados sin factura del SaaS).
 
+### Hardening + operabilidad — puntos 2-6 del pendiente (PRs #214-#216)
+
+- **#214** — `PORTAL_JWT_SECRET` dedicado (fallback a `JWT_2FA_PENDING_SECRET`,
+  helper `portalSecret()` en Portal/Signatures) + **webhook Redsys con body
+  raw** parseado estricto por content-type (solo strings planos, fuera qs).
+- **#215** — `mem_limit` en api/worker/web (1g/1g/512m) en ambos composes +
+  **`RedisMemoryCron`** (log `redis_memory_high` al superar el 80% de
+  maxmemory) + alerta Grafana `redis-memory-high` (con `noeviction` Redis
+  rechaza escrituras al llenarse y las colas fallan en silencio).
+- **#216** — `twoFactorSecret` → `twoFactorSecretEncrypted` (solo el campo
+  Prisma; el `@map` conserva la columna → sin migración).
+
+### Testing — unit tests de `portal.service` (9 specs)
+
+`__tests__/portal.service.spec.ts`: round-trip completo del magic link con
+Redis falso (URL → consume → sesión verificable → replay 401 single-use),
+TTL 7 días del enlace del staff + auditoría sin token, 404 sin guardar nada,
+secreto que no casa con el hash, **secret dedicado del portal** (un token
+firmado con el secret de 2FA NO vale cuando `PORTAL_JWT_SECRET` está definido;
+sin definir cae al fallback), purpose/expiración rechazados, y
+anti-enumeración de `requestMagicLink` (silencioso sin filtrar).
+
 ---
 
 ## ⏳ Pendiente (priorizado)
 
-1. **Unit tests de `portal.service` (~670 líneas)** — los de `billing-saas` ya
-   están (ver Solucionado); el del portal queda para cuando se toque ese código.
-2. **Secret dedicado para el token del portal** — hoy reutiliza
-   `JWT_2FA_PENDING_SECRET` (el claim `purpose` lo mitiga); un env var propio
-   (`PORTAL_JWT_SECRET` con fallback) es más limpio.
-3. **Raw middleware para el webhook Redsys** — Stripe/GoCardless lo tienen; Redsys
-   verifica la firma sobre `Ds_MerchantParameters` (mitigado), pero por defensa en
-   profundidad conviene igualarlo.
-4. **`mem_limit` en el compose** de api/worker/web — sin límites, el OOM killer
-   del host elige al azar.
-5. **Alerta de memoria de Redis en Grafana** — con `noeviction` (obligatorio para
-   BullMQ), si Redis se llena rechaza escrituras; hay que enterarse antes.
-6. **Renombrar `twoFactorSecret` → `twoFactorSecretEncrypted`** — ya está cifrado
-   (AES-GCM); es claridad de esquema, no un fallo.
-7. **Unificar i18n del panel tenant** — mezcla de `useTranslations` y textos
-   hardcodeados (toasts, títulos). Esfuerzo grande; solo tiene sentido si entra el
-   multi-idioma EN/CA del backlog.
+1. **Unificar i18n del panel tenant** — mezcla de `useTranslations` y textos
+   hardcodeados (toasts, títulos). Esfuerzo grande; solo tiene sentido si entra
+   el multi-idioma EN/CA del backlog.
 
 ## ❌ Falsos positivos descartados (no tocar)
 
 - **Redis `maxmemory-policy noeviction`**: una auditoría sugirió `allkeys-lru` —
   **incorrecto**: con BullMQ la política DEBE ser `noeviction` (desalojar claves
-  pierde jobs). La mejora real es el punto 5 de pendientes (alertar memoria).
+  pierde jobs). La mejora real (alertar memoria) ya está: `RedisMemoryCron` + alerta Grafana (#215).
 - **`useQueryClient()` en deps de `useEffect`**: el cliente es estable entre
   renders (React Query lo garantiza); no es una fuga.
 - **`bg-white` en contenedores de QR** (2FA, acceso del portal): intencionado —
