@@ -321,3 +321,11 @@ export type FollowupStatusValue = z.infer<typeof FollowupStatusEnum>;
 
 export const UpdateCustomerFollowupSchema = z.object({ status: FollowupStatusEnum });
 export type UpdateCustomerFollowupInput = z.infer<typeof UpdateCustomerFollowupSchema>;
+
+/** Cuerpo del webhook de email entrante (correo del inquilino ya parseado). */
+export const EmailInboundSchema = z.object({
+  from: z.string().trim().email().max(320),
+  text: z.string().trim().min(1).max(20000),
+  subject: z.string().trim().max(500).optional(),
+});
+export type EmailInboundInput = z.infer<typeof EmailInboundSchema>;

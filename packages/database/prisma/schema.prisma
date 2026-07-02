@@ -3301,6 +3301,8 @@ model CustomerMessage {
   customerId   String    @map("customer_id") @db.Uuid
   /// "customer" | "staff".
   senderType   String    @map("sender_type")
+  /// Canal de origen: "portal" | "whatsapp" | "email".
+  channel      String    @default("portal")
   /// Usuario del staff que escribió (null si lo escribió el inquilino).
   senderUserId String?   @map("sender_user_id") @db.Uuid
   body         String

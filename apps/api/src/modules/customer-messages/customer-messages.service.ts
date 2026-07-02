@@ -17,6 +17,7 @@ function toDto(row: MessageRow): CustomerMessageDto {
   return {
     id: row.id,
     senderType: row.senderType as CustomerMessageDto['senderType'],
+    channel: (row.channel ?? 'portal') as CustomerMessageDto['channel'],
     senderName: row.sender?.fullName ?? null,
     body: row.body,
     readAt: row.readAt ? row.readAt.toISOString() : null,
@@ -146,19 +147,21 @@ export class CustomerMessagesService {
     tenantId: string,
     customerId: string,
     body: string,
+    channel: 'portal' | 'whatsapp' | 'email' = 'portal',
   ): Promise<CustomerMessageDto> {
     const { name } = await this.assertCustomer(tenantId, customerId);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.customerMessage.create({
-          data: { tenantId, customerId, senderType: 'customer', body },
+          data: { tenantId, customerId, senderType: 'customer', body, channel },
           include: messageInclude,
         }),
       tenantId,
     );
+    const via = channel === 'whatsapp' ? ' (WhatsApp)' : channel === 'email' ? ' (email)' : '';
     await this.notifications.create(tenantId, {
       type: 'customer.message',
-      title: `Mensaje de ${name}`,
+      title: `Mensaje de ${name}${via}`,
       body: body.slice(0, 140),
       link: `/customers/${customerId}`,
     });

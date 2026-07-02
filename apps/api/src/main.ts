@@ -40,6 +40,8 @@ async function bootstrap() {
   // Redsys postea urlencoded (los tests, JSON): raw para ambos y el
   // controller parsea estricto (defensa en profundidad, auditoría 2026-07).
   app.use('/webhooks/redsys', raw({ type: () => true }));
+  // WhatsApp inbound (Meta): raw para verificar la firma X-Hub-Signature-256.
+  app.use('/webhooks/whatsapp', raw({ type: () => true }));
   app.use(cookieParser());
   app.enableCors({
     origin: config.get('ALLOWED_ORIGINS', { infer: true }),

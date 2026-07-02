@@ -42,6 +42,7 @@ import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { FollowupsModule } from './modules/followups/followups.module';
 import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { InboundMessagesModule } from './modules/inbound-messages/inbound-messages.module';
 import { InsuranceModule } from './modules/insurance/insurance.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
@@ -154,6 +155,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FacilitiesModule,
     CustomersModule,
     CustomerMessagesModule,
+    InboundMessagesModule,
     FaqModule,
     ContractsModule,
     QueuesModule,

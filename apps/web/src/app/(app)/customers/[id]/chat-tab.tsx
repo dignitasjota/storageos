@@ -74,6 +74,11 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
                     {m.senderType === 'staff' && m.senderName && (
                       <p className="text-xs font-medium opacity-70">{m.senderName}</p>
                     )}
+                    {m.senderType === 'customer' && m.channel !== 'portal' && (
+                      <p className="text-[10px] font-medium uppercase tracking-wide opacity-60">
+                        vía {m.channel === 'whatsapp' ? 'WhatsApp' : 'email'}
+                      </p>
+                    )}
                     <p className="whitespace-pre-wrap">{m.body}</p>
                     <p className="mt-0.5 text-[10px] opacity-60">
                       {new Date(m.createdAt).toLocaleString('es-ES', {
