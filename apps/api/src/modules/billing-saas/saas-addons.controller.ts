@@ -80,4 +80,20 @@ export class SaasAddonsController {
   ): Promise<TenantBillingSummaryDto> {
     return this.service.remove(id, assignmentId);
   }
+
+  @Post('tenants/:id/addons/:assignmentId/suspend')
+  suspend(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+  ): Promise<TenantBillingSummaryDto> {
+    return this.service.suspend(id, assignmentId);
+  }
+
+  @Post('tenants/:id/addons/:assignmentId/reactivate')
+  reactivate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+  ): Promise<TenantBillingSummaryDto> {
+    return this.service.reactivate(id, assignmentId);
+  }
 }

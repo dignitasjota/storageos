@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  useAddonSuspension,
   useAdminAddons,
   useAssignAddon,
   useRemoveAddon,
@@ -32,7 +33,26 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
   const catalog = useAdminAddons();
   const assign = useAssignAddon(tenantId);
   const remove = useRemoveAddon(tenantId);
+  const suspend = useAddonSuspension(tenantId, 'suspend');
+  const reactivate = useAddonSuspension(tenantId, 'reactivate');
   const [selected, setSelected] = useState<string>('');
+
+  async function doSuspend(id: string) {
+    try {
+      await suspend.mutateAsync(id);
+      toast.success('Add-on suspendido. Su funcionalidad queda desactivada.');
+    } catch {
+      toast.error('No se pudo suspender.');
+    }
+  }
+  async function doReactivate(id: string) {
+    try {
+      await reactivate.mutateAsync(id);
+      toast.success('Add-on reactivado.');
+    } catch {
+      toast.error('No se pudo reactivar.');
+    }
+  }
 
   const assigned = summary.data?.addons ?? [];
   const assignedIds = new Set(assigned.map((a) => a.addonId));
@@ -83,7 +103,13 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                     className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
                   >
                     <div>
-                      <span className="font-medium">{a.name}</span>
+                      <span
+                        className={
+                          a.suspended ? 'font-medium line-through opacity-60' : 'font-medium'
+                        }
+                      >
+                        {a.name}
+                      </span>
                       {a.quantity > 1 && (
                         <span className="ml-1 text-muted-foreground">×{a.quantity}</span>
                       )}
@@ -92,9 +118,41 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                           {a.feature}
                         </Badge>
                       )}
+                      {a.suspended && (
+                        <Badge className="ml-2 bg-amber-500 text-[10px] text-white hover:bg-amber-500">
+                          Suspendido
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">{eur(a.lineTotal)}/mes</span>
+                      <span
+                        className={
+                          a.suspended ? 'text-muted-foreground line-through' : 'font-semibold'
+                        }
+                      >
+                        {eur(a.lineTotal)}/mes
+                      </span>
+                      {a.suspended ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => doReactivate(a.id)}
+                          disabled={reactivate.isPending}
+                        >
+                          Reactivar
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-amber-600 hover:text-amber-700"
+                          onClick={() => doSuspend(a.id)}
+                          disabled={suspend.isPending}
+                        >
+                          Suspender
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

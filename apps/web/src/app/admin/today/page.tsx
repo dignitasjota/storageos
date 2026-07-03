@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAdminToday, useChargeAddon } from '@/lib/admin/hooks';
+import { useAddonSuspension, useAdminToday, useChargeAddon } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number, c = 'EUR') =>
@@ -139,6 +139,7 @@ export default function AdminTodayPage() {
 
 function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
   const chargeAddon = useChargeAddon();
+  const suspend = useAddonSuspension(charge.tenantId, 'suspend');
   const [provider, setProvider] = useState<SaasPaymentProviderValue>('cash');
 
   async function onCharge() {
@@ -147,6 +148,14 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
       toast.success('Cobro registrado. Siguiente cobro en un mes.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar el cobro.');
+    }
+  }
+  async function onSuspend() {
+    try {
+      await suspend.mutateAsync(charge.tenantAddonId);
+      toast.success('Add-on suspendido por impago.');
+    } catch {
+      toast.error('No se pudo suspender.');
     }
   }
 
@@ -177,6 +186,15 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
         </Select>
         <Button size="sm" onClick={onCharge} disabled={chargeAddon.isPending}>
           Registrar cobro
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-amber-600 hover:text-amber-700"
+          onClick={onSuspend}
+          disabled={suspend.isPending}
+        >
+          Suspender
         </Button>
       </div>
     </div>

@@ -114,7 +114,10 @@ export class SaasAddonsService {
     ]);
     const planMonthly = subscription ? num(subscription.plan.priceMonthly) : 0;
     const addonDtos = addons.map((a) => this.toTenantAddonDto(a));
-    const addonsMonthly = round2(addonDtos.reduce((s, a) => s + a.lineTotal, 0));
+    // Los suspendidos se muestran (para reactivarlos) pero NO suman al total.
+    const addonsMonthly = round2(
+      addonDtos.filter((a) => !a.suspended).reduce((s, a) => s + a.lineTotal, 0),
+    );
     return {
       planName: subscription?.plan.name ?? null,
       planMonthly,
@@ -127,7 +130,7 @@ export class SaasAddonsService {
   /** MRR mensual de los add-ons de un tenant (para métricas). */
   async addonsMonthly(tenantId: string): Promise<number> {
     const addons = await this.admin.tenantSubscriptionAddon.findMany({
-      where: { tenantId },
+      where: { tenantId, suspendedAt: null },
       select: { priceMonthly: true, quantity: true },
     });
     return round2(addons.reduce((s, a) => s + num(a.priceMonthly) * a.quantity, 0));
@@ -136,6 +139,7 @@ export class SaasAddonsService {
   /** MRR mensual de los add-ons de TODOS los tenants (para el MRR global). */
   async addonsMonthlyByTenant(): Promise<Map<string, number>> {
     const rows = await this.admin.tenantSubscriptionAddon.findMany({
+      where: { suspendedAt: null },
       select: { tenantId: true, priceMonthly: true, quantity: true },
     });
     const map = new Map<string, number>();
@@ -194,8 +198,14 @@ export class SaasAddonsService {
         // Programa el primer cobro para ya (aparece en la bandeja «Hoy»).
         nextChargeAt: new Date(),
       },
-      // Reasignar NO reinicia el ciclo de cobro (conserva nextChargeAt).
-      update: { priceMonthly: price, quantity: input.quantity, notes: input.notes ?? null },
+      // Reasignar NO reinicia el ciclo de cobro (conserva nextChargeAt); reactiva
+      // si estaba suspendido.
+      update: {
+        priceMonthly: price,
+        quantity: input.quantity,
+        notes: input.notes ?? null,
+        suspendedAt: null,
+      },
     });
     // Activa la feature del add-on (override) si la tiene.
     if (addon.feature && (TenantFeatures as readonly string[]).includes(addon.feature)) {
@@ -219,6 +229,58 @@ export class SaasAddonsService {
     if (row.addon.feature) {
       await this.admin.tenantFeatureOverride.deleteMany({
         where: { tenantId, feature: row.addon.feature, enabled: true },
+      });
+    }
+    return this.billingSummary(tenantId);
+  }
+
+  /**
+   * Suspende un add-on por impago (reversible): desactiva su feature y deja de
+   * contar al MRR y a la capacidad; los datos ya creados NO se tocan. Sale de la
+   * bandeja de cobros del «Hoy».
+   */
+  async suspend(tenantId: string, tenantAddonId: string): Promise<TenantBillingSummaryDto> {
+    const row = await this.admin.tenantSubscriptionAddon.findFirst({
+      where: { id: tenantAddonId, tenantId },
+      include: { addon: { select: { feature: true } } },
+    });
+    if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.suspendedAt) {
+      throw new BadRequestException({ code: 'already_suspended', message: 'Ya está suspendido' });
+    }
+    await this.admin.tenantSubscriptionAddon.update({
+      where: { id: tenantAddonId },
+      data: { suspendedAt: new Date() },
+    });
+    // Desactiva la feature (retira el override → vuelve a depender del plan).
+    if (row.addon.feature) {
+      await this.admin.tenantFeatureOverride.deleteMany({
+        where: { tenantId, feature: row.addon.feature, enabled: true },
+      });
+    }
+    return this.billingSummary(tenantId);
+  }
+
+  /** Reactiva un add-on suspendido: re-activa su feature y su cobro. */
+  async reactivate(tenantId: string, tenantAddonId: string): Promise<TenantBillingSummaryDto> {
+    const row = await this.admin.tenantSubscriptionAddon.findFirst({
+      where: { id: tenantAddonId, tenantId },
+      include: { addon: { select: { feature: true } } },
+    });
+    if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (!row.suspendedAt) {
+      throw new BadRequestException({ code: 'not_suspended', message: 'No está suspendido' });
+    }
+    await this.admin.tenantSubscriptionAddon.update({
+      where: { id: tenantAddonId },
+      data: { suspendedAt: null, nextChargeAt: new Date() },
+    });
+    // Re-activa la feature del add-on (override) si la tiene.
+    if (row.addon.feature && (TenantFeatures as readonly string[]).includes(row.addon.feature)) {
+      await this.admin.tenantFeatureOverride.upsert({
+        where: { tenantId_feature: { tenantId, feature: row.addon.feature } },
+        create: { tenantId, feature: row.addon.feature, enabled: true },
+        update: { enabled: true },
       });
     }
     return this.billingSummary(tenantId);
@@ -271,6 +333,7 @@ export class SaasAddonsService {
     priceMonthly: Prisma.Decimal;
     quantity: number;
     notes: string | null;
+    suspendedAt: Date | null;
     addon: { name: string; slug: string; feature: string | null };
   }): TenantAddonDto {
     const price = num(r.priceMonthly);
@@ -284,6 +347,7 @@ export class SaasAddonsService {
       lineTotal: round2(price * r.quantity),
       feature: r.addon.feature,
       notes: r.notes,
+      suspended: r.suspendedAt !== null,
     };
   }
 }
