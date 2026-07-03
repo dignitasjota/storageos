@@ -4,7 +4,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages } from './helpers/mailpit';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -112,5 +112,54 @@ describe('Admin support actions (e2e)', () => {
       .post(`/admin/tenants/${owner.tenantId}/users/${userId}/revoke-sessions`)
       .send();
     expect(noAuth.status).toBe(401);
+  });
+
+  it('reactivar un usuario cuenta contra maxUsers (403 al topar el plan)', async () => {
+    const owner = await registerVerifiedUser(app, 'reactivate-lim');
+    await setTenantPlan(owner.slug, 'free'); // free: maxUsers = 2
+    const auth = { Authorization: `Bearer ${token}` };
+    const stamp = Math.random().toString(36).slice(2, 8);
+
+    // Segundo usuario ACTIVO → con el owner ya son 2 = tope del plan free.
+    const userB = await adminClient.user.create({
+      data: {
+        tenantId: owner.tenantId,
+        email: `userb-${stamp}@e2e.local`,
+        passwordHash: await argonHash('Secret!23'),
+        fullName: 'User B',
+        role: 'staff',
+        isActive: true,
+        emailVerifiedAt: new Date(),
+      },
+    });
+    // Tercer usuario DESACTIVADO (lo intentaremos reactivar).
+    const userC = await adminClient.user.create({
+      data: {
+        tenantId: owner.tenantId,
+        email: `userc-${stamp}@e2e.local`,
+        passwordHash: await argonHash('Secret!23'),
+        fullName: 'User C',
+        role: 'staff',
+        isActive: false,
+        emailVerifiedAt: new Date(),
+      },
+    });
+
+    // Reactivar userC estando al tope (2 activos) → 403.
+    const blocked = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${userC.id}/reactivate`)
+      .set(auth);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('users_limit_reached');
+
+    // Liberamos un hueco desactivando userB → ahora reactivar userC sí entra.
+    await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${userB.id}/deactivate`)
+      .set(auth)
+      .expect(200);
+    const ok = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${userC.id}/reactivate`)
+      .set(auth);
+    expect(ok.status).toBe(200);
   });
 });

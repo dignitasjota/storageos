@@ -345,9 +345,11 @@ export class SaasAddonsService {
     if (row.suspendedAt) {
       throw new BadRequestException({ code: 'already_suspended', message: 'Ya está suspendido' });
     }
+    // Al suspender se retira de la bandeja de cobros: limpiamos `nextChargeAt`
+    // para no dejar una fecha de cobro residual (reactivar la reprograma).
     await this.admin.tenantSubscriptionAddon.update({
       where: { id: tenantAddonId },
-      data: { suspendedAt: new Date() },
+      data: { suspendedAt: new Date(), nextChargeAt: null },
     });
     await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);

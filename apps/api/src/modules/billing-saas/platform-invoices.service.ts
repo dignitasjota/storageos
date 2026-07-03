@@ -134,7 +134,10 @@ export class PlatformInvoicesService {
     const taxRate = settings.taxRate;
     const base = round2(total / (1 + taxRate / 100));
     const taxAmount = round2(total - base);
-    const series = String((payment.paidAt ?? payment.createdAt).getUTCFullYear());
+    // La serie va por el AÑO DE EMISIÓN de la factura (ahora), no por la fecha
+    // del pago: un pago manual con `paidAt` retroactivo no debe numerarse en la
+    // serie de un año anterior (rompería la secuencia y la coherencia fiscal).
+    const series = String(new Date().getUTCFullYear());
     const tenant = payment.tenant;
 
     // Numeración secuencial atómica por serie (año) + creación de la factura.
