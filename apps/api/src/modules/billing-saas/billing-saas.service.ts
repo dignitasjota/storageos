@@ -370,6 +370,18 @@ export class BillingSaasService {
       this.logger.warn(
         `Webhook saas billing recibido sin tenantId resoluble (subId=${args.stripeSubscriptionId})`,
       );
+      // Divergencia Stripe↔BD: alerta al super admin (best-effort) en vez de
+      // fallar en silencio (Stripe recibe 200 y no reintenta).
+      await this.admin.superAdminNotification
+        .create({
+          data: {
+            type: 'saas_billing.unresolved_webhook',
+            title: 'Webhook de facturación sin tenant',
+            body: `No se pudo resolver el tenant de un webhook de Stripe (sub ${args.stripeSubscriptionId}, customer ${args.stripeCustomerId}). Revisa la suscripción manualmente.`,
+            link: '/admin/tenants',
+          },
+        })
+        .catch(() => undefined);
       return;
     }
 

@@ -104,7 +104,22 @@ export class SaasAddonsService {
 
   async updateAddon(id: string, input: UpsertSaasAddonInput): Promise<SaasAddonDto> {
     this.validateFeature(input.feature);
-    await this.findAddon(id);
+    const current = await this.findAddon(id);
+    // Cambiar la `feature` de un add-on YA asignado dejaría overrides
+    // desincronizados (los tenants perderían/ganarían features sin motivo).
+    const newFeature = input.feature || null;
+    if (newFeature !== current.feature) {
+      const assignments = await this.admin.tenantSubscriptionAddon.count({
+        where: { addonId: id },
+      });
+      if (assignments > 0) {
+        throw new BadRequestException({
+          code: 'addon_feature_locked',
+          message:
+            'No se puede cambiar la feature de un add-on ya asignado a tenants. Crea uno nuevo.',
+        });
+      }
+    }
     const clash = await this.admin.subscriptionAddon.findFirst({
       where: { slug: input.slug, id: { not: id } },
       select: { id: true },

@@ -27,6 +27,7 @@ import {
   type AdminTenantHealthDto,
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
+  type AdminChangePlanPreviewDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
   AdminUpdateTenantSchema,
@@ -540,6 +541,14 @@ export class AdminTenantsController {
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
+  }
+
+  @Get(':id/change-plan-preview')
+  async changePlanPreview(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('planSlug') planSlug: string,
+  ): Promise<AdminChangePlanPreviewDto> {
+    return this.tenants.changePlanPreview(id, planSlug);
   }
 
   @Post(':id/change-plan')
