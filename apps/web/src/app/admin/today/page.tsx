@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, CalendarClock, CreditCard, Loader2 } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CreditCard, Loader2, Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -45,9 +45,11 @@ export default function AdminTodayPage() {
   const nothing =
     data &&
     data.addonCharges.length === 0 &&
+    data.manualRenewalsDue.length === 0 &&
     data.pastDue.length === 0 &&
     data.trialsExpiring.length === 0 &&
-    data.followupsDue.length === 0;
+    data.followupsDue.length === 0 &&
+    data.staleSuspendedAddons.length === 0;
 
   return (
     <div className="space-y-6">
@@ -86,6 +88,29 @@ export default function AdminTodayPage() {
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {/* Renovaciones de pago manual por expirar */}
+      {data && data.manualRenewalsDue.length > 0 && (
+        <SimpleCard
+          title={`Renovaciones manuales por expirar (${data.manualRenewalsDue.length})`}
+          icon={<CalendarClock className="size-4 text-amber-500" />}
+        >
+          {data.manualRenewalsDue.map((r) => (
+            <TenantRow
+              key={r.tenantId}
+              id={r.tenantId}
+              name={r.tenantName}
+              detail={
+                r.daysLeft < 0
+                  ? `Vencida hace ${Math.abs(r.daysLeft)} d`
+                  : r.daysLeft === 0
+                    ? 'Vence hoy'
+                    : `Vence en ${r.daysLeft} d`
+              }
+            />
+          ))}
+        </SimpleCard>
       )}
 
       {/* Pagos fallidos */}
@@ -129,6 +154,23 @@ export default function AdminTodayPage() {
               id={f.tenantId}
               name={f.tenantName ?? '—'}
               detail={`${f.title} · vence ${fmtDate(f.dueDate)}`}
+            />
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Add-ons suspendidos hace mucho (candidatos a quitar) */}
+      {data && data.staleSuspendedAddons.length > 0 && (
+        <SimpleCard
+          title={`Add-ons suspendidos hace tiempo (${data.staleSuspendedAddons.length})`}
+          icon={<Lock className="size-4 text-muted-foreground" />}
+        >
+          {data.staleSuspendedAddons.map((s) => (
+            <TenantRow
+              key={s.tenantAddonId}
+              id={s.tenantId}
+              name={`${s.tenantName} · ${s.addonName}`}
+              detail={`Suspendido hace ${s.daysSuspended} d`}
             />
           ))}
         </SimpleCard>

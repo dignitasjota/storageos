@@ -104,6 +104,46 @@ describe('Admin «Hoy» (e2e)', () => {
     expect(payments.body.some((p: { amount: number }) => p.amount === 12)).toBe(true);
   });
 
+  it('lista renovaciones manuales por expirar y add-ons suspendidos hace tiempo', async () => {
+    const owner = await registerVerifiedUser(app, 'today-renew');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const tenant = await admin.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id;
+
+    // Suscripción de pago manual (sin Stripe) que vence en 3 días.
+    const in3d = new Date(Date.now() + 3 * 24 * 3600 * 1000);
+    await admin.tenantSubscription.update({
+      where: { tenantId },
+      data: { stripeSubscriptionId: null, status: 'active', currentPeriodEnd: in3d },
+    });
+
+    // Add-on suspendido hace 40 días.
+    const assigned = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons`)
+      .set(auth)
+      .send({ addonId, quantity: 1 });
+    const assignmentId = assigned.body.addons[0].id as string;
+    await admin.tenantSubscriptionAddon.update({
+      where: { id: assignmentId },
+      data: { suspendedAt: new Date(Date.now() - 40 * 24 * 3600 * 1000) },
+    });
+
+    const today = await request(app.getHttpServer()).get('/admin/today').set(auth);
+    expect(today.status).toBe(200);
+    const renewal = today.body.manualRenewalsDue.find(
+      (r: { tenantId: string }) => r.tenantId === tenantId,
+    );
+    expect(renewal).toBeTruthy();
+    expect(renewal.daysLeft).toBeGreaterThanOrEqual(2);
+    expect(renewal.daysLeft).toBeLessThanOrEqual(3);
+
+    const stale = today.body.staleSuspendedAddons.find(
+      (s: { tenantId: string }) => s.tenantId === tenantId,
+    );
+    expect(stale).toBeTruthy();
+    expect(stale.daysSuspended).toBeGreaterThanOrEqual(39);
+  });
+
   it('sin token → 401', async () => {
     await request(app.getHttpServer()).get('/admin/today').expect(401);
   });
