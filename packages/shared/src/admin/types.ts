@@ -871,13 +871,36 @@ export interface AdminAddonChargeDueDto {
 }
 
 /** Panel «Hoy» del super admin: acciones pendientes del día. */
+/** Suscripción de pago manual cuyo periodo vence pronto (o ya venció). */
+export interface AdminManualRenewalDueDto {
+  tenantId: string;
+  tenantName: string;
+  currentPeriodEnd: string;
+  /** Días hasta el vencimiento (negativo = ya vencida). */
+  daysLeft: number;
+}
+
+/** Add-on suspendido hace mucho (candidato a quitar definitivamente). */
+export interface AdminStaleSuspendedAddonDto {
+  tenantAddonId: string;
+  tenantId: string;
+  tenantName: string;
+  addonName: string;
+  suspendedAt: string;
+  daysSuspended: number;
+}
+
 export interface AdminTodayDto {
   date: string;
   addonCharges: AdminAddonChargeDueDto[];
+  /** Renovaciones de pago manual que vencen en <=7 dias (Stripe renueva solo). */
+  manualRenewalsDue: AdminManualRenewalDueDto[];
   trialsExpiring: AdminAtRiskTenantDto[];
   pastDue: AdminAtRiskTenantDto[];
   followupsDue: TenantFollowupDto[];
-  /** Nº de acciones accionables hoy (cobros + past_due + seguimientos). */
+  /** Add-ons suspendidos hace >30 dias, candidatos a quitar. */
+  staleSuspendedAddons: AdminStaleSuspendedAddonDto[];
+  /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos). */
   urgentCount: number;
 }
 

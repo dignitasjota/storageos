@@ -6,7 +6,12 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
 
-import type { AdminAddonChargeDueDto, AdminTodayDto } from '@storageos/shared';
+import type {
+  AdminAddonChargeDueDto,
+  AdminManualRenewalDueDto,
+  AdminStaleSuspendedAddonDto,
+  AdminTodayDto,
+} from '@storageos/shared';
 
 /** Suma N meses conservando el fin de mes (evita desbordes de día). */
 function addMonths(date: Date, months: number): Date {
@@ -39,21 +44,76 @@ export class AdminTodayService {
 
   async getToday(): Promise<AdminTodayDto> {
     const now = new Date();
-    const [addonCharges, atRisk, followupsDue] = await Promise.all([
-      this.addonChargesDue(now),
-      this.tenants.getAtRisk(),
-      this.followups.listPending(),
-    ]);
+    const [addonCharges, manualRenewalsDue, staleSuspendedAddons, atRisk, followupsDue] =
+      await Promise.all([
+        this.addonChargesDue(now),
+        this.manualRenewalsDue(now),
+        this.staleSuspendedAddons(now),
+        this.tenants.getAtRisk(),
+        this.followups.listPending(),
+      ]);
 
-    const urgentCount = addonCharges.length + atRisk.pastDue.length + followupsDue.length;
+    const urgentCount =
+      addonCharges.length + manualRenewalsDue.length + atRisk.pastDue.length + followupsDue.length;
     return {
       date: now.toISOString(),
       addonCharges,
+      manualRenewalsDue,
       trialsExpiring: atRisk.trialExpiring,
       pastDue: atRisk.pastDue,
       followupsDue,
+      staleSuspendedAddons,
       urgentCount,
     };
+  }
+
+  /**
+   * Suscripciones de pago MANUAL (sin `stripeSubscriptionId`) cuyo periodo vence
+   * en ≤7 días o ya venció: hay que cobrarlas a mano antes de que caduquen
+   * (las de Stripe se renuevan solas, no necesitan recordatorio).
+   */
+  private async manualRenewalsDue(now: Date): Promise<AdminManualRenewalDueDto[]> {
+    const cutoff = new Date(now.getTime() + 7 * MS_PER_DAY);
+    const rows = await this.admin.tenantSubscription.findMany({
+      where: {
+        stripeSubscriptionId: null,
+        status: 'active',
+        currentPeriodEnd: { lte: cutoff },
+        tenant: { deletedAt: null },
+      },
+      select: { tenantId: true, currentPeriodEnd: true, tenant: { select: { name: true } } },
+      orderBy: { currentPeriodEnd: 'asc' },
+    });
+    return rows.map((r) => ({
+      tenantId: r.tenantId,
+      tenantName: r.tenant.name,
+      currentPeriodEnd: r.currentPeriodEnd.toISOString(),
+      daysLeft: Math.ceil((r.currentPeriodEnd.getTime() - now.getTime()) / MS_PER_DAY),
+    }));
+  }
+
+  /** Add-ons suspendidos hace >30 días: candidatos a quitar definitivamente. */
+  private async staleSuspendedAddons(now: Date): Promise<AdminStaleSuspendedAddonDto[]> {
+    const cutoff = new Date(now.getTime() - 30 * MS_PER_DAY);
+    const rows = await this.admin.tenantSubscriptionAddon.findMany({
+      where: { suspendedAt: { not: null, lt: cutoff }, tenant: { deletedAt: null } },
+      select: {
+        id: true,
+        tenantId: true,
+        suspendedAt: true,
+        addon: { select: { name: true } },
+        tenant: { select: { name: true } },
+      },
+      orderBy: { suspendedAt: 'asc' },
+    });
+    return rows.map((r) => ({
+      tenantAddonId: r.id,
+      tenantId: r.tenantId,
+      tenantName: r.tenant.name,
+      addonName: r.addon.name,
+      suspendedAt: (r.suspendedAt ?? now).toISOString(),
+      daysSuspended: Math.floor((now.getTime() - (r.suspendedAt ?? now).getTime()) / MS_PER_DAY),
+    }));
   }
 
   /**
