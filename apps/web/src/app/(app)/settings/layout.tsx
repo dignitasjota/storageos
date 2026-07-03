@@ -17,6 +17,7 @@ interface NavTab {
     | 'roles'
     | 'profile'
     | 'security'
+    | 'saasBilling'
     | 'billing'
     | 'verifactu'
     | 'widget'
