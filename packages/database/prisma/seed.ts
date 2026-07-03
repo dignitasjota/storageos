@@ -192,6 +192,68 @@ async function seedAuditLogs(args: {
   console.info('  Audit logs iniciales: 3');
 }
 
+/**
+ * Catálogo por defecto de add-ons facturables (cada feature premium como
+ * add-on vendible). Duplicado del `DEFAULT_SAAS_ADDONS` de `@storageos/shared`
+ * (packages/database no depende de shared); mantener en sincronía. Idempotente.
+ */
+async function seedAddons() {
+  const addons = [
+    { slug: 'addon-ai-assistant', name: 'Asistente IA', priceMonthly: 12, feature: 'ai_assistant' },
+    {
+      slug: 'addon-sepa',
+      name: 'Domiciliación SEPA / GoCardless',
+      priceMonthly: 9,
+      feature: 'sepa',
+    },
+    {
+      slug: 'addon-bank-reconciliation',
+      name: 'Conciliación bancaria (N43)',
+      priceMonthly: 6,
+      feature: 'bank_reconciliation',
+    },
+    {
+      slug: 'addon-access-control',
+      name: 'Control de accesos',
+      priceMonthly: 15,
+      feature: 'access_control',
+    },
+    {
+      slug: 'addon-rent-increases',
+      name: 'Subidas de precio a cartera (ECRI)',
+      priceMonthly: 10,
+      feature: 'rent_increases',
+    },
+    { slug: 'addon-insurance', name: 'Gestión de seguros', priceMonthly: 6, feature: 'insurance' },
+    {
+      slug: 'addon-automations',
+      name: 'Automatizaciones',
+      priceMonthly: 8,
+      feature: 'automations',
+    },
+    {
+      slug: 'addon-collections',
+      name: 'Gestión de impagos (overlock)',
+      priceMonthly: 12,
+      feature: 'collections',
+    },
+    {
+      slug: 'addon-custom-domain',
+      name: 'Dominio propio (white-label)',
+      priceMonthly: 15,
+      feature: 'custom_domain',
+    },
+  ];
+  for (const a of addons) {
+    await prisma.subscriptionAddon.upsert({
+      where: { slug: a.slug },
+      update: {},
+      create: { slug: a.slug, name: a.name, priceMonthly: a.priceMonthly, feature: a.feature },
+    });
+  }
+  console.info(`  Add-ons: ${addons.length}`);
+}
+
 async function main() {
   console.info('Seeding StorageOS...');
 
@@ -199,6 +261,7 @@ async function main() {
   if (!plans.starter) {
     throw new Error('Plan "starter" no encontrado tras el upsert');
   }
+  await seedAddons();
 
   const { tenant, subscription, owner } = await seedDemoTenant(plans.starter.id);
 

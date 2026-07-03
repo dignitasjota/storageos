@@ -20,6 +20,7 @@
  */
 import { hash as argonHash } from '@node-rs/argon2';
 import { type Prisma, PrismaClient } from '@storageos/database';
+import { DEFAULT_SAAS_ADDONS } from '@storageos/shared';
 
 const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
   {
@@ -82,6 +83,23 @@ async function main(): Promise<void> {
       });
     }
     console.info(`[bootstrap] planes OK: ${PLANS.map((p) => p.slug).join(', ')}`);
+
+    // Catálogo por defecto de add-ons facturables (idempotente por slug; no
+    // sobrescribe precios/ediciones posteriores del super admin).
+    for (const a of DEFAULT_SAAS_ADDONS) {
+      await prisma.subscriptionAddon.upsert({
+        where: { slug: a.slug },
+        update: {},
+        create: {
+          slug: a.slug,
+          name: a.name,
+          description: a.description,
+          priceMonthly: a.priceMonthly,
+          feature: a.feature,
+        },
+      });
+    }
+    console.info(`[bootstrap] add-ons OK: ${DEFAULT_SAAS_ADDONS.length}`);
 
     const email = process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim();
     const password = process.env.BOOTSTRAP_SUPERADMIN_PASSWORD;
