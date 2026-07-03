@@ -36,6 +36,7 @@ const TABS: NavTab[] = [
   { href: '/settings/roles', labelKey: 'roles', permission: 'settings:manage' },
   { href: '/settings/profile', labelKey: 'profile' },
   { href: '/settings/security', labelKey: 'security', permission: 'settings:manage' },
+  { href: '/settings/saas-billing', labelKey: 'saasBilling', permission: 'billing:configure' },
   { href: '/settings/billing', labelKey: 'billing', permission: 'billing:configure' },
   { href: '/settings/billing/verifactu', labelKey: 'verifactu', permission: 'invoices:manage' },
   { href: '/settings/widget', labelKey: 'widget' },
