@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Check,
   ClipboardList,
+  Lock,
   CreditCard,
   DoorOpen,
   FileSignature,
@@ -346,6 +347,15 @@ export default function TodayPage() {
               href="/leads"
               itemHref={() => '/leads'}
               empty="Ningún lead nuevo sin contactar."
+            />
+            <SectionCard
+              title="Impagos: plazo vencido"
+              icon={Lock}
+              count={data.collectionsDeadlines.count}
+              items={data.collectionsDeadlines.items}
+              href="/collections"
+              itemHref={(it) => `/collections/${it.id}`}
+              empty="Ningún expediente con el plazo vencido."
             />
             <SectionCard
               title="Firmas pendientes"

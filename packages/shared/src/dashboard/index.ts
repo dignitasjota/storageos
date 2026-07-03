@@ -33,6 +33,8 @@ export interface TodayDto {
   signaturesPending: { count: number; items: TodayItemDto[] };
   /** Contratos que vencen en los próximos 30 días (active/ending). */
   contractsEndingSoon: { count: number; items: TodayItemDto[] };
+  /** Expedientes de impago con el plazo del requerimiento vencido (a resolver). */
+  collectionsDeadlines: { count: number; items: TodayItemDto[] };
   /** Reservas pendientes que expiran en los próximos 7 días. */
   reservationsExpiring: { count: number; items: TodayItemDto[] };
   /** Facturas que vencen hoy (issued con dueDate = hoy). */
