@@ -970,3 +970,18 @@ export interface AdminAddonAnalyticsDto {
   tenantsSuspended: number;
   monthlyRevenue: number;
 }
+
+/** Un tenant en trial (para la gestión/conversión de trials). */
+export interface AdminTrialDto {
+  id: string;
+  name: string;
+  slug: string;
+  planName: string | null;
+  trialEndsAt: string | null;
+  /** Días hasta el fin del trial (negativo = ya venció). */
+  daysLeft: number | null;
+  createdAt: string;
+  /** Último login de algún usuario del tenant (null = nunca han accedido). */
+  lastActivityAt: string | null;
+  neverUsed: boolean;
+}

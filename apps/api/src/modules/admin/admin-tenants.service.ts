@@ -34,6 +34,7 @@ import type {
   AdminTenantInvoicingDto,
   AdminTenantUnitDto,
   AdminTenantUserDto,
+  AdminTrialDto,
   TenantFeature,
 } from '@storageos/shared';
 
@@ -238,6 +239,45 @@ export class AdminTenantsService {
       });
 
     return { trialExpiring, pastDue: pastDueList, inactive };
+  }
+
+  /**
+   * Todos los tenants en trial, ordenados por fecha de expiración (los que
+   * antes vencen, primero). Incluye la última actividad del equipo para detectar
+   * los que nunca han usado la plataforma (candidatos que probablemente no
+   * convertirán salvo que se les active).
+   */
+  async listTrials(): Promise<AdminTrialDto[]> {
+    const now = new Date();
+    const trials = await this.admin.tenant.findMany({
+      where: { deletedAt: null, status: 'trial' },
+      include: { subscription: { include: { plan: { select: { name: true } } } } },
+      orderBy: { trialEndsAt: 'asc' },
+    });
+    if (trials.length === 0) return [];
+    const logins = await this.admin.user.groupBy({
+      by: ['tenantId'],
+      _max: { lastLoginAt: true },
+      where: { tenantId: { in: trials.map((t) => t.id) } },
+    });
+    const loginMap = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    return trials.map((t) => {
+      const last = loginMap.get(t.id) ?? null;
+      return {
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        planName: t.subscription?.plan?.name ?? null,
+        trialEndsAt: t.trialEndsAt?.toISOString() ?? null,
+        daysLeft: t.trialEndsAt
+          ? Math.ceil((t.trialEndsAt.getTime() - now.getTime()) / DAY_MS)
+          : null,
+        createdAt: t.createdAt.toISOString(),
+        lastActivityAt: last?.toISOString() ?? null,
+        neverUsed: !last,
+      };
+    });
   }
 
   // --- Health score por tenant -------------------------------------------

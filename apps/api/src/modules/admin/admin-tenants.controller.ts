@@ -28,6 +28,7 @@ import {
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
   type AdminChangePlanPreviewDto,
+  type AdminTrialDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
   AdminUpdateTenantSchema,
@@ -363,6 +364,12 @@ export class AdminTenantsController {
   @Get('at-risk')
   async atRisk(): Promise<AdminAtRiskDto> {
     return this.tenants.getAtRisk();
+  }
+
+  /** Todos los trials, ordenados por expiración (gestión/conversión). */
+  @Get('trials')
+  async trials(): Promise<AdminTrialDto[]> {
+    return this.tenants.listTrials();
   }
 
   /** Health score 0-100 de cada tenant (más urgente primero). */
