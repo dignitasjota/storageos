@@ -75,6 +75,8 @@ export class TodayService {
         incidentsOpen,
         unitChangesPending,
         unreadMessages,
+        collectionsDeadlines,
+        collectionsDeadlinesCount,
       ] = await Promise.all([
         tx.task.findMany({
           where: {
@@ -210,6 +212,24 @@ export class TodayService {
         }),
         tx.unitChangeRequest.count({ where: { status: 'pending' } }),
         tx.customerMessage.count({ where: { senderType: 'customer', readAt: null } }),
+        // Expedientes de impago con el plazo del requerimiento vencido.
+        tx.delinquencyCase.findMany({
+          where: {
+            status: 'final_notice',
+            finalNoticeDeadline: { lte: now },
+            ...(facilityId ? { facilityId } : {}),
+          },
+          orderBy: [{ finalNoticeDeadline: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect, unit: { select: { code: true } } },
+        }),
+        tx.delinquencyCase.count({
+          where: {
+            status: 'final_notice',
+            finalNoticeDeadline: { lte: now },
+            ...(facilityId ? { facilityId } : {}),
+          },
+        }),
       ]);
 
       const totalPending =
@@ -259,7 +279,13 @@ export class TodayService {
       }));
 
       const urgentCount =
-        tasksCount + followupsCount + moveInsCount + moveOutsCount + dueTodayCount + invoicesCount;
+        tasksCount +
+        followupsCount +
+        moveInsCount +
+        moveOutsCount +
+        dueTodayCount +
+        invoicesCount +
+        collectionsDeadlinesCount;
 
       return {
         date: startOfToday.toISOString(),
@@ -288,6 +314,16 @@ export class TodayService {
         },
         invoicesDueToday: { count: dueTodayCount, totalDue: Math.max(0, totalDueToday) },
         invoicesOverdue: { count: invoicesCount, totalPending: Math.max(0, totalPending) },
+        collectionsDeadlines: {
+          count: collectionsDeadlinesCount,
+          items: collectionsDeadlines.map((c) => ({
+            id: c.id,
+            label: customerName(c.customer),
+            detail: c.unit?.code ?? null,
+            date: c.finalNoticeDeadline?.toISOString() ?? null,
+            overdue: true,
+          })),
+        },
         incidentsOpen,
         unitChangesPending,
         unreadMessages,
