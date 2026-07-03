@@ -115,13 +115,12 @@ export class FacilitiesService {
   }
 
   async create(args: CreateArgs): Promise<FacilityDto> {
-    // Enforcement del límite de locales del plan (+ add-ons de capacidad).
-    const currentFacilities = await this.prisma.withTenant(
-      (tx) => tx.facility.count({ where: { deletedAt: null } }),
-      args.tenantId,
-    );
-    await this.limits.assertCanCreate(args.tenantId, 'facilities', currentFacilities);
     const facility = await this.prisma.withTenant(async (tx) => {
+      // Enforcement del límite de locales (+ add-ons) DENTRO de la tx, con un
+      // lock por tenant para que dos altas concurrentes no se salten el tope.
+      await this.limits.lockForCreate(tx, args.tenantId, 'facilities');
+      const currentFacilities = await tx.facility.count({ where: { deletedAt: null } });
+      await this.limits.assertCanCreate(args.tenantId, 'facilities', currentFacilities);
       const slug = await this.freeSlug(
         tx,
         args.tenantId,

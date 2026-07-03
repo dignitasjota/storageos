@@ -134,4 +134,28 @@ describe('Límites de plan + add-ons de capacidad (e2e)', () => {
       .send({ facilityId, unitTypeId, code: 'U-EXTRA', widthM: 2, depthM: 2, heightM: 2 });
     expect(extra.status).toBe(201);
   });
+
+  it('no hay race: altas concurrentes respetan el límite (advisory lock)', async () => {
+    const owner = await registerVerifiedUser(app, 'limit-race');
+    await setTenantPlan(owner.slug, 'free'); // free: maxFacilities = 1
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // 6 altas de local a la vez. El límite es 1 → exactamente 1 debe entrar y el
+    // resto 403: el advisory lock por (tenant, recurso) serializa el
+    // check-then-create y cierra la ventana TOCTOU (sin el lock varias podrían
+    // colarse porque cuentan 0 antes de que ninguna haya creado).
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        request(app.getHttpServer())
+          .post('/facilities')
+          .set(auth)
+          .send({ name: `Race ${i}`, country: 'ES' }),
+      ),
+    );
+    const created = results.filter((r) => r.status === 201);
+    const rejected = results.filter((r) => r.status === 403);
+    expect(created).toHaveLength(1);
+    expect(rejected).toHaveLength(5);
+    expect(rejected[0]!.body.code).toBe('facilities_limit_reached');
+  });
 });

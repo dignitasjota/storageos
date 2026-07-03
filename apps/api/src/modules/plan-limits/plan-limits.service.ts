@@ -2,9 +2,17 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import type { Prisma } from '@storageos/database';
 import type { TenantLimitsDto } from '@storageos/shared';
 
 export type LimitResource = 'units' | 'facilities' | 'users';
+
+/** Clave del advisory lock por recurso (junto al hash del tenant). */
+const LOCK_KEY_BY_RESOURCE: Record<LimitResource, number> = {
+  units: 1,
+  facilities: 2,
+  users: 3,
+};
 
 interface EffectiveLimits {
   units: number | null;
@@ -84,6 +92,25 @@ export class PlanLimitsService {
         details: { resource, limit, current: currentCount },
       });
     }
+  }
+
+  /**
+   * Toma un advisory lock por (tenant, recurso) DENTRO de la transacción de
+   * creación para serializar las creaciones concurrentes del mismo recurso y
+   * cerrar la ventana TOCTOU entre contar el uso y crear (dos requests
+   * simultáneos podrían leer el mismo conteo y ambos superar el límite). El
+   * lock es a nivel de transacción: se libera solo al hacer commit/rollback,
+   * así que el segundo request no cuenta hasta que el primero termina y su
+   * `insert` ya es visible.
+   */
+  async lockForCreate(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    resource: LimitResource,
+  ): Promise<void> {
+    // `hashtext` devuelve int4; el segundo argumento se castea a int4 porque
+    // Prisma envía el number JS como bigint y no existe la firma (int4, int8).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), ${LOCK_KEY_BY_RESOURCE[resource]}::int4)`;
   }
 
   /** Límites + uso actual (para mostrarlos en el panel). */

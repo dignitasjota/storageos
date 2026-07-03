@@ -83,41 +83,46 @@ export class InvitationsService {
       });
     }
 
-    // Enforcement del límite de usuarios del plan (+ add-ons): cuenta usuarios
-    // activos + invitaciones pendientes (para no invitar por encima del tope).
-    const [activeUsers, pendingInvites] = await Promise.all([
-      this.admin.user.count({ where: { tenantId: args.tenantId, isActive: true } }),
-      this.admin.invitation.count({
-        where: { tenantId: args.tenantId, acceptedAt: null, revokedAt: null },
-      }),
-    ]);
-    await this.limits.assertCanCreate(args.tenantId, 'users', activeUsers + pendingInvites);
-
-    // Si ya hay una invitacion pendiente: 409.
-    const pending = await this.admin.invitation.findFirst({
-      where: { tenantId: args.tenantId, email, acceptedAt: null, revokedAt: null },
-    });
-    if (pending) {
-      throw new ConflictException({
-        message: 'Ya hay una invitacion pendiente para ese email',
-        code: 'invitation_pending',
-      });
-    }
-
     const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: args.tenantId } });
     const { secret, tokenHash } = await this.invitationTokens.hashSecret();
     const expiresAt = this.invitationTokens.buildExpiry();
 
-    const record = await this.admin.invitation.create({
-      data: {
-        tenantId: args.tenantId,
-        email,
-        role: args.input.role,
-        invitedByUserId: args.inviterUserId,
-        tokenHash,
-        expiresAt,
-      },
-      include: { invitedBy: true },
+    // Límite de usuarios + creación en una sola transacción con un lock por
+    // tenant, para que dos invitaciones concurrentes no superen el tope del
+    // plan (TOCTOU entre contar y crear). Cuenta usuarios activos +
+    // invitaciones pendientes.
+    const record = await this.admin.$transaction(async (tx) => {
+      await this.limits.lockForCreate(tx, args.tenantId, 'users');
+      const [activeUsers, pendingInvites] = await Promise.all([
+        tx.user.count({ where: { tenantId: args.tenantId, isActive: true } }),
+        tx.invitation.count({
+          where: { tenantId: args.tenantId, acceptedAt: null, revokedAt: null },
+        }),
+      ]);
+      await this.limits.assertCanCreate(args.tenantId, 'users', activeUsers + pendingInvites);
+
+      // Si ya hay una invitacion pendiente para ese email: 409.
+      const pending = await tx.invitation.findFirst({
+        where: { tenantId: args.tenantId, email, acceptedAt: null, revokedAt: null },
+      });
+      if (pending) {
+        throw new ConflictException({
+          message: 'Ya hay una invitacion pendiente para ese email',
+          code: 'invitation_pending',
+        });
+      }
+
+      return tx.invitation.create({
+        data: {
+          tenantId: args.tenantId,
+          email,
+          role: args.input.role,
+          invitedByUserId: args.inviterUserId,
+          tokenHash,
+          expiresAt,
+        },
+        include: { invitedBy: true },
+      });
     });
 
     await this.sendInvitationEmail(

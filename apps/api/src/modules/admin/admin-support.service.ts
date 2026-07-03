@@ -4,6 +4,7 @@ import { AuditService } from '../auth/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { SessionsService } from '../auth/sessions.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
@@ -31,6 +32,7 @@ export class AdminSupportService {
     private readonly superAdminAudit: SuperAdminAuditService,
     private readonly auth: AuthService,
     private readonly sessions: SessionsService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   // ----------------------------------------------------------------- helpers
@@ -195,6 +197,19 @@ export class AdminSupportService {
           message: 'No puedes desactivar al único propietario activo del tenant.',
         });
       }
+    }
+
+    // Reactivar un usuario cuenta contra `maxUsers` igual que invitar/crear uno:
+    // si el tenant ya está en el tope (usuarios activos + invitaciones
+    // pendientes), no se puede reactivar sin ampliar el plan → 403.
+    if (active) {
+      const [activeUsers, pendingInvites] = await Promise.all([
+        this.admin.user.count({ where: { tenantId, isActive: true } }),
+        this.admin.invitation.count({
+          where: { tenantId, acceptedAt: null, revokedAt: null },
+        }),
+      ]);
+      await this.limits.assertCanCreate(tenantId, 'users', activeUsers + pendingInvites);
     }
 
     await this.admin.user.update({ where: { id: userId }, data: { isActive: active } });

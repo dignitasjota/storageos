@@ -146,11 +146,13 @@ export class UnitsService {
     meta: RequestMeta;
   }): Promise<UnitDto> {
     const { tenantId, input } = args;
-    // Enforcement del límite de trasteros del plan (+ add-ons de capacidad).
-    const currentUnits = await this.prisma.withTenant((tx) => tx.unit.count(), tenantId);
-    await this.limits.assertCanCreate(tenantId, 'units', currentUnits);
     // Validar facility, unit_type y resolver floor (crear default si no hay).
     const created = await this.prisma.withTenant(async (tx) => {
+      // Enforcement del límite de trasteros (+ add-ons) DENTRO de la tx, con un
+      // lock por tenant para que dos altas concurrentes no se salten el tope.
+      await this.limits.lockForCreate(tx, tenantId, 'units');
+      const currentUnits = await tx.unit.count();
+      await this.limits.assertCanCreate(tenantId, 'units', currentUnits);
       const facility = await tx.facility.findFirst({
         where: { id: input.facilityId, deletedAt: null },
       });

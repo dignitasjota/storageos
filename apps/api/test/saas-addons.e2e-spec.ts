@@ -157,6 +157,12 @@ describe('SaaS add-ons (e2e)', () => {
     expect(suspended.body.addons).toHaveLength(1);
     expect(suspended.body.addons[0].suspended).toBe(true);
 
+    // Suspender limpia la fecha de cobro (no deja `nextChargeAt` residual).
+    const row = await adminClient.tenantSubscriptionAddon.findUnique({
+      where: { id: assignmentId },
+    });
+    expect(row!.nextChargeAt).toBeNull();
+
     const me2 = await request(app.getHttpServer()).get('/auth/me').set(tenantAuth);
     expect(me2.body.features).not.toContain('ai_assistant');
 
