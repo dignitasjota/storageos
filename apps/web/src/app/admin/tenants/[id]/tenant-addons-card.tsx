@@ -21,12 +21,14 @@ import {
   useAssignAddon,
   useRemoveAddon,
   useTenantBillingSummary,
+  useTenantLimits,
 } from '@/lib/admin/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
   const summary = useTenantBillingSummary(tenantId);
+  const limits = useTenantLimits(tenantId);
   const catalog = useAdminAddons();
   const assign = useAssignAddon(tenantId);
   const remove = useRemoveAddon(tenantId);
@@ -124,6 +126,30 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                 <span>{eur(summary.data?.effectiveMonthly ?? 0)}/mes</span>
               </div>
             </div>
+
+            {/* Uso vs límite (plan + add-ons de capacidad) */}
+            {limits.data && (
+              <div className="flex flex-wrap gap-2 text-xs">
+                {(
+                  [
+                    ['Trasteros', limits.data.units],
+                    ['Locales', limits.data.facilities],
+                    ['Usuarios', limits.data.users],
+                  ] as const
+                ).map(([label, l]) => {
+                  const atLimit = l.limit !== null && l.used >= l.limit;
+                  return (
+                    <span
+                      key={label}
+                      className={`rounded-md border px-2 py-1 ${atLimit ? 'border-amber-400 text-amber-600 dark:text-amber-400' : ''}`}
+                    >
+                      {label}: {l.used}
+                      {l.limit === null ? ' / ∞' : ` / ${l.limit}`}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Añadir */}
             {available.length > 0 && (

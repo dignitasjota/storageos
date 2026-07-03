@@ -23,6 +23,7 @@ import type {
   AssignAddonInput,
   SaasAddonDto,
   TenantBillingSummaryDto,
+  TenantLimitsDto,
   UpsertSaasAddonInput,
   AdminOnboardingDto,
   AdminTenantFeaturesDto,
@@ -779,6 +780,14 @@ export function useTenantBillingSummary(tenantId: string) {
     queryKey: ['admin', 'tenant-billing-summary', tenantId],
     queryFn: () =>
       adminApiFetch<TenantBillingSummaryDto>(`/admin/tenants/${tenantId}/billing-summary`),
+    enabled: Boolean(tenantId),
+  });
+}
+
+export function useTenantLimits(tenantId: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenant-limits', tenantId],
+    queryFn: () => adminApiFetch<TenantLimitsDto>(`/admin/tenants/${tenantId}/limits`),
     enabled: Boolean(tenantId),
   });
 }

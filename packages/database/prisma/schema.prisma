@@ -3726,6 +3726,9 @@ model SubscriptionAddon {
   priceMonthly Decimal  @map("price_monthly") @db.Decimal(12, 2)
   /// Feature que se activa (override) al asignar; null = solo cobra.
   feature      String?
+  grantsUnits      Int?     @map("grants_units")
+  grantsFacilities Int?     @map("grants_facilities")
+  grantsUsers      Int?     @map("grants_users")
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

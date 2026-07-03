@@ -114,7 +114,12 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
   const [description, setDescription] = useState(addon?.description ?? '');
   const [price, setPrice] = useState(String(addon?.priceMonthly ?? 0));
   const [feature, setFeature] = useState(addon?.feature ?? NO_FEATURE);
+  const [grantsUnits, setGrantsUnits] = useState(String(addon?.grantsUnits ?? ''));
+  const [grantsFacilities, setGrantsFacilities] = useState(String(addon?.grantsFacilities ?? ''));
+  const [grantsUsers, setGrantsUsers] = useState(String(addon?.grantsUsers ?? ''));
   const [isActive, setIsActive] = useState(addon?.isActive ?? true);
+
+  const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s) || 0);
 
   async function save() {
     try {
@@ -124,6 +129,9 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
         description: description.trim(),
         priceMonthly: Number(price) || 0,
         feature: feature === NO_FEATURE ? '' : feature,
+        grantsUnits: toNum(grantsUnits),
+        grantsFacilities: toNum(grantsFacilities),
+        grantsUsers: toNum(grantsUsers),
         isActive,
       });
       toast.success('Add-on guardado.');
@@ -178,6 +186,41 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+          <div className="space-y-1 rounded-md border p-3">
+            <p className="text-xs font-medium">Capacidad que aporta (por unidad)</p>
+            <p className="text-xs text-muted-foreground">
+              Amplía los límites del plan. Déjalo vacío si el add-on no aporta capacidad.
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Trasteros</Label>
+                <Input
+                  type="number"
+                  value={grantsUnits}
+                  onChange={(e) => setGrantsUnits(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Locales</Label>
+                <Input
+                  type="number"
+                  value={grantsFacilities}
+                  onChange={(e) => setGrantsFacilities(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Usuarios</Label>
+                <Input
+                  type="number"
+                  value={grantsUsers}
+                  onChange={(e) => setGrantsUsers(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm">

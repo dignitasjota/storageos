@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Facility, Prisma } from '@storageos/database';
@@ -52,6 +53,7 @@ export class FacilitiesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly files: FilesService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   async list(tenantId: string, facilityScope?: string[] | null): Promise<FacilityDto[]> {
@@ -113,6 +115,12 @@ export class FacilitiesService {
   }
 
   async create(args: CreateArgs): Promise<FacilityDto> {
+    // Enforcement del límite de locales del plan (+ add-ons de capacidad).
+    const currentFacilities = await this.prisma.withTenant(
+      (tx) => tx.facility.count({ where: { deletedAt: null } }),
+      args.tenantId,
+    );
+    await this.limits.assertCanCreate(args.tenantId, 'facilities', currentFacilities);
     const facility = await this.prisma.withTenant(async (tx) => {
       const slug = await this.freeSlug(
         tx,

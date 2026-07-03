@@ -16,6 +16,7 @@ import { TokensService } from '../auth/tokens.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { InvitationEmail } from '../email/templates/invitation-email';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 import { SecurityEventsService } from '../security-events/security-events.service';
 
 import { InvitationTokensService } from './invitation-tokens.service';
@@ -48,6 +49,7 @@ export class InvitationsService {
     private readonly email: EmailService,
     private readonly config: ConfigService<Env, true>,
     private readonly securityEvents: SecurityEventsService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   // ============================ list/create ================================
@@ -80,6 +82,16 @@ export class InvitationsService {
         code: 'email_already_user',
       });
     }
+
+    // Enforcement del límite de usuarios del plan (+ add-ons): cuenta usuarios
+    // activos + invitaciones pendientes (para no invitar por encima del tope).
+    const [activeUsers, pendingInvites] = await Promise.all([
+      this.admin.user.count({ where: { tenantId: args.tenantId, isActive: true } }),
+      this.admin.invitation.count({
+        where: { tenantId: args.tenantId, acceptedAt: null, revokedAt: null },
+      }),
+    ]);
+    await this.limits.assertCanCreate(args.tenantId, 'users', activeUsers + pendingInvites);
 
     // Si ya hay una invitacion pendiente: 409.
     const pending = await this.admin.invitation.findFirst({

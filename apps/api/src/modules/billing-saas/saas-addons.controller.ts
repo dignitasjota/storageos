@@ -14,6 +14,7 @@ import {
   UpsertSaasAddonSchema,
   type SaasAddonDto,
   type TenantBillingSummaryDto,
+  type TenantLimitsDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -52,6 +53,11 @@ export class SaasAddonsController {
     @Body() body: UpsertSaasAddonDto,
   ): Promise<SaasAddonDto> {
     return this.service.updateAddon(id, body);
+  }
+
+  @Get('tenants/:id/limits')
+  tenantLimits(@Param('id', new ParseUUIDPipe()) id: string): Promise<TenantLimitsDto> {
+    return this.service.tenantLimits(id);
   }
 
   @Get('tenants/:id/billing-summary')
