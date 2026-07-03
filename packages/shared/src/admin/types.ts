@@ -800,3 +800,38 @@ export interface AdminCustomDomainDto {
   verifiedAt: string | null;
   planSlug: string;
 }
+
+/** Un add-on del catálogo facturable del SaaS. */
+export interface SaasAddonDto {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  priceMonthly: number;
+  feature: string | null;
+  isActive: boolean;
+}
+
+/** Un add-on contratado por un tenant. */
+export interface TenantAddonDto {
+  id: string;
+  addonId: string;
+  name: string;
+  slug: string;
+  priceMonthly: number;
+  quantity: number;
+  /** priceMonthly × quantity. */
+  lineTotal: number;
+  feature: string | null;
+  notes: string | null;
+}
+
+/** Resumen de la facturación efectiva del tenant (plan + add-ons). */
+export interface TenantBillingSummaryDto {
+  planName: string | null;
+  planMonthly: number;
+  addons: TenantAddonDto[];
+  addonsMonthly: number;
+  /** planMonthly + addonsMonthly. */
+  effectiveMonthly: number;
+}
