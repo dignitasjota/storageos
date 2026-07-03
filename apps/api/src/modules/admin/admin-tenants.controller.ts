@@ -34,6 +34,7 @@ import {
   AdminTenantActionSchema,
   AdminUpdateTenantSchema,
   ChangePlanSchema,
+  SuspendTenantSchema,
   UpdateTenantNotesSchema,
   CreateManualSaasPaymentSchema,
   CreateTenantFollowupSchema,
@@ -62,6 +63,7 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 import type { Request } from 'express';
 
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
+class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class UpdateTenantNotesDto extends createZodDto(UpdateTenantNotesSchema) {}
@@ -501,13 +503,14 @@ export class AdminTenantsController {
   async suspend(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() input: AdminTenantActionDto,
+    @Body() input: SuspendTenantDto,
     @Req() req: Request,
   ): Promise<AdminTenantDto> {
     const meta = extractMeta(req);
     return this.tenants.suspend(id, {
       superAdminId: admin.sub,
       reason: input.reason,
+      churnReason: input.churnReason ?? null,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });

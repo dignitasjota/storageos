@@ -7,6 +7,7 @@ import { AdminGuard } from './admin.guard';
 import { MrrSnapshotService } from './mrr-snapshot.service';
 
 import type {
+  AdminChurnByReasonDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
   AdminRetentionDto,
@@ -38,5 +39,12 @@ export class AdminMetricsController {
   async retention(@Query('months') months?: string): Promise<AdminRetentionDto> {
     const n = months ? Number(months) : 12;
     return this.metrics.getRetention(Number.isFinite(n) ? n : 12);
+  }
+
+  /** Churn de tenants agrupado por motivo de baja (capturado o inferido). */
+  @Get('churn-by-reason')
+  async churnByReason(@Query('months') months?: string): Promise<AdminChurnByReasonDto> {
+    const n = months ? Number(months) : 12;
+    return this.metrics.getChurnByReason(Number.isFinite(n) ? n : 12);
   }
 }

@@ -45,11 +45,13 @@ import type {
   AdminBroadcastResultDto,
   AdminEmailTenantInput,
   AdminEmailTenantResultDto,
+  AdminChurnByReasonDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
   AdminRetentionDto,
   AdminSystemHealthDto,
   AdminTenantActionInput,
+  SuspendTenantInput,
   AdminTenantCustomerDto,
   AdminTenantDto,
   AdminUpdateTenantInput,
@@ -348,7 +350,7 @@ export function useAdminTenantFacilityUnits(
 export function useSuspendTenant() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+    mutationFn: (args: { id: string; input: SuspendTenantInput }) =>
       adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/suspend`, {
         method: 'POST',
         json: args.input,
@@ -472,6 +474,15 @@ export function useAdminRetention() {
   return useQuery({
     queryKey: ['admin', 'metrics', 'retention'] as const,
     queryFn: () => adminApiFetch<AdminRetentionDto>('/admin/metrics/retention'),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminChurnByReason(months = 12) {
+  return useQuery({
+    queryKey: ['admin', 'metrics', 'churn-by-reason', months] as const,
+    queryFn: () =>
+      adminApiFetch<AdminChurnByReasonDto>(`/admin/metrics/churn-by-reason?months=${months}`),
     staleTime: 60_000,
   });
 }

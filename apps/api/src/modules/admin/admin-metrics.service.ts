@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import type { AdminMetricsDto, AdminRetentionDto } from '@storageos/shared';
+import type { AdminChurnByReasonDto, AdminMetricsDto, AdminRetentionDto } from '@storageos/shared';
 
 type TenantStatusKey = 'trial' | 'active' | 'suspended' | 'cancelled';
 
@@ -271,5 +271,72 @@ export class AdminMetricsService {
     }
 
     return { maxOffset, cohorts };
+  }
+
+  /**
+   * Churn de tenants agrupado por motivo en la ventana de N meses. El motivo es
+   * el `churnReason` CAPTURADO al suspender/cancelar; si falta (bajas antiguas o
+   * automáticas), se INFIERE: `nonpayment` si la suscripción quedó `past_due`,
+   * `voluntary` si estaba marcada para cancelar a fin de periodo, `unknown` si
+   * no. `lostMrr` = Σ del precio mensual del plan de esos tenants.
+   */
+  async getChurnByReason(months: number): Promise<AdminChurnByReasonDto> {
+    const span = Math.min(Math.max(months, 1), 24);
+    const windowStart = addMonthsUtc(startOfMonthUtc(new Date()), -(span - 1));
+
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ['suspended', 'cancelled'] },
+        // `canceledAt` es fiable; para bajas anteriores a la columna cae a
+        // `updatedAt` (mismo proxy que el resto de métricas).
+        OR: [
+          { canceledAt: { gte: windowStart } },
+          { canceledAt: null, updatedAt: { gte: windowStart } },
+        ],
+      },
+      select: {
+        churnReason: true,
+        subscription: {
+          select: {
+            status: true,
+            cancelAtPeriodEnd: true,
+            plan: { select: { priceMonthly: true } },
+          },
+        },
+      },
+    });
+
+    const acc = new Map<string, { count: number; lostMrr: number; captured: number }>();
+    let totalChurned = 0;
+    let lostMrr = 0;
+    for (const t of tenants) {
+      const captured = Boolean(t.churnReason);
+      let reason = t.churnReason;
+      if (!reason) {
+        if (t.subscription?.status === 'past_due') reason = 'nonpayment';
+        else if (t.subscription?.cancelAtPeriodEnd) reason = 'voluntary';
+        else reason = 'unknown';
+      }
+      const mrr = t.subscription?.plan ? Number(t.subscription.plan.priceMonthly) : 0;
+      const slice = acc.get(reason) ?? { count: 0, lostMrr: 0, captured: 0 };
+      slice.count += 1;
+      slice.lostMrr += mrr;
+      if (captured) slice.captured += 1;
+      acc.set(reason, slice);
+      totalChurned += 1;
+      lostMrr += mrr;
+    }
+
+    const slices = [...acc.entries()]
+      .map(([reason, s]) => ({
+        reason,
+        count: s.count,
+        lostMrr: round2(s.lostMrr),
+        captured: s.captured,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return { months: span, totalChurned, lostMrr: round2(lostMrr), slices };
   }
 }

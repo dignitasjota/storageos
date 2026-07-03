@@ -4,6 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   AdminTenantActionSchema,
   type AdminTenantActionInput,
+  SuspendTenantSchema,
+  type SuspendTenantInput,
   ExtendTrialSchema,
   type ExtendTrialInput,
   ImpersonateSchema,
@@ -51,8 +53,16 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { CHURN_REASONS } from '@/lib/admin/churn';
 import {
   useAdminSubscriptionPlans,
   useAdminTenant,
@@ -343,12 +353,12 @@ function SuspendDialog({
   onClose: () => void;
 }) {
   const suspend = useSuspendTenant();
-  const form = useForm<AdminTenantActionInput>({
-    resolver: zodResolver(AdminTenantActionSchema),
+  const form = useForm<SuspendTenantInput>({
+    resolver: zodResolver(SuspendTenantSchema),
     defaultValues: { reason: '' },
   });
 
-  async function onSubmit(values: AdminTenantActionInput) {
+  async function onSubmit(values: SuspendTenantInput) {
     try {
       await suspend.mutateAsync({ id: tenantId, input: values });
       toast.success('Tenant suspendido.');
@@ -373,12 +383,36 @@ function SuspendDialog({
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
               control={form.control}
+              name="churnReason"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Motivo de baja (churn)</FormLabel>
+                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona un motivo (opcional)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {CHURN_REASONS.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>
+                          {r.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
               name="reason"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Motivo</FormLabel>
+                  <FormLabel>Nota</FormLabel>
                   <FormControl>
-                    <Textarea {...field} rows={3} placeholder="Impago, abuso, ..." />
+                    <Textarea {...field} rows={3} placeholder="Detalle interno de la baja..." />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
