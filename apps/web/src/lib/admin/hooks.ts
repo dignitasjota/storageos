@@ -904,10 +904,13 @@ export function useSyncTenantSaasPayments() {
 export function useAddManualPaymentDeps(tenantId: string) {
   const tenant = useAdminTenant(tenantId);
   const plans = useAdminSubscriptionPlans();
+  const billing = useTenantBillingSummary(tenantId);
   const slug = tenant.data?.subscription?.planSlug ?? null;
   const plan = (plans.data ?? []).find((p) => p.slug === slug) ?? null;
   return {
     planPriceMonthly: plan?.priceMonthly ?? null,
+    /** Importe mensual efectivo (plan + add-ons); para sugerir la duración. */
+    effectiveMonthly: billing.data?.effectiveMonthly ?? null,
     planCurrency: plan?.currency ?? 'EUR',
     periodEnd: tenant.data?.subscription?.currentPeriodEnd ?? null,
     hasStripe: Boolean(tenant.data?.subscription?.stripeSubscriptionId),

@@ -604,6 +604,13 @@ export class BillingSaasService {
     discount?: number | null | undefined;
     currency: string;
     durationMonths: number;
+    /**
+     * `true` (default): pago de la suscripción → extiende el periodo (y acumula
+     * el crédito para no pisarse con Stripe). `false`: cobro puntual (p. ej. un
+     * add-on cobrado en mano de un tenant que paga el plan por Stripe) → NO
+     * toca el periodo; solo registra el ingreso + factura.
+     */
+    extendsPeriod?: boolean;
     paidAt?: Date | null | undefined;
     description?: string | null | undefined;
   }): Promise<TenantSubscriptionPaymentDto> {
@@ -619,6 +626,32 @@ export class BillingSaasService {
     }
 
     const now = new Date();
+    const extendsPeriod = args.extendsPeriod !== false;
+
+    // Cobro puntual (add-on) que NO extiende el periodo: registra el pago sobre
+    // el periodo VIGENTE, sin tocar la suscripción (el periodo lo lleva Stripe).
+    if (!extendsPeriod) {
+      const payment = await this.admin.tenantSubscriptionPayment.create({
+        data: {
+          tenantId: args.tenantId,
+          provider: args.provider,
+          externalId: null,
+          status: 'paid',
+          amount: args.amount,
+          discount: args.discount ?? null,
+          currency: args.currency,
+          planSlug: sub.plan.slug,
+          planName: sub.plan.name,
+          description: args.description ?? null,
+          periodStart: sub.currentPeriodStart,
+          periodEnd: sub.currentPeriodEnd,
+          paidAt: args.paidAt ?? now,
+        },
+      });
+      await this.platformInvoices.issueForPaymentBestEffort(payment.id);
+      return toPaymentDto(payment);
+    }
+
     const base = sub.currentPeriodEnd > now ? sub.currentPeriodEnd : now;
     const newEnd = addMonths(base, args.durationMonths);
     // Días de crédito que aporta este pago: se acumulan para que, si el tenant
