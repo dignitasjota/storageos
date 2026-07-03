@@ -152,4 +152,35 @@ describe('Admin SaaS manual payment (e2e)', () => {
     // El acumulador no se toca en el webhook (crédito permanente).
     expect(after?.manualExtensionDays).toBe(manualDays);
   });
+
+  it('un cobro con extendsPeriod=false NO toca el periodo ni el acumulador', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-noext');
+
+    const before = await adminClient.tenantSubscription.findUnique({
+      where: { tenantId: owner.tenantId },
+    });
+    const periodEndBefore = before!.currentPeriodEnd.getTime();
+    const manualDaysBefore = before!.manualExtensionDays;
+
+    // Cobro puntual de un add-on (15 €), sin extender el periodo.
+    const created = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ provider: 'cash', amount: 15, durationMonths: 1, extendsPeriod: false });
+    expect(created.status).toBe(201);
+    expect(created.body.amount).toBe(15);
+
+    // El pago se registra (sale en el historial)…
+    const list = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/saas-payments`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(list.body).toHaveLength(1);
+
+    // …pero el periodo y el acumulador NO cambian.
+    const after = await adminClient.tenantSubscription.findUnique({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(after!.currentPeriodEnd.getTime()).toBe(periodEndBefore);
+    expect(after!.manualExtensionDays).toBe(manualDaysBefore);
+  });
 });

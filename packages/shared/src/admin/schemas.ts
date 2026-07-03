@@ -222,8 +222,14 @@ export const CreateManualSaasPaymentSchema = z.object({
   /** Descuento aplicado sobre el precio de lista (informativo). */
   discount: z.number().nonnegative().max(1_000_000).optional(),
   currency: z.string().trim().length(3).toUpperCase().default('EUR'),
-  /** Meses que cubre el pago; extiende el periodo de suscripción. */
+  /** Meses que cubre el pago; extiende el periodo (si `extendsPeriod`). */
   durationMonths: z.number().int().min(1).max(36),
+  /**
+   * `true` (default): pago de la suscripción -> extiende el periodo. `false`:
+   * cobro puntual (p. ej. un add-on de un tenant que paga el plan por Stripe) ->
+   * registra el ingreso SIN tocar el periodo.
+   */
+  extendsPeriod: z.boolean().default(true),
   /** Fecha del cobro (ISO). Por defecto, ahora. */
   paidAt: z.string().datetime().optional(),
   description: z.string().trim().max(500).optional(),

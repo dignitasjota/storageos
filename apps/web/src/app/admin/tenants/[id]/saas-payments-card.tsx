@@ -245,7 +245,7 @@ function AddManualPaymentDialog({
   onClose: () => void;
 }) {
   const add = useAddManualSaasPayment(tenantId);
-  const { planPriceMonthly, planCurrency, periodEnd, hasStripe } =
+  const { planPriceMonthly, effectiveMonthly, planCurrency, periodEnd, hasStripe } =
     useAddManualPaymentDeps(tenantId);
 
   const [provider, setProvider] = useState<SaasPaymentProviderValue>('bank_transfer');
@@ -253,17 +253,27 @@ function AddManualPaymentDialog({
   const [discount, setDiscount] = useState('');
   const [durationMonths, setDurationMonths] = useState(1);
   const [durationTouched, setDurationTouched] = useState(false);
+  // Si el tenant paga el plan por Stripe, por defecto NO extendemos el periodo
+  // (el pago manual será típicamente un add-on cobrado aparte).
+  const [extendsPeriod, setExtendsPeriod] = useState(!hasStripe);
+  const [extendsTouched, setExtendsTouched] = useState(false);
   const [paidAt, setPaidAt] = useState('');
   const [description, setDescription] = useState('');
 
   const amountNum = Number(amount) || 0;
 
-  // Propone la duración (importe ÷ precio mensual del plan) mientras el admin
-  // no la haya editado a mano.
+  useEffect(() => {
+    if (!extendsTouched) setExtendsPeriod(!hasStripe);
+  }, [hasStripe, extendsTouched]);
+
+  // Propone la duración (importe ÷ importe mensual EFECTIVO = plan + add-ons)
+  // mientras el admin no la haya editado. Usar el efectivo evita sobrestimar los
+  // meses cuando hay add-ons (dividir por el plan a secas inflaba la duración).
+  const monthlyRef = effectiveMonthly ?? planPriceMonthly;
   const suggested = useMemo(() => {
-    if (!planPriceMonthly || amountNum <= 0) return null;
-    return Math.max(1, Math.round(amountNum / planPriceMonthly));
-  }, [planPriceMonthly, amountNum]);
+    if (!monthlyRef || amountNum <= 0) return null;
+    return Math.max(1, Math.round(amountNum / monthlyRef));
+  }, [monthlyRef, amountNum]);
 
   useEffect(() => {
     if (!durationTouched && suggested) setDurationMonths(suggested);
@@ -275,6 +285,7 @@ function AddManualPaymentDialog({
     setDiscount('');
     setDurationMonths(1);
     setDurationTouched(false);
+    setExtendsTouched(false);
     setPaidAt('');
     setDescription('');
   }
@@ -302,10 +313,15 @@ function AddManualPaymentDialog({
         ...(discountNum > 0 ? { discount: discountNum } : {}),
         currency: planCurrency,
         durationMonths,
+        extendsPeriod,
         ...(paidAt ? { paidAt: new Date(`${paidAt}T12:00:00`).toISOString() } : {}),
         ...(description.trim() ? { description: description.trim() } : {}),
       });
-      toast.success('Pago registrado y periodo extendido.');
+      toast.success(
+        extendsPeriod
+          ? 'Pago registrado y periodo extendido.'
+          : 'Cobro registrado (sin extender el periodo).',
+      );
       close();
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
@@ -379,12 +395,13 @@ function AddManualPaymentDialog({
                 min={1}
                 max={36}
                 value={durationMonths}
+                disabled={!extendsPeriod}
                 onChange={(e) => {
                   setDurationTouched(true);
                   setDurationMonths(Math.max(1, Math.floor(Number(e.target.value) || 1)));
                 }}
               />
-              {suggested && !durationTouched ? (
+              {suggested && !durationTouched && extendsPeriod ? (
                 <p className="text-xs text-muted-foreground">Sugerido por importe: {suggested}.</p>
               ) : null}
             </div>
@@ -402,9 +419,28 @@ function AddManualPaymentDialog({
               />
             </div>
           </div>
+          <label className="flex items-start gap-2 rounded-md border p-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={!extendsPeriod}
+              onChange={(e) => {
+                setExtendsTouched(true);
+                setExtendsPeriod(!e.target.checked);
+              }}
+            />
+            <span>
+              Solo cobro (no extender el periodo)
+              <span className="block text-xs text-muted-foreground">
+                Para un extra/add-on cobrado aparte cuando el tenant ya paga el plan por Stripe.
+              </span>
+            </span>
+          </label>
           <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
-            Periodo actual hasta <span className="font-medium">{fmtDate(periodEnd)}</span> · tras el
-            pago se extiende {durationMonths} mes(es).
+            Periodo actual hasta <span className="font-medium">{fmtDate(periodEnd)}</span>
+            {extendsPeriod
+              ? ` · tras el pago se extiende ${durationMonths} mes(es).`
+              : ' · el pago NO modifica el periodo (solo registra el ingreso + factura).'}
           </p>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={close}>

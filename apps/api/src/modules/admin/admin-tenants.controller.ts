@@ -324,6 +324,7 @@ export class AdminTenantsController {
       discount: input.discount,
       currency: input.currency,
       durationMonths: input.durationMonths,
+      extendsPeriod: input.extendsPeriod,
       ...(input.paidAt ? { paidAt: new Date(input.paidAt) } : {}),
       description: input.description,
     });
