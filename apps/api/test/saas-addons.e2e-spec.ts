@@ -132,15 +132,12 @@ describe('SaaS add-ons (e2e)', () => {
     const tenantAuth = { Authorization: `Bearer ${owner.accessToken}` };
 
     // Crear un add-on con feature y asignarlo → feature activa.
-    const addon = await request(app.getHttpServer())
-      .post('/admin/addons')
-      .set(bearer())
-      .send({
-        slug: 'e2e-suspend-ai',
-        name: 'Asistente IA',
-        priceMonthly: 12,
-        feature: 'ai_assistant',
-      });
+    const addon = await request(app.getHttpServer()).post('/admin/addons').set(bearer()).send({
+      slug: 'e2e-suspend-ai',
+      name: 'Asistente IA',
+      priceMonthly: 12,
+      feature: 'ai_assistant',
+    });
     const assigned = await request(app.getHttpServer())
       .post(`/admin/tenants/${tenantId}/addons`)
       .set(bearer())
@@ -181,6 +178,45 @@ describe('SaaS add-ons (e2e)', () => {
     expect(me3.body.features).toContain('ai_assistant');
 
     await adminClient.subscriptionAddon.deleteMany({ where: { slug: 'e2e-suspend-ai' } });
+  });
+
+  it('el tenant ve el estado de pago pendiente cuando un add-on está suspendido', async () => {
+    const owner = await registerVerifiedUser(app, 'billing-status');
+    const tenant = await adminClient.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id;
+    const tenantAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // Sin nada suspendido → sin aviso.
+    const clean = await request(app.getHttpServer())
+      .get('/settings/billing-status')
+      .set(tenantAuth);
+    expect(clean.status).toBe(200);
+    expect(clean.body.hasIssue).toBe(false);
+
+    // Asignar + suspender un add-on con feature.
+    const addon = await request(app.getHttpServer())
+      .post('/admin/addons')
+      .set(bearer())
+      .send({ slug: 'e2e-bs-ai', name: 'Asistente IA', priceMonthly: 12, feature: 'ai_assistant' });
+    const assigned = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons`)
+      .set(bearer())
+      .send({ addonId: addon.body.id, quantity: 1 });
+    const assignmentId = assigned.body.addons[0].id as string;
+    await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons/${assignmentId}/suspend`)
+      .set(bearer())
+      .expect(201);
+
+    // El tenant ve el aviso + la feature suspendida.
+    const issue = await request(app.getHttpServer())
+      .get('/settings/billing-status')
+      .set(tenantAuth);
+    expect(issue.body.hasIssue).toBe(true);
+    expect(issue.body.suspendedFeatures).toContain('ai_assistant');
+    expect(issue.body.suspendedAddons[0].name).toBe('Asistente IA');
+
+    await adminClient.subscriptionAddon.deleteMany({ where: { slug: 'e2e-bs-ai' } });
   });
 
   it('sin token de super admin → 401', async () => {

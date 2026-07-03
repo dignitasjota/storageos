@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
+import { PaymentAlertBanner } from '@/components/layout/payment-alert-banner';
 import { PlatformBanner } from '@/components/layout/platform-banner';
 import { TrialBanner } from '@/components/layout/trial-banner';
 import { PwaRegister } from '@/components/pwa/pwa-register';
@@ -32,6 +33,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <SidebarInset className="bg-app">
             <AppHeader />
             <PlatformBanner />
+            <PaymentAlertBanner />
             <TrialBanner />
             <div className="flex-1">{children}</div>
           </SidebarInset>

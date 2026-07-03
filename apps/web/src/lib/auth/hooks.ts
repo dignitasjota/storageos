@@ -16,6 +16,7 @@ import type {
   RegisterPendingResponse,
   ResendVerificationInput,
   ResetPasswordInput,
+  TenantBillingStatusDto,
   TenantFeature,
   VerifyEmailInput,
 } from '@storageos/shared';
@@ -190,5 +191,14 @@ export function useLogoutAll() {
       useAuthStore.getState().clear();
       queryClient.removeQueries({ queryKey: meQueryKey });
     },
+  });
+}
+
+/** Estado de cuenta del tenant (pagos pendientes) para el banner y el FeatureGate. */
+export function useBillingStatus() {
+  return useQuery({
+    queryKey: ['billing-status'],
+    queryFn: () => apiFetch<TenantBillingStatusDto>('/settings/billing-status'),
+    refetchInterval: 120_000,
   });
 }

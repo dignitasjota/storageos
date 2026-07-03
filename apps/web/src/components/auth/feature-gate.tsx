@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useFeatures, useMe } from '@/lib/auth/hooks';
+import { useBillingStatus, useFeatures, useMe } from '@/lib/auth/hooks';
 
 /**
  * Gatea una página por **feature del plan del tenant**. Si el plan no la
@@ -24,28 +24,43 @@ export function FeatureGate({
 }) {
   const me = useMe();
   const features = useFeatures();
+  const billing = useBillingStatus();
 
   if (me.isLoading || !me.data) return null;
   if (features.includes(feature)) return <>{children}</>;
+
+  // ¿La feature está suspendida por impago de un add-on? (mensaje específico)
+  const suspendedByPayment = billing.data?.suspendedFeatures.includes(feature) ?? false;
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
       <Card className="max-w-md text-center">
         <CardContent className="flex flex-col items-center gap-4 p-8">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <span
+            className={
+              suspendedByPayment
+                ? 'flex size-14 items-center justify-center rounded-2xl bg-red-500/10 text-red-600 dark:text-red-400'
+                : 'flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary'
+            }
+          >
             <Lock className="size-6" />
           </span>
           <div className="space-y-1">
             <h2 className="text-lg font-semibold tracking-tight">
-              {FEATURE_LABELS[feature]} no está en tu plan
+              {suspendedByPayment
+                ? `${FEATURE_LABELS[feature]} está suspendida`
+                : `${FEATURE_LABELS[feature]} no está en tu plan`}
             </h2>
             <p className="text-sm text-muted-foreground">
-              Este módulo está disponible en un plan superior. Mejora tu plan para desbloquearlo.
+              {suspendedByPayment
+                ? 'Esta funcionalidad está suspendida por un pago pendiente. Regulariza el pago para reactivarla.'
+                : 'Este módulo está disponible en un plan superior. Mejora tu plan para desbloquearlo.'}
             </p>
           </div>
-          <Button asChild>
+          <Button asChild variant={suspendedByPayment ? 'destructive' : 'default'}>
             <Link href="/settings/saas-billing">
-              <Sparkles className="mr-1 h-4 w-4" /> Ver planes
+              <Sparkles className="mr-1 h-4 w-4" />{' '}
+              {suspendedByPayment ? 'Regularizar pago' : 'Ver planes'}
             </Link>
           </Button>
         </CardContent>
