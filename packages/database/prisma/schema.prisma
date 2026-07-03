@@ -3383,6 +3383,10 @@ model TenantSubscriptionPayment {
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
   invoiceUrl  String?   @map("invoice_url")
   pdfUrl      String?   @map("pdf_url")
+  // Rastreo de reintentos de cobro (retry analysis).
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  firstFailedAt  DateTime? @map("first_failed_at") @db.Timestamptz(6)
+  recoveredAt    DateTime? @map("recovered_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -3390,6 +3394,7 @@ model TenantSubscriptionPayment {
   invoice PlatformInvoice?
 
   @@index([tenantId, paidAt])
+  @@index([firstFailedAt])
   @@map("tenant_subscription_payments")
 }
 

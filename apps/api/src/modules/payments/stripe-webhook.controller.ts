@@ -206,11 +206,9 @@ export class StripeWebhookController {
       case 'invoice.payment_failed': {
         const inv = (event.data as { object: StripeInvoiceLike }).object;
         if (inv.subscription) {
-          await this.saasBilling.recordInvoicePaymentFailed({
-            stripeCustomerId: stringId(inv.customer) ?? '',
-            stripeSubscriptionId: stringId(inv.subscription),
-            tenantIdHint: inv.metadata?.tenantId ?? null,
-          });
+          await this.saasBilling.recordInvoicePaymentFailed(
+            inv as unknown as Parameters<typeof this.saasBilling.recordInvoicePaymentFailed>[0],
+          );
         }
         break;
       }

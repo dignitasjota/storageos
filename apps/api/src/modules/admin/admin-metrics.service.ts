@@ -3,7 +3,12 @@ import { Injectable } from '@nestjs/common';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import type { AdminChurnByReasonDto, AdminMetricsDto, AdminRetentionDto } from '@storageos/shared';
+import type {
+  AdminChurnByReasonDto,
+  AdminMetricsDto,
+  AdminPaymentRetryAnalysisDto,
+  AdminRetentionDto,
+} from '@storageos/shared';
 
 type TenantStatusKey = 'trial' | 'active' | 'suspended' | 'cancelled';
 
@@ -338,5 +343,50 @@ export class AdminMetricsService {
       .sort((a, b) => b.count - a.count);
 
     return { months: span, totalChurned, lostMrr: round2(lostMrr), slices };
+  }
+
+  /**
+   * Retry analysis de cobros de la suscripción SaaS: de las facturas de Stripe
+   * que fallaron al menos una vez en la ventana (`firstFailedAt`), cuántas se
+   * acabaron cobrando (`recoveredAt`), la tasa de recuperación, el importe en
+   * riesgo (no recuperado) vs recuperado y los intentos medios.
+   */
+  async getPaymentRetryAnalysis(months: number): Promise<AdminPaymentRetryAnalysisDto> {
+    const span = Math.min(Math.max(months, 1), 24);
+    const windowStart = addMonthsUtc(startOfMonthUtc(new Date()), -(span - 1));
+
+    const rows = await this.admin.tenantSubscriptionPayment.findMany({
+      where: { firstFailedAt: { gte: windowStart } },
+      select: { amount: true, recoveredAt: true, failedAttempts: true },
+    });
+
+    let recovered = 0;
+    let amountRecovered = 0;
+    let stillFailing = 0;
+    let amountAtRisk = 0;
+    let totalAttempts = 0;
+    for (const r of rows) {
+      totalAttempts += r.failedAttempts;
+      const amount = Number(r.amount);
+      if (r.recoveredAt) {
+        recovered += 1;
+        amountRecovered += amount;
+      } else {
+        stillFailing += 1;
+        amountAtRisk += amount;
+      }
+    }
+    const totalFailed = rows.length;
+    return {
+      months: span,
+      totalFailed,
+      recovered,
+      stillFailing,
+      recoveryRatePercent: totalFailed > 0 ? round2((recovered / totalFailed) * 100) : 0,
+      avgAttempts: totalFailed > 0 ? round2(totalAttempts / totalFailed) : 0,
+      amountAtRisk: round2(amountAtRisk),
+      amountRecovered: round2(amountRecovered),
+      currency: 'EUR',
+    };
   }
 }
