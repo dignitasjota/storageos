@@ -10,6 +10,7 @@ import type {
   AdminChurnByReasonDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
+  AdminPaymentRetryAnalysisDto,
   AdminRetentionDto,
 } from '@storageos/shared';
 
@@ -46,5 +47,12 @@ export class AdminMetricsController {
   async churnByReason(@Query('months') months?: string): Promise<AdminChurnByReasonDto> {
     const n = months ? Number(months) : 12;
     return this.metrics.getChurnByReason(Number.isFinite(n) ? n : 12);
+  }
+
+  /** Retry analysis: recuperación de cobros fallidos de la suscripción SaaS. */
+  @Get('payment-retries')
+  async paymentRetries(@Query('months') months?: string): Promise<AdminPaymentRetryAnalysisDto> {
+    const n = months ? Number(months) : 12;
+    return this.metrics.getPaymentRetryAnalysis(Number.isFinite(n) ? n : 12);
   }
 }

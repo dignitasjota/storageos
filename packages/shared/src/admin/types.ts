@@ -1011,3 +1011,25 @@ export interface AdminChurnByReasonDto {
   lostMrr: number;
   slices: AdminChurnReasonSliceDto[];
 }
+
+/**
+ * Análisis de recuperación de cobros fallidos de la suscripción SaaS: de las
+ * facturas que fallaron al menos una vez, cuántas se acabaron cobrando.
+ */
+export interface AdminPaymentRetryAnalysisDto {
+  months: number;
+  /** Facturas que fallaron alguna vez en la ventana. */
+  totalFailed: number;
+  /** De ésas, las que luego se cobraron. */
+  recovered: number;
+  /** Las que siguen sin cobrarse. */
+  stillFailing: number;
+  recoveryRatePercent: number;
+  /** Nº medio de intentos fallidos por factura. */
+  avgAttempts: number;
+  /** Importe pendiente de las no recuperadas. */
+  amountAtRisk: number;
+  /** Importe recuperado (facturas que fallaron y luego se cobraron). */
+  amountRecovered: number;
+  currency: string;
+}

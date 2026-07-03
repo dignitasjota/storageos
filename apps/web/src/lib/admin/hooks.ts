@@ -48,6 +48,7 @@ import type {
   AdminChurnByReasonDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
+  AdminPaymentRetryAnalysisDto,
   AdminRetentionDto,
   AdminSystemHealthDto,
   AdminTenantActionInput,
@@ -483,6 +484,17 @@ export function useAdminChurnByReason(months = 12) {
     queryKey: ['admin', 'metrics', 'churn-by-reason', months] as const,
     queryFn: () =>
       adminApiFetch<AdminChurnByReasonDto>(`/admin/metrics/churn-by-reason?months=${months}`),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminPaymentRetries(months = 12) {
+  return useQuery({
+    queryKey: ['admin', 'metrics', 'payment-retries', months] as const,
+    queryFn: () =>
+      adminApiFetch<AdminPaymentRetryAnalysisDto>(
+        `/admin/metrics/payment-retries?months=${months}`,
+      ),
     staleTime: 60_000,
   });
 }

@@ -446,17 +446,64 @@ export class BillingSaasService {
    * No cambiamos status si Stripe no nos lo dice — solo loggeamos y
    * delegamos en `customer.subscription.updated` que llega justo despues.
    */
-  async recordInvoicePaymentFailed(args: {
-    stripeCustomerId: string;
-    stripeSubscriptionId: string | null;
-    tenantIdHint: string | null;
-  }): Promise<void> {
+  async recordInvoicePaymentFailed(invoice: StripeInvoice): Promise<void> {
+    const customerId =
+      typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
     const tenantId = await this.resolveTenantId({
-      tenantIdHint: args.tenantIdHint,
-      stripeSubscriptionId: args.stripeSubscriptionId ?? '',
-      stripeCustomerId: args.stripeCustomerId,
+      tenantIdHint: invoice.metadata?.tenantId ?? null,
+      stripeSubscriptionId: '',
+      stripeCustomerId: customerId ?? '',
     });
-    if (!tenantId) return;
+    if (!tenantId) {
+      this.logger.warn(`invoice.payment_failed sin tenant resoluble (invoice=${invoice.id})`);
+      return;
+    }
+
+    // Persistimos el fallo (upsert por external_id) con el contador de intentos:
+    // así el «retry analysis» puede medir la tasa de recuperación. Al cobrarse
+    // luego, `recordStripeInvoice` marca `recoveredAt` sobre esta misma fila.
+    const externalId = invoice.id ?? null;
+    const line = invoice.lines?.data?.[0];
+    const amountCents = invoice.amount_due || invoice.total || 0;
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      include: { plan: { select: { slug: true, name: true } } },
+    });
+    const existing = externalId
+      ? await this.admin.tenantSubscriptionPayment.findFirst({
+          where: { provider: 'stripe', externalId },
+          select: { id: true, firstFailedAt: true, failedAttempts: true },
+        })
+      : null;
+    if (existing) {
+      await this.admin.tenantSubscriptionPayment.update({
+        where: { id: existing.id },
+        data: {
+          status: 'failed',
+          failedAttempts: existing.failedAttempts + 1,
+          firstFailedAt: existing.firstFailedAt ?? new Date(),
+          recoveredAt: null,
+        },
+      });
+    } else {
+      await this.admin.tenantSubscriptionPayment.create({
+        data: {
+          tenantId,
+          provider: 'stripe',
+          externalId,
+          status: 'failed',
+          failedAttempts: 1,
+          firstFailedAt: new Date(),
+          amount: amountCents / 100,
+          currency: (invoice.currency ?? 'eur').toUpperCase(),
+          planSlug: sub?.plan?.slug ?? null,
+          planName: sub?.plan?.name ?? null,
+          periodStart: unixToDate(line?.period?.start) ?? unixToDate(invoice.period_start),
+          periodEnd: unixToDate(line?.period?.end) ?? unixToDate(invoice.period_end),
+        },
+      });
+    }
+
     await this.audit.write({
       tenantId,
       userId: null,
@@ -464,8 +511,8 @@ export class BillingSaasService {
       entityType: 'TenantSubscription',
       entityId: null,
       changes: {
-        stripeCustomerId: args.stripeCustomerId,
-        ...(args.stripeSubscriptionId ? { stripeSubscriptionId: args.stripeSubscriptionId } : {}),
+        stripeCustomerId: customerId ?? null,
+        ...(externalId ? { invoiceId: externalId } : {}),
       },
       ipAddress: null,
       userAgent: null,
@@ -811,10 +858,19 @@ export class BillingSaasService {
 
     const existing = await this.admin.tenantSubscriptionPayment.findFirst({
       where: { provider: 'stripe', externalId },
-      select: { id: true },
+      select: { id: true, firstFailedAt: true, recoveredAt: true },
     });
     if (existing) {
-      await this.admin.tenantSubscriptionPayment.update({ where: { id: existing.id }, data });
+      // Si esta factura había fallado antes y ahora se cobra, marca la
+      // recuperación (para el retry analysis).
+      const recovered =
+        data.status === 'paid' && existing.firstFailedAt && !existing.recoveredAt
+          ? { recoveredAt: new Date() }
+          : {};
+      await this.admin.tenantSubscriptionPayment.update({
+        where: { id: existing.id },
+        data: { ...data, ...recovered },
+      });
       return;
     }
     try {
