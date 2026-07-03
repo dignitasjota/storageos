@@ -14,6 +14,7 @@ import {
   Globe,
   Gauge,
   HeartPulse,
+  Hourglass,
   Layers,
   LifeBuoy,
   LogOut,
@@ -91,6 +92,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/health', label: 'Salud', icon: HeartPulse },
       { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
       { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
+      { href: '/admin/trials', label: 'Trials', icon: Hourglass },
     ],
   },
   {

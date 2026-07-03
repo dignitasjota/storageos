@@ -5,6 +5,7 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AdminAddonAnalyticsDto,
+  AdminTrialDto,
   AdminChangePlanPreviewDto,
   AdminFinanceOverviewDto,
   PlatformBillingSettingsDto,
@@ -380,6 +381,7 @@ export function useExtendTrial() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'trials'] });
     },
   });
 }
@@ -1401,5 +1403,13 @@ export function useAddonAnalytics() {
   return useQuery({
     queryKey: ['admin', 'addon-analytics'],
     queryFn: () => adminApiFetch<AdminAddonAnalyticsDto[]>('/admin/addons/analytics'),
+  });
+}
+
+export function useAdminTrials() {
+  return useQuery({
+    queryKey: ['admin', 'trials'],
+    queryFn: () => adminApiFetch<AdminTrialDto[]>('/admin/tenants/trials'),
+    refetchInterval: 60_000,
   });
 }
