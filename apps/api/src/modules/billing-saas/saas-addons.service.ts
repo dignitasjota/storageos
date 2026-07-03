@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { TenantFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { Prisma } from '@storageos/database';
 import type {
@@ -9,6 +10,7 @@ import type {
   SaasAddonDto,
   TenantAddonDto,
   TenantBillingSummaryDto,
+  TenantLimitsDto,
   UpsertSaasAddonInput,
 } from '@storageos/shared';
 
@@ -24,7 +26,20 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  */
 @Injectable()
 export class SaasAddonsService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly limits: PlanLimitsService,
+  ) {}
+
+  /** Límites del plan (+ add-ons de capacidad) y uso actual del tenant. */
+  async tenantLimits(tenantId: string): Promise<TenantLimitsDto> {
+    const [units, facilities, users] = await Promise.all([
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+    ]);
+    return this.limits.getUsage(tenantId, { units, facilities, users });
+  }
 
   // ---- catálogo ----
 
@@ -48,6 +63,9 @@ export class SaasAddonsService {
         description: input.description || null,
         priceMonthly: input.priceMonthly,
         feature: input.feature || null,
+        grantsUnits: input.grantsUnits ?? null,
+        grantsFacilities: input.grantsFacilities ?? null,
+        grantsUsers: input.grantsUsers ?? null,
         isActive: input.isActive,
       },
     });
@@ -70,6 +88,9 @@ export class SaasAddonsService {
         description: input.description || null,
         priceMonthly: input.priceMonthly,
         feature: input.feature || null,
+        grantsUnits: input.grantsUnits ?? null,
+        grantsFacilities: input.grantsFacilities ?? null,
+        grantsUsers: input.grantsUsers ?? null,
         isActive: input.isActive,
       },
     });
@@ -187,6 +208,9 @@ export class SaasAddonsService {
     description: string | null;
     priceMonthly: Prisma.Decimal;
     feature: string | null;
+    grantsUnits: number | null;
+    grantsFacilities: number | null;
+    grantsUsers: number | null;
     isActive: boolean;
   }): SaasAddonDto {
     return {
@@ -196,6 +220,9 @@ export class SaasAddonsService {
       description: r.description,
       priceMonthly: num(r.priceMonthly),
       feature: r.feature,
+      grantsUnits: r.grantsUnits,
+      grantsFacilities: r.grantsFacilities,
+      grantsUsers: r.grantsUsers,
       isActive: r.isActive,
     };
   }

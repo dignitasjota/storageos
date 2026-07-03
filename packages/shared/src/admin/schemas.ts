@@ -386,6 +386,10 @@ export const UpsertSaasAddonSchema = z.object({
   priceMonthly: z.number().min(0).max(100000),
   /** Feature que activa al asignar (slug de TenantFeature); '' = ninguna. */
   feature: z.string().trim().max(60).optional().or(z.literal('')),
+  /** Capacidad que aporta el add-on (por unidad de quantity); amplía los límites del plan. */
+  grantsUnits: z.number().int().min(0).max(100000).optional().nullable(),
+  grantsFacilities: z.number().int().min(0).max(1000).optional().nullable(),
+  grantsUsers: z.number().int().min(0).max(1000).optional().nullable(),
   isActive: z.boolean().default(true),
 });
 export type UpsertSaasAddonInput = z.infer<typeof UpsertSaasAddonSchema>;

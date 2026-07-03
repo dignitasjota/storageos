@@ -809,6 +809,9 @@ export interface SaasAddonDto {
   description: string | null;
   priceMonthly: number;
   feature: string | null;
+  grantsUnits: number | null;
+  grantsFacilities: number | null;
+  grantsUsers: number | null;
   isActive: boolean;
 }
 
@@ -834,4 +837,11 @@ export interface TenantBillingSummaryDto {
   addonsMonthly: number;
   /** planMonthly + addonsMonthly. */
   effectiveMonthly: number;
+}
+
+/** Límites efectivos del tenant (plan + add-ons de capacidad; null = ilimitado) con el uso actual. */
+export interface TenantLimitsDto {
+  units: { limit: number | null; used: number };
+  facilities: { limit: number | null; used: number };
+  users: { limit: number | null; used: number };
 }

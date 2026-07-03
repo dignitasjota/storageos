@@ -8,6 +8,7 @@ import {
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import { FacilityFloorsService } from './facility-floors.service';
 
@@ -59,6 +60,7 @@ export class UnitsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly floors: FacilityFloorsService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   async list(
@@ -144,6 +146,9 @@ export class UnitsService {
     meta: RequestMeta;
   }): Promise<UnitDto> {
     const { tenantId, input } = args;
+    // Enforcement del límite de trasteros del plan (+ add-ons de capacidad).
+    const currentUnits = await this.prisma.withTenant((tx) => tx.unit.count(), tenantId);
+    await this.limits.assertCanCreate(tenantId, 'units', currentUnits);
     // Validar facility, unit_type y resolver floor (crear default si no hay).
     const created = await this.prisma.withTenant(async (tx) => {
       const facility = await tx.facility.findFirst({
