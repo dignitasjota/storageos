@@ -57,6 +57,7 @@ import {
   useAdminTenant,
   useAnonymizeTenant,
   useChangePlan,
+  useChangePlanPreview,
   useExtendTrial,
   useImpersonateTenant,
   useReactivateTenant,
@@ -746,6 +747,9 @@ function ChangePlanControl({
   const change = useChangePlan();
   const [slug, setSlug] = useState(currentSlug ?? '');
   const [reason, setReason] = useState('');
+  const changing = Boolean(slug) && slug !== currentSlug;
+  const preview = useChangePlanPreview(tenantId, slug, changing);
+  const eurFmt = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
   async function submit() {
     if (!slug || slug === currentSlug) {
@@ -791,6 +795,46 @@ function ChangePlanControl({
           Cambiar
         </Button>
       </div>
+
+      {/* Preview del impacto del cambio de plan */}
+      {changing && preview.data && (
+        <div className="space-y-1.5 rounded-md border p-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">
+              {preview.data.currentPlanName} → {preview.data.newPlanName}
+            </span>
+            <span
+              className={
+                preview.data.priceDelta > 0
+                  ? 'font-medium text-emerald-600 dark:text-emerald-400'
+                  : preview.data.priceDelta < 0
+                    ? 'font-medium text-amber-600 dark:text-amber-400'
+                    : 'text-muted-foreground'
+              }
+            >
+              {preview.data.priceDelta >= 0 ? '+' : ''}
+              {eurFmt(preview.data.priceDelta)}/mes
+            </span>
+          </div>
+          {!preview.data.newPlanActive && (
+            <p className="text-red-600 dark:text-red-400">⚠ El plan destino está desactivado.</p>
+          )}
+          {preview.data.redundantAddons.length > 0 && (
+            <p className="text-amber-600 dark:text-amber-400">
+              ⚠ Add-ons redundantes (su feature ya la incluye el plan nuevo):{' '}
+              {preview.data.redundantAddons.map((a) => a.name).join(', ')}.
+            </p>
+          )}
+          {preview.data.overLimits.length > 0 && (
+            <p className="text-amber-600 dark:text-amber-400">
+              ⚠ Uso por encima del plan nuevo:{' '}
+              {preview.data.overLimits.map((l) => `${l.resource} ${l.used}/${l.limit}`).join(', ')}.
+              El tenant conservará lo que tiene pero no podrá crear más.
+            </p>
+          )}
+        </div>
+      )}
+
       <p className="text-xs text-muted-foreground">
         Controla qué módulos premium ve el tenant (free / starter / pro).
       </p>

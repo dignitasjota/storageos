@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminChangePlanPreviewDto,
   PlatformBillingSettingsDto,
   PlatformInvoiceDto,
   UpdatePlatformBillingSettingsInput,
@@ -400,6 +401,18 @@ export function useChangePlan() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
     },
+  });
+}
+
+/** Impacto (sin aplicar) de cambiar de plan: delta de precio, add-ons redundantes, over-límites. */
+export function useChangePlanPreview(tenantId: string, planSlug: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['admin', 'change-plan-preview', tenantId, planSlug],
+    queryFn: () =>
+      adminApiFetch<AdminChangePlanPreviewDto>(
+        `/admin/tenants/${tenantId}/change-plan-preview?planSlug=${encodeURIComponent(planSlug)}`,
+      ),
+    enabled: enabled && Boolean(planSlug),
   });
 }
 

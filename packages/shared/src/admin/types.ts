@@ -892,3 +892,19 @@ export interface TenantBillingStatusDto {
   /** Hay algo pendiente de pagar (plan o algún add-on). */
   hasIssue: boolean;
 }
+
+/** Impacto (sin aplicar) de cambiar el plan de un tenant. */
+export interface AdminChangePlanPreviewDto {
+  currentPlanName: string;
+  currentPriceMonthly: number;
+  newPlanName: string;
+  newPriceMonthly: number;
+  /** newPrice − currentPrice (negativo = más barato). */
+  priceDelta: number;
+  isDowngrade: boolean;
+  newPlanActive: boolean;
+  /** Add-ons cuya feature ya incluye el plan nuevo (pago redundante). */
+  redundantAddons: { name: string; feature: string }[];
+  /** Recursos cuyo uso supera el límite del plan nuevo. */
+  overLimits: { resource: string; used: number; limit: number }[];
+}

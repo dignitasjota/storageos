@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 import {
   FEATURE_LABELS,
@@ -27,6 +27,7 @@ import type {
   AdminTenantDto,
   AdminTenantFacilityDto,
   AdminTenantFeaturesDto,
+  AdminChangePlanPreviewDto,
   AdminTenantHealthDto,
   AdminTenantHealthFactorDto,
   AdminTenantHealthLevel,
@@ -1206,6 +1207,12 @@ export class AdminTenantsService {
     if (!plan) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
     }
+    if (!plan.isActive) {
+      throw new BadRequestException({
+        code: 'plan_not_active',
+        message: 'Ese plan está desactivado; no se puede asignar.',
+      });
+    }
     const subscription = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
       include: { plan: true },
@@ -1243,6 +1250,62 @@ export class AdminTenantsService {
       changes,
     });
     return this.detail(tenantId);
+  }
+
+  /**
+   * Impacto de cambiar de plan, SIN aplicar nada: delta de precio, add-ons que
+   * quedarían redundantes (su feature ya la incluye el plan nuevo) y recursos
+   * cuyo uso superaría los límites del plan nuevo.
+   */
+  async changePlanPreview(tenantId: string, planSlug: string): Promise<AdminChangePlanPreviewDto> {
+    await this.findOrThrow(tenantId);
+    const [newPlan, subscription, units, facilities, users, addons] = await Promise.all([
+      this.admin.subscriptionPlan.findUnique({ where: { slug: planSlug } }),
+      this.admin.tenantSubscription.findUnique({ where: { tenantId }, include: { plan: true } }),
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { tenantId, suspendedAt: null },
+        include: { addon: { select: { name: true, feature: true } } },
+      }),
+    ]);
+    if (!newPlan) {
+      throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
+    }
+    if (!subscription) {
+      throw new NotFoundException({
+        code: 'subscription_not_found',
+        message: 'Suscripcion no encontrada',
+      });
+    }
+
+    const newFeatures = new Set<string>(resolvePlanFeatures(newPlan));
+    const redundantAddons = addons
+      .filter((a) => a.addon.feature && newFeatures.has(a.addon.feature))
+      .map((a) => ({ name: a.addon.name, feature: a.addon.feature as string }));
+
+    const overLimits: { resource: string; used: number; limit: number }[] = [];
+    const check = (resource: string, used: number, limit: number | null) => {
+      if (limit !== null && used > limit) overLimits.push({ resource, used, limit });
+    };
+    check('units', units, newPlan.maxUnits);
+    check('facilities', facilities, newPlan.maxFacilities);
+    check('users', users, newPlan.maxUsers);
+
+    const currentPrice = Number(subscription.plan.priceMonthly);
+    const newPrice = Number(newPlan.priceMonthly);
+    return {
+      currentPlanName: subscription.plan.name,
+      currentPriceMonthly: currentPrice,
+      newPlanName: newPlan.name,
+      newPriceMonthly: newPrice,
+      priceDelta: Math.round((newPrice - currentPrice) * 100) / 100,
+      isDowngrade: newPrice < currentPrice,
+      newPlanActive: newPlan.isActive,
+      redundantAddons,
+      overLimits,
+    };
   }
 
   /**
