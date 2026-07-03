@@ -58,9 +58,9 @@ export function FeatureGate({
             </p>
           </div>
           <Button asChild variant={suspendedByPayment ? 'destructive' : 'default'}>
-            <Link href="/settings/saas-billing">
+            <Link href={suspendedByPayment ? '/support' : '/settings/saas-billing'}>
               <Sparkles className="mr-1 h-4 w-4" />{' '}
-              {suspendedByPayment ? 'Regularizar pago' : 'Ver planes'}
+              {suspendedByPayment ? 'Contactar para regularizar' : 'Ver planes'}
             </Link>
           </Button>
         </CardContent>
