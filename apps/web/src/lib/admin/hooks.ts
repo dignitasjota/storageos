@@ -5,6 +5,7 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AdminChangePlanPreviewDto,
+  AdminFinanceOverviewDto,
   PlatformBillingSettingsDto,
   PlatformInvoiceDto,
   UpdatePlatformBillingSettingsInput,
@@ -1384,5 +1385,13 @@ export function useChargeAddon() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
+  });
+}
+
+export function useAdminFinance(months = 12) {
+  return useQuery({
+    queryKey: ['admin', 'finance', months],
+    queryFn: () => adminApiFetch<AdminFinanceOverviewDto>(`/admin/finance?months=${months}`),
+    refetchInterval: 60_000,
   });
 }

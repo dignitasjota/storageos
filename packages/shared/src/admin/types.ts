@@ -931,3 +931,29 @@ export interface AdminChangePlanPreviewDto {
   /** Recursos cuyo uso supera el límite del plan nuevo. */
   overLimits: { resource: string; used: number; limit: number }[];
 }
+
+/** Dashboard financiero del SaaS: ingresos por fuente + serie mensual. */
+export interface AdminFinanceProviderSliceDto {
+  provider: string;
+  total: number;
+  count: number;
+}
+export interface AdminFinanceMonthDto {
+  month: string;
+  stripe: number;
+  manual: number;
+  total: number;
+}
+export interface AdminFinanceOverviewDto {
+  currency: string;
+  /** Cobrado total en el periodo (Stripe + manual). */
+  collectedTotal: number;
+  stripeTotal: number;
+  manualTotal: number;
+  /** MRR actual de los add-ons (todos los tenants). */
+  addonsMrr: number;
+  /** Facturado (platform_invoices) en el periodo, para reconciliar. */
+  invoicedTotal: number;
+  byProvider: AdminFinanceProviderSliceDto[];
+  monthly: AdminFinanceMonthDto[];
+}
