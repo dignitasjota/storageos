@@ -3,15 +3,19 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import type { PlatformInvoiceDto } from '@storageos/shared';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { adminApiFetch } from '@/lib/admin/api';
 import {
   useAdminPlatformBillingSettings,
   useUpdatePlatformBillingSettings,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { downloadCsv } from '@/lib/csv';
 
 type Form = {
   legalName: string;
@@ -154,6 +158,92 @@ export default function PlatformBillingPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ExportInvoicesCard />
     </div>
+  );
+}
+
+/** Export contable (CSV) de las facturas SaaS emitidas, con rango de fechas opcional. */
+function ExportInvoicesCard() {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function onExport() {
+    setBusy(true);
+    try {
+      const qs = new URLSearchParams();
+      if (from) qs.set('from', from);
+      if (to) qs.set('to', to);
+      const rows = await adminApiFetch<PlatformInvoiceDto[]>(
+        `/admin/platform-invoices${qs.toString() ? `?${qs.toString()}` : ''}`,
+      );
+      if (rows.length === 0) {
+        toast.error('No hay facturas en ese rango.');
+        return;
+      }
+      const csv: (string | number)[][] = [
+        [
+          'Nº factura',
+          'Fecha',
+          'Tenant',
+          'NIF',
+          'Plan',
+          'Base',
+          'IVA %',
+          'Cuota IVA',
+          'Total',
+          'Divisa',
+          'Estado',
+        ],
+        ...rows.map((r) => [
+          r.fullNumber,
+          new Date(r.issuedAt).toLocaleDateString('es-ES'),
+          r.tenantName,
+          r.tenantTaxId ?? '',
+          r.planName ?? '',
+          r.baseAmount,
+          r.taxRate,
+          r.taxAmount,
+          r.total,
+          r.currency,
+          r.status,
+        ]),
+      ];
+      downloadCsv(`facturas-saas-${from || 'inicio'}_${to || 'hoy'}.csv`, csv);
+      toast.success(`${rows.length} factura(s) exportadas.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Export contable</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Descarga las facturas de suscripción emitidas en CSV (Excel) para tu gestor. Deja las
+          fechas vacías para exportarlas todas.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Desde</Label>
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Hasta</Label>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <Button variant="outline" onClick={onExport} disabled={busy}>
+            {busy ? 'Exportando…' : 'Exportar CSV'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

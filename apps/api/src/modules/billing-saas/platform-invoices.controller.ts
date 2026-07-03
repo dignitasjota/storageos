@@ -1,4 +1,5 @@
 import {
+  Query,
   Body,
   Controller,
   Get,
@@ -46,6 +47,12 @@ export class PlatformInvoicesController {
   @Get('tenants/:id/platform-invoices')
   listForTenant(@Param('id', new ParseUUIDPipe()) id: string): Promise<PlatformInvoiceDto[]> {
     return this.service.listForTenant(id);
+  }
+
+  /** Todas las facturas SaaS (para el export contable). Antes de las rutas `:id`. */
+  @Get('platform-invoices')
+  listAll(@Query('from') from?: string, @Query('to') to?: string): Promise<PlatformInvoiceDto[]> {
+    return this.service.listAll(from, to);
   }
 
   @Post('platform-invoices/issue')

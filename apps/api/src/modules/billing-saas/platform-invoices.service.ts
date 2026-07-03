@@ -92,6 +92,18 @@ export class PlatformInvoicesService {
     return rows.map((r) => this.invoiceToDto(r));
   }
 
+  /** Todas las facturas SaaS (cross-tenant) por fecha de emisión, para el export contable. */
+  async listAll(from?: string, to?: string): Promise<PlatformInvoiceDto[]> {
+    const issuedAt: { gte?: Date; lte?: Date } = {};
+    if (from) issuedAt.gte = new Date(`${from}T00:00:00.000Z`);
+    if (to) issuedAt.lte = new Date(`${to}T23:59:59.999Z`);
+    const rows = await this.admin.platformInvoice.findMany({
+      where: Object.keys(issuedAt).length ? { issuedAt } : {},
+      orderBy: { issuedAt: 'asc' },
+    });
+    return rows.map((r) => this.invoiceToDto(r));
+  }
+
   /** Emite la factura de un pago (idempotente por `payment_id`). */
   async issueForPayment(paymentId: string): Promise<PlatformInvoiceDto> {
     const existing = await this.admin.platformInvoice.findUnique({ where: { paymentId } });
