@@ -880,3 +880,15 @@ export interface AdminTodayDto {
   /** Nº de acciones accionables hoy (cobros + past_due + seguimientos). */
   urgentCount: number;
 }
+
+/** Estado de cuenta del tenant para avisar de pagos pendientes en su panel. */
+export interface TenantBillingStatusDto {
+  /** La suscripción del plan está impagada (past_due). */
+  pastDue: boolean;
+  /** Add-ons suspendidos por impago (con su feature, si tiene). */
+  suspendedAddons: { name: string; feature: string | null }[];
+  /** Features desactivadas por un add-on suspendido (para el FeatureGate). */
+  suspendedFeatures: string[];
+  /** Hay algo pendiente de pagar (plan o algún add-on). */
+  hasIssue: boolean;
+}

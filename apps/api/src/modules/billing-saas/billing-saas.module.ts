@@ -9,6 +9,7 @@ import { PaymentsModule } from '../payments/payments.module';
 
 import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
+import { BillingStatusController } from './billing-status.controller';
 import { PlatformDunningController } from './platform-dunning.controller';
 import { PlatformDunningCron } from './platform-dunning.cron';
 import { PlatformDunningService } from './platform-dunning.service';
@@ -53,6 +54,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
   ],
   controllers: [
     BillingSaasController,
+    BillingStatusController,
     SubscriptionPlansController,
     SaasAddonsController,
     PlatformInvoicesController,

@@ -9,6 +9,7 @@ import type {
   AssignAddonInput,
   SaasAddonDto,
   TenantAddonDto,
+  TenantBillingStatusDto,
   TenantBillingSummaryDto,
   TenantLimitsDto,
   TenantSelfAddonsDto,
@@ -31,6 +32,34 @@ export class SaasAddonsService {
     private readonly admin: PrismaAdminService,
     private readonly limits: PlanLimitsService,
   ) {}
+
+  /** Estado de cuenta del tenant: pagos pendientes (plan past_due + add-ons suspendidos). */
+  async billingStatus(tenantId: string): Promise<TenantBillingStatusDto> {
+    const [subscription, suspended] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { status: true },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { tenantId, suspendedAt: { not: null } },
+        select: { addon: { select: { name: true, feature: true } } },
+      }),
+    ]);
+    const pastDue = subscription?.status === 'past_due';
+    const suspendedAddons = suspended.map((s) => ({
+      name: s.addon.name,
+      feature: s.addon.feature,
+    }));
+    const suspendedFeatures = suspendedAddons
+      .map((a) => a.feature)
+      .filter((f): f is string => f !== null);
+    return {
+      pastDue,
+      suspendedAddons,
+      suspendedFeatures,
+      hasIssue: pastDue || suspendedAddons.length > 0,
+    };
+  }
 
   /** Límites del plan (+ add-ons de capacidad) y uso actual del tenant. */
   async tenantLimits(tenantId: string): Promise<TenantLimitsDto> {
