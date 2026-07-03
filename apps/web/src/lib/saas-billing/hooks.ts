@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
@@ -6,7 +6,9 @@ import type {
   BillingSessionResponseDto,
   CreateCheckoutSessionInput,
   CreatePortalSessionInput,
+  SelfAssignAddonInput,
   SubscriptionPlanDto,
+  TenantSelfAddonsDto,
   TenantSubscriptionDto,
 } from '@storageos/shared';
 
@@ -50,5 +52,42 @@ export function useCreatePortalSession() {
         method: 'POST',
         json: input,
       }),
+  });
+}
+
+// --- Add-ons self-service del tenant ---
+export function useSelfAddons() {
+  return useQuery({
+    queryKey: ['saas-billing', 'addons'] as const,
+    queryFn: () => apiFetch<TenantSelfAddonsDto>('/settings/saas-billing/addons'),
+  });
+}
+
+export function useContractAddon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SelfAssignAddonInput) =>
+      apiFetch<TenantSelfAddonsDto>('/settings/saas-billing/addons', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['saas-billing', 'addons'] });
+      void qc.invalidateQueries({ queryKey: ['auth', 'me'] }); // features pueden cambiar
+    },
+  });
+}
+
+export function useCancelAddon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assignmentId: string) =>
+      apiFetch<TenantSelfAddonsDto>(`/settings/saas-billing/addons/${assignmentId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['saas-billing', 'addons'] });
+      void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
   });
 }

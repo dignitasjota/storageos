@@ -1,8 +1,21 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+} from '@nestjs/common';
 import {
   CreateCheckoutSessionSchema,
   CreatePortalSessionSchema,
+  SelfAssignAddonSchema,
   type BillingSessionResponseDto,
+  type TenantSelfAddonsDto,
   type TenantSubscriptionDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -14,12 +27,14 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { BillingSaasService } from './billing-saas.service';
+import { SaasAddonsService } from './saas-addons.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class CreateCheckoutSessionDto extends createZodDto(CreateCheckoutSessionSchema) {}
 class CreatePortalSessionDto extends createZodDto(CreatePortalSessionSchema) {}
+class SelfAssignAddonDto extends createZodDto(SelfAssignAddonSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -44,7 +59,10 @@ function extractMeta(req: Request): RequestMeta {
 @Controller('settings/saas-billing')
 @RequirePermission('billing:configure')
 export class BillingSaasController {
-  constructor(private readonly service: BillingSaasService) {}
+  constructor(
+    private readonly service: BillingSaasService,
+    private readonly addons_: SaasAddonsService,
+  ) {}
 
   @Get()
   async getCurrent(@CurrentUser() user: AuthenticatedUser): Promise<TenantSubscriptionDto> {
@@ -81,5 +99,29 @@ export class BillingSaasController {
       returnUrl: input.returnUrl,
       meta: extractMeta(req),
     });
+  }
+
+  // --- Add-ons self-service (el tenant contrata extras) ---
+
+  @Get('addons')
+  addons(@CurrentUser() user: AuthenticatedUser): Promise<TenantSelfAddonsDto> {
+    return this.addons_.selfServiceView(user.tenantId);
+  }
+
+  @Post('addons')
+  @HttpCode(HttpStatus.OK)
+  contractAddon(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: SelfAssignAddonDto,
+  ): Promise<TenantSelfAddonsDto> {
+    return this.addons_.selfAssign(user.tenantId, body.addonId, body.quantity);
+  }
+
+  @Delete('addons/:assignmentId')
+  cancelAddon(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+  ): Promise<TenantSelfAddonsDto> {
+    return this.addons_.selfRemove(user.tenantId, assignmentId);
   }
 }

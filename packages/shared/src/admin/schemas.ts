@@ -402,3 +402,10 @@ export const AssignAddonSchema = z.object({
   notes: z.string().trim().max(500).optional(),
 });
 export type AssignAddonInput = z.infer<typeof AssignAddonSchema>;
+
+/** El tenant contrata un add-on por self-service (quantity opcional). */
+export const SelfAssignAddonSchema = z.object({
+  addonId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(99).default(1),
+});
+export type SelfAssignAddonInput = z.infer<typeof SelfAssignAddonSchema>;
