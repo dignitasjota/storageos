@@ -9,9 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
 import {
+  useCancelAddon,
+  useContractAddon,
   useCreateCheckoutSession,
   useCreatePortalSession,
   useSaasSubscription,
+  useSelfAddons,
   useSubscriptionPlans,
 } from '@/lib/saas-billing/hooks';
 
@@ -190,7 +193,116 @@ export default function SaasBillingPage() {
           )}
         </section>
       )}
+
+      <SelfAddonsSection />
     </div>
+  );
+}
+
+function SelfAddonsSection() {
+  const data = useSelfAddons();
+  const contract = useContractAddon();
+  const cancel = useCancelAddon();
+
+  async function doContract(addonId: string) {
+    try {
+      await contract.mutateAsync({ addonId, quantity: 1 });
+      toast.success('Extra contratado. Se añadirá a tu próxima factura.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo contratar.');
+    }
+  }
+  async function doCancel(assignmentId: string) {
+    try {
+      await cancel.mutateAsync(assignmentId);
+      toast.success('Extra cancelado.');
+    } catch {
+      toast.error('No se pudo cancelar.');
+    }
+  }
+
+  const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+  const owned = data.data?.summary.addons ?? [];
+  const available = data.data?.available ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Extras de tu cuenta</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {data.isLoading ? (
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        ) : (
+          <>
+            {owned.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Contratados</p>
+                {owned.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                  >
+                    <span className="font-medium">{a.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{eur(a.lineTotal)}/mes</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => doCancel(a.id)}
+                        disabled={cancel.isPending}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t pt-2 text-sm font-semibold">
+                  <span>Total mensual (plan + extras)</span>
+                  <span>{eur(data.data?.summary.effectiveMonthly ?? 0)}</span>
+                </div>
+              </div>
+            )}
+
+            {available.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Disponibles</p>
+                {available.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                  >
+                    <div>
+                      <span className="font-medium">{a.name}</span>
+                      {a.description && (
+                        <p className="text-xs text-muted-foreground">{a.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{eur(a.priceMonthly)}/mes</span>
+                      <Button
+                        size="sm"
+                        onClick={() => doContract(a.id)}
+                        disabled={contract.isPending}
+                      >
+                        Contratar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  Los extras se facturan con tu suscripción. Al contratarlos se activan al instante.
+                </p>
+              </div>
+            )}
+
+            {owned.length === 0 && available.length === 0 && (
+              <p className="text-sm text-muted-foreground">No hay extras disponibles.</p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

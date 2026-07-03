@@ -845,3 +845,10 @@ export interface TenantLimitsDto {
   facilities: { limit: number | null; used: number };
   users: { limit: number | null; used: number };
 }
+
+/** Vista de add-ons para el self-service del tenant: lo suyo + lo disponible. */
+export interface TenantSelfAddonsDto {
+  summary: TenantBillingSummaryDto;
+  /** Add-ons del catálogo activos que el tenant aún no tiene. */
+  available: SaasAddonDto[];
+}

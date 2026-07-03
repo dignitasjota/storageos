@@ -11,6 +11,7 @@ import type {
   TenantAddonDto,
   TenantBillingSummaryDto,
   TenantLimitsDto,
+  TenantSelfAddonsDto,
   UpsertSaasAddonInput,
 } from '@storageos/shared';
 
@@ -142,6 +143,40 @@ export class SaasAddonsService {
       map.set(r.tenantId, (map.get(r.tenantId) ?? 0) + num(r.priceMonthly) * r.quantity);
     }
     return map;
+  }
+
+  // ---- self-service del tenant ----
+
+  /** Add-ons del tenant + catálogo disponible (activos que aún no tiene). */
+  async selfServiceView(tenantId: string): Promise<TenantSelfAddonsDto> {
+    const [summary, catalog] = await Promise.all([
+      this.billingSummary(tenantId),
+      this.admin.subscriptionAddon.findMany({
+        where: { isActive: true },
+        orderBy: [{ name: 'asc' }],
+      }),
+    ]);
+    const owned = new Set(summary.addons.map((a) => a.addonId));
+    const available = catalog.filter((a) => !owned.has(a.id)).map((a) => this.toCatalogDto(a));
+    return { summary, available };
+  }
+
+  /** Contratación por el tenant: solo add-ons ACTIVOS del catálogo, quantity>=1. */
+  async selfAssign(tenantId: string, addonId: string, quantity = 1): Promise<TenantSelfAddonsDto> {
+    const addon = await this.findAddon(addonId);
+    if (!addon.isActive) {
+      throw new BadRequestException({
+        code: 'addon_not_available',
+        message: 'Add-on no disponible',
+      });
+    }
+    await this.assign(tenantId, { addonId, quantity });
+    return this.selfServiceView(tenantId);
+  }
+
+  async selfRemove(tenantId: string, tenantAddonId: string): Promise<TenantSelfAddonsDto> {
+    await this.remove(tenantId, tenantAddonId);
+    return this.selfServiceView(tenantId);
   }
 
   async assign(tenantId: string, input: AssignAddonInput): Promise<TenantBillingSummaryDto> {
