@@ -20,6 +20,10 @@ import type {
   AdminAdoptionDto,
   AdminAtRiskDto,
   AdminCustomDomainDto,
+  AssignAddonInput,
+  SaasAddonDto,
+  TenantBillingSummaryDto,
+  UpsertSaasAddonInput,
   AdminOnboardingDto,
   AdminTenantFeaturesDto,
   AdminImpersonationSessionDto,
@@ -746,6 +750,64 @@ export function useCustomDomainAction(action: 'verify' | 'revoke') {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'custom-domains'] });
+    },
+  });
+}
+
+// --- Add-ons facturables del SaaS ---
+export function useAdminAddons() {
+  return useQuery({
+    queryKey: ['admin', 'addons'],
+    queryFn: () => adminApiFetch<SaasAddonDto[]>('/admin/addons'),
+  });
+}
+
+export function useUpsertAddon(id?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpsertSaasAddonInput) =>
+      adminApiFetch<SaasAddonDto>(id ? `/admin/addons/${id}` : '/admin/addons', {
+        method: id ? 'PATCH' : 'POST',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'addons'] }),
+  });
+}
+
+export function useTenantBillingSummary(tenantId: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenant-billing-summary', tenantId],
+    queryFn: () =>
+      adminApiFetch<TenantBillingSummaryDto>(`/admin/tenants/${tenantId}/billing-summary`),
+    enabled: Boolean(tenantId),
+  });
+}
+
+export function useAssignAddon(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AssignAddonInput) =>
+      adminApiFetch<TenantBillingSummaryDto>(`/admin/tenants/${tenantId}/addons`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+    },
+  });
+}
+
+export function useRemoveAddon(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assignmentId: string) =>
+      adminApiFetch<TenantBillingSummaryDto>(`/admin/tenants/${tenantId}/addons/${assignmentId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
     },
   });
 }
