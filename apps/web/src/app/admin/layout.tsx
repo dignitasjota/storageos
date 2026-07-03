@@ -9,6 +9,7 @@ import {
   Building2,
   Eye,
   FileText,
+  CalendarCheck,
   CalendarClock,
   Globe,
   Gauge,
@@ -51,6 +52,7 @@ import {
   useAdminLogout,
   useAdminNotifUnreadCount,
   useAdminOpenTicketsCount,
+  useAdminToday,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { env } from '@/lib/env';
@@ -78,6 +80,7 @@ function isGroup(e: AdminNavEntry): e is AdminNavGroup {
 // queda suelto (lleva badge). La página de 2FA del super admin (/admin/security)
 // vive en el menú de usuario, no aquí.
 const ADMIN_NAV: AdminNavEntry[] = [
+  { href: '/admin/today', label: 'Hoy', icon: CalendarCheck },
   {
     label: 'Negocio',
     icon: BarChart3,
@@ -251,12 +254,14 @@ function AdminNavLink({
   item,
   pathname,
   openTickets,
+  urgentToday,
   onNavigate,
   nested,
 }: {
   item: AdminNavItem;
   pathname: string;
   openTickets: number;
+  urgentToday: number;
   onNavigate?: () => void;
   nested?: boolean;
 }) {
@@ -281,6 +286,11 @@ function AdminNavLink({
           {openTickets}
         </span>
       )}
+      {item.href === '/admin/today' && urgentToday > 0 && (
+        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-medium text-white">
+          {urgentToday}
+        </span>
+      )}
     </Link>
   );
 }
@@ -289,10 +299,12 @@ function AdminNavLink({
 function AdminNavLinks({
   pathname,
   openTickets,
+  urgentToday,
   onNavigate,
 }: {
   pathname: string;
   openTickets: number;
+  urgentToday: number;
   onNavigate?: () => void;
 }) {
   // Grupos abiertos manualmente por el usuario. Un grupo también se muestra
@@ -310,6 +322,7 @@ function AdminNavLinks({
               item={entry}
               pathname={pathname}
               openTickets={openTickets}
+              urgentToday={urgentToday}
               onNavigate={onNavigate}
             />
           );
@@ -343,6 +356,7 @@ function AdminNavLinks({
                     item={child}
                     pathname={pathname}
                     openTickets={openTickets}
+                    urgentToday={urgentToday}
                     onNavigate={onNavigate}
                     nested
                   />
@@ -364,6 +378,7 @@ function AdminShell({ children }: { children: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Tickets de soporte esperando respuesta del admin (badge en «Soporte»).
   const openTickets = useAdminOpenTicketsCount().data?.count ?? 0;
+  const urgentToday = useAdminToday().data?.urgentCount ?? 0;
   const unreadNotifs = useAdminNotifUnreadCount().data?.count ?? 0;
 
   // Cierra el drawer al navegar a otra ruta.
@@ -383,7 +398,7 @@ function AdminShell({ children }: { children: ReactNode }) {
         <div className="flex h-14 items-center border-b border-border px-4 text-base font-semibold tracking-tight">
           StorageOS Admin
         </div>
-        <AdminNavLinks pathname={pathname} openTickets={openTickets} />
+        <AdminNavLinks pathname={pathname} openTickets={openTickets} urgentToday={urgentToday} />
       </aside>
 
       {/* Drawer del sidebar en móvil */}
@@ -395,6 +410,7 @@ function AdminShell({ children }: { children: ReactNode }) {
           <AdminNavLinks
             pathname={pathname}
             openTickets={openTickets}
+            urgentToday={urgentToday}
             onNavigate={() => setMobileNavOpen(false)}
           />
         </SheetContent>

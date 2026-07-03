@@ -852,3 +852,28 @@ export interface TenantSelfAddonsDto {
   /** Add-ons del catálogo activos que el tenant aún no tiene. */
   available: SaasAddonDto[];
 }
+
+/** Un add-on cuyo cobro manual toca (bandeja «Hoy» del super admin). */
+export interface AdminAddonChargeDueDto {
+  tenantAddonId: string;
+  tenantId: string;
+  tenantName: string;
+  addonName: string;
+  /** Importe mensual del add-on (precio × cantidad). */
+  amount: number;
+  currency: string;
+  nextChargeAt: string;
+  /** Días de retraso respecto a hoy (0 si vence hoy). */
+  overdueDays: number;
+}
+
+/** Panel «Hoy» del super admin: acciones pendientes del día. */
+export interface AdminTodayDto {
+  date: string;
+  addonCharges: AdminAddonChargeDueDto[];
+  trialsExpiring: AdminAtRiskTenantDto[];
+  pastDue: AdminAtRiskTenantDto[];
+  followupsDue: TenantFollowupDto[];
+  /** Nº de acciones accionables hoy (cobros + past_due + seguimientos). */
+  urgentCount: number;
+}

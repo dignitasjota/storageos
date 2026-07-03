@@ -191,7 +191,10 @@ export class SaasAddonsService {
         priceMonthly: price,
         quantity: input.quantity,
         notes: input.notes ?? null,
+        // Programa el primer cobro para ya (aparece en la bandeja «Hoy»).
+        nextChargeAt: new Date(),
       },
+      // Reasignar NO reinicia el ciclo de cobro (conserva nextChargeAt).
       update: { priceMonthly: price, quantity: input.quantity, notes: input.notes ?? null },
     });
     // Activa la feature del add-on (override) si la tiene.
