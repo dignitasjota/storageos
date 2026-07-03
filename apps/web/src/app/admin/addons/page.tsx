@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAdminAddons, useUpsertAddon } from '@/lib/admin/hooks';
+import { useAddonAnalytics, useAdminAddons, useUpsertAddon } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -50,6 +50,8 @@ export default function AdminAddonsPage() {
           <Plus className="mr-1 size-4" /> Nuevo add-on
         </Button>
       </div>
+
+      <AddonAnalyticsSection />
 
       {addons.isLoading ? (
         <div className="flex justify-center py-12">
@@ -236,5 +238,58 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const eurA = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+
+function AddonAnalyticsSection() {
+  const analytics = useAddonAnalytics();
+  const rows = analytics.data ?? [];
+  if (rows.length === 0) return null;
+  const totalRevenue = rows.reduce((s, r) => s + r.monthlyRevenue, 0);
+  const totalActive = rows.reduce((s, r) => s + r.tenantsActive, 0);
+  return (
+    <Card>
+      <CardContent className="space-y-2 pt-6">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Adopción del catálogo</p>
+          <p className="text-xs text-muted-foreground">
+            {totalActive} contratación(es) · {eurA(totalRevenue)}/mes de MRR
+          </p>
+        </div>
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="p-2">Add-on</th>
+                <th className="p-2 text-right">Activos</th>
+                <th className="p-2 text-right">Suspendidos</th>
+                <th className="p-2 text-right">MRR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.addonId} className="border-t">
+                  <td className="p-2">
+                    {r.name}
+                    {!r.isActive && (
+                      <span className="ml-2 text-xs text-muted-foreground">(inactivo)</span>
+                    )}
+                  </td>
+                  <td className="p-2 text-right tabular-nums">{r.tenantsActive}</td>
+                  <td className="p-2 text-right tabular-nums text-muted-foreground">
+                    {r.tenantsSuspended || '—'}
+                  </td>
+                  <td className="p-2 text-right tabular-nums font-medium">
+                    {eurA(r.monthlyRevenue)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

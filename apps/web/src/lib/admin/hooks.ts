@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminAddonAnalyticsDto,
   AdminChangePlanPreviewDto,
   AdminFinanceOverviewDto,
   PlatformBillingSettingsDto,
@@ -1393,5 +1394,12 @@ export function useAdminFinance(months = 12) {
     queryKey: ['admin', 'finance', months],
     queryFn: () => adminApiFetch<AdminFinanceOverviewDto>(`/admin/finance?months=${months}`),
     refetchInterval: 60_000,
+  });
+}
+
+export function useAddonAnalytics() {
+  return useQuery({
+    queryKey: ['admin', 'addon-analytics'],
+    queryFn: () => adminApiFetch<AdminAddonAnalyticsDto[]>('/admin/addons/analytics'),
   });
 }
