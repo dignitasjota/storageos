@@ -32,6 +32,8 @@ import type {
   AdminTenantHealthFactorDto,
   AdminTenantHealthLevel,
   AdminTenantInvoicingDto,
+  AdminTenantNotesDto,
+  UpdateTenantNotesInput,
   AdminTenantUnitDto,
   AdminTenantUserDto,
   AdminTrialDto,
@@ -278,6 +280,50 @@ export class AdminTenantsService {
         neverUsed: !last,
       };
     });
+  }
+
+  // --- Notas estratégicas y LTV (customer success) -----------------------
+
+  async getNotes(tenantId: string): Promise<AdminTenantNotesDto> {
+    const t = await this.findOrThrow(tenantId);
+    return {
+      ltvTier: t.ltvTier ?? null,
+      strategicNotes: t.strategicNotes ?? null,
+      tags: t.tags ?? [],
+    };
+  }
+
+  async updateNotes(
+    tenantId: string,
+    input: UpdateTenantNotesInput,
+    meta: ActionMeta,
+  ): Promise<AdminTenantNotesDto> {
+    await this.findOrThrow(tenantId);
+    const updated = await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(input.ltvTier !== undefined ? { ltvTier: input.ltvTier || null } : {}),
+        ...(input.strategicNotes !== undefined
+          ? { strategicNotes: input.strategicNotes || null }
+          : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+      },
+    });
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: 'admin.tenant.notes_updated',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes: { ltvTier: updated.ltvTier, tags: updated.tags },
+    });
+    return {
+      ltvTier: updated.ltvTier ?? null,
+      strategicNotes: updated.strategicNotes ?? null,
+      tags: updated.tags ?? [],
+    };
   }
 
   // --- Health score por tenant -------------------------------------------

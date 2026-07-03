@@ -27,6 +27,7 @@ import { TenantFollowupsCard } from './tenant-followups-card';
 import { TenantHealthCard } from './tenant-health-card';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
+import { TenantNotesCard } from './tenant-notes-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
 
 import { Badge } from '@/components/ui/badge';
@@ -235,6 +236,7 @@ export default function AdminTenantDetailPage() {
             <TenantHealthCard tenantId={id} />
             <OnboardingCard tenantId={id} />
             <FeatureOverridesCard tenantId={id} />
+            <TenantNotesCard tenantId={id} />
           </div>
         </TabsContent>
 

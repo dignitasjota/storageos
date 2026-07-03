@@ -28,11 +28,13 @@ import {
   type AdminTenantInvoicingDto,
   type AdminTenantUnitDto,
   type AdminChangePlanPreviewDto,
+  type AdminTenantNotesDto,
   type AdminTrialDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
   AdminUpdateTenantSchema,
   ChangePlanSchema,
+  UpdateTenantNotesSchema,
   CreateManualSaasPaymentSchema,
   CreateTenantFollowupSchema,
   CreateTenantInteractionSchema,
@@ -62,6 +64,7 @@ import type { Request } from 'express';
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
+class UpdateTenantNotesDto extends createZodDto(UpdateTenantNotesSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
 class CreateTenantInteractionDto extends createZodDto(CreateTenantInteractionSchema) {}
 class CreateTenantFollowupDto extends createZodDto(CreateTenantFollowupSchema) {}
@@ -211,6 +214,29 @@ export class AdminTenantsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<TenantInteractionDto[]> {
     return this.interactions.list(id);
+  }
+
+  /** Notas estratégicas + LTV + tags del tenant (customer success). */
+  @Get(':id/notes')
+  async getNotes(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantNotesDto> {
+    return this.tenants.getNotes(id);
+  }
+
+  @Put(':id/notes')
+  @HttpCode(HttpStatus.OK)
+  async updateNotes(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateTenantNotesDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantNotesDto> {
+    const meta = extractMeta(req);
+    return this.tenants.updateNotes(id, input, {
+      superAdminId: admin.sub,
+      reason: 'notes_updated',
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
   }
 
   /** Seguimientos/recordatorios sobre el tenant. */

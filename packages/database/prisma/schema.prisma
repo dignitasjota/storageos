@@ -310,6 +310,9 @@ model Tenant {
   currency                    String                @default("EUR") @db.Char(3)
   timezone                    String                @default("Europe/Madrid")
   taxId                       String?               @map("tax_id")
+  ltvTier                     String?               @map("ltv_tier")
+  strategicNotes              String?               @map("strategic_notes")
+  tags                        String[]              @default([])
   requireTwoFactorForManagers Boolean               @default(false) @map("require_two_factor_for_managers")
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
