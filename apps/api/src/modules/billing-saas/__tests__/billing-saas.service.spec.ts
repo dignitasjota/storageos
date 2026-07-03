@@ -91,12 +91,14 @@ describe('BillingSaasService', () => {
 
   // ============================== recordManualPayment =====================
 
-  it('recordManualPayment extiende desde el fin de periodo futuro y acumula los días', async () => {
+  it('recordManualPayment extiende desde el fin de periodo futuro y acumula los días (con Stripe)', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-02T10:00:00Z'));
     const admin = buildAdmin();
     const periodEnd = new Date('2026-08-01T00:00:00Z');
     admin.tenantSubscription.findUnique.mockResolvedValue({
       currentPeriodEnd: periodEnd,
+      // Tiene Stripe → el crédito manual SÍ se acumula (el webhook lo sumará).
+      stripeSubscriptionId: 'sub_x',
       plan: { slug: 'starter', name: 'Starter' },
     });
     const { service, issueBestEffort } = buildService(admin);
@@ -126,6 +128,31 @@ describe('BillingSaasService', () => {
     expect(issueBestEffort).toHaveBeenCalledWith('pay-1');
     expect(dto.amount).toBe(58);
     expect(dto.periodEnd).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  it('recordManualPayment SIN Stripe extiende el periodo pero NO acumula crédito', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-02T10:00:00Z'));
+    const admin = buildAdmin();
+    admin.tenantSubscription.findUnique.mockResolvedValue({
+      currentPeriodEnd: new Date('2026-08-01T00:00:00Z'),
+      stripeSubscriptionId: null, // sin Stripe → no hay webhook que pise el periodo
+      plan: { slug: 'starter', name: 'Starter' },
+    });
+    const { service } = buildService(admin);
+
+    await service.recordManualPayment({
+      tenantId: TENANT,
+      provider: 'cash',
+      amount: 49,
+      currency: 'EUR',
+      durationMonths: 2,
+    });
+
+    const updateData = admin.tenantSubscription.update.mock.calls[0]![0].data;
+    // El periodo se extiende (verdad absoluta), pero el acumulador NO crece
+    // (si no, al vincularse a Stripe se le regalaría ese tiempo ya consumido).
+    expect(updateData.currentPeriodEnd).toEqual(new Date('2026-10-01T00:00:00Z'));
+    expect(updateData.manualExtensionDays).toEqual({ increment: 0 });
   });
 
   it('recordManualPayment con la suscripción vencida parte de AHORA, no del pasado', async () => {

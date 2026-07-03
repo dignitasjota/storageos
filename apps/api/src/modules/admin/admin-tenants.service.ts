@@ -1064,8 +1064,10 @@ export class AdminTenantsService {
     const effectiveOverrides = args.overrides.filter(
       (o) => o.enabled !== planFeatures.has(o.feature),
     );
+    // Solo gestiona los overrides de cortesía (`source='manual'`); NO toca los
+    // activados por add-ons (`source='addon'`), que gestiona el motor de add-ons.
     await this.admin.$transaction([
-      this.admin.tenantFeatureOverride.deleteMany({ where: { tenantId } }),
+      this.admin.tenantFeatureOverride.deleteMany({ where: { tenantId, source: 'manual' } }),
       ...(effectiveOverrides.length
         ? [
             this.admin.tenantFeatureOverride.createMany({
@@ -1073,6 +1075,7 @@ export class AdminTenantsService {
                 tenantId,
                 feature: o.feature,
                 enabled: o.enabled,
+                source: 'manual',
               })),
             }),
           ]

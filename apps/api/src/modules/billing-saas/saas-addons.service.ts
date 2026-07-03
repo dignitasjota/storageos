@@ -260,14 +260,8 @@ export class SaasAddonsService {
         suspendedAt: null,
       },
     });
-    // Activa la feature del add-on (override) si la tiene.
-    if (addon.feature && (TenantFeatures as readonly string[]).includes(addon.feature)) {
-      await this.admin.tenantFeatureOverride.upsert({
-        where: { tenantId_feature: { tenantId, feature: addon.feature } },
-        create: { tenantId, feature: addon.feature, enabled: true },
-        update: { enabled: true },
-      });
-    }
+    // Reconcilia la feature del add-on (activa el override si procede).
+    await this.reconcileFeatureOverride(tenantId, addon.feature);
     return this.billingSummary(tenantId);
   }
 
@@ -278,12 +272,7 @@ export class SaasAddonsService {
     });
     if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
     await this.admin.tenantSubscriptionAddon.delete({ where: { id: tenantAddonId } });
-    // Retira el override de feature (la feature vuelve a depender del plan).
-    if (row.addon.feature) {
-      await this.admin.tenantFeatureOverride.deleteMany({
-        where: { tenantId, feature: row.addon.feature, enabled: true },
-      });
-    }
+    await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);
   }
 
@@ -305,12 +294,7 @@ export class SaasAddonsService {
       where: { id: tenantAddonId },
       data: { suspendedAt: new Date() },
     });
-    // Desactiva la feature (retira el override → vuelve a depender del plan).
-    if (row.addon.feature) {
-      await this.admin.tenantFeatureOverride.deleteMany({
-        where: { tenantId, feature: row.addon.feature, enabled: true },
-      });
-    }
+    await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);
   }
 
@@ -328,18 +312,41 @@ export class SaasAddonsService {
       where: { id: tenantAddonId },
       data: { suspendedAt: null, nextChargeAt: new Date() },
     });
-    // Re-activa la feature del add-on (override) si la tiene.
-    if (row.addon.feature && (TenantFeatures as readonly string[]).includes(row.addon.feature)) {
-      await this.admin.tenantFeatureOverride.upsert({
-        where: { tenantId_feature: { tenantId, feature: row.addon.feature } },
-        create: { tenantId, feature: row.addon.feature, enabled: true },
-        update: { enabled: true },
-      });
-    }
+    await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);
   }
 
   // ---- helpers ----
+
+  /**
+   * Sincroniza el override de una feature aportada por add-ons tras un cambio
+   * (assign/remove/suspend/reactivate). Regla:
+   * - Si ALGÚN add-on activo (no suspendido) del tenant aporta la feature →
+   *   asegura el override activado (con `source='addon'` si lo crea; si ya existe
+   *   una cortesía `manual`, NO cambia su origen).
+   * - Si NINGÚN add-on activo la aporta → retira SOLO el override de origen
+   *   `addon` (respeta las cortesías `manual` del super admin y los overrides que
+   *   DESACTIVAN una feature del plan).
+   * Así dos add-ons con la misma feature no se pisan, y quitar un add-on no borra
+   * una cortesía ni la feature si otro add-on la sostiene.
+   */
+  private async reconcileFeatureOverride(tenantId: string, feature: string | null): Promise<void> {
+    if (!feature || !(TenantFeatures as readonly string[]).includes(feature)) return;
+    const activeWithFeature = await this.admin.tenantSubscriptionAddon.count({
+      where: { tenantId, suspendedAt: null, addon: { feature } },
+    });
+    if (activeWithFeature > 0) {
+      await this.admin.tenantFeatureOverride.upsert({
+        where: { tenantId_feature: { tenantId, feature } },
+        create: { tenantId, feature, enabled: true, source: 'addon' },
+        update: { enabled: true },
+      });
+    } else {
+      await this.admin.tenantFeatureOverride.deleteMany({
+        where: { tenantId, feature, source: 'addon' },
+      });
+    }
+  }
 
   private validateFeature(feature: string | undefined): void {
     if (feature && feature !== '' && !(TenantFeatures as readonly string[]).includes(feature)) {

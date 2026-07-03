@@ -663,10 +663,13 @@ export class BillingSaasService {
 
     const base = sub.currentPeriodEnd > now ? sub.currentPeriodEnd : now;
     const newEnd = addMonths(base, args.durationMonths);
-    // Días de crédito que aporta este pago: se acumulan para que, si el tenant
-    // también cobra por Stripe, el siguiente webhook SUME este tiempo en vez de
-    // pisarlo (crédito manual permanente).
-    const addedDays = diffInDays(base, newEnd);
+    // Días de crédito que aporta este pago. El acumulador SOLO tiene sentido si
+    // el tenant también cobra por Stripe (para que el webhook SUME este tiempo en
+    // vez de pisarlo). Para un tenant SIN Stripe, `currentPeriodEnd` es la verdad
+    // absoluta (no hay webhook que lo pise) → NO se acumula, o al vincularse a
+    // Stripe más tarde se le regalaría el tiempo ya consumido.
+    const accrues = sub.stripeSubscriptionId != null;
+    const addedDays = accrues ? diffInDays(base, newEnd) : 0;
 
     // Si la suscripción estaba impagada (past_due), este pago la regulariza:
     // reactiva también el tenant si el dunning lo había suspendido (solo actúa

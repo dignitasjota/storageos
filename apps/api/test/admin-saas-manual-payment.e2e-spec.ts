@@ -116,6 +116,13 @@ describe('Admin SaaS manual payment (e2e)', () => {
   it('el crédito manual se SUMA al periodo de Stripe (acumulador permanente)', async () => {
     const owner = await registerVerifiedUser(app, 'admin-smp-acc');
 
+    // El acumulador solo aplica a tenants que YA pagan por Stripe (para que el
+    // webhook sume el crédito por encima); se lo vinculamos antes del pago manual.
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { stripeSubscriptionId: `sub_acc_pre_${Date.now()}` },
+    });
+
     // Pago manual de 1 mes → acumula sus días en manual_extension_days
     const manual = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
