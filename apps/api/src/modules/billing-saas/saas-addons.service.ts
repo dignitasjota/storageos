@@ -6,6 +6,7 @@ import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { Prisma } from '@storageos/database';
 import type {
+  AdminAddonAnalyticsDto,
   AssignAddonInput,
   SaasAddonDto,
   TenantAddonDto,
@@ -78,6 +79,45 @@ export class SaasAddonsService {
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     });
     return rows.map((r) => this.toCatalogDto(r));
+  }
+
+  /**
+   * Analítica global del catálogo (cross-tenant): por cada add-on, cuántos
+   * tenants lo tienen activo/suspendido y su MRR. Para decisiones de producto
+   * (adopción, candidatos a discontinuar).
+   */
+  async catalogAnalytics(): Promise<AdminAddonAnalyticsDto[]> {
+    const [catalog, assignments] = await Promise.all([
+      this.admin.subscriptionAddon.findMany({ orderBy: [{ isActive: 'desc' }, { name: 'asc' }] }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        select: { addonId: true, priceMonthly: true, quantity: true, suspendedAt: true },
+      }),
+    ]);
+    const stats = new Map<string, { active: number; suspended: number; revenue: number }>();
+    for (const a of assignments) {
+      const e = stats.get(a.addonId) ?? { active: 0, suspended: 0, revenue: 0 };
+      if (a.suspendedAt) {
+        e.suspended += 1;
+      } else {
+        e.active += 1;
+        e.revenue += num(a.priceMonthly) * a.quantity;
+      }
+      stats.set(a.addonId, e);
+    }
+    return catalog.map((c) => {
+      const e = stats.get(c.id) ?? { active: 0, suspended: 0, revenue: 0 };
+      return {
+        addonId: c.id,
+        name: c.name,
+        slug: c.slug,
+        feature: c.feature,
+        priceMonthly: num(c.priceMonthly),
+        isActive: c.isActive,
+        tenantsActive: e.active,
+        tenantsSuspended: e.suspended,
+        monthlyRevenue: round2(e.revenue),
+      };
+    });
   }
 
   async createAddon(input: UpsertSaasAddonInput): Promise<SaasAddonDto> {

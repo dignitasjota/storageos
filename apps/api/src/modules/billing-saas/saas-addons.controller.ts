@@ -12,6 +12,7 @@ import {
 import {
   AssignAddonSchema,
   UpsertSaasAddonSchema,
+  type AdminAddonAnalyticsDto,
   type SaasAddonDto,
   type TenantBillingSummaryDto,
   type TenantLimitsDto,
@@ -36,6 +37,11 @@ class AssignAddonDto extends createZodDto(AssignAddonSchema) {}
 @Controller('admin')
 export class SaasAddonsController {
   constructor(private readonly service: SaasAddonsService) {}
+
+  @Get('addons/analytics')
+  analytics(): Promise<AdminAddonAnalyticsDto[]> {
+    return this.service.catalogAnalytics();
+  }
 
   @Get('addons')
   listCatalog(): Promise<SaasAddonDto[]> {

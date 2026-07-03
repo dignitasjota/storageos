@@ -957,3 +957,16 @@ export interface AdminFinanceOverviewDto {
   byProvider: AdminFinanceProviderSliceDto[];
   monthly: AdminFinanceMonthDto[];
 }
+
+/** Analítica global de un add-on del catálogo (cross-tenant). */
+export interface AdminAddonAnalyticsDto {
+  addonId: string;
+  name: string;
+  slug: string;
+  feature: string | null;
+  priceMonthly: number;
+  isActive: boolean;
+  tenantsActive: number;
+  tenantsSuspended: number;
+  monthlyRevenue: number;
+}
