@@ -10,6 +10,8 @@ import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
+import { AdminFinanceController } from './admin-finance.controller';
+import { AdminFinanceService } from './admin-finance.service';
 import { AdminFollowupsController } from './admin-followups.controller';
 import { AdminImpersonationAuditController } from './admin-impersonation-audit.controller';
 import { AdminImpersonationAuditService } from './admin-impersonation-audit.service';
@@ -85,6 +87,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     WebhooksCleanupController,
     AdminFollowupsController,
     AdminTodayController,
+    AdminFinanceController,
   ],
   providers: [
     AdminGuard,
@@ -98,6 +101,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminTenantInteractionsService,
     AdminTenantFollowupsService,
     AdminTodayService,
+    AdminFinanceService,
     AdminSupportService,
     AdminCommsService,
     AdminMetricsService,

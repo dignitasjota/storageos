@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   Trash2,
   TrendingUp,
+  Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -86,6 +87,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
     icon: BarChart3,
     children: [
       { href: '/admin/metrics', label: 'Métricas', icon: BarChart3 },
+      { href: '/admin/finance', label: 'Finanzas', icon: Wallet },
       { href: '/admin/health', label: 'Salud', icon: HeartPulse },
       { href: '/admin/adoption', label: 'Adopción', icon: TrendingUp },
       { href: '/admin/at-risk', label: 'En riesgo', icon: AlertTriangle },
