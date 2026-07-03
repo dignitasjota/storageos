@@ -115,8 +115,12 @@ export class PlatformDunningService {
 
   private async suspend(tenantId: string): Promise<void> {
     // La suspensión es a nivel de tenant (el enum `SubscriptionStatus` no tiene
-    // 'suspended'); la suscripción se queda en `past_due`.
-    await this.admin.tenant.update({ where: { id: tenantId }, data: { status: 'suspended' } });
+    // 'suspended'); la suscripción se queda en `past_due`. Baja por impago → se
+    // registra el motivo para el reporte de churn por razón.
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: { status: 'suspended', churnReason: 'nonpayment', canceledAt: new Date() },
+    });
   }
 
   private async notify(

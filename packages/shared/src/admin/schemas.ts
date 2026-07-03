@@ -63,6 +63,28 @@ export const AdminTenantActionSchema = z.object({
 });
 export type AdminTenantActionInput = z.infer<typeof AdminTenantActionSchema>;
 
+/**
+ * Motivo de baja (churn) seleccionable al suspender/cancelar un tenant. Alimenta
+ * el reporte «churn por razón». Las bajas sin motivo capturado se infieren en el
+ * reporte (`nonpayment` si hubo impago, `voluntary` si no, `unknown` residual).
+ */
+export const ChurnReasonEnum = z.enum([
+  'price',
+  'missing_features',
+  'business_closure',
+  'competitor',
+  'nonpayment',
+  'other',
+]);
+export type ChurnReason = z.infer<typeof ChurnReasonEnum>;
+
+/** Suspensión de un tenant con motivo de baja opcional. */
+export const SuspendTenantSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  churnReason: ChurnReasonEnum.optional(),
+});
+export type SuspendTenantInput = z.infer<typeof SuspendTenantSchema>;
+
 export const ExtendTrialSchema = z.object({
   days: z.number().int().positive().max(365),
   reason: z.string().trim().min(1).max(500),

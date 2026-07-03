@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import { ChurnByReasonCard } from './churn-by-reason-card';
 import { MrrMovementsCard } from './mrr-movements-card';
 import { RetentionCohortsCard } from './retention-cohorts-card';
 
@@ -263,9 +264,10 @@ export default function AdminMetricsPage() {
         <MrrMovementsCard />
       </section>
 
-      {/* Cohortes de retención */}
-      <section>
+      {/* Cohortes de retención + churn por razón */}
+      <section className="grid gap-4 lg:grid-cols-2">
         <RetentionCohortsCard />
+        <ChurnByReasonCard />
       </section>
 
       {/* Totales de plataforma */}

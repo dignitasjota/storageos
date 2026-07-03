@@ -992,3 +992,22 @@ export interface AdminTenantNotesDto {
   strategicNotes: string | null;
   tags: string[];
 }
+
+/** Un motivo de baja con su nº de tenants y MRR perdido. */
+export interface AdminChurnReasonSliceDto {
+  /** Código del motivo: capturado (price, competitor…) o inferido (voluntary, unknown). */
+  reason: string;
+  count: number;
+  /** MRR mensual perdido (Σ precio del plan de esos tenants), en la moneda de plataforma. */
+  lostMrr: number;
+  /** Cuántos de estos tenants tenían el motivo CAPTURADO (el resto son inferidos). */
+  captured: number;
+}
+
+/** Churn de tenants agrupado por motivo, en la ventana consultada. */
+export interface AdminChurnByReasonDto {
+  months: number;
+  totalChurned: number;
+  lostMrr: number;
+  slices: AdminChurnReasonSliceDto[];
+}

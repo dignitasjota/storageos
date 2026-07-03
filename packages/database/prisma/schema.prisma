@@ -313,6 +313,8 @@ model Tenant {
   ltvTier                     String?               @map("ltv_tier")
   strategicNotes              String?               @map("strategic_notes")
   tags                        String[]              @default([])
+  churnReason                 String?               @map("churn_reason")
+  canceledAt                  DateTime?             @map("canceled_at") @db.Timestamptz(6)
   requireTwoFactorForManagers Boolean               @default(false) @map("require_two_factor_for_managers")
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).

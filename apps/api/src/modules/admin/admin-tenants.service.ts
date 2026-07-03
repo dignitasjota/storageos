@@ -69,6 +69,8 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 interface ActionMeta {
   superAdminId: string;
   reason: string;
+  /** Motivo de baja (churn) al suspender; alimenta el reporte churn por razón. */
+  churnReason?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
@@ -953,7 +955,11 @@ export class AdminTenantsService {
     }
     await this.admin.tenant.update({
       where: { id: tenantId },
-      data: { status: 'suspended' },
+      data: {
+        status: 'suspended',
+        canceledAt: new Date(),
+        ...(meta.churnReason ? { churnReason: meta.churnReason } : {}),
+      },
     });
     await this.audit.write({
       tenantId,
@@ -995,7 +1001,8 @@ export class AdminTenantsService {
 
     await this.admin.tenant.update({
       where: { id: tenantId },
-      data: { status: targetStatus },
+      // El tenant vuelve: deja de ser churn (se limpia motivo + fecha de baja).
+      data: { status: targetStatus, churnReason: null, canceledAt: null },
     });
     await this.audit.write({
       tenantId,
