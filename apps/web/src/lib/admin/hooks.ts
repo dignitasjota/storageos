@@ -23,6 +23,7 @@ import type {
   AssignAddonInput,
   SaasAddonDto,
   TenantBillingSummaryDto,
+  AdminTodayDto,
   TenantLimitsDto,
   UpsertSaasAddonInput,
   AdminOnboardingDto,
@@ -1330,5 +1331,28 @@ export function useUpdateLegalDoc(slug: LegalSlug) {
         json: input,
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'legal', slug] }),
+  });
+}
+
+// --- «Hoy» del super admin ---
+export function useAdminToday() {
+  return useQuery({
+    queryKey: ['admin', 'today'],
+    queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today'),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useChargeAddon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantAddonId, provider }: { tenantAddonId: string; provider: string }) =>
+      adminApiFetch<AdminTodayDto>(`/admin/today/addon-charges/${tenantAddonId}/charge`, {
+        method: 'POST',
+        json: { provider },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+    },
   });
 }

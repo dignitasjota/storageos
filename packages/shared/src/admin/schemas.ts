@@ -415,3 +415,9 @@ export const SelfAssignAddonSchema = z.object({
   quantity: z.number().int().min(1).max(99).default(1),
 });
 export type SelfAssignAddonInput = z.infer<typeof SelfAssignAddonSchema>;
+
+/** Registrar el cobro de un add-on desde la bandeja «Hoy». */
+export const ChargeAddonSchema = z.object({
+  provider: SaasPaymentProviderEnum.default('cash'),
+});
+export type ChargeAddonInput = z.infer<typeof ChargeAddonSchema>;

@@ -23,6 +23,8 @@ import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
+import { AdminTodayController } from './admin-today.controller';
+import { AdminTodayService } from './admin-today.service';
 import { AdminGuard } from './admin.guard';
 import { ImpersonationService } from './impersonation.service';
 import { MrrModule } from './mrr.module';
@@ -82,6 +84,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     SupportTicketsTenantController,
     WebhooksCleanupController,
     AdminFollowupsController,
+    AdminTodayController,
   ],
   providers: [
     AdminGuard,
@@ -94,6 +97,7 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminTenantsService,
     AdminTenantInteractionsService,
     AdminTenantFollowupsService,
+    AdminTodayService,
     AdminSupportService,
     AdminCommsService,
     AdminMetricsService,
