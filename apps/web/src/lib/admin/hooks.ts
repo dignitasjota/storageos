@@ -5,6 +5,8 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AdminAddonAnalyticsDto,
+  AdminTenantNotesDto,
+  UpdateTenantNotesInput,
   AdminTrialDto,
   AdminChangePlanPreviewDto,
   AdminFinanceOverviewDto,
@@ -1411,5 +1413,27 @@ export function useAdminTrials() {
     queryKey: ['admin', 'trials'],
     queryFn: () => adminApiFetch<AdminTrialDto[]>('/admin/tenants/trials'),
     refetchInterval: 60_000,
+  });
+}
+
+export function useAdminTenantNotes(tenantId: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenant-notes', tenantId],
+    queryFn: () => adminApiFetch<AdminTenantNotesDto>(`/admin/tenants/${tenantId}/notes`),
+    enabled: Boolean(tenantId),
+  });
+}
+
+export function useUpdateTenantNotes(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateTenantNotesInput) =>
+      adminApiFetch<AdminTenantNotesDto>(`/admin/tenants/${tenantId}/notes`, {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenant-notes', tenantId] });
+    },
   });
 }

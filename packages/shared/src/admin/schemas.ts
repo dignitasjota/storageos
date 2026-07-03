@@ -421,3 +421,11 @@ export const ChargeAddonSchema = z.object({
   provider: SaasPaymentProviderEnum.default('cash'),
 });
 export type ChargeAddonInput = z.infer<typeof ChargeAddonSchema>;
+
+/** Actualiza las notas/LTV/tags de un tenant (super admin). */
+export const UpdateTenantNotesSchema = z.object({
+  ltvTier: z.enum(['low', 'medium', 'high', 'enterprise']).nullable().optional(),
+  strategicNotes: z.string().trim().max(5000).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+});
+export type UpdateTenantNotesInput = z.infer<typeof UpdateTenantNotesSchema>;

@@ -985,3 +985,10 @@ export interface AdminTrialDto {
   lastActivityAt: string | null;
   neverUsed: boolean;
 }
+
+/** Notas estratégicas + LTV del tenant (uso interno del super admin). */
+export interface AdminTenantNotesDto {
+  ltvTier: string | null;
+  strategicNotes: string | null;
+  tags: string[];
+}
