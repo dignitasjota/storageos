@@ -403,6 +403,15 @@ export class BillingSaasService {
       },
     });
 
+    // Si Stripe reporta la suscripción activa (pago regularizado), reactiva el
+    // tenant que el dunning hubiera suspendido (solo actúa sobre `suspended`).
+    if (newStatus === 'active') {
+      await this.admin.tenant.updateMany({
+        where: { id: tenantId, status: 'suspended' },
+        data: { status: 'active' },
+      });
+    }
+
     await this.audit.write({
       tenantId,
       userId: null,
@@ -659,6 +668,12 @@ export class BillingSaasService {
     // pisarlo (crédito manual permanente).
     const addedDays = diffInDays(base, newEnd);
 
+    // Si la suscripción estaba impagada (past_due), este pago la regulariza:
+    // reactiva también el tenant si el dunning lo había suspendido (solo actúa
+    // sobre `suspended` → no toca suspensiones manuales del admin sobre un tenant
+    // que no está en dunning).
+    const wasPastDue = sub.status === 'past_due';
+
     const [payment] = await this.admin.$transaction([
       this.admin.tenantSubscriptionPayment.create({
         data: {
@@ -685,6 +700,14 @@ export class BillingSaasService {
           manualExtensionDays: { increment: addedDays },
         },
       }),
+      ...(wasPastDue
+        ? [
+            this.admin.tenant.updateMany({
+              where: { id: args.tenantId, status: 'suspended' },
+              data: { status: 'active' },
+            }),
+          ]
+        : []),
     ]);
 
     // Factura del SaaS (best-effort; solo si la facturación está activada).

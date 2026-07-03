@@ -69,10 +69,12 @@ export class PlatformDunningService {
     });
 
     for (const sub of subs) {
+      // `currentPeriodEnd` YA incluye el crédito manual acumulado (lo suman tanto
+      // `recordManualPayment` como `syncSubscriptionFromStripe`); NO se vuelve a
+      // sumar aquí o el dunning tardaría el doble en actuar sobre morosos con
+      // histórico de pagos manuales.
       const periodEnd = sub.currentPeriodEnd;
-      // Días de impago desde el fin del periodo (+ extensión manual acumulada).
-      const overdueFrom = new Date(periodEnd.getTime() + (sub.manualExtensionDays ?? 0) * DAY_MS);
-      const daysOverdue = Math.floor((now.getTime() - overdueFrom.getTime()) / DAY_MS);
+      const daysOverdue = Math.floor((now.getTime() - periodEnd.getTime()) / DAY_MS);
       if (daysOverdue < 0) continue;
       result.evaluated += 1;
 

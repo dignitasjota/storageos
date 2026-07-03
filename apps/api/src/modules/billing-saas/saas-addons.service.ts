@@ -203,11 +203,35 @@ export class SaasAddonsService {
         message: 'Add-on no disponible',
       });
     }
+    // Un add-on suspendido por impago NO se puede reactivar por self-service
+    // (sería escapar de la deuda): solo el super admin lo reactiva al cobrar.
+    const existing = await this.admin.tenantSubscriptionAddon.findUnique({
+      where: { tenantId_addonId: { tenantId, addonId } },
+      select: { suspendedAt: true },
+    });
+    if (existing?.suspendedAt) {
+      throw new BadRequestException({
+        code: 'addon_suspended',
+        message: 'Este extra está suspendido por un pago pendiente. Contacta para regularizarlo.',
+      });
+    }
     await this.assign(tenantId, { addonId, quantity });
     return this.selfServiceView(tenantId);
   }
 
   async selfRemove(tenantId: string, tenantAddonId: string): Promise<TenantSelfAddonsDto> {
+    // No permitir que el tenant "cancele" un add-on suspendido para borrar la
+    // deuda pendiente; debe regularizar primero (el admin lo quita si procede).
+    const existing = await this.admin.tenantSubscriptionAddon.findFirst({
+      where: { id: tenantAddonId, tenantId },
+      select: { suspendedAt: true },
+    });
+    if (existing?.suspendedAt) {
+      throw new BadRequestException({
+        code: 'addon_suspended',
+        message: 'Este extra está suspendido por un pago pendiente. Contacta para regularizarlo.',
+      });
+    }
     await this.remove(tenantId, tenantAddonId);
     return this.selfServiceView(tenantId);
   }

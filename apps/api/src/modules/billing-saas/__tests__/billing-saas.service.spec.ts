@@ -22,6 +22,9 @@ interface AdminMock {
     update: jest.Mock;
     findFirst: jest.Mock;
   };
+  tenant: {
+    updateMany: jest.Mock;
+  };
   $transaction: jest.Mock;
 }
 
@@ -57,6 +60,9 @@ function buildAdmin(): AdminMock {
       create: jest.fn().mockResolvedValue(paymentRow()),
       update: jest.fn().mockResolvedValue(paymentRow()),
       findFirst: jest.fn().mockResolvedValue(null),
+    },
+    tenant: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     // El array-form de $transaction recibe las promesas ya lanzadas.
     $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),

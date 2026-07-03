@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -104,6 +104,13 @@ export class AdminTodayService {
     });
     if (!row) {
       throw new NotFoundException({ code: 'addon_not_found', message: 'Add-on no encontrado' });
+    }
+    // Pudo suspenderse entre que se pintó la bandeja «Hoy» y este cobro.
+    if (row.suspendedAt) {
+      throw new BadRequestException({
+        code: 'addon_suspended',
+        message: 'El add-on está suspendido; reactívalo antes de cobrarlo.',
+      });
     }
     const amount = Number(row.priceMonthly) * row.quantity;
     await this.billing.recordManualPayment({
