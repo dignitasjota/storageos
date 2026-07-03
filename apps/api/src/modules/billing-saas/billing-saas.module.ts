@@ -14,6 +14,8 @@ import { PlatformDunningCron } from './platform-dunning.cron';
 import { PlatformDunningService } from './platform-dunning.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { SaasAddonsController } from './saas-addons.controller';
+import { SaasAddonsService } from './saas-addons.service';
 import { SubscriptionPlansController } from './subscription-plans.controller';
 import { SubscriptionPlansService } from './subscription-plans.service';
 
@@ -52,12 +54,14 @@ import { SubscriptionPlansService } from './subscription-plans.service';
   controllers: [
     BillingSaasController,
     SubscriptionPlansController,
+    SaasAddonsController,
     PlatformInvoicesController,
     PlatformDunningController,
   ],
   providers: [
     BillingSaasService,
     SubscriptionPlansService,
+    SaasAddonsService,
     PlatformInvoicesService,
     PlatformDunningService,
     PlatformDunningCron,
@@ -66,6 +70,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
   exports: [
     BillingSaasService,
     SubscriptionPlansService,
+    SaasAddonsService,
     PlatformInvoicesService,
     PlatformDunningService,
   ],

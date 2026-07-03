@@ -440,6 +440,7 @@ model Tenant {
   delinquencyCases        DelinquencyCase[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
+  subscriptionAddons      TenantSubscriptionAddon[]
 
   @@map("tenants")
 }
@@ -3714,4 +3715,40 @@ model DelinquencyCaseFile {
   @@index([tenantId])
   @@index([caseId, createdAt])
   @@map("delinquency_case_files")
+}
+
+/// Catálogo global de add-ons facturables del SaaS (lo gestiona el super admin).
+model SubscriptionAddon {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  slug         String   @unique
+  name         String
+  description  String?
+  priceMonthly Decimal  @map("price_monthly") @db.Decimal(12, 2)
+  /// Feature que se activa (override) al asignar; null = solo cobra.
+  feature      String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenantAddons TenantSubscriptionAddon[]
+
+  @@map("subscription_addons")
+}
+
+/// Add-on contratado por un tenant (precio congelado al asignar).
+model TenantSubscriptionAddon {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  addonId      String   @map("addon_id") @db.Uuid
+  priceMonthly Decimal  @map("price_monthly") @db.Decimal(12, 2)
+  quantity     Int      @default(1)
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  addon  SubscriptionAddon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, addonId])
+  @@index([tenantId])
+  @@map("tenant_subscription_addons")
 }

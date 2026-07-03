@@ -371,3 +371,30 @@ export const UpdatePlatformBannerSchema = z.object({
   enabled: z.boolean().default(false),
 });
 export type UpdatePlatformBannerInput = z.infer<typeof UpdatePlatformBannerSchema>;
+
+// --- Add-ons facturables del SaaS ---------------------------------------
+export const UpsertSaasAddonSchema = z.object({
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, 'Slug inválido (minúsculas, dígitos, guiones)')
+    .min(2)
+    .max(60),
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(500).optional().or(z.literal('')),
+  priceMonthly: z.number().min(0).max(100000),
+  /** Feature que activa al asignar (slug de TenantFeature); '' = ninguna. */
+  feature: z.string().trim().max(60).optional().or(z.literal('')),
+  isActive: z.boolean().default(true),
+});
+export type UpsertSaasAddonInput = z.infer<typeof UpsertSaasAddonSchema>;
+
+export const AssignAddonSchema = z.object({
+  addonId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(999).default(1),
+  /** Precio a aplicar (céntimos→€); si se omite, el del catálogo. */
+  priceMonthly: z.number().min(0).max(100000).optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+export type AssignAddonInput = z.infer<typeof AssignAddonSchema>;

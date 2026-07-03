@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { AdminMetricsDto, AdminRetentionDto } from '@storageos/shared';
@@ -52,7 +53,10 @@ function monthLabel(d: Date): string {
  */
 @Injectable()
 export class AdminMetricsService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly addons: SaasAddonsService,
+  ) {}
 
   async getOverview(): Promise<AdminMetricsDto> {
     const now = new Date();
@@ -103,6 +107,7 @@ export class AdminMetricsService {
       this.admin.tenantSubscription.findMany({
         where: { tenant: { deletedAt: null } },
         select: {
+          tenantId: true,
           status: true,
           plan: { select: { slug: true, name: true, priceMonthly: true } },
         },
@@ -146,6 +151,10 @@ export class AdminMetricsService {
       { planSlug: string; planName: string; count: number; mrr: number }
     >();
     let mrrTotal = 0;
+    // Add-ons facturables: se suman al MRR total y al ARPU (no a la distribución
+    // por plan, porque no pertenecen a ningún plan).
+    const addonsByTenant = await this.addons.addonsMonthlyByTenant();
+    let addonsMrr = 0;
     for (const s of subscriptions) {
       const slug = s.plan.slug;
       const entry = planMap.get(slug) ?? {
@@ -159,9 +168,11 @@ export class AdminMetricsService {
         const monthly = Number(s.plan.priceMonthly);
         entry.mrr += monthly;
         mrrTotal += monthly;
+        addonsMrr += addonsByTenant.get(s.tenantId) ?? 0;
       }
       planMap.set(slug, entry);
     }
+    mrrTotal += addonsMrr;
     const tenantsByPlan = [...planMap.values()]
       .map((p) => ({ ...p, mrr: round2(p.mrr) }))
       .sort((a, b) => b.count - a.count);
