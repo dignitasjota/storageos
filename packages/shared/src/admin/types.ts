@@ -826,7 +826,10 @@ export interface TenantAddonDto {
   /** priceMonthly × quantity. */
   lineTotal: number;
   feature: string | null;
-  notes: string | null;
+  notes:
+    | string
+    | null; /** Suspendido por impago: no cuenta al total ni a la capacidad, feature off. */
+  suspended: boolean;
 }
 
 /** Resumen de la facturación efectiva del tenant (plan + add-ons). */

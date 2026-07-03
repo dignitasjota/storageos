@@ -125,6 +125,64 @@ describe('SaaS add-ons (e2e)', () => {
     expect(after).toHaveLength(0);
   });
 
+  it('suspender por impago: desactiva la feature y no cuenta al total; reactivar la restaura', async () => {
+    const owner = await registerVerifiedUser(app, 'addon-suspend');
+    const tenant = await adminClient.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id;
+    const tenantAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // Crear un add-on con feature y asignarlo → feature activa.
+    const addon = await request(app.getHttpServer())
+      .post('/admin/addons')
+      .set(bearer())
+      .send({
+        slug: 'e2e-suspend-ai',
+        name: 'Asistente IA',
+        priceMonthly: 12,
+        feature: 'ai_assistant',
+      });
+    const assigned = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons`)
+      .set(bearer())
+      .send({ addonId: addon.body.id, quantity: 1 });
+    expect(assigned.body.addonsMonthly).toBe(12);
+    const assignmentId = assigned.body.addons[0].id as string;
+
+    const me1 = await request(app.getHttpServer()).get('/auth/me').set(tenantAuth);
+    expect(me1.body.features).toContain('ai_assistant');
+
+    // Suspender → feature off + no cuenta al total, pero el add-on sigue listado.
+    const suspended = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons/${assignmentId}/suspend`)
+      .set(bearer());
+    expect(suspended.status).toBe(201);
+    expect(suspended.body.addonsMonthly).toBe(0);
+    expect(suspended.body.addons).toHaveLength(1);
+    expect(suspended.body.addons[0].suspended).toBe(true);
+
+    const me2 = await request(app.getHttpServer()).get('/auth/me').set(tenantAuth);
+    expect(me2.body.features).not.toContain('ai_assistant');
+
+    // Doble suspensión → 400.
+    await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons/${assignmentId}/suspend`)
+      .set(bearer())
+      .expect(400);
+
+    // Reactivar → feature de nuevo + vuelve a contar.
+    const reactivated = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons/${assignmentId}/reactivate`)
+      .set(bearer());
+    expect(reactivated.status).toBe(201);
+    expect(reactivated.body.addonsMonthly).toBe(12);
+    expect(reactivated.body.addons[0].suspended).toBe(false);
+
+    const me3 = await request(app.getHttpServer()).get('/auth/me').set(tenantAuth);
+    expect(me3.body.features).toContain('ai_assistant');
+
+    await adminClient.subscriptionAddon.deleteMany({ where: { slug: 'e2e-suspend-ai' } });
+  });
+
   it('sin token de super admin → 401', async () => {
     await request(app.getHttpServer()).get('/admin/addons').expect(401);
   });

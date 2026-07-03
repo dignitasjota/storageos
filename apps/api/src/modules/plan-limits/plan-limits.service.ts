@@ -31,7 +31,8 @@ export class PlanLimitsService {
         include: { plan: { select: { maxUnits: true, maxFacilities: true, maxUsers: true } } },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
-        where: { tenantId },
+        // Los add-ons suspendidos por impago no amplían el límite.
+        where: { tenantId, suspendedAt: null },
         select: {
           quantity: true,
           addon: {

@@ -822,6 +822,23 @@ export function useRemoveAddon(tenantId: string) {
   });
 }
 
+/** Suspender / reactivar un add-on por impago (action: 'suspend' | 'reactivate'). */
+export function useAddonSuspension(tenantId: string, action: 'suspend' | 'reactivate') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assignmentId: string) =>
+      adminApiFetch<TenantBillingSummaryDto>(
+        `/admin/tenants/${tenantId}/addons/${assignmentId}/${action}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+    },
+  });
+}
+
 /** Nº de tickets de soporte esperando respuesta del admin — para el badge del menú. */
 export function useAdminOpenTicketsCount() {
   return useQuery({

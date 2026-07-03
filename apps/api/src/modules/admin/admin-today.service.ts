@@ -65,6 +65,7 @@ export class AdminTodayService {
     const rows = await this.admin.tenantSubscriptionAddon.findMany({
       where: {
         nextChargeAt: { lte: now },
+        suspendedAt: null, // los suspendidos por impago no se cobran
         tenant: { subscription: { stripeSubscriptionId: { not: null } } },
       },
       include: {
