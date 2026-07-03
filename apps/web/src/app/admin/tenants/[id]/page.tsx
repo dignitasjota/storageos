@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { FeatureOverridesCard } from './feature-overrides-card';
 import { OnboardingCard } from './onboarding-card';
 import { SaasPaymentsCard } from './saas-payments-card';
+import { TenantAddonsCard } from './tenant-addons-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
 import { TenantEmailDialog } from './tenant-email-dialog';
@@ -236,7 +237,8 @@ export default function AdminTenantDetailPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="payments" className="mt-4">
+        <TabsContent value="payments" className="mt-4 space-y-4">
+          <TenantAddonsCard tenantId={id} />
           <SaasPaymentsCard tenantId={id} />
         </TabsContent>
 

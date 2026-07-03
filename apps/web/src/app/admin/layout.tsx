@@ -19,6 +19,7 @@ import {
   Megaphone,
   Menu,
   Package,
+  PackagePlus,
   ScrollText,
   UserCog,
   ShieldCheck,
@@ -101,6 +102,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
     icon: Package,
     children: [
       { href: '/admin/plans', label: 'Planes', icon: Package },
+      { href: '/admin/addons', label: 'Add-ons', icon: PackagePlus },
       { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
       { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
     ],
