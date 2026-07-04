@@ -245,7 +245,8 @@ export class ProductSalesService {
    */
   async cancel(args: {
     tenantId: string;
-    userId: string;
+    /** `null` cuando la reversión la lanza un flujo público (cobro del portal). */
+    userId: string | null;
     id: string;
     reason?: string | undefined;
     meta: RequestMeta;

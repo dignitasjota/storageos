@@ -3,7 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -90,6 +93,8 @@ interface MagicLinkEntry {
  */
 @Injectable()
 export class PortalService {
+  private readonly logger = new Logger(PortalService.name);
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
@@ -523,10 +528,22 @@ export class PortalService {
   }
 
   /**
-   * El inquilino compra accesorios desde el portal. La venta se factura
-   * (factura emitida que paga luego en «Tus facturas») reutilizando
-   * `ProductSalesService.create` con `userId: null`. El local se resuelve del
-   * contrato activo del inquilino (el stock se descuenta de ese local).
+   * El inquilino compra accesorios desde el portal. Decisión de negocio
+   * («cobrar en el acto»): la venta se **cobra inmediatamente** contra el
+   * método de pago por defecto del inquilino. El local se resuelve del contrato
+   * activo (el stock se descuenta de ese local).
+   *
+   * Reglas de dinero:
+   *  - Sin método de pago cobrable → 400 `no_payment_method` ANTES de crear
+   *    nada (no queda venta ni factura colgando). Si el negocio no tiene
+   *    pasarela configurada tampoco habrá método por defecto, así que el mismo
+   *    error aplica: la compra online exige poder cobrar (no se degrada a
+   *    «factura pendiente», que reabriría el agujero de entregar sin cobrar).
+   *  - Cobro `succeeded`/`processing` (SEPA/GoCardless liquidan en días, el
+   *    cobro está iniciado) → entrega OK.
+   *  - Cobro `failed`/`pending` (requiere acción) o error del gateway →
+   *    revertimos: se cancela la venta (repone stock + anula la factura) y se
+   *    devuelve error claro.
    */
   async purchaseProducts(
     tenantId: string,
@@ -545,12 +562,63 @@ export class PortalService {
         message: 'Necesitas un contrato activo para comprar accesorios',
       });
     }
-    return this.productSales.create({
+    // Cobro en el acto: exige método de pago cobrable ANTES de crear la venta.
+    await this.payments.assertChargeableDefaultMethod(tenantId, customerId);
+
+    const sale = await this.productSales.create({
       tenantId,
       userId: null,
       input: { facilityId: contract.unit.facilityId, customerId, items },
       meta: {},
     });
+
+    // Sin factura (no debería ocurrir: siempre hay customer) no hay nada que
+    // cobrar; devolvemos la venta tal cual.
+    if (!sale.invoiceId) return sale;
+
+    let payment;
+    try {
+      payment = await this.payments.chargeInvoice({
+        tenantId,
+        userId: null,
+        invoiceId: sale.invoiceId,
+        input: {},
+        meta: {},
+      });
+    } catch (err) {
+      // Fallo del cobro (rechazo síncrono del gateway, pasarela no disponible…):
+      // revertimos la entrega y propagamos el error original.
+      await this.revertSale(tenantId, sale.id, 'Cobro fallido');
+      throw err;
+    }
+    // succeeded / processing (SEPA/GoCardless liquidan en días) → entregado.
+    const delivered = payment.status === 'succeeded' || payment.status === 'processing';
+    if (!delivered) {
+      await this.revertSale(tenantId, sale.id, 'Cobro rechazado');
+      throw new HttpException(
+        {
+          code: 'payment_failed',
+          message: 'No se pudo cobrar tu método de pago. Revisa tus datos e inténtalo de nuevo.',
+        },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+    return sale;
+  }
+
+  /** Revierte una venta ya creada: repone stock + anula su factura. */
+  private async revertSale(tenantId: string, saleId: string, reason: string): Promise<void> {
+    try {
+      await this.productSales.cancel({ tenantId, userId: null, id: saleId, reason, meta: {} });
+    } catch (err) {
+      // No enmascarar el error de cobro original si la reversión falla; queda
+      // en logs y la venta se puede cancelar a mano desde el panel.
+      this.logger.error(
+        `[portal-shop] no se pudo revertir la venta ${saleId} tras cobro fallido: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /** Datos de perfil del inquilino (para precargar el formulario). */

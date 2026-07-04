@@ -53,7 +53,7 @@ export function ShopCard({
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });
-      toast.success('Compra realizada. Tienes una factura pendiente de pago.');
+      toast.success('Compra realizada. Se ha cobrado a tu método de pago por defecto.');
       setQty((q) => ({ ...q, [product.id]: 1 }));
       onPurchased();
       // Refresca el stock visible.
@@ -63,7 +63,15 @@ export function ShopCard({
       });
       setProducts(fresh);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar la compra.');
+      if (err instanceof ApiError && err.body.code === 'no_payment_method') {
+        toast.error(
+          'Necesitas un método de pago para comprar. Añade una tarjeta o domiciliación en «Método de pago».',
+        );
+      } else if (err instanceof ApiError && err.body.code === 'payment_failed') {
+        toast.error('No se pudo cobrar tu método de pago. Revisa tus datos e inténtalo de nuevo.');
+      } else {
+        toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar la compra.');
+      }
     } finally {
       setBusyId(null);
     }
@@ -78,7 +86,7 @@ export function ShopCard({
           <ShoppingBag className="h-5 w-5 text-muted-foreground" /> Tienda
         </CardTitle>
         <CardDescription>
-          Candados, cajas y accesorios. Al comprar se emite una factura que puedes pagar aquí mismo.
+          Candados, cajas y accesorios. Se cobran en el acto a tu método de pago por defecto.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
