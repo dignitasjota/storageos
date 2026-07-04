@@ -19,8 +19,10 @@ import { EmailModule } from '../../api/src/modules/email/email.module';
 import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
 import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance.module';
+import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
+import { PlanLimitsModule } from '../../api/src/modules/plan-limits/plan-limits.module';
 import { PushModule } from '../../api/src/modules/push/push.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
 import { RentIncreasesModule } from '../../api/src/modules/rent-increases/rent-increases.module';
@@ -126,6 +128,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // CRM: cron `contract_ending_soon` + feed de notificaciones in-app +
     // cron `reviews.auto-request`.
     ContractsModule,
+    MoveInModule,
+    PlanLimitsModule,
     MaintenanceModule,
     NotificationsModule,
     ReviewsModule,

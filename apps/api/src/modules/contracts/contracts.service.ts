@@ -865,7 +865,8 @@ export class ContractsService {
 
   async cancel(args: {
     tenantId: string;
-    userId: string;
+    /** `null` cuando lo lanza un proceso automático (cron de bookings impagados). */
+    userId: string | null;
     contractId: string;
     facilityScope?: string[] | null;
     input: CancelContractInput;

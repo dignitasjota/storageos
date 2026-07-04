@@ -559,7 +559,8 @@ export class InvoicesService {
 
   async cancel(args: {
     tenantId: string;
-    userId: string;
+    /** `null` cuando lo lanza un proceso automático (cron de bookings impagados). */
+    userId: string | null;
     invoiceId: string;
     input: CancelInvoiceInput;
     meta: RequestMeta;

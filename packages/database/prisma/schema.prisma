@@ -1067,6 +1067,7 @@ model Contract {
   signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)
   /// Marca cuándo se emitió el aviso "vence pronto" (idempotencia del cron).
   endingSoonNotifiedAt   DateTime?             @map("ending_soon_notified_at") @db.Timestamptz(6)
+  firstPaymentDeadline   DateTime?             @map("first_payment_deadline") @db.Timestamptz(6)
   autoRenew              Boolean               @default(true) @map("auto_renew")
   cancellationNoticeDays Int                   @default(15) @map("cancellation_notice_days")
   /// Seguro/protección opcional: plan asignado + prima mensual congelada al asignar.

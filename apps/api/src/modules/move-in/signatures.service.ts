@@ -30,6 +30,8 @@ import type {
 
 const SIGNING_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PORTAL_TOKEN_TTL_SECONDS = 3600;
+/** Plazo para pagar la 1ª factura de un booking self-service antes de cancelarlo. */
+const BOOKING_PAYMENT_DEADLINE_HOURS = 72;
 
 function displayName(c: {
   customerType: string;
@@ -436,6 +438,15 @@ export class SignaturesService {
       deferAccessUntilPaid: true,
     });
     await this.maybeIssueFirstInvoice(tenantId, contract.id, customerId);
+    // Plazo para pagar la 1ª factura: si no se paga, el cron cancela el
+    // contrato y libera la unidad (no deja un contrato «zombi» facturando sin
+    // acceso ni pago). El acceso se emite al pagar (deferAccessUntilPaid).
+    await this.admin.contract.update({
+      where: { id: contract.id },
+      data: {
+        firstPaymentDeadline: new Date(Date.now() + BOOKING_PAYMENT_DEADLINE_HOURS * 3_600_000),
+      },
+    });
     const invoice = await this.admin.invoice.findFirst({
       where: { tenantId, contractId: contract.id, deletedAt: null },
       select: { id: true },
@@ -445,5 +456,76 @@ export class SignaturesService {
       invoiceId: invoice?.id ?? null,
       portalToken: this.mintPortalToken(tenantId, customerId),
     };
+  }
+
+  /**
+   * Cancela los contratos de booking self-service cuya 1ª factura no se pagó en
+   * plazo: libera la unidad y anula la factura. Si la factura SÍ se pagó, limpia
+   * el plazo (deja de ser candidato). Cross-tenant (lo llama el cron).
+   */
+  async expireUnpaidBookings(): Promise<{ cancelled: number }> {
+    const now = new Date();
+    const candidates = await this.admin.contract.findMany({
+      where: {
+        firstPaymentDeadline: { lt: now },
+        status: { in: ['active', 'draft'] },
+        deletedAt: null,
+      },
+      select: { id: true, tenantId: true },
+    });
+    let cancelled = 0;
+    for (const c of candidates) {
+      const paid = await this.admin.invoice.findFirst({
+        where: { tenantId: c.tenantId, contractId: c.id, status: 'paid' },
+        select: { id: true },
+      });
+      if (paid) {
+        // Pagó a tiempo (o el acceso ya se emitió): deja de ser candidato.
+        await this.admin.contract.update({
+          where: { id: c.id },
+          data: { firstPaymentDeadline: null },
+        });
+        continue;
+      }
+      try {
+        await this.contracts.cancel({
+          tenantId: c.tenantId,
+          userId: null,
+          contractId: c.id,
+          input: { reason: 'Reserva sin pago en plazo' },
+          meta: {},
+        });
+        // Anula las facturas del booking que quedaron sin cobrar.
+        const unpaid = await this.admin.invoice.findMany({
+          where: {
+            tenantId: c.tenantId,
+            contractId: c.id,
+            status: { in: ['issued', 'overdue', 'draft'] },
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        for (const inv of unpaid) {
+          await this.invoices
+            .cancel({
+              tenantId: c.tenantId,
+              userId: null,
+              invoiceId: inv.id,
+              input: { reason: 'Reserva sin pago en plazo' },
+              meta: {},
+            })
+            .catch((err) =>
+              this.logger.warn(`No se pudo anular la factura ${inv.id}: ${(err as Error).message}`),
+            );
+        }
+        cancelled += 1;
+      } catch (err) {
+        this.logger.warn(
+          `No se pudo expirar el booking del contrato ${c.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+    if (cancelled > 0) this.logger.log(`Bookings impagados expirados: ${cancelled}`);
+    return { cancelled };
   }
 }
