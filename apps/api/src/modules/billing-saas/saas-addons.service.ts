@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { TenantFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -246,7 +251,13 @@ export class SaasAddonsService {
     ]);
     const owned = new Set(summary.addons.map((a) => a.addonId));
     const available = catalog.filter((a) => !owned.has(a.id)).map((a) => this.toCatalogDto(a));
-    return { summary, available };
+    // Las `notes` de la asignación son internas del super admin: no exponerlas al
+    // tenant en su self-service.
+    const tenantSummary = {
+      ...summary,
+      addons: summary.addons.map((a) => ({ ...a, notes: null })),
+    };
+    return { summary: tenantSummary, available };
   }
 
   /** Contratación por el tenant: solo add-ons ACTIVOS del catálogo, quantity>=1. */
@@ -258,16 +269,24 @@ export class SaasAddonsService {
         message: 'Add-on no disponible',
       });
     }
-    // Un add-on suspendido por impago NO se puede reactivar por self-service
-    // (sería escapar de la deuda): solo el super admin lo reactiva al cobrar.
     const existing = await this.admin.tenantSubscriptionAddon.findUnique({
       where: { tenantId_addonId: { tenantId, addonId } },
       select: { suspendedAt: true },
     });
-    if (existing?.suspendedAt) {
-      throw new BadRequestException({
-        code: 'addon_suspended',
-        message: 'Este extra está suspendido por un pago pendiente. Contacta para regularizarlo.',
+    if (existing) {
+      // Un add-on suspendido por impago NO se puede reactivar por self-service
+      // (sería escapar de la deuda): solo el super admin lo reactiva al cobrar.
+      if (existing.suspendedAt) {
+        throw new BadRequestException({
+          code: 'addon_suspended',
+          message: 'Este extra está suspendido por un pago pendiente. Contacta para regularizarlo.',
+        });
+      }
+      // Ya lo tiene contratado: re-contratar pisaría el precio congelado, la
+      // cantidad o las notas que pudo fijar el super admin → 409.
+      throw new ConflictException({
+        code: 'addon_already_assigned',
+        message: 'Ya tienes este extra contratado.',
       });
     }
     await this.assign(tenantId, { addonId, quantity });
@@ -275,20 +294,114 @@ export class SaasAddonsService {
   }
 
   async selfRemove(tenantId: string, tenantAddonId: string): Promise<TenantSelfAddonsDto> {
-    // No permitir que el tenant "cancele" un add-on suspendido para borrar la
-    // deuda pendiente; debe regularizar primero (el admin lo quita si procede).
     const existing = await this.admin.tenantSubscriptionAddon.findFirst({
       where: { id: tenantAddonId, tenantId },
-      select: { suspendedAt: true },
+      select: {
+        suspendedAt: true,
+        priceMonthly: true,
+        quantity: true,
+        notes: true,
+        addon: {
+          select: {
+            name: true,
+            priceMonthly: true,
+            grantsUnits: true,
+            grantsFacilities: true,
+            grantsUsers: true,
+          },
+        },
+      },
     });
-    if (existing?.suspendedAt) {
+    if (!existing) {
+      throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    }
+    // No permitir que el tenant "cancele" un add-on suspendido para borrar la
+    // deuda pendiente; debe regularizar primero (el admin lo quita si procede).
+    if (existing.suspendedAt) {
       throw new BadRequestException({
         code: 'addon_suspended',
         message: 'Este extra está suspendido por un pago pendiente. Contacta para regularizarlo.',
       });
     }
+    // Si es un add-on de capacidad y el tenant ya usa más de lo que su plan
+    // permitiría sin él, no dejar cancelar (evita quedarse por encima del límite
+    // sin pagar el extra que lo habilitaba).
+    await this.assertCapacityRemovable(tenantId, existing);
+    // Si el add-on tenía configuración especial del admin (precio negociado,
+    // cantidad>1 o notas internas), avisar al super admin de la cancelación.
+    await this.notifyManagedAddonRemoval(tenantId, existing);
+
     await this.remove(tenantId, tenantAddonId);
     return this.selfServiceView(tenantId);
+  }
+
+  /** Bloquea cancelar un add-on de capacidad si el tenant quedaría sobre el límite. */
+  private async assertCapacityRemovable(
+    tenantId: string,
+    row: {
+      quantity: number;
+      addon: {
+        grantsUnits: number | null;
+        grantsFacilities: number | null;
+        grantsUsers: number | null;
+      };
+    },
+  ): Promise<void> {
+    const grants = {
+      units: (row.addon.grantsUnits ?? 0) * row.quantity,
+      facilities: (row.addon.grantsFacilities ?? 0) * row.quantity,
+      users: (row.addon.grantsUsers ?? 0) * row.quantity,
+    };
+    if (grants.units === 0 && grants.facilities === 0 && grants.users === 0) return; // no es de capacidad
+
+    const [limits, units, facilities, activeUsers, pendingInvites] = await Promise.all([
+      this.limits.resolveLimits(tenantId), // límite CON este add-on
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+      this.admin.invitation.count({ where: { tenantId, acceptedAt: null, revokedAt: null } }),
+    ]);
+    const usage = { units, facilities, users: activeUsers + pendingInvites };
+    const labels = { units: 'trasteros', facilities: 'locales', users: 'usuarios' } as const;
+    for (const res of ['units', 'facilities', 'users'] as const) {
+      const limit = limits[res];
+      if (limit === null) continue; // ilimitado en el plan: cancelar no rompe nada
+      const limitWithout = limit - grants[res];
+      if (usage[res] > limitWithout) {
+        throw new ConflictException({
+          code: 'addon_capacity_in_use',
+          message: `No puedes cancelar este extra: usas ${usage[res]} ${labels[res]} y sin él tu límite sería ${limitWithout}. Reduce primero o contacta con soporte.`,
+          details: { resource: res, usage: usage[res], limitWithout },
+        });
+      }
+    }
+  }
+
+  /** Avisa al super admin si el tenant cancela un add-on con config especial. */
+  private async notifyManagedAddonRemoval(
+    tenantId: string,
+    row: {
+      priceMonthly: Prisma.Decimal;
+      quantity: number;
+      notes: string | null;
+      addon: { name: string; priceMonthly: Prisma.Decimal };
+    },
+  ): Promise<void> {
+    const isManaged =
+      row.quantity > 1 ||
+      row.notes !== null ||
+      num(row.priceMonthly) !== num(row.addon.priceMonthly);
+    if (!isManaged) return;
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'saas_addon.self_removed',
+          title: 'Extra gestionado cancelado por el tenant',
+          body: `Un tenant canceló el extra «${row.addon.name}», que tenía configuración especial (precio negociado, cantidad o notas). Revísalo si procede.`,
+          link: `/admin/tenants/${tenantId}`,
+        },
+      })
+      .catch(() => undefined);
   }
 
   async assign(tenantId: string, input: AssignAddonInput): Promise<TenantBillingSummaryDto> {
