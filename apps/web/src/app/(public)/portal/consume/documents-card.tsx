@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, Loader2, Upload } from 'lucide-react';
+import { Download, FileText, Loader2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -52,6 +52,19 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.accessToken]);
+
+  async function download(id: string) {
+    try {
+      const { url } = await apiFetch<{ url: string }>(`/portal/me/documents/${id}/download`, {
+        headers,
+      });
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se pudo descargar el documento.',
+      );
+    }
+  }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -155,8 +168,20 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="truncate">{d.fileName}</span>
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {TYPE_LABELS[d.type as CustomerDocumentTypeValue] ?? d.type}
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {TYPE_LABELS[d.type as CustomerDocumentTypeValue] ?? d.type}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => void download(d.id)}
+                  >
+                    <Download className="h-4 w-4" />
+                    <span className="sr-only">Descargar {d.fileName}</span>
+                  </Button>
                 </span>
               </li>
             ))}

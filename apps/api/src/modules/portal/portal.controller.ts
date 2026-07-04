@@ -324,6 +324,19 @@ export class PortalController {
     });
   }
 
+  /** El inquilino cancela una baja en curso → el contrato vuelve a `active`. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/cancel-move-out')
+  @HttpCode(HttpStatus.OK)
+  async cancelMoveOut(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalContractDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.contracts.cancelMoveOutByCustomer({ tenantId, customerId, contractId: id });
+  }
+
   // ----------------------- accesos (historial) -----------------------------
 
   /** Historial de accesos del inquilino (sus entradas) — transparencia/seguridad. */
@@ -375,6 +388,17 @@ export class PortalController {
       input,
       meta: { ipAddress: undefined, userAgent: undefined },
     });
+  }
+
+  /** URL temporal para descargar uno de sus documentos (bucket privado). */
+  @Public()
+  @Get('me/documents/:id/download')
+  async downloadMyDocument(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalDownloadDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.documents.getDownloadUrl(tenantId, customerId, id);
   }
 
   // ----------------------- incidencias -------------------------------------
@@ -602,6 +626,16 @@ export class PortalController {
   ): Promise<PaymentMethodDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.portal.registerMyPaymentMethod(tenantId, customerId, input);
+  }
+
+  /** ¿Ofrece el negocio pago con tarjeta vía Redsys? (para gatear el botón). */
+  @Public()
+  @Get('me/redsys/enabled')
+  async redsysEnabled(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<{ enabled: boolean }> {
+    const { tenantId } = await this.requirePortalSession(auth);
+    return { enabled: await this.redsys.isEnabled(tenantId) };
   }
 
   @Public()

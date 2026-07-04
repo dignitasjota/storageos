@@ -50,16 +50,13 @@ describe('Move-out self-service (e2e)', () => {
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
     const customerId = await createCustomer(app, owner.accessToken, { email });
 
-    const create = await request(app.getHttpServer())
-      .post('/contracts')
-      .set(auth)
-      .send({
-        customerId,
-        unitId: unitIds[0],
-        startDate: '2026-01-01',
-        priceMonthly: 80,
-        depositAmount: 0,
-      });
+    const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-01-01',
+      priceMonthly: 80,
+      depositAmount: 0,
+    });
     const contractId = create.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
 
@@ -109,6 +106,60 @@ describe('Move-out self-service (e2e)', () => {
     expect(reviewCount).toBeGreaterThanOrEqual(1);
   });
 
+  it('el inquilino solicita la baja y luego la cancela → el contrato vuelve a active', async () => {
+    const owner = await registerVerifiedUser(app, 'moveoutcancel');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const email = `moveout-cancel-${Date.now()}@e2e.local`;
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const customerId = await createCustomer(app, owner.accessToken, { email });
+
+    const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-01-01',
+      priceMonthly: 80,
+      depositAmount: 0,
+    });
+    const contractId = create.body.id as string;
+    await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
+
+    const portalToken = await portalLogin(owner.slug, email);
+    const pAuth = { Authorization: `Bearer ${portalToken}` };
+
+    // Solicita la baja.
+    const endDate = dateInDays(30);
+    const req1 = await request(app.getHttpServer())
+      .post(`/portal/me/contracts/${contractId}/request-move-out`)
+      .set(pAuth)
+      .send({ endDate });
+    expect(req1.status).toBe(200);
+    expect(req1.body.status).toBe('ending');
+
+    // Sin token → 401.
+    await request(app.getHttpServer())
+      .post(`/portal/me/contracts/${contractId}/cancel-move-out`)
+      .expect(401);
+
+    // Cancela la baja → vuelve a active, sin fecha de salida.
+    const cancel = await request(app.getHttpServer())
+      .post(`/portal/me/contracts/${contractId}/cancel-move-out`)
+      .set(pAuth);
+    expect(cancel.status).toBe(200);
+    expect(cancel.body.status).toBe('active');
+    expect(cancel.body.endDate).toBeNull();
+
+    // Un contrato ya activo no se puede «cancelar baja» → 400.
+    const again = await request(app.getHttpServer())
+      .post(`/portal/me/contracts/${contractId}/cancel-move-out`)
+      .set(pAuth);
+    expect(again.status).toBe(400);
+    expect(again.body.code).toBe('contract_not_ending');
+
+    // Reflejado en el panel del staff.
+    const staffView = await request(app.getHttpServer()).get(`/contracts/${contractId}`).set(auth);
+    expect(staffView.body.status).toBe('active');
+  });
+
   it('un inquilino no puede solicitar la baja del contrato de otro (404)', async () => {
     const owner = await registerVerifiedUser(app, 'moveout2');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
@@ -118,16 +169,13 @@ describe('Move-out self-service (e2e)', () => {
     const customerA = await createCustomer(app, owner.accessToken, { email: emailA });
     await createCustomer(app, owner.accessToken, { email: emailB });
 
-    const create = await request(app.getHttpServer())
-      .post('/contracts')
-      .set(auth)
-      .send({
-        customerId: customerA,
-        unitId: unitIds[0],
-        startDate: '2026-01-01',
-        priceMonthly: 80,
-        depositAmount: 0,
-      });
+    const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId: customerA,
+      unitId: unitIds[0],
+      startDate: '2026-01-01',
+      priceMonthly: 80,
+      depositAmount: 0,
+    });
     const contractId = create.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
 

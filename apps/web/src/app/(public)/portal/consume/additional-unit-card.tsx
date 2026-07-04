@@ -34,6 +34,14 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: 'Rechazada',
 };
 
+/**
+ * Precio con IVA incluido. `priceMonthly` es el precio de catálogo (sin IVA) y
+ * el DTO no expone el tipo → asumimos el 21% de España, como el resto del portal.
+ */
+function priceWithIva(net: number): number {
+  return net * 1.21;
+}
+
 export function AdditionalUnitCard({
   session,
   onBooked,
@@ -156,7 +164,9 @@ export function AdditionalUnitCard({
                   <div className="text-xs text-muted-foreground">
                     {u.facilityName}
                     {u.areaM2 ? ` · ${u.areaM2} m²` : ''}
-                    {u.priceMonthly != null ? ` · ${u.priceMonthly} €/mes` : ''}
+                    {u.priceMonthly != null
+                      ? ` · ${priceWithIva(u.priceMonthly).toFixed(2)} €/mes (IVA incl.)`
+                      : ''}
                   </div>
                 </div>
                 <Button
@@ -215,8 +225,10 @@ export function AdditionalUnitCard({
             <DialogTitle>Contratar trastero {target?.code}</DialogTitle>
             <DialogDescription>
               {target?.facilityName}
-              {target?.priceMonthly != null ? ` · ${target.priceMonthly} €/mes` : ''}. Se generará
-              tu contrato y la primera factura, que podrás pagar a continuación.
+              {target?.priceMonthly != null
+                ? ` · ${priceWithIva(target.priceMonthly).toFixed(2)} €/mes (IVA incl.)`
+                : ''}
+              . Se generará tu contrato y la primera factura, que podrás pagar a continuación.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

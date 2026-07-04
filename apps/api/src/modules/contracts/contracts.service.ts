@@ -796,6 +796,68 @@ export class ContractsService {
     return this.toPortalDto(updated);
   }
 
+  /**
+   * El inquilino cancela una baja en curso (contrato en `ending`): vuelve a
+   * `active`, limpiando la fecha de salida y la marca de solicitud.
+   *
+   * Es seguro porque en el estado `ending` todavía no ha ocurrido nada
+   * irreversible (el cierre real —liberar la unidad, liquidar fianza— sucede en
+   * `end`). Solo revierte contratos en `ending`; cualquier otro estado → 400.
+   */
+  async cancelMoveOutByCustomer(args: {
+    tenantId: string;
+    customerId: string;
+    contractId: string;
+  }): Promise<PortalContractDto> {
+    const existing = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findFirst({
+          where: {
+            id: args.contractId,
+            customerId: args.customerId,
+            tenantId: args.tenantId,
+            deletedAt: null,
+          },
+        }),
+      args.tenantId,
+    );
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'contract_not_found',
+        message: 'Contrato no encontrado',
+      });
+    }
+    if (existing.status !== 'ending') {
+      throw new BadRequestException({
+        code: 'contract_not_ending',
+        message: 'Solo puedes cancelar una baja que esté en curso',
+      });
+    }
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.contract.update({
+        where: { id: args.contractId },
+        data: { status: 'active', endDate: null, endingRequestedAt: null },
+        include: {
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+          insurancePlan: { select: { name: true } },
+        },
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'resumed',
+          payload: { channel: 'portal', reason: 'move_out_cancelled' },
+          createdByUserId: null,
+        },
+      });
+      return row;
+    }, args.tenantId);
+
+    return this.toPortalDto(updated);
+  }
+
   async end(args: {
     tenantId: string;
     userId: string;
