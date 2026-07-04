@@ -44,7 +44,7 @@ export class SaasAddonsService {
     const [subscription, suspended] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        select: { status: true },
+        select: { status: true, stripeSubscriptionId: true },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { tenantId, suspendedAt: { not: null } },
@@ -52,6 +52,9 @@ export class SaasAddonsService {
       }),
     ]);
     const pastDue = subscription?.status === 'past_due';
+    // Plan impagado sin Stripe = pago manual: no hay portal de pago online, el
+    // tenant regulariza avisando a soporte («He realizado el pago»).
+    const planManual = pastDue && !subscription?.stripeSubscriptionId;
     const suspendedAddons = suspended.map((s) => ({
       name: s.addon.name,
       feature: s.addon.feature,
@@ -61,6 +64,7 @@ export class SaasAddonsService {
       .filter((f): f is string => f !== null);
     return {
       pastDue,
+      planManual,
       suspendedAddons,
       suspendedFeatures,
       hasIssue: pastDue || suspendedAddons.length > 0,
