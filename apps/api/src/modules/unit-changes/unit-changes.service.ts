@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { DOMAIN_EVENTS, type CustomerNotifyPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -29,6 +31,7 @@ export class UnitChangesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ---- portal ----
@@ -174,6 +177,19 @@ export class UnitChangesService {
         }),
       tenantId,
     );
+    // Cierra el loop: avisa al inquilino por push de la resolución (aprobada o
+    // rechazada), con el motivo si lo hay.
+    const approved = input.status === 'handled';
+    const note = input.resolutionNote?.trim();
+    this.events.emit(DOMAIN_EVENTS.unit_change_resolved, {
+      tenantId,
+      customerId: updated.customerId,
+      title: approved ? 'Cambio de trastero aprobado' : 'Solicitud de cambio revisada',
+      body: approved
+        ? `Tu solicitud de cambio de trastero se ha gestionado.${note ? ` ${note}` : ''}`
+        : `Tu solicitud de cambio de trastero no se ha podido aprobar.${note ? ` ${note}` : ''}`,
+      url: '/portal/login',
+    } satisfies CustomerNotifyPayload);
     return this.toDto(updated);
   }
 
@@ -183,6 +199,7 @@ export class UnitChangesService {
     id: string;
     note: string;
     status: string;
+    resolutionNote: string | null;
     createdAt: Date;
     contract: { contractNumber: string } | null;
   }): PortalUnitChangeRequestDto {
@@ -191,6 +208,7 @@ export class UnitChangesService {
       contractNumber: r.contract?.contractNumber ?? null,
       note: r.note,
       status: r.status as UnitChangeRequestStatus,
+      resolutionNote: r.resolutionNote,
       createdAt: r.createdAt.toISOString(),
     };
   }

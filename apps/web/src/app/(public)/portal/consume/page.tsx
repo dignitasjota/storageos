@@ -953,15 +953,22 @@ function PortalConsumeContent() {
                 {(unitChanges ?? []).length > 0 && (
                   <ul className="space-y-2 border-t pt-3">
                     {(unitChanges ?? []).map((r) => (
-                      <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="line-clamp-1">{r.note}</span>
-                        <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
-                          {r.status === 'pending'
-                            ? 'Pendiente'
-                            : r.status === 'handled'
-                              ? 'Gestionada'
-                              : 'Rechazada'}
-                        </Badge>
+                      <li key={r.id} className="space-y-1 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="line-clamp-1">{r.note}</span>
+                          <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
+                            {r.status === 'pending'
+                              ? 'Pendiente'
+                              : r.status === 'handled'
+                                ? 'Gestionada'
+                                : 'Rechazada'}
+                          </Badge>
+                        </div>
+                        {r.status !== 'pending' && r.resolutionNote && (
+                          <p className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                            {r.resolutionNote}
+                          </p>
+                        )}
                       </li>
                     ))}
                   </ul>

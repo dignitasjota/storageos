@@ -23,6 +23,8 @@ export interface PortalUnitChangeRequestDto {
   contractNumber: string | null;
   note: string;
   status: UnitChangeRequestStatus;
+  /** Motivo/nota del staff al resolver (aprobar o rechazar). */
+  resolutionNote: string | null;
   createdAt: string;
 }
 

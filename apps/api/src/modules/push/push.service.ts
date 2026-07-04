@@ -3,7 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import webpush from 'web-push';
 
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type CustomerNotifyPayload,
+  type DomainEventPayload,
+} from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Env } from '../../config/env.schema';
@@ -123,6 +127,26 @@ export class PushService {
       title: num ? `Pago recibido — ${num}` : 'Pago recibido',
       body: 'Gracias, hemos registrado tu pago.',
       url: '/portal/login',
+    });
+  }
+
+  // --- Listeners: cerramos el loop cuando el staff resuelve algo del inquilino ---
+
+  @OnEvent(DOMAIN_EVENTS.incident_resolved, { async: true, promisify: true })
+  async onIncidentResolved(p: CustomerNotifyPayload): Promise<void> {
+    await this.sendToCustomer(p.tenantId, p.customerId, {
+      title: p.title,
+      body: p.body,
+      url: p.url ?? '/portal/login',
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.unit_change_resolved, { async: true, promisify: true })
+  async onUnitChangeResolved(p: CustomerNotifyPayload): Promise<void> {
+    await this.sendToCustomer(p.tenantId, p.customerId, {
+      title: p.title,
+      body: p.body,
+      url: p.url ?? '/portal/login',
     });
   }
 }
