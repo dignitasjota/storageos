@@ -1012,6 +1012,34 @@ export interface AdminChurnByReasonDto {
   slices: AdminChurnReasonSliceDto[];
 }
 
+/** Un mes proyectado de la previsión de MRR. */
+export interface AdminMrrForecastPointDto {
+  label: string;
+  mrr: number;
+}
+
+/**
+ * Previsión de MRR del SaaS: proyecta el MRR N meses a partir del histórico de
+ * movimientos (NRR medio de la base + altas nuevas medias). Expone los
+ * supuestos para que el modelo sea transparente.
+ */
+export interface AdminMrrForecastDto {
+  currency: string;
+  /** MRR actual (último mes con datos). */
+  currentMrr: number;
+  points: AdminMrrForecastPointDto[];
+  assumptions: {
+    /** Altas nuevas + reactivaciones medias por mes. */
+    avgNewMrr: number;
+    /** Net revenue retention medio (% de la base que se conserva/expande). */
+    avgNrr: number | null;
+    /** Nº de meses de histórico con actividad usados para promediar. */
+    basedOnMonths: number;
+  };
+  /** true si no hay histórico suficiente para proyectar. */
+  warmingUp: boolean;
+}
+
 /**
  * Análisis de recuperación de cobros fallidos de la suscripción SaaS: de las
  * facturas que fallaron al menos una vez, cuántas se acabaron cobrando.

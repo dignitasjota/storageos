@@ -48,6 +48,7 @@ import type {
   AdminChurnByReasonDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
+  AdminMrrForecastDto,
   AdminPaymentRetryAnalysisDto,
   AdminRetentionDto,
   AdminSystemHealthDto,
@@ -495,6 +496,15 @@ export function useAdminPaymentRetries(months = 12) {
       adminApiFetch<AdminPaymentRetryAnalysisDto>(
         `/admin/metrics/payment-retries?months=${months}`,
       ),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminMrrForecast(months = 6) {
+  return useQuery({
+    queryKey: ['admin', 'metrics', 'mrr-forecast', months] as const,
+    queryFn: () =>
+      adminApiFetch<AdminMrrForecastDto>(`/admin/metrics/mrr-forecast?months=${months}`),
     staleTime: 60_000,
   });
 }
