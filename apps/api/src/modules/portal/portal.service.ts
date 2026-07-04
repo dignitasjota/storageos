@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
@@ -275,12 +280,20 @@ export class PortalService {
       });
     }
 
-    const customer = await this.admin.customer.findUniqueOrThrow({
-      where: { id: entry.customerId },
+    // No emitir sesión si el inquilino o el tenant se borraron/suspendieron
+    // entre la creación del enlace y su uso (el enlace del staff vive 7 días).
+    const customer = await this.admin.customer.findFirst({
+      where: { id: entry.customerId, deletedAt: null },
     });
-    const tenant = await this.admin.tenant.findUniqueOrThrow({
-      where: { id: entry.tenantId },
+    const tenant = await this.admin.tenant.findFirst({
+      where: { id: entry.tenantId, deletedAt: null },
     });
+    if (!customer || !tenant || tenant.status === 'suspended' || tenant.status === 'cancelled') {
+      throw new UnauthorizedException({
+        code: 'portal_token_invalid',
+        message: 'Enlace no válido para esta cuenta',
+      });
+    }
     const ttl = PORTAL_SESSION_TTL_SECONDS;
     const accessToken = await this.jwt.signAsync(
       { customerId: customer.id, tenantId: tenant.id, purpose: 'portal' },
@@ -686,10 +699,22 @@ export class PortalService {
   private async requireCustomer(tenantId: string, customerId: string): Promise<void> {
     const customer = await this.admin.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, tenant: { select: { status: true, deletedAt: true } } },
     });
     if (!customer) {
       throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
+    }
+    // La sesión del portal vive 48 h; si el tenant se suspende/cancela/borra
+    // entretanto, no debe seguir operando (pagar, contratar, etc.).
+    if (
+      customer.tenant.deletedAt ||
+      customer.tenant.status === 'suspended' ||
+      customer.tenant.status === 'cancelled'
+    ) {
+      throw new ForbiddenException({
+        code: 'account_unavailable',
+        message: 'Esta cuenta no está disponible temporalmente. Contacta con tu gestor.',
+      });
     }
   }
 }

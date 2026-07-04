@@ -62,9 +62,11 @@ export class PushService {
     );
   }
 
-  async unsubscribe(tenantId: string, endpoint: string): Promise<void> {
+  async unsubscribe(tenantId: string, customerId: string, endpoint: string): Promise<void> {
+    // Scoping por customer: un inquilino solo puede borrar SUS suscripciones,
+    // no la de otro que conociera el endpoint.
     await this.prisma.withTenant(
-      (tx) => tx.pushSubscription.deleteMany({ where: { tenantId, endpoint } }),
+      (tx) => tx.pushSubscription.deleteMany({ where: { tenantId, customerId, endpoint } }),
       tenantId,
     );
   }

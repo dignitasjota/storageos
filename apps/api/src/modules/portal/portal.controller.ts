@@ -180,6 +180,7 @@ export class PortalController {
 
   /** El inquilino envía un mensaje al staff. */
   @Public()
+  @ThrottleLogin()
   @Post('me/messages')
   async sendMessage(
     @Headers('authorization') auth: string | undefined,
@@ -199,6 +200,7 @@ export class PortalController {
 
   /** El inquilino compra accesorios → venta + factura emitida (pagable en el portal). */
   @Public()
+  @ThrottleLogin()
   @Post('me/purchases')
   async purchase(
     @Headers('authorization') auth: string | undefined,
@@ -220,6 +222,7 @@ export class PortalController {
 
   /** El inquilino contrata (planId) o quita (null) el seguro en uno de sus contratos. */
   @Public()
+  @ThrottleLogin()
   @Put('me/contracts/:id/insurance')
   async setMyContractInsurance(
     @Headers('authorization') auth: string | undefined,
@@ -240,6 +243,7 @@ export class PortalController {
 
   /** El inquilino edita sus datos de contacto y facturación (no el email). */
   @Public()
+  @ThrottleLogin()
   @Patch('me/profile')
   async updateMyProfile(
     @Headers('authorization') auth: string | undefined,
@@ -426,8 +430,8 @@ export class PortalController {
     @Headers('authorization') auth: string | undefined,
     @Body() input: PushUnsubscribeDto,
   ): Promise<void> {
-    const { tenantId } = await this.requirePortalSession(auth);
-    await this.push.unsubscribe(tenantId, input.endpoint);
+    const { tenantId, customerId } = await this.requirePortalSession(auth);
+    await this.push.unsubscribe(tenantId, customerId, input.endpoint);
   }
 
   // ----------------------- cambio de trastero ------------------------------
