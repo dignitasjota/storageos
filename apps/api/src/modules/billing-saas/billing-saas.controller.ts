@@ -15,8 +15,10 @@ import {
   CreatePortalSessionSchema,
   SelfAssignAddonSchema,
   type BillingSessionResponseDto,
+  type PlatformInvoiceDto,
   type TenantSelfAddonsDto,
   type TenantSubscriptionDto,
+  type TenantSubscriptionPaymentDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -27,6 +29,7 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { BillingSaasService } from './billing-saas.service';
+import { PlatformInvoicesService } from './platform-invoices.service';
 import { SaasAddonsService } from './saas-addons.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -62,6 +65,7 @@ export class BillingSaasController {
   constructor(
     private readonly service: BillingSaasService,
     private readonly addons_: SaasAddonsService,
+    private readonly invoices: PlatformInvoicesService,
   ) {}
 
   @Get()
@@ -123,5 +127,28 @@ export class BillingSaasController {
     @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
   ): Promise<TenantSelfAddonsDto> {
     return this.addons_.selfRemove(user.tenantId, assignmentId);
+  }
+
+  // --- Facturas de la plataforma + historial de pagos (lo que paga el tenant) ---
+
+  /** Facturas que StorageOS emite al tenant por su suscripción. */
+  @Get('invoices')
+  listInvoices(@CurrentUser() user: AuthenticatedUser): Promise<PlatformInvoiceDto[]> {
+    return this.invoices.listForTenant(user.tenantId);
+  }
+
+  /** URL firmada del PDF de una factura del propio tenant. */
+  @Get('invoices/:id/pdf')
+  invoicePdf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ url: string }> {
+    return this.invoices.getPdfUrlForTenant(id, user.tenantId);
+  }
+
+  /** Historial de pagos de la suscripción SaaS del tenant. */
+  @Get('payments')
+  listPayments(@CurrentUser() user: AuthenticatedUser): Promise<TenantSubscriptionPaymentDto[]> {
+    return this.service.listSaasPayments(user.tenantId);
   }
 }
