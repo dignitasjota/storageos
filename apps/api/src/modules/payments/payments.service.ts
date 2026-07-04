@@ -1,4 +1,11 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
@@ -78,6 +85,10 @@ export class PaymentsService {
         message: 'La factura no es cobrable en este estado',
       });
     }
+    // Un cobro SEPA/GoCardless queda `processing` varios días sin marcar la
+    // factura como pagada: sin este guard, el inquilino (o el auto-charge)
+    // podría lanzar un SEGUNDO adeudo sobre la misma factura → doble cobro.
+    await this.assertNoPaymentInFlight(args.tenantId, invoice.id);
     // F2 sin destinatario no tiene customer ni metodo de pago: el cobro
     // automatico via gateway no es posible. El cobro en metalico se
     // registra via `mark-paid`.
@@ -217,6 +228,28 @@ export class PaymentsService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(paymentRow);
+  }
+
+  /**
+   * Lanza 409 `payment_in_progress` si ya hay un cobro en vuelo (`processing` /
+   * `pending`) sobre la factura. Un adeudo SEPA/GoCardless tarda días en
+   * confirmarse y no marca la factura como pagada mientras tanto, así que sin
+   * esto un segundo intento generaría un doble cobro.
+   */
+  async assertNoPaymentInFlight(tenantId: string, invoiceId: string): Promise<void> {
+    const inFlight = await this.prisma.withTenant(
+      (tx) =>
+        tx.payment.count({
+          where: { invoiceId, status: { in: ['processing', 'pending'] } },
+        }),
+      tenantId,
+    );
+    if (inFlight > 0) {
+      throw new ConflictException({
+        code: 'payment_in_progress',
+        message: 'Ya hay un pago en curso para esta factura. Espera a que se confirme.',
+      });
+    }
   }
 
   /**

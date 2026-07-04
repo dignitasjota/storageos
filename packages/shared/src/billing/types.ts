@@ -241,6 +241,8 @@ export interface PortalInvoiceDto {
   amountPending: number;
   status: InvoiceStatusValue;
   pdfUrl: string | null;
+  /** Hay un cobro en curso (SEPA/GoCardless `processing`) sobre esta factura. */
+  paymentInProgress: boolean;
 }
 
 export interface PortalSessionDto {
