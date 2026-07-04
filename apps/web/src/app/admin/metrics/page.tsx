@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 
 import { ChurnByReasonCard } from './churn-by-reason-card';
+import { MrrForecastCard } from './mrr-forecast-card';
 import { MrrMovementsCard } from './mrr-movements-card';
 import { PaymentRetriesCard } from './payment-retries-card';
 import { RetentionCohortsCard } from './retention-cohorts-card';
@@ -260,9 +261,12 @@ export default function AdminMetricsPage() {
         </div>
       </section>
 
-      {/* MRR movements */}
+      {/* MRR movements + previsión */}
       <section>
         <MrrMovementsCard />
+      </section>
+      <section>
+        <MrrForecastCard />
       </section>
 
       {/* Cohortes de retención + churn por razón */}

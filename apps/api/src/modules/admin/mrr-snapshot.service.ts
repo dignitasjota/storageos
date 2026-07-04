@@ -5,6 +5,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import type {
   AdminMetricsMrrMovementMonthDto,
   AdminMetricsMrrMovementsDto,
+  AdminMrrForecastDto,
+  AdminMrrForecastPointDto,
 } from '@storageos/shared';
 
 const MONTHS_ES = [
@@ -218,5 +220,52 @@ export class MrrSnapshotService {
       (m) => m.newMrr === 0 && m.expansion === 0 && m.churn === 0 && m.contraction === 0,
     );
     return { currency: 'EUR', months: result, warmingUp };
+  }
+
+  /**
+   * Previsión de MRR: proyecta `horizonMonths` a partir del histórico de
+   * movimientos. La base existente evoluciona según el NRR medio (retención +
+   * expansión − contracción − churn) y se le suman las altas nuevas medias
+   * (new + reactivación). Modelo simple y transparente (expone los supuestos).
+   */
+  async getForecast(historyMonths = 12, horizonMonths = 6): Promise<AdminMrrForecastDto> {
+    const hist = await this.getMovements(historyMonths);
+    const months = hist.months;
+    const currentMrr = months.length > 0 ? months[months.length - 1]!.endingMrr : 0;
+
+    // Solo los meses con actividad promedian las altas nuevas.
+    const active = months.filter(
+      (m) =>
+        m.newMrr !== 0 ||
+        m.expansion !== 0 ||
+        m.churn !== 0 ||
+        m.contraction !== 0 ||
+        m.reactivation !== 0,
+    );
+    const basedOnMonths = active.length;
+    const avgNewMrr =
+      basedOnMonths > 0
+        ? round2(active.reduce((s, m) => s + m.newMrr + m.reactivation, 0) / basedOnMonths)
+        : 0;
+    const nrrs = months.map((m) => m.nrr).filter((n): n is number => n !== null);
+    const avgNrr = nrrs.length > 0 ? round2(nrrs.reduce((s, n) => s + n, 0) / nrrs.length) : null;
+
+    const horizon = Math.min(Math.max(horizonMonths, 1), 24);
+    const now = new Date();
+    const nowMonth = startOfMonthUtc(now);
+    const points: AdminMrrForecastPointDto[] = [];
+    let mrr = currentMrr;
+    for (let i = 1; i <= horizon; i++) {
+      mrr = avgNrr !== null ? mrr * (avgNrr / 100) + avgNewMrr : mrr + avgNewMrr;
+      points.push({ label: monthLabel(addMonthsUtc(nowMonth, i)), mrr: round2(Math.max(0, mrr)) });
+    }
+
+    return {
+      currency: 'EUR',
+      currentMrr: round2(currentMrr),
+      points,
+      assumptions: { avgNewMrr, avgNrr, basedOnMonths },
+      warmingUp: hist.warmingUp,
+    };
   }
 }

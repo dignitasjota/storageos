@@ -10,6 +10,7 @@ import type {
   AdminChurnByReasonDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
+  AdminMrrForecastDto,
   AdminPaymentRetryAnalysisDto,
   AdminRetentionDto,
 } from '@storageos/shared';
@@ -33,6 +34,13 @@ export class AdminMetricsController {
   async mrrMovements(@Query('months') months?: string): Promise<AdminMetricsMrrMovementsDto> {
     const n = months ? Number(months) : 12;
     return this.mrr.getMovements(Number.isFinite(n) ? n : 12);
+  }
+
+  /** Previsión de MRR a `months` meses vista (default 6). */
+  @Get('mrr-forecast')
+  async mrrForecast(@Query('months') months?: string): Promise<AdminMrrForecastDto> {
+    const n = months ? Number(months) : 6;
+    return this.mrr.getForecast(12, Number.isFinite(n) ? n : 6);
   }
 
   /** Matriz de cohortes de retención de tenants (por mes de alta). */
