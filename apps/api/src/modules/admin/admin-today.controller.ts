@@ -6,6 +6,7 @@ import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminTodayService } from './admin-today.service';
 import { AdminGuard } from './admin.guard';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 
 import type { AdminTodayDto } from '@storageos/shared';
 
@@ -27,6 +28,7 @@ export class AdminTodayController {
     return this.service.getToday();
   }
 
+  @RequireSuperadmin()
   @Post('addon-charges/:tenantAddonId/charge')
   chargeAddon(
     @Param('tenantAddonId', new ParseUUIDPipe()) tenantAddonId: string,

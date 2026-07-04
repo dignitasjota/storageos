@@ -22,6 +22,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 
 import type { Request } from 'express';
 
@@ -51,6 +52,7 @@ export class AdminCommsController {
   }
 
   /** Envía un anuncio masivo a los tenants (según público). */
+  @RequireSuperadmin()
   @Post('announcements')
   @HttpCode(HttpStatus.OK)
   async broadcast(

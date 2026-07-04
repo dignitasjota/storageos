@@ -21,6 +21,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin/admin.guard';
+import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { SaasAddonsService } from './saas-addons.service';
 
@@ -48,11 +49,13 @@ export class SaasAddonsController {
     return this.service.listCatalog();
   }
 
+  @RequireSuperadmin()
   @Post('addons')
   createAddon(@Body() body: UpsertSaasAddonDto): Promise<SaasAddonDto> {
     return this.service.createAddon(body);
   }
 
+  @RequireSuperadmin()
   @Patch('addons/:id')
   updateAddon(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -71,6 +74,7 @@ export class SaasAddonsController {
     return this.service.billingSummary(id);
   }
 
+  @RequireSuperadmin()
   @Post('tenants/:id/addons')
   assign(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -79,6 +83,7 @@ export class SaasAddonsController {
     return this.service.assign(id, body);
   }
 
+  @RequireSuperadmin()
   @Delete('tenants/:id/addons/:assignmentId')
   remove(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -87,6 +92,7 @@ export class SaasAddonsController {
     return this.service.remove(id, assignmentId);
   }
 
+  @RequireSuperadmin()
   @Post('tenants/:id/addons/:assignmentId/suspend')
   suspend(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -95,6 +101,7 @@ export class SaasAddonsController {
     return this.service.suspend(id, assignmentId);
   }
 
+  @RequireSuperadmin()
   @Post('tenants/:id/addons/:assignmentId/reactivate')
   reactivate(
     @Param('id', new ParseUUIDPipe()) id: string,
