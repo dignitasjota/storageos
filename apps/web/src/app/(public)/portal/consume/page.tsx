@@ -657,6 +657,10 @@ function PortalConsumeContent() {
       );
       if (result.status === 'processing') {
         toast.info('Pago domiciliado iniciado: tu banco lo confirmará en 2-5 días hábiles.');
+        // Recargar para mostrar «Pago en curso» y desactivar los botones (evita
+        // que el inquilino lance un segundo adeudo sobre la misma factura).
+        const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
+        setInvoices(inv);
       } else if (result.status === 'succeeded') {
         toast.success('Pago realizado. ¡Gracias!');
         const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
@@ -993,7 +997,12 @@ function PortalConsumeContent() {
                           >
                             {i.status}
                           </Badge>
-                          {i.amountPending > 0 && (
+                          {i.paymentInProgress && (
+                            <Badge variant="outline" className="gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" /> Pago en curso
+                            </Badge>
+                          )}
+                          {i.amountPending > 0 && !i.paymentInProgress && (
                             <Button onClick={() => void handlePay(i)} disabled={payingId !== null}>
                               {payingId === i.id && (
                                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -1001,7 +1010,7 @@ function PortalConsumeContent() {
                               Pagar
                             </Button>
                           )}
-                          {i.amountPending > 0 && (
+                          {i.amountPending > 0 && !i.paymentInProgress && (
                             <Button
                               variant="outline"
                               onClick={async () => {

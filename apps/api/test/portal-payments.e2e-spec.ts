@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -9,6 +10,10 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 /**
  * Self-service de pagos del portal (Fase SEPA). Sin claves Stripe en test,
  * estos specs cubren la capa de seguridad: auth por JWT de portal,
@@ -18,15 +23,18 @@ import type { INestApplication } from '@nestjs/common';
  */
 describe('Portal payments self-service (e2e)', () => {
   let app: INestApplication;
+  let admin: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     await deleteAllMessages();
+    admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await admin.$disconnect();
     await cleanupTestTenants();
     await deleteAllMessages();
   });
@@ -115,5 +123,47 @@ describe('Portal payments self-service (e2e)', () => {
       .set('Authorization', `Bearer ${portalToken}`);
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('no_payment_method');
+  });
+
+  it('con un cobro en curso (processing) el charge da 409 y la factura sale marcada', async () => {
+    const owner = await registerVerifiedUser(app, 'portal-pm-inflight');
+    const email = `cli-${Date.now().toString(36)}@portal.local`;
+    const customerId = await createCustomer(app, owner.accessToken, { email });
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 30,
+    });
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/issue`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+
+    // Simula un adeudo SEPA en curso sobre la factura.
+    await admin.payment.create({
+      data: {
+        tenantId: owner.tenantId,
+        invoiceId,
+        customerId,
+        amount: 30,
+        currency: 'EUR',
+        status: 'processing',
+        methodType: 'sepa_debit',
+        gateway: 'stripe',
+      },
+    });
+
+    const portalToken = await portalLogin(owner.slug, email);
+
+    // El segundo intento de cobro se bloquea (evita el doble adeudo).
+    const charge = await request(app.getHttpServer())
+      .post(`/portal/me/invoices/${invoiceId}/charge`)
+      .set('Authorization', `Bearer ${portalToken}`);
+    expect(charge.status).toBe(409);
+    expect(charge.body.code).toBe('payment_in_progress');
+
+    // La factura se expone al portal con la bandera de pago en curso.
+    const list = await request(app.getHttpServer())
+      .get('/portal/me/invoices')
+      .set('Authorization', `Bearer ${portalToken}`);
+    const row = list.body.find((i: { id: string }) => i.id === invoiceId);
+    expect(row.paymentInProgress).toBe(true);
   });
 });

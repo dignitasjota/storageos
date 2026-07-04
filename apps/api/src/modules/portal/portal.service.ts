@@ -345,6 +345,20 @@ export class PortalService {
       },
       orderBy: { issueDate: 'desc' },
     });
+    // Facturas con un cobro en vuelo (processing/pending) → el frontend
+    // desactiva los botones de pago para evitar el doble cobro.
+    const inFlight = await this.admin.payment.groupBy({
+      by: ['invoiceId'],
+      where: {
+        tenantId,
+        customerId,
+        status: { in: ['processing', 'pending'] },
+        invoiceId: { in: rows.map((r) => r.id) },
+      },
+    });
+    const inFlightIds = new Set(
+      inFlight.map((p) => p.invoiceId).filter((id): id is string => !!id),
+    );
     return rows.map((r) => {
       const total = Number(r.total);
       const paid = Number(r.amountPaid);
@@ -358,6 +372,7 @@ export class PortalService {
         amountPending: Math.max(0, total - paid),
         status: r.status,
         pdfUrl: r.pdfUrl,
+        paymentInProgress: inFlightIds.has(r.id),
       };
     });
   }

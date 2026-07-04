@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { toCents } from '../../../common/money';
@@ -67,6 +73,17 @@ export class RedsysService {
       throw new BadRequestException({
         code: 'invoice_not_payable',
         message: 'La factura no está en estado pagable',
+      });
+    }
+    // No iniciar Redsys si ya hay un cobro en vuelo (p. ej. un adeudo SEPA
+    // `processing`) sobre la misma factura → evita el doble cobro.
+    const inFlight = await this.admin.payment.count({
+      where: { invoiceId, tenantId, status: { in: ['processing', 'pending'] } },
+    });
+    if (inFlight > 0) {
+      throw new ConflictException({
+        code: 'payment_in_progress',
+        message: 'Ya hay un pago en curso para esta factura. Espera a que se confirme.',
       });
     }
     // Céntimos enteros ANTES de restar: restar decimales y redondear después
