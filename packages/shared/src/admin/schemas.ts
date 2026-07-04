@@ -219,6 +219,12 @@ export const CreatePortalSessionSchema = z.object({
 });
 export type CreatePortalSessionInput = z.infer<typeof CreatePortalSessionSchema>;
 
+/** Cambio de plan self-service del tenant (upgrade/downgrade). */
+export const SelfChangePlanSchema = z.object({
+  planId: z.string().uuid(),
+});
+export type SelfChangePlanInput = z.infer<typeof SelfChangePlanSchema>;
+
 /**
  * Origen de un pago de la suscripción SaaS de un tenant. `stripe` lo rellena
  * el webhook automático; el resto se registran a mano desde el panel admin.

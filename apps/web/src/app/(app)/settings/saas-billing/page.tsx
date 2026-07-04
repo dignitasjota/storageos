@@ -1,6 +1,8 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { FEATURE_LABELS } from '@storageos/shared';
+import { Check, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -10,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCancelAddon,
+  useChangePlan,
   useContractAddon,
   useCreateCheckoutSession,
   useCreatePortalSession,
@@ -20,6 +23,18 @@ import {
   useSelfAddons,
   useSubscriptionPlans,
 } from '@/lib/saas-billing/hooks';
+
+/** Traduce el estado de la suscripción de Stripe a español. */
+const STATUS_LABELS: Record<string, string> = {
+  active: 'Activa',
+  trialing: 'En prueba',
+  incomplete: 'Incompleta',
+  incomplete_expired: 'Caducada',
+  past_due: 'Pago pendiente',
+  canceled: 'Cancelada',
+  unpaid: 'Impagada',
+};
+const statusLabel = (s: string) => STATUS_LABELS[s] ?? s;
 
 /**
  * Pantalla de la suscripcion SaaS del propio tenant a StorageOS.
@@ -33,6 +48,7 @@ export default function SaasBillingPage() {
   const plans = useSubscriptionPlans();
   const checkout = useCreateCheckoutSession();
   const portal = useCreatePortalSession();
+  const changePlan = useChangePlan();
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
 
   if (subscription.isLoading) {
@@ -52,6 +68,9 @@ export default function SaasBillingPage() {
   const sub = subscription.data;
   const isTrialOrInactive = sub.status === 'trialing' || sub.status === 'incomplete';
   const canOpenPortal = sub.stripeCustomerId !== null;
+  // Con suscripción Stripe viva puede cambiar de plan in-app; si no (pago
+  // manual) el cambio lo gestiona soporte.
+  const hasStripeSub = sub.stripeSubscriptionId !== null;
 
   function originUrl() {
     if (typeof window === 'undefined') return '';
@@ -86,6 +105,18 @@ export default function SaasBillingPage() {
     }
   }
 
+  async function onChangePlan(planId: string) {
+    setPendingPlanId(planId);
+    try {
+      await changePlan.mutateAsync(planId);
+      toast.success('Plan cambiado. Stripe ajustará la diferencia en tu próxima factura.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar el plan.');
+    } finally {
+      setPendingPlanId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -98,7 +129,9 @@ export default function SaasBillingPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">Plan actual</CardTitle>
-          <Badge variant={sub.status === 'active' ? 'default' : 'secondary'}>{sub.status}</Badge>
+          <Badge variant={sub.status === 'active' ? 'default' : 'secondary'}>
+            {statusLabel(sub.status)}
+          </Badge>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <Row label="Plan" value={sub.plan.name} />
@@ -135,71 +168,132 @@ export default function SaasBillingPage() {
         </CardContent>
       </Card>
 
-      {isTrialOrInactive && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-base font-medium">Planes disponibles</h2>
-            <p className="text-sm text-muted-foreground">
-              Elige el plan que mejor se ajuste a tu operativa.
-            </p>
-          </div>
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-base font-medium">Planes disponibles</h2>
+          <p className="text-sm text-muted-foreground">
+            {hasStripeSub
+              ? 'Compara los planes y cambia cuando quieras. Al cambiar, Stripe ajusta la diferencia en tu próxima factura.'
+              : 'Elige el plan que mejor se ajuste a tu operativa.'}
+          </p>
+        </div>
 
-          {plans.isLoading ? (
-            <div className="flex h-32 items-center justify-center">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {(plans.data ?? [])
-                .filter((p) => p.isActive)
-                .map((p) => {
-                  const pending = pendingPlanId === p.id;
-                  const isCurrent = sub.plan.id === p.id;
-                  return (
-                    <Card key={p.id}>
-                      <CardHeader>
+        {plans.isLoading ? (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {(plans.data ?? [])
+              .filter((p) => p.isActive)
+              .map((p) => {
+                const pending = pendingPlanId === p.id;
+                const isCurrent = sub.plan.id === p.id;
+                return (
+                  <Card key={p.id} className={isCurrent ? 'border-primary' : undefined}>
+                    <CardHeader>
+                      <div className="flex items-center justify-between gap-2">
                         <CardTitle className="text-base">{p.name}</CardTitle>
-                        {p.description && (
-                          <p className="text-xs text-muted-foreground">{p.description}</p>
-                        )}
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div className="text-2xl font-semibold">
-                          {p.priceMonthly.toLocaleString('es-ES', {
-                            style: 'currency',
-                            currency: p.currency,
-                          })}
-                          <span className="ml-1 text-xs font-normal text-muted-foreground">
-                            /mes
-                          </span>
-                        </div>
-                        <Button
-                          className="w-full"
-                          disabled={pending || !p.stripePriceId}
-                          variant={isCurrent ? 'outline' : 'default'}
-                          onClick={() => onCheckout(p.id)}
-                        >
-                          {pending
-                            ? 'Iniciando...'
-                            : isCurrent
-                              ? 'Continuar con este plan'
-                              : 'Suscribirse ahora'}
-                        </Button>
-                        {!p.stripePriceId && (
-                          <p className="text-xs text-muted-foreground">Próximamente.</p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-            </div>
-          )}
-        </section>
-      )}
+                        {isCurrent && <Badge>Tu plan</Badge>}
+                      </div>
+                      {p.description && (
+                        <p className="text-xs text-muted-foreground">{p.description}</p>
+                      )}
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="text-2xl font-semibold">
+                        {p.priceMonthly.toLocaleString('es-ES', {
+                          style: 'currency',
+                          currency: p.currency,
+                        })}
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">/mes</span>
+                      </div>
+
+                      {p.tenantFeatures.length > 0 ? (
+                        <ul className="space-y-1 text-xs text-muted-foreground">
+                          {p.tenantFeatures.map((f) => (
+                            <li key={f} className="flex items-center gap-1.5">
+                              <Check className="size-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                              {FEATURE_LABELS[f] ?? f}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Funciones básicas.</p>
+                      )}
+
+                      <PlanCta
+                        isCurrent={isCurrent}
+                        hasStripePrice={p.stripePriceId !== null}
+                        pending={pending}
+                        mode={isTrialOrInactive ? 'subscribe' : hasStripeSub ? 'change' : 'manual'}
+                        onSubscribe={() => onCheckout(p.id)}
+                        onChange={() => onChangePlan(p.id)}
+                      />
+                    </CardContent>
+                  </Card>
+                );
+              })}
+          </div>
+        )}
+      </section>
 
       <SelfAddonsSection />
       <SaasInvoicesSection />
     </div>
+  );
+}
+
+/** Botón de un plan según el estado del tenant. */
+function PlanCta({
+  isCurrent,
+  hasStripePrice,
+  pending,
+  mode,
+  onSubscribe,
+  onChange,
+}: {
+  isCurrent: boolean;
+  hasStripePrice: boolean;
+  pending: boolean;
+  mode: 'subscribe' | 'change' | 'manual';
+  onSubscribe: () => void;
+  onChange: () => void;
+}) {
+  if (isCurrent) {
+    return (
+      <Button className="w-full" variant="outline" disabled>
+        Plan actual
+      </Button>
+    );
+  }
+  if (!hasStripePrice) {
+    return (
+      <Button className="w-full" variant="outline" disabled>
+        Próximamente
+      </Button>
+    );
+  }
+  if (mode === 'manual') {
+    // Suscripción de pago manual: el cambio lo gestiona soporte.
+    return (
+      <Button asChild className="w-full" variant="outline">
+        <Link href="/support">Contactar con soporte</Link>
+      </Button>
+    );
+  }
+  return (
+    <Button
+      className="w-full"
+      disabled={pending}
+      onClick={mode === 'subscribe' ? onSubscribe : onChange}
+    >
+      {pending
+        ? 'Procesando...'
+        : mode === 'subscribe'
+          ? 'Suscribirse ahora'
+          : 'Cambiar a este plan'}
+    </Button>
   );
 }
 

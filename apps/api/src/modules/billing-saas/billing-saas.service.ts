@@ -203,12 +203,24 @@ export class BillingSaasService {
   }): Promise<BillingSessionResponseDto> {
     // Resolver tenant + plan en paralelo. El tenant lo leemos por admin
     // porque necesitamos su email/nombre para Stripe Customer.
-    const [tenant, plan] = await Promise.all([
+    const [tenant, plan, currentSub] = await Promise.all([
       this.admin.tenant.findUnique({ where: { id: args.tenantId } }),
       this.admin.subscriptionPlan.findUnique({ where: { id: args.planId } }),
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId: args.tenantId },
+        select: { stripeSubscriptionId: true, status: true },
+      }),
     ]);
     if (!tenant) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    // Evita crear una segunda suscripción Stripe (doble cobro): si ya hay una
+    // viva, el cambio de plan va por `changePlan`, no por un checkout nuevo.
+    if (currentSub?.stripeSubscriptionId && currentSub.status === 'active') {
+      throw new BadRequestException({
+        code: 'already_subscribed',
+        message: 'Ya tienes una suscripción activa. Usa «Cambiar de plan» para cambiarla.',
+      });
     }
     if (!plan) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
@@ -337,6 +349,90 @@ export class BillingSaasService {
     });
 
     return { url: session.url };
+  }
+
+  /**
+   * Cambio de plan self-service (upgrade/downgrade) del propio tenant. Si tiene
+   * suscripción Stripe, actualiza el price item existente con proration (Stripe
+   * cobra/acredita la diferencia); NO crea una suscripción nueva. Actualiza el
+   * `planId` en BD directamente (el webhook `subscription.updated` no trae el
+   * plan). Un tenant de pago manual no puede cambiar solo → contacta con soporte.
+   */
+  async changePlanSelfService(args: {
+    tenantId: string;
+    userId: string;
+    planId: string;
+    meta: RequestMeta;
+  }): Promise<TenantSubscriptionDto> {
+    const [sub, plan] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({ where: { tenantId: args.tenantId } }),
+      this.admin.subscriptionPlan.findUnique({ where: { id: args.planId } }),
+    ]);
+    if (!sub) {
+      throw new NotFoundException({ code: 'no_subscription', message: 'Sin suscripción' });
+    }
+    if (!plan || !plan.isActive) {
+      throw new BadRequestException({ code: 'plan_not_available', message: 'Plan no disponible' });
+    }
+    if (plan.id === sub.planId) {
+      throw new BadRequestException({ code: 'already_on_plan', message: 'Ya estás en ese plan' });
+    }
+    if (!sub.stripeSubscriptionId) {
+      throw new BadRequestException({
+        code: 'manual_plan_change',
+        message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
+      });
+    }
+    if (!plan.stripePriceId) {
+      throw new BadRequestException({
+        code: 'plan_not_available',
+        message: 'El plan no tiene un precio configurado en Stripe',
+      });
+    }
+
+    const previousPlanId = sub.planId;
+    try {
+      const stripeSub = await this.stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+      const itemId = stripeSub.items.data[0]?.id;
+      if (!itemId) {
+        throw new InternalServerErrorException({
+          code: 'stripe_api_error',
+          message: 'La suscripción de Stripe no tiene líneas',
+        });
+      }
+      await this.stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        items: [{ id: itemId, price: plan.stripePriceId }],
+        proration_behavior: 'create_prorations',
+      });
+    } catch (err) {
+      if (err instanceof InternalServerErrorException) throw err;
+      this.logger.error(
+        `Stripe subscriptions.update falló para tenant ${args.tenantId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw new InternalServerErrorException({
+        code: 'stripe_api_error',
+        message: 'No se pudo cambiar el plan en Stripe',
+      });
+    }
+
+    // El webhook `subscription.updated` no trae el planId → lo fijamos aquí.
+    await this.admin.tenantSubscription.update({
+      where: { tenantId: args.tenantId },
+      data: { planId: plan.id },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'saas_billing.plan_changed',
+      entityType: 'TenantSubscription',
+      entityId: sub.id,
+      changes: { from: previousPlanId, to: plan.id, self: true },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return this.getCurrentSubscription(args.tenantId);
   }
 
   /**

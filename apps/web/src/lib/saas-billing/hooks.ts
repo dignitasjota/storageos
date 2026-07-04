@@ -57,6 +57,21 @@ export function useCreatePortalSession() {
   });
 }
 
+export function useChangePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (planId: string) =>
+      apiFetch<TenantSubscriptionDto>('/settings/saas-billing/change-plan', {
+        method: 'POST',
+        json: { planId },
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(saasSubscriptionKey, data);
+      void qc.invalidateQueries({ queryKey: ['auth', 'me'] }); // features del plan
+    },
+  });
+}
+
 // --- Facturas de plataforma + historial de pagos (lo que paga el tenant) ---
 export function useSaasInvoices() {
   return useQuery({

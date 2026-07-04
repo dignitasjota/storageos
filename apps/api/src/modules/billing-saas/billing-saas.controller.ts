@@ -14,6 +14,7 @@ import {
   CreateCheckoutSessionSchema,
   CreatePortalSessionSchema,
   SelfAssignAddonSchema,
+  SelfChangePlanSchema,
   type BillingSessionResponseDto,
   type PlatformInvoiceDto,
   type TenantSelfAddonsDto,
@@ -38,6 +39,7 @@ import type { Request } from 'express';
 class CreateCheckoutSessionDto extends createZodDto(CreateCheckoutSessionSchema) {}
 class CreatePortalSessionDto extends createZodDto(CreatePortalSessionSchema) {}
 class SelfAssignAddonDto extends createZodDto(SelfAssignAddonSchema) {}
+class SelfChangePlanDto extends createZodDto(SelfChangePlanSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -101,6 +103,22 @@ export class BillingSaasController {
       tenantId: user.tenantId,
       userId: user.sub,
       returnUrl: input.returnUrl,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Cambio de plan (upgrade/downgrade) sobre la suscripción Stripe existente. */
+  @Post('change-plan')
+  @HttpCode(HttpStatus.OK)
+  async changePlan(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: SelfChangePlanDto,
+    @Req() req: Request,
+  ): Promise<TenantSubscriptionDto> {
+    return this.service.changePlanSelfService({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      planId: input.planId,
       meta: extractMeta(req),
     });
   }
