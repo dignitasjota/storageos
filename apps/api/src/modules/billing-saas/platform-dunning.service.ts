@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 
+import type { Env } from '../../config/env.schema';
 import type {
   DunningRunResultDto,
   PlatformDunningSettingsDto,
@@ -19,11 +21,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 @Injectable()
 export class PlatformDunningService {
   private readonly logger = new Logger(PlatformDunningService.name);
+  private readonly webBaseUrl: string;
 
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
-  ) {}
+    config: ConfigService<Env, true>,
+  ) {
+    this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
+  }
 
   async getSettings(): Promise<PlatformDunningSettingsDto> {
     let row = await this.admin.platformDunningSettings.findFirst();
@@ -133,14 +139,17 @@ export class PlatformDunningService {
     const subject = suspended
       ? 'Tu cuenta de StorageOS ha sido suspendida por impago'
       : 'Recordatorio de pago de tu suscripción StorageOS';
-    const body = suspended
+    const link = `${this.webBaseUrl}/settings/saas-billing`;
+    const cta = `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none">Regularizar el pago</a></p>`;
+    const intro = suspended
       ? `<p>Hola,</p><p>Tu suscripción a StorageOS lleva ${daysOverdue} días impagada y hemos <strong>suspendido</strong> tu cuenta. Regulariza el pago para reactivarla.</p>`
       : `<p>Hola,</p><p>Tu suscripción a StorageOS (${sub.plan?.name ?? 'plan'}) tiene un pago pendiente desde hace ${daysOverdue} días. Por favor, regulariza el pago para evitar la suspensión del servicio.</p>`;
+    const body = `${intro}${cta}`;
     await this.email.sendRendered({
       to,
       subject,
       html: body,
-      text: body.replace(/<[^>]+>/g, ''),
+      text: `${intro.replace(/<[^>]+>/g, '')}\n\nRegulariza tu pago: ${link}`,
     });
   }
 }

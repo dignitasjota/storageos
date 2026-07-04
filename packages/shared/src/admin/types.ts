@@ -910,6 +910,8 @@ export interface AdminTodayDto {
 export interface TenantBillingStatusDto {
   /** La suscripción del plan está impagada (past_due). */
   pastDue: boolean;
+  /** El plan impagado es de pago manual (sin Stripe): se regulariza por soporte. */
+  planManual: boolean;
   /** Add-ons suspendidos por impago (con su feature, si tiene). */
   suspendedAddons: { name: string; feature: string | null }[];
   /** Features desactivadas por un add-on suspendido (para el FeatureGate). */

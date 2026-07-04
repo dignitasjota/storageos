@@ -28,6 +28,9 @@ export function PaymentAlertBanner() {
   if (!data?.hasIssue) return null;
 
   const hasSuspendedAddons = data.suspendedAddons.length > 0;
+  // Regularización por soporte cuando no hay pago online: add-ons manuales o
+  // plan de pago manual impagado.
+  const needsManualNotice = hasSuspendedAddons || data.planManual;
 
   const parts: string[] = [];
   if (data.pastDue) parts.push('tu suscripción está pendiente de pago');
@@ -39,10 +42,16 @@ export function PaymentAlertBanner() {
 
   async function notifyPayment() {
     const names = data!.suspendedAddons.map((a) => a.name).join(', ');
+    const items = [
+      data!.planManual ? 'la suscripción del plan' : null,
+      names ? `los extras: ${names}` : null,
+    ]
+      .filter(Boolean)
+      .join(' y ');
     try {
       await createTicket.mutateAsync({
         subject: 'Regularización de pago',
-        body: `He realizado (o voy a realizar) el pago de los siguientes extras suspendidos: ${names}. Por favor, confirmad la recepción y reactivadlos.`,
+        body: `He realizado (o voy a realizar) el pago de ${items}. Por favor, confirmad la recepción y reactivad la cuenta/extras.`,
         priority: 'high',
         category: 'billing',
       });
@@ -62,15 +71,15 @@ export function PaymentAlertBanner() {
           <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
           <span className="first-letter:uppercase">
             {message}.{' '}
-            {data.pastDue && !hasSuspendedAddons
+            {data.pastDue && !data.planManual && !hasSuspendedAddons
               ? 'Actualiza tu método de pago para regularizarla.'
               : 'Regulariza el pago para reactivar la funcionalidad.'}
           </span>
         </span>
 
         <span className="flex items-center gap-3">
-          {/* Plan por Stripe: regularización online */}
-          {data.pastDue && (
+          {/* Plan por Stripe: regularización online (portal) */}
+          {data.pastDue && !data.planManual && (
             <Link
               href="/settings/saas-billing"
               className="underline underline-offset-2 hover:opacity-80"
@@ -78,8 +87,8 @@ export function PaymentAlertBanner() {
               Actualizar método de pago
             </Link>
           )}
-          {/* Add-ons manuales: avisar al proveedor vía ticket */}
-          {hasSuspendedAddons &&
+          {/* Pago manual (plan o add-ons): avisar al proveedor vía ticket */}
+          {needsManualNotice &&
             (notified ? (
               <span className="flex items-center gap-1 text-red-700 dark:text-red-300">
                 <Check className="size-3.5" /> Aviso enviado
