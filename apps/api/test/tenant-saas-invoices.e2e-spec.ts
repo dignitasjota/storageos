@@ -1,6 +1,8 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { PlatformInvoicesService } from '../src/modules/billing-saas/platform-invoices.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -99,6 +101,47 @@ describe('Facturas SaaS del tenant (e2e)', () => {
       .set(authA);
     expect(pdfA.status).toBe(404);
     expect(pdfA.body.code).toBe('pdf_not_available');
+  });
+
+  it('la factura de un cobro de add-on lleva su concepto real (no «Suscripción»)', async () => {
+    const a = await registerVerifiedUser(app, 'saas-inv-concept');
+    const auth = { Authorization: `Bearer ${a.accessToken}` };
+    const stamp = Date.now();
+
+    // Habilita la facturación de plataforma (necesaria para emitir factura).
+    const settings = await admin.platformBillingSettings.findFirst();
+    if (settings) {
+      await admin.platformBillingSettings.update({
+        where: { id: settings.id },
+        data: { enabled: true, legalName: 'StorageOS SL' },
+      });
+    } else {
+      await admin.platformBillingSettings.create({
+        data: { enabled: true, legalName: 'StorageOS SL' },
+      });
+    }
+
+    // Pago de un add-on (con `description`) → emitir su factura.
+    const payment = await admin.tenantSubscriptionPayment.create({
+      data: {
+        tenantId: a.tenantId,
+        provider: 'cash',
+        externalId: `addon_${stamp}`,
+        status: 'paid',
+        amount: 12,
+        currency: 'EUR',
+        description: 'Add-on: Asistente IA',
+        paidAt: new Date(),
+      },
+    });
+    const svc = app.get(PlatformInvoicesService, { strict: false });
+    await svc.issueForPayment(payment.id);
+
+    const inv = await request(app.getHttpServer()).get('/settings/saas-billing/invoices').set(auth);
+    const row = inv.body.find((f: { paymentId: string }) => f.paymentId === payment.id);
+    expect(row).toBeTruthy();
+    expect(row.concept).toBe('Add-on: Asistente IA');
+    expect(row.concept).not.toMatch(/Suscripción/);
   });
 
   it('sin sesión → 401', async () => {

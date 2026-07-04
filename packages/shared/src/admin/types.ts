@@ -746,6 +746,8 @@ export interface PlatformInvoiceDto {
   tenantName: string;
   tenantTaxId: string | null;
   planName: string | null;
+  /** Concepto de la factura (capturado del pago, p. ej. «Add-on: X»; o «Suscripción {plan}»). */
+  concept: string | null;
   periodStart: string | null;
   periodEnd: string | null;
   baseAmount: number;
