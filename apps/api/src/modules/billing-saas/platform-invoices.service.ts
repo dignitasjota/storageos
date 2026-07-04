@@ -210,6 +210,16 @@ export class PlatformInvoicesService {
     return { url: await this.files.getPresignedGetUrl('invoices', inv.pdfUrl, 300) };
   }
 
+  /** PDF de una factura, verificando que pertenece al tenant (self-service). */
+  async getPdfUrlForTenant(id: string, tenantId: string): Promise<{ url: string }> {
+    const inv = await this.admin.platformInvoice.findFirst({ where: { id, tenantId } });
+    if (!inv) throw new NotFoundException({ code: 'invoice_not_found', message: 'No encontrada' });
+    if (!inv.pdfUrl) {
+      throw new NotFoundException({ code: 'pdf_not_available', message: 'Sin PDF' });
+    }
+    return { url: await this.files.getPresignedGetUrl('invoices', inv.pdfUrl, 300) };
+  }
+
   async resend(id: string): Promise<void> {
     const inv = await this.admin.platformInvoice.findUnique({ where: { id } });
     if (!inv) throw new NotFoundException({ code: 'invoice_not_found', message: 'No encontrada' });
@@ -224,9 +234,9 @@ export class PlatformInvoicesService {
     settings: PlatformBillingSettingsDto,
   ): Promise<void> {
     if (!inv.tenantEmail) return;
-    const html = `<p>Adjuntamos tu factura <strong>${esc(inv.fullNumber)}</strong> por ${eur(
+    const html = `<p>Tu factura <strong>${esc(inv.fullNumber)}</strong> por ${eur(
       Number(inv.total),
-    )}.</p><p>Puedes descargarla desde tu panel. Gracias por confiar en ${esc(
+    )} ya está disponible.</p><p>Puedes descargarla desde tu panel, en <strong>Ajustes → Suscripción → Facturas y pagos</strong>. Gracias por confiar en ${esc(
       settings.legalName || 'StorageOS',
     )}.</p>`;
     await this.email.sendRendered({

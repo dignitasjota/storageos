@@ -13,6 +13,9 @@ import {
   useContractAddon,
   useCreateCheckoutSession,
   useCreatePortalSession,
+  useSaasInvoicePdf,
+  useSaasInvoices,
+  useSaasPayments,
   useSaasSubscription,
   useSelfAddons,
   useSubscriptionPlans,
@@ -195,7 +198,107 @@ export default function SaasBillingPage() {
       )}
 
       <SelfAddonsSection />
+      <SaasInvoicesSection />
     </div>
+  );
+}
+
+function SaasInvoicesSection() {
+  const invoices = useSaasInvoices();
+  const payments = useSaasPayments();
+  const pdf = useSaasInvoicePdf();
+
+  const eur = (n: number, currency = 'EUR') =>
+    new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(n);
+  const date = (s: string | null) => (s ? new Date(s).toLocaleDateString('es-ES') : '—');
+
+  async function openPdf(invoiceId: string) {
+    try {
+      const { url } = await pdf.mutateAsync(invoiceId);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo abrir el PDF.');
+    }
+  }
+
+  const inv = invoices.data ?? [];
+  const pays = payments.data ?? [];
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Facturas y pagos</h2>
+        <p className="text-sm text-muted-foreground">
+          Las facturas que StorageOS te emite por tu suscripción y tu historial de pagos. (No
+          confundir con las facturas que tú emites a tus inquilinos, en Ajustes → Facturación.)
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Tus facturas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {invoices.isLoading ? (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : inv.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aún no tienes facturas.</p>
+          ) : (
+            <ul className="divide-y">
+              {inv.map((f) => (
+                <li key={f.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <div>
+                    <span className="font-medium">{f.fullNumber}</span>
+                    <span className="ml-2 text-muted-foreground">{date(f.issuedAt)}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span>{eur(Number(f.total), f.currency)}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openPdf(f.id)}
+                      disabled={pdf.isPending}
+                    >
+                      PDF
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Historial de pagos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {payments.isLoading ? (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : pays.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aún no hay pagos registrados.</p>
+          ) : (
+            <ul className="divide-y">
+              {pays.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <div>
+                    <span>{date(p.paidAt)}</span>
+                    <span className="ml-2 text-muted-foreground">{p.planName ?? p.provider}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span>{eur(Number(p.amount), p.currency)}</span>
+                    <Badge variant={p.status === 'paid' ? 'secondary' : 'outline'}>
+                      {p.status}
+                    </Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 

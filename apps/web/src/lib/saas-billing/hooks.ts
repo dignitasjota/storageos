@@ -6,10 +6,12 @@ import type {
   BillingSessionResponseDto,
   CreateCheckoutSessionInput,
   CreatePortalSessionInput,
+  PlatformInvoiceDto,
   SelfAssignAddonInput,
   SubscriptionPlanDto,
   TenantSelfAddonsDto,
   TenantSubscriptionDto,
+  TenantSubscriptionPaymentDto,
 } from '@storageos/shared';
 
 /**
@@ -52,6 +54,29 @@ export function useCreatePortalSession() {
         method: 'POST',
         json: input,
       }),
+  });
+}
+
+// --- Facturas de plataforma + historial de pagos (lo que paga el tenant) ---
+export function useSaasInvoices() {
+  return useQuery({
+    queryKey: ['saas-billing', 'invoices'] as const,
+    queryFn: () => apiFetch<PlatformInvoiceDto[]>('/settings/saas-billing/invoices'),
+  });
+}
+
+export function useSaasPayments() {
+  return useQuery({
+    queryKey: ['saas-billing', 'payments'] as const,
+    queryFn: () => apiFetch<TenantSubscriptionPaymentDto[]>('/settings/saas-billing/payments'),
+  });
+}
+
+/** Devuelve la URL firmada del PDF de una factura (para abrir/descargar). */
+export function useSaasInvoicePdf() {
+  return useMutation({
+    mutationFn: (invoiceId: string) =>
+      apiFetch<{ url: string }>(`/settings/saas-billing/invoices/${invoiceId}/pdf`),
   });
 }
 
