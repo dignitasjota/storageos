@@ -23,9 +23,26 @@ export const DOMAIN_EVENTS = {
   lead_created: 'domain.lead_created',
   incident_created: 'domain.incident_created',
   review_submitted: 'domain.review_submitted',
+  /** Una incidencia del inquilino se resolvió/cerró (push al inquilino). */
+  incident_resolved: 'domain.incident_resolved',
+  /** El staff resolvió una solicitud de cambio de trastero (push al inquilino). */
+  unit_change_resolved: 'domain.unit_change_resolved',
 } as const;
 
 export type DomainEventName = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS];
+
+/**
+ * Payload ligero para avisar al INQUILINO por push de una resolución (incidencia,
+ * cambio de trastero…). No pasa por el motor de automations/plantillas; solo lo
+ * consume `PushService`. Por eso no reutiliza el `DomainEventPayload` pesado.
+ */
+export interface CustomerNotifyPayload {
+  tenantId: string;
+  customerId: string;
+  title: string;
+  body: string;
+  url?: string;
+}
 
 /**
  * Payload generico de cualquier evento de dominio. Cada evento concreto

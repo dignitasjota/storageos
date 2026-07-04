@@ -2,7 +2,11 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AuditService } from '../auth/audit.service';
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type CustomerNotifyPayload,
+  type DomainEventPayload,
+} from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -365,6 +369,22 @@ export class IncidentsService {
       args.tenantId,
     );
     await this.writeAudit(`incident.${args.input.status}`, args, args.id);
+    // Cierra el loop: si la incidencia era de un inquilino, avísale por push de
+    // la resolución (antes solo se enteraba entrando al portal).
+    if (
+      (args.input.status === 'resolved' || args.input.status === 'dismissed') &&
+      updated.customerId
+    ) {
+      this.events.emit(DOMAIN_EVENTS.incident_resolved, {
+        tenantId: args.tenantId,
+        customerId: updated.customerId,
+        title: args.input.status === 'resolved' ? 'Incidencia resuelta' : 'Incidencia cerrada',
+        body: `Tu incidencia «${updated.title}» se ha ${
+          args.input.status === 'resolved' ? 'resuelto' : 'cerrado'
+        }.`,
+        url: '/portal/login',
+      } satisfies CustomerNotifyPayload);
+    }
     return this.toDto(updated as IncidentWithIncludes);
   }
 

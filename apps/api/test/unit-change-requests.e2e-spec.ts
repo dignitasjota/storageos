@@ -90,6 +90,14 @@ describe('Cambio de trastero (portal → staff) (e2e)', () => {
       .set(auth);
     expect(count2.body.count).toBe(count1.body.count - 1);
 
+    // Loop cerrado: el inquilino ve el estado + la nota de resolución en su portal.
+    const portalList = await request(app.getHttpServer())
+      .get('/portal/me/unit-change-requests')
+      .set(pAuth);
+    const solved = portalList.body.find((r: { id: string }) => r.id === requestId);
+    expect(solved.status).toBe('handled');
+    expect(solved.resolutionNote).toBe('Le hemos asignado el B-12.');
+
     // Reresolver → 400.
     const again = await request(app.getHttpServer())
       .patch(`/unit-change-requests/${requestId}`)
