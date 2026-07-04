@@ -38,6 +38,7 @@ import {
   User,
   Wrench,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -292,6 +293,15 @@ function PortalConsumeContent() {
       ...(init?.json !== undefined ? { json: init.json } : {}),
       headers: { Authorization: `Bearer ${s.accessToken}` },
       requiresAuth: false,
+    }).catch((err: unknown) => {
+      // Sesión de portal caducada (48 h): en vez de dejar cada acción fallando
+      // con un toast crudo, limpiamos y mostramos la pantalla de re-login.
+      if (err instanceof ApiError && err.statusCode === 401) {
+        clearStoredPortalSession();
+        setSession(null);
+        setError('Tu sesión ha caducado. Pide un enlace nuevo para volver a entrar.');
+      }
+      throw err;
     });
   }
 
@@ -325,15 +335,23 @@ function PortalConsumeContent() {
         }
         if (cancelled) return;
         setSession(s);
+        // Un fallo transitorio en UNA sección no debe tumbar todo el portal:
+        // cada fetch cae a un valor por defecto, salvo el 401 (sesión muerta),
+        // que se re-lanza para llevar a la pantalla de re-login.
+        const safe = <U,>(p: Promise<U>, fallback: U): Promise<U> =>
+          p.catch((err: unknown) => {
+            if (err instanceof ApiError && err.statusCode === 401) throw err;
+            return fallback;
+          });
         const [inv, pms, acc, refs, ctr, inc, ucr, ucr2] = await Promise.all([
-          portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'),
-          portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'),
-          portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'),
-          portalFetch<PortalReferralDto>(s, '/portal/me/referrals'),
-          portalFetch<PortalContractDto[]>(s, '/portal/me/contracts'),
-          portalFetch<PortalIncidentDto[]>(s, '/portal/me/incidents'),
-          portalFetch<PortalUnitChangeRequestDto[]>(s, '/portal/me/unit-change-requests'),
-          portalFetch<PortalNightPassInfoDto>(s, '/portal/me/access/night-pass'),
+          safe(portalFetch<PortalInvoiceDto[]>(s, '/portal/me/invoices'), []),
+          safe(portalFetch<PaymentMethodDto[]>(s, '/portal/me/payment-methods'), []),
+          safe(portalFetch<PortalAccessCredentialDto[]>(s, '/portal/me/access'), []),
+          safe(portalFetch<PortalReferralDto | null>(s, '/portal/me/referrals'), null),
+          safe(portalFetch<PortalContractDto[]>(s, '/portal/me/contracts'), []),
+          safe(portalFetch<PortalIncidentDto[]>(s, '/portal/me/incidents'), []),
+          safe(portalFetch<PortalUnitChangeRequestDto[]>(s, '/portal/me/unit-change-requests'), []),
+          safe(portalFetch<PortalNightPassInfoDto | null>(s, '/portal/me/access/night-pass'), null),
         ]);
         if (cancelled) return;
         setInvoices(inv);
@@ -697,9 +715,14 @@ function PortalConsumeContent() {
       <div className="container max-w-md py-12">
         <Card className="border-border/60 text-center">
           <CardHeader>
-            <CardTitle>Acceso fallido</CardTitle>
-            <CardDescription>{error}</CardDescription>
+            <CardTitle>No hemos podido abrir tu portal</CardTitle>
+            <CardDescription>{error ?? 'El enlace no es válido o ha caducado.'}</CardDescription>
           </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/portal/login">Pedir un enlace nuevo</Link>
+            </Button>
+          </CardContent>
         </Card>
       </div>
     );
