@@ -130,6 +130,12 @@ export class RedsysService {
     };
   }
 
+  /** ¿Tiene el tenant la pasarela Redsys activa? (para gatear el botón del portal). */
+  async isEnabled(tenantId: string): Promise<boolean> {
+    const cfg = await this.settings.getResolved(tenantId);
+    return !!cfg?.enabled;
+  }
+
   /** Procesa la notificación servidor-a-servidor de Redsys. */
   async handleNotification(body: {
     Ds_MerchantParameters?: string | undefined;

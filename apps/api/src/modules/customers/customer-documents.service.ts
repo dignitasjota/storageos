@@ -150,6 +150,37 @@ export class CustomerDocumentsService {
     });
   }
 
+  /**
+   * URL temporal (GET firmada) para descargar un documento del inquilino. El
+   * bucket `uploads` es privado, así que `fileUrl` no es accesible directamente:
+   * hay que firmar una descarga puntual. Valida que el documento es del cliente.
+   */
+  async getDownloadUrl(
+    tenantId: string,
+    customerId: string,
+    documentId: string,
+  ): Promise<{ url: string }> {
+    await this.assertCustomer(tenantId, customerId);
+    const row = await this.prisma.withTenant(
+      (tx) => tx.customerDocument.findFirst({ where: { id: documentId, customerId } }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({
+        code: 'document_not_found',
+        message: 'Documento no encontrado',
+      });
+    }
+    const url = await this.files.presignFromPublicUrl('uploads', row.fileUrl, 300);
+    if (!url) {
+      throw new NotFoundException({
+        code: 'document_not_available',
+        message: 'No se pudo generar el enlace de descarga',
+      });
+    }
+    return { url };
+  }
+
   private async assertCustomer(tenantId: string, customerId: string): Promise<void> {
     const c = await this.prisma.withTenant(
       (tx) => tx.customer.findFirst({ where: { id: customerId, deletedAt: null } }),

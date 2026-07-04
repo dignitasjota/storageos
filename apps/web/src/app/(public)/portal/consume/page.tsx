@@ -68,6 +68,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ApiError, apiFetch } from '@/lib/auth/api';
@@ -213,13 +214,25 @@ function PortalBottomItem({
       {item.label}
       {badge && badge.count > 0 && (
         <span
-          className={`absolute right-3 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-medium text-white ${badge.color}`}
+          className={`absolute right-2 top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-medium text-white ring-2 ring-background ${badge.color}`}
         >
           {badge.count}
         </span>
       )}
     </button>
   );
+}
+
+/** Estado de una factura en español legible para el inquilino. */
+function invoiceStatusLabel(status: string): string {
+  if (status === 'draft') return 'Borrador';
+  if (status === 'issued') return 'Emitida';
+  if (status === 'paid') return 'Pagada';
+  if (status === 'overdue') return 'Vencida';
+  if (status === 'cancelled') return 'Anulada';
+  if (status === 'refunded') return 'Reembolsada';
+  if (status === 'partially_refunded') return 'Reemb. parcial';
+  return status;
 }
 
 function paymentStatusLabel(status: string): string {
@@ -271,14 +284,19 @@ function PortalConsumeContent() {
   const [ucContractId, setUcContractId] = useState('');
   const [ucBusy, setUcBusy] = useState(false);
   const [moveOutId, setMoveOutId] = useState<string | null>(null);
+  const [cancelingMoveOutId, setCancelingMoveOutId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [addingAccess, setAddingAccess] = useState(false);
+  const [extraAccessOpen, setExtraAccessOpen] = useState(false);
+  const [extraAccessLabel, setExtraAccessLabel] = useState('');
+  const [nightPassConfirmOpen, setNightPassConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addPending, setAddPending] = useState(false);
   const [goCardlessEnabled, setGoCardlessEnabled] = useState(false);
+  const [redsysEnabled, setRedsysEnabled] = useState(false);
   const [gcPending, setGcPending] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
 
@@ -379,6 +397,13 @@ function PortalConsumeContent() {
         } catch {
           /* gocardless opcional */
         }
+        // ¿Ofrece el negocio pago con tarjeta (Redsys)? (best-effort).
+        try {
+          const r = await portalFetch<{ enabled: boolean }>(s, '/portal/me/redsys/enabled');
+          if (!cancelled) setRedsysEnabled(r.enabled);
+        } catch {
+          /* redsys opcional */
+        }
         // Historial de pagos + datos del local (best-effort).
         try {
           const [pays, facs] = await Promise.all([
@@ -440,18 +465,20 @@ function PortalConsumeContent() {
     }
   }
 
-  async function addExtraAccess() {
+  async function submitExtraAccess() {
     if (!session) return;
-    const label = window.prompt('¿Para quién es este acceso? (p. ej. "Hijo", "Empleado")');
-    if (!label || !label.trim()) return;
+    const label = extraAccessLabel.trim();
+    if (!label) return;
     setAddingAccess(true);
     try {
       const created = await portalFetch<PortalAccessCredentialDto>(
         session,
         '/portal/me/access/extra',
-        { method: 'POST', json: { label: label.trim() } },
+        { method: 'POST', json: { label } },
       );
       setAccess((prev) => [created, ...(prev ?? [])]);
+      setExtraAccessOpen(false);
+      setExtraAccessLabel('');
       toast.success('Acceso adicional creado');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el acceso.');
@@ -462,12 +489,7 @@ function PortalConsumeContent() {
 
   async function buyNightPass() {
     if (!session || !nightPass) return;
-    if (
-      !window.confirm(
-        `Comprar un pase nocturno por ${nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (+ IVA). Se cobrará a tu método de pago por defecto.`,
-      )
-    )
-      return;
+    setNightPassConfirmOpen(false);
     setBuyingPass(true);
     try {
       const created = await portalFetch<PortalAccessCredentialDto>(
@@ -615,6 +637,24 @@ function PortalConsumeContent() {
       toast.success('Solicitud de baja enviada. Te contactaremos para el cierre.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo solicitar la baja.');
+    }
+  }
+
+  async function cancelMoveOut(id: string) {
+    if (!session) return;
+    setCancelingMoveOutId(id);
+    try {
+      const updated = await portalFetch<PortalContractDto>(
+        session,
+        `/portal/me/contracts/${id}/cancel-move-out`,
+        { method: 'POST' },
+      );
+      setContracts((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
+      toast.success('Baja cancelada. Tu contrato sigue activo.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cancelar la baja.');
+    } finally {
+      setCancelingMoveOutId(null);
     }
   }
 
@@ -866,7 +906,22 @@ function PortalConsumeContent() {
                           </p>
                         </div>
                         {c.status === 'ending' ? (
-                          <Badge variant="secondary">Baja solicitada</Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">Baja solicitada</Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={cancelingMoveOutId === c.id}
+                              onClick={() => void cancelMoveOut(c.id)}
+                            >
+                              {cancelingMoveOutId === c.id ? (
+                                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-1 h-4 w-4" />
+                              )}
+                              Cancelar baja
+                            </Button>
+                          </div>
                         ) : (
                           <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
                             <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
@@ -1035,7 +1090,7 @@ function PortalConsumeContent() {
                                   : 'secondary'
                             }
                           >
-                            {i.status}
+                            {invoiceStatusLabel(i.status)}
                           </Badge>
                           {i.paymentInProgress && (
                             <Badge variant="outline" className="gap-1">
@@ -1050,7 +1105,7 @@ function PortalConsumeContent() {
                               Pagar
                             </Button>
                           )}
-                          {i.amountPending > 0 && !i.paymentInProgress && (
+                          {redsysEnabled && i.amountPending > 0 && !i.paymentInProgress && (
                             <Button
                               variant="outline"
                               onClick={async () => {
@@ -1260,7 +1315,10 @@ function PortalConsumeContent() {
                       variant="outline"
                       size="sm"
                       disabled={addingAccess}
-                      onClick={() => void addExtraAccess()}
+                      onClick={() => {
+                        setExtraAccessLabel('');
+                        setExtraAccessOpen(true);
+                      }}
                     >
                       {addingAccess ? (
                         <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -1285,7 +1343,11 @@ function PortalConsumeContent() {
                       Código de un solo uso para entrar fuera de horario (toque de queda). Caduca a
                       la mañana siguiente. Se cobra en el acto a tu método de pago por defecto.
                     </p>
-                    <Button size="sm" disabled={buyingPass} onClick={() => void buyNightPass()}>
+                    <Button
+                      size="sm"
+                      disabled={buyingPass}
+                      onClick={() => setNightPassConfirmOpen(true)}
+                    >
                       {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                       Comprar pase nocturno (
                       {nightPass.price.toLocaleString('es-ES', {
@@ -1507,7 +1569,7 @@ function PortalConsumeContent() {
           <MoreHorizontal className="size-5" />
           Más
           {moreBadgeTotal > 0 && (
-            <span className="absolute right-3 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-white">
+            <span className="absolute right-2 top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-white ring-2 ring-background">
               {moreBadgeTotal}
             </span>
           )}
@@ -1535,7 +1597,7 @@ function PortalConsumeContent() {
                   <span className="text-center leading-tight">{item.label}</span>
                   {b && b.count > 0 && (
                     <span
-                      className={`absolute right-2 top-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-medium text-white ${b.color}`}
+                      className={`absolute right-2 top-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-medium text-white ring-2 ring-background ${b.color}`}
                     >
                       {b.count}
                     </span>
@@ -1554,6 +1616,71 @@ function PortalConsumeContent() {
           onConfirm={(endDate) => requestMoveOut(moveOutId, endDate)}
         />
       )}
+
+      {/* Acceso adicional (antes window.prompt). */}
+      <Dialog open={extraAccessOpen} onOpenChange={(o) => !o && setExtraAccessOpen(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nuevo acceso adicional</DialogTitle>
+            <DialogDescription>
+              ¿Para quién es este acceso? (p. ej. «Hijo», «Empleado»). Se generará un código nuevo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="extra-access-label">
+              Etiqueta
+            </label>
+            <Input
+              id="extra-access-label"
+              value={extraAccessLabel}
+              maxLength={60}
+              placeholder="Hijo, Empleado…"
+              onChange={(e) => setExtraAccessLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && extraAccessLabel.trim()) void submitExtraAccess();
+              }}
+            />
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setExtraAccessOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void submitExtraAccess()}
+              disabled={addingAccess || extraAccessLabel.trim().length === 0}
+            >
+              {addingAccess && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Crear acceso
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmación de compra del pase nocturno (antes window.confirm). */}
+      <Dialog
+        open={nightPassConfirmOpen}
+        onOpenChange={(o) => !o && setNightPassConfirmOpen(false)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Comprar pase nocturno</DialogTitle>
+            <DialogDescription>
+              {nightPass
+                ? `Se cobrará ${nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (+ IVA) a tu método de pago por defecto. El código es de un solo uso y caduca a la mañana siguiente.`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setNightPassConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void buyNightPass()} disabled={buyingPass}>
+              {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Comprar y pagar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={addOpen}

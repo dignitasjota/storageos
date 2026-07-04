@@ -18,6 +18,11 @@ import { ApiError, apiFetch } from '@/lib/auth/api';
 
 const NONE = 'none';
 
+/** Prima mensual con IVA incluido (España: 21% por defecto). */
+function monthlyWithTax(plan: InsurancePlanDto): number {
+  return plan.monthlyPrice * (1 + plan.taxRate / 100);
+}
+
 export function InsuranceCard({
   session,
   contracts,
@@ -88,7 +93,9 @@ export function InsuranceCard({
             <div key={p.id} className="rounded-md border p-3 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{p.name}</span>
-                <span className="tabular-nums">{p.monthlyPrice.toFixed(2)} €/mes</span>
+                <span className="tabular-nums">
+                  {monthlyWithTax(p).toFixed(2)} €/mes (IVA incl.)
+                </span>
               </div>
               <p className="text-xs text-muted-foreground">
                 Cobertura hasta {p.coverageAmount.toFixed(0)} €
@@ -128,7 +135,7 @@ export function InsuranceCard({
                     <SelectItem value={NONE}>Sin protección</SelectItem>
                     {plans.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name} ({p.monthlyPrice.toFixed(2)} €)
+                        {p.name} ({monthlyWithTax(p).toFixed(2)} € IVA incl.)
                       </SelectItem>
                     ))}
                   </SelectContent>
