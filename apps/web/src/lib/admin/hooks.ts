@@ -632,6 +632,7 @@ export function useAdminSecurityStats(window: '24h' | '7d' | '30d' = '24h') {
       adminApiFetch<SecurityEventStatsResponse>(`/admin/security-events/stats?window=${window}`),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -752,7 +753,8 @@ export function useAdminQueues() {
   return useQuery({
     queryKey: ['admin', 'queues'],
     queryFn: () => adminApiFetch<AdminQueueStatus[]>('/admin/queues'),
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -784,6 +786,7 @@ export function useAdminAtRisk() {
     queryKey: ['admin', 'at-risk'],
     queryFn: () => adminApiFetch<AdminAtRiskDto>('/admin/tenants/at-risk'),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -792,6 +795,7 @@ export function useAdminCustomDomains() {
     queryKey: ['admin', 'custom-domains'],
     queryFn: () => adminApiFetch<AdminCustomDomainDto[]>('/admin/tenants/custom-domains'),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -897,6 +901,7 @@ export function useAdminOpenTicketsCount() {
     queryKey: ['admin', 'support', 'open-count'],
     queryFn: () => adminApiFetch<{ count: number }>('/admin/support/tickets/open-count'),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -905,6 +910,7 @@ export function useAdminTenantsHealth() {
     queryKey: ['admin', 'tenants', 'health'] as const,
     queryFn: () => adminApiFetch<AdminTenantHealthDto[]>('/admin/tenants/health'),
     refetchInterval: 300_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -929,7 +935,8 @@ export function useAdminSystemHealth() {
   return useQuery({
     queryKey: ['admin', 'system-health'],
     queryFn: () => adminApiFetch<AdminSystemHealthDto>('/admin/system-health'),
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -1046,6 +1053,7 @@ export function useAdminFollowupsPending() {
     queryKey: ['admin', 'followups', 'pending'] as const,
     queryFn: () => adminApiFetch<TenantFollowupDto[]>('/admin/followups'),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -1366,6 +1374,7 @@ export function useAdminNotifUnreadCount() {
     queryFn: () => adminApiFetch<{ count: number }>('/admin/platform/notifications/unread-count'),
     enabled: Boolean(token),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -1409,6 +1418,7 @@ export function useAdminToday() {
     queryKey: ['admin', 'today'],
     queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today'),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -1431,6 +1441,7 @@ export function useAdminFinance(months = 12) {
     queryKey: ['admin', 'finance', months],
     queryFn: () => adminApiFetch<AdminFinanceOverviewDto>(`/admin/finance?months=${months}`),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -1446,6 +1457,7 @@ export function useAdminTrials() {
     queryKey: ['admin', 'trials'],
     queryFn: () => adminApiFetch<AdminTrialDto[]>('/admin/tenants/trials'),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 

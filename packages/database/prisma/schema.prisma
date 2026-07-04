@@ -447,6 +447,12 @@ model Tenant {
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
 
+  // Índices para las queries cross-tenant del panel admin (filtros omnipresentes
+  // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
+  @@index([deletedAt, status])
+  @@index([status, trialEndsAt])
+  @@index([deletedAt, createdAt])
+  @@index([status, updatedAt])
   @@map("tenants")
 }
 
@@ -1328,6 +1334,7 @@ model Invoice {
   @@index([customerId])
   @@index([dueDate])
   @@index([rectifiesInvoiceId])
+  @@index([tenantId, issueDate])
   @@map("invoices")
 }
 
@@ -1391,6 +1398,7 @@ model Payment {
   @@index([invoiceId])
   @@index([customerId])
   @@index([gatewayPaymentId])
+  @@index([tenantId, status, paidAt])
   @@map("payments")
 }
 
