@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -74,6 +74,19 @@ export class CustomerDocumentsService {
     meta: RequestMeta;
   }): Promise<CustomerDocumentDto> {
     await this.assertCustomer(args.tenantId, args.customerId);
+    // La URL del documento debe apuntar a la key que emitió `requestUploadUrl`
+    // (prefijo `<tenant>/customers/<customer>/`): sin esto, el inquilino podría
+    // registrar un `fileUrl` que apunte a otro objeto o a una URL externa.
+    const expectedPrefix = this.files.buildPublicUrl(
+      'uploads',
+      `${args.tenantId}/customers/${args.customerId}/`,
+    );
+    if (!args.input.fileUrl.startsWith(expectedPrefix)) {
+      throw new BadRequestException({
+        code: 'invalid_file_url',
+        message: 'La URL del documento no es válida',
+      });
+    }
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.customerDocument.create({
