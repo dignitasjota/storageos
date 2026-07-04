@@ -38,7 +38,11 @@ describe('Portal — tienda de accesorios (e2e)', () => {
     return consume.body.accessToken as string;
   }
 
-  it('el inquilino compra un accesorio y le queda una factura emitida', async () => {
+  // Cobro en el acto (decisión de negocio): la compra se cobra contra el método
+  // de pago por defecto del inquilino. Sin Stripe real en tests no se puede
+  // ejercitar el cobro exitoso; el caso verificable de forma determinista es que
+  // SIN método de pago no se entrega nada (ni venta, ni factura, ni stock).
+  it('sin método de pago no puede comprar y no se entrega nada (cobro en el acto)', async () => {
     const owner = await registerVerifiedUser(app, 'pshop');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const email = `pshop-${Date.now()}@e2e.local`;
@@ -76,28 +80,29 @@ describe('Portal — tienda de accesorios (e2e)', () => {
     const portalToken = await portalLogin(owner.slug, email);
     const pAuth = { Authorization: `Bearer ${portalToken}` };
 
-    // Catálogo.
+    // Catálogo visible.
     const products = await request(app.getHttpServer()).get('/portal/me/products').set(pAuth);
     expect(products.status).toBe(200);
     expect(products.body.some((p: { id: string }) => p.id === productId)).toBe(true);
 
-    // Comprar.
+    // Facturas antes de intentar comprar (el inquilino no tiene método de pago).
+    const invoicesBefore = await request(app.getHttpServer()).get('/portal/me/invoices').set(pAuth);
+
+    // Comprar sin método de pago → 400 `no_payment_method`.
     const buy = await request(app.getHttpServer())
       .post('/portal/me/purchases')
       .set(pAuth)
       .send({ items: [{ productId, quantity: 2 }] });
-    expect(buy.status).toBe(201);
-    expect(buy.body.invoiceId).toBeTruthy();
-    expect(buy.body.total).toBeCloseTo(24.2, 2); // 2 × 10 × 1.21
+    expect(buy.status).toBe(400);
+    expect(buy.body.code).toBe('no_payment_method');
 
-    // La factura aparece en el portal del inquilino.
-    const invoices = await request(app.getHttpServer()).get('/portal/me/invoices').set(pAuth);
-    expect(invoices.body.some((i: { id: string }) => i.id === buy.body.invoiceId)).toBe(true);
-
-    // Stock decrementado.
+    // No se ha entregado nada: stock intacto (5) y sin factura nueva colgando.
     const after = await request(app.getHttpServer()).get('/portal/me/products').set(pAuth);
     const refreshed = after.body.find((p: { id: string }) => p.id === productId);
-    expect(refreshed.totalStock).toBe(3);
+    expect(refreshed.totalStock).toBe(5);
+
+    const invoicesAfter = await request(app.getHttpServer()).get('/portal/me/invoices').set(pAuth);
+    expect(invoicesAfter.body).toHaveLength(invoicesBefore.body.length);
   });
 
   it('sin contrato activo no puede comprar', async () => {

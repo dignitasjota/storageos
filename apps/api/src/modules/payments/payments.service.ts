@@ -231,6 +231,31 @@ export class PaymentsService {
   }
 
   /**
+   * Comprueba que el inquilino tiene un método de pago por defecto COBRABLE
+   * (tarjeta o adeudo SEPA/GoCardless) antes de entregar algo que se cobra en
+   * el acto (tienda, pase nocturno). Lanza 400 `no_payment_method` si no hay
+   * ninguno o el predeterminado no es cobrable (efectivo/transferencia). Se
+   * llama ANTES de crear la venta/pase para no dejar factura ni producto
+   * colgando cuando el cobro no es posible.
+   */
+  async assertChargeableDefaultMethod(tenantId: string, customerId: string): Promise<void> {
+    const pm = await this.prisma.withTenant(
+      (tx) =>
+        tx.paymentMethod.findFirst({
+          where: { customerId, isDefault: true, deletedAt: null },
+        }),
+      tenantId,
+    );
+    if (!pm || (pm.type !== 'card' && pm.type !== 'sepa_debit')) {
+      throw new BadRequestException({
+        code: 'no_payment_method',
+        message:
+          'No tienes un método de pago para cobrar en el acto. Añade una tarjeta o domiciliación para continuar.',
+      });
+    }
+  }
+
+  /**
    * Lanza 409 `payment_in_progress` si ya hay un cobro en vuelo (`processing` /
    * `pending`) sobre la factura. Un adeudo SEPA/GoCardless tarda días en
    * confirmarse y no marca la factura como pagada mientras tanto, así que sin

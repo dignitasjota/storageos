@@ -464,7 +464,7 @@ function PortalConsumeContent() {
     if (!session || !nightPass) return;
     if (
       !window.confirm(
-        `Comprar un pase nocturno por ${nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (+ IVA). Se añadirá a tu cuenta.`,
+        `Comprar un pase nocturno por ${nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (+ IVA). Se cobrará a tu método de pago por defecto.`,
       )
     )
       return;
@@ -479,9 +479,19 @@ function PortalConsumeContent() {
       const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
       setInvoices(inv);
       setPassRefresh((n) => n + 1);
-      toast.success('Pase nocturno comprado. Tu código es de un solo uso y caduca por la mañana.');
+      toast.success(
+        'Pase nocturno comprado y cobrado. Tu código es de un solo uso y caduca por la mañana.',
+      );
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprar el pase.');
+      if (err instanceof ApiError && err.body.code === 'no_payment_method') {
+        toast.error(
+          'Necesitas un método de pago para comprar el pase. Añádelo en «Método de pago».',
+        );
+      } else if (err instanceof ApiError && err.body.code === 'payment_failed') {
+        toast.error('No se pudo cobrar tu método de pago. El pase no se ha emitido.');
+      } else {
+        toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprar el pase.');
+      }
     } finally {
       setBuyingPass(false);
     }
@@ -1273,7 +1283,7 @@ function PortalConsumeContent() {
                     <p className="text-sm font-medium">Pase nocturno</p>
                     <p className="mb-2 text-xs text-muted-foreground">
                       Código de un solo uso para entrar fuera de horario (toque de queda). Caduca a
-                      la mañana siguiente. Se factura a tu cuenta.
+                      la mañana siguiente. Se cobra en el acto a tu método de pago por defecto.
                     </p>
                     <Button size="sm" disabled={buyingPass} onClick={() => void buyNightPass()}>
                       {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
