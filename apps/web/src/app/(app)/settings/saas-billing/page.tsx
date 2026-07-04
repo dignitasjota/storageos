@@ -344,6 +344,7 @@ function SaasInvoicesSection() {
                   <div>
                     <span className="font-medium">{f.fullNumber}</span>
                     <span className="ml-2 text-muted-foreground">{date(f.issuedAt)}</span>
+                    {f.concept && <div className="text-xs text-muted-foreground">{f.concept}</div>}
                   </div>
                   <div className="flex items-center gap-3">
                     <span>{eur(Number(f.total), f.currency)}</span>

@@ -161,6 +161,9 @@ export class PlatformInvoicesService {
           tenantAddress: null,
           planSlug: payment.planSlug,
           planName: payment.planName,
+          // Concepto real del cobro (p. ej. «Add-on: X»); si el pago no lo trae,
+          // el PDF cae a «Suscripción {plan}».
+          concept: payment.description ?? null,
           periodStart: payment.periodStart,
           periodEnd: payment.periodEnd,
           baseAmount: base,
@@ -256,6 +259,7 @@ export class PlatformInvoicesService {
       tenantName: string;
       tenantTaxId: string | null;
       planName: string | null;
+      concept: string | null;
       periodStart: Date | null;
       periodEnd: Date | null;
       baseAmount: unknown;
@@ -297,6 +301,7 @@ export class PlatformInvoicesService {
       tenantName: string;
       tenantTaxId: string | null;
       planName: string | null;
+      concept: string | null;
       periodStart: Date | null;
       periodEnd: Date | null;
       baseAmount: unknown;
@@ -343,7 +348,7 @@ export class PlatformInvoicesService {
         <div class="box"><strong>Cliente</strong><br>${client || '—'}</div>
       </div>
       <table><thead><tr><th>Concepto</th><th class="n">Base</th></tr></thead>
-      <tbody><tr><td>Suscripción ${esc(inv.planName ?? 'StorageOS')}${
+      <tbody><tr><td>${esc(inv.concept ?? `Suscripción ${inv.planName ?? 'StorageOS'}`)}${
         period ? ` · ${esc(period)}` : ''
       }</td><td class="n">${eur(Number(inv.baseAmount))}</td></tr></tbody></table>
       <div class="totals">
@@ -404,6 +409,7 @@ export class PlatformInvoicesService {
     tenantName: string;
     tenantTaxId: string | null;
     planName: string | null;
+    concept: string | null;
     periodStart: Date | null;
     periodEnd: Date | null;
     baseAmount: unknown;
@@ -423,6 +429,7 @@ export class PlatformInvoicesService {
       tenantName: r.tenantName,
       tenantTaxId: r.tenantTaxId,
       planName: r.planName,
+      concept: r.concept ?? (r.planName ? `Suscripción ${r.planName}` : null),
       periodStart: r.periodStart?.toISOString() ?? null,
       periodEnd: r.periodEnd?.toISOString() ?? null,
       baseAmount: Number(r.baseAmount),

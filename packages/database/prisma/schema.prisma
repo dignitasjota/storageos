@@ -3432,6 +3432,7 @@ model PlatformInvoice {
   tenantAddress String?   @map("tenant_address")
   planSlug      String?   @map("plan_slug")
   planName      String?   @map("plan_name")
+  concept       String?
   periodStart   DateTime? @map("period_start") @db.Timestamptz(6)
   periodEnd     DateTime? @map("period_end") @db.Timestamptz(6)
   baseAmount    Decimal   @map("base_amount") @db.Decimal(12, 2)
