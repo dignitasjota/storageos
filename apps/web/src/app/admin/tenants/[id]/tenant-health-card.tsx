@@ -14,7 +14,11 @@ const LEVEL: Record<AdminTenantHealthLevel, { label: string; badge: string; bar:
     badge: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
     bar: 'bg-green-500',
   },
-  warm: { label: 'Tibio', badge: 'bg-sky-100 text-sky-700', bar: 'bg-sky-500' },
+  warm: {
+    label: 'Tibio',
+    badge: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
+    bar: 'bg-sky-500',
+  },
   at_risk: {
     label: 'En riesgo',
     badge: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',

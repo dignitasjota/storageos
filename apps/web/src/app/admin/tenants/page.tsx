@@ -2,8 +2,9 @@
 
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAdminTenants } from '@/lib/admin/hooks';
+import { tenantStatusLabel } from '@/lib/admin/labels';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   trial: 'secondary',
@@ -27,32 +29,35 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
  *
  * Para ahorrar el setup del DataTable (que es client-side y no acepta
  * `onRowClick` declarativo), renderizamos un grid de tarjetas
- * pinchables. Filtros: status + busqueda (client-side).
+ * pinchables. Filtros: status + busqueda, ambos SERVER-SIDE (el endpoint
+ * `/admin/tenants?search=&status=` filtra en BD). El término de búsqueda se
+ * debounce ~300ms para no lanzar una query por tecla.
+ *
+ * Follow-up: paginación por cursor cuando el nº de tenants crezca (hoy el
+ * endpoint devuelve la lista completa filtrada).
  */
 export default function AdminTenantsPage() {
   const router = useRouter();
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  const tenants = useAdminTenants({ ...(status ? { status } : {}) });
+  // Debounce del término de búsqueda antes de mandarlo al backend.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  if (tenants.isLoading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+  const tenants = useAdminTenants({
+    ...(status ? { status } : {}),
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+  });
+
+  if (tenants.isError) {
+    return <AdminError onRetry={() => void tenants.refetch()} />;
   }
 
-  const term = search.trim().toLowerCase();
-  const filtered = (tenants.data ?? []).filter((t) => {
-    if (!term) return true;
-    return (
-      t.name.toLowerCase().includes(term) ||
-      t.slug.toLowerCase().includes(term) ||
-      (t.billingEmail ?? '').toLowerCase().includes(term)
-    );
-  });
+  const rows = tenants.data ?? [];
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -85,18 +90,23 @@ export default function AdminTenantsPage() {
             <SelectItem value="cancelled">Cancelados</SelectItem>
           </SelectContent>
         </Select>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? 'tenant' : 'tenants'}
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          {tenants.isFetching && <Loader2 className="size-3 animate-spin" aria-hidden />}
+          {rows.length} {rows.length === 1 ? 'tenant' : 'tenants'}
         </span>
       </div>
 
-      {filtered.length === 0 ? (
+      {tenants.isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : rows.length === 0 ? (
         <div className="rounded-md border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
           No hay tenants que coincidan con el filtro.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((t) => (
+          {rows.map((t) => (
             <button
               key={t.id}
               type="button"
@@ -105,7 +115,9 @@ export default function AdminTenantsPage() {
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate font-medium">{t.name}</span>
-                <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>{t.status}</Badge>
+                <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>
+                  {tenantStatusLabel(t.status)}
+                </Badge>
               </div>
               <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
               <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-muted-foreground">

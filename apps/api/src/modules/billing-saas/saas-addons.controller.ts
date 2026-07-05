@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -21,12 +22,27 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin/admin.guard';
+import {
+  type AuthenticatedSuperAdmin,
+  CurrentSuperAdmin,
+} from '../admin/current-super-admin.decorator';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
+import { SuperAdminAuditService } from '../admin/super-admin-audit.service';
 
 import { SaasAddonsService } from './saas-addons.service';
 
+import type { Request } from 'express';
+
 class UpsertSaasAddonDto extends createZodDto(UpsertSaasAddonSchema) {}
 class AssignAddonDto extends createZodDto(AssignAddonSchema) {}
+
+/** Extrae IP + user-agent del request para dejar rastro en la auditoría. */
+function extractMeta(req: Request): { ipAddress: string | null; userAgent: string | null } {
+  return {
+    ipAddress: req.ip ?? null,
+    userAgent: req.header('user-agent') ?? null,
+  };
+}
 
 /**
  * Gestión del catálogo de add-ons facturables del SaaS y su asignación por
@@ -37,7 +53,10 @@ class AssignAddonDto extends createZodDto(AssignAddonSchema) {}
 @UseGuards(AdminGuard)
 @Controller('admin')
 export class SaasAddonsController {
-  constructor(private readonly service: SaasAddonsService) {}
+  constructor(
+    private readonly service: SaasAddonsService,
+    private readonly audit: SuperAdminAuditService,
+  ) {}
 
   @Get('addons/analytics')
   analytics(): Promise<AdminAddonAnalyticsDto[]> {
@@ -51,17 +70,41 @@ export class SaasAddonsController {
 
   @RequireSuperadmin()
   @Post('addons')
-  createAddon(@Body() body: UpsertSaasAddonDto): Promise<SaasAddonDto> {
-    return this.service.createAddon(body);
+  async createAddon(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Body() body: UpsertSaasAddonDto,
+    @Req() req: Request,
+  ): Promise<SaasAddonDto> {
+    const created = await this.service.createAddon(body);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.created',
+      targetType: 'saas_addon',
+      targetId: created.id,
+      changes: { slug: created.slug, name: created.name, priceMonthly: created.priceMonthly },
+      ...extractMeta(req),
+    });
+    return created;
   }
 
   @RequireSuperadmin()
   @Patch('addons/:id')
-  updateAddon(
+  async updateAddon(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpsertSaasAddonDto,
+    @Req() req: Request,
   ): Promise<SaasAddonDto> {
-    return this.service.updateAddon(id, body);
+    const updated = await this.service.updateAddon(id, body);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.updated',
+      targetType: 'saas_addon',
+      targetId: id,
+      changes: { slug: updated.slug, name: updated.name, priceMonthly: updated.priceMonthly },
+      ...extractMeta(req),
+    });
+    return updated;
   }
 
   @Get('tenants/:id/limits')
@@ -76,37 +119,85 @@ export class SaasAddonsController {
 
   @RequireSuperadmin()
   @Post('tenants/:id/addons')
-  assign(
+  async assign(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: AssignAddonDto,
+    @Req() req: Request,
   ): Promise<TenantBillingSummaryDto> {
-    return this.service.assign(id, body);
+    const summary = await this.service.assign(id, body);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.assigned',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { addonId: body.addonId, quantity: body.quantity ?? null },
+      ...extractMeta(req),
+    });
+    return summary;
   }
 
   @RequireSuperadmin()
   @Delete('tenants/:id/addons/:assignmentId')
-  remove(
+  async remove(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+    @Req() req: Request,
   ): Promise<TenantBillingSummaryDto> {
-    return this.service.remove(id, assignmentId);
+    const summary = await this.service.remove(id, assignmentId);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.removed',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { assignmentId },
+      ...extractMeta(req),
+    });
+    return summary;
   }
 
   @RequireSuperadmin()
   @Post('tenants/:id/addons/:assignmentId/suspend')
-  suspend(
+  async suspend(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+    @Req() req: Request,
   ): Promise<TenantBillingSummaryDto> {
-    return this.service.suspend(id, assignmentId);
+    const summary = await this.service.suspend(id, assignmentId);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.suspended',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { assignmentId },
+      ...extractMeta(req),
+    });
+    return summary;
   }
 
   @RequireSuperadmin()
   @Post('tenants/:id/addons/:assignmentId/reactivate')
-  reactivate(
+  async reactivate(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+    @Req() req: Request,
   ): Promise<TenantBillingSummaryDto> {
-    return this.service.reactivate(id, assignmentId);
+    const summary = await this.service.reactivate(id, assignmentId);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.reactivated',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { assignmentId },
+      ...extractMeta(req),
+    });
+    return summary;
   }
 }

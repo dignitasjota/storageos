@@ -37,7 +37,7 @@ export default function AdminAddonsPage() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Add-ons facturables</h1>
@@ -81,7 +81,12 @@ export default function AdminAddonsPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-semibold">{eur(a.priceMonthly)}/mes</span>
-                  <Button variant="ghost" size="icon" onClick={() => setEditing(a)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Editar add-on ${a.name}`}
+                    onClick={() => setEditing(a)}
+                  >
                     <Pencil className="size-4" />
                   </Button>
                 </div>

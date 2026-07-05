@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { AdminAddonChargeDueDto, SaasPaymentProviderValue } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -34,6 +35,9 @@ export default function AdminTodayPage() {
   const today = useAdminToday();
   const data = today.data;
 
+  if (today.isError) {
+    return <AdminError onRetry={() => void today.refetch()} />;
+  }
   if (today.isLoading) {
     return (
       <div className="flex h-[40vh] items-center justify-center">
@@ -54,7 +58,7 @@ export default function AdminTodayPage() {
     data.failedJobs === 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Hoy</h1>
         <p className="text-sm text-muted-foreground">

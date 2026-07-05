@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
 import { AdminGuard } from '../admin/admin.guard';
+import { SuperAdminAuditService } from '../admin/super-admin-audit.service';
 import { AuthModule } from '../auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { FilesModule } from '../files/files.module';
@@ -68,6 +69,11 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformDunningService,
     PlatformDunningCron,
     AdminGuard,
+    // Auditoría del super admin sobre el catálogo de add-ons/planes. Solo
+    // depende de PrismaAdminService (DatabaseModule es @Global), así que se
+    // provee aquí en vez de importar AdminModule (evita el ciclo
+    // AdminModule → BillingSaasModule → AdminModule). Instancia stateless.
+    SuperAdminAuditService,
   ],
   exports: [
     BillingSaasService,
