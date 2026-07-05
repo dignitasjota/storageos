@@ -365,6 +365,8 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   sendWelcome: z.boolean().optional(),
   sendTrialReminders: z.boolean().optional(),
   sendPastDue: z.boolean().optional(),
+  // Resumen semanal de KPIs por email al super admin. Opcional, misma razón.
+  weeklyDigestEnabled: z.boolean().optional(),
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
 

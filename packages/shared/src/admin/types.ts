@@ -694,6 +694,8 @@ export interface PlatformAlertSettingsDto {
   sendWelcome: boolean;
   sendTrialReminders: boolean;
   sendPastDue: boolean;
+  /** Resumen semanal de KPIs por email al super admin (lunes 08:00). */
+  weeklyDigestEnabled: boolean;
 }
 
 /** Resultado de evaluar las alertas ahora. */
@@ -701,6 +703,12 @@ export interface PlatformAlertRunResultDto {
   sent: boolean;
   pastDue: number;
   trialExpiring: number;
+  reason: string | null;
+}
+
+/** Resultado de enviar el resumen semanal de KPIs ahora. */
+export interface AdminWeeklyDigestResultDto {
+  sent: boolean;
   reason: string | null;
 }
 

@@ -13,6 +13,7 @@ import {
   useAdminPlatformAlerts,
   useRunPlatformAlerts,
   useRunTenantLifecycleEmails,
+  useRunWeeklyDigest,
   useUpdatePlatformAlerts,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -22,6 +23,7 @@ export default function PlatformAlertsPage() {
   const update = useUpdatePlatformAlerts();
   const run = useRunPlatformAlerts();
   const runLifecycle = useRunTenantLifecycleEmails();
+  const runDigest = useRunWeeklyDigest();
 
   const [form, setForm] = useState({
     enabled: false,
@@ -33,6 +35,7 @@ export default function PlatformAlertsPage() {
     sendWelcome: true,
     sendTrialReminders: true,
     sendPastDue: true,
+    weeklyDigestEnabled: false,
   });
 
   useEffect(() => {
@@ -47,6 +50,7 @@ export default function PlatformAlertsPage() {
         sendWelcome: data.sendWelcome,
         sendTrialReminders: data.sendTrialReminders,
         sendPastDue: data.sendPastDue,
+        weeklyDigestEnabled: data.weeklyDigestEnabled,
       });
     }
   }, [data]);
@@ -73,6 +77,19 @@ export default function PlatformAlertsPage() {
             ? 'No hay señales que reportar ahora mismo.'
             : 'Alertas desactivadas o sin email configurado.',
         );
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function onRunDigest() {
+    try {
+      const res = await runDigest.mutateAsync();
+      if (res.sent) {
+        toast.success('Resumen semanal de KPIs enviado.');
+      } else {
+        toast.info('Activa el resumen semanal y configura un email de destino.');
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -167,6 +184,34 @@ export default function PlatformAlertsPage() {
             </Button>
             <Button variant="outline" onClick={onRun} disabled={run.isPending}>
               Evaluar y enviar ahora
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle className="text-base">Resumen semanal de KPIs</CardTitle>
+          <CardDescription>
+            Recibe cada lunes a las 08:00 un email con los KPIs clave (MRR y su variación, net new
+            MRR, churn, ARPU, nuevos tenants, trials por convertir y tickets abiertos) al email de
+            destino de arriba, sin entrar al panel.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.weeklyDigestEnabled}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, weeklyDigestEnabled: v === true }))}
+            />
+            Resumen semanal de KPIs por email
+          </label>
+          <div className="flex gap-2">
+            <Button onClick={onSave} disabled={update.isPending}>
+              Guardar
+            </Button>
+            <Button variant="outline" onClick={onRunDigest} disabled={runDigest.isPending}>
+              Enviar ahora
             </Button>
           </div>
         </CardContent>

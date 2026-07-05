@@ -45,6 +45,9 @@ export class PlatformAlertsService {
         ? { sendTrialReminders: input.sendTrialReminders }
         : {}),
       ...(input.sendPastDue !== undefined ? { sendPastDue: input.sendPastDue } : {}),
+      ...(input.weeklyDigestEnabled !== undefined
+        ? { weeklyDigestEnabled: input.weeklyDigestEnabled }
+        : {}),
     };
     const row = current
       ? await this.admin.platformAlertSettings.update({ where: { id: current.id }, data })
@@ -149,6 +152,7 @@ export class PlatformAlertsService {
     sendWelcome: boolean;
     sendTrialReminders: boolean;
     sendPastDue: boolean;
+    weeklyDigestEnabled: boolean;
   }): PlatformAlertSettingsDto {
     return {
       enabled: row.enabled,
@@ -160,6 +164,7 @@ export class PlatformAlertsService {
       sendWelcome: row.sendWelcome,
       sendTrialReminders: row.sendTrialReminders,
       sendPastDue: row.sendPastDue,
+      weeklyDigestEnabled: row.weeklyDigestEnabled,
     };
   }
 }

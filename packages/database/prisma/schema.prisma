@@ -3503,6 +3503,8 @@ model PlatformAlertSettings {
   sendWelcome         Boolean  @default(true) @map("send_welcome")
   sendTrialReminders  Boolean  @default(true) @map("send_trial_reminders")
   sendPastDue         Boolean  @default(true) @map("send_past_due")
+  /// Resumen semanal de KPIs (MRR/churn/altas) por email al super admin (lunes 08:00).
+  weeklyDigestEnabled Boolean  @default(false) @map("weekly_digest_enabled")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

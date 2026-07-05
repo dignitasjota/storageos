@@ -48,6 +48,9 @@ import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.contr
 import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
 import { WebhooksCleanupController } from './webhooks-cleanup.controller';
+import { WeeklyDigestController } from './weekly-digest.controller';
+import { WeeklyDigestCron } from './weekly-digest.cron';
+import { WeeklyDigestService } from './weekly-digest.service';
 
 /**
  * Modulo del panel super admin (Fase 8).
@@ -92,11 +95,14 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminTodayController,
     AdminFinanceController,
     TenantLifecycleEmailsController,
+    WeeklyDigestController,
   ],
   providers: [
     AdminGuard,
     PlatformAlertsService,
     PlatformAlertsCron,
+    WeeklyDigestService,
+    WeeklyDigestCron,
     TenantLifecycleEmailsService,
     TenantLifecycleEmailsCron,
     AdminImpersonationAuditService,
