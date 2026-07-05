@@ -38,6 +38,13 @@ export class PlatformAlertsService {
       notifyPastDue: input.notifyPastDue,
       notifyTrialExpiring: input.notifyTrialExpiring,
       trialExpiringDays: input.trialExpiringDays,
+      // Solo se tocan si vienen en el input (sección de lifecycle independiente).
+      ...(input.lifecycleEnabled !== undefined ? { lifecycleEnabled: input.lifecycleEnabled } : {}),
+      ...(input.sendWelcome !== undefined ? { sendWelcome: input.sendWelcome } : {}),
+      ...(input.sendTrialReminders !== undefined
+        ? { sendTrialReminders: input.sendTrialReminders }
+        : {}),
+      ...(input.sendPastDue !== undefined ? { sendPastDue: input.sendPastDue } : {}),
     };
     const row = current
       ? await this.admin.platformAlertSettings.update({ where: { id: current.id }, data })
@@ -138,6 +145,10 @@ export class PlatformAlertsService {
     notifyPastDue: boolean;
     notifyTrialExpiring: boolean;
     trialExpiringDays: number;
+    lifecycleEnabled: boolean;
+    sendWelcome: boolean;
+    sendTrialReminders: boolean;
+    sendPastDue: boolean;
   }): PlatformAlertSettingsDto {
     return {
       enabled: row.enabled,
@@ -145,6 +156,10 @@ export class PlatformAlertsService {
       notifyPastDue: row.notifyPastDue,
       notifyTrialExpiring: row.notifyTrialExpiring,
       trialExpiringDays: row.trialExpiringDays,
+      lifecycleEnabled: row.lifecycleEnabled,
+      sendWelcome: row.sendWelcome,
+      sendTrialReminders: row.sendTrialReminders,
+      sendPastDue: row.sendPastDue,
     };
   }
 }

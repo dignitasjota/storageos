@@ -358,6 +358,13 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   notifyPastDue: z.boolean(),
   notifyTrialExpiring: z.boolean(),
   trialExpiringDays: z.number().int().min(1).max(30),
+  // Emails automáticos de ciclo de vida al tenant (bienvenida/trial/past_due).
+  // Opcionales: son una sección de config independiente del mismo singleton, así
+  // un PUT que solo toque las alertas del admin no necesita reenviarlos.
+  lifecycleEnabled: z.boolean().optional(),
+  sendWelcome: z.boolean().optional(),
+  sendTrialReminders: z.boolean().optional(),
+  sendPastDue: z.boolean().optional(),
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
 

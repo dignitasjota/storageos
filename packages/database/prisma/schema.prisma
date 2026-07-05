@@ -360,6 +360,7 @@ model Tenant {
   subscriptionPayments    TenantSubscriptionPayment[]
   mrrSnapshots            MrrSnapshot[]
   tenantInteractions      TenantInteraction[]
+  tenantLifecycleEmails   TenantLifecycleEmail[]
   customerFollowups       CustomerFollowup[]
   featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
@@ -3496,10 +3497,32 @@ model PlatformAlertSettings {
   notifyPastDue       Boolean  @default(true) @map("notify_past_due")
   notifyTrialExpiring Boolean  @default(true) @map("notify_trial_expiring")
   trialExpiringDays   Int      @default(3) @map("trial_expiring_days")
+  /// Emails automáticos de ciclo de vida al OWNER del tenant (bienvenida, trial
+  /// por expirar, pago fallido). Config aquí para reusar el mismo singleton.
+  lifecycleEnabled    Boolean  @default(false) @map("lifecycle_enabled")
+  sendWelcome         Boolean  @default(true) @map("send_welcome")
+  sendTrialReminders  Boolean  @default(true) @map("send_trial_reminders")
+  sendPastDue         Boolean  @default(true) @map("send_past_due")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_alert_settings")
+}
+
+/// Registro de idempotencia de los emails de ciclo de vida enviados al tenant:
+/// cada `type` (welcome | trial_t7 | trial_t3 | trial_t1 | past_due) se manda
+/// una sola vez por tenant (UNIQUE tenant+type). Tabla global, sin RLS.
+model TenantLifecycleEmail {
+  id       String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId String   @map("tenant_id") @db.Uuid
+  type     String
+  sentAt   DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, type])
+  @@index([tenantId])
+  @@map("tenant_lifecycle_emails")
 }
 
 /// Override de feature premium por tenant (el super admin activa/desactiva una

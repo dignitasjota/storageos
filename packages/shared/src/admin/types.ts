@@ -689,6 +689,11 @@ export interface PlatformAlertSettingsDto {
   notifyPastDue: boolean;
   notifyTrialExpiring: boolean;
   trialExpiringDays: number;
+  /** Emails automáticos de ciclo de vida al tenant. */
+  lifecycleEnabled: boolean;
+  sendWelcome: boolean;
+  sendTrialReminders: boolean;
+  sendPastDue: boolean;
 }
 
 /** Resultado de evaluar las alertas ahora. */
@@ -697,6 +702,13 @@ export interface PlatformAlertRunResultDto {
   pastDue: number;
   trialExpiring: number;
   reason: string | null;
+}
+
+/** Resultado de disparar los emails de ciclo de vida (nº encolado por categoría). */
+export interface TenantLifecycleRunResultDto {
+  welcome: number;
+  trialReminders: number;
+  pastDue: number;
 }
 
 /** Una sesión de impersonación (super admin entrando como un tenant). */
