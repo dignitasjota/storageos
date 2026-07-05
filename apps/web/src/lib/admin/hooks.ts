@@ -39,6 +39,7 @@ import type {
   PlatformAlertSettingsDto,
   PlatformAlertRunResultDto,
   TenantLifecycleRunResultDto,
+  AdminWeeklyDigestResultDto,
   UpdatePlatformAlertSettingsInput,
   AdminTenantHealthDto,
   TenantFeature,
@@ -1220,6 +1221,13 @@ export function useRunTenantLifecycleEmails() {
   return useMutation({
     mutationFn: () =>
       adminApiFetch<TenantLifecycleRunResultDto>('/admin/tenant-lifecycle/run', { method: 'POST' }),
+  });
+}
+
+export function useRunWeeklyDigest() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<AdminWeeklyDigestResultDto>('/admin/weekly-digest/run', { method: 'POST' }),
   });
 }
 
