@@ -8,6 +8,11 @@ import type {
   AdminTenantNotesDto,
   UpdateTenantNotesInput,
   AdminTrialDto,
+  PlatformCouponDto,
+  CreatePlatformCouponInput,
+  UpdatePlatformCouponInput,
+  ExtendTrialsBatchInput,
+  ExtendTrialsBatchResultDto,
   AdminChangePlanPreviewDto,
   AdminFinanceOverviewDto,
   PlatformBillingSettingsDto,
@@ -1525,6 +1530,54 @@ export function useUpdateTenantNotes(tenantId: string) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'tenant-notes', tenantId] });
+    },
+  });
+}
+
+// ============================================================================
+// Cupones de plataforma (descuentos del cobro SaaS) + trials por lote
+// ============================================================================
+
+export function useAdminCoupons() {
+  return useQuery({
+    queryKey: ['admin', 'coupons'],
+    queryFn: () => adminApiFetch<PlatformCouponDto[]>('/admin/coupons'),
+  });
+}
+
+export function useCreateCoupon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreatePlatformCouponInput) =>
+      adminApiFetch<PlatformCouponDto>('/admin/coupons', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
+  });
+}
+
+export function useUpdateCoupon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: UpdatePlatformCouponInput }) =>
+      adminApiFetch<PlatformCouponDto>(`/admin/coupons/${args.id}`, {
+        method: 'PATCH',
+        json: args.input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
+  });
+}
+
+/** Extiende el trial de varios tenants a la vez. */
+export function useExtendTrialsBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ExtendTrialsBatchInput) =>
+      adminApiFetch<ExtendTrialsBatchResultDto>('/admin/tenants/extend-trials', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'trials'] });
     },
   });
 }

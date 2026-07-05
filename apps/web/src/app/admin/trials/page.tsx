@@ -10,14 +10,18 @@ import type { AdminTrialDto } from '@storageos/shared';
 import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useAdminTrials, useExtendTrial } from '@/lib/admin/hooks';
+import { Input } from '@/components/ui/input';
+import { useAdminTrials, useExtendTrial, useExtendTrialsBatch } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
 
 export default function AdminTrialsPage() {
   const trials = useAdminTrials();
+  const batch = useExtendTrialsBatch();
   const [onlyUnused, setOnlyUnused] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchDays, setBatchDays] = useState(14);
 
   if (trials.isError) {
     return <AdminError onRetry={() => void trials.refetch()} />;
@@ -33,6 +37,46 @@ export default function AdminTrialsPage() {
   const all = trials.data ?? [];
   const rows = onlyUnused ? all.filter((t) => t.neverUsed) : all;
   const unusedCount = all.filter((t) => t.neverUsed).length;
+  const visibleIds = rows.map((t) => t.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function onExtendBatch() {
+    const tenantIds = [...selected];
+    if (tenantIds.length === 0) return;
+    if (!(batchDays > 0)) {
+      toast.error('Indica un número de días positivo.');
+      return;
+    }
+    try {
+      const res = await batch.mutateAsync({
+        tenantIds,
+        days: batchDays,
+        reason: 'Extensión de trial por lote',
+      });
+      toast.success(`Trial extendido en ${res.updated} tenant(s).`);
+      setSelected(new Set());
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo extender.');
+    }
+  }
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -54,6 +98,30 @@ export default function AdminTrialsPage() {
         </label>
       </div>
 
+      {selected.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 p-3 text-sm">
+          <span className="font-medium">{selected.size} seleccionado(s)</span>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Extender</span>
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              value={batchDays}
+              onChange={(e) => setBatchDays(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              className="h-8 w-20"
+            />
+            <span className="text-muted-foreground">días</span>
+          </div>
+          <Button size="sm" onClick={onExtendBatch} disabled={batch.isPending}>
+            {batch.isPending ? 'Extendiendo…' : `Extender trial ${batchDays} días`}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+            Limpiar selección
+          </Button>
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -65,6 +133,14 @@ export default function AdminTrialsPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>
+                <th className="p-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAll}
+                    aria-label="Seleccionar todos"
+                  />
+                </th>
                 <th className="p-2">Tenant</th>
                 <th className="p-2">Plan</th>
                 <th className="p-2">Fin trial</th>
@@ -75,7 +151,12 @@ export default function AdminTrialsPage() {
             </thead>
             <tbody>
               {rows.map((t) => (
-                <TrialRow key={t.id} trial={t} />
+                <TrialRow
+                  key={t.id}
+                  trial={t}
+                  selected={selected.has(t.id)}
+                  onToggle={() => toggle(t.id)}
+                />
               ))}
             </tbody>
           </table>
@@ -85,7 +166,15 @@ export default function AdminTrialsPage() {
   );
 }
 
-function TrialRow({ trial }: { trial: AdminTrialDto }) {
+function TrialRow({
+  trial,
+  selected,
+  onToggle,
+}: {
+  trial: AdminTrialDto;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const extend = useExtendTrial();
 
   async function onExtend() {
@@ -105,6 +194,14 @@ function TrialRow({ trial }: { trial: AdminTrialDto }) {
 
   return (
     <tr className="border-t">
+      <td className="p-2">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          aria-label={`Seleccionar ${trial.name}`}
+        />
+      </td>
       <td className="p-2">
         <Link href={`/admin/tenants/${trial.id}`} className="font-medium hover:underline">
           {trial.name}

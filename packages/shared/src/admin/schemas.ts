@@ -261,8 +261,53 @@ export const CreateManualSaasPaymentSchema = z.object({
   /** Fecha del cobro (ISO). Por defecto, ahora. */
   paidAt: z.string().datetime().optional(),
   description: z.string().trim().max(500).optional(),
+  /**
+   * Código de cupón de plataforma opcional. Si viene, el backend valida el
+   * cupón, calcula el descuento (server-side, no se confía en el cliente),
+   * lo registra en el pago e incrementa el uso del cupón.
+   */
+  couponCode: z.string().trim().min(1).max(60).optional(),
 });
 export type CreateManualSaasPaymentInput = z.infer<typeof CreateManualSaasPaymentSchema>;
+
+// ============================================================================
+// Cupones de plataforma (StorageOS -> tenant): descuento del cobro SaaS
+// ============================================================================
+
+export const PlatformCouponDiscountTypeEnum = z.enum(['percentage', 'fixed']);
+export type PlatformCouponDiscountTypeValue = z.infer<typeof PlatformCouponDiscountTypeEnum>;
+
+export const CreatePlatformCouponSchema = z.object({
+  code: z.string().trim().min(2).max(60).toUpperCase(),
+  discountType: PlatformCouponDiscountTypeEnum,
+  /** % (percentage) o importe fijo en la divisa del pago (fixed). */
+  discountValue: z.number().positive().max(1_000_000),
+  /** Caduca en (ISO). Sin valor = no caduca. */
+  validUntil: z.string().datetime().nullable().optional(),
+  /** Usos máximos. Sin valor = ilimitado. */
+  maxUses: z.number().int().positive().max(1_000_000).nullable().optional(),
+  isActive: z.boolean().default(true),
+});
+export type CreatePlatformCouponInput = z.infer<typeof CreatePlatformCouponSchema>;
+
+export const UpdatePlatformCouponSchema = z
+  .object({
+    discountType: PlatformCouponDiscountTypeEnum,
+    discountValue: z.number().positive().max(1_000_000),
+    validUntil: z.string().datetime().nullable(),
+    maxUses: z.number().int().positive().max(1_000_000).nullable(),
+    isActive: z.boolean(),
+  })
+  .partial();
+export type UpdatePlatformCouponInput = z.infer<typeof UpdatePlatformCouponSchema>;
+
+/** Extensión de trial a VARIOS tenants a la vez. */
+export const ExtendTrialsBatchSchema = z.object({
+  tenantIds: z.array(z.string().uuid()).min(1).max(500),
+  days: z.number().int().positive().max(365),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+export type ExtendTrialsBatchInput = z.infer<typeof ExtendTrialsBatchSchema>;
 
 // ============================================================================
 // Security events (Fase 11A.1)

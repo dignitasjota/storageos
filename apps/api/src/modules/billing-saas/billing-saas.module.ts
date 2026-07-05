@@ -11,6 +11,8 @@ import { PaymentsModule } from '../payments/payments.module';
 import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
 import { BillingStatusController } from './billing-status.controller';
+import { PlatformCouponsController } from './platform-coupons.controller';
+import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformDunningController } from './platform-dunning.controller';
 import { PlatformDunningCron } from './platform-dunning.cron';
 import { PlatformDunningService } from './platform-dunning.service';
@@ -60,12 +62,14 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SaasAddonsController,
     PlatformInvoicesController,
     PlatformDunningController,
+    PlatformCouponsController,
   ],
   providers: [
     BillingSaasService,
     SubscriptionPlansService,
     SaasAddonsService,
     PlatformInvoicesService,
+    PlatformCouponsService,
     PlatformDunningService,
     PlatformDunningCron,
     AdminGuard,
@@ -81,6 +85,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SaasAddonsService,
     PlatformInvoicesService,
     PlatformDunningService,
+    PlatformCouponsService,
   ],
 })
 export class BillingSaasModule {}

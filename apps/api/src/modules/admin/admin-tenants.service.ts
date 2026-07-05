@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 import {
   FEATURE_LABELS,
@@ -98,6 +98,8 @@ const ANON = '*** ANONIMIZADO ***';
  */
 @Injectable()
 export class AdminTenantsService {
+  private readonly logger = new Logger(AdminTenantsService.name);
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
@@ -1089,6 +1091,30 @@ export class AdminTenantsService {
       },
     });
     return this.detail(tenantId);
+  }
+
+  /**
+   * Extiende el trial de VARIOS tenants a la vez (palanca de retención por
+   * lote). Reutiliza `extendTrial` por tenant; ignora los tenants inexistentes
+   * o cancelados (solo cuenta los efectivamente actualizados). Devuelve cuántos
+   * se movieron.
+   */
+  async extendTrialsBatch(
+    tenantIds: string[],
+    args: ExtendTrialArgs,
+  ): Promise<{ updated: number }> {
+    let updated = 0;
+    // Sin duplicados (un mismo id no debe extenderse dos veces en el mismo lote).
+    for (const tenantId of [...new Set(tenantIds)]) {
+      try {
+        await this.extendTrial(tenantId, args);
+        updated += 1;
+      } catch (err) {
+        // Tenant inexistente/ilegible: se salta sin abortar el lote.
+        this.logger.warn(`extendTrialsBatch: no se pudo extender ${tenantId}: ${String(err)}`);
+      }
+    }
+    return { updated };
   }
 
   /**

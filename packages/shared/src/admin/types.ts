@@ -1,5 +1,6 @@
 import type { TenantFeature } from '../features';
 import type {
+  PlatformCouponDiscountTypeValue,
   SecurityEventTypeValue,
   SuperAdminRoleValue,
   SupportTicketPriorityValue,
@@ -1149,4 +1150,23 @@ export interface AdminPaymentRetryAnalysisDto {
   /** Importe recuperado (facturas que fallaron y luego se cobraron). */
   amountRecovered: number;
   currency: string;
+}
+
+/** Cupón de descuento de plataforma (StorageOS -> tenant). */
+export interface PlatformCouponDto {
+  id: string;
+  code: string;
+  discountType: PlatformCouponDiscountTypeValue;
+  discountValue: number;
+  validUntil: string | null;
+  maxUses: number | null;
+  usedCount: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Resultado de la extensión de trial por lote. */
+export interface ExtendTrialsBatchResultDto {
+  updated: number;
 }

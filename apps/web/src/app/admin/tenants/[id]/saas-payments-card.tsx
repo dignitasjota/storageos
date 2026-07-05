@@ -259,6 +259,7 @@ function AddManualPaymentDialog({
   const [extendsTouched, setExtendsTouched] = useState(false);
   const [paidAt, setPaidAt] = useState('');
   const [description, setDescription] = useState('');
+  const [couponCode, setCouponCode] = useState('');
 
   const amountNum = Number(amount) || 0;
 
@@ -288,6 +289,7 @@ function AddManualPaymentDialog({
     setExtendsTouched(false);
     setPaidAt('');
     setDescription('');
+    setCouponCode('');
   }
 
   function close() {
@@ -316,6 +318,7 @@ function AddManualPaymentDialog({
         extendsPeriod,
         ...(paidAt ? { paidAt: new Date(`${paidAt}T12:00:00`).toISOString() } : {}),
         ...(description.trim() ? { description: description.trim() } : {}),
+        ...(couponCode.trim() ? { couponCode: couponCode.trim().toUpperCase() } : {}),
       });
       toast.success(
         extendsPeriod
@@ -417,6 +420,17 @@ function AddManualPaymentDialog({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Nº de recibo, referencia…"
               />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Código de cupón (opcional)</Label>
+              <Input
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                placeholder="BLACKFRIDAY"
+              />
+              <p className="text-xs text-muted-foreground">
+                Si es válido, el descuento se calcula en el servidor y se registra en el pago.
+              </p>
             </div>
           </div>
           <label className="flex items-start gap-2 rounded-md border p-2 text-sm">

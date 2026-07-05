@@ -13,6 +13,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 
+import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -163,6 +164,7 @@ export class BillingSaasService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly platformInvoices: PlatformInvoicesService,
+    private readonly coupons: PlatformCouponsService,
     stripeGateway: StripeGateway,
   ) {
     this.stripe = stripeGateway.getClient();
@@ -777,6 +779,12 @@ export class BillingSaasService {
     extendsPeriod?: boolean;
     paidAt?: Date | null | undefined;
     description?: string | null | undefined;
+    /**
+     * Código de cupón de plataforma opcional. Si viene, el descuento se calcula
+     * en el servidor (no se confía en `args.discount`) y el uso del cupón se
+     * incrementa de forma atómica al materializar el pago.
+     */
+    couponCode?: string | null | undefined;
   }): Promise<TenantSubscriptionPaymentDto> {
     const sub = await this.admin.tenantSubscription.findUnique({
       where: { tenantId: args.tenantId },
@@ -787,6 +795,18 @@ export class BillingSaasService {
         code: 'subscription_not_found',
         message: 'El tenant no tiene una suscripción.',
       });
+    }
+
+    // Cupón de plataforma: valida y calcula el descuento server-side. NO se
+    // confía en `args.discount` cuando hay cupón; el cupón manda. El uso se
+    // incrementa más abajo, tras el guard de dedup (para no consumirlo en un
+    // doble-submit que devuelve el pago existente).
+    let couponId: string | null = null;
+    let discount = args.discount ?? null;
+    if (args.couponCode) {
+      const res = await this.coupons.validateAndComputeDiscount(args.couponCode, args.amount);
+      couponId = res.couponId;
+      discount = res.discount;
     }
 
     // Idempotencia anti-doble-submit: registrar un pago manual extiende el
@@ -807,6 +827,11 @@ export class BillingSaasService {
     });
     if (recent) return toPaymentDto(recent);
 
+    // Consumimos el cupón (uso atómico) justo antes de crear el pago: pasada la
+    // dedup, ya vamos a materializar. Si otra petición lo agotó en la carrera,
+    // lanza 400 `coupon_exhausted` y no se registra el pago.
+    if (couponId) await this.coupons.incrementUsage(couponId);
+
     const now = new Date();
     const extendsPeriod = args.extendsPeriod !== false;
 
@@ -820,7 +845,7 @@ export class BillingSaasService {
           externalId: null,
           status: 'paid',
           amount: args.amount,
-          discount: args.discount ?? null,
+          discount,
           currency: args.currency,
           planSlug: sub.plan.slug,
           planName: sub.plan.name,
@@ -858,7 +883,7 @@ export class BillingSaasService {
           externalId: null,
           status: 'paid',
           amount: args.amount,
-          discount: args.discount ?? null,
+          discount,
           currency: args.currency,
           planSlug: sub.plan.slug,
           planName: sub.plan.name,

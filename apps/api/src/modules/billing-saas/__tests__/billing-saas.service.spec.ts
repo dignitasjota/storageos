@@ -6,6 +6,7 @@ import type { AuditService } from '../../auth/audit.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { PrismaService } from '../../database/prisma.service';
 import type { StripeGateway } from '../../payments/stripe.gateway';
+import type { PlatformCouponsService } from '../platform-coupons.service';
 import type { PlatformInvoicesService } from '../platform-invoices.service';
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
@@ -81,6 +82,10 @@ function buildService(admin: AdminMock): {
     admin as unknown as PrismaAdminService,
     { write: audit } as unknown as AuditService,
     { issueForPaymentBestEffort: issueBestEffort } as unknown as PlatformInvoicesService,
+    {
+      validateAndComputeDiscount: jest.fn(),
+      incrementUsage: jest.fn(),
+    } as unknown as PlatformCouponsService,
     { getClient: () => ({}) } as unknown as StripeGateway,
   );
   return { service, audit, issueBestEffort };
