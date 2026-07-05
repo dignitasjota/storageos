@@ -38,10 +38,13 @@ export class PlatformAlertsService {
       notifyPastDue: input.notifyPastDue,
       notifyTrialExpiring: input.notifyTrialExpiring,
       trialExpiringDays: input.trialExpiringDays,
-      lifecycleEnabled: input.lifecycleEnabled,
-      sendWelcome: input.sendWelcome,
-      sendTrialReminders: input.sendTrialReminders,
-      sendPastDue: input.sendPastDue,
+      // Solo se tocan si vienen en el input (sección de lifecycle independiente).
+      ...(input.lifecycleEnabled !== undefined ? { lifecycleEnabled: input.lifecycleEnabled } : {}),
+      ...(input.sendWelcome !== undefined ? { sendWelcome: input.sendWelcome } : {}),
+      ...(input.sendTrialReminders !== undefined
+        ? { sendTrialReminders: input.sendTrialReminders }
+        : {}),
+      ...(input.sendPastDue !== undefined ? { sendPastDue: input.sendPastDue } : {}),
     };
     const row = current
       ? await this.admin.platformAlertSettings.update({ where: { id: current.id }, data })
