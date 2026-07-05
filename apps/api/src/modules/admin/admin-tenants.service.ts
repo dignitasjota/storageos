@@ -176,7 +176,7 @@ export class AdminTenantsService {
     const inactiveCutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const planInclude = { subscription: { include: { plan: { select: { name: true } } } } };
 
-    const [trials, pastDue, activeTenants, lastLogins] = await Promise.all([
+    const [trials, pastDue, activeTenants] = await Promise.all([
       this.admin.tenant.findMany({
         where: { deletedAt: null, status: 'trial', trialEndsAt: { gte: now, lte: in7d } },
         include: planInclude,
@@ -192,8 +192,19 @@ export class AdminTenantsService {
         include: planInclude,
         orderBy: { name: 'asc' },
       }),
-      this.admin.user.groupBy({ by: ['tenantId'], _max: { lastLoginAt: true } }),
     ]);
+
+    // Rendimiento: el groupBy de lastLoginAt se acota a los tenants activos ya
+    // cargados (antes escaneaba TODA la tabla `users`; a 500 tenants con miles
+    // de usuarios cada uno, un full-scan cada 60s vía el badge del sidebar).
+    const activeIds = activeTenants.map((t) => t.id);
+    const lastLogins = activeIds.length
+      ? await this.admin.user.groupBy({
+          by: ['tenantId'],
+          where: { tenantId: { in: activeIds } },
+          _max: { lastLoginAt: true },
+        })
+      : [];
 
     const lastLoginByTenant = new Map(
       lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]),

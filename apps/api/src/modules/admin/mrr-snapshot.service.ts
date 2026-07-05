@@ -80,6 +80,21 @@ export class MrrSnapshotService {
   }
 
   /**
+   * Asegura que existe el snapshot del mes en curso SIN reescribir en cada GET:
+   * si ya hay al menos una fila de este mes (la puso el cron diario o un GET
+   * previo), no hace nada. Solo la primera consulta del mes dispara la captura.
+   * El refresco intramensual (cambios de plan) lo hace el cron diario.
+   */
+  private async ensureCurrentMonthSnapshot(now: Date): Promise<void> {
+    const month = startOfMonthUtc(now);
+    const existing = await this.admin.mrrSnapshot.findFirst({
+      where: { month },
+      select: { id: true },
+    });
+    if (!existing) await this.captureMonth(now);
+  }
+
+  /**
    * Backfill best-effort de los meses pasados desde el historial de pagos SaaS:
    * cada pago (planSlug + periodStart..periodEnd) implica MRR `active` en los
    * meses que cubre. Solo CREA snapshots que falten (no pisa los ya capturados
@@ -101,7 +116,13 @@ export class MrrSnapshotService {
     const priceBySlug = new Map(plans.map((p) => [p.slug, Number(p.priceMonthly)]));
     const seen = new Set(existing.map((e) => `${e.tenantId}:${monthKey(e.month)}`));
 
-    let created = 0;
+    const toCreate: {
+      tenantId: string;
+      month: Date;
+      planSlug: string;
+      status: string;
+      mrr: number;
+    }[] = [];
     for (const p of payments) {
       if (!p.planSlug || !p.periodStart) continue;
       const price = priceBySlug.get(p.planSlug);
@@ -115,23 +136,24 @@ export class MrrSnapshotService {
           const k = `${p.tenantId}:${monthKey(m)}`;
           if (!seen.has(k)) {
             seen.add(k);
-            await this.admin.mrrSnapshot.create({
-              data: {
-                tenantId: p.tenantId,
-                month: m,
-                planSlug: p.planSlug,
-                status: 'active',
-                mrr: price,
-              },
+            toCreate.push({
+              tenantId: p.tenantId,
+              month: m,
+              planSlug: p.planSlug,
+              status: 'active',
+              mrr: price,
             });
-            created += 1;
           }
         }
         m = addMonthsUtc(m, 1);
       }
     }
-    if (created > 0) this.logger.log(`MRR backfill: ${created} snapshot(s) creados desde pagos`);
-    return created;
+    // Un solo INSERT en lote en vez de N creates en bucle.
+    if (toCreate.length > 0) {
+      await this.admin.mrrSnapshot.createMany({ data: toCreate, skipDuplicates: true });
+      this.logger.log(`MRR backfill: ${toCreate.length} snapshot(s) creados desde pagos`);
+    }
+    return toCreate.length;
   }
 
   /**
@@ -141,8 +163,12 @@ export class MrrSnapshotService {
   async getMovements(months: number): Promise<AdminMetricsMrrMovementsDto> {
     const span = Math.min(Math.max(months, 1), 24);
     const now = new Date();
-    await this.captureMonth(now);
-    await this.backfillFromPayments(span + 1);
+    // Rendimiento: antes cada GET hacía captureMonth (1 upsert por suscripción,
+    // ~500 escrituras) + backfillFromPayments (full-scan + creates en bucle), y
+    // la página Métricas lo dispara DOS veces (movements + forecast lo reusa).
+    // Ahora el backfill/refresco lo hace el cron (diario) y aquí solo aseguramos
+    // que EXISTE el snapshot del mes en curso (una vez por mes; guard barato).
+    await this.ensureCurrentMonthSnapshot(now);
 
     // Necesitamos un mes extra (el anterior al primero) para el primer delta.
     const firstMonth = addMonthsUtc(startOfMonthUtc(now), -span);
