@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { AdminTrialDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAdminTrials, useExtendTrial } from '@/lib/admin/hooks';
@@ -18,6 +19,9 @@ export default function AdminTrialsPage() {
   const trials = useAdminTrials();
   const [onlyUnused, setOnlyUnused] = useState(false);
 
+  if (trials.isError) {
+    return <AdminError onRetry={() => void trials.refetch()} />;
+  }
   if (trials.isLoading) {
     return (
       <div className="flex h-[40vh] items-center justify-center">

@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 
 import type { AdminTenantHealthDto, AdminTenantHealthLevel } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,7 +25,12 @@ const LEVELS: {
     badge: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
     bar: 'bg-green-500',
   },
-  { key: 'warm', label: 'Tibio', badge: 'bg-sky-100 text-sky-700', bar: 'bg-sky-500' },
+  {
+    key: 'warm',
+    label: 'Tibio',
+    badge: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
+    bar: 'bg-sky-500',
+  },
   {
     key: 'at_risk',
     label: 'En riesgo',
@@ -64,6 +70,9 @@ export default function AdminHealthPage() {
       .filter((t) => !needle || t.name.toLowerCase().includes(needle) || t.slug.includes(needle));
   }, [all, levelFilter, q]);
 
+  if (health.isError) {
+    return <AdminError onRetry={() => void health.refetch()} />;
+  }
   if (health.isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -73,7 +82,7 @@ export default function AdminHealthPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Salud de tenants</h1>
         <p className="text-sm text-muted-foreground">

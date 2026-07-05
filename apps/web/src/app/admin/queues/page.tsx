@@ -53,7 +53,7 @@ export default function AdminQueuesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Sistema y colas</h1>
         <p className="text-sm text-muted-foreground">

@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 
 import type { AdminTenantAdoptionDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +21,9 @@ export default function AdminAdoptionPage() {
     return onlyCandidates ? all.filter((t) => t.isCandidate) : all;
   }, [q.data, onlyCandidates]);
 
+  if (q.isError) {
+    return <AdminError onRetry={() => void q.refetch()} />;
+  }
   if (q.isLoading || !q.data) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -31,7 +35,7 @@ export default function AdminAdoptionPage() {
   const d = q.data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Adopción y upsell</h1>
         <p className="text-sm text-muted-foreground">

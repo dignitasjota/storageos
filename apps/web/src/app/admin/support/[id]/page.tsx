@@ -6,6 +6,7 @@ import {
   type AddTicketMessageInput,
   type SupportTicketDto,
   type SupportTicketMessageDto,
+  type SupportTicketPriorityValue,
   type SupportTicketStatusValue,
   SupportTicketStatusEnum,
 } from '@storageos/shared';
@@ -50,6 +51,13 @@ const STATUS_LABELS: Record<SupportTicketStatusValue, string> = {
   waiting_user: 'Esperando cliente',
   resolved: 'Resuelto',
   closed: 'Cerrado',
+};
+
+const PRIORITY_LABELS: Record<SupportTicketPriorityValue, string> = {
+  low: 'Baja',
+  normal: 'Normal',
+  high: 'Alta',
+  urgent: 'Urgente',
 };
 
 export default function AdminSupportTicketPage() {
@@ -144,7 +152,7 @@ export default function AdminSupportTicketPage() {
           </Select>
         </div>
 
-        <Badge variant="outline">Prioridad: {t.priority}</Badge>
+        <Badge variant="outline">Prioridad: {PRIORITY_LABELS[t.priority] ?? t.priority}</Badge>
         {t.category && <Badge variant="secondary">{t.category}</Badge>}
 
         <div className="ml-auto flex items-center gap-2 text-xs">

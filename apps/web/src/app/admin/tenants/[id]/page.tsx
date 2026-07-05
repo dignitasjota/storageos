@@ -74,6 +74,7 @@ import {
   useReactivateTenant,
   useSuspendTenant,
 } from '@/lib/admin/hooks';
+import { subscriptionStatusLabel, tenantStatusLabel } from '@/lib/admin/labels';
 import { ApiError } from '@/lib/auth/api';
 
 /** Clave en localStorage para registrar la sesion de impersonacion activa. */
@@ -125,7 +126,9 @@ export default function AdminTenantDetailPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">{t.name}</h1>
-            <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>{t.status}</Badge>
+            <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>
+              {tenantStatusLabel(t.status)}
+            </Badge>
           </div>
           <p className="text-sm text-muted-foreground">/{t.slug}</p>
         </div>
@@ -194,7 +197,7 @@ export default function AdminTenantDetailPage() {
                       label="Plan"
                       value={t.subscription.planName ?? t.subscription.planSlug ?? '—'}
                     />
-                    <Row label="Estado" value={t.subscription.status} />
+                    <Row label="Estado" value={subscriptionStatusLabel(t.subscription.status)} />
                     <Row
                       label="Fin periodo"
                       value={

@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import type { AdminAtRiskTenantDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,9 @@ function fmtDate(iso: string | null): string {
 export default function AdminAtRiskPage() {
   const risk = useAdminAtRisk();
 
+  if (risk.isError) {
+    return <AdminError onRetry={() => void risk.refetch()} />;
+  }
   if (risk.isLoading || !risk.data) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -29,7 +33,7 @@ export default function AdminAtRiskPage() {
   const total = d.trialExpiring.length + d.pastDue.length + d.inactive.length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Tenants en riesgo</h1>
         <p className="text-sm text-muted-foreground">
