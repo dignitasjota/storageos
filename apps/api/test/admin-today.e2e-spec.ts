@@ -142,6 +142,10 @@ describe('Admin «Hoy» (e2e)', () => {
     );
     expect(stale).toBeTruthy();
     expect(stale.daysSuspended).toBeGreaterThanOrEqual(39);
+
+    // Triaje añadido: tickets sin responder + jobs de colas fallidos.
+    expect(Array.isArray(today.body.openTickets)).toBe(true);
+    expect(typeof today.body.failedJobs).toBe('number');
   });
 
   it('sin token → 401', async () => {
