@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 
 import { ChurnByReasonCard } from './churn-by-reason-card';
+import { LtvCard } from './ltv-card';
 import { MrrForecastCard } from './mrr-forecast-card';
 import { MrrMovementsCard } from './mrr-movements-card';
 import { PaymentRetriesCard } from './payment-retries-card';
@@ -278,6 +279,11 @@ export default function AdminMetricsPage() {
       {/* Recuperación de cobros (retry analysis) */}
       <section className="grid gap-4 lg:grid-cols-2">
         <PaymentRetriesCard />
+      </section>
+
+      {/* LTV + cohortes de ingresos */}
+      <section>
+        <LtvCard />
       </section>
 
       {/* Totales de plataforma */}

@@ -8,6 +8,7 @@ import { MrrSnapshotService } from './mrr-snapshot.service';
 
 import type {
   AdminChurnByReasonDto,
+  AdminLtvDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
   AdminMrrForecastDto,
@@ -55,6 +56,13 @@ export class AdminMetricsController {
   async churnByReason(@Query('months') months?: string): Promise<AdminChurnByReasonDto> {
     const n = months ? Number(months) : 12;
     return this.metrics.getChurnByReason(Number.isFinite(n) ? n : 12);
+  }
+
+  /** LTV + cohortes de ingresos del SaaS (por mes de alta). */
+  @Get('ltv')
+  async ltv(@Query('months') months?: string): Promise<AdminLtvDto> {
+    const n = months ? Number(months) : 12;
+    return this.metrics.getLtv(Number.isFinite(n) ? n : 12);
   }
 
   /** Retry analysis: recuperación de cobros fallidos de la suscripción SaaS. */

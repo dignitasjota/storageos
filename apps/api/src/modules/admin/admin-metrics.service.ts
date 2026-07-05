@@ -5,6 +5,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type {
   AdminChurnByReasonDto,
+  AdminLtvDto,
   AdminMetricsDto,
   AdminPaymentRetryAnalysisDto,
   AdminRetentionDto,
@@ -343,6 +344,126 @@ export class AdminMetricsService {
       .sort((a, b) => b.count - a.count);
 
     return { months: span, totalChurned, lostMrr: round2(lostMrr), slices };
+  }
+
+  /**
+   * LTV (valor de vida del cliente) + cohortes de ingresos del SaaS.
+   *
+   * Fórmula (pragmática, basada en los pagos `paid` de suscripción):
+   *  - Por cada tenant pagador (≥1 pago): `totalPaid` (Σ pagos), `lifespanMonths`
+   *    = meses entre el alta y su baja (aprox. por `updatedAt` de suspended/
+   *    cancelled, mismo criterio que `getRetention`) o hasta hoy si sigue vivo,
+   *    con mínimo 1; `arpa_i` = `totalPaid / lifespanMonths`.
+   *  - `avgArpa` = media de `arpa_i`; `avgLifespanMonths` = media de `lifespan_i`.
+   *  - `avgLtv` (modelo) = `avgArpa × avgLifespanMonths` (estimación prospectiva).
+   *  - `realizedLtv` = Σ `totalPaid` / nº pagadores (valor ya cobrado por cuenta).
+   *
+   * Cohortes de ingresos: por mes de alta (`createdAt`, últimos N meses), el
+   * ingreso ACUMULADO (Σ pagos de esos tenants) y el nº de tenants de la cohorte.
+   */
+  async getLtv(months: number): Promise<AdminLtvDto> {
+    const span = Math.min(Math.max(months, 1), 24);
+    const nowMonth = startOfMonthUtc(new Date());
+    const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
+
+    // Agregado por tenant de sus pagos `paid` (una sola agregación en BD).
+    const payGroups = await this.admin.tenantSubscriptionPayment.groupBy({
+      by: ['tenantId'],
+      where: { status: 'paid' },
+      _sum: { amount: true },
+      _count: { _all: true },
+      _min: { paidAt: true },
+    });
+
+    const totalByTenant = new Map<string, number>();
+    const countByTenant = new Map<string, number>();
+    const firstPaidByTenant = new Map<string, Date | null>();
+    for (const g of payGroups) {
+      totalByTenant.set(g.tenantId, Number(g._sum.amount ?? 0));
+      countByTenant.set(g.tenantId, g._count._all);
+      firstPaidByTenant.set(g.tenantId, g._min.paidAt ?? null);
+    }
+    const payerIds = [...totalByTenant.keys()];
+
+    // Datos de los tenants pagadores (nombre + vida útil).
+    const payerTenants =
+      payerIds.length > 0
+        ? await this.admin.tenant.findMany({
+            where: { id: { in: payerIds } },
+            select: { id: true, name: true, createdAt: true, status: true, updatedAt: true },
+          })
+        : [];
+
+    const now = new Date();
+    let sumTotal = 0;
+    let sumArpa = 0;
+    let sumLifespan = 0;
+    for (const t of payerTenants) {
+      const totalPaid = totalByTenant.get(t.id) ?? 0;
+      const churned = t.status === 'cancelled' || t.status === 'suspended';
+      const end = churned ? t.updatedAt : now;
+      const lifespanMonths = Math.max(
+        monthDiff(startOfMonthUtc(t.createdAt), startOfMonthUtc(end)),
+        1,
+      );
+      sumTotal += totalPaid;
+      sumLifespan += lifespanMonths;
+      sumArpa += totalPaid / lifespanMonths;
+    }
+    const payingTenants = payerTenants.length;
+    const avgArpa = payingTenants > 0 ? sumArpa / payingTenants : 0;
+    const avgLifespanMonths = payingTenants > 0 ? sumLifespan / payingTenants : 0;
+    const realizedLtv = payingTenants > 0 ? sumTotal / payingTenants : 0;
+    const avgLtv = avgArpa * avgLifespanMonths;
+
+    // Top 10 por LTV realizado (Σ pagos).
+    const nameById = new Map(payerTenants.map((t) => [t.id, t.name]));
+    const topTenants = payerIds
+      .map((id) => ({
+        tenantId: id,
+        name: nameById.get(id) ?? '—',
+        totalPaid: round2(totalByTenant.get(id) ?? 0),
+        paymentsCount: countByTenant.get(id) ?? 0,
+        firstPaidAt: firstPaidByTenant.get(id)?.toISOString() ?? null,
+      }))
+      .sort((a, b) => b.totalPaid - a.totalPaid)
+      .slice(0, 10);
+
+    // Cohortes de ingresos por mes de alta (últimos `span` meses).
+    const cohortTenants = await this.admin.tenant.findMany({
+      where: { deletedAt: null, createdAt: { gte: firstCohort } },
+      select: { id: true, createdAt: true },
+    });
+    const cohortAcc = new Map<string, { tenants: number; revenue: number }>();
+    for (const t of cohortTenants) {
+      const key = monthKey(startOfMonthUtc(t.createdAt));
+      const slice = cohortAcc.get(key) ?? { tenants: 0, revenue: 0 };
+      slice.tenants += 1;
+      slice.revenue += totalByTenant.get(t.id) ?? 0;
+      cohortAcc.set(key, slice);
+    }
+    const cohorts = [];
+    for (let i = 0; i < span; i++) {
+      const c = addMonthsUtc(firstCohort, i);
+      const slice = cohortAcc.get(monthKey(c)) ?? { tenants: 0, revenue: 0 };
+      cohorts.push({
+        cohortMonth: monthLabel(c),
+        tenants: slice.tenants,
+        revenue: round2(slice.revenue),
+        revenuePerTenant: slice.tenants > 0 ? round2(slice.revenue / slice.tenants) : 0,
+      });
+    }
+
+    return {
+      currency: 'EUR',
+      payingTenants,
+      avgLtv: round2(avgLtv),
+      realizedLtv: round2(realizedLtv),
+      avgLifespanMonths: round2(avgLifespanMonths),
+      avgArpa: round2(avgArpa),
+      topTenants,
+      cohorts,
+    };
   }
 
   /**
