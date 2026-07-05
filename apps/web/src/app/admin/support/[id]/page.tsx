@@ -117,7 +117,10 @@ export default function AdminSupportTicketPage() {
         </Link>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t.subject}</h1>
         <p className="text-sm text-muted-foreground">
-          {t.tenantName} · {t.tenantSlug} · {new Date(t.createdAt).toLocaleString('es-ES')}
+          <Link href={`/admin/tenants/${t.tenantId}`} className="hover:underline">
+            {t.tenantName}
+          </Link>{' '}
+          · {t.tenantSlug} · {new Date(t.createdAt).toLocaleString('es-ES')}
         </p>
       </div>
 

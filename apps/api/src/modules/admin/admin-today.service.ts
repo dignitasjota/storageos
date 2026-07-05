@@ -1,7 +1,20 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Queue } from 'bullmq';
 
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import {
+  QUEUE_AUTOMATIONS,
+  QUEUE_BILLING,
+  QUEUE_COMMUNICATIONS,
+  QUEUE_DUNNING,
+  QUEUE_EMAIL,
+  QUEUE_PAYMENTS,
+  QUEUE_REPORTS,
+  QUEUE_VERIFACTU,
+  QUEUE_WEBHOOKS,
+} from '../queues/queue-names';
 
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
@@ -9,6 +22,7 @@ import { AdminTenantsService } from './admin-tenants.service';
 import type {
   AdminAddonChargeDueDto,
   AdminManualRenewalDueDto,
+  AdminOpenTicketDto,
   AdminStaleSuspendedAddonDto,
   AdminTodayDto,
 } from '@storageos/shared';
@@ -35,26 +49,63 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  */
 @Injectable()
 export class AdminTodayService {
+  private readonly queues: Queue[];
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly tenants: AdminTenantsService,
     private readonly followups: AdminTenantFollowupsService,
     private readonly billing: BillingSaasService,
-  ) {}
+    @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
+    @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
+    @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
+    @InjectQueue(QUEUE_VERIFACTU) verifactuQueue: Queue,
+    @InjectQueue(QUEUE_EMAIL) emailQueue: Queue,
+    @InjectQueue(QUEUE_COMMUNICATIONS) communicationsQueue: Queue,
+    @InjectQueue(QUEUE_AUTOMATIONS) automationsQueue: Queue,
+    @InjectQueue(QUEUE_REPORTS) reportsQueue: Queue,
+    @InjectQueue(QUEUE_WEBHOOKS) webhooksQueue: Queue,
+  ) {
+    this.queues = [
+      billingQueue,
+      dunningQueue,
+      paymentsQueue,
+      verifactuQueue,
+      emailQueue,
+      communicationsQueue,
+      automationsQueue,
+      reportsQueue,
+      webhooksQueue,
+    ];
+  }
 
   async getToday(): Promise<AdminTodayDto> {
     const now = new Date();
-    const [addonCharges, manualRenewalsDue, staleSuspendedAddons, atRisk, followupsDue] =
-      await Promise.all([
-        this.addonChargesDue(now),
-        this.manualRenewalsDue(now),
-        this.staleSuspendedAddons(now),
-        this.tenants.getAtRisk(),
-        this.followups.listPending(),
-      ]);
+    const [
+      addonCharges,
+      manualRenewalsDue,
+      staleSuspendedAddons,
+      atRisk,
+      followupsDue,
+      openTickets,
+      failedJobs,
+    ] = await Promise.all([
+      this.addonChargesDue(now),
+      this.manualRenewalsDue(now),
+      this.staleSuspendedAddons(now),
+      this.tenants.getAtRisk(),
+      this.followups.listPending(),
+      this.openTickets(now),
+      this.countFailedJobs(),
+    ]);
 
     const urgentCount =
-      addonCharges.length + manualRenewalsDue.length + atRisk.pastDue.length + followupsDue.length;
+      addonCharges.length +
+      manualRenewalsDue.length +
+      atRisk.pastDue.length +
+      followupsDue.length +
+      openTickets.length +
+      (failedJobs > 0 ? 1 : 0);
     return {
       date: now.toISOString(),
       addonCharges,
@@ -63,8 +114,40 @@ export class AdminTodayService {
       pastDue: atRisk.pastDue,
       followupsDue,
       staleSuspendedAddons,
+      openTickets,
+      failedJobs,
       urgentCount,
     };
+  }
+
+  /** Tickets de soporte esperando respuesta del admin (status open). */
+  private async openTickets(now: Date): Promise<AdminOpenTicketDto[]> {
+    const rows = await this.admin.supportTicket.findMany({
+      where: { status: 'open' },
+      select: {
+        id: true,
+        tenantId: true,
+        subject: true,
+        priority: true,
+        updatedAt: true,
+        tenant: { select: { name: true } },
+      },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'asc' }],
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      tenantId: r.tenantId,
+      tenantName: r.tenant.name,
+      subject: r.subject,
+      priority: r.priority,
+      waitingDays: Math.floor((now.getTime() - r.updatedAt.getTime()) / MS_PER_DAY),
+    }));
+  }
+
+  /** Nº total de jobs BullMQ en estado failed (colas que necesitan atención). */
+  private async countFailedJobs(): Promise<number> {
+    const counts = await Promise.all(this.queues.map((q) => q.getJobCounts('failed')));
+    return counts.reduce((sum, c) => sum + (c.failed ?? 0), 0);
   }
 
   /**

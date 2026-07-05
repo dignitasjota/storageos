@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, CalendarClock, CreditCard, Loader2, Lock } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CreditCard, LifeBuoy, Loader2, Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -49,7 +49,9 @@ export default function AdminTodayPage() {
     data.pastDue.length === 0 &&
     data.trialsExpiring.length === 0 &&
     data.followupsDue.length === 0 &&
-    data.staleSuspendedAddons.length === 0;
+    data.staleSuspendedAddons.length === 0 &&
+    data.openTickets.length === 0 &&
+    data.failedJobs === 0;
 
   return (
     <div className="space-y-6">
@@ -88,6 +90,57 @@ export default function AdminTodayPage() {
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {/* Tickets de soporte sin responder */}
+      {data && data.openTickets.length > 0 && (
+        <SimpleCard
+          title={`Tickets sin responder (${data.openTickets.length})`}
+          icon={<LifeBuoy className="size-4 text-red-500" />}
+        >
+          {data.openTickets.map((t) => (
+            <div
+              key={t.id}
+              className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+            >
+              <div className="min-w-0">
+                <Link href={`/admin/support/${t.id}`} className="font-medium hover:underline">
+                  {t.subject}
+                </Link>
+                <span className="text-muted-foreground"> · </span>
+                <Link
+                  href={`/admin/tenants/${t.tenantId}`}
+                  className="text-muted-foreground hover:underline"
+                >
+                  {t.tenantName}
+                </Link>
+                {t.priority === 'high' && (
+                  <span className="ml-1 text-xs font-medium text-red-500">urgente</span>
+                )}
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t.waitingDays === 0 ? 'hoy' : `${t.waitingDays} d`}
+              </span>
+            </div>
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Colas con jobs fallidos (aviso técnico) */}
+      {data && data.failedJobs > 0 && (
+        <SimpleCard
+          title="Colas con fallos"
+          icon={<AlertTriangle className="size-4 text-red-500" />}
+        >
+          <div className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
+            <span>
+              {data.failedJobs} job(s) en estado <span className="font-medium">failed</span>.
+            </span>
+            <Link href="/admin/queues" className="text-xs font-medium text-primary hover:underline">
+              Ver colas →
+            </Link>
+          </div>
+        </SimpleCard>
       )}
 
       {/* Renovaciones de pago manual por expirar */}

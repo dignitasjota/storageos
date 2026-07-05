@@ -892,6 +892,17 @@ export interface AdminStaleSuspendedAddonDto {
   daysSuspended: number;
 }
 
+/** Ticket de soporte esperando respuesta del super admin (bandeja «Hoy»). */
+export interface AdminOpenTicketDto {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  subject: string;
+  priority: SupportTicketPriorityValue;
+  /** Días desde la última actividad del ticket (lleva N días esperando). */
+  waitingDays: number;
+}
+
 export interface AdminTodayDto {
   date: string;
   addonCharges: AdminAddonChargeDueDto[];
@@ -902,7 +913,11 @@ export interface AdminTodayDto {
   followupsDue: TenantFollowupDto[];
   /** Add-ons suspendidos hace >30 dias, candidatos a quitar. */
   staleSuspendedAddons: AdminStaleSuspendedAddonDto[];
-  /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos). */
+  /** Tickets de soporte esperando respuesta del admin (status open). */
+  openTickets: AdminOpenTicketDto[];
+  /** Nº de jobs BullMQ en estado failed (colas rotas → revisar /admin/queues). */
+  failedJobs: number;
+  /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas). */
   urgentCount: number;
 }
 
