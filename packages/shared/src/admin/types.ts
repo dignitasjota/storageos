@@ -100,6 +100,17 @@ export interface AdminEmailTenantResultDto {
   failed: number;
 }
 
+/**
+ * Resultado del playbook de retención (1 clic desde health/at-risk): un
+ * seguimiento creado + un email de retención encolado a los owners.
+ */
+export interface RetentionPlaybookResultDto {
+  /** Id del seguimiento creado (dueDate = hoy + 3 días). */
+  followupId: string;
+  /** Nº de destinatarios (owners verificados) a los que se encoló el email. */
+  emailRecipients: number;
+}
+
 /** Resultado de un anuncio/broadcast a varios tenants. */
 export interface AdminBroadcastResultDto {
   /** Nº de tenants alcanzados (con al menos un destinatario). */

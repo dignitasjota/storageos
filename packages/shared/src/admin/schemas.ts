@@ -109,6 +109,16 @@ export const AdminEmailTenantSchema = z.object({
 });
 export type AdminEmailTenantInput = z.infer<typeof AdminEmailTenantSchema>;
 
+/**
+ * Playbook de retención (1 clic): crea un seguimiento, envía un email de
+ * retención al owner y registra la gestión como interacción. La nota es
+ * opcional (se anexa al seguimiento y al registro).
+ */
+export const RetentionPlaybookSchema = z.object({
+  note: z.string().trim().max(2000).optional(),
+});
+export type RetentionPlaybookInput = z.infer<typeof RetentionPlaybookSchema>;
+
 /** Público de un anuncio/broadcast. */
 export const AdminBroadcastAudienceEnum = z.enum(['active', 'trial', 'all']);
 export type AdminBroadcastAudienceValue = z.infer<typeof AdminBroadcastAudienceEnum>;

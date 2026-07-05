@@ -12,8 +12,10 @@ import {
 import {
   AdminBroadcastSchema,
   AdminEmailTenantSchema,
+  RetentionPlaybookSchema,
   type AdminBroadcastResultDto,
   type AdminEmailTenantResultDto,
+  type RetentionPlaybookResultDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -28,6 +30,7 @@ import type { Request } from 'express';
 
 class AdminEmailTenantDto extends createZodDto(AdminEmailTenantSchema) {}
 class AdminBroadcastDto extends createZodDto(AdminBroadcastSchema) {}
+class RetentionPlaybookDto extends createZodDto(RetentionPlaybookSchema) {}
 
 function extractMeta(req: Request): { ipAddress: string | null; userAgent: string | null } {
   return { ipAddress: req.ip ?? null, userAgent: req.header('user-agent') ?? null };
@@ -49,6 +52,25 @@ export class AdminCommsController {
     @Req() req: Request,
   ): Promise<AdminEmailTenantResultDto> {
     return this.comms.emailTenant(id, input, { superAdminId: admin.sub, ...extractMeta(req) });
+  }
+
+  /**
+   * Playbook de retención (1 clic): crea seguimiento + envía email de retención
+   * al owner + registra la interacción. Acción sensible → `@RequireSuperadmin`.
+   */
+  @RequireSuperadmin()
+  @Post('tenants/:id/retention-playbook')
+  @HttpCode(HttpStatus.OK)
+  async retentionPlaybook(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: RetentionPlaybookDto,
+    @Req() req: Request,
+  ): Promise<RetentionPlaybookResultDto> {
+    return this.comms.launchRetentionPlaybook(id, admin.sub, {
+      ...(input.note ? { note: input.note } : {}),
+      ...extractMeta(req),
+    });
   }
 
   /** Envía un anuncio masivo a los tenants (según público). */

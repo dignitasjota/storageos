@@ -1,7 +1,8 @@
 'use client';
 
-import { AlarmClock, CreditCard, Loader2, MoonStar } from 'lucide-react';
+import { AlarmClock, CreditCard, LifeBuoy, Loader2, MoonStar } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 import type { AdminAtRiskTenantDto } from '@storageos/shared';
 
@@ -9,7 +10,7 @@ import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useAdminAtRisk } from '@/lib/admin/hooks';
+import { useAdminAtRisk, useRetentionPlaybook } from '@/lib/admin/hooks';
 
 function fmtDate(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('es-ES') : '—';
@@ -113,14 +114,51 @@ function RiskSection({
                     {t.since ? ` · ${sinceLabel}: ${fmtDate(t.since)}` : ''}
                   </div>
                 </div>
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/admin/tenants/${t.id}`}>Ver tenant</Link>
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <RetentionButton tenantId={t.id} tenantName={t.name} />
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/admin/tenants/${t.id}`}>Ver tenant</Link>
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Botón «Playbook de retención»: con un clic crea un seguimiento, envía un
+ * email de retención al owner y registra la gestión como interacción.
+ */
+function RetentionButton({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
+  const playbook = useRetentionPlaybook();
+  return (
+    <Button
+      variant="default"
+      size="sm"
+      disabled={playbook.isPending}
+      onClick={() => {
+        playbook.mutate(tenantId, {
+          onSuccess: (res) => {
+            toast.success('Playbook de retención lanzado', {
+              description: `${tenantName}: seguimiento creado + email enviado a ${res.emailRecipients} destinatario(s).`,
+            });
+          },
+          onError: () => {
+            toast.error('No se pudo lanzar el playbook de retención.');
+          },
+        });
+      }}
+    >
+      {playbook.isPending ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <LifeBuoy className="size-4" />
+      )}
+      Playbook
+    </Button>
   );
 }
