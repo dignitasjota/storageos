@@ -48,6 +48,7 @@ import type {
   AdminEmailTenantInput,
   AdminEmailTenantResultDto,
   AdminChurnByReasonDto,
+  AdminLtvDto,
   AdminMetricsDto,
   AdminMetricsMrrMovementsDto,
   AdminMrrForecastDto,
@@ -485,6 +486,14 @@ export function useAdminRetention() {
   return useQuery({
     queryKey: ['admin', 'metrics', 'retention'] as const,
     queryFn: () => adminApiFetch<AdminRetentionDto>('/admin/metrics/retention'),
+    staleTime: 60_000,
+  });
+}
+
+export function useAdminLtv() {
+  return useQuery({
+    queryKey: ['admin', 'metrics', 'ltv'] as const,
+    queryFn: () => adminApiFetch<AdminLtvDto>('/admin/metrics/ltv'),
     staleTime: 60_000,
   });
 }

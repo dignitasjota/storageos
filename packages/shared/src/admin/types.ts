@@ -1079,6 +1079,56 @@ export interface AdminMrrForecastDto {
   warmingUp: boolean;
 }
 
+/** Un tenant en el ranking de LTV realizado (Σ pagos de suscripción). */
+export interface AdminLtvTopTenantDto {
+  tenantId: string;
+  name: string;
+  /** Σ de todos sus pagos `paid` de suscripción. */
+  totalPaid: number;
+  /** Nº de pagos `paid`. */
+  paymentsCount: number;
+  /** Fecha del primer pago (ISO), null si desconocida. */
+  firstPaidAt: string | null;
+}
+
+/** Una cohorte de ingresos: tenants dados de alta el mismo mes + su ingreso acumulado. */
+export interface AdminLtvCohortDto {
+  /** Etiqueta del mes de alta, p. ej. "ene 26". */
+  cohortMonth: string;
+  /** Nº de tenants de la cohorte (todos los dados de alta ese mes). */
+  tenants: number;
+  /** Ingreso acumulado de la cohorte (Σ pagos `paid` de esos tenants). */
+  revenue: number;
+  /** revenue / tenants. */
+  revenuePerTenant: number;
+}
+
+/**
+ * LTV (valor de vida del cliente) + cohortes de ingresos del SaaS, calculado a
+ * partir de los pagos de suscripción (`tenant_subscription_payments` `paid`).
+ * Todos los importes en la moneda de plataforma (EUR).
+ */
+export interface AdminLtvDto {
+  currency: string;
+  /** Nº de tenants con al menos un pago (cuentas pagadoras). */
+  payingTenants: number;
+  /**
+   * LTV medio (modelo) = `avgArpa × avgLifespanMonths`. Estimación prospectiva
+   * del valor de una cuenta a lo largo de su vida.
+   */
+  avgLtv: number;
+  /** LTV realizado = Σ pagos / nº pagadores (valor ya cobrado por cuenta). */
+  realizedLtv: number;
+  /** Vida media en meses (alta → baja, o → hoy si sigue activo), mín. 1. */
+  avgLifespanMonths: number;
+  /** Ingreso medio mensual por cuenta pagadora (ARPA). */
+  avgArpa: number;
+  /** Top tenants por LTV realizado (Σ pagos), mayor primero. */
+  topTenants: AdminLtvTopTenantDto[];
+  /** Cohortes de ingresos por mes de alta (más antigua → actual). */
+  cohorts: AdminLtvCohortDto[];
+}
+
 /**
  * Análisis de recuperación de cobros fallidos de la suscripción SaaS: de las
  * facturas que fallaron al menos una vez, cuántas se acabaron cobrando.
