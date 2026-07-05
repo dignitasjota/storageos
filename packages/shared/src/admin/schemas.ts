@@ -358,6 +358,11 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
   notifyPastDue: z.boolean(),
   notifyTrialExpiring: z.boolean(),
   trialExpiringDays: z.number().int().min(1).max(30),
+  // Emails automáticos de ciclo de vida al tenant (bienvenida/trial/past_due).
+  lifecycleEnabled: z.boolean(),
+  sendWelcome: z.boolean(),
+  sendTrialReminders: z.boolean(),
+  sendPastDue: z.boolean(),
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
 

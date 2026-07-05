@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import {
   useAdminPlatformAlerts,
   useRunPlatformAlerts,
+  useRunTenantLifecycleEmails,
   useUpdatePlatformAlerts,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
@@ -20,6 +21,7 @@ export default function PlatformAlertsPage() {
   const { data, isLoading } = useAdminPlatformAlerts();
   const update = useUpdatePlatformAlerts();
   const run = useRunPlatformAlerts();
+  const runLifecycle = useRunTenantLifecycleEmails();
 
   const [form, setForm] = useState({
     enabled: false,
@@ -27,6 +29,10 @@ export default function PlatformAlertsPage() {
     notifyPastDue: true,
     notifyTrialExpiring: true,
     trialExpiringDays: 3,
+    lifecycleEnabled: false,
+    sendWelcome: true,
+    sendTrialReminders: true,
+    sendPastDue: true,
   });
 
   useEffect(() => {
@@ -37,6 +43,10 @@ export default function PlatformAlertsPage() {
         notifyPastDue: data.notifyPastDue,
         notifyTrialExpiring: data.notifyTrialExpiring,
         trialExpiringDays: data.trialExpiringDays,
+        lifecycleEnabled: data.lifecycleEnabled,
+        sendWelcome: data.sendWelcome,
+        sendTrialReminders: data.sendTrialReminders,
+        sendPastDue: data.sendPastDue,
       });
     }
   }, [data]);
@@ -63,6 +73,22 @@ export default function PlatformAlertsPage() {
             ? 'No hay señales que reportar ahora mismo.'
             : 'Alertas desactivadas o sin email configurado.',
         );
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function onRunLifecycle() {
+    try {
+      const res = await runLifecycle.mutateAsync();
+      const total = res.welcome + res.trialReminders + res.pastDue;
+      if (total > 0) {
+        toast.success(
+          `Emails encolados: ${res.welcome} bienvenida, ${res.trialReminders} trial, ${res.pastDue} pago fallido.`,
+        );
+      } else {
+        toast.info('No hay emails de ciclo de vida pendientes ahora mismo.');
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -141,6 +167,55 @@ export default function PlatformAlertsPage() {
             </Button>
             <Button variant="outline" onClick={onRun} disabled={run.isPending}>
               Evaluar y enviar ahora
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle className="text-base">Emails automáticos al tenant</CardTitle>
+          <CardDescription>
+            Correos automáticos al owner del tenant: bienvenida al alta, recordatorios de trial (7,
+            3 y 1 días antes) y aviso de pago fallido. Un cron diario (08:00) los envía; cada tipo
+            se manda una sola vez por tenant.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.lifecycleEnabled}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, lifecycleEnabled: v === true }))}
+            />
+            Activar emails de ciclo de vida
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.sendWelcome}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, sendWelcome: v === true }))}
+            />
+            Email de bienvenida (al dar de alta)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.sendTrialReminders}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, sendTrialReminders: v === true }))}
+            />
+            Recordatorios de trial por expirar (7 / 3 / 1 días)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.sendPastDue}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, sendPastDue: v === true }))}
+            />
+            Aviso de pago fallido (past_due)
+          </label>
+          <div className="flex gap-2">
+            <Button onClick={onSave} disabled={update.isPending}>
+              Guardar
+            </Button>
+            <Button variant="outline" onClick={onRunLifecycle} disabled={runLifecycle.isPending}>
+              Ejecutar ahora
             </Button>
           </div>
         </CardContent>

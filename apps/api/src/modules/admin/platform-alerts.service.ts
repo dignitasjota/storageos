@@ -38,6 +38,10 @@ export class PlatformAlertsService {
       notifyPastDue: input.notifyPastDue,
       notifyTrialExpiring: input.notifyTrialExpiring,
       trialExpiringDays: input.trialExpiringDays,
+      lifecycleEnabled: input.lifecycleEnabled,
+      sendWelcome: input.sendWelcome,
+      sendTrialReminders: input.sendTrialReminders,
+      sendPastDue: input.sendPastDue,
     };
     const row = current
       ? await this.admin.platformAlertSettings.update({ where: { id: current.id }, data })
@@ -138,6 +142,10 @@ export class PlatformAlertsService {
     notifyPastDue: boolean;
     notifyTrialExpiring: boolean;
     trialExpiringDays: number;
+    lifecycleEnabled: boolean;
+    sendWelcome: boolean;
+    sendTrialReminders: boolean;
+    sendPastDue: boolean;
   }): PlatformAlertSettingsDto {
     return {
       enabled: row.enabled,
@@ -145,6 +153,10 @@ export class PlatformAlertsService {
       notifyPastDue: row.notifyPastDue,
       notifyTrialExpiring: row.notifyTrialExpiring,
       trialExpiringDays: row.trialExpiringDays,
+      lifecycleEnabled: row.lifecycleEnabled,
+      sendWelcome: row.sendWelcome,
+      sendTrialReminders: row.sendTrialReminders,
+      sendPastDue: row.sendPastDue,
     };
   }
 }

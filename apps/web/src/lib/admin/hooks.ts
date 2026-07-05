@@ -38,6 +38,7 @@ import type {
   AdminImpersonationActivityDto,
   PlatformAlertSettingsDto,
   PlatformAlertRunResultDto,
+  TenantLifecycleRunResultDto,
   UpdatePlatformAlertSettingsInput,
   AdminTenantHealthDto,
   TenantFeature,
@@ -1212,6 +1213,13 @@ export function useRunPlatformAlerts() {
   return useMutation({
     mutationFn: () =>
       adminApiFetch<PlatformAlertRunResultDto>('/admin/platform-alerts/run', { method: 'POST' }),
+  });
+}
+
+export function useRunTenantLifecycleEmails() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<TenantLifecycleRunResultDto>('/admin/tenant-lifecycle/run', { method: 'POST' }),
   });
 }
 

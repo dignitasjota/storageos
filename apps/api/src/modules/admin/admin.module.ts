@@ -44,6 +44,9 @@ import { SuperAdminService } from './super-admin.service';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
+import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
+import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
+import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
 import { WebhooksCleanupController } from './webhooks-cleanup.controller';
 
 /**
@@ -88,11 +91,14 @@ import { WebhooksCleanupController } from './webhooks-cleanup.controller';
     AdminFollowupsController,
     AdminTodayController,
     AdminFinanceController,
+    TenantLifecycleEmailsController,
   ],
   providers: [
     AdminGuard,
     PlatformAlertsService,
     PlatformAlertsCron,
+    TenantLifecycleEmailsService,
+    TenantLifecycleEmailsCron,
     AdminImpersonationAuditService,
     SuperAdminService,
     SuperAdminSessionsService,
