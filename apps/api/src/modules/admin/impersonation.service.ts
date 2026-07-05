@@ -53,6 +53,15 @@ export class ImpersonationService {
         message: 'Tenant no encontrado',
       });
     }
+    // Un tenant cancelado (baja/anonimizado) no debe poder "revivirse" via
+    // impersonación; suspended SÍ se permite a propósito (soporte necesita
+    // entrar a verificar datos antes de reactivar).
+    if (tenant.status === 'cancelled') {
+      throw new NotFoundException({
+        code: 'tenant_cancelled',
+        message: 'No se puede impersonar un tenant cancelado',
+      });
+    }
     const ttl = this.config.get('IMPERSONATION_TTL_SECONDS', { infer: true });
     const expiresAt = new Date(Date.now() + ttl * 1000);
 
@@ -67,11 +76,23 @@ export class ImpersonationService {
       },
     });
 
-    // `sub` sintetico (no apunta a un User real). El JWT se acepta por
-    // JwtStrategy porque mantenemos el shape esperado; los servicios que
-    // necesiten saber si la sesion es una impersonacion deben mirar el
-    // claim `purpose === 'impersonation'`.
-    const syntheticSub = randomUUID();
+    // 🐛 Fix 2026-07-04: el `sub` era un UUID sintético que NO apuntaba a
+    // ningún User real → toda escritura durante la impersonación que usara
+    // `user.sub` como userId (audit_logs.userId, createdByUserId de
+    // contratos/facturas…) violaba la FK: el audit se descartaba en silencio
+    // (try/catch de AuditService) y las mutaciones daban 500. Ahora el token
+    // se emite en nombre del OWNER activo del tenant (usuario real): las
+    // acciones quedan registradas en audit_logs (atribuidas a ese usuario) y
+    // la ventana del ImpersonationLog + el claim `superAdminId` identifican
+    // al impersonador (la página /admin/impersonation ya cruza ambas).
+    const owner = await this.admin.user.findFirst({
+      where: { tenantId: tenant.id, role: 'owner', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    // Sin owner activo (tenant vacío/anonimizado a medias): sub sintético
+    // como antes — la impersonación sirve solo para lecturas.
+    const subject = owner?.id ?? randomUUID();
     const accessToken = await this.jwt.signAsync(
       {
         tenantId: tenant.id,
@@ -80,7 +101,7 @@ export class ImpersonationService {
         superAdminId: args.superAdminId,
       },
       {
-        subject: syntheticSub,
+        subject,
         secret: this.config.get('JWT_ACCESS_SECRET', { infer: true }),
         expiresIn: ttl,
       },

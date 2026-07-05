@@ -16,6 +16,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin/admin.guard';
+import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { SubscriptionPlansService } from './subscription-plans.service';
 
@@ -52,6 +53,7 @@ export class SubscriptionPlansController {
 
   @Public()
   @UseGuards(AdminGuard)
+  @RequireSuperadmin()
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() input: UpsertSubscriptionPlanDto): Promise<SubscriptionPlanDto> {
@@ -60,6 +62,7 @@ export class SubscriptionPlansController {
 
   @Public()
   @UseGuards(AdminGuard)
+  @RequireSuperadmin()
   @Patch(':id')
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -73,6 +76,7 @@ export class SubscriptionPlansController {
 
   @Public()
   @UseGuards(AdminGuard)
+  @RequireSuperadmin()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deactivate(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {

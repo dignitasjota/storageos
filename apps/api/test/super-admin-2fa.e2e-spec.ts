@@ -79,7 +79,7 @@ describe('Fase 9A: super admin 2FA + refresh cookie (e2e)', () => {
   // ------------------------------------------------------------------------
 
   describe('login sin 2FA', () => {
-    it('credenciales correctas -> 200 + cookie httpOnly + sameSite=strict + path=/admin', async () => {
+    it('credenciales correctas -> 200 + cookie httpOnly + sameSite=strict + path=/v1/admin', async () => {
       const admin = await seedSuperAdmin('login-ok');
       const login = await request(app.getHttpServer())
         .post('/admin/auth/login')
@@ -102,7 +102,9 @@ describe('Fase 9A: super admin 2FA + refresh cookie (e2e)', () => {
       // Atributos de seguridad obligatorios.
       expect(refreshCookie).toMatch(/HttpOnly/i);
       expect(refreshCookie).toMatch(/SameSite=Strict/i);
-      expect(refreshCookie).toMatch(/Path=\/admin/);
+      // Path acotado a /v1/admin: el API sirve bajo el prefijo de versión, así
+      // que la cookie debe scopearse ahí para que llegue a /v1/admin/auth/refresh.
+      expect(refreshCookie).toMatch(/Path=\/v1\/admin/);
     });
 
     it('password incorrecto -> 401', async () => {

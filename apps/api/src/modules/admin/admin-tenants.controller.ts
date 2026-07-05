@@ -58,6 +58,7 @@ import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { ImpersonationService } from './impersonation.service';
+import { RequireSuperadmin } from './require-superadmin.decorator';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Request } from 'express';
@@ -163,6 +164,7 @@ export class AdminTenantsController {
   }
 
   /** Desactiva el 2FA de un usuario del tenant (recuperación de cuenta). */
+  @RequireSuperadmin()
   @Post(':id/users/:userId/disable-2fa')
   @HttpCode(HttpStatus.OK)
   async disableTwoFactor(
@@ -179,6 +181,7 @@ export class AdminTenantsController {
   }
 
   /** Desactiva un usuario del tenant (cierra sus sesiones). */
+  @RequireSuperadmin()
   @Post(':id/users/:userId/deactivate')
   @HttpCode(HttpStatus.OK)
   async deactivateUser(
@@ -338,6 +341,7 @@ export class AdminTenantsController {
   }
 
   /** Registra un pago manual (efectivo/transferencia/…) y extiende el periodo. */
+  @RequireSuperadmin()
   @Post(':id/saas-payments/manual')
   @HttpCode(HttpStatus.CREATED)
   async createManualSaasPayment(
@@ -498,6 +502,7 @@ export class AdminTenantsController {
     return this.tenants.listUnits(id, facilityId);
   }
 
+  @RequireSuperadmin()
   @Post(':id/suspend')
   @HttpCode(HttpStatus.OK)
   async suspend(
@@ -516,6 +521,7 @@ export class AdminTenantsController {
     });
   }
 
+  @RequireSuperadmin()
   @Post(':id/reactivate')
   @HttpCode(HttpStatus.OK)
   async reactivate(
@@ -587,6 +593,7 @@ export class AdminTenantsController {
     return this.tenants.changePlanPreview(id, planSlug);
   }
 
+  @RequireSuperadmin()
   @Post(':id/change-plan')
   @HttpCode(HttpStatus.OK)
   async changePlan(
@@ -605,6 +612,7 @@ export class AdminTenantsController {
     });
   }
 
+  @RequireSuperadmin()
   @Post(':id/anonymize')
   @HttpCode(HttpStatus.OK)
   async anonymize(
@@ -622,6 +630,7 @@ export class AdminTenantsController {
     });
   }
 
+  @RequireSuperadmin()
   @Post(':id/impersonate')
   @HttpCode(HttpStatus.OK)
   async impersonate(

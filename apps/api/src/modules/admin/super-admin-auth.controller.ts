@@ -48,13 +48,17 @@ class SuperAdminTwoFactorChallengeDto extends createZodDto(SuperAdminTwoFactorCh
 /**
  * Nombre y path de la cookie de refresh del super admin.
  *
- * Path acotado a `/admin` para que el navegador NO la mande con peticiones
- * a endpoints de tenant (`/auth/*`). Si en un futuro se separa el panel
- * admin a otro subdominio, basta con cambiar este path o usar otro dominio
- * en `COOKIE_DOMAIN`.
+ * Path acotado a `/v1/admin` para que el navegador NO la mande con peticiones
+ * a endpoints de tenant (`/v1/auth/*`). 🐛 Fix 2026-07-04: era `/admin`, pero
+ * el API sirve bajo el prefijo de versión `/v1` (URI versioning) → por
+ * path-matching de RFC 6265 la cookie NUNCA se adjuntaba a
+ * `/v1/admin/auth/refresh` y el refresh silencioso del panel admin fallaba
+ * siempre (cada recarga dura expulsaba al login). Si en un futuro se separa
+ * el panel admin a otro subdominio, basta con cambiar este path o usar otro
+ * dominio en `COOKIE_DOMAIN`.
  */
 const REFRESH_COOKIE_NAME = 'super_admin_refresh';
-const COOKIE_PATH = '/admin';
+const COOKIE_PATH = '/v1/admin';
 
 /**
  * Auth del super admin.
