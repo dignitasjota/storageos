@@ -242,6 +242,24 @@ export class SaasAddonsService {
     return map;
   }
 
+  /**
+   * MRR de add-ons contando SOLO los tenants con suscripción `active` — la
+   * definición única del MRR de add-ons. La usan `admin-metrics` y
+   * `admin-finance` para que las dos páginas muestren el mismo número (antes
+   * finanzas sumaba TODOS los add-ons, incluidos los de tenants no activos).
+   */
+  async addonsMrrForActiveTenants(): Promise<number> {
+    const byTenant = await this.addonsMonthlyByTenant();
+    if (byTenant.size === 0) return 0;
+    const active = await this.admin.tenantSubscription.findMany({
+      where: { status: 'active', tenantId: { in: [...byTenant.keys()] } },
+      select: { tenantId: true },
+    });
+    let sum = 0;
+    for (const s of active) sum += byTenant.get(s.tenantId) ?? 0;
+    return Math.round(sum * 100) / 100;
+  }
+
   // ---- self-service del tenant ----
 
   /** Add-ons del tenant + catálogo disponible (activos que aún no tiene). */

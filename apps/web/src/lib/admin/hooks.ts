@@ -408,8 +408,15 @@ export function useChangePlan() {
         method: 'POST',
         json: args.input,
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    onSuccess: (_data, variables) => {
+      const id = variables.id;
+      // Cambiar de plan cambia features, límites y precio: invalidar todo lo
+      // que la ficha del tenant muestra (antes solo la lista → quedaba stale).
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', id, 'features'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', id] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', id] });
     },
   });
 }
@@ -859,7 +866,11 @@ export function useAssignAddon(tenantId: string) {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+      // 🐛 era ['admin','tenant',id] (singular) → la ficha del tenant es
+      // ['admin','tenants',id] (plural), así que la cabecera nunca refrescaba.
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'features'] });
     },
   });
 }
@@ -873,7 +884,9 @@ export function useRemoveAddon(tenantId: string) {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'features'] });
     },
   });
 }
@@ -1335,9 +1348,17 @@ export function useUpdatePlatformDunningSettings() {
 }
 
 export function useRunDunning() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
       adminApiFetch<DunningRunResultDto>('/admin/platform-dunning/run', { method: 'POST' }),
+    onSuccess: () => {
+      // El dunning puede suspender tenants morosos → refrescar las vistas que
+      // dependen del estado (antes quedaban stale hasta el refetchInterval).
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', 'at-risk'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+    },
   });
 }
 

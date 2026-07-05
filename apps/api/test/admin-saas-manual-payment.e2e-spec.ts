@@ -113,6 +113,41 @@ describe('Admin SaaS manual payment (e2e)', () => {
     expect(noAuth.status).toBe(401);
   });
 
+  it('es idempotente ante doble submit: dos pagos idénticos en <60s no duplican', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-idem');
+    const before = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set('Authorization', `Bearer ${token}`);
+    const periodEndBefore = new Date(before.body.subscription.currentPeriodEnd).getTime();
+
+    const p1 = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ provider: 'bank_transfer', amount: 99, durationMonths: 3 });
+    expect(p1.status).toBe(201);
+    // Doble clic: mismo provider + importe → devuelve el mismo pago, no duplica.
+    const p2 = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ provider: 'bank_transfer', amount: 99, durationMonths: 3 });
+    expect(p2.status).toBe(201);
+    expect(p2.body.id).toBe(p1.body.id);
+
+    // Solo un pago en el historial.
+    const list = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/saas-payments`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(list.body).toHaveLength(1);
+
+    // El periodo se extendió UNA sola vez (no el doble).
+    const after = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set('Authorization', `Bearer ${token}`);
+    const periodEnd = new Date(after.body.subscription.currentPeriodEnd).getTime();
+    expect(periodEnd).toBe(new Date(p1.body.periodEnd).getTime());
+    expect(periodEnd).toBeGreaterThan(periodEndBefore);
+  });
+
   it('el crédito manual se SUMA al periodo de Stripe (acumulador permanente)', async () => {
     const owner = await registerVerifiedUser(app, 'admin-smp-acc');
 
