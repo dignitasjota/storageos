@@ -28,7 +28,7 @@ export class AdminFinanceService {
     // Primer día (UTC) del mes N-1 hacia atrás.
     const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
 
-    const [payments, invoiceAgg, addonsByTenant] = await Promise.all([
+    const [payments, invoiceAgg, addonsMrr] = await Promise.all([
       this.admin.tenantSubscriptionPayment.findMany({
         where: { status: 'paid', paidAt: { gte: from } },
         select: { paidAt: true, amount: true, provider: true },
@@ -37,7 +37,8 @@ export class AdminFinanceService {
         where: { issuedAt: { gte: from } },
         _sum: { total: true },
       }),
-      this.addons.addonsMonthlyByTenant(),
+      // Mismo criterio que admin-metrics: solo tenants con suscripción activa.
+      this.addons.addonsMrrForActiveTenants(),
     ]);
 
     // Lista de meses del periodo (para que la serie no tenga huecos).
@@ -81,8 +82,6 @@ export class AdminFinanceService {
         total: round2(b.stripe + b.manual),
       };
     });
-
-    const addonsMrr = round2([...addonsByTenant.values()].reduce((s, v) => s + v, 0));
 
     return {
       currency: 'EUR',

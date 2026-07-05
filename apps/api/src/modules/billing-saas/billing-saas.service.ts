@@ -789,6 +789,24 @@ export class BillingSaasService {
       });
     }
 
+    // Idempotencia anti-doble-submit: registrar un pago manual extiende el
+    // periodo e incrementa `manualExtensionDays`; un doble clic o reintento de
+    // red lo aplicaría DOS veces (periodo extendido de más, ingreso duplicado).
+    // Si ya hay un pago idéntico (mismo provider+importe) en los últimos 60s, lo
+    // devolvemos en vez de duplicar.
+    const dedupeWindow = new Date(Date.now() - 60_000);
+    const recent = await this.admin.tenantSubscriptionPayment.findFirst({
+      where: {
+        tenantId: args.tenantId,
+        provider: args.provider,
+        amount: args.amount,
+        status: 'paid',
+        createdAt: { gte: dedupeWindow },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recent) return toPaymentDto(recent);
+
     const now = new Date();
     const extendsPeriod = args.extendsPeriod !== false;
 
