@@ -25,6 +25,7 @@ import {
   ScrollText,
   UserCog,
   ShieldCheck,
+  Ticket,
   Trash2,
   TrendingUp,
   Wallet,
@@ -112,6 +113,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/addons', label: 'Add-ons', icon: PackagePlus },
       { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
       { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
+      { href: '/admin/coupons', label: 'Cupones', icon: Ticket },
     ],
   },
   {

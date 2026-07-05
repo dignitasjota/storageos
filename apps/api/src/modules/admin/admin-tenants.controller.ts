@@ -41,6 +41,8 @@ import {
   CreateTenantInteractionSchema,
   type TenantFollowupDto,
   ExtendTrialSchema,
+  ExtendTrialsBatchSchema,
+  type ExtendTrialsBatchResultDto,
   type ImpersonationTokenDto,
   ImpersonateSchema,
   type TenantInteractionDto,
@@ -66,6 +68,7 @@ import type { Request } from 'express';
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
+class ExtendTrialsBatchDto extends createZodDto(ExtendTrialsBatchSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class UpdateTenantNotesDto extends createZodDto(UpdateTenantNotesSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
@@ -361,6 +364,7 @@ export class AdminTenantsController {
       extendsPeriod: input.extendsPeriod,
       ...(input.paidAt ? { paidAt: new Date(input.paidAt) } : {}),
       description: input.description,
+      ...(input.couponCode ? { couponCode: input.couponCode } : {}),
     });
     await this.audit.record({
       superAdminId: admin.sub,
@@ -402,6 +406,28 @@ export class AdminTenantsController {
   @Get('trials')
   async trials(): Promise<AdminTrialDto[]> {
     return this.tenants.listTrials();
+  }
+
+  /**
+   * Extiende el trial de VARIOS tenants a la vez (retención por lote).
+   * DECLARADA ANTES de `@Get(':id')` y las rutas con param para no colisionar.
+   */
+  @RequireSuperadmin()
+  @Post('extend-trials')
+  @HttpCode(HttpStatus.OK)
+  async extendTrialsBatch(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Body() input: ExtendTrialsBatchDto,
+    @Req() req: Request,
+  ): Promise<ExtendTrialsBatchResultDto> {
+    const meta = extractMeta(req);
+    return this.tenants.extendTrialsBatch(input.tenantIds, {
+      superAdminId: admin.sub,
+      reason: input.reason ?? 'Extensión de trial por lote',
+      days: input.days,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
   }
 
   /** Health score 0-100 de cada tenant (más urgente primero). */
