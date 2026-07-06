@@ -96,10 +96,11 @@ describe('Admin tag segmentation (filtro + broadcast) (e2e)', () => {
       .get(`/admin/tenants?tag=${encodeURIComponent(TAG)}`)
       .set(auth);
     expect(filtered.status).toBe(200);
-    const ids = (filtered.body as Array<{ id: string }>).map((t) => t.id);
+    const items = filtered.body.items as Array<{ id: string }>;
+    const ids = items.map((t) => t.id);
     expect(ids).toContain(tagged.tenantId);
     expect(ids).not.toContain(untagged.tenantId);
-    expect(filtered.body).toHaveLength(1);
+    expect(items).toHaveLength(1);
 
     // Broadcast con etiqueta → alcanza SOLO al tenant etiquetado (1).
     const broadcast = await request(app.getHttpServer())

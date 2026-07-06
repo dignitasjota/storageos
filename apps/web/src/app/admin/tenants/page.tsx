@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -60,7 +61,7 @@ export default function AdminTenantsPage() {
     return <AdminError onRetry={() => void tenants.refetch()} />;
   }
 
-  const rows = tenants.data ?? [];
+  const rows = tenants.data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -151,6 +152,19 @@ export default function AdminTenantsPage() {
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {tenants.hasNextPage && (
+        <div className="flex justify-center pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void tenants.fetchNextPage()}
+            disabled={tenants.isFetchingNextPage}
+          >
+            {tenants.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+          </Button>
         </div>
       )}
     </div>

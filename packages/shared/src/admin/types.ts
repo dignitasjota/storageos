@@ -93,6 +93,12 @@ export interface AdminTenantDto {
   } | null;
 }
 
+/** Página de tenants (cursor pagination). `nextCursor` = id del último item si hay más. */
+export interface AdminTenantsListResponseDto {
+  items: AdminTenantDto[];
+  nextCursor: string | null;
+}
+
 /** Resultado de un email directo a un tenant. */
 export interface AdminEmailTenantResultDto {
   /** Destinatarios a los que se envió con éxito. */
