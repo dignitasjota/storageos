@@ -225,4 +225,23 @@ describe('Admin SaaS manual payment (e2e)', () => {
     expect(after!.currentPeriodEnd.getTime()).toBe(periodEndBefore);
     expect(after!.manualExtensionDays).toBe(manualDaysBefore);
   });
+
+  it('un pago de suscripción a un tenant en TRIAL lo pasa a active', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-trial');
+    // Aseguramos que arranca en trial.
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'trial' },
+    });
+
+    const pay = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ provider: 'bank_transfer', amount: 49, durationMonths: 1 });
+    expect(pay.status).toBe(201);
+
+    // Al pagar la suscripción, el tenant deja de ser trial → active.
+    const tenant = await adminClient.tenant.findUnique({ where: { id: owner.tenantId } });
+    expect(tenant!.status).toBe('active');
+  });
 });

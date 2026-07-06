@@ -582,6 +582,25 @@ export class AdminTenantsController {
     });
   }
 
+  /** Finaliza el trial y pasa el tenant a `active` sin esperar a un pago. */
+  @RequireSuperadmin()
+  @Post(':id/end-trial')
+  @HttpCode(HttpStatus.OK)
+  async endTrial(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: AdminTenantActionDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantDto> {
+    const meta = extractMeta(req);
+    return this.tenants.endTrial(id, {
+      superAdminId: admin.sub,
+      reason: input.reason,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
   @Post(':id/extend-trial')
   @HttpCode(HttpStatus.OK)
   async extendTrial(
