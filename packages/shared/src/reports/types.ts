@@ -237,3 +237,38 @@ export interface ApplyUnitPricingResultDto {
   previousPrice: number;
   newPrice: number;
 }
+
+/**
+ * Comparativa anónima de una métrica frente al sector: agregados del mercado
+ * (mediana, p25, p75) + el valor del propio tenant y su percentil.
+ */
+export interface BenchmarkMetricDto {
+  /** Mediana del sector (p50). */
+  median: number;
+  /** Percentil 25 del sector. */
+  p25: number;
+  /** Percentil 75 del sector. */
+  p75: number;
+  /** Valor del tenant que consulta. */
+  mine: number;
+  /** Percentil (0-100) del tenant: % de operadores del sector por debajo de su valor. */
+  myPercentile: number;
+}
+
+/**
+ * Benchmarking anónimo entre operadores de self-storage. NUNCA expone datos
+ * individuales de otros tenants: sólo agregados del sector + los valores del
+ * propio tenant. Si la muestra es menor que el mínimo, `available:false`
+ * (protege el anonimato).
+ */
+export interface BenchmarkDto {
+  available: boolean;
+  /** Número de operadores anónimos incluidos en la muestra. */
+  sampleSize: number;
+  /** % de trasteros ocupados sobre el total. */
+  occupancy?: BenchmarkMetricDto;
+  /** Precio medio mensual por trastero (€). */
+  price?: BenchmarkMetricDto;
+  /** Precio medio por m² (€/m²·mes). */
+  pricePerSqm?: BenchmarkMetricDto;
+}

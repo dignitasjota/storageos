@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   AgingKpiDto,
   ApplyPricingResultDto,
+  BenchmarkDto,
   ChurnKpiDto,
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
@@ -32,9 +33,17 @@ export const analyticsKey = (
     | 'churn-risk'
     | 'pricing-suggestions'
     | 'unit-pricing-suggestions'
-    | 'forecast',
+    | 'forecast'
+    | 'benchmark',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
+
+export function useBenchmark() {
+  return useQuery({
+    queryKey: analyticsKey('benchmark'),
+    queryFn: () => apiFetch<BenchmarkDto>('/analytics/benchmark'),
+  });
+}
 
 export function useMonthlyRevenue(
   arg: number | { months?: number; from?: string; to?: string } = 12,

@@ -9,6 +9,7 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AnalyticsService } from './analytics.service';
+import { BenchmarkService } from './benchmark.service';
 import { InsightsService } from './insights.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -16,6 +17,7 @@ import type {
   AgingKpiDto,
   ApplyPricingResultDto,
   ApplyUnitPricingResultDto,
+  BenchmarkDto,
   ChurnKpiDto,
   ChurnRiskKpiDto,
   CustomerStatsKpiDto,
@@ -48,7 +50,14 @@ export class AnalyticsController {
   constructor(
     private readonly service: AnalyticsService,
     private readonly insights: InsightsService,
+    private readonly benchmark: BenchmarkService,
   ) {}
+
+  /** Comparativa anónima del tenant frente al sector (ocupación / precio / €m²). */
+  @Get('benchmark')
+  getBenchmark(@CurrentUser() user: AuthenticatedUser): Promise<BenchmarkDto> {
+    return this.benchmark.getBenchmark(user.tenantId);
+  }
 
   @Get('occupancy')
   getOccupancy(
