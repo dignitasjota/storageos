@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 
 import { UnitPricingPanel } from './unit-pricing-panel';
 
-import type { ChurnRiskLevel, PricingAction } from '@storageos/shared';
+import type { BenchmarkMetricDto, ChurnRiskLevel, PricingAction } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   useAging,
   useApplyPricing,
+  useBenchmark,
   useChurn,
   useChurnRisk,
   useLeadsFunnel,
@@ -87,6 +88,7 @@ export default function AnalyticsPage() {
           <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
           <TabsTrigger value="pricing">Precios</TabsTrigger>
           <TabsTrigger value="forecast">Previsión</TabsTrigger>
+          <TabsTrigger value="market">Mercado</TabsTrigger>
         </TabsList>
         <TabsContent value="revenue" className="mt-4">
           <MonthlyRevenuePanel />
@@ -122,6 +124,9 @@ export default function AnalyticsPage() {
         </TabsContent>
         <TabsContent value="forecast" className="mt-4">
           <ForecastPanel />
+        </TabsContent>
+        <TabsContent value="market" className="mt-4">
+          <BenchmarkPanel />
         </TabsContent>
       </Tabs>
     </div>
@@ -795,6 +800,133 @@ function ForecastPanel() {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+// ============================================================================
+// Comparativa de mercado (benchmarking anónimo)
+// ============================================================================
+
+function BenchmarkMetricRow({
+  label,
+  metric,
+  format,
+  hint,
+}: {
+  label: string;
+  metric: BenchmarkMetricDto;
+  format: (value: number) => string;
+  hint?: string;
+}) {
+  // Posición de "tú" y de la mediana en la barra p25→p75 (acotado a [0,100]).
+  const span = metric.p75 - metric.p25;
+  const pos = (value: number) =>
+    span <= 0 ? 50 : Math.max(0, Math.min(100, ((value - metric.p25) / span) * 100));
+  const minePos = pos(metric.mine);
+  const medianPos = pos(metric.median);
+  const aboveMedian = metric.mine >= metric.median;
+
+  return (
+    <div className="space-y-2 rounded-lg border p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{label}</span>
+        <Badge variant={aboveMedian ? 'default' : 'secondary'}>
+          Percentil {metric.myPercentile}
+        </Badge>
+      </div>
+      <div className="flex items-baseline justify-between text-sm">
+        <span>
+          Tú: <span className="font-semibold">{format(metric.mine)}</span>
+        </span>
+        <span className="text-muted-foreground">Mediana del sector: {format(metric.median)}</span>
+      </div>
+      {/* Barra p25 → p75 con marcadores de mediana (gris) y del tenant (azul). */}
+      <div className="relative h-2 rounded-full bg-muted">
+        <div
+          className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-400"
+          style={{ left: `${medianPos}%` }}
+          title={`Mediana: ${format(metric.median)}`}
+        />
+        <div
+          className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
+          style={{ left: `${minePos}%` }}
+          title={`Tú: ${format(metric.mine)}`}
+        />
+      </div>
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>p25: {format(metric.p25)}</span>
+        <span>p75: {format(metric.p75)}</span>
+      </div>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function BenchmarkPanel() {
+  const benchmark = useBenchmark();
+
+  if (benchmark.isLoading || !benchmark.data) {
+    return <PanelLoader />;
+  }
+
+  const d = benchmark.data;
+
+  if (!d.available) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Comparativa de mercado</CardTitle>
+          <CardDescription>
+            Compara tu ocupación y precios con la media anónima del sector.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Datos insuficientes para comparar (se necesitan al menos 5 operadores con trasteros). La
+            comparativa se activará automáticamente a medida que crezca la red.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Comparativa de mercado</CardTitle>
+        <CardDescription>
+          Tu posición frente a la media anónima de {d.sampleSize} operadores de self-storage. Los
+          datos del sector son agregados y anónimos: nunca se muestran valores individuales de otros
+          operadores.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {d.occupancy && (
+          <BenchmarkMetricRow
+            label="Ocupación física"
+            metric={d.occupancy}
+            format={(v) => `${v.toFixed(1)}%`}
+            hint="Trasteros ocupados sobre el total."
+          />
+        )}
+        {d.price && (
+          <BenchmarkMetricRow
+            label="Precio medio por trastero"
+            metric={d.price}
+            format={formatCurrency}
+            hint="Cuota mensual media de tus trasteros."
+          />
+        )}
+        {d.pricePerSqm && (
+          <BenchmarkMetricRow
+            label="Precio por m²"
+            metric={d.pricePerSqm}
+            format={(v) => `${formatCurrency(v)}/m²`}
+            hint="Cuota mensual media por metro cuadrado."
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function KpiCard({
   title,
