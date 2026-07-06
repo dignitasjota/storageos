@@ -419,6 +419,23 @@ export function useExtendTrial() {
   });
 }
 
+/** Finaliza el trial → el tenant pasa a `active` (sin esperar a un pago). */
+export function useEndTrial() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: AdminTenantActionInput }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/end-trial`, {
+        method: 'POST',
+        json: args.input,
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'trials'] });
+    },
+  });
+}
+
 /** Catálogo de planes (endpoint público) para el selector de cambio de plan. */
 export function useAdminSubscriptionPlans() {
   return useQuery({

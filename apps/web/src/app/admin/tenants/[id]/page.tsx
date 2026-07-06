@@ -70,6 +70,7 @@ import {
   useChangePlan,
   useChangePlanPreview,
   useExtendTrial,
+  useEndTrial,
   useImpersonateTenant,
   useReactivateTenant,
   useSuspendTenant,
@@ -93,7 +94,7 @@ export default function AdminTenantDetailPage() {
   const tenant = useAdminTenant(id);
 
   const [dialog, setDialog] = useState<
-    'suspend' | 'reactivate' | 'extendTrial' | 'impersonate' | 'anonymize' | null
+    'suspend' | 'reactivate' | 'extendTrial' | 'endTrial' | 'impersonate' | 'anonymize' | null
   >(null);
   const [usersOpen, setUsersOpen] = useState(false);
   const [invoicingOpen, setInvoicingOpen] = useState(false);
@@ -150,6 +151,11 @@ export default function AdminTenantDetailPage() {
           <Button variant="outline" onClick={() => setDialog('extendTrial')}>
             Extender trial
           </Button>
+          {t.status === 'trial' && (
+            <Button variant="outline" onClick={() => setDialog('endTrial')}>
+              Finalizar prueba
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setDialog('impersonate')}>
             Impersonar
           </Button>
@@ -294,6 +300,11 @@ export default function AdminTenantDetailPage() {
       />
       <ExtendTrialDialog
         open={dialog === 'extendTrial'}
+        tenantId={t.id}
+        onClose={() => setDialog(null)}
+      />
+      <EndTrialDialog
+        open={dialog === 'endTrial'}
         tenantId={t.id}
         onClose={() => setDialog(null)}
       />
@@ -491,6 +502,77 @@ function ReactivateDialog({
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 Reactivar
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EndTrialDialog({
+  open,
+  tenantId,
+  onClose,
+}: {
+  open: boolean;
+  tenantId: string;
+  onClose: () => void;
+}) {
+  const endTrial = useEndTrial();
+  const form = useForm<AdminTenantActionInput>({
+    resolver: zodResolver(AdminTenantActionSchema),
+    defaultValues: { reason: '' },
+  });
+
+  async function onSubmit(values: AdminTenantActionInput) {
+    try {
+      await endTrial.mutateAsync({ id: tenantId, input: values });
+      toast.success('Prueba finalizada. El tenant pasa a activo.');
+      form.reset();
+      onClose();
+    } catch (err) {
+      if (err instanceof ApiError) toast.error(err.body.message);
+      else toast.error('Error de red.');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Finalizar periodo de prueba</DialogTitle>
+          <DialogDescription>
+            El tenant pasará a <strong>activo</strong> sin esperar a un pago. Normalmente el trial
+            se cierra solo al pagar; usa esto para forzarlo (cortesía, pago fuera del sistema…).
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <FormField
+              control={form.control}
+              name="reason"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Motivo</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      rows={3}
+                      placeholder="Cliente que paga por transferencia…"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                Finalizar prueba
               </Button>
             </DialogFooter>
           </form>

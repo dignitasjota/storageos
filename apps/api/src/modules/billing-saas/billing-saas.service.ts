@@ -513,11 +513,12 @@ export class BillingSaasService {
       },
     });
 
-    // Si Stripe reporta la suscripción activa (pago regularizado), reactiva el
-    // tenant que el dunning hubiera suspendido (solo actúa sobre `suspended`).
+    // Si Stripe reporta la suscripción activa (el tenant se suscribió y pagó),
+    // el tenant pasa a `active`: sale del dunning (`suspended`) Y del periodo de
+    // prueba (`trial`) — al pagar de verdad ya no es un trial.
     if (newStatus === 'active') {
       await this.admin.tenant.updateMany({
-        where: { id: tenantId, status: 'suspended' },
+        where: { id: tenantId, status: { in: ['suspended', 'trial'] } },
         data: { status: 'active' },
       });
     }
@@ -869,12 +870,6 @@ export class BillingSaasService {
     const accrues = sub.stripeSubscriptionId != null;
     const addedDays = accrues ? diffInDays(base, newEnd) : 0;
 
-    // Si la suscripción estaba impagada (past_due), este pago la regulariza:
-    // reactiva también el tenant si el dunning lo había suspendido (solo actúa
-    // sobre `suspended` → no toca suspensiones manuales del admin sobre un tenant
-    // que no está en dunning).
-    const wasPastDue = sub.status === 'past_due';
-
     const [payment] = await this.admin.$transaction([
       this.admin.tenantSubscriptionPayment.create({
         data: {
@@ -901,14 +896,14 @@ export class BillingSaasService {
           manualExtensionDays: { increment: addedDays },
         },
       }),
-      ...(wasPastDue
-        ? [
-            this.admin.tenant.updateMany({
-              where: { id: args.tenantId, status: 'suspended' },
-              data: { status: 'active' },
-            }),
-          ]
-        : []),
+      // Un pago de suscripción activa el tenant: sale del periodo de prueba
+      // (`trial`, ya está pagando) o del dunning (`suspended`, pago regularizado).
+      // El filtro por estado no toca `active` ni `cancelled` (una baja no revive
+      // por un cobro retroactivo).
+      this.admin.tenant.updateMany({
+        where: { id: args.tenantId, status: { in: ['suspended', 'trial'] } },
+        data: { status: 'active' },
+      }),
     ]);
 
     // Factura del SaaS (best-effort; solo si la facturación está activada).

@@ -1078,6 +1078,49 @@ export class AdminTenantsService {
     return this.detail(tenantId);
   }
 
+  /**
+   * Finaliza el periodo de prueba de un tenant y lo pasa a `active` sin esperar
+   * a un pago (cortesía, o cliente que paga por fuera del sistema). Solo actúa
+   * si está en `trial`; limpia `trialEndsAt` para que no reaparezca en «Trials
+   * por expirar». Nota: lo normal es que el trial se cierre SOLO al pagar
+   * (Stripe o pago manual ya llevan el tenant a `active`); esto es la palanca
+   * manual para forzarlo.
+   */
+  async endTrial(tenantId: string, meta: ActionMeta): Promise<AdminTenantDto> {
+    const tenant = await this.findOrThrow(tenantId);
+    if (tenant.status !== 'trial') {
+      throw new BadRequestException({
+        code: 'tenant_not_in_trial',
+        message: 'El tenant no está en periodo de prueba.',
+      });
+    }
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: { status: 'active', trialEndsAt: null },
+    });
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'admin.tenant.trial_ended',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { superAdminId: meta.superAdminId, reason: meta.reason },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: 'admin.tenant.trial_ended',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes: { reason: meta.reason },
+    });
+    return this.detail(tenantId);
+  }
+
   async extendTrial(tenantId: string, args: ExtendTrialArgs): Promise<AdminTenantDto> {
     const tenant = await this.findOrThrow(tenantId);
     const base =

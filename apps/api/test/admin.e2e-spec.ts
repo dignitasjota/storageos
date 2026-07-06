@@ -120,6 +120,33 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(trialEndsAfter).toBeGreaterThan(trialEndsBefore);
   });
 
+  it('tenant action: end-trial pasa el tenant a active y limpia trialEndsAt', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-endtrial');
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'trial' },
+    });
+
+    const r = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/end-trial`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ reason: 'paga por transferencia' });
+    expect(r.status).toBe(200);
+    expect(r.body.status).toBe('active');
+
+    const t = await adminClient.tenant.findUnique({ where: { id: owner.tenantId } });
+    expect(t!.status).toBe('active');
+    expect(t!.trialEndsAt).toBeNull();
+
+    // Repetir sobre un tenant que ya NO está en trial → 400.
+    const again = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/end-trial`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ reason: 'x' });
+    expect(again.status).toBe(400);
+    expect(again.body.code).toBe('tenant_not_in_trial');
+  });
+
   it('tenant action: change-plan cambia el plan de suscripción', async () => {
     const owner = await registerVerifiedUser(app, 'admin-plan');
     // Registro → plan starter.
