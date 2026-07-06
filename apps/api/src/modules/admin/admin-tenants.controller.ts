@@ -21,6 +21,7 @@ import {
   type AdminOnboardingDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
+  type AdminTenantsListResponseDto,
   type AdminTenantFacilityDto,
   type AdminTenantFeaturesDto,
   SetTenantFeaturesSchema,
@@ -390,11 +391,16 @@ export class AdminTenantsController {
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('tag') tag?: string,
-  ): Promise<AdminTenantDto[]> {
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<AdminTenantsListResponseDto> {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
     return this.tenants.list({
       ...(search ? { search } : {}),
       ...(status ? { status } : {}),
       ...(tag ? { tag } : {}),
+      ...(cursor ? { cursor } : {}),
+      ...(parsedLimit && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
     });
   }
 

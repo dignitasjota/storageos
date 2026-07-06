@@ -25,6 +25,7 @@ import type {
   AdminTenantAdoptionDto,
   AdminTenantCustomerDto,
   AdminTenantDto,
+  AdminTenantsListResponseDto,
   AdminTenantFacilityDto,
   AdminTenantFeaturesDto,
   AdminChangePlanPreviewDto,
@@ -112,7 +113,12 @@ export class AdminTenantsService {
     search?: string;
     status?: string;
     tag?: string;
-  }): Promise<AdminTenantDto[]> {
+    cursor?: string;
+    limit?: number;
+  }): Promise<AdminTenantsListResponseDto> {
+    // Paginación por cursor: a 500+ tenants la lista completa (con 4 _count por
+    // fila) es cara y pesada. Cursor estable por (createdAt desc, id desc).
+    const take = Math.min(Math.max(filters.limit ?? 30, 1), 100);
     const rows = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
@@ -142,9 +148,16 @@ export class AdminTenantsService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: take + 1, // 1 extra para saber si hay página siguiente
+      ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
     });
-    return rows.map((r) => this.toDto(r));
+    const hasMore = rows.length > take;
+    const page = hasMore ? rows.slice(0, take) : rows;
+    return {
+      items: page.map((r) => this.toDto(r)),
+      nextCursor: hasMore ? (page[page.length - 1]?.id ?? null) : null,
+    };
   }
 
   /**

@@ -71,7 +71,9 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
       .get('/admin/tenants')
       .set('Authorization', `Bearer ${superAdminToken}`);
     expect(tenants.status).toBe(200);
-    expect(Array.isArray(tenants.body)).toBe(true);
+    // Paginación por cursor: { items, nextCursor }.
+    expect(Array.isArray(tenants.body.items)).toBe(true);
+    expect(tenants.body).toHaveProperty('nextCursor');
   });
 
   it('super admin: login con password incorrecto -> 401', async () => {
@@ -79,6 +81,27 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
       .post('/admin/auth/login')
       .send({ email: 'admin-test@storageos.local', password: 'wrong-password' });
     expect(r.status).toBe(401);
+  });
+
+  it('tenants: paginación por cursor (limit + nextCursor)', async () => {
+    // Aseguramos ≥2 tenants para que con limit=1 haya página siguiente.
+    await registerVerifiedUser(app, 'admin-page-a');
+    await registerVerifiedUser(app, 'admin-page-b');
+
+    const p1 = await request(app.getHttpServer())
+      .get('/admin/tenants?limit=1')
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(p1.status).toBe(200);
+    expect(p1.body.items).toHaveLength(1);
+    expect(p1.body.nextCursor).toBeTruthy();
+
+    // La 2ª página con el cursor NO repite el primer item.
+    const p2 = await request(app.getHttpServer())
+      .get(`/admin/tenants?limit=1&cursor=${p1.body.nextCursor}`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(p2.status).toBe(200);
+    expect(p2.body.items).toHaveLength(1);
+    expect(p2.body.items[0].id).not.toBe(p1.body.items[0].id);
   });
 
   it('tenant action: extend-trial suma dias', async () => {

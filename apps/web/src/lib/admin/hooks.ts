@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
@@ -65,6 +65,7 @@ import type {
   SuspendTenantInput,
   AdminTenantCustomerDto,
   AdminTenantDto,
+  AdminTenantsListResponseDto,
   AdminUpdateTenantInput,
   AdminTenantFacilityDto,
   AdminTenantInvoicingDto,
@@ -257,15 +258,22 @@ export interface AdminTenantsFilters {
 export const adminTenantsKey = (filters?: AdminTenantsFilters) =>
   ['admin', 'tenants', filters ?? {}] as const;
 
+/** Lista de tenants paginada por cursor («cargar más»). */
 export function useAdminTenants(filters?: AdminTenantsFilters) {
-  const qs = new URLSearchParams();
-  if (filters?.status) qs.set('status', filters.status);
-  if (filters?.search) qs.set('search', filters.search);
-  if (filters?.tag) qs.set('tag', filters.tag);
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: adminTenantsKey(filters),
-    queryFn: () =>
-      adminApiFetch<AdminTenantDto[]>(`/admin/tenants${qs.toString() ? `?${qs}` : ''}`),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams();
+      if (filters?.status) qs.set('status', filters.status);
+      if (filters?.search) qs.set('search', filters.search);
+      if (filters?.tag) qs.set('tag', filters.tag);
+      if (pageParam) qs.set('cursor', pageParam);
+      return adminApiFetch<AdminTenantsListResponseDto>(
+        `/admin/tenants${qs.toString() ? `?${qs}` : ''}`,
+      );
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 }
 
