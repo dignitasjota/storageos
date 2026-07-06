@@ -21,6 +21,8 @@ const eur = (n: number): string =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+/** Escapa un campo de texto para CSV: comillas si contiene `;`, `"` o salto de línea. */
+const csvCell = (v: string): string => (/[";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 /**
  * Facturación del SaaS: StorageOS emite facturas de suscripción a sus tenants.
@@ -102,6 +104,49 @@ export class PlatformInvoicesService {
       orderBy: { issuedAt: 'asc' },
     });
     return rows.map((r) => this.invoiceToDto(r));
+  }
+
+  /**
+   * Export contable (CSV) de las facturas SaaS emitidas en un año (por
+   * `issuedAt`), para la asesoría. Cabecera + filas separadas por `;` con BOM
+   * UTF-8 (Excel es-ES). Devuelve solo la cabecera si el año no tiene facturas.
+   */
+  async exportCsvForYear(year: number): Promise<string> {
+    const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
+    const rows = await this.admin.platformInvoice.findMany({
+      where: { issuedAt: { gte: start, lt: end } },
+      orderBy: [{ issuedAt: 'asc' }, { number: 'asc' }],
+    });
+    const header = [
+      'Nº factura',
+      'Fecha emisión',
+      'Concepto',
+      'Tenant',
+      'Base imponible',
+      'IVA',
+      'Total',
+      'Estado',
+    ];
+    const lines = [header.map(csvCell).join(';')];
+    for (const r of rows) {
+      const concepto = r.concept ?? (r.planName ? `Suscripción ${r.planName}` : '');
+      lines.push(
+        [
+          csvCell(r.fullNumber),
+          csvCell(r.issuedAt.toISOString().slice(0, 10)),
+          csvCell(concepto),
+          csvCell(r.tenantName),
+          Number(r.baseAmount).toFixed(2),
+          Number(r.taxAmount).toFixed(2),
+          Number(r.total).toFixed(2),
+          csvCell(r.status),
+        ].join(';'),
+      );
+    }
+    // BOM (U+FEFF) para que Excel detecte UTF-8; se escribe con charCode (no
+    // literal) por el lint `no-irregular-whitespace`.
+    return String.fromCharCode(0xfeff) + lines.join('\r\n');
   }
 
   /** Emite la factura de un pago (idempotente por `payment_id`). */

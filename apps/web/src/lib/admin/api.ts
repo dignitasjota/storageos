@@ -146,3 +146,40 @@ export async function adminApiFetch<T = unknown>(
 
   return (await parseJsonOrThrow(res)) as T;
 }
+
+/**
+ * Igual que `adminApiFetch` (auth + refresh transparente) pero devuelve el
+ * cuerpo como `Blob` — para descargas autenticadas (p. ej. el CSV contable),
+ * cuyo endpoint exige `Authorization: Bearer` y no se puede abrir con `<a>`.
+ */
+export async function adminApiFetchBlob(
+  path: string,
+  options: AdminFetchOptions = {},
+): Promise<Blob> {
+  const url = path.startsWith('http') ? path : `${env.apiUrl}${withVersion(path)}`;
+  const init: RequestInit = {
+    method: options.method ?? 'GET',
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
+
+  let res = await executeFetch(url, init, options);
+
+  if (res.status === 401 && options.requiresAuth !== false) {
+    const refreshed = await performAdminRefresh();
+    if (refreshed) {
+      res = await executeFetch(url, init, options);
+    }
+  }
+
+  if (!res.ok) {
+    const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    throw new ApiError({
+      statusCode: body.statusCode ?? res.status,
+      error: body.error ?? res.statusText,
+      message: body.message ?? 'Error de la API',
+      ...(body.details ? { details: body.details } : {}),
+    });
+  }
+
+  return res.blob();
+}

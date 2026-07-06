@@ -3,19 +3,23 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { PlatformInvoiceDto } from '@storageos/shared';
-
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { adminApiFetch } from '@/lib/admin/api';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { adminApiFetchBlob } from '@/lib/admin/api';
 import {
   useAdminPlatformBillingSettings,
   useUpdatePlatformBillingSettings,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
-import { downloadCsv } from '@/lib/csv';
 
 type Form = {
   legalName: string;
@@ -164,55 +168,26 @@ export default function PlatformBillingPage() {
   );
 }
 
-/** Export contable (CSV) de las facturas SaaS emitidas, con rango de fechas opcional. */
+/** Export contable (CSV) de las facturas SaaS emitidas en un año. */
 function ExportInvoicesCard() {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
+  const [year, setYear] = useState(String(currentYear));
   const [busy, setBusy] = useState(false);
 
   async function onExport() {
     setBusy(true);
     try {
-      const qs = new URLSearchParams();
-      if (from) qs.set('from', from);
-      if (to) qs.set('to', to);
-      const rows = await adminApiFetch<PlatformInvoiceDto[]>(
-        `/admin/platform-invoices${qs.toString() ? `?${qs.toString()}` : ''}`,
-      );
-      if (rows.length === 0) {
-        toast.error('No hay facturas en ese rango.');
-        return;
-      }
-      const csv: (string | number)[][] = [
-        [
-          'Nº factura',
-          'Fecha',
-          'Tenant',
-          'NIF',
-          'Plan',
-          'Base',
-          'IVA %',
-          'Cuota IVA',
-          'Total',
-          'Divisa',
-          'Estado',
-        ],
-        ...rows.map((r) => [
-          r.fullNumber,
-          new Date(r.issuedAt).toLocaleDateString('es-ES'),
-          r.tenantName,
-          r.tenantTaxId ?? '',
-          r.planName ?? '',
-          r.baseAmount,
-          r.taxRate,
-          r.taxAmount,
-          r.total,
-          r.currency,
-          r.status,
-        ]),
-      ];
-      downloadCsv(`facturas-saas-${from || 'inicio'}_${to || 'hoy'}.csv`, csv);
-      toast.success(`${rows.length} factura(s) exportadas.`);
+      // El endpoint exige el token admin en el header → descarga autenticada
+      // del blob (no se puede abrir con un `<a href>` directo).
+      const blob = await adminApiFetchBlob(`/admin/platform-billing/export?year=${year}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `facturas-saas-${year}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Facturas de ${year} exportadas.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar.');
     } finally {
@@ -227,17 +202,23 @@ function ExportInvoicesCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Descarga las facturas de suscripción emitidas en CSV (Excel) para tu gestor. Deja las
-          fechas vacías para exportarlas todas.
+          Descarga las facturas de suscripción emitidas en un año en CSV (Excel) para tu asesoría.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Desde</Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Hasta</Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Label className="text-xs">Año</Label>
+            <Select value={year} onValueChange={setYear}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {years.map((y) => (
+                  <SelectItem key={y} value={String(y)}>
+                    {y}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <Button variant="outline" onClick={onExport} disabled={busy}>
             {busy ? 'Exportando…' : 'Exportar CSV'}
