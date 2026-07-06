@@ -389,11 +389,22 @@ export class AdminTenantsController {
   async list(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('tag') tag?: string,
   ): Promise<AdminTenantDto[]> {
     return this.tenants.list({
       ...(search ? { search } : {}),
       ...(status ? { status } : {}),
+      ...(tag ? { tag } : {}),
     });
+  }
+
+  /**
+   * Etiquetas estratégicas en uso (para el selector de filtro/segmentación).
+   * DECLARADA ANTES de `@Get(':id')` para no colisionar con el ParseUUIDPipe.
+   */
+  @Get('tags')
+  async listTags(): Promise<string[]> {
+    return this.tenants.listTags();
   }
 
   /** Tenants en riesgo (retención): trials por expirar, past_due, inactivos. */

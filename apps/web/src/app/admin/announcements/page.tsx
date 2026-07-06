@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useAdminBroadcast } from '@/lib/admin/hooks';
+import { useAdminBroadcast, useAdminTenantTags } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 const AUDIENCE_OPTIONS: { value: AdminBroadcastAudienceValue; label: string }[] = [
@@ -28,7 +28,9 @@ const AUDIENCE_OPTIONS: { value: AdminBroadcastAudienceValue; label: string }[] 
 
 export default function AdminAnnouncementsPage() {
   const broadcast = useAdminBroadcast();
+  const tags = useAdminTenantTags();
   const [audience, setAudience] = useState<AdminBroadcastAudienceValue>('active');
+  const [tag, setTag] = useState<string | undefined>();
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
 
@@ -39,12 +41,14 @@ export default function AdminAnnouncementsPage() {
       return;
     }
     const audienceLabel = AUDIENCE_OPTIONS.find((o) => o.value === audience)?.label ?? audience;
-    if (!window.confirm(`¿Enviar este anuncio a «${audienceLabel}»?`)) return;
+    const target = tag ? `${audienceLabel} con la etiqueta «${tag}»` : audienceLabel;
+    if (!window.confirm(`¿Enviar este anuncio a «${target}»?`)) return;
     try {
       const res = await broadcast.mutateAsync({
         audience,
         subject: subject.trim(),
         body: body.trim(),
+        ...(tag ? { tag } : {}),
       });
       toast.success(
         `Anuncio enviado: ${res.recipients} email(s) a ${res.tenants} tenant(s)${res.failed ? `, ${res.failed} fallido(s)` : ''}.`,
@@ -91,6 +95,30 @@ export default function AdminAnnouncementsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {(tags.data?.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <Label>Etiqueta (opcional)</Label>
+                <Select
+                  value={tag ?? 'all'}
+                  onValueChange={(v) => setTag(v === 'all' ? undefined : v)}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Sin filtro de etiqueta</SelectItem>
+                    {(tags.data ?? []).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Si eliges una etiqueta, solo se enviará a los tenants del público que la tengan.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Asunto</Label>
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} />

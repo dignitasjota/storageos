@@ -156,6 +156,8 @@ export class AdminCommsService {
     if (input.audience === 'active') where.status = 'active';
     else if (input.audience === 'trial') where.status = 'trial';
     else where.status = { in: ['active', 'trial'] };
+    // Segmentación por etiqueta: AND con el público (mismo filtro que la lista).
+    if (input.tag) where.tags = { has: input.tag };
 
     // Resolvemos los destinatarios de TODOS los tenants en 2 queries (no 2·N):
     // los tenants del público + sus owners verificados activos en bloque.
@@ -199,6 +201,7 @@ export class AdminCommsService {
       targetTenantId: null,
       changes: {
         audience: input.audience,
+        tag: input.tag ?? null,
         subject: input.subject,
         tenants: reached,
         recipients: allRecipients.length,
