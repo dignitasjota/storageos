@@ -108,13 +108,19 @@ export class AdminTenantsService {
 
   // =============================== read ====================================
 
-  async list(filters: { search?: string; status?: string }): Promise<AdminTenantDto[]> {
+  async list(filters: {
+    search?: string;
+    status?: string;
+    tag?: string;
+  }): Promise<AdminTenantDto[]> {
     const rows = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
         ...(filters.status
           ? { status: filters.status as 'trial' | 'active' | 'suspended' | 'cancelled' }
           : {}),
+        // Filtro por etiqueta estratégica (los tags viven en `tenant.tags String[]`).
+        ...(filters.tag ? { tags: { has: filters.tag } } : {}),
         ...(filters.search
           ? {
               OR: [
@@ -139,6 +145,21 @@ export class AdminTenantsService {
       orderBy: { createdAt: 'desc' },
     });
     return rows.map((r) => this.toDto(r));
+  }
+
+  /**
+   * Etiquetas estratégicas distintas en uso por los tenants (para alimentar
+   * el selector de filtro/segmentación). Aplanamos los `tags` de todos los
+   * tenants vivos y devolvemos el conjunto ordenado alfabéticamente.
+   */
+  async listTags(): Promise<string[]> {
+    const rows = await this.admin.tenant.findMany({
+      where: { deletedAt: null, tags: { isEmpty: false } },
+      select: { tags: true },
+    });
+    const set = new Set<string>();
+    for (const r of rows) for (const t of r.tags) set.add(t);
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'));
   }
 
   async detail(tenantId: string): Promise<AdminTenantDto> {

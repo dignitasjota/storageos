@@ -128,6 +128,8 @@ export const AdminBroadcastSchema = z.object({
   audience: AdminBroadcastAudienceEnum,
   subject: z.string().trim().min(3).max(200),
   body: z.string().trim().min(1).max(10_000),
+  /** Segmentación opcional: restringe (AND con `audience`) a los tenants con esta etiqueta. */
+  tag: z.string().trim().min(1).max(40).optional(),
 });
 export type AdminBroadcastInput = z.infer<typeof AdminBroadcastSchema>;
 

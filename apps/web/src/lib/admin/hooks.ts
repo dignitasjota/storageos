@@ -251,6 +251,7 @@ export function useAdmin2faRegenerateRecoveryCodes() {
 export interface AdminTenantsFilters {
   status?: string | undefined;
   search?: string | undefined;
+  tag?: string | undefined;
 }
 
 export const adminTenantsKey = (filters?: AdminTenantsFilters) =>
@@ -260,10 +261,19 @@ export function useAdminTenants(filters?: AdminTenantsFilters) {
   const qs = new URLSearchParams();
   if (filters?.status) qs.set('status', filters.status);
   if (filters?.search) qs.set('search', filters.search);
+  if (filters?.tag) qs.set('tag', filters.tag);
   return useQuery({
     queryKey: adminTenantsKey(filters),
     queryFn: () =>
       adminApiFetch<AdminTenantDto[]>(`/admin/tenants${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+/** Etiquetas estratégicas distintas en uso (para el selector de filtro/segmentación). */
+export function useAdminTenantTags() {
+  return useQuery({
+    queryKey: ['admin', 'tenants', 'tags'] as const,
+    queryFn: () => adminApiFetch<string[]>('/admin/tenants/tags'),
   });
 }
 

@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAdminTenants } from '@/lib/admin/hooks';
+import { useAdminTenants, useAdminTenantTags } from '@/lib/admin/hooks';
 import { tenantStatusLabel } from '@/lib/admin/labels';
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -39,6 +39,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 export default function AdminTenantsPage() {
   const router = useRouter();
   const [status, setStatus] = useState<string | undefined>();
+  const [tag, setTag] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -48,8 +49,10 @@ export default function AdminTenantsPage() {
     return () => clearTimeout(t);
   }, [search]);
 
+  const tags = useAdminTenantTags();
   const tenants = useAdminTenants({
     ...(status ? { status } : {}),
+    ...(tag ? { tag } : {}),
     ...(debouncedSearch ? { search: debouncedSearch } : {}),
   });
 
@@ -90,6 +93,21 @@ export default function AdminTenantsPage() {
             <SelectItem value="cancelled">Cancelados</SelectItem>
           </SelectContent>
         </Select>
+        {(tags.data?.length ?? 0) > 0 && (
+          <Select value={tag ?? 'all'} onValueChange={(v) => setTag(v === 'all' ? undefined : v)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Etiqueta" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las etiquetas</SelectItem>
+              {(tags.data ?? []).map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           {tenants.isFetching && <Loader2 className="size-3 animate-spin" aria-hidden />}
           {rows.length} {rows.length === 1 ? 'tenant' : 'tenants'}
