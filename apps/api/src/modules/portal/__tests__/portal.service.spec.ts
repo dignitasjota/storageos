@@ -47,22 +47,36 @@ function buildFakeRedis(): {
 
 function buildAdmin(): {
   customer: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
-  tenant: { findUnique: jest.Mock; findUniqueOrThrow: jest.Mock };
+  tenant: { findUnique: jest.Mock; findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
 } {
+  const fullCustomer = {
+    id: CUSTOMER,
+    customerType: 'individual',
+    firstName: 'Puri',
+    lastName: 'García',
+    companyName: null,
+    email: 'puri@e2e.local',
+  };
   return {
     customer: {
-      findFirst: jest.fn().mockResolvedValue({ id: CUSTOMER }),
-      findUniqueOrThrow: jest.fn().mockResolvedValue({
-        id: CUSTOMER,
-        customerType: 'individual',
-        firstName: 'Puri',
-        lastName: 'García',
-        companyName: null,
-        email: 'puri@e2e.local',
-      }),
+      // `consumeMagicLink` (PR4 del portal) lee el customer con `findFirst`
+      // (deletedAt:null) y usa sus campos para el displayName de la sesión.
+      findFirst: jest.fn().mockResolvedValue(fullCustomer),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(fullCustomer),
     },
     tenant: {
+      // `requestMagicLink` resuelve por slug con findUnique; `consumeMagicLink`
+      // valida el tenant (deletedAt/status) con findFirst.
       findUnique: jest.fn().mockResolvedValue({ id: TENANT, name: 'Trasteros', deletedAt: null }),
+      findFirst: jest.fn().mockResolvedValue({
+        id: TENANT,
+        name: 'Trasteros SL',
+        slug: 'trasteros',
+        status: 'active',
+        deletedAt: null,
+        portalBrandColor: null,
+        portalLogoUrl: null,
+      }),
       findUniqueOrThrow: jest.fn().mockResolvedValue({
         id: TENANT,
         name: 'Trasteros SL',

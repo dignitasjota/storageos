@@ -66,6 +66,12 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Unit tests del API (jest con mocks, SIN base de datos ni Redis): corren
+      # aquí porque no necesitan servicios. Antes no estaban en CI y varios specs
+      # se rompían en silencio al cambiar constructores/queries en otros PRs.
+      - name: Unit tests API
+        run: pnpm -F api test
+
       - name: Build
         run: pnpm build
         env:

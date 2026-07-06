@@ -12,7 +12,7 @@ const INVOICE_ID = '019e3d20-cccc-7c2f-bf37-6511065b9fc5';
 const GATEWAY_PAYMENT_ID = 'pi_3QxTest123';
 
 interface TxMock {
-  payment: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock };
+  payment: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock; count: jest.Mock };
   invoice: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock; update: jest.Mock };
   paymentMethod: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
 }
@@ -23,6 +23,9 @@ function buildTx(): TxMock {
       findFirst: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
       create: jest.fn(),
+      // `assertNoPaymentInFlight` (anti-doble-cobro del portal): sin cobro en
+      // vuelo por defecto para que `chargeInvoice` prosiga en los casos base.
+      count: jest.fn().mockResolvedValue(0),
     },
     invoice: {
       findFirst: jest.fn(),
