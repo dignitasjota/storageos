@@ -26,6 +26,9 @@ interface AdminMock {
   tenant: {
     updateMany: jest.Mock;
   };
+  superAdminNotification: {
+    create: jest.Mock;
+  };
   $transaction: jest.Mock;
 }
 
@@ -64,6 +67,10 @@ function buildAdmin(): AdminMock {
     },
     tenant: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    // Webhook Stripe sin tenant resoluble → aviso al super admin (#247).
+    superAdminNotification: {
+      create: jest.fn().mockResolvedValue({ id: 'notif-1' }),
     },
     // El array-form de $transaction recibe las promesas ya lanzadas.
     $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
