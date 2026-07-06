@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
@@ -7,14 +8,17 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
+import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
+import type { Env } from '../../config/env.schema';
 import type {
   AdminBroadcastInput,
   AdminBroadcastResultDto,
   AdminEmailTenantInput,
   AdminEmailTenantResultDto,
+  RetentionPlaybookResultDto,
 } from '@storageos/shared';
 
 interface ActionMeta {
@@ -41,13 +45,19 @@ function renderEmail(body: string): { html: string; text: string } {
  */
 @Injectable()
 export class AdminCommsService {
+  private readonly webBaseUrl: string;
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly email: EmailService,
     private readonly superAdminAudit: SuperAdminAuditService,
     private readonly interactions: AdminTenantInteractionsService,
+    private readonly followups: AdminTenantFollowupsService,
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
-  ) {}
+    config: ConfigService<Env, true>,
+  ) {
+    this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
+  }
 
   /** Emails de destino de un tenant: owners verificados activos o billingEmail. */
   private async recipientsFor(tenantId: string): Promise<string[]> {
@@ -198,5 +208,94 @@ export class AdminCommsService {
     });
 
     return { tenants: reached, recipients: allRecipients.length, failed: 0 };
+  }
+
+  /**
+   * Playbook de retención en 1 clic (desde /admin/at-risk o /admin/health):
+   * hace las 3 gestiones típicas a la vez sobre un tenant en riesgo:
+   *   1) crea un **seguimiento** (dueDate = hoy + 3 días) para contactar,
+   *   2) encola un **email de retención** a los owners verificados, y
+   *   3) registra la gestión como una **interacción** (una sola).
+   *
+   * Orden y best-effort: el seguimiento y la interacción SIEMPRE se crean; el
+   * email es best-effort — si el tenant no tiene owner verificado ni email de
+   * facturación, se encolan 0 correos y el playbook NO falla (emailRecipients=0).
+   *
+   * DECISIÓN: NO reutilizamos `emailTenant` (que lanza `no_recipients` y crea su
+   * propia interacción de tipo `email`), precisamente para (a) no romper el
+   * best-effort sin destinatario y (b) no duplicar el registro — aquí dejamos
+   * una única interacción `note` que resume el playbook. Sí reutilizamos las
+   * primitivas internas `recipientsFor` + `enqueue` (misma cola BullMQ `email`).
+   */
+  async launchRetentionPlaybook(
+    tenantId: string,
+    superAdminId: string,
+    meta: { note?: string | null; ipAddress?: string | null; userAgent?: string | null } = {},
+  ): Promise<RetentionPlaybookResultDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+
+    // 1) Seguimiento a +3 días para que el equipo contacte al cliente.
+    const due = new Date();
+    due.setUTCDate(due.getUTCDate() + 3);
+    const dueDate = due.toISOString().slice(0, 10);
+    const followup = await this.followups.create({
+      tenantId,
+      superAdminId,
+      input: {
+        title: 'Retención: contactar al cliente',
+        dueDate,
+        ...(meta.note ? { note: meta.note } : {}),
+      },
+    });
+
+    // 2) Email de retención (best-effort: 0 destinatarios no rompe el playbook).
+    const recipients = await this.recipientsFor(tenantId);
+    const subject = '¿Podemos ayudarte con StorageOS?';
+    const body = [
+      'Hola,',
+      '',
+      'Somos el equipo de StorageOS. Queremos asegurarnos de que le estás sacando el máximo partido a la plataforma.',
+      'Si hay algo que podamos mejorar, una duda que resolver o quieres que valoremos un descuento para que te siga saliendo a cuenta, estamos a tu disposición.',
+      '',
+      `Responde a este correo o escríbenos desde tu panel: ${this.webBaseUrl}/support`,
+      '',
+      'Un saludo,',
+      'El equipo de StorageOS',
+    ].join('\n');
+    await this.enqueue(recipients, subject, body);
+    const emailRecipients = recipients.length;
+
+    // 3) Registro de la gestión como una única interacción.
+    await this.interactions.create({
+      tenantId,
+      superAdminId,
+      input: {
+        type: 'note',
+        content:
+          `Playbook de retención lanzado: seguimiento creado (vence ${dueDate}) + ` +
+          `email de retención encolado a ${emailRecipients} destinatario(s).` +
+          (meta.note ? `\nNota: ${meta.note}` : ''),
+      },
+    });
+
+    // 4) Auditoría (acción sensible → @RequireSuperadmin en el endpoint).
+    await this.superAdminAudit.record({
+      superAdminId,
+      action: 'admin.tenant.retention_playbook',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      changes: { followupId: followup.id, emailRecipients, dueDate },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+
+    return { followupId: followup.id, emailRecipients };
   }
 }

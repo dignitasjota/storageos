@@ -30,6 +30,7 @@ import type {
   AddTicketMessageInput,
   AdminAdoptionDto,
   AdminAtRiskDto,
+  RetentionPlaybookResultDto,
   AdminCustomDomainDto,
   AssignAddonInput,
   SaasAddonDto,
@@ -810,6 +811,24 @@ export function useAdminAtRisk() {
     queryFn: () => adminApiFetch<AdminAtRiskDto>('/admin/tenants/at-risk'),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * Playbook de retención (1 clic): crea seguimiento + email de retención al
+ * owner + registra la interacción. Invalida at-risk y los seguimientos.
+ */
+export function useRetentionPlaybook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tenantId: string) =>
+      adminApiFetch<RetentionPlaybookResultDto>(`/admin/tenants/${tenantId}/retention-playbook`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'at-risk'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });
+    },
   });
 }
 
