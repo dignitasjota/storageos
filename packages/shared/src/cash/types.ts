@@ -1,6 +1,8 @@
 /** Resumen de cobros de un día por método de pago (para el arqueo de caja). */
 export interface CashDaySummaryDto {
   date: string;
+  /** Local del resumen; null = caja global del tenant. */
+  facilityId: string | null;
   cash: number;
   card: number;
   sepaDebit: number;
@@ -17,6 +19,8 @@ export interface CashDaySummaryDto {
 export interface CashClosureDto {
   id: string;
   date: string;
+  facilityId: string | null;
+  facilityName: string | null;
   expectedCash: number;
   countedCash: number;
   difference: number;

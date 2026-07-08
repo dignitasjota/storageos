@@ -119,6 +119,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -154,6 +155,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -169,6 +171,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -185,6 +188,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -204,6 +208,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -222,6 +227,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       invoiceId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });
@@ -240,6 +246,7 @@ export class InvoicesController {
       tenantId: user.tenantId,
       userId: user.sub,
       originalInvoiceId: id,
+      facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
     });

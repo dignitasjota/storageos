@@ -2,6 +2,7 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -82,6 +83,43 @@ describe('Contrato: renovar + trasladar (e2e)', () => {
       .send({ newUnitId: unitIds[1] });
     expect(same.status).toBe(400);
     expect(same.body.code).toBe('same_unit');
+  });
+
+  it('traslado con prorate y cuota mayor emite una factura de ajuste', async () => {
+    const owner = await registerVerifiedUser(app, 'movepror');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    const customerId = await createCustomer(app, owner.accessToken);
+
+    const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-05-01',
+      priceMonthly: 60,
+      depositAmount: 0,
+    });
+    const contractId = create.body.id as string;
+    await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
+
+    // Traslado a un trastero más caro (100) con prorrateo → factura de ajuste.
+    const moved = await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/change-unit`)
+      .set(auth)
+      .send({ newUnitId: unitIds[1], newPrice: 100, prorate: true });
+    expect(moved.status).toBe(200);
+
+    // Debe existir una factura "Ajuste por cambio de trastero" emitida para el cliente.
+    const invoices = await request(app.getHttpServer())
+      .get(`/invoices?customerId=${customerId}`)
+      .set(auth);
+    const adjustment = (
+      invoices.body as { status: string; items: { description: string }[] }[]
+    ).find((inv) =>
+      inv.items.some((it) => it.description.includes('Ajuste por cambio de trastero')),
+    );
+    expect(adjustment).toBeDefined();
+    expect(adjustment!.status).not.toBe('draft'); // emitida
   });
 
   it('el onboarding refleja los pasos completados', async () => {

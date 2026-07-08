@@ -238,10 +238,16 @@ export const RenewContractSchema = z.object({
 });
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 
-/** Traslado de trastero: nueva unidad + cuota opcional. */
+/** Traslado de trastero: nueva unidad + cuota opcional + prorrateo del ajuste. */
 export const ChangeUnitSchema = z.object({
   newUnitId: z.string().uuid(),
   newPrice: positiveDecimal.optional(),
+  /**
+   * Si true y la cuota nueva es MAYOR, emite una factura de ajuste con la
+   * diferencia prorrateada por los días que restan del mes natural. Si la nueva
+   * es menor o igual, no se genera factura (el ahorro se refleja el mes siguiente).
+   */
+  prorate: z.boolean().optional(),
 });
 export type ChangeUnitInput = z.infer<typeof ChangeUnitSchema>;
 

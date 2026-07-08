@@ -7,5 +7,7 @@ export const CloseCashSchema = z.object({
   date: dateOnly,
   countedCash: z.number().nonnegative().finite(),
   notes: z.string().trim().max(500).optional().or(z.literal('')),
+  /** Local del arqueo; ausente = caja global del tenant. */
+  facilityId: z.string().uuid().optional(),
 });
 export type CloseCashInput = z.infer<typeof CloseCashSchema>;

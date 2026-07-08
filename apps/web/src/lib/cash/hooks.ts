@@ -4,10 +4,13 @@ import type { CashClosureDto, CashDaySummaryDto, CloseCashInput } from '@storage
 
 import { apiFetch } from '@/lib/auth/api';
 
-export function useCashSummary(date: string) {
+export function useCashSummary(date: string, facilityId?: string) {
   return useQuery({
-    queryKey: ['cash', 'summary', date],
-    queryFn: () => apiFetch<CashDaySummaryDto>(`/cash/summary?date=${date}`),
+    queryKey: ['cash', 'summary', date, facilityId ?? 'all'],
+    queryFn: () =>
+      apiFetch<CashDaySummaryDto>(
+        `/cash/summary?date=${date}${facilityId ? `&facilityId=${facilityId}` : ''}`,
+      ),
   });
 }
 

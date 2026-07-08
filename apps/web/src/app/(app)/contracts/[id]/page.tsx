@@ -99,6 +99,7 @@ export default function ContractDetailPage() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [newUnitId, setNewUnitId] = useState('');
   const [newPrice, setNewPrice] = useState('');
+  const [prorate, setProrate] = useState(false);
   const availableUnits = useUnits({ status: 'available' });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -224,6 +225,7 @@ export default function ContractDetailPage() {
                 onClick={() => {
                   setNewUnitId('');
                   setNewPrice('');
+                  setProrate(false);
                   setMoveOpen(true);
                 }}
               >
@@ -495,6 +497,18 @@ export default function ContractDetailPage() {
                 placeholder="Dejar vacío para mantener la actual"
               />
             </div>
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={prorate}
+                onChange={(e) => setProrate(e.target.checked)}
+              />
+              <span>
+                Emitir factura de ajuste prorrateada (solo si la cuota nueva es mayor: cobra la
+                diferencia por los días que restan del mes).
+              </span>
+            </label>
             <p className="text-xs text-muted-foreground">
               Libera el trastero actual y ocupa el nuevo. La próxima factura sale con el trastero (y
               precio) nuevos.
@@ -512,6 +526,7 @@ export default function ContractDetailPage() {
                     body: {
                       newUnitId,
                       ...(newPrice.trim() ? { newPrice: Number(newPrice) } : {}),
+                      ...(prorate ? { prorate: true } : {}),
                     },
                   });
                   setMoveOpen(false);

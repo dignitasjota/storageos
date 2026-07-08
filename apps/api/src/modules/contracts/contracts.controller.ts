@@ -259,6 +259,7 @@ export class ContractsController {
       contractId: id,
       newUnitId: body.newUnitId,
       ...(body.newPrice != null ? { newPrice: body.newPrice } : {}),
+      ...(body.prorate ? { prorate: true } : {}),
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
