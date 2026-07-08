@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
+import { toCents } from '../../common/money';
 import { InvoiceSeriesService } from '../billing/invoice-series.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -293,17 +294,35 @@ export class SignaturesService {
         where: { id: contractId },
         include: { unit: { select: { id: true } } },
       });
-      const periodStart = new Date(contract.startDate);
-      const periodEnd = new Date(periodStart);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      // La 1ª factura cubre desde el alta hasta el FIN del mes natural, y el
+      // alquiler se PRORRATEA por los días ocupados. Así encaja con la
+      // facturación recurrente (que va por mes natural [día 1, último día]) y no
+      // se solapa/duplica el primer mes. Si el alta es el día 1, sale el mes
+      // completo (sin prorrateo).
+      const start = new Date(contract.startDate);
+      const y = start.getUTCFullYear();
+      const m = start.getUTCMonth();
+      const dayOfMonth = start.getUTCDate();
+      const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+      const periodStart = new Date(Date.UTC(y, m, dayOfMonth));
+      const periodEnd = new Date(Date.UTC(y, m, daysInMonth));
       const dueDate = new Date(periodEnd);
-      dueDate.setDate(dueDate.getDate() + 15);
-      const unitPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
+      dueDate.setUTCDate(dueDate.getUTCDate() + 15);
+      const daysOccupied = daysInMonth - dayOfMonth + 1;
+      const fullPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
+      const isFullMonth = daysOccupied >= daysInMonth;
+      const unitPrice = isFullMonth
+        ? fullPrice
+        : Math.round((toCents(fullPrice) * daysOccupied) / daysInMonth) / 100;
       const deposit = Number(contract.depositAmount);
 
       const items = [
         {
-          description: `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 7)})`,
+          description: isFullMonth
+            ? `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 7)})`
+            : `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 10)}–${periodEnd
+                .toISOString()
+                .slice(0, 10)}, prorrateado ${daysOccupied}/${daysInMonth} d)`,
           quantity: 1,
           unitPrice,
           taxRate: 21,

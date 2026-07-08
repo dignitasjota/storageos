@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -15,6 +16,7 @@ import { isUniqueViolation } from '../../common/prisma-errors';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gateway.interface';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
 import { InvoiceSeriesService } from './invoice-series.service';
@@ -93,6 +95,7 @@ export class InvoicesService {
     private readonly verifactu: VerifactuService,
     private readonly events: EventEmitter2,
     @InjectQueue(QUEUE_VERIFACTU) private readonly verifactuQueue: Queue<VerifactuSendJobData>,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -758,25 +761,89 @@ export class InvoicesService {
     }
     const fullyRefunded = isAtLeast(newRefunded, total);
 
-    const updated = await this.prisma.withTenant(
+    // Si la factura se cobró por pasarela (Stripe/SEPA), devolvemos el dinero DE
+    // VERDAD antes de tocar la BD: buscamos el payment con `gatewayPaymentId` que
+    // tenga saldo reembolsable. Sin esto, el botón «Reembolsar» solo marcaba la
+    // factura en BD y el dinero nunca salía del gateway.
+    const gatewayPayment = await this.prisma.withTenant(
       (tx) =>
-        tx.invoice.update({
-          where: { id: args.invoiceId },
-          data: {
-            amountRefunded: newRefunded,
-            status: fullyRefunded ? 'refunded' : 'partially_refunded',
+        tx.payment.findFirst({
+          where: {
+            invoiceId: args.invoiceId,
+            gatewayPaymentId: { not: null },
+            status: { in: ['succeeded', 'partially_refunded'] },
           },
-          include: this.includeRelations(),
+          orderBy: { createdAt: 'desc' },
         }),
       args.tenantId,
     );
+
+    let gatewayRefundId: string | null = null;
+    if (gatewayPayment?.gatewayPaymentId) {
+      const paymentRefundable = subtractAmounts(
+        gatewayPayment.amount,
+        gatewayPayment.refundedAmount,
+      );
+      if (isGreaterThan(amount, paymentRefundable)) {
+        throw new BadRequestException({
+          code: 'over_refund_gateway',
+          message: 'El importe excede lo cobrado por la pasarela para este pago',
+        });
+      }
+      const result = await this.gateway.refund({
+        gatewayPaymentId: gatewayPayment.gatewayPaymentId,
+        amountCents: toCents(amount),
+        ...(args.input.reason ? { reason: args.input.reason } : {}),
+      });
+      if (result.status === 'failed') {
+        throw new BadRequestException({
+          code: 'gateway_refund_failed',
+          message: 'La pasarela rechazó el reembolso; no se ha devuelto el dinero',
+        });
+      }
+      gatewayRefundId = result.gatewayRefundId;
+    }
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      // Actualizamos también `payment.refundedAmount` cuando el reembolso pasó
+      // por la pasarela: el webhook `charge.refunded` sincroniza por delta contra
+      // este campo, así que dejarlo al día evita el DOBLE cómputo (el webhook
+      // llegaría después y volvería a sumar el importe sobre la factura).
+      if (gatewayPayment) {
+        const newPaymentRefunded = addAmounts(gatewayPayment.refundedAmount, amount);
+        const paymentFully = isAtLeast(newPaymentRefunded, gatewayPayment.amount);
+        await tx.payment.update({
+          where: { id: gatewayPayment.id },
+          data: {
+            refundedAmount: newPaymentRefunded,
+            refundedAt: new Date(),
+            status: paymentFully ? 'refunded' : 'partially_refunded',
+          },
+        });
+      }
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: {
+          amountRefunded: newRefunded,
+          status: fullyRefunded ? 'refunded' : 'partially_refunded',
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
       action: 'invoice.refunded',
       entityType: 'Invoice',
       entityId: args.invoiceId,
-      changes: { amount, fully: fullyRefunded, reason: args.input.reason ?? null },
+      changes: {
+        amount,
+        fully: fullyRefunded,
+        reason: args.input.reason ?? null,
+        gateway: gatewayPayment ? true : false,
+        gatewayRefundId,
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
