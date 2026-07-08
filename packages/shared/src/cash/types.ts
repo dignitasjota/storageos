@@ -1,0 +1,26 @@
+/** Resumen de cobros de un día por método de pago (para el arqueo de caja). */
+export interface CashDaySummaryDto {
+  date: string;
+  cash: number;
+  card: number;
+  sepaDebit: number;
+  bankTransfer: number;
+  other: number;
+  total: number;
+  /** Nº de cobros del día. */
+  count: number;
+  /** El cierre ya registrado de ese día, si existe. */
+  closure: CashClosureDto | null;
+}
+
+/** Un cierre de caja registrado (arqueo). */
+export interface CashClosureDto {
+  id: string;
+  date: string;
+  expectedCash: number;
+  countedCash: number;
+  difference: number;
+  notes: string | null;
+  closedByName: string | null;
+  closedAt: string;
+}

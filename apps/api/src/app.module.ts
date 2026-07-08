@@ -26,6 +26,7 @@ import { BillingModule } from './modules/billing/billing.module';
 import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
+import { CashModule } from './modules/cash/cash.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { CompetitorsModule } from './modules/competitors/competitors.module';
@@ -182,6 +183,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     DashboardModule,
     SearchModule,
     CalendarModule,
+    CashModule,
     ReportsModule,
     AccessModule,
     AdminModule,

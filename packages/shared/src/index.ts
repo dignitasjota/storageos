@@ -11,6 +11,7 @@ export * from './users';
 export * from './facilities';
 export * from './customers';
 export * from './billing';
+export * from './cash';
 export * from './communications';
 export * from './operations';
 export * from './maintenance';
