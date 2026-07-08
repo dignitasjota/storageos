@@ -98,12 +98,17 @@ export class BillingJobsService {
 
     let created = 0;
     for (const c of contracts) {
+      // Dedup por SOLAPAMIENTO de periodo (no coincidencia exacta): la 1ª factura
+      // del move-in cubre [alta, fin de mes natural], que rara vez casa día a día
+      // con [día 1, último día] de la recurrente. Con coincidencia exacta el
+      // primer mes se facturaba dos veces (solape sin dedup). `[a,b]` solapa con
+      // `[start,end]` sii `a <= end && b >= start`.
       const already = await this.admin.invoice.findFirst({
         where: {
           tenantId,
           contractId: c.id,
-          periodStart,
-          periodEnd,
+          periodStart: { lte: periodEnd },
+          periodEnd: { gte: periodStart },
           status: { not: 'cancelled' },
           deletedAt: null,
         },

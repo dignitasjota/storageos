@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -757,6 +758,11 @@ export default function InvoiceDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reembolso</DialogTitle>
+            <DialogDescription>
+              Si la factura se cobró con tarjeta/SEPA, el importe se devuelve al cliente por la
+              pasarela. Si el cobro fue manual (efectivo/transferencia), solo se registra el abono
+              contable y debes devolver el dinero por tu cuenta.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
