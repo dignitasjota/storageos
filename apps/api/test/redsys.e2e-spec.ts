@@ -112,6 +112,24 @@ describe('Redsys (e2e)', () => {
       .get(`/invoices/${invoiceId}`)
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(detail.body.status).toBe('paid');
+    const paymentsAuth = { Authorization: `Bearer ${owner.accessToken}` };
+    const pays1 = await request(app.getHttpServer())
+      .get(`/payments?invoiceId=${invoiceId}`)
+      .set(paymentsAuth);
+    const countAfter1 = (pays1.body as unknown[]).length;
+
+    // Idempotencia: Redsys reentrega notificaciones. La MISMA notificación otra
+    // vez → order ya 'paid' → no crea un segundo Payment.
+    const dup = await request(app.getHttpServer()).post('/webhooks/redsys').send({
+      Ds_SignatureVersion: 'HMAC_SHA256_V1',
+      Ds_MerchantParameters: notif,
+      Ds_Signature: signature,
+    });
+    expect(dup.status).toBe(200);
+    const pays2 = await request(app.getHttpServer())
+      .get(`/payments?invoiceId=${invoiceId}`)
+      .set(paymentsAuth);
+    expect((pays2.body as unknown[]).length).toBe(countAfter1);
   });
 
   it('notificación con firma inválida NO marca pagada', async () => {
