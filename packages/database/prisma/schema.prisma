@@ -365,6 +365,7 @@ model Tenant {
   tenantInteractions      TenantInteraction[]
   tenantLifecycleEmails   TenantLifecycleEmail[]
   customerFollowups       CustomerFollowup[]
+  cashClosures            CashClosure[]
   featureOverrides        TenantFeatureOverride[]
   tenantFollowups         TenantFollowup[]
   auditLogs               AuditLog[]
@@ -515,6 +516,7 @@ model User {
   customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
   customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
+  cashClosures             CashClosure[]             @relation("CashClosureAuthor")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -3593,6 +3595,27 @@ model CustomerFollowup {
   @@index([tenantId, status, dueDate])
   @@index([customerId])
   @@map("customer_followups")
+}
+
+/// Cierre de caja diario (arqueo de efectivo): cuadra el efectivo contado con lo
+/// registrado (pagos `cash` del día). Uno por día y tenant.
+model CashClosure {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  closureDate   DateTime @map("closure_date") @db.Date
+  expectedCash  Decimal  @default(0) @map("expected_cash") @db.Decimal(10, 2)
+  countedCash   Decimal  @default(0) @map("counted_cash") @db.Decimal(10, 2)
+  difference    Decimal  @default(0) @db.Decimal(10, 2)
+  notes         String?
+  closedByUserId String? @map("closed_by_user_id") @db.Uuid
+  closedAt      DateTime @default(now()) @map("closed_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  closedBy User?  @relation("CashClosureAuthor", fields: [closedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, closureDate])
+  @@map("cash_closures")
 }
 
 /// Seguimiento/recordatorio del super admin sobre un tenant ("llamar el día X",

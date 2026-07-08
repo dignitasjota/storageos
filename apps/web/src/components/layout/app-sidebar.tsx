@@ -37,6 +37,7 @@ import {
   Ticket,
   TrendingUp,
   Users,
+  Wallet,
   Warehouse,
   Wrench,
 } from 'lucide-react';
@@ -187,6 +188,7 @@ const GROUPS: NavGroup[] = [
     labelKey: 'billing',
     items: [
       { href: '/invoices', labelKey: 'invoices', icon: CreditCard, permission: 'invoices:read' },
+      { href: '/cash', labelKey: 'cash', icon: Wallet, permission: 'payments:read' },
       {
         href: 'billing-bank',
         labelKey: 'billingBank',
