@@ -26,6 +26,7 @@ import type { VerifactuSendJobData } from './verifactu.processor';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Invoice, InvoiceItem, InvoiceStatus, InvoiceType } from '@storageos/database';
 import type {
+  BulkInvoiceActionResultDto,
   CancelInvoiceInput,
   CorrectionMethodValue,
   CreateInvoiceInput,
@@ -392,6 +393,46 @@ export class InvoicesService {
     };
     this.events.emit(DOMAIN_EVENTS.invoice_issued, issuedPayload);
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
+  }
+
+  /**
+   * Emite N borradores en lote (cierre mensual). Procesa cada uno de forma
+   * independiente: un fallo (ya emitida, sin serie, etc.) no tumba el resto; se
+   * reporta en `failed`. Evita el cuello de botella de emitir factura a factura.
+   */
+  async bulkIssue(args: {
+    tenantId: string;
+    userId: string;
+    ids: string[];
+    meta: RequestMeta;
+  }): Promise<BulkInvoiceActionResultDto> {
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+    for (const invoiceId of args.ids) {
+      try {
+        await this.issue({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId,
+          meta: args.meta,
+        });
+        succeeded.push(invoiceId);
+      } catch (err) {
+        failed.push({ id: invoiceId, error: this.errorCode(err) });
+      }
+    }
+    return { succeeded, failed };
+  }
+
+  /** Extrae el `code` de una excepción Nest (o su mensaje) para el reporte en lote. */
+  private errorCode(err: unknown): string {
+    if (err && typeof err === 'object' && 'response' in err) {
+      const res = (err as { response?: unknown }).response;
+      if (res && typeof res === 'object' && 'code' in res) {
+        return String((res as { code: unknown }).code);
+      }
+    }
+    return err instanceof Error ? err.message : 'unknown_error';
   }
 
   /**

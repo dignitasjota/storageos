@@ -82,6 +82,7 @@ export class TenantSettingsService {
 
   private billingDto(tenant: {
     autoChargeOnIssue: boolean;
+    autoIssueRecurring: boolean;
     lateFeeEnabled: boolean;
     lateFeeType: string;
     lateFeeValue: unknown;
@@ -89,6 +90,7 @@ export class TenantSettingsService {
   }): TenantBillingSettingsResponse {
     return {
       autoChargeOnIssue: tenant.autoChargeOnIssue,
+      autoIssueRecurring: tenant.autoIssueRecurring,
       lateFeeEnabled: tenant.lateFeeEnabled,
       lateFeeType: tenant.lateFeeType as 'percentage' | 'fixed',
       lateFeeValue: Number(tenant.lateFeeValue),
@@ -117,6 +119,7 @@ export class TenantSettingsService {
     const { input } = args;
     const data: Record<string, string | number | boolean> = {};
     if (input.autoChargeOnIssue !== undefined) data.autoChargeOnIssue = input.autoChargeOnIssue;
+    if (input.autoIssueRecurring !== undefined) data.autoIssueRecurring = input.autoIssueRecurring;
     if (input.lateFeeEnabled !== undefined) data.lateFeeEnabled = input.lateFeeEnabled;
     if (input.lateFeeType !== undefined) data.lateFeeType = input.lateFeeType;
     if (input.lateFeeValue !== undefined) data.lateFeeValue = input.lateFeeValue;

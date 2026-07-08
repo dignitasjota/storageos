@@ -306,3 +306,9 @@ export interface RedsysRedirectDto {
   merchantParameters: string;
   signature: string;
 }
+
+/** Resultado de una acción en lote sobre facturas: cuáles fueron OK y cuáles no. */
+export interface BulkInvoiceActionResultDto {
+  succeeded: string[];
+  failed: { id: string; error: string }[];
+}

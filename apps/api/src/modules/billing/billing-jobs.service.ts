@@ -83,6 +83,14 @@ export class BillingJobsService {
     const { tenantId } = data;
     const { periodStart, periodEnd } = this.resolvePeriod(data);
 
+    // Emisión automática (opt-in): si el tenant lo activó, cada factura recurrente
+    // se emite tras crearse en vez de quedar en borrador para revisión manual.
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { autoIssueRecurring: true },
+    });
+    const autoIssue = tenant?.autoIssueRecurring ?? false;
+
     // Contratos activos que NO tengan invoice issued/paid para este periodo.
     const contracts = await this.admin.contract.findMany({
       where: {
@@ -137,7 +145,7 @@ export class BillingJobsService {
       const rentMonth = periodStart.toISOString().slice(0, 7);
 
       try {
-        await this.invoices.create({
+        const draft = await this.invoices.create({
           tenantId,
           userId: c.customerId, // marcador: lo lanzo el sistema; en audit se filtrara
           input: {
@@ -182,6 +190,20 @@ export class BillingJobsService {
           },
           meta: {},
         });
+        // Emisión automática (opt-in): emite el borrador recién creado. Si el
+        // issue falla (p. ej. sin serie o Verifactu) NO tumba el lote: la
+        // factura queda en draft y se puede emitir a mano.
+        if (autoIssue) {
+          try {
+            await this.invoices.issue({ tenantId, userId: null, invoiceId: draft.id, meta: {} });
+          } catch (issueErr) {
+            this.logger.warn(
+              `auto-issue: no se pudo emitir la factura ${draft.id} (queda en draft): ${
+                (issueErr as Error).message
+              }`,
+            );
+          }
+        }
         if (isFreeMonth) {
           await this.admin.contract.update({
             where: { id: c.id },

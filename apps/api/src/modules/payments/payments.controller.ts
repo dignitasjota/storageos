@@ -10,7 +10,12 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { ChargeInvoiceSchema, type PaymentDto } from '@storageos/shared';
+import {
+  BulkInvoiceActionSchema,
+  type BulkInvoiceActionResultDto,
+  ChargeInvoiceSchema,
+  type PaymentDto,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -25,6 +30,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class ChargeInvoiceDto extends createZodDto(ChargeInvoiceSchema) {}
+class BulkInvoiceActionDto extends createZodDto(BulkInvoiceActionSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -49,6 +55,24 @@ export class PaymentsController {
     return this.payments.list(user.tenantId, {
       ...(invoiceId ? { invoiceId } : {}),
       ...(customerId ? { customerId } : {}),
+    });
+  }
+
+  /** Cobra N facturas en lote. ANTES de `invoices/:invoiceId/charge` para que
+   *  `bulk` no se interprete como un `:invoiceId`. */
+  @RequirePermission('payments:charge')
+  @Post('invoices/bulk/charge')
+  @HttpCode(HttpStatus.OK)
+  async bulkCharge(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkInvoiceActionDto,
+    @Req() req: Request,
+  ): Promise<BulkInvoiceActionResultDto> {
+    return this.payments.bulkCharge({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      ids: body.ids,
+      meta: extractMeta(req),
     });
   }
 
