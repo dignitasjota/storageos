@@ -36,3 +36,18 @@ export const PublicBookingSchema = z.object({
   website: z.string().optional(),
 });
 export type PublicBookingInput = z.infer<typeof PublicBookingSchema>;
+
+/**
+ * Captura email-first del booking: guarda un lead en cuanto el visitante deja su
+ * email, para no perderlo si abandona antes de completar la reserva. Idempotente
+ * por email (best-effort, no bloquea el flujo).
+ */
+export const CaptureBookingLeadSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  firstName: z.string().trim().max(100).optional().or(z.literal('')),
+  facilityId: z.string().uuid().optional(),
+  unitTypeId: z.string().uuid().optional(),
+  /** Honeypot anti-bot: debe venir vacío. */
+  website: z.string().optional(),
+});
+export type CaptureBookingLeadInput = z.infer<typeof CaptureBookingLeadSchema>;

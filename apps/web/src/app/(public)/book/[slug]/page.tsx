@@ -42,6 +42,30 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
 
   const facility = data?.facilities.find((f) => f.id === facilityId);
   const selectedType = facility?.unitTypes.find((t) => t.id === unitTypeId);
+  const [leadCaptured, setLeadCaptured] = useState(false);
+
+  // Email-first: en cuanto el visitante deja un email válido, guardamos un lead
+  // (best-effort, sin bloquear) para no perderlo si abandona antes de completar.
+  async function captureLead() {
+    if (leadCaptured || !/.+@.+\..+/.test(form.email)) return;
+    setLeadCaptured(true);
+    try {
+      await apiFetch(`/public/move-in/book/${slug}/lead`, {
+        method: 'POST',
+        requiresAuth: false,
+        json: {
+          email: form.email.trim().toLowerCase(),
+          ...(form.firstName.trim() ? { firstName: form.firstName.trim() } : {}),
+          ...(facilityId ? { facilityId } : {}),
+          ...(unitTypeId ? { unitTypeId } : {}),
+          website,
+        },
+      });
+    } catch {
+      // best-effort: si falla, no molestamos al visitante.
+      setLeadCaptured(false);
+    }
+  }
 
   async function submit() {
     setSubmitting(true);
@@ -193,6 +217,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  onBlur={() => void captureLead()}
                 />
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
