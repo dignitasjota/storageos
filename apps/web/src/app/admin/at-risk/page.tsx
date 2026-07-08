@@ -1,6 +1,6 @@
 'use client';
 
-import { AlarmClock, CreditCard, LifeBuoy, Loader2, MoonStar } from 'lucide-react';
+import { AlarmClock, ArrowRight, CreditCard, LifeBuoy, Loader2, MoonStar } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -116,8 +116,16 @@ function RiskSection({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <RetentionButton tenantId={t.id} tenantName={t.name} />
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={`/admin/tenants/${t.id}`}>Ver tenant</Link>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="icon"
+                    aria-label="Ver tenant"
+                    title="Ver tenant"
+                  >
+                    <Link href={`/admin/tenants/${t.id}`}>
+                      <ArrowRight className="size-4" />
+                    </Link>
                   </Button>
                 </div>
               </li>

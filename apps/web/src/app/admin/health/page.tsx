@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
@@ -175,8 +175,10 @@ function HealthRow({ t }: { t: AdminTenantHealthDto }) {
         </div>
       </div>
 
-      <Button asChild variant="outline" size="sm">
-        <Link href={`/admin/tenants/${t.tenantId}`}>Ver tenant</Link>
+      <Button asChild variant="outline" size="icon" aria-label="Ver tenant" title="Ver tenant">
+        <Link href={`/admin/tenants/${t.tenantId}`}>
+          <ArrowRight className="size-4" />
+        </Link>
       </Button>
     </li>
   );

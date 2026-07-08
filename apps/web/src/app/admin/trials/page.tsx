@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -245,8 +245,17 @@ function TrialRow({
           >
             +14 días
           </Button>
-          <Button asChild size="sm" variant="ghost" className="h-7 text-xs">
-            <Link href={`/admin/tenants/${trial.id}`}>Ver</Link>
+          <Button
+            asChild
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            aria-label="Ver tenant"
+            title="Ver tenant"
+          >
+            <Link href={`/admin/tenants/${trial.id}`}>
+              <ArrowRight className="size-4" />
+            </Link>
           </Button>
         </div>
       </td>

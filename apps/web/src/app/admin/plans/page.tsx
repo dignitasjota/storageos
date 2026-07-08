@@ -8,7 +8,7 @@ import {
   type TenantFeature,
   type UpsertSubscriptionPlanFormInput,
 } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
+import { Ban, Loader2, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -203,12 +203,24 @@ export default function PlansPage() {
                       )}
                     </TableCell>
                     <TableCell className="space-x-2 text-right">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}>
-                        Editar
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="Editar"
+                        title="Editar"
+                        onClick={() => openEdit(p)}
+                      >
+                        <Pencil className="size-4" />
                       </Button>
                       {p.isActive && (
-                        <Button variant="ghost" size="sm" onClick={() => onDeactivate(p)}>
-                          Desactivar
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Desactivar"
+                          title="Desactivar"
+                          onClick={() => onDeactivate(p)}
+                        >
+                          <Ban className="size-4" />
                         </Button>
                       )}
                     </TableCell>
