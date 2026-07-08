@@ -41,6 +41,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
   }, [slug]);
 
   const facility = data?.facilities.find((f) => f.id === facilityId);
+  const selectedType = facility?.unitTypes.find((t) => t.id === unitTypeId);
 
   async function submit() {
     setSubmitting(true);
@@ -136,14 +137,27 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                     {facility.unitTypes.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name} —{' '}
-                        {t.priceMonthly.toLocaleString('es-ES', {
+                        {(t.priceMonthly * 1.21).toLocaleString('es-ES', {
                           style: 'currency',
                           currency: 'EUR',
                         })}
-                        /mes ({t.available} disponibles)
+                        /mes IVA incl. ({t.available} disponibles)
                       </option>
                     ))}
                   </select>
+                  {selectedType && (
+                    <p className="text-sm text-muted-foreground">
+                      Cuota:{' '}
+                      <span className="font-semibold text-foreground">
+                        {(selectedType.priceMonthly * 1.21).toLocaleString('es-ES', {
+                          style: 'currency',
+                          currency: 'EUR',
+                        })}
+                        /mes
+                      </span>{' '}
+                      (IVA 21% incl.). Verás el desglose y la fianza al firmar.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -151,6 +165,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                 <Label>Fecha de inicio</Label>
                 <Input
                   type="date"
+                  min={new Date().toISOString().slice(0, 10)}
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
