@@ -156,6 +156,24 @@ export class PaymentsService {
     // Cargo via gateway, decryption del token dentro del withTenant para no
     // exfiltrar.
     const { paymentRow, chargeResult } = await this.prisma.withTenant(async (tx) => {
+      // Anti-doble-cobro atómico: serializa por factura con un advisory lock (se
+      // libera al commit). El 2º request concurrente (doble clic) espera aquí,
+      // entra tras el commit del 1º, ve su pago en vuelo → 409 SIN llamar al
+      // gateway (evita el doble CARGO real, no solo el doble registro).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${invoice.id}::text))`;
+      const liveGatewayCharge = await tx.payment.count({
+        where: {
+          invoiceId: invoice.id,
+          gateway: { in: ['stripe', 'gocardless'] },
+          status: { in: ['pending', 'processing', 'succeeded'] },
+        },
+      });
+      if (liveGatewayCharge > 0) {
+        throw new ConflictException({
+          code: 'payment_in_progress',
+          message: 'Ya hay un cobro por pasarela para esta factura. Espera a que se confirme.',
+        });
+      }
       const pm = await tx.paymentMethod.findUniqueOrThrow({ where: { id: pmId } });
       // Solo card y sepa_debit son cobrables via gateway; bank_transfer,
       // cash y other se registran a mano con mark-paid.

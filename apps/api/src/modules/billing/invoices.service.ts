@@ -677,6 +677,37 @@ export class InvoicesService {
       });
     }
     const fullyPaid = isAtLeast(newPaid, total);
+    // Anti-doble-cobro: si hay un adeudo SEPA/tarjeta en curso (`processing`/
+    // `pending`) sobre la factura, marcar pagado a mano lo cobraría dos veces
+    // (el webhook confirmará el adeudo después). Se bloquea salvo marca explícita.
+    if (!args.input.overridePaymentInFlight) {
+      const gatewayInFlight = await this.prisma.withTenant(
+        (tx) =>
+          tx.payment.count({
+            where: {
+              invoiceId: args.invoiceId,
+              gateway: { in: ['stripe', 'gocardless'] },
+              status: { in: ['pending', 'processing'] },
+            },
+          }),
+        args.tenantId,
+      );
+      if (gatewayInFlight > 0) {
+        throw new ConflictException({
+          code: 'gateway_payment_in_progress',
+          message:
+            'Hay un adeudo SEPA/tarjeta en curso para esta factura. Confirma "pagar de otra forma" para registrar el cobro manual.',
+        });
+      }
+    }
+    // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
+    // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).
+    if (isGreaterThan(total, newPaid) && args.input.methodType !== 'cash') {
+      throw new BadRequestException({
+        code: 'partial_only_cash',
+        message: 'Solo se admiten pagos parciales en efectivo; por otra vía debe saldarse el total',
+      });
+    }
     const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
 
     const updated = await this.prisma.withTenant(async (tx) => {

@@ -349,6 +349,12 @@ export const MarkPaidManuallySchema = z.object({
   paidAt: z.string().datetime().optional(),
   methodType: PaymentMethodTypeEnum.default('cash'),
   notes: optionalText(500),
+  /**
+   * Marca explícita "voy a pagar de otra forma": permite registrar el pago a
+   * mano aunque haya un adeudo SEPA/tarjeta en curso sobre la factura (evita el
+   * doble cobro accidental; hay que confirmarlo conscientemente).
+   */
+  overridePaymentInFlight: z.boolean().optional(),
 });
 export type MarkPaidManuallyInput = z.infer<typeof MarkPaidManuallySchema>;
 

@@ -415,6 +415,8 @@ export class SepaService {
             amount: item.amount / 100,
             methodType: 'sepa_debit',
             notes: `Remesa SEPA ${remittance.name}`,
+            // Confirmación de un cobro real por remesa: salta el guard de adeudo en vuelo.
+            overridePaymentInFlight: true,
           },
           meta: {},
         });

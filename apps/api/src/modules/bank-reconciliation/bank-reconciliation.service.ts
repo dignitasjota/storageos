@@ -215,7 +215,12 @@ export class BankReconciliationService {
         tenantId,
         userId: args.userId,
         invoiceId,
-        input: { amount: pending, methodType: 'bank_transfer', notes: 'Conciliación N43' },
+        input: {
+          amount: pending,
+          methodType: 'bank_transfer',
+          notes: 'Conciliación N43',
+          overridePaymentInFlight: true,
+        },
         meta: {},
       });
     }
