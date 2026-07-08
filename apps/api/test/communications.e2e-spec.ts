@@ -1,4 +1,7 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
+
+import { CommunicationsService } from '../src/modules/communications/communications.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages } from './helpers/mailpit';
@@ -7,28 +10,40 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 describe('Communications + Templates + Automations + Leads + Widget (e2e)', () => {
   let app: INestApplication;
+  let adminClient: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     await deleteAllMessages();
+    adminClient = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await adminClient.$disconnect();
     await cleanupTestTenants();
     await deleteAllMessages();
   });
 
-  it('lista plantillas (vacio por defecto, sin seed automatica todavia)', async () => {
+  it('el registro siembra las plantillas transaccionales built-in', async () => {
     const owner = await registerVerifiedUser(app, 'comms-tpl');
     const res = await request(app.getHttpServer())
       .get('/message-templates')
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    const codes = (res.body as { code: string }[]).map((t) => t.code);
+    // Las plantillas clave del ciclo de vida deben estar sembradas y editables.
+    expect(codes).toContain('welcome_email');
+    expect(codes).toContain('invoice_overdue_email');
+    expect(codes).toContain('contract_signed_email');
   });
 
   it('crea plantilla custom, hace preview con variables, y envia comm manual', async () => {
@@ -274,5 +289,27 @@ describe('Communications + Templates + Automations + Leads + Widget (e2e)', () =
     const res = await request(app.getHttpServer()).get('/public/widget/no-existe-xyz/facilities');
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('tenant_not_found');
+  });
+
+  it('enqueue cae a la plantilla built-in si el tenant no la tiene en BD (no falla en silencio)', async () => {
+    const owner = await registerVerifiedUser(app, 'comms-fallback');
+    // Simulamos un tenant SIN plantillas sembradas (p. ej. dado de alta antes
+    // del seed): borramos las suyas.
+    await adminClient.messageTemplate.deleteMany({ where: { tenantId: owner.tenantId } });
+
+    const comms = app.get(CommunicationsService);
+    const result = await comms.enqueue({
+      tenantId: owner.tenantId,
+      channel: 'email',
+      recipient: 'inquilino@e2e.local',
+      templateCode: 'welcome_email',
+      trigger: 'customer_created',
+      variables: { customer: { firstName: 'Lola' }, tenant: { name: 'Trasteros Lola' } },
+      source: 'test.fallback',
+    });
+    // Se resolvió con el cuerpo del built-in (antes lanzaba message_template_not_found).
+    expect(result.status).not.toBe('failed');
+    expect(result.bodyText).toBeTruthy();
+    expect(result.bodyText.length).toBeGreaterThan(0);
   });
 });

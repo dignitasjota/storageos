@@ -22,6 +22,8 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { type Prisma, PrismaClient } from '@storageos/database';
 import { DEFAULT_SAAS_ADDONS } from '@storageos/shared';
 
+import { BUILTIN_TEMPLATES } from '../modules/communications/builtin-templates';
+
 const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
   {
     name: 'Free',
@@ -100,6 +102,38 @@ async function main(): Promise<void> {
       });
     }
     console.info(`[bootstrap] add-ons OK: ${DEFAULT_SAAS_ADDONS.length}`);
+
+    // Backfill de plantillas transaccionales para tenants dados de alta antes de
+    // que el registro las sembrara (idempotente: skipDuplicates por el unique
+    // (tenant_id, code)). Sin esto, los emails del ciclo de vida caen al
+    // fallback en código pero no aparecen en /message-templates para editarlas.
+    const tenants = await prisma.tenant.findMany({
+      where: { deletedAt: null },
+      select: { id: true },
+    });
+    let seededTemplates = 0;
+    for (const t of tenants) {
+      const res = await prisma.messageTemplate.createMany({
+        data: BUILTIN_TEMPLATES.map((b) => ({
+          tenantId: t.id,
+          code: b.code,
+          kind: b.kind,
+          channel: b.channel,
+          name: b.name,
+          subject: b.subject,
+          bodyText: b.bodyText,
+          bodyHtml: b.bodyHtml,
+          locale: b.locale,
+          variables: b.variables,
+          metadata: b.trigger ? { trigger: b.trigger } : {},
+        })),
+        skipDuplicates: true,
+      });
+      seededTemplates += res.count;
+    }
+    console.info(
+      `[bootstrap] plantillas transaccionales: ${seededTemplates} nuevas en ${tenants.length} tenants`,
+    );
 
     const email = process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim();
     const password = process.env.BOOTSTRAP_SUPERADMIN_PASSWORD;

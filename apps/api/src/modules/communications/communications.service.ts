@@ -7,6 +7,7 @@ import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { JOB_COMMUNICATIONS_DISPATCH, QUEUE_COMMUNICATIONS } from '../queues/queues.module';
 
+import { BUILTIN_TEMPLATES } from './builtin-templates';
 import { MessageTemplatesService } from './message-templates.service';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './providers/whatsapp-provider';
 import { renderTemplate, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
@@ -97,29 +98,27 @@ export class CommunicationsService {
     let whatsappTemplateParams: Record<string, string> | null = null;
 
     if ((args.templateCode || args.templateId) && !bodyText) {
-      const tpl = args.templateId
-        ? await this.templates.findById(args.tenantId, args.templateId)
-        : await this.templates.findByCode(args.tenantId, args.templateCode!);
-      if (!tpl) {
+      const src = await this.resolveTemplateSource(args);
+      if (!src) {
         throw new NotFoundException({
           code: 'message_template_not_found',
           message: `Plantilla no encontrada`,
         });
       }
-      templateId = tpl.id;
-      templateName = tpl.name;
+      templateId = src.templateId;
+      templateName = src.name;
       const allowed = args.trigger
         ? (TEMPLATE_VARIABLES_BY_TRIGGER[args.trigger] ?? undefined)
         : undefined;
-      subject = renderTemplate(tpl.subject ?? '', args.variables ?? {}, allowed);
-      bodyText = renderTemplate(tpl.bodyText, args.variables ?? {}, allowed);
-      bodyHtml = tpl.bodyHtml ? renderTemplate(tpl.bodyHtml, args.variables ?? {}, allowed) : null;
+      subject = renderTemplate(src.subject ?? '', args.variables ?? {}, allowed);
+      bodyText = renderTemplate(src.bodyText, args.variables ?? {}, allowed);
+      bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, args.variables ?? {}, allowed) : null;
 
-      if (args.channel === 'whatsapp' && tpl.whatsappTemplateName) {
-        whatsappTemplateName = tpl.whatsappTemplateName;
-        whatsappTemplateLanguage = tpl.whatsappTemplateLanguage ?? null;
+      if (args.channel === 'whatsapp' && src.whatsappTemplateName) {
+        whatsappTemplateName = src.whatsappTemplateName;
+        whatsappTemplateLanguage = src.whatsappTemplateLanguage ?? null;
         whatsappTemplateParams = buildWhatsappTemplateParams(
-          tpl.whatsappTemplateVariables,
+          src.whatsappTemplateVariables ?? [],
           args.variables ?? {},
         );
       }
@@ -355,6 +354,56 @@ export class CommunicationsService {
     return this.detail(args.tenantId, created.id);
   }
 
+  /**
+   * Resuelve el contenido de la plantilla a partir de `templateId`/`templateCode`.
+   * Busca primero la plantilla del tenant en BD y, si no existe pero hay un
+   * `templateCode`, cae a la plantilla **built-in en código** (`BUILTIN_TEMPLATES`).
+   * Así los emails del ciclo de vida (bienvenida, factura vencida, PIN de acceso…)
+   * NO fallan en silencio cuando el tenant no tiene la fila sembrada (tenants
+   * antiguos, o si el seed del alta no corrió). Devuelve `null` si no hay ninguna.
+   */
+  private async resolveTemplateSource(args: SendArgs): Promise<{
+    templateId: string | null;
+    name: string;
+    subject: string | null;
+    bodyText: string;
+    bodyHtml: string | null;
+    whatsappTemplateName?: string | null;
+    whatsappTemplateLanguage?: string | null;
+    whatsappTemplateVariables?: string[];
+  } | null> {
+    const tpl = args.templateId
+      ? await this.templates.findById(args.tenantId, args.templateId)
+      : args.templateCode
+        ? await this.templates.findByCode(args.tenantId, args.templateCode)
+        : null;
+    if (tpl) {
+      return {
+        templateId: tpl.id,
+        name: tpl.name,
+        subject: tpl.subject,
+        bodyText: tpl.bodyText,
+        bodyHtml: tpl.bodyHtml,
+        whatsappTemplateName: tpl.whatsappTemplateName,
+        whatsappTemplateLanguage: tpl.whatsappTemplateLanguage,
+        whatsappTemplateVariables: tpl.whatsappTemplateVariables,
+      };
+    }
+    const builtin = args.templateCode
+      ? BUILTIN_TEMPLATES.find((b) => b.code === args.templateCode)
+      : undefined;
+    if (builtin) {
+      return {
+        templateId: null,
+        name: builtin.name,
+        subject: builtin.subject,
+        bodyText: builtin.bodyText,
+        bodyHtml: builtin.bodyHtml ?? null,
+      };
+    }
+    return null;
+  }
+
   private async enqueueWithoutJob(args: SendArgs): Promise<CommunicationDto> {
     // Reutiliza la logica de render sin encolar.
     let subject = args.subject ?? null;
@@ -363,22 +412,20 @@ export class CommunicationsService {
     let templateId: string | null = args.templateId ?? null;
     let provider: string | null = null;
     if ((args.templateCode || args.templateId) && !bodyText) {
-      const tpl = args.templateId
-        ? await this.templates.findById(args.tenantId, args.templateId)
-        : await this.templates.findByCode(args.tenantId, args.templateCode!);
-      if (!tpl) {
+      const src = await this.resolveTemplateSource(args);
+      if (!src) {
         throw new NotFoundException({
           code: 'message_template_not_found',
           message: `Plantilla no encontrada`,
         });
       }
-      templateId = tpl.id;
+      templateId = src.templateId;
       const allowed = args.trigger
         ? (TEMPLATE_VARIABLES_BY_TRIGGER[args.trigger] ?? undefined)
         : undefined;
-      subject = renderTemplate(tpl.subject ?? '', args.variables ?? {}, allowed);
-      bodyText = renderTemplate(tpl.bodyText, args.variables ?? {}, allowed);
-      bodyHtml = tpl.bodyHtml ? renderTemplate(tpl.bodyHtml, args.variables ?? {}, allowed) : null;
+      subject = renderTemplate(src.subject ?? '', args.variables ?? {}, allowed);
+      bodyText = renderTemplate(src.bodyText, args.variables ?? {}, allowed);
+      bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, args.variables ?? {}, allowed) : null;
     }
     if (args.channel === 'email') provider = this.email.providerName;
     else if (args.channel === 'whatsapp') provider = this.whatsapp.name;
