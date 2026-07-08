@@ -225,6 +225,13 @@ export const AddContractNoteSchema = z.object({
 });
 export type AddContractNoteInput = z.infer<typeof AddContractNoteSchema>;
 
+/** Liquidación de la fianza al finalizar: importe a devolver + motivo si se retiene. */
+export const SettleDepositSchema = z.object({
+  returnedAmount: z.number().min(0),
+  retentionReason: z.string().trim().max(500).optional(),
+});
+export type SettleDepositInput = z.infer<typeof SettleDepositSchema>;
+
 export const CancelContractSchema = z.object({
   reason: optionalText(500),
 });

@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import {
   AddContractNoteSchema,
+  SettleDepositSchema,
   AssignInsuranceSchema,
   CancelContractSchema,
   ChangeContractPriceSchema,
@@ -43,6 +44,7 @@ class ChangeContractPriceDto extends createZodDto(ChangeContractPriceSchema) {}
 class SignContractDto extends createZodDto(SignContractSchema) {}
 class AddContractNoteDto extends createZodDto(AddContractNoteSchema) {}
 class CancelContractDto extends createZodDto(CancelContractSchema) {}
+class SettleDepositDto extends createZodDto(SettleDepositSchema) {}
 class AssignInsuranceDto extends createZodDto(AssignInsuranceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -195,6 +197,25 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('contracts:manage')
+  @Post(':id/settle-deposit')
+  @HttpCode(HttpStatus.OK)
+  async settleDeposit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SettleDepositDto,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.settleDeposit({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      input: body,
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });

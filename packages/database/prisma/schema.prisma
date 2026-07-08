@@ -1068,6 +1068,11 @@ model Contract {
   freeMonthsRemaining    Int                   @default(0) @map("free_months_remaining")
   depositAmount          Decimal               @default(0) @map("deposit_amount") @db.Decimal(10, 2)
   depositStatus          ContractDepositStatus @default(none) @map("deposit_status")
+  /// Liquidación de la fianza al finalizar: importe devuelto + fecha + motivo de
+  /// retención (daños/deuda). `depositStatus` transiciona held→returned/partially_returned.
+  depositReturnedAmount  Decimal               @default(0) @map("deposit_returned_amount") @db.Decimal(10, 2)
+  depositSettledAt       DateTime?             @map("deposit_settled_at") @db.Timestamptz(6)
+  depositRetentionReason String?               @map("deposit_retention_reason")
   signedPdfUrl           String?               @map("signed_pdf_url")
   /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
   signingTokenHash       String?               @map("signing_token_hash")
