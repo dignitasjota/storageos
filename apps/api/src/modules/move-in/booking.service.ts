@@ -19,6 +19,9 @@ import type {
   PublicBookingInput,
 } from '@storageos/shared';
 
+/** Plazo (horas) para firmar+pagar antes de que el hold de la unidad expire. */
+const BOOKING_HOLD_HOURS = 72;
+
 @Injectable()
 export class BookingService {
   constructor(
@@ -94,6 +97,13 @@ export class BookingService {
 
     const { unitId, customerId, priceMonthly, depositAmount } = await this.prisma.withTenant(
       async (tx) => {
+        // Hold de la unidad: dos bookings simultáneos sobre el último trastero
+        // no deben llevarse la misma unidad. Serializamos la selección+reserva
+        // por (tenant, tipo) con un advisory lock de transacción (se libera al
+        // commit); la segunda tx espera y elige OTRA unidad libre. Sin esto, el
+        // contrato draft deja la unidad `available` hasta firmar (ventana de 72 h)
+        // → otro booking la tomaba.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${input.unitTypeId}))`;
         const facility = await tx.facility.findFirst({
           where: { id: input.facilityId, deletedAt: null },
         });
@@ -121,6 +131,20 @@ export class BookingService {
             message: 'No quedan trasteros disponibles de ese tipo',
           });
         }
+        // Reserva la unidad (available → reserved): queda fuera de la
+        // disponibilidad hasta que se firme (→ occupied) o expire el plazo de
+        // pago (el BookingExpiryCron cancela y libera → available).
+        await tx.unit.update({ where: { id: unit.id }, data: { status: 'reserved' } });
+        await tx.unitStatusHistory.create({
+          data: {
+            tenantId,
+            unitId: unit.id,
+            previousStatus: 'available',
+            newStatus: 'reserved',
+            changedByUserId: null,
+            reason: 'Reserva online (booking self-service)',
+          },
+        });
         // Reutiliza el cliente por email si ya existe; si no, lo crea.
         const existing = await tx.customer.findFirst({
           where: { email: input.customer.email, deletedAt: null },
@@ -168,6 +192,15 @@ export class BookingService {
         autoRenew: true,
         cancellationNoticeDays: 15,
       },
+    });
+
+    // Plazo del hold: si el inquilino no firma+paga en 72 h, el BookingExpiryCron
+    // cancela el contrato (→ libera la unidad reservada). Sin este deadline, un
+    // booking abandonado dejaría la unidad `reserved` para siempre.
+    const holdDeadline = new Date(Date.now() + BOOKING_HOLD_HOURS * 60 * 60 * 1000);
+    await this.admin.contract.update({
+      where: { id: contract.id },
+      data: { firstPaymentDeadline: holdDeadline },
     });
 
     const { token } = await this.signatures.generateSigningToken(contract.id);
