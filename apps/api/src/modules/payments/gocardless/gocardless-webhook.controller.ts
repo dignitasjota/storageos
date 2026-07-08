@@ -15,6 +15,7 @@ import { Public } from '../../../common/decorators/public.decorator';
 import { PaymentsService } from '../payments.service';
 
 import { verifyGoCardlessSignature } from './gocardless-client';
+import { GoCardlessEventsService } from './gocardless-events.service';
 import { GoCardlessSettingsService } from './gocardless-settings.service';
 
 import type { Request } from 'express';
@@ -43,6 +44,7 @@ export class GoCardlessWebhookController {
   constructor(
     private readonly settings: GoCardlessSettingsService,
     private readonly payments: PaymentsService,
+    private readonly events: GoCardlessEventsService,
   ) {}
 
   @Public()
@@ -78,35 +80,52 @@ export class GoCardlessWebhookController {
       if (ev.resource_type !== 'payments') continue;
       const paymentId = ev.links?.payment;
       if (!paymentId) continue;
-      if (ev.action === 'confirmed' || ev.action === 'paid_out') {
-        // El cobro se ha hecho efectivo → marca la factura pagada (idempotente).
-        await this.payments.syncFromWebhook({
-          tenantId,
-          gatewayPaymentId: paymentId,
-          newStatus: 'succeeded',
-          paidAt: new Date(),
-        });
-      } else if (
-        ev.action === 'failed' ||
-        ev.action === 'cancelled' ||
-        ev.action === 'customer_approval_denied'
-      ) {
-        await this.payments.syncFromWebhook({
-          tenantId,
-          gatewayPaymentId: paymentId,
-          newStatus: 'failed',
-          failureReason: `gocardless:${ev.action}`,
-        });
-      } else if (ev.action === 'charged_back') {
-        // Devolución SEPA tras un cobro ya confirmado: revierte el payment
-        // `succeeded` → `failed`, resta el `amountPaid` y devuelve la factura a
-        // `overdue`/`issued` (idempotente; reusa el mismo flujo que los disputes
-        // de Stripe).
-        await this.payments.syncDisputeFromWebhook({
-          tenantId,
-          gatewayPaymentId: paymentId,
-          reason: 'charged_back',
-        });
+      // Dedup: GoCardless reentrega el lote completo y puede desordenar. Si el
+      // evento ya se procesó, se descarta (evita el doble conteo de amountPaid).
+      // Los eventos sin `id` (no debería ocurrir) se procesan sin dedup.
+      if (ev.id) {
+        const fresh = await this.events.markProcessed(ev.id, ev.action ?? 'unknown');
+        if (!fresh) {
+          this.logger.log(`Evento GoCardless duplicado ${ev.id} descartado (tenant ${tenantId})`);
+          continue;
+        }
+      }
+      try {
+        if (ev.action === 'confirmed' || ev.action === 'paid_out') {
+          // El cobro se ha hecho efectivo → marca la factura pagada (idempotente).
+          await this.payments.syncFromWebhook({
+            tenantId,
+            gatewayPaymentId: paymentId,
+            newStatus: 'succeeded',
+            paidAt: new Date(),
+          });
+        } else if (
+          ev.action === 'failed' ||
+          ev.action === 'cancelled' ||
+          ev.action === 'customer_approval_denied'
+        ) {
+          await this.payments.syncFromWebhook({
+            tenantId,
+            gatewayPaymentId: paymentId,
+            newStatus: 'failed',
+            failureReason: `gocardless:${ev.action}`,
+          });
+        } else if (ev.action === 'charged_back') {
+          // Devolución SEPA tras un cobro ya confirmado: revierte el payment
+          // `succeeded` → `failed`, resta el `amountPaid` y devuelve la factura a
+          // `overdue`/`issued` (idempotente; reusa el mismo flujo que los disputes
+          // de Stripe).
+          await this.payments.syncDisputeFromWebhook({
+            tenantId,
+            gatewayPaymentId: paymentId,
+            reason: 'charged_back',
+          });
+        }
+      } catch (err) {
+        // Si el procesamiento falla, liberamos el evento para que el reintento
+        // de GoCardless (mismo id) no se descarte como duplicado.
+        if (ev.id) await this.events.release(ev.id);
+        throw err;
       }
     }
     return { received: true };
