@@ -15,6 +15,7 @@ import {
   resolvePlanFeatures,
 } from '@storageos/shared';
 
+import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -134,6 +135,27 @@ export class AuthService {
           role: 'owner',
           // email_verified_at queda NULL hasta que el usuario verifique.
         },
+      });
+      // Siembra las plantillas transaccionales del tenant (bienvenida, factura
+      // vencida, contrato firmado, PIN de acceso, review…) para que los emails
+      // del ciclo de vida funcionen y sean editables en /message-templates.
+      // Atómico con el alta; el `enqueue` también cae a `BUILTIN_TEMPLATES` como
+      // red de seguridad si por lo que sea faltara alguna fila.
+      await tx.messageTemplate.createMany({
+        data: BUILTIN_TEMPLATES.map((b) => ({
+          tenantId: newTenant.id,
+          code: b.code,
+          kind: b.kind,
+          channel: b.channel,
+          name: b.name,
+          subject: b.subject,
+          bodyText: b.bodyText,
+          bodyHtml: b.bodyHtml,
+          locale: b.locale,
+          variables: b.variables,
+          metadata: b.trigger ? { trigger: b.trigger } : {},
+        })),
+        skipDuplicates: true,
       });
       return { tenant: newTenant, subscription: newSubscription, user: newUser };
     });
