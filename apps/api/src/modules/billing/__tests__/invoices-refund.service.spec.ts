@@ -110,6 +110,7 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
       gatewayPayment: {
         id: 'pay-1',
         gatewayPaymentId: 'pi_x',
+        gateway: 'stripe',
         amount: 100,
         refundedAmount: 0,
         status: 'succeeded',
@@ -166,6 +167,7 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
       gatewayPayment: {
         id: 'pay-1',
         gatewayPaymentId: 'pi_x',
+        gateway: 'stripe',
         amount: 100,
         refundedAmount: 0,
         status: 'succeeded',
@@ -183,6 +185,33 @@ describe('InvoicesService.refund — reembolso real vía pasarela', () => {
       }),
     ).rejects.toMatchObject({ response: { code: 'gateway_refund_failed' } });
     expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(tx.invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('cobro por GoCardless: 400 claro (no llama a Stripe) en vez de un 500', async () => {
+    const gatewayRefund = jest.fn();
+    const { service, tx } = buildService({
+      gatewayPayment: {
+        id: 'pay-1',
+        gatewayPaymentId: 'PM-gc-1',
+        gateway: 'gocardless',
+        amount: 100,
+        refundedAmount: 0,
+        status: 'succeeded',
+      },
+      gatewayRefund,
+    });
+
+    await expect(
+      service.refund({
+        tenantId: TENANT,
+        userId: 'user-1',
+        invoiceId: INVOICE,
+        input: { amount: 50 },
+        meta: {},
+      }),
+    ).rejects.toMatchObject({ response: { code: 'refund_not_supported_gateway' } });
+    expect(gatewayRefund).not.toHaveBeenCalled();
     expect(tx.invoice.update).not.toHaveBeenCalled();
   });
 });

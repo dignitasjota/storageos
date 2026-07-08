@@ -411,18 +411,20 @@ export class PaymentsService {
         },
       });
       if (args.newStatus === 'succeeded' && existing.invoiceId) {
-        const invoice = await tx.invoice.findUniqueOrThrow({
+        // amountPaid ATÓMICO: `increment` en vez de leer-calcular-escribir, para
+        // que dos webhooks concurrentes de la misma factura no se pisen (lost
+        // update). El nuevo total lo devuelve el propio update → decide el status.
+        const updated = await tx.invoice.update({
           where: { id: existing.invoiceId },
+          data: { amountPaid: { increment: existing.amount } },
+          select: { amountPaid: true, total: true },
         });
-        const newPaid = addAmounts(invoice.amountPaid, existing.amount);
-        const fully = isAtLeast(newPaid, invoice.total);
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            amountPaid: newPaid,
-            ...(fully ? { status: 'paid', paidAt: args.paidAt ?? new Date() } : {}),
-          },
-        });
+        if (isAtLeast(Number(updated.amountPaid), Number(updated.total))) {
+          await tx.invoice.update({
+            where: { id: existing.invoiceId },
+            data: { status: 'paid', paidAt: args.paidAt ?? new Date() },
+          });
+        }
       }
     }, args.tenantId);
   }
