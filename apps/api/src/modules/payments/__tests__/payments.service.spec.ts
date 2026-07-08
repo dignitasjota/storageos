@@ -77,11 +77,8 @@ describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
   it('primera transicion a succeeded actualiza el payment y suma amountPaid (marca paid si cubre el total)', async () => {
     const tx = buildTx();
     tx.payment.findFirst.mockResolvedValue(paymentRow({ status: 'processing' }));
-    tx.invoice.findUniqueOrThrow.mockResolvedValue({
-      id: INVOICE_ID,
-      total: 100,
-      amountPaid: 20,
-    });
+    // El increment atómico devuelve el nuevo total (amountPaid 20 + 80 = 100).
+    tx.invoice.update.mockResolvedValue({ amountPaid: 100, total: 100 });
     const service = buildService(tx);
 
     await service.syncFromWebhook({
@@ -97,10 +94,18 @@ describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
         data: expect.objectContaining({ status: 'succeeded' }),
       }),
     );
+    // 1er update: increment atómico del amountPaid.
     expect(tx.invoice.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: INVOICE_ID },
-        data: expect.objectContaining({ amountPaid: 100, status: 'paid' }),
+        data: expect.objectContaining({ amountPaid: { increment: 80 } }),
+      }),
+    );
+    // 2º update: como cubre el total, marca la factura pagada.
+    expect(tx.invoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: INVOICE_ID },
+        data: expect.objectContaining({ status: 'paid' }),
       }),
     );
   });

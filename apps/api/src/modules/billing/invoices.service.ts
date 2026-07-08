@@ -873,6 +873,15 @@ export class InvoicesService {
 
     let gatewayRefundId: string | null = null;
     if (gatewayPayment?.gatewayPaymentId) {
+      // El PAYMENT_GATEWAY inyectado es Stripe: reembolsar aquí un cobro de otra
+      // pasarela (GoCardless/Redsys) llamaría a Stripe con un id ajeno → 500.
+      // Se bloquea con un mensaje claro para hacerlo a mano en su pasarela.
+      if (gatewayPayment.gateway !== 'stripe') {
+        throw new BadRequestException({
+          code: 'refund_not_supported_gateway',
+          message: `Este cobro se hizo por ${gatewayPayment.gateway}; reembólsalo desde el panel de ${gatewayPayment.gateway} (aún no se puede desde la app).`,
+        });
+      }
       const paymentRefundable = subtractAmounts(
         gatewayPayment.amount,
         gatewayPayment.refundedAmount,
