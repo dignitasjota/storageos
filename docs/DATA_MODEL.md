@@ -223,7 +223,8 @@ Archivos del cliente.
 
 Contratos de alquiler.
 
-- id, tenant_id, customer_id, unit_id, contract_number (único por tenant), status (draft/active/ending/ended/cancelled), start_date, end_date (nullable si indefinido), billing_cycle (monthly/weekly/daily), price (la facturada), deposit_amount, deposit_status (none/held/returned/partially_returned), signed_at, signed_pdf_url, signature_provider, auto_renew, cancellation_notice_days, notes, deleted_at
+- id, tenant_id, customer_id, unit_id, contract_number (único por tenant), status (draft/active/ending/ended/cancelled), start_date, end_date (nullable si indefinido), billing_cycle (monthly/weekly/daily), price (la facturada), deposit_amount, deposit_status (none/held/returned/partially_returned), deposit_returned_amount, deposit_settled_at, deposit_retention_reason, first_payment_deadline (booking self-service), signed_at, signed_pdf_url, signature_provider, auto_renew, cancellation_notice_days, notes, deleted_at
+- **Anti-doble-ocupación (2026-07-09)**: índice único parcial `contracts_one_active_per_unit` sobre `(unit_id) WHERE status IN ('active','ending') AND deleted_at IS NULL` — máximo un contrato vivo por trastero (los draft no cuentan). Complementa el `pg_advisory_xact_lock(tenant, unit_id)` en `sign()`/`changeUnit()`. Prisma no soporta índices parciales → SQL crudo en la migración.
 
 ### `contract_events`
 
@@ -256,6 +257,7 @@ Reservas previas a la firma.
 ### `payments`
 
 - id, tenant_id, invoice_id, customer_id, amount, currency, method (card/sepa/cash/transfer/other), status (pending/processing/succeeded/failed/refunded), gateway (stripe/gocardless/redsys/manual), gateway_payment_id, gateway_response (jsonb), paid_at, refunded_at, failure_reason
+- **Anti-doble-cobro (2026-07-08)**: índice único parcial `payments_one_live_gateway_charge` sobre `(invoice_id) WHERE gateway IN ('stripe','gocardless') AND status IN ('pending','processing','succeeded')` — máximo un cobro de pasarela vivo por factura (los `manual`/efectivo quedan fuera → parciales OK). Complementa el `pg_advisory_xact_lock(tenant, invoice_id)` en `chargeInvoice`. `amountPaid` se actualiza con `increment` atómico (no read-modify-write). Dedup de webhooks entrantes: `processed_stripe_events` y `processed_gocardless_events` (PK = event id).
 
 ### `payment_methods`
 
