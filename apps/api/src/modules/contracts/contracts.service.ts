@@ -934,7 +934,70 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    await this.emitContractEnded(args.tenantId, updated);
     return this.toDto(updated);
+  }
+
+  /**
+   * Emite `domain.contract_ended` tras finalizar/cancelar un contrato vivo. Lo
+   * escuchan las automatizaciones de fin de contrato y `AccessIntegrationsService`
+   * (revoca las credenciales de acceso si al inquilino no le queda ningún
+   * contrato activo). Antes NO se emitía → PIN de acceso vivo tras la baja.
+   */
+  private async emitContractEnded(
+    tenantId: string,
+    contract: {
+      id: string;
+      customerId: string;
+      contractNumber: string;
+      priceMonthly: Prisma.Decimal;
+      startDate: Date;
+      endDate: Date | null;
+      unit: { code: string; facility: { name: string } };
+    },
+  ): Promise<void> {
+    const customer = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.findUnique({
+          where: { id: contract.customerId },
+          select: {
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            email: true,
+            phone: true,
+          },
+        }),
+      tenantId,
+    );
+    const displayName =
+      customer?.companyName?.trim() ||
+      `${customer?.firstName ?? ''} ${customer?.lastName ?? ''}`.trim();
+    const payload: DomainEventPayload = {
+      tenantId,
+      entityType: 'contract',
+      entityId: contract.id,
+      recipientEmail: customer?.email ?? null,
+      recipientPhone: customer?.phone ?? null,
+      customerId: contract.customerId,
+      scope: {
+        customer: {
+          firstName: customer?.firstName ?? '',
+          lastName: customer?.lastName ?? '',
+          displayName,
+          email: customer?.email ?? '',
+        },
+        contract: {
+          number: contract.contractNumber,
+          priceMonthly: Number(contract.priceMonthly).toFixed(2),
+          startDate: contract.startDate.toISOString().slice(0, 10),
+          endDate: contract.endDate?.toISOString().slice(0, 10) ?? '',
+        },
+        unit: { code: contract.unit.code },
+        facility: { name: contract.unit.facility.name },
+      },
+    };
+    this.eventBus.emit(DOMAIN_EVENTS.contract_ended, payload);
   }
 
   /**
@@ -1054,6 +1117,9 @@ export class ContractsService {
   }): Promise<ContractDto> {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'cancelled');
+    // Cancelar un contrato VIVO (no un draft) equivale a una baja: hay que
+    // revocar accesos y disparar las automatizaciones de fin de contrato.
+    const wasLive = existing.status === 'active' || existing.status === 'ending';
     const updated = await this.prisma.withTenant(async (tx) => {
       const row = await tx.contract.update({
         where: { id: args.contractId },
@@ -1118,6 +1184,7 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    if (wasLive) await this.emitContractEnded(args.tenantId, updated);
     return this.toDto(updated);
   }
 
