@@ -1082,18 +1082,24 @@ export class ContractsService {
         },
       });
       // Si el contrato estaba activo, liberar el unit.
-      if (existing.status === 'active' || existing.status === 'ending') {
-        const unit = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
-        if (unit.status === 'occupied') {
-          await this.syncUnitStatus(
-            tx,
-            args,
-            existing.unitId,
-            unit.status,
-            'available',
-            `Contrato ${row.contractNumber} cancelado`,
-          );
-        }
+      // Libera la unidad si estaba ocupada (contrato firmado) o RESERVADA (hold
+      // de un booking self-service que se cancela sin firmar, p. ej. por impago
+      // vía BookingExpiryCron). Sin liberar el `reserved`, la unidad quedaría
+      // retenida para siempre.
+      const unit = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
+      const releasable =
+        unit.status === 'reserved' ||
+        ((existing.status === 'active' || existing.status === 'ending') &&
+          unit.status === 'occupied');
+      if (releasable) {
+        await this.syncUnitStatus(
+          tx,
+          args,
+          existing.unitId,
+          unit.status,
+          'available',
+          `Contrato ${row.contractNumber} cancelado`,
+        );
       }
       return row;
     }, args.tenantId);
