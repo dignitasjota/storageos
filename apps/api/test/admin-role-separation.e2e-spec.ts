@@ -89,6 +89,14 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
       .send({ reason: 'x' });
     expect(imp.status).toBe(403);
 
+    // support → activar features de pago (palanca de plan) = 403.
+    const feats = await request(app.getHttpServer())
+      .put(`/admin/tenants/${owner.tenantId}/features`)
+      .set('Authorization', `Bearer ${supportToken}`)
+      .send({ overrides: [{ feature: 'ai_assistant', enabled: true }] });
+    expect(feats.status).toBe(403);
+    expect(feats.body.code).toBe('insufficient_super_admin_role');
+
     // support SÍ puede LEER (la lectura no está restringida).
     const read = await request(app.getHttpServer())
       .get('/admin/tenants/at-risk')

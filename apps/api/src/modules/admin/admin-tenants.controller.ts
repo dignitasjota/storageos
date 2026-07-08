@@ -629,6 +629,9 @@ export class AdminTenantsController {
     return this.tenants.getFeatures(id);
   }
 
+  // Los feature overrides son la palanca de plan (habilitan/deshabilitan
+  // funcionalidad de pago): igual que change-plan, solo superadmin, no `support`.
+  @RequireSuperadmin()
   @Put(':id/features')
   @HttpCode(HttpStatus.OK)
   async setFeatures(

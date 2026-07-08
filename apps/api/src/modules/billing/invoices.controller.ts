@@ -66,6 +66,7 @@ export class InvoicesController {
     private readonly billingJobs: BillingJobsService,
   ) {}
 
+  @RequirePermission('invoices:read')
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser,
@@ -84,6 +85,7 @@ export class InvoicesController {
     });
   }
 
+  @RequirePermission('invoices:read')
   @Get(':id')
   async detail(
     @CurrentUser() user: AuthenticatedUser,
@@ -259,6 +261,8 @@ export class InvoicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<{ pdfUrl: string }> {
+    // Alcance por local: asserta (403/404) antes de generar el PDF de la factura.
+    await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
     return this.pdf.generate(user.tenantId, id);
   }
 

@@ -73,6 +73,7 @@ export class PaymentsController {
       tenantId: user.tenantId,
       userId: user.sub,
       ids: body.ids,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
@@ -91,6 +92,7 @@ export class PaymentsController {
       userId: user.sub,
       invoiceId,
       input,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
