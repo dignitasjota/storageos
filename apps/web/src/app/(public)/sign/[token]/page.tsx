@@ -141,6 +141,35 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
           <CardTitle>Firma de contrato</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Desglose de precio con IVA ANTES de firmar (evita sorpresa en el
+              paso de pago). El alquiler lleva IVA 21%; la fianza es una garantía
+              sin IVA. */}
+          <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Cuota mensual (IVA incl.)</span>
+              <span className="font-semibold tabular-nums">
+                {(view.priceMonthly * 1.21).toFixed(2)} €
+              </span>
+            </div>
+            {view.depositAmount > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Fianza (una vez, sin IVA)</span>
+                <span className="font-semibold tabular-nums">
+                  {view.depositAmount.toFixed(2)} €
+                </span>
+              </div>
+            )}
+            <div className="mt-1 border-t pt-1.5 flex items-center justify-between">
+              <span className="font-medium">A pagar al activar</span>
+              <span className="font-semibold tabular-nums">
+                {(view.priceMonthly * 1.21 + view.depositAmount).toFixed(2)} €
+              </span>
+            </div>
+            <p className="pt-1 text-xs text-muted-foreground">
+              Si entras a mitad de mes, la primera cuota se prorratea por los días.
+            </p>
+          </div>
+
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-xs">
             {view.termsText}
           </pre>

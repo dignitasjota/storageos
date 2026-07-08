@@ -174,8 +174,8 @@ export default async function FacilityLandingPage({
                 </span>
               </span>
               <span className="font-semibold">
-                desde {formatPrice(t.priceMonthly)}
-                <span className="text-xs font-normal text-muted-foreground">/mes</span>
+                desde {formatPrice(t.priceMonthly * 1.21)}
+                <span className="text-xs font-normal text-muted-foreground">/mes · IVA incl.</span>
               </span>
             </li>
           ))}
