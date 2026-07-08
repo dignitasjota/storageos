@@ -38,11 +38,21 @@ export class PaymentsService {
 
   async list(
     tenantId: string,
-    filters: { invoiceId?: string; customerId?: string },
+    filters: { invoiceId?: string; customerId?: string; facilityScope?: string[] | null },
   ): Promise<PaymentDto[]> {
     const where: Prisma.PaymentWhereInput = {};
     if (filters.invoiceId) where.invoiceId = filters.invoiceId;
     if (filters.customerId) where.customerId = filters.customerId;
+    // Alcance por local: solo los pagos de facturas de contratos de sus locales.
+    // Los pagos de facturas sin contrato (sin local) se incluyen.
+    if (filters.facilityScope) {
+      where.invoice = {
+        OR: [
+          { contract: { unit: { facilityId: { in: filters.facilityScope } } } },
+          { contractId: null },
+        ],
+      };
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.payment.findMany({

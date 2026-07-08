@@ -55,6 +55,7 @@ export class PaymentsController {
     return this.payments.list(user.tenantId, {
       ...(invoiceId ? { invoiceId } : {}),
       ...(customerId ? { customerId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
