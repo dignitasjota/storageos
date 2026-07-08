@@ -177,10 +177,15 @@ export class RedsysService {
     const code = Number(dsResponse);
     const approved = Number.isFinite(code) && code >= 0 && code <= 99;
 
-    await this.prisma.withTenant(
+    // Transición ATÓMICA: `updateMany` condicionado a `status: 'pending'` → solo
+    // la PRIMERA notificación cambia el estado (count 1) y procede al cobro; una
+    // notificación concurrente o reentregada por Redsys ve count 0 y NO vuelve a
+    // llamar `markPaidManually` (evita un Payment duplicado). Sustituye al
+    // guard `status === 'paid'` leído fuera de transacción (no atómico).
+    const { count } = await this.prisma.withTenant(
       (tx) =>
-        tx.redsysOrder.update({
-          where: { order },
+        tx.redsysOrder.updateMany({
+          where: { order, status: 'pending' },
           data: {
             status: approved ? 'paid' : 'failed',
             dsResponse,
@@ -189,6 +194,10 @@ export class RedsysService {
         }),
       orderRow.tenantId,
     );
+    if (count === 0) {
+      this.logger.log(`[redsys] order ${order} ya procesada (notificación duplicada); ignorada`);
+      return;
+    }
 
     if (approved) {
       try {
