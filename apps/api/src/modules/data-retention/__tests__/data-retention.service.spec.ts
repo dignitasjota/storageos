@@ -20,7 +20,7 @@ function build() {
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
   } as unknown as ConfigService;
-  const service = new DataRetentionService(admin as unknown as PrismaAdminService, config);
+  const service = new DataRetentionService(admin as unknown as PrismaAdminService, config as never);
   return { service, admin };
 }
 
