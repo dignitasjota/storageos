@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import {
   type BookingAvailabilityDto,
   type BookingResultDto,
+  CaptureBookingLeadSchema,
   type ContractSignViewDto,
   PublicBookingSchema,
   PublicSignSubmitSchema,
@@ -19,6 +20,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class PublicBookingBody extends createZodDto(PublicBookingSchema) {}
+class CaptureBookingLeadBody extends createZodDto(CaptureBookingLeadSchema) {}
 class PublicSignBody extends createZodDto(PublicSignSubmitSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -57,6 +59,17 @@ export class MoveInPublicController {
     @Req() req: Request,
   ): Promise<BookingResultDto> {
     return this.booking.createBooking(slug, body, extractMeta(req));
+  }
+
+  /** Captura email-first: guarda un lead en cuanto el visitante deja su email. */
+  @Post('book/:slug/lead')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  captureLead(
+    @Param('slug') slug: string,
+    @Body() body: CaptureBookingLeadBody,
+    @Req() req: Request,
+  ): Promise<{ captured: boolean }> {
+    return this.booking.captureLead(slug, body, extractMeta(req));
   }
 
   @Get('sign/:token')

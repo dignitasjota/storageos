@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -16,6 +17,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   BookingAvailabilityDto,
   BookingResultDto,
+  CaptureBookingLeadInput,
   PublicBookingInput,
 } from '@storageos/shared';
 
@@ -24,6 +26,8 @@ const BOOKING_HOLD_HOURS = 72;
 
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly prisma: PrismaService,
@@ -31,6 +35,66 @@ export class BookingService {
     private readonly signatures: SignaturesService,
     private readonly referrals: ReferralsService,
   ) {}
+
+  /**
+   * Captura email-first: en cuanto el visitante deja su email en el booking,
+   * guardamos un lead para no perderlo si abandona antes de completar la reserva
+   * (visibilidad + remarketing). Idempotente por email: si ya hay un lead `new`
+   * reciente del mismo email, lo enriquece (local/tipo preferidos) en vez de
+   * duplicar. Best-effort: nunca lanza (no debe romper el flujo del formulario).
+   */
+  async captureLead(
+    slug: string,
+    input: CaptureBookingLeadInput,
+    meta: RequestMeta,
+  ): Promise<{ captured: boolean }> {
+    try {
+      if (input.website && input.website.trim() !== '') return { captured: false };
+      const tenant = await this.admin.tenant.findUnique({ where: { slug } });
+      if (!tenant || tenant.deletedAt) return { captured: false };
+      const tenantId = tenant.id;
+
+      await this.prisma.withTenant(async (tx) => {
+        // Dedup: un lead `new` del mismo email creado en las últimas 24 h (evita
+        // duplicar mientras el visitante teclea/reintenta).
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const existing = await tx.lead.findFirst({
+          where: { email: input.email, status: 'new', createdAt: { gte: since }, deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+        });
+        const data = {
+          ...(input.facilityId ? { preferredFacilityId: input.facilityId } : {}),
+          ...(input.unitTypeId ? { preferredUnitTypeId: input.unitTypeId } : {}),
+          ...(input.firstName?.trim() ? { firstName: input.firstName.trim() } : {}),
+        };
+        if (existing) {
+          if (Object.keys(data).length > 0) {
+            await tx.lead.update({ where: { id: existing.id }, data });
+          }
+          return;
+        }
+        await tx.lead.create({
+          data: {
+            tenantId,
+            source: 'widget',
+            email: input.email,
+            firstName: input.firstName?.trim() || null,
+            preferredFacilityId: input.facilityId ?? null,
+            preferredUnitTypeId: input.unitTypeId ?? null,
+            metadata: {
+              origin: 'booking',
+              userAgent: meta.userAgent ?? null,
+              ipAddress: meta.ipAddress ?? null,
+            },
+          },
+        });
+      }, tenantId);
+      return { captured: true };
+    } catch (err) {
+      this.logger.warn(`[booking] captura de lead best-effort falló: ${(err as Error).message}`);
+      return { captured: false };
+    }
+  }
 
   /** Disponibilidad pública por local y tipo (move-in). */
   async availability(slug: string): Promise<BookingAvailabilityDto> {
