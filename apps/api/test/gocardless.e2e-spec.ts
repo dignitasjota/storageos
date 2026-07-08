@@ -202,6 +202,18 @@ describe('GoCardless settings + webhook (e2e)', () => {
 
     const after = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
     expect(after.body.status).toBe('paid');
+    const paidOnce = after.body.amountPaid as number;
+
+    // Dedup: reenviar el MISMO evento `EV-pay` (GoCardless reentrega lotes) NO
+    // debe volver a sumar al amountPaid.
+    const dup = await request(app.getHttpServer())
+      .post(`/webhooks/gocardless/${owner.tenantId}`)
+      .set('Content-Type', 'application/json')
+      .set('Webhook-Signature', sig)
+      .send(body);
+    expect(dup.status).toBe(200);
+    const afterDup = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(afterDup.body.amountPaid).toBe(paidOnce);
 
     // Devolución (charged_back): revierte el cobro → la factura deja de estar pagada.
     const cbBody = JSON.stringify({

@@ -3234,6 +3234,17 @@ model ProcessedStripeEvent {
   @@map("processed_stripe_events")
 }
 
+/// Dedup de eventos entrantes de GoCardless (reentrega lotes / desordenado).
+model ProcessedGoCardlessEvent {
+  /// `event.id` de GoCardless (`EV...`).
+  id         String   @id
+  eventType  String   @map("event_type")
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([receivedAt])
+  @@map("processed_gocardless_events")
+}
+
 // ============================================================================
 // Fase 14A.3: API keys + webhooks salientes.
 // ============================================================================

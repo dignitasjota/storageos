@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { PaymentsModule } from '../payments.module';
 
 import { GoCardlessCoreModule } from './gocardless-core.module';
+import { GoCardlessEventsService } from './gocardless-events.service';
 import { GoCardlessMandatesService } from './gocardless-mandates.service';
 import { GoCardlessWebhookController } from './gocardless-webhook.controller';
 import { GoCardlessController } from './gocardless.controller';
@@ -20,7 +21,7 @@ import { GoCardlessController } from './gocardless.controller';
 @Module({
   imports: [GoCardlessCoreModule, PaymentsModule],
   controllers: [GoCardlessController, GoCardlessWebhookController],
-  providers: [GoCardlessMandatesService],
+  providers: [GoCardlessMandatesService, GoCardlessEventsService],
   exports: [GoCardlessMandatesService],
 })
 export class GoCardlessModule {}
