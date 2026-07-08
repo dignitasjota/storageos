@@ -103,6 +103,9 @@ export interface ContractDto {
   freeMonthsRemaining: number;
   depositAmount: number;
   depositStatus: ContractDepositStatusValue;
+  depositReturnedAmount: number;
+  depositSettledAt: string | null;
+  depositRetentionReason: string | null;
   signedPdfUrl: string | null;
   insurancePlanId: string | null;
   insurancePlanName: string | null;

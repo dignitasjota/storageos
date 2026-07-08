@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { resolvePlanFeatures } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { isAtLeast, isGreaterThan, subtractAmounts } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -31,6 +32,7 @@ import type {
   ContractStatusValue,
   CreateContractInput,
   PortalContractDto,
+  SettleDepositInput,
   UpdateContractInput,
 } from '@storageos/shared';
 
@@ -440,6 +442,11 @@ export class ContractsService {
           // La firma consume el token remoto (si lo había).
           signingTokenHash: null,
           signingTokenExpiresAt: null,
+          // Si el contrato lleva fianza, queda RETENIDA al activarse (se liquida
+          // al finalizar vía settleDeposit). No pisa un estado ya avanzado.
+          ...(Number(existing.depositAmount) > 0 && existing.depositStatus === 'none'
+            ? { depositStatus: 'held' as const }
+            : {}),
         },
         include: {
           customer: {
@@ -925,6 +932,112 @@ export class ContractsService {
     return this.toDto(updated);
   }
 
+  /**
+   * Liquida la fianza retenida al finalizar el contrato: devuelve total o
+   * parcialmente el depósito, reteniendo el resto por daños/deuda (con motivo).
+   * Transiciona `depositStatus` held → returned/partially_returned. La devolución
+   * NO es una factura (la fianza es una garantía sin IVA); se registra en el
+   * contrato + timeline + audit. El operador decide cuánto devolver (viendo la
+   * deuda pendiente en la UI). Reutiliza el evento `note_added` con payload
+   * tipado (el enum no tiene `deposit_settled`, patrón del proyecto).
+   */
+  async settleDeposit(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    input: SettleDepositInput;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    if (existing.depositStatus !== 'held') {
+      throw new BadRequestException({
+        code: 'deposit_not_held',
+        message: 'La fianza no está retenida (nada que liquidar)',
+      });
+    }
+    const deposit = Number(existing.depositAmount);
+    const returned = args.input.returnedAmount;
+    if (returned < 0 || isGreaterThan(returned, deposit)) {
+      throw new BadRequestException({
+        code: 'invalid_return_amount',
+        message: `El importe a devolver debe estar entre 0 y ${deposit.toFixed(2)} €`,
+      });
+    }
+    const retained = subtractAmounts(deposit, returned);
+    const fullyReturned = isAtLeast(returned, deposit);
+    const newStatus: 'returned' | 'partially_returned' = fullyReturned
+      ? 'returned'
+      : 'partially_returned';
+    // Si se retiene algo, el motivo es obligatorio (trazabilidad legal).
+    if (isGreaterThan(retained, 0) && !args.input.retentionReason?.trim()) {
+      throw new BadRequestException({
+        code: 'retention_reason_required',
+        message: 'Indica el motivo de la retención (daños, deuda pendiente, …)',
+      });
+    }
+
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.contract.update({
+        where: { id: args.contractId },
+        data: {
+          depositStatus: newStatus,
+          depositReturnedAmount: returned,
+          depositSettledAt: new Date(),
+          depositRetentionReason: isGreaterThan(retained, 0)
+            ? (args.input.retentionReason?.trim() ?? null)
+            : null,
+        },
+        include: {
+          customer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              customerType: true,
+            },
+          },
+          unit: {
+            select: {
+              code: true,
+              facilityId: true,
+              facility: { select: { name: true } },
+            },
+          },
+          insurancePlan: { select: { name: true } },
+        },
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'note_added',
+          payload: {
+            event: 'deposit_settled',
+            deposit,
+            returned,
+            retained,
+            retentionReason: args.input.retentionReason?.trim() ?? null,
+          },
+          createdByUserId: args.userId,
+        },
+      });
+      return row;
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.deposit_settled',
+      entityType: 'Contract',
+      entityId: updated.id,
+      changes: { deposit, returned, retained, status: newStatus },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
   async cancel(args: {
     tenantId: string;
     /** `null` cuando lo lanza un proceso automático (cron de bookings impagados). */
@@ -1403,6 +1516,9 @@ export class ContractsService {
       freeMonthsRemaining: row.freeMonthsRemaining,
       depositAmount: Number(row.depositAmount),
       depositStatus: row.depositStatus,
+      depositReturnedAmount: Number(row.depositReturnedAmount),
+      depositSettledAt: row.depositSettledAt ? row.depositSettledAt.toISOString() : null,
+      depositRetentionReason: row.depositRetentionReason,
       signedPdfUrl: row.signedPdfUrl,
       insurancePlanId: row.insurancePlanId,
       insurancePlanName: row.insurancePlan?.name ?? null,

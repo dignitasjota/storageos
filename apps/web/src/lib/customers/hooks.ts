@@ -13,6 +13,7 @@ import type {
   ConvertReservationInput,
   CreateContractInput,
   RequestSignatureResultDto,
+  SettleDepositInput,
   SignContractInput,
   InspectionPhotoDto,
   InspectionPhotoUploadDto,
@@ -258,6 +259,7 @@ export const useRequestEndContract = makeContractAction<undefined>('request-end'
 export const useEndContract = makeContractAction<undefined>('end');
 export const useCancelContract = makeContractAction<CancelContractInput>('cancel');
 export const useChangeContractPrice = makeContractAction<ChangeContractPriceInput>('change-price');
+export const useSettleDeposit = makeContractAction<SettleDepositInput>('settle-deposit');
 
 export function useAddContractNote() {
   const qc = useQueryClient();

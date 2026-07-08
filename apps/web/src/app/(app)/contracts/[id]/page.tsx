@@ -16,6 +16,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { DepositCard, depositStatusLabel } from './deposit-card';
 import { InspectionPhotosCard } from './inspection-photos-card';
 
 import { ContractStatusBadge } from '@/components/contract-status-badge';
@@ -257,7 +258,7 @@ export default function ContractDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-xl font-semibold tabular-nums">{c.depositAmount.toFixed(2)} €</p>
-            <p className="text-xs text-muted-foreground">Estado: {c.depositStatus}</p>
+            <p className="text-xs text-muted-foreground">{depositStatusLabel(c.depositStatus)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -284,6 +285,8 @@ export default function ContractDetailPage() {
         planName={c.insurancePlanName}
         price={c.insurancePrice}
       />
+
+      <DepositCard contract={c} />
 
       <InspectionPhotosCard contractId={c.id} kind="checkin" />
       <InspectionPhotosCard contractId={c.id} kind="checkout" />
