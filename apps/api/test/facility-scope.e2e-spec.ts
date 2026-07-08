@@ -1,6 +1,8 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
+import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { extractToken, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -111,5 +113,46 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     // El owner (sin asignaciones) sigue viendo los dos locales.
     const ownerFacs = await request(app.getHttpServer()).get('/facilities').set(ownerAuth);
     expect(ownerFacs.body.length).toBeGreaterThanOrEqual(2);
+
+    // === Facturas y pagos también respetan el scope por local ===
+    await ensureDefaultSeries(app, owner.accessToken);
+    const custA = await createCustomer(app, owner.accessToken);
+    const custB = await createCustomer(app, owner.accessToken);
+    // Un contrato + factura emitida en CADA local.
+    const mkInvoice = async (unitId: string, customerId: string): Promise<string> => {
+      const c = await request(app.getHttpServer()).post('/contracts').set(ownerAuth).send({
+        customerId,
+        unitId,
+        startDate: '2026-05-01',
+        priceMonthly: 50,
+        depositAmount: 0,
+      });
+      const inv = await request(app.getHttpServer())
+        .post('/invoices')
+        .set(ownerAuth)
+        .send({
+          customerId,
+          contractId: c.body.id,
+          items: [{ description: 'Cuota', quantity: 1, unitPrice: 50, taxRate: 21 }],
+        });
+      return inv.body.id as string;
+    };
+    const invA = await mkInvoice(facA.unitIds[0]!, custA);
+    const invB = await mkInvoice(facB.unitIds[0]!, custB);
+
+    // El staff (solo local A) ve la factura de A pero NO la de B.
+    const staffInvoices = await request(app.getHttpServer()).get('/invoices').set(staffAuth);
+    const staffInvoiceIds = (staffInvoices.body as { id: string }[]).map((i) => i.id);
+    expect(staffInvoiceIds).toContain(invA);
+    expect(staffInvoiceIds).not.toContain(invB);
+
+    // El detalle de la factura del local B → 403 para el staff.
+    const detailB = await request(app.getHttpServer()).get(`/invoices/${invB}`).set(staffAuth);
+    expect(detailB.status).toBe(403);
+
+    // El owner ve ambas.
+    const ownerInvoices = await request(app.getHttpServer()).get('/invoices').set(ownerAuth);
+    const ownerInvoiceIds = (ownerInvoices.body as { id: string }[]).map((i) => i.id);
+    expect(ownerInvoiceIds).toEqual(expect.arrayContaining([invA, invB]));
   });
 });

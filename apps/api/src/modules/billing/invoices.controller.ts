@@ -80,6 +80,7 @@ export class InvoicesController {
       ...(customerId ? { customerId } : {}),
       ...(contractId ? { contractId } : {}),
       ...(overdue === 'true' ? { overdue: true } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -88,7 +89,7 @@ export class InvoicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<InvoiceDto> {
-    return this.invoices.detail(user.tenantId, id);
+    return this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('invoices:write')

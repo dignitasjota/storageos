@@ -11,6 +11,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
+import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { AuditService } from '../auth/audit.service';
@@ -75,6 +76,8 @@ interface ListFilters {
   customerId?: string;
   contractId?: string;
   overdue?: boolean;
+  /** Locales a los que el usuario está restringido; null/undefined = todos. */
+  facilityScope?: string[] | null;
 }
 
 @Injectable()
@@ -108,6 +111,15 @@ export class InvoicesService {
       where.status = { in: ['issued', 'overdue'] };
       where.dueDate = { lt: new Date() };
     }
+    // Alcance por local: un usuario restringido solo ve las facturas de contratos
+    // de sus locales. Las facturas SIN contrato (F2/ventas de producto) no están
+    // ancladas a un local → se incluyen (no son "la caja" de un local ajeno).
+    if (filters.facilityScope) {
+      where.OR = [
+        { contract: { unit: { facilityId: { in: filters.facilityScope } } } },
+        { contractId: null },
+      ];
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findMany({
@@ -120,8 +132,13 @@ export class InvoicesService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<InvoiceDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(tenantId: string, id: string, facilityScope?: string[] | null): Promise<InvoiceDto> {
+    const row = await this.findOrThrow(tenantId, id);
+    // Alcance por local: no se puede ver por id una factura de un contrato de un
+    // local fuera del scope. Las facturas sin contrato (sin local) se permiten.
+    const facilityId = row.contract?.unit?.facility?.id;
+    if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
+    return this.toDto(row);
   }
 
   async create(args: {
