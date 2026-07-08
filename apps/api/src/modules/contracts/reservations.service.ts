@@ -97,6 +97,7 @@ export class ReservationsService {
     tenantId: string;
     userId: string;
     input: CreateReservationInput;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ReservationDto> {
     const validFrom = new Date(args.input.validFrom);
@@ -107,6 +108,8 @@ export class ReservationsService {
       if (!unit) {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
+      // Alcance por local: no se puede reservar una unidad de un local ajeno.
+      assertFacilityAllowed(args.facilityScope, unit.facilityId);
       if (
         unit.status === 'occupied' ||
         unit.status === 'maintenance' ||

@@ -159,6 +159,24 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     expect(mutateB.status).toBe(403);
     expect(mutateB.body.code).toBe('facility_not_in_scope');
 
+    // Tampoco puede COBRAR (charge) una factura del local B → 403.
+    const chargeB = await request(app.getHttpServer())
+      .post(`/payments/invoices/${invB}/charge`)
+      .set(staffAuth)
+      .send({});
+    expect(chargeB.status).toBe(403);
+    expect(chargeB.body.code).toBe('facility_not_in_scope');
+
+    // La caja GLOBAL (sin facilityId) no es accesible para un usuario con scope.
+    const cashGlobal = await request(app.getHttpServer()).get('/cash/summary').set(staffAuth);
+    expect(cashGlobal.status).toBe(400);
+    expect(cashGlobal.body.code).toBe('facility_required');
+    // Pero la de su local A sí.
+    const cashA = await request(app.getHttpServer())
+      .get(`/cash/summary?facilityId=${facA.facilityId}`)
+      .set(staffAuth);
+    expect(cashA.status).toBe(200);
+
     // El owner ve ambas.
     const ownerInvoices = await request(app.getHttpServer()).get('/invoices').set(ownerAuth);
     const ownerInvoiceIds = (ownerInvoices.body as { id: string }[]).map((i) => i.id);

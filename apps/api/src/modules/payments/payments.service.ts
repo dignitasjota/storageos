@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -81,19 +82,29 @@ export class PaymentsService {
     userId: string | null;
     invoiceId: string;
     input: ChargeInvoiceInput;
+    /** Locales a los que el usuario está restringido; null/undefined = todos. */
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<PaymentDto> {
     const invoice = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findFirst({
           where: { id: args.invoiceId, deletedAt: null },
-          include: { customer: { select: { id: true } } },
+          include: {
+            customer: { select: { id: true } },
+            contract: { select: { unit: { select: { facilityId: true } } } },
+          },
         }),
       args.tenantId,
     );
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
+    // Alcance por local: no se puede cobrar una factura de un contrato de un
+    // local fuera del scope del usuario. Las facturas sin contrato (F2/ventas)
+    // no están ancladas a un local → permitidas.
+    const facilityId = invoice.contract?.unit?.facilityId;
+    if (facilityId) assertFacilityAllowed(args.facilityScope, facilityId);
     if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
       throw new BadRequestException({
         code: 'invoice_not_payable',
@@ -255,6 +266,7 @@ export class PaymentsService {
     tenantId: string;
     userId: string;
     ids: string[];
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<BulkInvoiceActionResultDto> {
     const succeeded: string[] = [];
@@ -266,6 +278,7 @@ export class PaymentsService {
           userId: args.userId,
           invoiceId,
           input: {},
+          facilityScope: args.facilityScope ?? null,
           meta: args.meta,
         });
         succeeded.push(invoiceId);

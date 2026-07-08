@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { subtractAmounts } from '../../common/money';
@@ -36,6 +36,14 @@ export class CashService {
     facilityId?: string | null,
     facilityScope?: string[] | null,
   ): Promise<CashDaySummaryDto> {
+    // Un usuario restringido a ciertos locales no puede ver la caja GLOBAL (la de
+    // todos los locales): debe elegir uno de los suyos.
+    if (facilityScope && !facilityId) {
+      throw new BadRequestException({
+        code: 'facility_required',
+        message: 'Debes seleccionar un local (tu acceso está limitado por local)',
+      });
+    }
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
     const { gte, lt } = this.dayRange(date);
     // Filtro de pagos: por local (vía invoice→contract→unit→facility) o global.

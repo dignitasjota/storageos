@@ -87,6 +87,7 @@ export class ReservationsController {
       tenantId: user.tenantId,
       userId: user.sub,
       input,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }
