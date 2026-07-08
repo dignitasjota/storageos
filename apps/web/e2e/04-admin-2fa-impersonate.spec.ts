@@ -61,9 +61,10 @@ test.describe('Super admin + impersonación', () => {
     await expect(tenantCard.first()).toBeVisible({ timeout: 10_000 });
     await tenantCard.first().click();
 
-    // Botón "Impersonar"
+    // "Impersonar" vive ahora dentro del menú "⋮ Más" (acciones poco frecuentes).
     await expect(page).toHaveURL(/\/admin\/tenants\/[a-f0-9-]+/);
-    const impBtn = page.getByRole('button', { name: /Impersonar/i }).first();
+    await page.getByRole('button', { name: /Más acciones/i }).click();
+    const impBtn = page.getByRole('menuitem', { name: /Impersonar/i }).first();
     await expect(impBtn).toBeVisible({ timeout: 10_000 });
     await impBtn.click();
 
