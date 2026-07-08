@@ -150,6 +150,15 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const detailB = await request(app.getHttpServer()).get(`/invoices/${invB}`).set(staffAuth);
     expect(detailB.status).toBe(403);
 
+    // Tampoco puede MUTAR por id una factura del local B (el staff tiene
+    // invoices:write para mark-paid; el scope se asserta en el service) → 403.
+    const mutateB = await request(app.getHttpServer())
+      .post(`/invoices/${invB}/mark-paid`)
+      .set(staffAuth)
+      .send({ amount: 10, methodType: 'cash' });
+    expect(mutateB.status).toBe(403);
+    expect(mutateB.body.code).toBe('facility_not_in_scope');
+
     // El owner ve ambas.
     const ownerInvoices = await request(app.getHttpServer()).get('/invoices').set(ownerAuth);
     const ownerInvoiceIds = (ownerInvoices.body as { id: string }[]).map((i) => i.id);

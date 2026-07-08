@@ -133,12 +133,7 @@ export class InvoicesService {
   }
 
   async detail(tenantId: string, id: string, facilityScope?: string[] | null): Promise<InvoiceDto> {
-    const row = await this.findOrThrow(tenantId, id);
-    // Alcance por local: no se puede ver por id una factura de un contrato de un
-    // local fuera del scope. Las facturas sin contrato (sin local) se permiten.
-    const facilityId = row.contract?.unit?.facility?.id;
-    if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
-    return this.toDto(row);
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
   async create(args: {
@@ -265,10 +260,11 @@ export class InvoicesService {
     tenantId: string;
     userId: string;
     invoiceId: string;
+    facilityScope?: string[] | null;
     input: UpdateInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     if (existing.status !== 'draft' && args.input.items !== undefined) {
       throw new BadRequestException({
         code: 'invoice_not_editable',
@@ -324,9 +320,10 @@ export class InvoicesService {
     tenantId: string;
     userId: string | null;
     invoiceId: string;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     this.assertTransition(existing.status as InvoiceStatusValue, 'issued');
 
     const updated = await this.prisma.withTenant(async (tx) => {
@@ -461,9 +458,12 @@ export class InvoicesService {
   async createLateFee(args: {
     tenantId: string;
     invoiceId: string;
+    facilityScope?: string[] | null;
     userId: string | null;
   }): Promise<InvoiceDto> {
     const { tenantId, invoiceId } = args;
+    // Alcance por local: asertar antes de crear el recargo.
+    await this.findOrThrow(tenantId, invoiceId, args.facilityScope);
     const { customerId, invoiceLabel, fee } = await this.prisma.withTenant(async (tx) => {
       const original = await tx.invoice.findFirst({
         where: { id: invoiceId, tenantId },
@@ -623,10 +623,11 @@ export class InvoicesService {
     /** `null` cuando lo lanza un proceso automático (cron de bookings impagados). */
     userId: string | null;
     invoiceId: string;
+    facilityScope?: string[] | null;
     input: CancelInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     this.assertTransition(existing.status as InvoiceStatusValue, 'cancelled');
     const updated = await this.prisma.withTenant(
       (tx) =>
@@ -655,10 +656,11 @@ export class InvoicesService {
     tenantId: string;
     userId: string | null;
     invoiceId: string;
+    facilityScope?: string[] | null;
     input: MarkPaidManuallyInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     if (existing.status !== 'issued' && existing.status !== 'overdue') {
       throw new BadRequestException({
         code: 'invoice_not_payable',
@@ -748,9 +750,10 @@ export class InvoicesService {
     invoiceId: string;
     amount: number;
     reason: string;
+    facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     if (Number(existing.amountPaid) <= 0) {
       throw new BadRequestException({
         code: 'nothing_to_revert',
@@ -798,10 +801,11 @@ export class InvoicesService {
     tenantId: string;
     userId: string;
     invoiceId: string;
+    facilityScope?: string[] | null;
     input: RefundInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId);
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     if (existing.status !== 'paid' && existing.status !== 'partially_refunded') {
       throw new BadRequestException({
         code: 'invoice_not_refundable',
@@ -924,11 +928,16 @@ export class InvoicesService {
   async rectify(args: {
     originalInvoiceId: string;
     tenantId: string;
+    facilityScope?: string[] | null;
     userId: string;
     input: RectifyInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const original = await this.findOrThrow(args.tenantId, args.originalInvoiceId);
+    const original = await this.findOrThrow(
+      args.tenantId,
+      args.originalInvoiceId,
+      args.facilityScope,
+    );
 
     if (original.status === 'draft' || original.status === 'cancelled') {
       throw new BadRequestException({
@@ -1050,7 +1059,11 @@ export class InvoicesService {
     return { updated: result.count };
   }
 
-  private async findOrThrow(tenantId: string, id: string): Promise<InvoiceWithRelations> {
+  private async findOrThrow(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<InvoiceWithRelations> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findFirst({
@@ -1065,6 +1078,11 @@ export class InvoicesService {
         message: 'Factura no encontrada',
       });
     }
+    // Alcance por local: un usuario restringido no puede ver ni mutar por id una
+    // factura de un contrato de un local fuera de su scope. Las facturas sin
+    // contrato (F2/ventas de producto, sin local) se permiten.
+    const facilityId = row.contract?.unit?.facility?.id;
+    if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
     return row;
   }
 

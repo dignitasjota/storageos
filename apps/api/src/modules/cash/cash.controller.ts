@@ -16,6 +16,8 @@ import type { Request } from 'express';
 
 class CloseCashDto extends createZodDto(CloseCashSchema) {}
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
   const ip = req.ip;
@@ -35,16 +37,18 @@ export class CashController {
   summary(
     @CurrentUser() user: AuthenticatedUser,
     @Query('date') date?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<CashDaySummaryDto> {
     const day =
       date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10);
-    return this.cash.getDaySummary(user.tenantId, day);
+    const fac = facilityId && UUID_RE.test(facilityId) ? facilityId : null;
+    return this.cash.getDaySummary(user.tenantId, day, fac, user.facilityScope ?? null);
   }
 
   @RequirePermission('payments:read')
   @Get('closures')
   closures(@CurrentUser() user: AuthenticatedUser): Promise<CashClosureDto[]> {
-    return this.cash.listClosures(user.tenantId);
+    return this.cash.listClosures(user.tenantId, user.facilityScope ?? null);
   }
 
   /** Cierra la caja del día (arqueo): registra el efectivo contado + diferencia. */
@@ -59,6 +63,7 @@ export class CashController {
       tenantId: user.tenantId,
       userId: user.sub,
       input: body,
+      facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });
   }

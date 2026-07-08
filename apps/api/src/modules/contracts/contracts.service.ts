@@ -5,15 +5,17 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { resolvePlanFeatures } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
-import { isAtLeast, isGreaterThan, subtractAmounts } from '../../common/money';
+import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
+import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 import { PromotionsService } from '../promotions/promotions.service';
 
@@ -67,12 +69,15 @@ interface ListFilters {
 
 @Injectable()
 export class ContractsService {
+  private readonly logger = new Logger(ContractsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly pricing: PricingService,
     private readonly eventBus: EventEmitter2,
     private readonly promotions: PromotionsService,
+    private readonly invoices: InvoicesService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<ContractDto[]> {
@@ -1293,6 +1298,7 @@ export class ContractsService {
     contractId: string;
     newUnitId: string;
     newPrice?: number;
+    prorate?: boolean;
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
@@ -1303,6 +1309,7 @@ export class ContractsService {
         message: 'Solo se puede trasladar un contrato activo',
       });
     }
+    const oldPrice = Number(existing.priceMonthly);
     if (args.newUnitId === existing.unitId) {
       throw new BadRequestException({
         code: 'same_unit',
@@ -1378,6 +1385,59 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+
+    // Prorrateo del ajuste: si el traslado sube la cuota y se pidió prorate,
+    // se emite una factura por la DIFERENCIA prorrateada por los días que restan
+    // del mes natural (el resto del mes ya se pagó al precio viejo). Si baja o
+    // no cambia, no se factura (el ahorro llega en la próxima recurrente).
+    if (args.prorate && args.newPrice != null && existing.customerId) {
+      const newPrice = args.newPrice;
+      if (isGreaterThan(newPrice, oldPrice)) {
+        const now = new Date();
+        const y = now.getUTCFullYear();
+        const m = now.getUTCMonth();
+        const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+        const remainingDays = daysInMonth - now.getUTCDate() + 1; // incluye hoy
+        const diff = subtractAmounts(newPrice, oldPrice);
+        const adjustment = Math.round((toCents(diff) * remainingDays) / daysInMonth) / 100;
+        if (adjustment > 0) {
+          try {
+            const draft = await this.invoices.create({
+              tenantId: args.tenantId,
+              userId: args.userId,
+              meta: args.meta,
+              input: {
+                invoiceType: 'F1',
+                customerId: existing.customerId,
+                contractId: args.contractId,
+                items: [
+                  {
+                    description: `Ajuste por cambio de trastero (${remainingDays} días)`,
+                    quantity: 1,
+                    unitPrice: adjustment,
+                    taxRate: 21,
+                  },
+                ],
+                verifactuMode: 'verifactu',
+              },
+            });
+            await this.invoices.issue({
+              tenantId: args.tenantId,
+              userId: args.userId,
+              invoiceId: draft.id,
+              meta: args.meta,
+            });
+          } catch (err) {
+            // Best-effort: el traslado ya está hecho; si la factura falla (p. ej.
+            // sin serie por defecto) queda registrado y no se bloquea el traslado.
+            this.logger.warn(
+              `changeUnit: no se pudo emitir la factura de ajuste del contrato ${args.contractId}: ${String(err)}`,
+            );
+          }
+        }
+      }
+    }
+
     return this.toDto(updated);
   }
 

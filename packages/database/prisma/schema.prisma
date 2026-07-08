@@ -820,6 +820,7 @@ model Facility {
   productSales     ProductSale[]     @relation("ProductSaleFacility")
   accessDevices    AccessDevice[]    @relation("DeviceFacility")
   userFacilities   UserFacility[]
+  cashClosures     CashClosure[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -3602,6 +3603,8 @@ model CustomerFollowup {
 model CashClosure {
   id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId      String   @map("tenant_id") @db.Uuid
+  /// NULL = caja global del tenant; con valor = arqueo de un local concreto.
+  facilityId    String?  @map("facility_id") @db.Uuid
   closureDate   DateTime @map("closure_date") @db.Date
   expectedCash  Decimal  @default(0) @map("expected_cash") @db.Decimal(10, 2)
   countedCash   Decimal  @default(0) @map("counted_cash") @db.Decimal(10, 2)
@@ -3611,10 +3614,13 @@ model CashClosure {
   closedAt      DateTime @default(now()) @map("closed_at") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  closedBy User?  @relation("CashClosureAuthor", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  closedBy User?     @relation("CashClosureAuthor", fields: [closedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([tenantId, closureDate])
+  // Unicidad real (cierre único global/por-local por día) via índices parciales
+  // en SQL (migración 20260708150000): Prisma no representa índices parciales.
+  @@index([tenantId, closureDate])
   @@map("cash_closures")
 }
 

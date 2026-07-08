@@ -11,12 +11,15 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useCashClosures, useCashSummary, useCloseCash } from '@/lib/cash/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
 export default function CashPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const summary = useCashSummary(date);
+  const [facilityId, setFacilityId] = useState(''); // '' = caja global
+  const facilities = useFacilities();
+  const summary = useCashSummary(date, facilityId || undefined);
   const closures = useCashClosures();
   const close = useCloseCash();
   const [counted, setCounted] = useState('');
@@ -35,6 +38,7 @@ export default function CashPage() {
       await close.mutateAsync({
         date,
         countedCash,
+        ...(facilityId ? { facilityId } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       });
       toast.success('Caja cerrada.');
@@ -56,14 +60,31 @@ export default function CashPage() {
           </h1>
           <p className="text-sm text-muted-foreground">Arqueo del efectivo cobrado en el día.</p>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Día</Label>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-40"
-          />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Caja</Label>
+            <select
+              className="h-10 w-48 rounded-md border bg-background px-3 text-sm"
+              value={facilityId}
+              onChange={(e) => setFacilityId(e.target.value)}
+            >
+              <option value="">Global (todos los locales)</option>
+              {(facilities.data ?? []).map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Día</Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-40"
+            />
+          </div>
         </div>
       </div>
 
@@ -170,6 +191,7 @@ export default function CashPage() {
                 <thead className="text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="py-1">Día</th>
+                    <th className="py-1">Caja</th>
                     <th className="py-1 text-right">Esperado</th>
                     <th className="py-1 text-right">Contado</th>
                     <th className="py-1 text-right">Diferencia</th>
@@ -180,6 +202,7 @@ export default function CashPage() {
                   {(closures.data ?? []).map((c) => (
                     <tr key={c.id} className="border-t">
                       <td className="py-1.5">{c.date}</td>
+                      <td className="py-1.5 text-muted-foreground">{c.facilityName ?? 'Global'}</td>
                       <td className="py-1.5 text-right tabular-nums">{eur(c.expectedCash)}</td>
                       <td className="py-1.5 text-right tabular-nums">{eur(c.countedCash)}</td>
                       <td

@@ -3,6 +3,7 @@ import request from 'supertest';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -74,5 +75,70 @@ describe('Cierre de caja (arqueo) (e2e)', () => {
     expect(summary2.body.closure.difference).toBe(-1);
     const closures = await request(app.getHttpServer()).get('/cash/closures').set(auth);
     expect((closures.body as { date: string }[]).some((c) => c.date === today)).toBe(true);
+  });
+
+  it('la caja por local es independiente de la global', async () => {
+    const owner = await registerVerifiedUser(app, 'cashfac');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const { facilityId, unitIds } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+    });
+    const customerId = await createCustomer(app, owner.accessToken);
+
+    // Contrato en el local → factura → cobro en efectivo (queda anclado al local).
+    const contract = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-05-01',
+      priceMonthly: 50,
+      depositAmount: 0,
+    });
+    const inv = await request(app.getHttpServer())
+      .post('/invoices')
+      .set(auth)
+      .send({
+        customerId,
+        contractId: contract.body.id,
+        items: [{ description: 'Cuota', quantity: 1, unitPrice: 50, taxRate: 0 }],
+      });
+    await request(app.getHttpServer()).post(`/invoices/${inv.body.id}/issue`).set(auth).expect(200);
+    await request(app.getHttpServer())
+      .post(`/invoices/${inv.body.id}/mark-paid`)
+      .set(auth)
+      .send({ amount: 50, methodType: 'cash' })
+      .expect(200);
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    // El resumen del LOCAL refleja los 50 € de efectivo de ese local.
+    const facSummary = await request(app.getHttpServer())
+      .get(`/cash/summary?date=${today}&facilityId=${facilityId}`)
+      .set(auth);
+    expect(facSummary.body.facilityId).toBe(facilityId);
+    expect(facSummary.body.cash).toBe(50);
+
+    // Cierro la caja del LOCAL.
+    const closeFac = await request(app.getHttpServer())
+      .post('/cash/close')
+      .set(auth)
+      .send({ date: today, countedCash: 50, facilityId });
+    expect(closeFac.status).toBe(201);
+    expect(closeFac.body.facilityId).toBe(facilityId);
+
+    // La caja GLOBAL del mismo día sigue abierta (índice parcial): puedo cerrarla.
+    const closeGlobal = await request(app.getHttpServer())
+      .post('/cash/close')
+      .set(auth)
+      .send({ date: today, countedCash: 50 });
+    expect(closeGlobal.status).toBe(201);
+    expect(closeGlobal.body.facilityId).toBeNull();
+
+    // Re-cerrar el local → 409.
+    const again = await request(app.getHttpServer())
+      .post('/cash/close')
+      .set(auth)
+      .send({ date: today, countedCash: 50, facilityId });
+    expect(again.status).toBe(409);
   });
 });
