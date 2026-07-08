@@ -15,6 +15,7 @@ interface TxMock {
   payment: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock; count: jest.Mock };
   invoice: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock; update: jest.Mock };
   paymentMethod: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
+  $executeRaw: jest.Mock;
 }
 
 function buildTx(): TxMock {
@@ -33,6 +34,8 @@ function buildTx(): TxMock {
       update: jest.fn().mockResolvedValue(undefined),
     },
     paymentMethod: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn() },
+    // Advisory lock (`pg_advisory_xact_lock`) del guard anti-doble-cobro.
+    $executeRaw: jest.fn().mockResolvedValue(1),
   };
 }
 

@@ -200,6 +200,8 @@ export class RedsysService {
             amount: orderRow.amountCents / 100,
             methodType: 'card',
             notes: `Redsys ${order}`,
+            // Confirmación de un pago real por Redsys: salta el guard de adeudo en vuelo.
+            overridePaymentInFlight: true,
           },
           meta: {},
         });

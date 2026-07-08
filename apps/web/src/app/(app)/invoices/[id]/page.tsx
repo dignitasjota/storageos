@@ -108,6 +108,7 @@ export default function InvoiceDetailPage() {
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidAmount, setPaidAmount] = useState(0);
   const [paidMethod, setPaidMethod] = useState<'cash' | 'bank_transfer' | 'card'>('cash');
+  const [paidOverride, setPaidOverride] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundAmount, setRefundAmount] = useState(0);
   const [refundReason, setRefundReason] = useState('');
@@ -534,6 +535,24 @@ export default function InvoiceDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+            {paidMethod !== 'cash' && paidAmount > 0 && paidAmount < Number(i.total) && (
+              <p className="text-xs text-destructive">
+                Los pagos parciales solo se admiten en efectivo; por otra vía debe saldarse el
+                total.
+              </p>
+            )}
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={paidOverride}
+                onChange={(e) => setPaidOverride(e.target.checked)}
+              />
+              <span>
+                Pagar de otra forma pese a un adeudo SEPA/tarjeta en curso (márcalo solo si sabes
+                que el adeudo no se va a cobrar).
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPaidOpen(false)}>
@@ -544,9 +563,14 @@ export default function InvoiceDetailPage() {
                 safe(async () => {
                   await markPaid.mutateAsync({
                     id: i.id,
-                    body: { amount: paidAmount, methodType: paidMethod },
+                    body: {
+                      amount: paidAmount,
+                      methodType: paidMethod,
+                      ...(paidOverride ? { overridePaymentInFlight: true } : {}),
+                    },
                   });
                   setPaidOpen(false);
+                  setPaidOverride(false);
                 }, 'Pago registrado.')
               }
               disabled={paidAmount <= 0}
