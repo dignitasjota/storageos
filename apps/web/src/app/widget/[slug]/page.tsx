@@ -45,7 +45,7 @@ export default function WidgetPage({ params }: PageProps) {
       phone: '',
       message: '',
       hp: '',
-      acceptsTerms: true,
+      acceptsTerms: false,
       acceptsMarketing: false,
     },
   });
@@ -106,12 +106,65 @@ export default function WidgetPage({ params }: PageProps) {
     );
   }
 
+  // Tipos con disponibilidad (el backend ya los trae con precio y plazas).
+  const availableTypes = facilities
+    .flatMap((f) => f.unitTypes.map((t) => ({ ...t, facilityName: f.name })))
+    .filter((t) => t.availableUnits > 0);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Reservar trastero</CardTitle>
+        <CardTitle>Trasteros disponibles</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {availableTypes.length > 0 && (
+          <div className="space-y-2">
+            <ul className="space-y-2">
+              {availableTypes.map((t) => (
+                <li
+                  key={`${t.facilityName}-${t.id}`}
+                  className="flex items-start justify-between gap-3 rounded-md border p-2.5 text-sm"
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <span
+                        className="inline-block size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: t.color }}
+                        aria-hidden
+                      />
+                      {t.name}
+                    </span>
+                    {t.description && (
+                      <span className="block text-xs text-muted-foreground">{t.description}</span>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {t.facilityName} · {t.availableUnits} disponible
+                      {t.availableUnits === 1 ? '' : 's'}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right font-semibold tabular-nums">
+                    {(t.defaultPriceMonthly * 1.21).toLocaleString('es-ES', {
+                      style: 'currency',
+                      currency: 'EUR',
+                      maximumFractionDigits: 0,
+                    })}
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      /mes · IVA incl.
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <Button asChild className="w-full">
+              <a href={`/book/${slug}`} target="_blank" rel="noopener noreferrer">
+                Reservar online
+              </a>
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              o déjanos tus datos y te llamamos:
+            </p>
+          </div>
+        )}
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
           <div>
             <Label htmlFor="firstName">Nombre*</Label>
@@ -165,6 +218,16 @@ export default function WidgetPage({ params }: PageProps) {
             style={{ position: 'absolute', left: '-9999px', height: 0, width: 0 }}
             aria-hidden="true"
           />
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="acceptsTerms"
+              checked={form.watch('acceptsTerms')}
+              onCheckedChange={(v) => form.setValue('acceptsTerms', Boolean(v))}
+            />
+            <Label htmlFor="acceptsTerms" className="text-xs">
+              He leído y acepto la política de privacidad y el tratamiento de mis datos.*
+            </Label>
+          </div>
           <div className="flex items-center gap-2">
             <Checkbox
               id="acceptsMarketing"
@@ -175,7 +238,11 @@ export default function WidgetPage({ params }: PageProps) {
             </Label>
           </div>
           {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-          <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={form.formState.isSubmitting || !form.watch('acceptsTerms')}
+          >
             {form.formState.isSubmitting ? 'Enviando...' : 'Enviar solicitud'}
           </Button>
         </form>

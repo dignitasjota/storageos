@@ -23,7 +23,7 @@ test.describe('Widget público de leads', () => {
 
     // Form visible (espera explícita porque facilities se cargan async).
     // `CardTitle` de shadcn renderiza un <div>, no un heading: usamos getByText.
-    await expect(page.getByText(/Reservar trastero/i)).toBeVisible({
+    await expect(page.getByText(/Trasteros disponibles/i)).toBeVisible({
       timeout: 10_000,
     });
 
@@ -34,6 +34,9 @@ test.describe('Widget público de leads', () => {
     await page.locator('#email').fill('smoke-widget@e2e.local');
     await page.locator('#phone').fill('+34600000000');
     await page.locator('#message').fill('Interesado vía smoke test');
+
+    // Consentimiento RGPD: el botón de envío está deshabilitado sin marcarlo.
+    await page.locator('#acceptsTerms').click();
 
     await page.getByRole('button', { name: /Enviar solicitud/i }).click();
 

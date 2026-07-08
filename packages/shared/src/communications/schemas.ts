@@ -228,8 +228,8 @@ export const WidgetLeadSchema = z.object({
   estimatedDurationMonths: z.number().int().min(1).max(120).optional(),
   /** Honeypot: cualquier valor distinto de vacio se trata como bot en el service. */
   hp: z.string().max(200).optional(),
-  /** ConsentLM. */
-  acceptsTerms: z.literal(true),
+  /** Consentimiento RGPD del tratamiento de datos: obligatorio (debe ser true). */
+  acceptsTerms: z.boolean().refine((v) => v === true, 'Debes aceptar el tratamiento de datos'),
   acceptsMarketing: z.boolean().default(false),
   ...utmFields,
 });
