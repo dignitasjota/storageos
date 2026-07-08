@@ -33,6 +33,7 @@ import { ContractsModule } from './modules/contracts/contracts.module';
 import { CustomerMessagesModule } from './modules/customer-messages/customer-messages.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DataRetentionModule } from './modules/data-retention/data-retention.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
@@ -146,6 +147,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     CryptoModule,
     DatabaseModule,
     SecurityEventsModule,
+    DataRetentionModule,
     EmailModule,
     HealthModule,
     AuthModule,

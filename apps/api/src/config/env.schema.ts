@@ -195,6 +195,17 @@ export const envSchema = z.object({
    *  un tenant que dispara 1000 events/dia, 30d = 30k filas. */
   WEBHOOK_DELIVERIES_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 
+  // --- Retención de datos (cron diario 04:00; borra filas antiguas de las
+  //     tablas de crecimiento ilimitado para no llenar el disco del VPS) ---
+  /** Audit logs: 24 meses por defecto (traza de compliance; conservador). */
+  RETENTION_AUDIT_LOGS_DAYS: z.coerce.number().int().positive().default(730),
+  /** Registro de accesos físicos (alto volumen): 180 días. */
+  RETENTION_ACCESS_LOGS_DAYS: z.coerce.number().int().positive().default(180),
+  /** Outbox de comunicaciones (emails/WhatsApp enviados): 180 días. */
+  RETENTION_COMMUNICATIONS_DAYS: z.coerce.number().int().positive().default(180),
+  /** Feed de notificaciones in-app: 90 días. */
+  RETENTION_NOTIFICATIONS_DAYS: z.coerce.number().int().positive().default(90),
+
   // --- OpenAPI / Swagger ---
   /** Activa la documentacion interactiva en `/api/docs`. En produccion el
    *  default es `false`; cuando lo activamos para inspeccion temporal,
