@@ -336,6 +336,60 @@ services:
     expose:
       - '3000'
 
+  # ---------------------------------------------------------------------------
+  # Backup DENTRO del stack (perfil `backup`, opt-in): respalda Postgres a diario
+  # sin depender del crontab del host. Conecta directo a `postgres` por la red
+  # interna (no usa docker socket): pg_dump custom → cifrado GPG AES-256 → subida
+  # a Backblaze B2 (S3-compatible). Retención local BACKUP_RETENTION_DAYS.
+  # Activar: COMPOSE_PROFILES=backup. Ver docs/DEPLOYMENT.md §6D.
+  # ---------------------------------------------------------------------------
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    profiles: ['backup']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_GPG_PASSPHRASE: ${BACKUP_GPG_PASSPHRASE:?Falta BACKUP_GPG_PASSPHRASE}
+      B2_ENDPOINT: ${B2_ENDPOINT:?Falta B2_ENDPOINT}
+      B2_BUCKET: ${B2_BUCKET:?Falta B2_BUCKET}
+      B2_REGION: ${B2_REGION:-us-west-000}
+      AWS_ACCESS_KEY_ID: ${B2_ACCESS_KEY_ID:?Falta B2_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${B2_SECRET_ACCESS_KEY:?Falta B2_SECRET_ACCESS_KEY}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - backup-data:/backups
+    networks:
+      - storageos-net
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        apk add --no-cache gnupg aws-cli >/dev/null
+        echo "[backup] servicio listo (intervalo ${BACKUP_INTERVAL_SECONDS}s)"
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          dump="/backups/db-$${ts}.dump"; enc="$${dump}.gpg"
+          echo "[backup] $${ts} pg_dump..."
+          if pg_dump --format=custom --compress=9 --no-owner --no-privileges > "$${dump}"; then
+            gpg --batch --yes --quiet --passphrase "$${BACKUP_GPG_PASSPHRASE}" \
+              --symmetric --cipher-algo AES256 -o "$${enc}" "$${dump}" && rm -f "$${dump}"
+            aws --endpoint-url "$${B2_ENDPOINT}" --region "$${B2_REGION}" \
+              s3 cp "$${enc}" "s3://$${B2_BUCKET}/postgres/db-$${ts}.dump.gpg" \
+              && echo "[backup] subido a B2" || echo "[backup] fallo subida B2"
+            find /backups -name '*.gpg' -mtime +$${BACKUP_RETENTION_DAYS} -delete
+          else
+            echo "[backup] pg_dump FALLO"; rm -f "$${dump}"
+          fi
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
+        done
+
 # -----------------------------------------------------------------------------
 # Red interna - aisla los servicios del host. NPM se conecta a esta red
 # como cliente externo (declarado en el compose de NPM con `external: true`).
@@ -353,6 +407,8 @@ volumes:
     name: storageos-postgres-data
   redis-data:
     name: storageos-redis-data
+  backup-data:
+    name: storageos-backup-data
   minio-data:
     name: storageos-minio-data
   loki-data:

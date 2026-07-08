@@ -232,6 +232,19 @@ export const SettleDepositSchema = z.object({
 });
 export type SettleDepositInput = z.infer<typeof SettleDepositSchema>;
 
+/** Renovación de contrato: extiende el fin N meses. */
+export const RenewContractSchema = z.object({
+  months: z.number().int().min(1).max(60),
+});
+export type RenewContractInput = z.infer<typeof RenewContractSchema>;
+
+/** Traslado de trastero: nueva unidad + cuota opcional. */
+export const ChangeUnitSchema = z.object({
+  newUnitId: z.string().uuid(),
+  newPrice: positiveDecimal.optional(),
+});
+export type ChangeUnitInput = z.infer<typeof ChangeUnitSchema>;
+
 export const CancelContractSchema = z.object({
   reason: optionalText(500),
 });

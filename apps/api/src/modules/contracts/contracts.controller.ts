@@ -14,6 +14,8 @@ import {
 } from '@nestjs/common';
 import {
   AddContractNoteSchema,
+  ChangeUnitSchema,
+  RenewContractSchema,
   SettleDepositSchema,
   AssignInsuranceSchema,
   CancelContractSchema,
@@ -45,6 +47,8 @@ class SignContractDto extends createZodDto(SignContractSchema) {}
 class AddContractNoteDto extends createZodDto(AddContractNoteSchema) {}
 class CancelContractDto extends createZodDto(CancelContractSchema) {}
 class SettleDepositDto extends createZodDto(SettleDepositSchema) {}
+class RenewContractDto extends createZodDto(RenewContractSchema) {}
+class ChangeUnitDto extends createZodDto(ChangeUnitSchema) {}
 class AssignInsuranceDto extends createZodDto(AssignInsuranceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -216,6 +220,45 @@ export class ContractsController {
       userId: user.sub,
       contractId: id,
       input: body,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('contracts:manage')
+  @Post(':id/renew')
+  @HttpCode(HttpStatus.OK)
+  async renew(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: RenewContractDto,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.renew({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      months: body.months,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  @RequirePermission('contracts:manage')
+  @Post(':id/change-unit')
+  @HttpCode(HttpStatus.OK)
+  async changeUnit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ChangeUnitDto,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.changeUnit({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      newUnitId: body.newUnitId,
+      ...(body.newPrice != null ? { newPrice: body.newPrice } : {}),
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });

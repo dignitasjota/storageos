@@ -46,14 +46,17 @@ import {
   useAddContractNote,
   useCancelContract,
   useChangeContractPrice,
+  useChangeUnit,
   useContract,
   useContractEvents,
   useEndContract,
   useGenerateContractPdf,
+  useRenewContract,
   useRequestEndContract,
   useRequestSignature,
   useSignContract,
 } from '@/lib/customers/hooks';
+import { useUnits } from '@/lib/facilities/hooks';
 import { useInsurancePlans, useSetContractInsurance } from '@/lib/insurance/hooks';
 
 const EVENT_LABELS: Record<string, string> = {
@@ -81,6 +84,8 @@ export default function ContractDetailPage() {
   const end = useEndContract();
   const cancel = useCancelContract();
   const changePrice = useChangeContractPrice();
+  const renew = useRenewContract();
+  const changeUnit = useChangeUnit();
   const addNote = useAddContractNote();
   const generatePdf = useGenerateContractPdf();
   const canWriteC = useHasPermission('contracts:write');
@@ -89,6 +94,12 @@ export default function ContractDetailPage() {
   const [priceOpen, setPriceOpen] = useState(false);
   const [priceValue, setPriceValue] = useState(0);
   const [priceReason, setPriceReason] = useState('');
+  const [renewOpen, setRenewOpen] = useState(false);
+  const [renewMonths, setRenewMonths] = useState(12);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [newUnitId, setNewUnitId] = useState('');
+  const [newPrice, setNewPrice] = useState('');
+  const availableUnits = useUnits({ status: 'available' });
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [note, setNote] = useState('');
@@ -200,6 +211,23 @@ export default function ContractDetailPage() {
                 }}
               >
                 Cambiar precio
+              </Button>
+            )}
+            {(c.status === 'active' || c.status === 'ending') && canManageC && (
+              <Button variant="outline" onClick={() => setRenewOpen(true)}>
+                Renovar
+              </Button>
+            )}
+            {(c.status === 'active' || c.status === 'ending') && canManageC && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setNewUnitId('');
+                  setNewPrice('');
+                  setMoveOpen(true);
+                }}
+              >
+                Trasladar
               </Button>
             )}
             {c.status !== 'ended' && c.status !== 'cancelled' && canManageC && (
@@ -389,6 +417,109 @@ export default function ContractDetailPage() {
               disabled={priceValue <= 0 || !priceReason.trim()}
             >
               Aplicar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renovar: extiende el fin del contrato N meses. */}
+      <Dialog open={renewOpen} onOpenChange={setRenewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renovar contrato</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Meses a añadir</Label>
+              <Input
+                type="number"
+                min={1}
+                max={60}
+                value={renewMonths}
+                onChange={(e) => setRenewMonths(Number(e.target.value))}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Se suma al fin actual{c.endDate ? ` (${c.endDate})` : ' (desde hoy)'}. Si el
+                contrato está en baja, vuelve a activo.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenewOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() =>
+                handle(async () => {
+                  await renew.mutateAsync({ id: c.id, body: { months: renewMonths } });
+                  setRenewOpen(false);
+                }, 'Contrato renovado.')
+              }
+              disabled={renewMonths < 1}
+            >
+              Renovar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Traslado de trastero: reasigna la unidad. */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Trasladar de trastero</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Nuevo trastero (disponible)</Label>
+              <select
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                value={newUnitId}
+                onChange={(e) => setNewUnitId(e.target.value)}
+              >
+                <option value="">Elige un trastero…</option>
+                {(availableUnits.data?.items ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.code} · {u.facilityName} ({u.basePriceMonthly.toFixed(2)} €/mes)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Nueva cuota (€, opcional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={newPrice}
+                onChange={(e) => setNewPrice(e.target.value)}
+                placeholder="Dejar vacío para mantener la actual"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Libera el trastero actual y ocupa el nuevo. La próxima factura sale con el trastero (y
+              precio) nuevos.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() =>
+                handle(async () => {
+                  await changeUnit.mutateAsync({
+                    id: c.id,
+                    body: {
+                      newUnitId,
+                      ...(newPrice.trim() ? { newPrice: Number(newPrice) } : {}),
+                    },
+                  });
+                  setMoveOpen(false);
+                }, 'Contrato trasladado.')
+              }
+              disabled={!newUnitId}
+            >
+              Trasladar
             </Button>
           </DialogFooter>
         </DialogContent>
