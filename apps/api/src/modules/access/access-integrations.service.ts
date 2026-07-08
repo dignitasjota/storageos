@@ -188,4 +188,56 @@ export class AccessIntegrationsService {
       `access_block ejecutado tenant=${args.tenantId} customer=${args.customerId} invoice=${args.invoiceId}`,
     );
   }
+
+  /**
+   * Al finalizar/cancelar un contrato, revoca las credenciales de acceso del
+   * inquilino SI no le queda ningún contrato `active`/`ending`. Las credenciales
+   * son por-customer (no por-contrato): si tiene un segundo trastero vigente,
+   * NO se le corta el acceso. Cierra el agujero de un ex-inquilino con PIN vivo.
+   */
+  @OnEvent(DOMAIN_EVENTS.contract_ended, { async: true, promisify: true })
+  async onContractEnded(payload: DomainEventPayload): Promise<void> {
+    const customerId = payload.customerId;
+    if (!customerId) return;
+    // ¿Le queda algún contrato vivo? El que acaba de terminar ya está en BD como
+    // ended/cancelled, así que un count de active/ending lo excluye.
+    const liveContracts = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.count({
+          where: {
+            customerId,
+            status: { in: ['active', 'ending'] },
+            deletedAt: null,
+          },
+        }),
+      payload.tenantId,
+    );
+    if (liveContracts > 0) {
+      this.logger.log(
+        `contract_ended: customer=${customerId} conserva ${liveContracts} contrato(s) vivo(s); no se revoca el acceso`,
+      );
+      return;
+    }
+    const active = await this.credentials.listForCustomer(payload.tenantId, customerId);
+    for (const cred of active) {
+      try {
+        await this.credentials.revoke({
+          tenantId: payload.tenantId,
+          userId: 'system',
+          id: cred.id,
+          meta: {},
+        });
+      } catch (err) {
+        // Best-effort: no romper el fin de contrato si una credencial falla.
+        this.logger.warn(
+          `contract_ended: no se pudo revocar credential ${cred.id}: ${String(err)}`,
+        );
+      }
+    }
+    if (active.length > 0) {
+      this.logger.log(
+        `contract_ended: revocadas ${active.length} credencial(es) del customer=${customerId} (sin contratos vivos)`,
+      );
+    }
+  }
 }
