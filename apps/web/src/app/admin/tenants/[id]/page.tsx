@@ -11,7 +11,7 @@ import {
   ImpersonateSchema,
   type ImpersonateInput,
 } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Mail, MoreVertical, Pencil } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -43,6 +43,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Form,
   FormControl,
@@ -133,12 +139,25 @@ export default function AdminTenantDetailPage() {
           </div>
           <p className="text-sm text-muted-foreground">/{t.slug}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setEditOpen(true)}>
-            Editar
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Acciones frecuentes: Editar y Email como icono (aria-label + title). */}
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Editar"
+            title="Editar"
+            onClick={() => setEditOpen(true)}
+          >
+            <Pencil className="size-4" />
           </Button>
-          <Button variant="outline" onClick={() => setEmailOpen(true)}>
-            Email
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Enviar email"
+            title="Enviar email"
+            onClick={() => setEmailOpen(true)}
+          >
+            <Mail className="size-4" />
           </Button>
           {t.status !== 'suspended' && (
             <Button variant="destructive" onClick={() => setDialog('suspend')}>
@@ -148,20 +167,28 @@ export default function AdminTenantDetailPage() {
           {t.status === 'suspended' && (
             <Button onClick={() => setDialog('reactivate')}>Reactivar</Button>
           )}
-          <Button variant="outline" onClick={() => setDialog('extendTrial')}>
-            Extender trial
-          </Button>
-          {t.status === 'trial' && (
-            <Button variant="outline" onClick={() => setDialog('endTrial')}>
-              Finalizar prueba
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => setDialog('impersonate')}>
-            Impersonar
-          </Button>
-          <Button variant="destructive" onClick={() => setDialog('anonymize')}>
-            Anonimizar (RGPD)
-          </Button>
+          {/* Extender/Finalizar trial se movieron a la card «Suscripción» (acción
+              contextual junto al estado del trial). */}
+          {/* Acciones poco frecuentes / sensibles bajo un menú (Anonimizar es
+              irreversible: mejor que no esté a un clic accidental). */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Más acciones" title="Más acciones">
+                <MoreVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setDialog('impersonate')}>
+                Impersonar
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDialog('anonymize')}
+              >
+                Anonimizar (RGPD)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -224,6 +251,18 @@ export default function AdminTenantDetailPage() {
                   </>
                 ) : (
                   <p className="text-muted-foreground">Sin suscripción activa.</p>
+                )}
+                {/* Acciones de trial: solo tienen sentido mientras el tenant
+                    está en periodo de prueba. */}
+                {t.status === 'trial' && (
+                  <div className="flex flex-wrap gap-2 border-t pt-3">
+                    <Button variant="outline" size="sm" onClick={() => setDialog('extendTrial')}>
+                      Extender trial
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setDialog('endTrial')}>
+                      Finalizar prueba
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
