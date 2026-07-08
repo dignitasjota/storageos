@@ -319,6 +319,9 @@ model Tenant {
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
   autoChargeOnIssue           Boolean               @default(false) @map("auto_charge_on_issue")
+  /// Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas
+  /// en borrador para revisión manual.
+  autoIssueRecurring          Boolean               @default(false) @map("auto_issue_recurring")
   /// Recargo por mora (opt-in): a los `lateFeeGraceDays` de vencimiento se
   /// emite una factura de recargo (% del vencido o € fijo) vía el dunning.
   lateFeeEnabled              Boolean               @default(false) @map("late_fee_enabled")

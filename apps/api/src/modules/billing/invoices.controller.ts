@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  BulkInvoiceActionSchema,
+  type BulkInvoiceActionResultDto,
   CancelInvoiceSchema,
   CreateInvoiceSchema,
   type InvoiceDto,
@@ -42,6 +44,7 @@ class UpdateInvoiceDto extends createZodDto(UpdateInvoiceSchema) {}
 class CancelInvoiceDto extends createZodDto(CancelInvoiceSchema) {}
 class RefundInvoiceDto extends createZodDto(RefundInvoiceSchema) {}
 class MarkPaidManuallyDto extends createZodDto(MarkPaidManuallySchema) {}
+class BulkInvoiceActionDto extends createZodDto(BulkInvoiceActionSchema) {}
 class RectifyInvoiceDto extends createZodDto(RectifyInvoiceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -116,6 +119,24 @@ export class InvoicesController {
       userId: user.sub,
       invoiceId: id,
       input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Emite N borradores en lote (cierre mensual). ANTES de `:id/issue` para que
+   *  `bulk` no se interprete como un `:id`. */
+  @RequirePermission('invoices:manage')
+  @Post('bulk/issue')
+  @HttpCode(HttpStatus.OK)
+  async bulkIssue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkInvoiceActionDto,
+    @Req() req: Request,
+  ): Promise<BulkInvoiceActionResultDto> {
+    return this.invoices.bulkIssue({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      ids: body.ids,
       meta: extractMeta(req),
     });
   }

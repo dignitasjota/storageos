@@ -143,6 +143,7 @@ export interface TenantSecuritySettingsResponse {
  */
 export interface TenantBillingSettingsResponse {
   autoChargeOnIssue: boolean;
+  autoIssueRecurring: boolean;
   lateFeeEnabled: boolean;
   lateFeeType: 'percentage' | 'fixed';
   lateFeeValue: number;

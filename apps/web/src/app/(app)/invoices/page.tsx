@@ -17,6 +17,7 @@ import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -34,7 +35,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useCreateInvoice, useInvoices } from '@/lib/billing/hooks';
+import {
+  useBulkChargeInvoices,
+  useBulkIssueInvoices,
+  useCreateInvoice,
+  useInvoices,
+} from '@/lib/billing/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 
 const SIMPLIFIED_JUSTIFICATION_LABELS: Record<SimplifiedJustificationValue, string> = {
@@ -85,6 +91,53 @@ export default function InvoicesPage() {
   });
   const customers = useCustomers();
   const createInvoice = useCreateInvoice();
+  const bulkIssue = useBulkIssueInvoices();
+  const bulkCharge = useBulkChargeInvoices();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const rows = invoices.data ?? [];
+  const selectableDraft = rows.filter((i) => i.status === 'draft').map((i) => i.id);
+  const selectableChargeable = rows
+    .filter((i) => i.status === 'issued' || i.status === 'overdue')
+    .map((i) => i.id);
+  const selectedList = [...selectedIds];
+  const selectedDraft = selectedList.filter((id) => selectableDraft.includes(id));
+  const selectedChargeable = selectedList.filter((id) => selectableChargeable.includes(id));
+
+  function toggleRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function reportBulk(res: { succeeded: string[]; failed: { id: string; error: string }[] }) {
+    setSelectedIds(new Set());
+    if (res.failed.length === 0) {
+      toast.success(`${res.succeeded.length} factura(s) procesada(s).`);
+    } else {
+      toast.warning(
+        `${res.succeeded.length} OK, ${res.failed.length} con error (${res.failed[0]?.error ?? ''}…).`,
+      );
+    }
+  }
+
+  async function onBulkIssue() {
+    try {
+      reportBulk(await bulkIssue.mutateAsync(selectedDraft));
+    } catch {
+      toast.error('No se pudo emitir el lote.');
+    }
+  }
+  async function onBulkCharge() {
+    try {
+      reportBulk(await bulkCharge.mutateAsync(selectedChargeable));
+    } catch {
+      toast.error('No se pudo cobrar el lote.');
+    }
+  }
 
   const newTotal = newItems.reduce((acc, it) => {
     const sub = it.quantity * it.unitPrice;
@@ -93,6 +146,34 @@ export default function InvoicesPage() {
   const exceedsBasicF2 = newType === 'F2' && newTotal > 400.001;
 
   const columns: ColumnDef<InvoiceDto>[] = [
+    {
+      id: 'select',
+      header: () => {
+        const selectable = [...selectableDraft, ...selectableChargeable];
+        const allSelected = selectable.length > 0 && selectable.every((id) => selectedIds.has(id));
+        return (
+          <Checkbox
+            checked={allSelected}
+            aria-label="Seleccionar todas"
+            onCheckedChange={(v) =>
+              setSelectedIds(v ? new Set([...selectableDraft, ...selectableChargeable]) : new Set())
+            }
+          />
+        );
+      },
+      cell: ({ row }) => {
+        const i = row.original;
+        const selectable = i.status === 'draft' || i.status === 'issued' || i.status === 'overdue';
+        if (!selectable) return null;
+        return (
+          <Checkbox
+            checked={selectedIds.has(i.id)}
+            aria-label={`Seleccionar ${i.invoiceNumber}`}
+            onCheckedChange={() => toggleRow(i.id)}
+          />
+        );
+      },
+    },
     {
       accessorKey: 'invoiceNumber',
       header: 'Número',
@@ -222,6 +303,33 @@ export default function InvoicesPage() {
           Solo vencidas
         </Button>
       </div>
+
+      {selectedIds.size > 0 && (
+        <Can permission="invoices:manage">
+          <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <span className="font-medium">{selectedIds.size} seleccionada(s)</span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedDraft.length === 0 || bulkIssue.isPending}
+              onClick={onBulkIssue}
+            >
+              Emitir {selectedDraft.length > 0 ? `(${selectedDraft.length})` : ''}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedChargeable.length === 0 || bulkCharge.isPending}
+              onClick={onBulkCharge}
+            >
+              Cobrar {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+              Limpiar
+            </Button>
+          </div>
+        </Can>
+      )}
 
       <DataTable
         columns={columns}

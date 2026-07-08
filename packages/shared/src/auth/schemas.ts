@@ -193,6 +193,8 @@ export type UpdateTenantSecuritySettingsInput = z.infer<typeof UpdateTenantSecur
  */
 export const UpdateTenantBillingSettingsSchema = z.object({
   autoChargeOnIssue: z.boolean().optional(),
+  /** Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas en borrador. */
+  autoIssueRecurring: z.boolean().optional(),
   /** Recargo por mora (opt-in): emite una factura de recargo a los N días de vencimiento. */
   lateFeeEnabled: z.boolean().optional(),
   lateFeeType: z.enum(['percentage', 'fixed']).optional(),

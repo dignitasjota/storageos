@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  BulkInvoiceActionResultDto,
   CancelInvoiceInput,
   ChargeInvoiceInput,
   CreateInvoiceInput,
@@ -198,6 +199,37 @@ export function useChargeInvoice() {
       void qc.invalidateQueries({ queryKey: ['invoices'] });
       void qc.invalidateQueries({ queryKey: ['payments'] });
       void qc.invalidateQueries({ queryKey: invoiceKey(args.invoiceId) });
+    },
+  });
+}
+
+/** Emisión en lote de N borradores. */
+export function useBulkIssueInvoices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch<BulkInvoiceActionResultDto>('/invoices/bulk/issue', {
+        method: 'POST',
+        json: { ids },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
+/** Cobro en lote de N facturas con el método por defecto de cada cliente. */
+export function useBulkChargeInvoices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch<BulkInvoiceActionResultDto>('/payments/invoices/bulk/charge', {
+        method: 'POST',
+        json: { ids },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+      void qc.invalidateQueries({ queryKey: ['payments'] });
     },
   });
 }

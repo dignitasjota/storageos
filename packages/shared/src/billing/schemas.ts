@@ -271,6 +271,12 @@ export const RefundInvoiceSchema = z.object({
 });
 export type RefundInvoiceInput = z.infer<typeof RefundInvoiceSchema>;
 
+/** Acción en lote sobre N facturas (emitir/cobrar). Máx 200 por llamada. */
+export const BulkInvoiceActionSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
+});
+export type BulkInvoiceActionInput = z.infer<typeof BulkInvoiceActionSchema>;
+
 /**
  * Item de una factura rectificativa "por diferencias": el `unitPrice` puede
  * ser negativo (el usuario introduce la diferencia respecto al original; si

@@ -17,7 +17,12 @@ import { PaymentMethodsService } from './payment-methods.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Payment, PaymentStatus, Prisma } from '@storageos/database';
-import type { ChargeInvoiceInput, PaymentDto, PaymentStatusValue } from '@storageos/shared';
+import type {
+  BulkInvoiceActionResultDto,
+  ChargeInvoiceInput,
+  PaymentDto,
+  PaymentStatusValue,
+} from '@storageos/shared';
 
 @Injectable()
 export class PaymentsService {
@@ -228,6 +233,46 @@ export class PaymentsService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(paymentRow);
+  }
+
+  /**
+   * Cobra N facturas en lote con el método de pago por defecto de cada cliente.
+   * Procesa cada una independientemente: un fallo (sin método, ya pagada, gateway
+   * rechaza…) no tumba el resto; se reporta en `failed`. Un cobro SEPA que queda
+   * `processing` cuenta como iniciado con éxito.
+   */
+  async bulkCharge(args: {
+    tenantId: string;
+    userId: string;
+    ids: string[];
+    meta: RequestMeta;
+  }): Promise<BulkInvoiceActionResultDto> {
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+    for (const invoiceId of args.ids) {
+      try {
+        await this.chargeInvoice({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId,
+          input: {},
+          meta: args.meta,
+        });
+        succeeded.push(invoiceId);
+      } catch (err) {
+        let code = 'unknown_error';
+        if (err && typeof err === 'object' && 'response' in err) {
+          const res = (err as { response?: unknown }).response;
+          if (res && typeof res === 'object' && 'code' in res) {
+            code = String((res as { code: unknown }).code);
+          }
+        } else if (err instanceof Error) {
+          code = err.message;
+        }
+        failed.push({ id: invoiceId, error: code });
+      }
+    }
+    return { succeeded, failed };
   }
 
   /**

@@ -135,6 +135,7 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoChargeCard />
+      <AutoIssueCard />
       <LateFeeCard />
       <SepaSettingsCard />
 
@@ -304,6 +305,61 @@ function AutoChargeCard() {
           disabled={update.isPending}
         >
           {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar cobro automático'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Emisión automática de las facturas recurrentes (sin revisión manual). */
+function AutoIssueCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+
+  if (!canConfigure) return null;
+  if (settings.isLoading || !settings.data) return null;
+
+  const enabled = settings.data.autoIssueRecurring;
+
+  async function toggle() {
+    try {
+      await update.mutateAsync({ autoIssueRecurring: !enabled });
+      toast.success(
+        enabled
+          ? 'Emisión automática desactivada: las recurrentes quedarán en borrador.'
+          : 'Emisión automática activada: las facturas recurrentes se emitirán solas.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Emisión automática de recurrentes</CardTitle>
+          <Badge variant={enabled ? 'default' : 'outline'}>
+            {enabled ? 'Activado' : 'Desactivado'}
+          </Badge>
+        </div>
+        <CardDescription>
+          Las facturas mensuales de los contratos se emiten automáticamente en vez de quedar en
+          borrador para revisión manual. Útil con muchos contratos (evita emitir una a una).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Con Veri*Factu el hash es inmutable tras emitir; si prefieres revisar los borradores antes
+          de emitir, déjalo desactivado y usa la acción «Emitir seleccionadas» del listado.
+        </p>
+        <Button
+          onClick={toggle}
+          variant={enabled ? 'destructive' : 'default'}
+          disabled={update.isPending}
+        >
+          {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar emisión automática'}
         </Button>
       </CardContent>
     </Card>
