@@ -551,6 +551,34 @@ crontab -e
 0 3 * * * /opt/storageos/scripts/backup.sh >> /var/log/storageos-backup.log 2>&1
 ```
 
+### 10.1. Backup DENTRO del stack (recomendado — sin depender del crontab del host)
+
+Además de `scripts/backup.sh` (que corre en el host y usa `docker compose exec`),
+el compose de producción incluye un servicio **`backup`** (perfil `backup`, opt-in)
+que respalda **Postgres** a diario **desde dentro del stack** — sobrevive a un
+reprovisionamiento del host y no depende de que alguien configure el crontab. Se
+conecta directo a `postgres` por la red interna (sin docker socket): `pg_dump`
+custom → cifrado GPG AES-256 → subida a Backblaze B2 (S3-compatible), con
+retención local `BACKUP_RETENTION_DAYS`.
+
+Activar (Portainer: añadir `backup` a **COMPOSE_PROFILES** en el Environment del
+stack; o CLI):
+
+```bash
+COMPOSE_PROFILES=backup docker compose -f docker-compose.prod.yml up -d backup
+docker compose logs -f backup   # ver "[backup] subido a B2"
+```
+
+Variables necesarias (Environment del stack o `.env.prod`): `BACKUP_GPG_PASSPHRASE`,
+`B2_ENDPOINT`, `B2_BUCKET`, `B2_REGION`, `B2_ACCESS_KEY_ID`, `B2_SECRET_ACCESS_KEY`
+(y opcionales `BACKUP_RETENTION_DAYS`, `BACKUP_INTERVAL_SECONDS`). El servicio
+respalda **Postgres** (los datos transaccionales críticos); para respaldar además
+los **archivos de MinIO** (documentos, PDFs) usa `scripts/backup.sh` desde el host
+(paso 4 del script) o añade un sidecar de sincronización a B2.
+
+> El intervalo por defecto es 24 h desde el arranque del servicio. Para forzar un
+> backup inmediato: `docker compose restart backup`.
+
 ---
 
 ## 10.5. Setup de Resend producción

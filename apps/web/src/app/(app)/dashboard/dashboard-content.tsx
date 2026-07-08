@@ -11,6 +11,7 @@ import { KpiTiles } from './kpi-tiles';
 import { LeadsCard } from './leads-card';
 import { MobileHome } from './mobile-home';
 import { OccupancyCard } from './occupancy-card';
+import { OnboardingCard } from './onboarding-card';
 import { QuickActions } from './quick-actions';
 import { RevenueTrendCard } from './revenue-trend-card';
 
@@ -86,6 +87,8 @@ export function DashboardContent() {
           )}
         </div>
       </header>
+
+      <OnboardingCard />
 
       <QuickActions />
 

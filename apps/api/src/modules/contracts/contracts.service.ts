@@ -1187,6 +1187,200 @@ export class ContractsService {
     return this.toDto(updated);
   }
 
+  /** Include estándar para hidratar un `ContractDto` (customer + unit + seguro). */
+  private contractInclude() {
+    return {
+      customer: {
+        select: {
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          customerType: true,
+        },
+      },
+      unit: {
+        select: {
+          code: true,
+          facilityId: true,
+          facility: { select: { name: true } },
+        },
+      },
+      insurancePlan: { select: { name: true } },
+    } satisfies Prisma.ContractInclude;
+  }
+
+  /** Suma N meses a una fecha, conservando el fin de mes (evita desbordes de día). */
+  private addMonths(date: Date, months: number): Date {
+    const d = new Date(date);
+    const day = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + months);
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(day, last));
+    return d;
+  }
+
+  /**
+   * Renueva un contrato: extiende su `endDate` N meses (desde el fin actual o
+   * desde hoy si es indefinido). Si estaba `ending`, vuelve a `active` y limpia
+   * la solicitud de baja. Palanca de retención (la página /renewals lo usa).
+   */
+  async renew(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    months: number;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    if (existing.status !== 'active' && existing.status !== 'ending') {
+      throw new BadRequestException({
+        code: 'contract_not_renewable',
+        message: 'Solo se pueden renovar contratos activos o en baja',
+      });
+    }
+    const base =
+      existing.endDate && existing.endDate.getTime() > Date.now() ? existing.endDate : new Date();
+    const newEndDate = this.addMonths(base, args.months);
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.contract.update({
+        where: { id: args.contractId },
+        data: {
+          endDate: newEndDate,
+          // Renovar reactiva un contrato en baja y limpia la solicitud.
+          ...(existing.status === 'ending'
+            ? { status: 'active' as const, endingRequestedAt: null }
+            : {}),
+          endingSoonNotifiedAt: null,
+        },
+        include: this.contractInclude(),
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'note_added',
+          payload: { event: 'renewed', months: args.months, newEndDate: newEndDate.toISOString() },
+          createdByUserId: args.userId,
+        },
+      });
+      return row;
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.renewed',
+      entityType: 'Contract',
+      entityId: updated.id,
+      changes: { months: args.months, newEndDate: newEndDate.toISOString().slice(0, 10) },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  /**
+   * Traslado de trastero: reasigna la unidad de un contrato activo a otra
+   * disponible (upsell/downsize). Libera la unidad vieja (→available), ocupa la
+   * nueva (→occupied) y opcionalmente cambia la cuota. La próxima factura
+   * recurrente ya sale con la unidad/precio nuevos. (Prorrateo de una factura de
+   * ajuste = follow-up; hoy no se genera factura intermedia.)
+   */
+  async changeUnit(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    newUnitId: string;
+    newPrice?: number;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    if (existing.status !== 'active' && existing.status !== 'ending') {
+      throw new BadRequestException({
+        code: 'contract_not_active',
+        message: 'Solo se puede trasladar un contrato activo',
+      });
+    }
+    if (args.newUnitId === existing.unitId) {
+      throw new BadRequestException({
+        code: 'same_unit',
+        message: 'El trastero de destino es el mismo',
+      });
+    }
+    const oldUnitId = existing.unitId;
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const newUnit = await tx.unit.findFirst({ where: { id: args.newUnitId } });
+      if (!newUnit) {
+        throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
+      }
+      // El scope aplica también al trastero de DESTINO.
+      assertFacilityAllowed(args.facilityScope, newUnit.facilityId);
+      if (newUnit.status !== 'available') {
+        throw new BadRequestException({
+          code: 'unit_not_available',
+          message: 'El trastero de destino no está disponible',
+        });
+      }
+      const ctx = { tenantId: args.tenantId, userId: args.userId, meta: args.meta };
+      // Libera la vieja, ocupa la nueva.
+      const oldUnit = await tx.unit.findUniqueOrThrow({ where: { id: oldUnitId } });
+      if (oldUnit.status === 'occupied' || oldUnit.status === 'reserved') {
+        await this.syncUnitStatus(
+          tx,
+          ctx,
+          oldUnitId,
+          oldUnit.status,
+          'available',
+          'Traslado: origen liberado',
+        );
+      }
+      await this.syncUnitStatus(
+        tx,
+        ctx,
+        args.newUnitId,
+        newUnit.status,
+        'occupied',
+        'Traslado: destino ocupado',
+      );
+      const row = await tx.contract.update({
+        where: { id: args.contractId },
+        data: {
+          unitId: args.newUnitId,
+          ...(args.newPrice != null ? { priceMonthly: args.newPrice } : {}),
+        },
+        include: this.contractInclude(),
+      });
+      await tx.contractEvent.create({
+        data: {
+          tenantId: args.tenantId,
+          contractId: args.contractId,
+          eventType: 'unit_changed',
+          payload: {
+            fromUnitId: oldUnitId,
+            toUnitId: args.newUnitId,
+            toUnitCode: newUnit.code,
+            ...(args.newPrice != null ? { newPrice: args.newPrice } : {}),
+          },
+          createdByUserId: args.userId,
+        },
+      });
+      return row;
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.unit_changed',
+      entityType: 'Contract',
+      entityId: updated.id,
+      changes: { fromUnitId: oldUnitId, toUnitId: args.newUnitId, newPrice: args.newPrice ?? null },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
   /** Asigna o quita (planId null) el seguro de un contrato; congela la prima. */
   /**
    * Gating por plan: asignar un seguro requiere la feature `insurance`. Se

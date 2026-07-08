@@ -5,16 +5,20 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 
+import { OnboardingService } from './onboarding.service';
 import { TodayService } from './today.service';
 
-import type { TodayDto } from '@storageos/shared';
+import type { OnboardingDto, TodayDto } from '@storageos/shared';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Bandeja operativa del día para el panel del tenant. */
 @Controller('dashboard')
 export class DashboardController {
-  constructor(private readonly today: TodayService) {}
+  constructor(
+    private readonly today: TodayService,
+    private readonly onboarding: OnboardingService,
+  ) {}
 
   @Get('today')
   async getToday(
@@ -25,5 +29,11 @@ export class DashboardController {
       throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
     }
     return this.today.getToday(user.tenantId, facilityId || undefined);
+  }
+
+  /** Checklist de primeros pasos del operador. */
+  @Get('onboarding')
+  async getOnboarding(@CurrentUser() user: AuthenticatedUser): Promise<OnboardingDto> {
+    return this.onboarding.getOnboarding(user.tenantId);
   }
 }

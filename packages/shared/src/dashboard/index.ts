@@ -48,3 +48,20 @@ export interface TodayDto {
   /** Mensajes de inquilinos sin leer. */
   unreadMessages: number;
 }
+
+/** Un paso del onboarding del operador (primeros pasos guiados). */
+export interface OnboardingStepDto {
+  key: string;
+  label: string;
+  done: boolean;
+  /** Ruta a la que ir para completar el paso. */
+  href: string;
+}
+
+/** Checklist de puesta en marcha del operador. */
+export interface OnboardingDto {
+  steps: OnboardingStepDto[];
+  /** Pasos completados / total (0-1). */
+  progress: number;
+  completed: boolean;
+}
