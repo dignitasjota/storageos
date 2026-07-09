@@ -71,6 +71,8 @@ export interface AdminTenantDto {
   name: string;
   slug: string;
   status: string;
+  /** Cuenta exenta de facturación SaaS (interna/demo/partner): fuera de las métricas. */
+  billingExempt: boolean;
   trialEndsAt: string | null;
   billingEmail: string | null;
   country: string;

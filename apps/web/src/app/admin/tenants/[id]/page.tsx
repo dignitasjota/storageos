@@ -77,6 +77,7 @@ import {
   useChangePlanPreview,
   useExtendTrial,
   useEndTrial,
+  useSetBillingExempt,
   useImpersonateTenant,
   useReactivateTenant,
   useSuspendTenant,
@@ -136,6 +137,14 @@ export default function AdminTenantDetailPage() {
             <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>
               {tenantStatusLabel(t.status)}
             </Badge>
+            {t.billingExempt && (
+              <Badge
+                variant="outline"
+                className="border-violet-300 text-violet-700 dark:border-violet-800 dark:text-violet-300"
+              >
+                Exento
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">/{t.slug}</p>
         </div>
@@ -264,6 +273,8 @@ export default function AdminTenantDetailPage() {
                     </Button>
                   </div>
                 )}
+                {/* Exención de facturación (cuenta interna): fuera de las métricas. */}
+                <BillingExemptControl tenantId={id} exempt={t.billingExempt} />
               </CardContent>
             </Card>
 
@@ -897,6 +908,41 @@ function AnonymizeDialog({
 void IMPERSONATION_KEY;
 
 /** Selector inline para cambiar el plan de suscripción del tenant. */
+function BillingExemptControl({ tenantId, exempt }: { tenantId: string; exempt: boolean }) {
+  const setExempt = useSetBillingExempt();
+  async function toggle() {
+    try {
+      await setExempt.mutateAsync({ id: tenantId, exempt: !exempt });
+      toast.success(
+        exempt ? 'Exención retirada.' : 'Cuenta marcada como exenta (fuera de las métricas).',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+  return (
+    <div className="border-t pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Exenta de facturación</p>
+          <p className="text-xs text-muted-foreground">
+            Cuenta interna/demo/partner: opera con su plan sin pagar y no cuenta en el MRR,
+            ingresos, churn ni trials.
+          </p>
+        </div>
+        <Button
+          variant={exempt ? 'outline' : 'secondary'}
+          size="sm"
+          onClick={toggle}
+          disabled={setExempt.isPending}
+        >
+          {exempt ? 'Quitar exención' : 'Marcar exenta'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ChangePlanControl({
   tenantId,
   currentSlug,
