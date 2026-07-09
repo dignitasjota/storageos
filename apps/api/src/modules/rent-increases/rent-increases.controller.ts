@@ -6,12 +6,15 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import {
   CreateRentIncreaseSchema,
   PreviewRentIncreaseSchema,
+  RentIncreasePolicySchema,
   type RentIncreaseDto,
+  type RentIncreasePolicyDto,
   type RentIncreasePreviewDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -27,6 +30,7 @@ import { RentIncreasesService } from './rent-increases.service';
 
 class CreateRentIncreaseDto extends createZodDto(CreateRentIncreaseSchema) {}
 class PreviewRentIncreaseDto extends createZodDto(PreviewRentIncreaseSchema) {}
+class RentIncreasePolicyDto2 extends createZodDto(RentIncreasePolicySchema) {}
 
 @Controller('rent-increases')
 @RequireFeature('rent_increases')
@@ -37,6 +41,22 @@ export class RentIncreasesController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<RentIncreaseDto[]> {
     return this.service.list(user.tenantId);
+  }
+
+  /** Política de subidas (tope % anual + meses mínimos entre subidas). Antes de `:id`. */
+  @RequirePermission('contracts:read')
+  @Get('policy')
+  getPolicy(@CurrentUser() user: AuthenticatedUser): Promise<RentIncreasePolicyDto> {
+    return this.service.getPolicy(user.tenantId);
+  }
+
+  @RequirePermission('contracts:manage')
+  @Patch('policy')
+  updatePolicy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RentIncreasePolicyDto2,
+  ): Promise<RentIncreasePolicyDto> {
+    return this.service.updatePolicy(user.tenantId, body);
   }
 
   @RequirePermission('contracts:read')

@@ -11,6 +11,8 @@ import type {
   RentIncreaseAffectedContract,
   RentIncreaseDto,
   RentIncreaseItemDto,
+  RentIncreasePolicyDto,
+  RentIncreasePolicyInput,
   RentIncreasePreviewDto,
   RentIncreaseScopeInput,
 } from '@storageos/shared';
@@ -48,8 +50,37 @@ export class RentIncreasesService {
     private readonly communications: CommunicationsService,
   ) {}
 
-  private computeNewPrice(oldPrice: number, type: string, value: number): number {
-    const next = type === 'percentage' ? oldPrice * (1 + value / 100) : oldPrice + value;
+  async getPolicy(tenantId: string): Promise<RentIncreasePolicyDto> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { rentIncreaseMaxAnnualPct: true, rentIncreaseMinMonthsBetween: true },
+    });
+    return {
+      maxAnnualPct: Number(t?.rentIncreaseMaxAnnualPct ?? 0),
+      minMonthsBetween: t?.rentIncreaseMinMonthsBetween ?? 12,
+    };
+  }
+
+  async updatePolicy(
+    tenantId: string,
+    input: RentIncreasePolicyInput,
+  ): Promise<RentIncreasePolicyDto> {
+    const data: { rentIncreaseMaxAnnualPct?: number; rentIncreaseMinMonthsBetween?: number } = {};
+    if (input.maxAnnualPct !== undefined) data.rentIncreaseMaxAnnualPct = input.maxAnnualPct;
+    if (input.minMonthsBetween !== undefined)
+      data.rentIncreaseMinMonthsBetween = input.minMonthsBetween;
+    if (Object.keys(data).length > 0) {
+      await this.admin.tenant.update({ where: { id: tenantId }, data });
+    }
+    return this.getPolicy(tenantId);
+  }
+
+  private computeNewPrice(oldPrice: number, type: string, value: number, maxAnnualPct = 0): number {
+    let next = type === 'percentage' ? oldPrice * (1 + value / 100) : oldPrice + value;
+    // Tope anual: una subida no puede superar el % máximo configurado.
+    if (maxAnnualPct > 0 && next > oldPrice) {
+      next = Math.min(next, oldPrice * (1 + maxAnnualPct / 100));
+    }
     return round2(next);
   }
 
@@ -77,6 +108,32 @@ export class RentIncreasesService {
         ...(scope.unitTypeId ? { unitTypeId: scope.unitTypeId } : {}),
       };
     }
+
+    // Política del tenant: tope % anual + meses mínimos entre subidas al mismo
+    // contrato (para no solapar subidas recientes).
+    const policy = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { rentIncreaseMaxAnnualPct: true, rentIncreaseMinMonthsBetween: true },
+    });
+    const maxAnnualPct = Number(policy?.rentIncreaseMaxAnnualPct ?? 0);
+    const minMonths = policy?.rentIncreaseMinMonthsBetween ?? 0;
+
+    // Contratos con una subida ya aplicada dentro de la ventana → se excluyen.
+    let recentlyRaised = new Set<string>();
+    if (minMonths > 0) {
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - minMonths);
+      const recent = await this.prisma.withTenant(
+        (tx) =>
+          tx.rentIncreaseItem.findMany({
+            where: { status: 'applied', appliedAt: { gte: cutoff } },
+            select: { contractId: true },
+          }),
+        tenantId,
+      );
+      recentlyRaised = new Set(recent.map((r) => r.contractId));
+    }
+
     const contracts = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
@@ -86,19 +143,21 @@ export class RentIncreasesService {
         }),
       tenantId,
     );
-    return contracts.map((c) => {
-      const oldPrice = Number(c.priceMonthly);
-      return {
-        contractId: c.id,
-        contractNumber: c.contractNumber,
-        customerName: customerName(c.customer),
-        customerEmail: c.customer.email,
-        customerFirstName: c.customer.firstName ?? c.customer.companyName ?? 'cliente',
-        unitCode: c.unit.code,
-        oldPrice,
-        newPrice: this.computeNewPrice(oldPrice, type, value),
-      };
-    });
+    return contracts
+      .filter((c) => !recentlyRaised.has(c.id))
+      .map((c) => {
+        const oldPrice = Number(c.priceMonthly);
+        return {
+          contractId: c.id,
+          contractNumber: c.contractNumber,
+          customerName: customerName(c.customer),
+          customerEmail: c.customer.email,
+          customerFirstName: c.customer.firstName ?? c.customer.companyName ?? 'cliente',
+          unitCode: c.unit.code,
+          oldPrice,
+          newPrice: this.computeNewPrice(oldPrice, type, value, maxAnnualPct),
+        };
+      });
   }
 
   async preview(
