@@ -13,6 +13,7 @@ import { ContractsService } from './contracts.service';
 import { InspectionPhotosController } from './inspection-photos.controller';
 import { InspectionPhotosService } from './inspection-photos.service';
 import { PricingService } from './pricing.service';
+import { ReservationExpiryCron } from './reservation-expiry.cron';
 import { ReservationsController } from './reservations.controller';
 import { ReservationsService } from './reservations.service';
 
@@ -30,8 +31,8 @@ import { ReservationsService } from './reservations.service';
     PricingService,
     ContractPdfService,
     InspectionPhotosService,
-    // El cron solo se monta donde corren los workers (worker en prod).
-    ...(WORKERS_ENABLED_IN_API ? [ContractEndingSoonCron] : []),
+    // Los crons solo se montan donde corren los workers (worker en prod).
+    ...(WORKERS_ENABLED_IN_API ? [ContractEndingSoonCron, ReservationExpiryCron] : []),
   ],
   exports: [ContractsService],
 })
