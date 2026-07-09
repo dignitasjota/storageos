@@ -355,6 +355,12 @@ export const MarkPaidManuallySchema = z.object({
    * doble cobro accidental; hay que confirmarlo conscientemente).
    */
   overridePaymentInFlight: z.boolean().optional(),
+  /**
+   * Permite registrar un pago parcial por una vía que no es efectivo. Uso
+   * interno para cobros bancarios REALES ya confirmados (conciliación N43,
+   * remesa SEPA) donde el importe del apunte puede ser menor que el pendiente.
+   */
+  allowPartialNonCash: z.boolean().optional(),
 });
 export type MarkPaidManuallyInput = z.infer<typeof MarkPaidManuallySchema>;
 

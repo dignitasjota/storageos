@@ -210,16 +210,23 @@ export class BankReconciliationService {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
     const pending = Math.max(0, subtractAmounts(invoice.total, invoice.amountPaid));
-    if (pending > 0) {
+    // Se aplica el importe REAL del apunte bancario (capado al pendiente), no el
+    // pendiente entero: un apunte de 60 € sobre una factura de 100 € la deja con
+    // 40 € pendientes (pago parcial), en vez de darla por saldada. `amount` está
+    // en céntimos con signo → a euros.
+    const amountToApply = Math.min(txRow.amount / 100, pending);
+    if (amountToApply > 0) {
       await this.invoices.markPaidManually({
         tenantId,
         userId: args.userId,
         invoiceId,
         input: {
-          amount: pending,
+          amount: amountToApply,
           methodType: 'bank_transfer',
           notes: 'Conciliación N43',
           overridePaymentInFlight: true,
+          // Ingreso bancario real ya confirmado: se admite el parcial no-efectivo.
+          allowPartialNonCash: true,
         },
         meta: {},
       });
