@@ -49,7 +49,7 @@ export default function CashPage() {
     }
   }
 
-  const diff = counted !== '' && s ? Number(counted) - s.cash : null;
+  const diff = counted !== '' && s ? Number(counted) - s.expectedCash : null;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -109,6 +109,18 @@ export default function CashPage() {
                 <span>Total</span>
                 <span className="tabular-nums">{eur(s.total)}</span>
               </div>
+              {s.cashRefunds > 0 && (
+                <div className="mt-1 space-y-1.5 border-t pt-1.5">
+                  <div className="flex items-center justify-between text-destructive">
+                    <span>Reembolsos en efectivo</span>
+                    <span className="tabular-nums">−{eur(s.cashRefunds)}</span>
+                  </div>
+                  <div className="flex items-center justify-between font-semibold">
+                    <span>Esperado en caja (efectivo)</span>
+                    <span className="tabular-nums">{eur(s.expectedCash)}</span>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -146,7 +158,7 @@ export default function CashPage() {
                 <>
                   <p className="text-muted-foreground">
                     Cuenta el efectivo en caja y regístralo. Esperado:{' '}
-                    <span className="font-medium text-foreground">{eur(s.cash)}</span>.
+                    <span className="font-medium text-foreground">{eur(s.expectedCash)}</span>.
                   </p>
                   <div>
                     <Label className="text-xs">Efectivo contado (€)</Label>
