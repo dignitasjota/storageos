@@ -436,6 +436,22 @@ export function useEndTrial() {
   });
 }
 
+export function useSetBillingExempt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; exempt: boolean }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/billing-exempt`, {
+        method: 'POST',
+        json: { exempt: args.exempt },
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'metrics'] });
+    },
+  });
+}
+
 /** Catálogo de planes (endpoint público) para el selector de cambio de plan. */
 export function useAdminSubscriptionPlans() {
   return useQuery({

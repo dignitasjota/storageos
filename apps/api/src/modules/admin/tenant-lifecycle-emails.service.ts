@@ -84,6 +84,7 @@ export class TenantLifecycleEmailsService {
     const tenants = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
+        billingExempt: false,
         createdAt: { gte: since },
         tenantLifecycleEmails: { none: { type: 'welcome' } },
       },
@@ -108,6 +109,7 @@ export class TenantLifecycleEmailsService {
       const tenants = await this.admin.tenant.findMany({
         where: {
           deletedAt: null,
+          billingExempt: false,
           status: 'trial',
           trialEndsAt: { gte: lower, lte: upper },
           tenantLifecycleEmails: { none: { type: milestone.type } },
@@ -127,6 +129,7 @@ export class TenantLifecycleEmailsService {
     const tenants = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
+        billingExempt: false,
         subscription: { status: 'past_due' },
         tenantLifecycleEmails: { none: { type: 'past_due' } },
       },

@@ -155,6 +155,40 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(again.body.code).toBe('tenant_not_in_trial');
   });
 
+  it('tenant action: billing-exempt saca al tenant de las métricas', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-exempt');
+    // Lo dejamos activo para que cuente en el estado "active" de las métricas.
+    await adminClient.tenant.update({ where: { id: owner.tenantId }, data: { status: 'active' } });
+
+    const before = await request(app.getHttpServer())
+      .get('/admin/metrics')
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    const activeBefore = before.body.tenants.active as number;
+
+    // Marcar exento → billingExempt true + queda active + sin trial.
+    const exempt = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/billing-exempt`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ exempt: true, reason: 'cuenta interna' });
+    expect(exempt.status).toBe(200);
+    expect(exempt.body.billingExempt).toBe(true);
+    expect(exempt.body.status).toBe('active');
+    expect(exempt.body.trialEndsAt).toBeNull();
+
+    // Ya NO cuenta en las métricas: el count de activos baja en 1.
+    const after = await request(app.getHttpServer())
+      .get('/admin/metrics')
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(after.body.tenants.active).toBe(activeBefore - 1);
+
+    // Quitar la exención.
+    const unexempt = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/billing-exempt`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ exempt: false });
+    expect(unexempt.body.billingExempt).toBe(false);
+  });
+
   it('tenant action: change-plan cambia el plan de suscripción', async () => {
     const owner = await registerVerifiedUser(app, 'admin-plan');
     // Registro → plan starter.

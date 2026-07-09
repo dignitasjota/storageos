@@ -70,7 +70,7 @@ export class PlatformDunningService {
     if (!settings.enabled) return result;
 
     const subs = await this.admin.tenantSubscription.findMany({
-      where: { status: 'past_due' },
+      where: { status: 'past_due', tenant: { billingExempt: false } },
       include: { plan: { select: { name: true } }, tenant: true },
     });
 

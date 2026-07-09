@@ -100,18 +100,29 @@ export class AdminMetricsService {
       cancelRows,
       revenueRows,
     ] = await Promise.all([
+      // Las cuentas EXENTAS (billingExempt) quedan fuera de toda métrica de
+      // negocio: no cuentan al MRR/ARPU/ingresos, ni a estados/crecimiento/trials.
       this.admin.tenant.groupBy({
         by: ['status'],
-        where: { deletedAt: null },
+        where: { deletedAt: null, billingExempt: false },
         _count: { _all: true },
       }),
-      this.admin.tenant.count({ where: { deletedAt: null, createdAt: { gte: monthStart } } }),
       this.admin.tenant.count({
-        where: { deletedAt: null, status: 'cancelled', updatedAt: { gte: monthStart } },
+        where: { deletedAt: null, billingExempt: false, createdAt: { gte: monthStart } },
       }),
-      this.admin.tenant.count({ where: { deletedAt: null, createdAt: { lt: monthStart } } }),
+      this.admin.tenant.count({
+        where: {
+          deletedAt: null,
+          billingExempt: false,
+          status: 'cancelled',
+          updatedAt: { gte: monthStart },
+        },
+      }),
+      this.admin.tenant.count({
+        where: { deletedAt: null, billingExempt: false, createdAt: { lt: monthStart } },
+      }),
       this.admin.tenantSubscription.findMany({
-        where: { tenant: { deletedAt: null } },
+        where: { tenant: { deletedAt: null, billingExempt: false } },
         select: {
           tenantId: true,
           status: true,
@@ -119,7 +130,12 @@ export class AdminMetricsService {
         },
       }),
       this.admin.tenant.count({
-        where: { deletedAt: null, status: 'trial', trialEndsAt: { gte: now, lte: trialSoon } },
+        where: {
+          deletedAt: null,
+          billingExempt: false,
+          status: 'trial',
+          trialEndsAt: { gte: now, lte: trialSoon },
+        },
       }),
       this.admin.supportTicket.count({
         where: { status: { in: ['open', 'in_progress', 'waiting_user'] } },
@@ -130,11 +146,16 @@ export class AdminMetricsService {
       this.admin.contract.count(),
       this.admin.user.count(),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, createdAt: { gte: from12 } },
+        where: { deletedAt: null, billingExempt: false, createdAt: { gte: from12 } },
         select: { createdAt: true },
       }),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, status: 'cancelled', updatedAt: { gte: from12 } },
+        where: {
+          deletedAt: null,
+          billingExempt: false,
+          status: 'cancelled',
+          updatedAt: { gte: from12 },
+        },
         select: { updatedAt: true },
       }),
       this.admin.tenantSubscriptionPayment.findMany({
@@ -239,7 +260,7 @@ export class AdminMetricsService {
     const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
 
     const tenants = await this.admin.tenant.findMany({
-      where: { deletedAt: null, createdAt: { gte: firstCohort } },
+      where: { deletedAt: null, billingExempt: false, createdAt: { gte: firstCohort } },
       select: { createdAt: true, status: true, updatedAt: true },
     });
 
@@ -293,6 +314,7 @@ export class AdminMetricsService {
     const tenants = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
+        billingExempt: false,
         status: { in: ['suspended', 'cancelled'] },
         // `canceledAt` es fiable; para bajas anteriores a la columna cae a
         // `updatedAt` (mismo proxy que el resto de métricas).
@@ -431,7 +453,7 @@ export class AdminMetricsService {
 
     // Cohortes de ingresos por mes de alta (últimos `span` meses).
     const cohortTenants = await this.admin.tenant.findMany({
-      where: { deletedAt: null, createdAt: { gte: firstCohort } },
+      where: { deletedAt: null, billingExempt: false, createdAt: { gte: firstCohort } },
       select: { id: true, createdAt: true },
     });
     const cohortAcc = new Map<string, { tenants: number; revenue: number }>();

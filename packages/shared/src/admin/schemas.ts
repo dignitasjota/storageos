@@ -97,6 +97,13 @@ export const ChangePlanSchema = z.object({
 });
 export type ChangePlanInput = z.infer<typeof ChangePlanSchema>;
 
+/** Marca/desmarca un tenant como exento de facturación (cuenta interna). */
+export const SetBillingExemptSchema = z.object({
+  exempt: z.boolean(),
+  reason: z.string().trim().max(500).optional(),
+});
+export type SetBillingExemptInput = z.infer<typeof SetBillingExemptSchema>;
+
 export const ImpersonateSchema = z.object({
   reason: z.string().trim().min(1).max(500),
 });

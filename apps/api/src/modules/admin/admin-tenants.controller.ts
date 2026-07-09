@@ -43,6 +43,7 @@ import {
   type TenantFollowupDto,
   ExtendTrialSchema,
   ExtendTrialsBatchSchema,
+  SetBillingExemptSchema,
   type ExtendTrialsBatchResultDto,
   type ImpersonationTokenDto,
   ImpersonateSchema,
@@ -70,6 +71,7 @@ class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
 class ExtendTrialsBatchDto extends createZodDto(ExtendTrialsBatchSchema) {}
+class SetBillingExemptDto extends createZodDto(SetBillingExemptSchema) {}
 class ChangePlanDto extends createZodDto(ChangePlanSchema) {}
 class UpdateTenantNotesDto extends createZodDto(UpdateTenantNotesSchema) {}
 class ImpersonateDto extends createZodDto(ImpersonateSchema) {}
@@ -596,6 +598,25 @@ export class AdminTenantsController {
     return this.tenants.endTrial(id, {
       superAdminId: admin.sub,
       reason: input.reason,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  /** Marca/desmarca el tenant como exento de facturación (cuenta interna). */
+  @RequireSuperadmin()
+  @Post(':id/billing-exempt')
+  @HttpCode(HttpStatus.OK)
+  async setBillingExempt(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetBillingExemptDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantDto> {
+    const meta = extractMeta(req);
+    return this.tenants.setBillingExempt(id, input.exempt, {
+      superAdminId: admin.sub,
+      reason: input.reason ?? (input.exempt ? 'Cuenta exenta' : 'Fin de exención'),
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });

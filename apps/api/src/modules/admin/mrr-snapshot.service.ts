@@ -66,7 +66,7 @@ export class MrrSnapshotService {
   async captureMonth(monthStart: Date): Promise<void> {
     const month = startOfMonthUtc(monthStart);
     const subs = await this.admin.tenantSubscription.findMany({
-      where: { status: 'active', tenant: { deletedAt: null } },
+      where: { status: 'active', tenant: { deletedAt: null, billingExempt: false } },
       select: { tenantId: true, plan: { select: { slug: true, priceMonthly: true } } },
     });
     for (const s of subs) {

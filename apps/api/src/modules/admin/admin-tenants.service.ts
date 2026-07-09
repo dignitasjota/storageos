@@ -214,17 +214,22 @@ export class AdminTenantsService {
 
     const [trials, pastDue, activeTenants] = await Promise.all([
       this.admin.tenant.findMany({
-        where: { deletedAt: null, status: 'trial', trialEndsAt: { gte: now, lte: in7d } },
+        where: {
+          deletedAt: null,
+          billingExempt: false,
+          status: 'trial',
+          trialEndsAt: { gte: now, lte: in7d },
+        },
         include: planInclude,
         orderBy: { trialEndsAt: 'asc' },
       }),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, subscription: { status: 'past_due' } },
+        where: { deletedAt: null, billingExempt: false, subscription: { status: 'past_due' } },
         include: planInclude,
         orderBy: { name: 'asc' },
       }),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, status: 'active' },
+        where: { deletedAt: null, billingExempt: false, status: 'active' },
         include: planInclude,
         orderBy: { name: 'asc' },
       }),
@@ -301,7 +306,7 @@ export class AdminTenantsService {
   async listTrials(): Promise<AdminTrialDto[]> {
     const now = new Date();
     const trials = await this.admin.tenant.findMany({
-      where: { deletedAt: null, status: 'trial' },
+      where: { deletedAt: null, billingExempt: false, status: 'trial' },
       include: { subscription: { include: { plan: { select: { name: true } } } } },
       orderBy: { trialEndsAt: 'asc' },
     });
@@ -1086,6 +1091,48 @@ export class AdminTenantsService {
    * (Stripe o pago manual ya llevan el tenant a `active`); esto es la palanca
    * manual para forzarlo.
    */
+  /**
+   * Marca/desmarca un tenant como EXENTO de facturación (cuenta interna del
+   * dueño del SaaS, demo, partner o cortesía). Al marcarlo, se asegura de que
+   * quede operativo (`active`, sin fecha de fin de trial); conserva su plan. Las
+   * cuentas exentas quedan fuera de todas las métricas de negocio.
+   */
+  async setBillingExempt(
+    tenantId: string,
+    exempt: boolean,
+    meta: ActionMeta,
+  ): Promise<AdminTenantDto> {
+    await this.findOrThrow(tenantId);
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      // Al eximir, dejarlo activo y sin trial (no debe expirar ni entrar en dunning).
+      data: exempt
+        ? { billingExempt: true, status: 'active', trialEndsAt: null }
+        : { billingExempt: false },
+    });
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: exempt ? 'admin.tenant.billing_exempted' : 'admin.tenant.billing_unexempted',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { superAdminId: meta.superAdminId, reason: meta.reason },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
+    await this.superAdminAudit.record({
+      superAdminId: meta.superAdminId,
+      action: exempt ? 'admin.tenant.billing_exempted' : 'admin.tenant.billing_unexempted',
+      targetType: 'tenant',
+      targetId: tenantId,
+      targetTenantId: tenantId,
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+      changes: { reason: meta.reason },
+    });
+    return this.detail(tenantId);
+  }
+
   async endTrial(tenantId: string, meta: ActionMeta): Promise<AdminTenantDto> {
     const tenant = await this.findOrThrow(tenantId);
     if (tenant.status !== 'trial') {
@@ -1697,6 +1744,7 @@ export class AdminTenantsService {
     name: string;
     slug: string;
     status: string;
+    billingExempt: boolean;
     trialEndsAt: Date | null;
     billingEmail: string | null;
     country: string;
@@ -1717,6 +1765,7 @@ export class AdminTenantsService {
       name: row.name,
       slug: row.slug,
       status: row.status,
+      billingExempt: row.billingExempt,
       trialEndsAt: row.trialEndsAt ? row.trialEndsAt.toISOString() : null,
       billingEmail: row.billingEmail,
       country: row.country,

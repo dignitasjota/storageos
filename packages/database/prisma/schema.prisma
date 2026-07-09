@@ -303,6 +303,7 @@ model Tenant {
   name                        String
   slug                        String                @unique
   status                      TenantStatus          @default(trial)
+  billingExempt               Boolean               @default(false) @map("billing_exempt")
   trialEndsAt                 DateTime?             @map("trial_ends_at") @db.Timestamptz(6)
   billingEmail                String?               @map("billing_email")
   country                     String                @default("ES") @db.Char(2)
