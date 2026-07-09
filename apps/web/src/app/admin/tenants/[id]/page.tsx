@@ -568,7 +568,7 @@ function EndTrialDialog({
   async function onSubmit(values: AdminTenantActionInput) {
     try {
       await endTrial.mutateAsync({ id: tenantId, input: values });
-      toast.success('Prueba finalizada. El tenant pasa a activo.');
+      toast.success('Prueba finalizada. El tenant baja al plan Free (gratis).');
       form.reset();
       onClose();
     } catch (err) {
@@ -583,8 +583,9 @@ function EndTrialDialog({
         <DialogHeader>
           <DialogTitle>Finalizar periodo de prueba</DialogTitle>
           <DialogDescription>
-            El tenant pasará a <strong>activo</strong> sin esperar a un pago. Normalmente el trial
-            se cierra solo al pagar; usa esto para forzarlo (cortesía, pago fuera del sistema…).
+            Al no haber conversión, el tenant baja al <strong>plan Free</strong> (gratis, sin
+            módulos premium) y queda activo. Si el cliente va a pagar, registra antes el pago (eso
+            lo activa en su plan). El trial también se cierra solo al pagar.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
