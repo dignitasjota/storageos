@@ -35,6 +35,8 @@ export interface TodayDto {
   contractsEndingSoon: { count: number; items: TodayItemDto[] };
   /** Expedientes de impago con el plazo del requerimiento vencido (a resolver). */
   collectionsDeadlines: { count: number; items: TodayItemDto[] };
+  /** Fianzas retenidas sin liquidar de contratos ya finalizados/cancelados (a devolver/retener). */
+  depositsToSettle: { count: number; items: TodayItemDto[] };
   /** Reservas pendientes que expiran en los próximos 7 días. */
   reservationsExpiring: { count: number; items: TodayItemDto[] };
   /** Facturas que vencen hoy (issued con dueDate = hoy). */

@@ -939,6 +939,10 @@ export class ContractsService {
           `Contrato ${row.contractNumber} finalizado`,
         );
       }
+      // Cancelar el dunning pendiente de las facturas de este contrato: un
+      // contrato finalizado no debe seguir recibiendo recordatorios de impago
+      // programados (la deuda real se gestiona por Cartera/overlock).
+      await this.cancelScheduledDunning(tx, args.tenantId, args.contractId, 'Contrato finalizado');
       return row;
     }, args.tenantId);
     await this.audit.write({
@@ -1020,6 +1024,33 @@ export class ContractsService {
       tenantId,
       unitId: contract.unitId,
     } satisfies UnitAvailablePayload);
+  }
+
+  /**
+   * Cancela las acciones de dunning aún `scheduled` de las facturas de un
+   * contrato al finalizarlo/cancelarlo → un contrato dado de baja no sigue
+   * recibiendo recordatorios de impago programados (la deuda real se gestiona
+   * por Cartera/overlock). No toca las ya `executed`/`failed` (rastro histórico).
+   */
+  private async cancelScheduledDunning(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contractId: string,
+    notes: string,
+  ): Promise<void> {
+    const invoices = await tx.invoice.findMany({
+      where: { contractId, deletedAt: null },
+      select: { id: true },
+    });
+    if (invoices.length === 0) return;
+    await tx.dunningAction.updateMany({
+      where: {
+        tenantId,
+        invoiceId: { in: invoices.map((i) => i.id) },
+        status: 'scheduled',
+      },
+      data: { status: 'cancelled', notes },
+    });
   }
 
   /**
@@ -1194,6 +1225,8 @@ export class ContractsService {
           `Contrato ${row.contractNumber} cancelado`,
         );
       }
+      // Cancelar el dunning pendiente de las facturas de este contrato (ver end()).
+      await this.cancelScheduledDunning(tx, args.tenantId, args.contractId, 'Contrato cancelado');
       return row;
     }, args.tenantId);
     await this.audit.write({

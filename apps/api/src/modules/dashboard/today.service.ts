@@ -77,6 +77,8 @@ export class TodayService {
         unreadMessages,
         collectionsDeadlines,
         collectionsDeadlinesCount,
+        depositsToSettle,
+        depositsToSettleCount,
       ] = await Promise.all([
         tx.task.findMany({
           where: {
@@ -230,6 +232,26 @@ export class TodayService {
             ...(facilityId ? { facilityId } : {}),
           },
         }),
+        // Fianzas retenidas sin liquidar de contratos ya finalizados/cancelados.
+        tx.contract.findMany({
+          where: {
+            status: { in: ['ended', 'cancelled'] },
+            depositStatus: 'held',
+            depositAmount: { gt: 0 },
+            ...facContract,
+          },
+          orderBy: [{ endedAt: 'asc' }, { cancelledAt: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect, unit: { select: { code: true } } },
+        }),
+        tx.contract.count({
+          where: {
+            status: { in: ['ended', 'cancelled'] },
+            depositStatus: 'held',
+            depositAmount: { gt: 0 },
+            ...facContract,
+          },
+        }),
       ]);
 
       const totalPending =
@@ -285,7 +307,8 @@ export class TodayService {
         moveOutsCount +
         dueTodayCount +
         invoicesCount +
-        collectionsDeadlinesCount;
+        collectionsDeadlinesCount +
+        depositsToSettleCount;
 
       return {
         date: startOfToday.toISOString(),
@@ -322,6 +345,15 @@ export class TodayService {
             detail: c.unit?.code ?? null,
             date: c.finalNoticeDeadline?.toISOString() ?? null,
             overdue: true,
+          })),
+        },
+        depositsToSettle: {
+          count: depositsToSettleCount,
+          items: depositsToSettle.map((c) => ({
+            id: c.id,
+            label: customerName(c.customer),
+            detail: c.unit?.code ?? null,
+            date: (c.endedAt ?? c.cancelledAt ?? null)?.toISOString() ?? null,
           })),
         },
         incidentsOpen,
