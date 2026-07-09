@@ -922,6 +922,30 @@ export class InvoicesService {
             status: paymentFully ? 'refunded' : 'partially_refunded',
           },
         });
+      } else {
+        // Cobro manual (efectivo/transferencia): no hay pasarela que devuelva el
+        // dinero, pero registramos el reembolso en el `payment` para que el arqueo
+        // de caja lo descuente por su método (p. ej. una devolución en efectivo).
+        const manualPayment = await tx.payment.findFirst({
+          where: {
+            invoiceId: args.invoiceId,
+            gatewayPaymentId: null,
+            status: { in: ['succeeded', 'partially_refunded'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (manualPayment) {
+          const newPaymentRefunded = addAmounts(manualPayment.refundedAmount, amount);
+          const paymentFully = isAtLeast(newPaymentRefunded, manualPayment.amount);
+          await tx.payment.update({
+            where: { id: manualPayment.id },
+            data: {
+              refundedAmount: newPaymentRefunded,
+              refundedAt: new Date(),
+              status: paymentFully ? 'refunded' : 'partially_refunded',
+            },
+          });
+        }
       }
       return tx.invoice.update({
         where: { id: args.invoiceId },

@@ -9,6 +9,10 @@ export interface CashDaySummaryDto {
   bankTransfer: number;
   other: number;
   total: number;
+  /** Reembolsos EN EFECTIVO del día (restan del efectivo esperado en caja). */
+  cashRefunds: number;
+  /** Efectivo neto esperado en caja = `cash` − `cashRefunds`. */
+  expectedCash: number;
   /** Nº de cobros del día. */
   count: number;
   /** El cierre ya registrado de ese día, si existe. */

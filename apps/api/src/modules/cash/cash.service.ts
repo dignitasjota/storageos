@@ -46,20 +46,44 @@ export class CashService {
     }
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
     const { gte, lt } = this.dayRange(date);
-    // Filtro de pagos: por local (vía invoice→contract→unit→facility) o global.
-    const paymentWhere: Prisma.PaymentWhereInput = {
-      status: 'succeeded',
+    // Filtro por local: una factura pertenece a un local por su contrato
+    // (alquiler) O por su venta de producto (tienda, sin contrato). Sin este
+    // segundo caso, las ventas de accesorios no entraban en la caja del local.
+    const facilityFilter: Prisma.PaymentWhereInput = facilityId
+      ? {
+          invoice: {
+            OR: [{ contract: { unit: { facilityId } } }, { productSale: { facilityId } }],
+          },
+        }
+      : {};
+    // Ingresos del día: un cobro cuenta como entrada de caja el día en que se
+    // cobró aunque más tarde se reembolse (por eso también `refunded`/parcial);
+    // el reembolso se descuenta aparte el día en que se produce.
+    const incomeWhere: Prisma.PaymentWhereInput = {
+      status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
       paidAt: { gte, lt },
-      ...(facilityId ? { invoice: { contract: { unit: { facilityId } } } } : {}),
+      ...facilityFilter,
     };
-    const [rows, closureRow] = await this.prisma.withTenant(
+    // Reembolsos del día: pagos con importe devuelto en esta fecha (restan de la
+    // caja física por su método original).
+    const refundWhere: Prisma.PaymentWhereInput = {
+      refundedAt: { gte, lt },
+      refundedAmount: { gt: 0 },
+      ...facilityFilter,
+    };
+    const [rows, refundRows, closureRow] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
           tx.payment.groupBy({
             by: ['methodType'],
-            where: paymentWhere,
+            where: incomeWhere,
             _sum: { amount: true },
             _count: { _all: true },
+          }),
+          tx.payment.groupBy({
+            by: ['methodType'],
+            where: refundWhere,
+            _sum: { refundedAmount: true },
           }),
           tx.cashClosure.findFirst({
             where: { closureDate: gte, facilityId: facilityId ?? null },
@@ -78,11 +102,16 @@ export class CashService {
       byMethod[r.methodType] = Number(r._sum.amount ?? 0);
       count += r._count._all;
     }
+    const refundsByMethod: Record<string, number> = {};
+    for (const r of refundRows) {
+      refundsByMethod[r.methodType] = Number(r._sum.refundedAmount ?? 0);
+    }
     const cash = byMethod.cash ?? 0;
     const card = byMethod.card ?? 0;
     const sepaDebit = byMethod.sepa_debit ?? 0;
     const bankTransfer = byMethod.bank_transfer ?? 0;
     const other = byMethod.other ?? 0;
+    const cashRefunds = refundsByMethod.cash ?? 0;
     return {
       date,
       facilityId: facilityId ?? null,
@@ -92,6 +121,8 @@ export class CashService {
       bankTransfer,
       other,
       total: cash + card + sepaDebit + bankTransfer + other,
+      cashRefunds,
+      expectedCash: subtractAmounts(cash, cashRefunds),
       count,
       closure: closureRow ? this.toDto(closureRow) : null,
     };
@@ -120,7 +151,8 @@ export class CashService {
         message: 'La caja de ese día ya está cerrada',
       });
     }
-    const expected = summary.cash;
+    // Esperado = efectivo cobrado − reembolsos en efectivo del día.
+    const expected = summary.expectedCash;
     const counted = args.input.countedCash;
     const difference = subtractAmounts(counted, expected);
 
