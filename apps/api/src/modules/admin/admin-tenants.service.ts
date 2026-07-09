@@ -1094,10 +1094,22 @@ export class AdminTenantsService {
         message: 'El tenant no está en periodo de prueba.',
       });
     }
+    // Un trial finalizado sin conversión baja al plan FREE (0 features premium):
+    // el tenant sigue operando lo básico gratis, pero no queda como "activo de
+    // pago" en un plan que no ha pagado. Si ya hubiera pagado, el propio pago lo
+    // habría pasado a `active` (no llegaría aquí en `trial`).
+    const freePlan = await this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } });
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: { status: 'active', trialEndsAt: null },
     });
+    if (freePlan) {
+      // Baja la suscripción al plan free y la marca activa (sale de `trial`).
+      await this.admin.tenantSubscription.updateMany({
+        where: { tenantId },
+        data: { planId: freePlan.id, status: 'active' },
+      });
+    }
     await this.audit.write({
       tenantId,
       userId: null,
