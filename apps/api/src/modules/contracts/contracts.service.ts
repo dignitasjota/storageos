@@ -423,107 +423,123 @@ export class ContractsService {
     const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
     this.assertTransition(existing.status, 'active');
 
-    const updated = await this.prisma.withTenant(async (tx) => {
-      // Verificar que el unit este disponible. Permitimos reserved si la
-      // reserva pertenece al mismo customer (la conversion de reserva
-      // pasa por aqui despues de convertirla).
-      const unit = await tx.unit.findUnique({ where: { id: existing.unitId } });
-      if (!unit) {
-        throw new NotFoundException({ code: 'unit_not_found', message: 'Unit perdida' });
-      }
-      if (unit.status !== 'available' && unit.status !== 'reserved') {
-        throw new ConflictException({
-          code: 'unit_not_available',
-          message: `No se puede firmar: el trastero esta en estado ${unit.status}`,
-        });
-      }
+    const updated = await this.prisma
+      .withTenant(async (tx) => {
+        // Anti-doble-ocupación: serializa por trastero con un advisory lock (se
+        // libera al commit), igual que el booking público. Dos firmas concurrentes
+        // sobre la misma unidad se ordenan; la 2ª ve la unidad ya `occupied` → 409.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${existing.unitId}::text))`;
+        // Verificar que el unit este disponible. Permitimos reserved si la
+        // reserva pertenece al mismo customer (la conversion de reserva
+        // pasa por aqui despues de convertirla).
+        const unit = await tx.unit.findUnique({ where: { id: existing.unitId } });
+        if (!unit) {
+          throw new NotFoundException({ code: 'unit_not_found', message: 'Unit perdida' });
+        }
+        if (unit.status !== 'available' && unit.status !== 'reserved') {
+          throw new ConflictException({
+            code: 'unit_not_available',
+            message: `No se puede firmar: el trastero esta en estado ${unit.status}`,
+          });
+        }
 
-      const signedAt = new Date();
-      const row = await tx.contract.update({
-        where: { id: args.contractId },
-        data: {
-          status: 'active',
-          signedAt,
-          // La firma consume el token remoto (si lo había).
-          signingTokenHash: null,
-          signingTokenExpiresAt: null,
-          // Si el contrato lleva fianza, queda RETENIDA al activarse (se liquida
-          // al finalizar vía settleDeposit). No pisa un estado ya avanzado.
-          ...(Number(existing.depositAmount) > 0 && existing.depositStatus === 'none'
-            ? { depositStatus: 'held' as const }
-            : {}),
-        },
-        include: {
-          customer: {
-            select: {
-              firstName: true,
-              lastName: true,
-              companyName: true,
-              customerType: true,
-            },
+        const signedAt = new Date();
+        const row = await tx.contract.update({
+          where: { id: args.contractId },
+          data: {
+            status: 'active',
+            signedAt,
+            // La firma consume el token remoto (si lo había).
+            signingTokenHash: null,
+            signingTokenExpiresAt: null,
+            // Si el contrato lleva fianza, queda RETENIDA al activarse (se liquida
+            // al finalizar vía settleDeposit). No pisa un estado ya avanzado.
+            ...(Number(existing.depositAmount) > 0 && existing.depositStatus === 'none'
+              ? { depositStatus: 'held' as const }
+              : {}),
           },
-          unit: {
-            select: {
-              code: true,
-              facilityId: true,
-              facility: { select: { name: true } },
+          include: {
+            customer: {
+              select: {
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                customerType: true,
+              },
             },
+            unit: {
+              select: {
+                code: true,
+                facilityId: true,
+                facility: { select: { name: true } },
+              },
+            },
+            insurancePlan: { select: { name: true } },
           },
-          insurancePlan: { select: { name: true } },
-        },
-      });
-      await tx.contractEvent.create({
-        data: {
-          tenantId: args.tenantId,
-          contractId: args.contractId,
-          eventType: 'signed',
-          payload: { signedAt: signedAt.toISOString() },
-          createdByUserId: args.userId,
-        },
-      });
-      await this.syncUnitStatus(
-        tx,
-        args,
-        existing.unitId,
-        unit.status as UnitStatus,
-        'occupied',
-        `Contrato ${row.contractNumber} firmado`,
-      );
-
-      // Registro probatorio de la firma electrónica simple.
-      if (args.signature) {
-        const termsText = buildContractTermsText({
-          contractNumber: row.contractNumber,
-          customerName:
-            row.customer.customerType === 'business'
-              ? (row.customer.companyName ?? '')
-              : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' '),
-          unitCode: row.unit.code,
-          facilityName: row.unit.facility.name,
-          priceMonthly: Number(row.priceMonthly),
-          depositAmount: Number(row.depositAmount),
-          billingCycle: row.billingCycle,
-          startDate: row.startDate.toISOString().slice(0, 10),
         });
-        const documentHash = createHash('sha256').update(termsText).digest('hex');
-        await tx.contractSignature.create({
+        await tx.contractEvent.create({
           data: {
             tenantId: args.tenantId,
             contractId: args.contractId,
-            signerName: args.signature.signerName,
-            signerEmail: args.signature.signerEmail ?? null,
-            method: args.signature.method,
-            signatureImage: args.signature.signatureImage ?? null,
-            typedSignature: args.signature.typedSignature ?? null,
-            documentHash,
-            ipAddress: args.meta.ipAddress ?? null,
-            userAgent: args.meta.userAgent ?? null,
-            channel: args.signature.channel ?? 'remote',
+            eventType: 'signed',
+            payload: { signedAt: signedAt.toISOString() },
+            createdByUserId: args.userId,
           },
         });
-      }
-      return row;
-    }, args.tenantId);
+        await this.syncUnitStatus(
+          tx,
+          args,
+          existing.unitId,
+          unit.status as UnitStatus,
+          'occupied',
+          `Contrato ${row.contractNumber} firmado`,
+        );
+
+        // Registro probatorio de la firma electrónica simple.
+        if (args.signature) {
+          const termsText = buildContractTermsText({
+            contractNumber: row.contractNumber,
+            customerName:
+              row.customer.customerType === 'business'
+                ? (row.customer.companyName ?? '')
+                : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' '),
+            unitCode: row.unit.code,
+            facilityName: row.unit.facility.name,
+            priceMonthly: Number(row.priceMonthly),
+            depositAmount: Number(row.depositAmount),
+            billingCycle: row.billingCycle,
+            startDate: row.startDate.toISOString().slice(0, 10),
+          });
+          const documentHash = createHash('sha256').update(termsText).digest('hex');
+          await tx.contractSignature.create({
+            data: {
+              tenantId: args.tenantId,
+              contractId: args.contractId,
+              signerName: args.signature.signerName,
+              signerEmail: args.signature.signerEmail ?? null,
+              method: args.signature.method,
+              signatureImage: args.signature.signatureImage ?? null,
+              typedSignature: args.signature.typedSignature ?? null,
+              documentHash,
+              ipAddress: args.meta.ipAddress ?? null,
+              userAgent: args.meta.userAgent ?? null,
+              channel: args.signature.channel ?? 'remote',
+            },
+          });
+        }
+        return row;
+      }, args.tenantId)
+      .catch((err: unknown) => {
+        // Índice único parcial `contracts_one_active_per_unit`: si (pese al lock)
+        // se intentara activar un 2º contrato en la misma unidad → 409 claro.
+        if (err && typeof err === 'object' && 'code' in err && err.code === 'P2002') {
+          throw new ConflictException({
+            code: 'unit_not_available',
+            message: 'El trastero ya tiene un contrato activo',
+          });
+        }
+        throw err;
+      });
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -1384,64 +1400,82 @@ export class ContractsService {
       });
     }
     const oldUnitId = existing.unitId;
-    const updated = await this.prisma.withTenant(async (tx) => {
-      const newUnit = await tx.unit.findFirst({ where: { id: args.newUnitId } });
-      if (!newUnit) {
-        throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
-      }
-      // El scope aplica también al trastero de DESTINO.
-      assertFacilityAllowed(args.facilityScope, newUnit.facilityId);
-      if (newUnit.status !== 'available') {
-        throw new BadRequestException({
-          code: 'unit_not_available',
-          message: 'El trastero de destino no está disponible',
-        });
-      }
-      const ctx = { tenantId: args.tenantId, userId: args.userId, meta: args.meta };
-      // Libera la vieja, ocupa la nueva.
-      const oldUnit = await tx.unit.findUniqueOrThrow({ where: { id: oldUnitId } });
-      if (oldUnit.status === 'occupied' || oldUnit.status === 'reserved') {
+    const updated = await this.prisma
+      .withTenant(async (tx) => {
+        // Anti-doble-ocupación: serializa por el trastero de DESTINO (dos traslados
+        // o un traslado + una firma sobre la misma unidad no se pisan).
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${args.newUnitId}::text))`;
+        const newUnit = await tx.unit.findFirst({ where: { id: args.newUnitId } });
+        if (!newUnit) {
+          throw new NotFoundException({
+            code: 'unit_not_found',
+            message: 'Trastero no encontrado',
+          });
+        }
+        // El scope aplica también al trastero de DESTINO.
+        assertFacilityAllowed(args.facilityScope, newUnit.facilityId);
+        if (newUnit.status !== 'available') {
+          throw new BadRequestException({
+            code: 'unit_not_available',
+            message: 'El trastero de destino no está disponible',
+          });
+        }
+        const ctx = { tenantId: args.tenantId, userId: args.userId, meta: args.meta };
+        // Libera la vieja, ocupa la nueva.
+        const oldUnit = await tx.unit.findUniqueOrThrow({ where: { id: oldUnitId } });
+        if (oldUnit.status === 'occupied' || oldUnit.status === 'reserved') {
+          await this.syncUnitStatus(
+            tx,
+            ctx,
+            oldUnitId,
+            oldUnit.status,
+            'available',
+            'Traslado: origen liberado',
+          );
+        }
         await this.syncUnitStatus(
           tx,
           ctx,
-          oldUnitId,
-          oldUnit.status,
-          'available',
-          'Traslado: origen liberado',
+          args.newUnitId,
+          newUnit.status,
+          'occupied',
+          'Traslado: destino ocupado',
         );
-      }
-      await this.syncUnitStatus(
-        tx,
-        ctx,
-        args.newUnitId,
-        newUnit.status,
-        'occupied',
-        'Traslado: destino ocupado',
-      );
-      const row = await tx.contract.update({
-        where: { id: args.contractId },
-        data: {
-          unitId: args.newUnitId,
-          ...(args.newPrice != null ? { priceMonthly: args.newPrice } : {}),
-        },
-        include: this.contractInclude(),
-      });
-      await tx.contractEvent.create({
-        data: {
-          tenantId: args.tenantId,
-          contractId: args.contractId,
-          eventType: 'unit_changed',
-          payload: {
-            fromUnitId: oldUnitId,
-            toUnitId: args.newUnitId,
-            toUnitCode: newUnit.code,
-            ...(args.newPrice != null ? { newPrice: args.newPrice } : {}),
+        const row = await tx.contract.update({
+          where: { id: args.contractId },
+          data: {
+            unitId: args.newUnitId,
+            ...(args.newPrice != null ? { priceMonthly: args.newPrice } : {}),
           },
-          createdByUserId: args.userId,
-        },
+          include: this.contractInclude(),
+        });
+        await tx.contractEvent.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            eventType: 'unit_changed',
+            payload: {
+              fromUnitId: oldUnitId,
+              toUnitId: args.newUnitId,
+              toUnitCode: newUnit.code,
+              ...(args.newPrice != null ? { newPrice: args.newPrice } : {}),
+            },
+            createdByUserId: args.userId,
+          },
+        });
+        return row;
+      }, args.tenantId)
+      .catch((err: unknown) => {
+        // Índice único parcial: si (pese al lock) se intentara ocupar una unidad
+        // que ya tiene un contrato activo → 409 claro.
+        if (err && typeof err === 'object' && 'code' in err && err.code === 'P2002') {
+          throw new ConflictException({
+            code: 'unit_not_available',
+            message: 'El trastero de destino ya tiene un contrato activo',
+          });
+        }
+        throw err;
       });
-      return row;
-    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

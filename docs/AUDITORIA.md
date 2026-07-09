@@ -140,3 +140,64 @@ anti-enumeración de `requestMagicLink` (silencioso sin filtrar).
   el QR necesita fondo claro para escanearse.
 - **Los `@Public()` del backend**: todos verificados — cada uno tiene su propia
   autenticación (sesión de portal, firma de webhook, AdminGuard o throttle).
+
+---
+
+# Auditoría 2 — pagos y permisos (julio 2026, 2026-07-08/09)
+
+Segunda pasada dirigida (3 agentes en paralelo: **dinero**, **permisos/aislamiento**,
+**flujos de negocio**), verificando cada hallazgo línea a línea antes de tratarlo
+como real. Foco en concurrencia de dinero y aislamiento por local. **Todos los
+hallazgos críticos/altos quedaron cerrados** (9 PRs).
+
+## ✅ Solucionado
+
+- **Permisos / facilityScope** (`fix/authz-scope-gaps`, #300): `payments.chargeInvoice`/
+  `bulkCharge` no aplicaban el alcance por local (cobro cross-local); el cierre de caja
+  **global** se saltaba el scope (→ 400 `facility_required` si el usuario tiene scope);
+  `PUT /admin/tenants/:id/features` sin `@RequireSuperadmin` (un `support` activaba
+  features de pago gratis); `reservations.create` y `generate-pdf` sin scope; `GET
+/invoices` sin `@RequirePermission`.
+- **`contract_ended` no se emitía nunca** (`fix/contract-ended-revoke-access`, #301):
+  evento cableado pero muerto → **el PIN de acceso del ex-inquilino seguía vivo tras la
+  baja** + automatizaciones de fin de contrato inertes. Ahora `end()`/`cancel()` lo
+  emiten y `AccessIntegrationsService` revoca las credenciales si no queda contrato vivo.
+- **Anti-doble-cobro** (`fix/payment-in-flight-guard`, #302): índice único parcial
+  `payments_one_live_gateway_charge` (1 cobro de pasarela vivo por factura) + advisory
+  lock en `chargeInvoice` (el doble clic da 409 sin llamar al gateway) + guard SEPA en
+  `markPaidManually` (409 salvo `overridePaymentInFlight`) + parciales solo en efectivo.
+  Reglas de negocio acordadas con Jota.
+- **Dedup del webhook de GoCardless** (`fix/gocardless-webhook-dedup`, #303): tabla
+  `processed_gocardless_events` (patrón de Stripe) → un `confirmed` reentregado ya no
+  suma dos veces al `amountPaid`.
+- **`amountPaid` atómico + refund multi-pasarela** (`fix/amountpaid-atomic-refund`, #304):
+  `increment` atómico en `syncFromWebhook` (fin de lost-updates concurrentes); reembolsar
+  un cobro GoCardless/SEPA da 400 claro en vez de un 500 (el gateway inyectado es Stripe).
+- **Idempotencia de la notificación Redsys** (`fix/redsys-idempotency`, #305): la
+  transición de la order a `paid` pasa a `updateMany(where status:pending)` → solo la 1ª
+  notificación cobra; la duplicada no crea un 2º Payment.
+- **Anti-doble-ocupación del trastero** (`fix/contract-unit-double-occupancy`, #308):
+  índice único parcial `contracts_one_active_per_unit` + advisory lock en `sign()` y
+  `changeUnit()` → dos firmas/traslados concurrentes sobre la misma unidad ya no dejan
+  dos contratos activos en el mismo trastero.
+
+## ⏳ Pendiente (menor, priorizado)
+
+1. **Arqueo de caja**: los reembolsos en efectivo no restan del esperado; las ventas sin
+   contrato (tienda/pase nocturno) no entran en la caja por local → descuadres.
+2. **Conciliación N43**: `matchTransaction` salda el pendiente completo ignorando el
+   importe real del apunte bancario.
+3. **Cargo huérfano**: `gateway.charge` dentro de la tx del `payment.create` → si el commit
+   falla tras cobrar, el dinero no se acredita (ventana estrecha, sin red de recuperación).
+4. **`end()`/`cancel()`** no cancelan las `dunning_actions` `scheduled` del contrato.
+5. **Fianza** que se puede dejar sin liquidar al finalizar (sin alerta/report).
+6. **Rol `support`**: `revoke-sessions` y `extend-trial` (single) sin `@RequireSuperadmin`
+   (inconsistente con las demás acciones sensibles).
+7. **Tokens de staff** no revalidan el estado del tenant (suspendido/cancelado) hasta que
+   expira el access token (ventana corta por el TTL).
+
+## Mejoras de valor propuestas (agente de negocio)
+
+Cobro recurrente automático con reintentos (smart dunning) · waitlist por tipo de trastero ·
+motor de retención sobre bajas/`ending` · reconciliación de inventario (cron) · rent
+increase con tope anual + no solapar subidas.
