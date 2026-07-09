@@ -148,6 +148,9 @@ export interface TenantBillingSettingsResponse {
   lateFeeType: 'percentage' | 'fixed';
   lateFeeValue: number;
   lateFeeGraceDays: number;
+  autoChargeRetryEnabled: boolean;
+  autoChargeRetryMax: number;
+  autoChargeRetryIntervalDays: number;
 }
 
 /** Respuesta de `/settings/tenant/reviews` (auto-solicitud de valoraciones). */

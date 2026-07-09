@@ -200,6 +200,10 @@ export const UpdateTenantBillingSettingsSchema = z.object({
   lateFeeType: z.enum(['percentage', 'fixed']).optional(),
   lateFeeValue: z.number().nonnegative().max(100_000).optional(),
   lateFeeGraceDays: z.number().int().min(0).max(120).optional(),
+  /** Reintentos de cobro automático de las facturas vencidas (opt-in, requiere auto-charge). */
+  autoChargeRetryEnabled: z.boolean().optional(),
+  autoChargeRetryMax: z.number().int().min(1).max(10).optional(),
+  autoChargeRetryIntervalDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;
 

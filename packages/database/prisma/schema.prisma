@@ -319,6 +319,9 @@ model Tenant {
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
   autoChargeOnIssue           Boolean               @default(false) @map("auto_charge_on_issue")
+  autoChargeRetryEnabled      Boolean               @default(false) @map("auto_charge_retry_enabled")
+  autoChargeRetryMax          Int                   @default(3) @map("auto_charge_retry_max")
+  autoChargeRetryIntervalDays Int                   @default(3) @map("auto_charge_retry_interval_days")
   /// Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas
   /// en borrador para revisión manual.
   autoIssueRecurring          Boolean               @default(false) @map("auto_issue_recurring")
@@ -1301,6 +1304,8 @@ model Invoice {
   total               Decimal           @default(0) @db.Decimal(12, 2)
   amountPaid          Decimal           @default(0) @map("amount_paid") @db.Decimal(12, 2)
   amountRefunded      Decimal           @default(0) @map("amount_refunded") @db.Decimal(12, 2)
+  autoRetryCount      Int               @default(0) @map("auto_retry_count")
+  autoRetryLastAt     DateTime?         @map("auto_retry_last_at") @db.Timestamptz(6)
   currency            String            @default("EUR") @db.Char(3)
   pdfUrl              String?           @map("pdf_url")
   notes               String?

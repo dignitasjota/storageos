@@ -8,7 +8,7 @@ import {
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -38,6 +38,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCreateInvoiceSeries, useInvoiceSeries } from '@/lib/billing/hooks';
@@ -135,6 +136,7 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoChargeCard />
+      <AutoChargeRetryCard />
       <AutoIssueCard />
       <LateFeeCard />
       <SepaSettingsCard />
@@ -306,6 +308,106 @@ function AutoChargeCard() {
         >
           {update.isPending ? 'Guardando…' : enabled ? 'Desactivar' : 'Activar cobro automático'}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Reintentos de cobro automático de las facturas vencidas (smart retry). */
+function AutoChargeRetryCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+  const [max, setMax] = useState(3);
+  const [interval, setInterval] = useState(3);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (settings.data && !ready) {
+      setMax(settings.data.autoChargeRetryMax);
+      setInterval(settings.data.autoChargeRetryIntervalDays);
+      setReady(true);
+    }
+  }, [settings.data, ready]);
+
+  if (!canConfigure) return null;
+  if (settings.isLoading || !settings.data) return null;
+
+  const enabled = settings.data.autoChargeRetryEnabled;
+  const autoCharge = settings.data.autoChargeOnIssue;
+
+  async function save(next: {
+    autoChargeRetryEnabled?: boolean;
+    autoChargeRetryMax?: number;
+    autoChargeRetryIntervalDays?: number;
+  }) {
+    try {
+      await update.mutateAsync(next);
+      toast.success('Reintentos de cobro actualizados.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Reintentos de cobro</CardTitle>
+          <Badge variant={enabled ? 'default' : 'outline'}>
+            {enabled ? 'Activado' : 'Desactivado'}
+          </Badge>
+        </div>
+        <CardDescription>
+          Reintenta cobrar automáticamente las facturas vencidas (con un intervalo entre intentos)
+          antes de escalar al proceso de impago. Recupera cobros que fallaron por un rechazo puntual
+          de la tarjeta o la domiciliación.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!autoCharge && (
+          <p className="text-sm text-amber-600 dark:text-amber-400">
+            Requiere el «Cobro automático» activado.
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>Nº máximo de reintentos</Label>
+            <Input
+              type="number"
+              min={1}
+              max={10}
+              value={max}
+              onChange={(e) => setMax(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Días entre reintentos</Label>
+            <Input
+              type="number"
+              min={1}
+              max={30}
+              value={interval}
+              onChange={(e) => setInterval(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => save({ autoChargeRetryEnabled: !enabled })}
+            variant={enabled ? 'destructive' : 'default'}
+            disabled={update.isPending || (!autoCharge && !enabled)}
+          >
+            {enabled ? 'Desactivar' : 'Activar reintentos'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => save({ autoChargeRetryMax: max, autoChargeRetryIntervalDays: interval })}
+            disabled={update.isPending}
+          >
+            Guardar ajustes
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
