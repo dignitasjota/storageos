@@ -16,6 +16,7 @@ import { RedsysModule } from '../payments/redsys/redsys.module';
 import { ProductsModule } from '../products/products.module';
 import { PushModule } from '../push/push.module';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { RetentionModule } from '../retention/retention.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 import { UnitRequestsModule } from '../unit-requests/unit-requests.module';
 
@@ -31,6 +32,7 @@ import { PortalService } from './portal.service';
   // ReferralsModule: el inquilino ve su código de referido + sus referidos.
   imports: [
     AuthModule,
+    RetentionModule,
     JwtModule.register({}),
     PaymentsModule,
     RedsysModule,

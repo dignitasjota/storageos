@@ -53,6 +53,7 @@ import { InsuranceCard } from './insurance-card';
 import { NightAccessCard } from './night-access-card';
 import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
+import { RetentionOfferCard } from './retention-offer-card';
 import { ShopCard } from './shop-card';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
@@ -882,6 +883,17 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="contratos" className="space-y-6">
+            <RetentionOfferCard
+              session={session}
+              onChanged={() => {
+                void apiFetch<PortalContractDto[]>('/portal/me/contracts', {
+                  headers: { Authorization: `Bearer ${session.accessToken}` },
+                  requiresAuth: false,
+                })
+                  .then(setContracts)
+                  .catch(() => {});
+              }}
+            />
             {contracts && contracts.length > 0 && (
               <Card>
                 <CardHeader>
