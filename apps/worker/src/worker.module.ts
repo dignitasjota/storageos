@@ -19,6 +19,7 @@ import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
 import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
+import { InventoryModule } from '../../api/src/modules/inventory/inventory.module';
 import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance.module';
 import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
@@ -130,6 +131,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // CRM: cron `contract_ending_soon` + feed de notificaciones in-app +
     // cron `reviews.auto-request`.
     ContractsModule,
+    InventoryModule,
     MoveInModule,
     PlanLimitsModule,
     MaintenanceModule,
