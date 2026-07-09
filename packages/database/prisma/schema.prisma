@@ -335,6 +335,8 @@ model Tenant {
   /// Si true, un cron pide la valoracion (NPS) automaticamente N dias tras
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
   reviewsAutoRequest          Boolean               @default(false) @map("reviews_auto_request")
+  rentIncreaseMaxAnnualPct    Decimal               @default(0) @map("rent_increase_max_annual_pct") @db.Decimal(5, 2)
+  rentIncreaseMinMonthsBetween Int                  @default(12) @map("rent_increase_min_months_between")
   reviewRequestDelayDays      Int                   @default(14) @map("review_request_delay_days")
   /// Link de "deja tu reseña" en Google Business Profile; se ofrece al promotor
   /// (NPS >= 9) tras valorar, para mejorar el ranking local.

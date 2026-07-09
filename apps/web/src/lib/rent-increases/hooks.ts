@@ -6,6 +6,8 @@ import type {
   CreateRentIncreaseInput,
   PreviewRentIncreaseInput,
   RentIncreaseDto,
+  RentIncreasePolicyDto,
+  RentIncreasePolicyInput,
   RentIncreasePreviewDto,
 } from '@storageos/shared';
 
@@ -57,5 +59,24 @@ export function useCancelRentIncrease() {
     mutationFn: (id: string) =>
       apiFetch<RentIncreaseDto>(`/rent-increases/${id}/cancel`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+  });
+}
+
+const policyKey = ['rent-increases', 'policy'] as const;
+
+export function useRentIncreasePolicy() {
+  return useQuery({
+    queryKey: policyKey,
+    queryFn: () => apiFetch<RentIncreasePolicyDto>('/rent-increases/policy'),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateRentIncreasePolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RentIncreasePolicyInput) =>
+      apiFetch<RentIncreasePolicyDto>('/rent-increases/policy', { method: 'PATCH', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: policyKey }),
   });
 }

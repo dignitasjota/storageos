@@ -82,3 +82,15 @@ export interface RentIncreaseDto {
   /** Solo en el detalle. */
   items?: RentIncreaseItemDto[];
 }
+
+/** Política de subidas: tope de % anual y meses mínimos entre subidas (no solapar). */
+export const RentIncreasePolicySchema = z.object({
+  maxAnnualPct: z.number().min(0).max(100).optional(),
+  minMonthsBetween: z.number().int().min(0).max(60).optional(),
+});
+export type RentIncreasePolicyInput = z.infer<typeof RentIncreasePolicySchema>;
+
+export interface RentIncreasePolicyDto {
+  maxAnnualPct: number;
+  minMonthsBetween: number;
+}

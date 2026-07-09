@@ -2,7 +2,7 @@
 
 import { type ColumnDef } from '@tanstack/react-table';
 import { Calculator, CheckCircle2, Plus, TrendingUp, XCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { RentIncreaseDto } from '@storageos/shared';
@@ -10,6 +10,7 @@ import type { RentIncreaseDto } from '@storageos/shared';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -44,7 +45,9 @@ import {
   useCreateRentIncrease,
   usePreviewRentIncrease,
   useRentIncrease,
+  useRentIncreasePolicy,
   useRentIncreases,
+  useUpdateRentIncreasePolicy,
 } from '@/lib/rent-increases/hooks';
 
 const eur = (n: number) =>
@@ -149,6 +152,8 @@ export default function RentIncreasesPage() {
           fecha efectiva.
         </p>
       </div>
+
+      {canManage && <PolicyCard />}
 
       <DataTable
         columns={columns}
@@ -425,5 +430,70 @@ function DetailDialog({ id, onClose }: { id: string | null; onClose: () => void 
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Política de subidas: tope de % anual + meses mínimos entre subidas al mismo contrato. */
+function PolicyCard() {
+  const { data } = useRentIncreasePolicy();
+  const update = useUpdateRentIncreasePolicy();
+  const [maxPct, setMaxPct] = useState(0);
+  const [minMonths, setMinMonths] = useState(12);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (data && !ready) {
+      setMaxPct(data.maxAnnualPct);
+      setMinMonths(data.minMonthsBetween);
+      setReady(true);
+    }
+  }, [data, ready]);
+
+  async function save() {
+    try {
+      await update.mutateAsync({ maxAnnualPct: maxPct, minMonthsBetween: minMonths });
+      toast.success('Política de subidas guardada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Política de subidas</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Limita cuánto puede subir una cuota y evita subir dos veces al mismo contrato en poco
+          tiempo. Se aplica al calcular los afectados de cada tanda.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label>Tope anual (%) · 0 = sin tope</Label>
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            value={maxPct}
+            onChange={(e) => setMaxPct(Math.max(0, Number(e.target.value) || 0))}
+            className="w-40"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Meses mínimos entre subidas</Label>
+          <Input
+            type="number"
+            min={0}
+            max={60}
+            value={minMonths}
+            onChange={(e) => setMinMonths(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+            className="w-40"
+          />
+        </div>
+        <Button variant="outline" onClick={save} disabled={update.isPending}>
+          Guardar
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
