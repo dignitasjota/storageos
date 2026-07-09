@@ -87,6 +87,9 @@ export class TenantSettingsService {
     lateFeeType: string;
     lateFeeValue: unknown;
     lateFeeGraceDays: number;
+    autoChargeRetryEnabled: boolean;
+    autoChargeRetryMax: number;
+    autoChargeRetryIntervalDays: number;
   }): TenantBillingSettingsResponse {
     return {
       autoChargeOnIssue: tenant.autoChargeOnIssue,
@@ -95,6 +98,9 @@ export class TenantSettingsService {
       lateFeeType: tenant.lateFeeType as 'percentage' | 'fixed',
       lateFeeValue: Number(tenant.lateFeeValue),
       lateFeeGraceDays: tenant.lateFeeGraceDays,
+      autoChargeRetryEnabled: tenant.autoChargeRetryEnabled,
+      autoChargeRetryMax: tenant.autoChargeRetryMax,
+      autoChargeRetryIntervalDays: tenant.autoChargeRetryIntervalDays,
     };
   }
 
@@ -124,6 +130,11 @@ export class TenantSettingsService {
     if (input.lateFeeType !== undefined) data.lateFeeType = input.lateFeeType;
     if (input.lateFeeValue !== undefined) data.lateFeeValue = input.lateFeeValue;
     if (input.lateFeeGraceDays !== undefined) data.lateFeeGraceDays = input.lateFeeGraceDays;
+    if (input.autoChargeRetryEnabled !== undefined)
+      data.autoChargeRetryEnabled = input.autoChargeRetryEnabled;
+    if (input.autoChargeRetryMax !== undefined) data.autoChargeRetryMax = input.autoChargeRetryMax;
+    if (input.autoChargeRetryIntervalDays !== undefined)
+      data.autoChargeRetryIntervalDays = input.autoChargeRetryIntervalDays;
 
     if (Object.keys(data).length === 0) {
       return this.billingDto(tenant);

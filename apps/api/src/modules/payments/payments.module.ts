@@ -10,6 +10,8 @@ import { GoCardlessCoreModule } from './gocardless/gocardless-core.module';
 import { PAYMENT_GATEWAY } from './payment-gateway.interface';
 import { PaymentMethodsController } from './payment-methods.controller';
 import { PaymentMethodsService } from './payment-methods.service';
+import { PaymentRetryCron } from './payment-retry.cron';
+import { PaymentRetryService } from './payment-retry.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { StripeEventsCleanupCron } from './stripe-events-cleanup.cron';
@@ -32,7 +34,10 @@ import { StripeGateway } from './stripe.gateway';
     // Listener de domain.invoice_issued: SIEMPRE en el API (encola); el
     // processor de la cola `payments` solo con workers activos.
     AutoChargeService,
-    ...(WORKERS_ENABLED_IN_API ? [StripeEventsCleanupCron, AutoChargeProcessor] : []),
+    PaymentRetryService,
+    ...(WORKERS_ENABLED_IN_API
+      ? [StripeEventsCleanupCron, AutoChargeProcessor, PaymentRetryCron]
+      : []),
   ],
   exports: [PAYMENT_GATEWAY, StripeGateway, PaymentMethodsService, PaymentsService],
 })
