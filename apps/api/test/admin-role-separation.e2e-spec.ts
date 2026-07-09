@@ -97,6 +97,21 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
     expect(feats.status).toBe(403);
     expect(feats.body.code).toBe('insufficient_super_admin_role');
 
+    // support → cerrar sesiones de un usuario del tenant = 403.
+    const revoke = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${owner.userId}/revoke-sessions`)
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(revoke.status).toBe(403);
+    expect(revoke.body.code).toBe('insufficient_super_admin_role');
+
+    // support → extender el trial (single) = 403.
+    const ext = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/extend-trial`)
+      .set('Authorization', `Bearer ${supportToken}`)
+      .send({ days: 7, reason: 'x' });
+    expect(ext.status).toBe(403);
+    expect(ext.body.code).toBe('insufficient_super_admin_role');
+
     // support SÍ puede LEER (la lectura no está restringida).
     const read = await request(app.getHttpServer())
       .get('/admin/tenants/at-risk')

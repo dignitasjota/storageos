@@ -12,6 +12,7 @@ import { FeatureGuard } from './common/guards/feature.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
+import { TenantStatusGuard } from './common/guards/tenant-status.guard';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
@@ -227,6 +228,9 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // se retiro al completarse la migracion a permisos en RBAC v2).
     { provide: APP_GUARD, useClass: SecurityThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Revalida por request que el tenant del token sigue vivo (no borrado):
+    // cierra la ventana en que un token de staff opera tras borrar el tenant.
+    { provide: APP_GUARD, useClass: TenantStatusGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     // Gating por plan del tenant (@RequireFeature) — frontera real del frontend.
     { provide: APP_GUARD, useClass: FeatureGuard },
