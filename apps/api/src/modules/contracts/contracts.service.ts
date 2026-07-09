@@ -23,7 +23,7 @@ import { buildContractTermsText } from './contract-terms';
 import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { DomainEventPayload } from '../automations/domain-events';
+import type { DomainEventPayload, UnitAvailablePayload } from '../automations/domain-events';
 import type { Contract, ContractStatus, Prisma, UnitStatus } from '@storageos/database';
 import type {
   AddContractNoteInput,
@@ -969,6 +969,7 @@ export class ContractsService {
       priceMonthly: Prisma.Decimal;
       startDate: Date;
       endDate: Date | null;
+      unitId: string;
       unit: { code: string; facility: { name: string } };
     },
   ): Promise<void> {
@@ -1014,6 +1015,11 @@ export class ContractsService {
       },
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_ended, payload);
+    // El trastero queda libre → avisar a la lista de espera de su tipo.
+    this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+      tenantId,
+      unitId: contract.unitId,
+    } satisfies UnitAvailablePayload);
   }
 
   /**

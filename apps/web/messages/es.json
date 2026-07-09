@@ -246,7 +246,8 @@
     "reviews": "Valoraciones",
     "support": "Soporte",
     "settings": "Configuración",
-    "collections": "Impagos"
+    "collections": "Impagos",
+    "waitlist": "Lista de espera"
   },
   "settings": {
     "nav": {
