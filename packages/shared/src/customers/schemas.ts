@@ -277,6 +277,9 @@ export const CreateReservationSchema = z
     validUntil: z.string().datetime(),
     depositAmount: nonNegativeDecimal.default(0),
     notes: optionalText(1000),
+    // Reserva manual directa (desde la ficha del trastero): crea la reserva ya
+    // `confirmed` y pone el trastero en `reserved` sin pasar por «pendiente».
+    confirmImmediately: z.boolean().optional(),
   })
   .refine((v) => new Date(v.validUntil).getTime() > new Date(v.validFrom).getTime(), {
     message: '`validUntil` debe ser posterior a `validFrom`',

@@ -7,6 +7,7 @@ import {
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { ContractsService } from './contracts.service';
@@ -45,6 +46,7 @@ interface ListFilters {
 export class ReservationsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly contracts: ContractsService,
   ) {}
@@ -131,13 +133,16 @@ export class ReservationsService {
           });
         }
       }
+      // Reserva manual directa (desde la ficha del trastero): nace `confirmed`
+      // y el trastero pasa a `reserved` en la misma transacción.
+      const immediate = args.input.confirmImmediately === true;
       try {
-        return await tx.reservation.create({
+        const row = await tx.reservation.create({
           data: {
             tenantId: args.tenantId,
             unitId: args.input.unitId,
             ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
-            status: 'pending',
+            status: immediate ? 'confirmed' : 'pending',
             validFrom,
             validUntil,
             depositAmount: args.input.depositAmount,
@@ -161,6 +166,16 @@ export class ReservationsService {
             },
           },
         });
+        if (immediate && unit.status === 'available') {
+          await this.reserveUnitInTx(
+            tx,
+            args.tenantId,
+            unit.id,
+            args.userId,
+            `Reserva ${row.id} para un cliente`,
+          );
+        }
+        return row;
       } catch (err) {
         if (this.isExcludeViolation(err)) {
           throw new ConflictException({
@@ -396,24 +411,107 @@ export class ReservationsService {
     return this.contracts.detail(args.tenantId, contract.id);
   }
 
+  /** Pone el trastero en `reserved` (asume que el caller validó que estaba
+   * available) + deja rastro en el historial de estados. */
+  private async reserveUnitInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    unitId: string,
+    userId: string | null,
+    reason: string,
+  ): Promise<void> {
+    await tx.unit.update({ where: { id: unitId }, data: { status: 'reserved' } });
+    await tx.unitStatusHistory.create({
+      data: {
+        tenantId,
+        unitId,
+        previousStatus: 'available',
+        newStatus: 'reserved',
+        changedByUserId: userId,
+        reason,
+      },
+    });
+  }
+
+  /** Devuelve el trastero a `available` SOLO si ya no le queda ninguna reserva
+   * viva (pending/confirmed) — evita liberar una unidad con otra reserva activa. */
+  private async releaseUnitIfOrphanInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    unitId: string,
+    userId: string | null,
+    reason: string,
+    excludeReservationId?: string,
+  ): Promise<void> {
+    const stillReserved = await tx.reservation.findFirst({
+      where: {
+        unitId,
+        status: { in: ['pending', 'confirmed'] },
+        ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
+      },
+    });
+    if (stillReserved) return;
+    const unit = await tx.unit.findUniqueOrThrow({ where: { id: unitId } });
+    if (unit.status !== 'reserved') return;
+    await tx.unit.update({ where: { id: unitId }, data: { status: 'available' } });
+    await tx.unitStatusHistory.create({
+      data: {
+        tenantId,
+        unitId,
+        previousStatus: 'reserved',
+        newStatus: 'available',
+        changedByUserId: userId,
+        reason,
+      },
+    });
+  }
+
   /**
-   * Marca reservas pending/confirmed cuyo `valid_until` ya paso como
-   * `expired`. Llamado por un cron interno (Fase 4 con BullMQ) o por un
-   * endpoint admin. Devuelve cuantas se han expirado.
+   * Marca como `expired` las reservas pending/confirmed cuyo `valid_until` ya
+   * pasó Y **libera el trastero** (reserved → available) si la reserva lo tenía
+   * retenido y no queda otra reserva viva. Antes solo marcaba el estado sin
+   * soltar la unidad → quedaba `reserved` para siempre. Llamado por el cron.
    */
   async expireDue(tenantId: string): Promise<{ expired: number }> {
-    const result = await this.prisma.withTenant(
-      (tx) =>
-        tx.reservation.updateMany({
-          where: {
-            status: { in: ['pending', 'confirmed'] },
-            validUntil: { lt: new Date() },
-          },
-          data: { status: 'expired' },
-        }),
-      tenantId,
-    );
-    return { expired: result.count };
+    return this.prisma.withTenant(async (tx) => {
+      const due = await tx.reservation.findMany({
+        where: { status: { in: ['pending', 'confirmed'] }, validUntil: { lt: new Date() } },
+        select: { id: true, unitId: true, status: true },
+      });
+      for (const r of due) {
+        await tx.reservation.update({ where: { id: r.id }, data: { status: 'expired' } });
+        if (r.status === 'confirmed') {
+          await this.releaseUnitIfOrphanInTx(
+            tx,
+            tenantId,
+            r.unitId,
+            null,
+            `Reserva ${r.id} caducada`,
+            r.id,
+          );
+        }
+      }
+      return { expired: due.length };
+    }, tenantId);
+  }
+
+  /**
+   * Versión cross-tenant para el cron: expira las reservas caducadas de TODOS
+   * los tenants que tengan alguna. Resuelve los tenants con `PrismaAdminService`
+   * y delega en `expireDue(tenantId)` (con RLS) por cada uno.
+   */
+  async expireDueAll(): Promise<{ expired: number }> {
+    const tenants = await this.admin.reservation.findMany({
+      where: { status: { in: ['pending', 'confirmed'] }, validUntil: { lt: new Date() } },
+      select: { tenantId: true },
+      distinct: ['tenantId'],
+    });
+    let expired = 0;
+    for (const t of tenants) {
+      const res = await this.expireDue(t.tenantId);
+      expired += res.expired;
+    }
+    return { expired };
   }
 
   private async findOrThrow(

@@ -9,6 +9,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { UnitReservationCard } from './unit-reservation-card';
+
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,6 +132,9 @@ export default function UnitDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Reserva manual para un cliente (solo si no está ocupado). */}
+      {!activeContract && <UnitReservationCard unitId={u.id} unitStatus={u.status} />}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
