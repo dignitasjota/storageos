@@ -27,7 +27,15 @@ export const DOMAIN_EVENTS = {
   incident_resolved: 'domain.incident_resolved',
   /** El staff resolvió una solicitud de cambio de trastero (push al inquilino). */
   unit_change_resolved: 'domain.unit_change_resolved',
+  /** Un trastero pasó a `available` (fin de contrato, cambio manual…) → lo oye la lista de espera. */
+  unit_available: 'domain.unit_available',
 } as const;
+
+/** Payload de `unit_available`: solo lo consume `WaitlistService` (no es trigger de automations). */
+export interface UnitAvailablePayload {
+  tenantId: string;
+  unitId: string;
+}
 
 export type DomainEventName = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS];
 

@@ -4,9 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
@@ -61,6 +63,7 @@ export class UnitsService {
     private readonly audit: AuditService,
     private readonly floors: FacilityFloorsService,
     private readonly limits: PlanLimitsService,
+    private readonly eventBus: EventEmitter2,
   ) {}
 
   async list(
@@ -412,6 +415,13 @@ export class UnitsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // Trastero liberado a mano → avisar a la lista de espera de su tipo.
+    if (to === 'available') {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId: args.tenantId,
+        unitId: args.unitId,
+      } satisfies UnitAvailablePayload);
+    }
     return this.toDto(updated);
   }
 
