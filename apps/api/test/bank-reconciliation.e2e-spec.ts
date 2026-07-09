@@ -128,6 +128,46 @@ describe('Conciliación N43 (e2e)', () => {
     expect(again.status).toBe(400);
   });
 
+  it('conciliar un apunte parcial deja la factura con saldo pendiente', async () => {
+    const owner = await registerVerifiedUser(app, 'n43partial');
+    await setTenantPlan(owner.slug, 'pro');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken);
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    const issued = await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/issue`)
+      .set(auth)
+      .expect(200);
+    const invoiceNumber = issued.body.invoiceNumber as string;
+
+    // Apunte bancario de 60 € sobre una factura de 121 € (pago parcial).
+    const content = buildN43('00000000006000', invoiceNumber);
+    const imported = await request(app.getHttpServer())
+      .post('/bank-statements/import')
+      .set(auth)
+      .send({ filename: 'parcial.n43', content });
+    const statementId = imported.body.statements[0].id as string;
+    const detail = await request(app.getHttpServer())
+      .get(`/bank-statements/${statementId}`)
+      .set(auth);
+    const credit = detail.body.transactions.find((t: { type: string }) => t.type === 'credit');
+    expect(credit.amount).toBe(60);
+
+    // Conciliar → aplica SOLO 60 € (no el pendiente entero); la factura sigue viva.
+    const matched = await request(app.getHttpServer())
+      .post(`/bank-statements/transactions/${credit.id}/match`)
+      .set(auth)
+      .send({ invoiceId });
+    expect(matched.status).toBe(200);
+
+    const invoice = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(invoice.body.status).not.toBe('paid');
+    expect(invoice.body.amountPaid).toBe(60);
+  });
+
   it('devolución SEPA: un cargo del mismo importe revierte la factura cobrada', async () => {
     const owner = await registerVerifiedUser(app, 'n43ret');
     await setTenantPlan(owner.slug, 'pro');

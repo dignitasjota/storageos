@@ -702,7 +702,12 @@ export class InvoicesService {
     }
     // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
     // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).
-    if (isGreaterThan(total, newPaid) && args.input.methodType !== 'cash') {
+    // Excepción: cobros bancarios reales ya confirmados (N43/SEPA) con `allowPartialNonCash`.
+    if (
+      isGreaterThan(total, newPaid) &&
+      args.input.methodType !== 'cash' &&
+      !args.input.allowPartialNonCash
+    ) {
       throw new BadRequestException({
         code: 'partial_only_cash',
         message: 'Solo se admiten pagos parciales en efectivo; por otra vía debe saldarse el total',
