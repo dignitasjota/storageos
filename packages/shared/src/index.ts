@@ -40,6 +40,7 @@ export * from './bank-reconciliation';
 export * from './ai';
 export * from './push';
 export * from './unit-changes';
+export * from './retention';
 export * from './unit-requests';
 export * from './waitlist';
 export * from './competitors';

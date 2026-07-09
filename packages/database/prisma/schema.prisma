@@ -452,6 +452,7 @@ model Tenant {
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
   delinquencyCases        DelinquencyCase[]
+  retentionOffers         RetentionOffer[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
@@ -522,6 +523,7 @@ model User {
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
+  retentionOffers          RetentionOffer[]
   delinquencyCaseEvents    DelinquencyCaseEvent[]    @relation("DelinquencyCaseEventCreatedBy")
   delinquencyCaseFiles     DelinquencyCaseFile[]     @relation("DelinquencyCaseFileCreatedBy")
 
@@ -1015,6 +1017,7 @@ model Customer {
   messages           CustomerMessage[]
   followups          CustomerFollowup[]
   delinquencyCases   DelinquencyCase[]
+  retentionOffers    RetentionOffer[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1117,6 +1120,7 @@ model Contract {
   unitChangeRequests UnitChangeRequest[]
   inspectionPhotos   ContractInspectionPhoto[]
   delinquencyCases   DelinquencyCase[]
+  retentionOffers    RetentionOffer[]
 
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
@@ -1124,6 +1128,35 @@ model Contract {
   @@index([customerId])
   @@index([unitId])
   @@map("contracts")
+}
+
+model RetentionOffer {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  contractId      String    @map("contract_id") @db.Uuid
+  customerId      String    @map("customer_id") @db.Uuid
+  /// percentage | fixed
+  discountType    String    @map("discount_type")
+  discountValue   Decimal   @map("discount_value") @db.Decimal(10, 2)
+  months          Int       @default(1)
+  message         String?
+  /// pending | accepted | declined | expired
+  status          String    @default("pending")
+  validUntil      DateTime? @map("valid_until") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  respondedAt     DateTime? @map("responded_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract  Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, contractId])
+  @@index([tenantId, customerId])
+  @@map("retention_offers")
 }
 
 /// Foto del estado del trastero en una inspección (check-in o check-out) —

@@ -77,6 +77,7 @@ import { IncidentsService } from '../operations/incidents.service';
 import { RedsysService } from '../payments/redsys/redsys.service';
 import { PushService } from '../push/push.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import { RetentionService } from '../retention/retention.service';
 import { UnitChangesService } from '../unit-changes/unit-changes.service';
 import { UnitRequestsService } from '../unit-requests/unit-requests.service';
 
@@ -123,6 +124,7 @@ export class PortalController {
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
     private readonly documents: CustomerDocumentsService,
+    private readonly retention: RetentionService,
   ) {}
 
   @Public()
@@ -335,6 +337,37 @@ export class PortalController {
   ): Promise<PortalContractDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.contracts.cancelMoveOutByCustomer({ tenantId, customerId, contractId: id });
+  }
+
+  @Public()
+  @Get('me/retention-offers')
+  async retentionOffers(@Headers('authorization') auth: string | undefined) {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.retention.listForCustomer(tenantId, customerId);
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/retention-offers/:id/accept')
+  @HttpCode(HttpStatus.OK)
+  async acceptRetentionOffer(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.retention.acceptByCustomer({ tenantId, customerId, offerId: id });
+  }
+
+  @Public()
+  @ThrottleLogin()
+  @Post('me/retention-offers/:id/decline')
+  @HttpCode(HttpStatus.OK)
+  async declineRetentionOffer(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.retention.declineByCustomer({ tenantId, customerId, offerId: id });
   }
 
   // ----------------------- accesos (historial) -----------------------------

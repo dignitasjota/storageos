@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 
 import { DepositCard, depositStatusLabel } from './deposit-card';
 import { InspectionPhotosCard } from './inspection-photos-card';
+import { RetentionCard } from './retention-card';
 
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { SignaturePad } from '@/components/move-in/signature-pad';
@@ -317,6 +318,9 @@ export default function ContractDetailPage() {
       />
 
       <DepositCard contract={c} />
+
+      {/* Retención: solo sobre una baja en curso. */}
+      {c.status === 'ending' && canManageC && <RetentionCard contractId={c.id} />}
 
       <InspectionPhotosCard contractId={c.id} kind="checkin" />
       <InspectionPhotosCard contractId={c.id} kind="checkout" />
