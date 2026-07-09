@@ -48,6 +48,7 @@ import { ImportsModule } from './modules/imports/imports.module';
 import { InboundMessagesModule } from './modules/inbound-messages/inbound-messages.module';
 import { InsuranceModule } from './modules/insurance/insurance.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { LandingModule } from './modules/landing/landing.module';
 import { LeadsModule } from './modules/leads/leads.module';
@@ -212,6 +213,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     PushModule,
     UnitChangesModule,
     RetentionModule,
+    InventoryModule,
     UnitRequestsModule,
     WaitlistModule,
     CompetitorsModule,

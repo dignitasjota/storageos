@@ -13,6 +13,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { InventoryIssuesBanner } from './inventory-issues-banner';
+
 import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { StatusBadge } from '@/components/status-badge';
@@ -230,6 +232,7 @@ export default function UnitsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+      <InventoryIssuesBanner />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Trasteros</h1>
