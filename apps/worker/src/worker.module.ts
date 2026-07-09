@@ -13,13 +13,13 @@ import { AutomationsModule } from '../../api/src/modules/automations/automations
 import { BillingModule } from '../../api/src/modules/billing/billing.module';
 import { CommunicationsModule } from '../../api/src/modules/communications/communications.module';
 import { ContractsModule } from '../../api/src/modules/contracts/contracts.module';
-import { InventoryModule } from '../../api/src/modules/inventory/inventory.module';
 import { DataRetentionModule } from '../../api/src/modules/data-retention/data-retention.module';
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
 import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
+import { InventoryModule } from '../../api/src/modules/inventory/inventory.module';
 import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance.module';
 import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
