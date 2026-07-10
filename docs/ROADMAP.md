@@ -456,6 +456,12 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
   - **Fix**: la ráfaga de **401 al cargar** (el `AuthBootstrap` montaba la app antes de rehidratar la sesión → todas las queries daban 401) → ahora gatea el render con un loader.
 - ~~**Recordatorio de pago en lote**~~ ✅ **Implementado** (2026-07-10, #325): `POST /invoices/bulk/remind` (`communications:send`) reusa la plantilla `invoice_overdue_email`; botón «Recordatorio» en la barra de selección múltiple de `/invoices`. Cierra el follow-up de la facturación en lote.
 - ~~**Fix doble-estado trial en el admin**~~ ✅ **Implementado** (2026-07-10, #326): cambiar el plan de un tenant en trial (`changePlan`) ahora **acaba el trial** (`active` + limpia `trialEndsAt` + `subscription.status='active'`); antes se quedaba en `trial` pese a estar en un plan de pago (salía en «trials por expirar»/nurturing). + labels de estado de suscripción corregidos.
+- ~~**Auditoría y endurecimiento del control de accesos + integración de hardware por API**~~ ✅ **Implementado** (2026-07-10, #338–#341). Auditoría exhaustiva del módulo + investigación de hardware:
+  - **Seguridad (#338)**: las credenciales auto-emitidas se acotan al local/trastero del inquilino (antes daban acceso a todo el tenant); `resume` reactiva solo lo suspendido por impago (no lo suspendido por seguridad); pases single-use con reserva atómica (no se usan dos veces ni se gastan si la cerradura no abre).
+  - **Anti-fuerza-bruta (#340)**: lockout temporal (Redis, fail-open) por **dispositivo** (frena el tecleo masivo de PINs; por dispositivo, no por IP) y por **credencial**, además del throttle por IP. Umbrales por env `ACCESS_BRUTEFORCE_*`.
+  - **Unicidad de PIN (#341)**: alta con un PIN ya en uso → 409 (evita que dos PINs iguales abran con la credencial equivocada).
+  - **Hardware por API (#339)**: `GET /access/verify` (URL con placeholders) para integrar terminales comerciales sin firmware propio + guía `docs/HARDWARE_AKUVOX.md` (Akuvox ⭐ Patrón A / 2N / ESP32 piloto / ZKTeco Patrón B; Dahua-QR, C3, PTI/Noke ✗).
+  - **Roadmap (necesita hardware)**: modo offline (Patrón B: `SyncLockProvider` + sync de credenciales al terminal para operar sin red) y ACK físico de apertura en el log.
 
 ### Prioridad recomendada
 
