@@ -1077,6 +1077,7 @@ model Contract {
   priceMonthly           Decimal               @map("price_monthly") @db.Decimal(10, 2)
   discountAmount         Decimal               @default(0) @map("discount_amount") @db.Decimal(10, 2)
   discountReason         String?               @map("discount_reason")
+  discountExpiresAt      DateTime?             @map("discount_expires_at") @db.Timestamptz(6)
   /// Promoción aplicada al alta (si la hubo) + meses gratis pendientes de
   /// consumir (promociones `free_months`); la facturación recurrente emite las
   /// primeras N facturas con el alquiler a 0 y decrementa el contador.

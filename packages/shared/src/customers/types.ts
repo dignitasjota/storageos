@@ -98,6 +98,8 @@ export interface ContractDto {
   priceMonthly: number;
   discountAmount: number;
   discountReason: string | null;
+  /** Fecha en que expira el descuento recurrente (retención); null = sin fin. */
+  discountExpiresAt: string | null;
   effectivePrice: number;
   /** Meses gratis pendientes de consumir (promoción `free_months`). */
   freeMonthsRemaining: number;

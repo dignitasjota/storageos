@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 
@@ -31,12 +32,22 @@ function discountAmountFor(
   return Math.min(Math.round(raw * 100) / 100, priceMonthly);
 }
 
+/** Suma `months` meses a una fecha, ajustando el desbordamiento de fin de mes. */
+function addMonths(date: Date, months: number): Date {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0); // p. ej. 31 ene + 1 mes → 28/29 feb
+  return d;
+}
+
 @Injectable()
 export class RetentionService {
   private readonly logger = new Logger(RetentionService.name);
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly email: EmailService,
   ) {}
@@ -175,7 +186,10 @@ export class RetentionService {
         Number(offer.discountValue),
         Number(offer.contract.priceMonthly),
       );
-      // Revierte la baja (si seguía en curso) y aplica el descuento recurrente.
+      // Revierte la baja (si seguía en curso) y aplica el descuento recurrente
+      // durante `months` meses: `discountExpiresAt` marca cuándo revertirlo (lo
+      // hace el cron); NULL sería descuento perpetuo (v1). Los descuentos de
+      // promoción NO fijan este campo, así que el cron no los toca.
       await tx.contract.update({
         where: { id: offer.contractId },
         data: {
@@ -184,6 +198,7 @@ export class RetentionService {
             : {}),
           discountAmount: disc,
           discountReason: `Retención: oferta ${offer.id}`,
+          discountExpiresAt: addMonths(new Date(), Math.max(1, offer.months)),
         },
       });
       await tx.contractEvent.create({
@@ -201,6 +216,59 @@ export class RetentionService {
       });
     }, args.tenantId);
     return { accepted: true };
+  }
+
+  /**
+   * Revierte los descuentos de retención cuyo periodo (`discountExpiresAt`) ya
+   * venció: pone `discountAmount` a 0 y limpia el motivo/expiración → la próxima
+   * factura recurrente sale a precio completo. Cross-tenant (para el cron).
+   * Solo toca contratos con `discountExpiresAt` fijado (los descuentos de
+   * promoción no lo usan → quedan intactos).
+   */
+  async revertExpiredDiscounts(): Promise<{ reverted: number }> {
+    const now = new Date();
+    const due = await this.admin.contract.findMany({
+      where: {
+        deletedAt: null,
+        discountExpiresAt: { not: null, lte: now },
+        discountAmount: { gt: 0 },
+      },
+      select: { id: true, tenantId: true, discountAmount: true },
+    });
+    let reverted = 0;
+    for (const c of due) {
+      await this.prisma.withTenant(async (tx) => {
+        // Re-check dentro de la tx (evita revertir dos veces si dos réplicas del
+        // cron corren a la vez): solo si sigue con descuento y expirado.
+        const fresh = await tx.contract.findFirst({
+          where: {
+            id: c.id,
+            discountExpiresAt: { not: null, lte: now },
+            discountAmount: { gt: 0 },
+          },
+          select: { id: true, discountAmount: true },
+        });
+        if (!fresh) return;
+        await tx.contract.update({
+          where: { id: c.id },
+          data: { discountAmount: 0, discountReason: null, discountExpiresAt: null },
+        });
+        await tx.contractEvent.create({
+          data: {
+            tenantId: c.tenantId,
+            contractId: c.id,
+            eventType: 'price_changed',
+            payload: {
+              reason: 'retention_discount_expired',
+              previousDiscount: Number(fresh.discountAmount),
+            },
+            createdByUserId: null,
+          },
+        });
+        reverted += 1;
+      }, c.tenantId);
+    }
+    return { reverted };
   }
 
   async declineByCustomer(args: {
