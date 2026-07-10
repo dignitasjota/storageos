@@ -84,31 +84,39 @@ export default function CustomerDetailPage() {
             <ArrowLeft className="mr-1 h-4 w-4" /> Inquilinos
           </Link>
         </Button>
-        <div className="mt-2 flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">{c.displayName}</h1>
-              <Badge variant="outline">
-                {c.customerType === 'business' ? 'Empresa' : 'Particular'}
-              </Badge>
-              <Badge variant={c.kycVerified ? 'default' : 'outline'}>
-                {c.kycVerified ? 'KYC verificado' : 'KYC pendiente'}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {c.email ?? '—'} · {c.phone ?? 'Sin teléfono'}
-              {c.documentNumber && ` · ${c.documentType ?? 'Doc.'} ${c.documentNumber}`}
-            </p>
+        {/* Datos del inquilino. Los badges van BAJO el nombre (con aire) para que
+            respire, y las acciones debajo del todo (a ancho completo en móvil). */}
+        <div className="mt-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{c.displayName}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Badge variant="outline">
+              {c.customerType === 'business' ? 'Empresa' : 'Particular'}
+            </Badge>
+            <Badge variant={c.kycVerified ? 'default' : 'outline'}>
+              {c.kycVerified ? 'KYC verificado' : 'KYC pendiente'}
+            </Badge>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Can permission="customers:write">
-              <PortalLinkButton customerId={c.id} />
-            </Can>
-            <Button variant="outline" onClick={toggleKyc} disabled={setKyc.isPending}>
-              <BadgeCheck className="mr-1 h-4 w-4" />
-              {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
-            </Button>
-          </div>
+          <p className="mt-2 break-words text-sm text-muted-foreground">
+            {c.email ?? '—'} · {c.phone ?? 'Sin teléfono'}
+            {c.documentNumber && ` · ${c.documentType ?? 'Doc.'} ${c.documentNumber}`}
+          </p>
+        </div>
+
+        {/* Acciones: a ancho completo y apiladas en móvil (grandes y cómodas),
+            en fila a partir de sm. */}
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Can permission="customers:write">
+            <PortalLinkButton customerId={c.id} className="w-full justify-center sm:w-auto" />
+          </Can>
+          <Button
+            variant="outline"
+            onClick={toggleKyc}
+            disabled={setKyc.isPending}
+            className="w-full justify-center sm:w-auto"
+          >
+            <BadgeCheck className="mr-1 h-4 w-4" />
+            {c.kycVerified ? 'Revocar KYC' : 'Marcar KYC verificado'}
+          </Button>
         </div>
       </div>
 
