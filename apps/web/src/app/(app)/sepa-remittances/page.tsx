@@ -207,7 +207,7 @@ function CreateRemittanceDialog() {
           <DialogTitle>Nueva remesa SEPA</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Nombre</Label>
               <Input

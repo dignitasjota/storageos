@@ -456,83 +456,85 @@ export default function InvoicesPage() {
                   <Plus className="mr-1 h-3 w-3" /> Anadir linea
                 </Button>
               </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                    <th className="py-1">Concepto</th>
-                    <th className="py-1 text-right">Cant.</th>
-                    <th className="py-1 text-right">P. unit (€)</th>
-                    <th className="py-1 text-right">IVA %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {newItems.map((it, idx) => (
-                    <tr key={idx} className="border-b last:border-0">
-                      <td className="py-1">
-                        <Input
-                          value={it.description}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, description: e.target.value } : row,
-                              ),
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="1"
-                          min="1"
-                          value={it.quantity}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, quantity: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                          className="w-20"
-                        />
-                      </td>
-                      <td className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={it.unitPrice}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                          className="w-28"
-                        />
-                      </td>
-                      <td className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          value={it.taxRate}
-                          onChange={(e) =>
-                            setNewItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                          className="w-20"
-                        />
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[420px] text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                      <th className="py-1">Concepto</th>
+                      <th className="py-1 text-right">Cant.</th>
+                      <th className="py-1 text-right">P. unit (€)</th>
+                      <th className="py-1 text-right">IVA %</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {newItems.map((it, idx) => (
+                      <tr key={idx} className="border-b last:border-0">
+                        <td className="py-1">
+                          <Input
+                            value={it.description}
+                            onChange={(e) =>
+                              setNewItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, description: e.target.value } : row,
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="py-1 text-right">
+                          <Input
+                            type="number"
+                            step="1"
+                            min="1"
+                            value={it.quantity}
+                            onChange={(e) =>
+                              setNewItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, quantity: Number(e.target.value) } : row,
+                                ),
+                              )
+                            }
+                            className="w-20"
+                          />
+                        </td>
+                        <td className="py-1 text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={it.unitPrice}
+                            onChange={(e) =>
+                              setNewItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
+                                ),
+                              )
+                            }
+                            className="w-28"
+                          />
+                        </td>
+                        <td className="py-1 text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            value={it.taxRate}
+                            onChange={(e) =>
+                              setNewItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
+                                ),
+                              )
+                            }
+                            className="w-20"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <p className="text-right text-sm tabular-nums">
                 Total: <span className="font-semibold">{newTotal.toFixed(2)} €</span>
               </p>

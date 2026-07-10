@@ -441,35 +441,37 @@ export default function InvoiceDetailPage() {
           <CardTitle>Líneas</CardTitle>
         </CardHeader>
         <CardContent>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                <th className="py-2">Concepto</th>
-                <th className="py-2 text-right">Cant.</th>
-                <th className="py-2 text-right">P. unit</th>
-                <th className="py-2 text-right">IVA</th>
-                <th className="py-2 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {i.items.map((item) => (
-                <tr key={item.id} className="border-b last:border-0">
-                  <td className="py-2">
-                    {item.description}
-                    {item.periodStart && item.periodEnd && (
-                      <div className="text-xs text-muted-foreground">
-                        Periodo: {item.periodStart} → {item.periodEnd}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-2 text-right">{item.quantity}</td>
-                  <td className="py-2 text-right">{item.unitPrice.toFixed(2)} €</td>
-                  <td className="py-2 text-right">{item.taxRate}%</td>
-                  <td className="py-2 text-right tabular-nums">{item.total.toFixed(2)} €</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                  <th className="py-2">Concepto</th>
+                  <th className="py-2 text-right">Cant.</th>
+                  <th className="py-2 text-right">P. unit</th>
+                  <th className="py-2 text-right">IVA</th>
+                  <th className="py-2 text-right">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {i.items.map((item) => (
+                  <tr key={item.id} className="border-b last:border-0">
+                    <td className="py-2">
+                      {item.description}
+                      {item.periodStart && item.periodEnd && (
+                        <div className="text-xs text-muted-foreground">
+                          Periodo: {item.periodStart} → {item.periodEnd}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 text-right">{item.quantity}</td>
+                    <td className="py-2 text-right">{item.unitPrice.toFixed(2)} €</td>
+                    <td className="py-2 text-right">{item.taxRate}%</td>
+                    <td className="py-2 text-right tabular-nums">{item.total.toFixed(2)} €</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
@@ -660,82 +662,84 @@ export default function InvoiceDetailPage() {
                   ? 'Lineas (por diferencias: signos negativos reducen importes; positivos los aumentan)'
                   : 'Lineas (por sustitucion: importes nuevos absolutos)'}
               </Label>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                    <th className="py-1">Concepto</th>
-                    <th className="py-1 text-right">Cant.</th>
-                    <th className="py-1 text-right">P. unit (€)</th>
-                    <th className="py-1 text-right">IVA %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rectifyItems.map((it, idx) => (
-                    <tr key={idx} className="border-b last:border-0">
-                      <td className="py-1">
-                        <Input
-                          value={it.description}
-                          onChange={(e) =>
-                            setRectifyItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, description: e.target.value } : row,
-                              ),
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="1"
-                          min="1"
-                          value={it.quantity}
-                          onChange={(e) =>
-                            setRectifyItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, quantity: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                          className="w-20"
-                        />
-                      </td>
-                      <td className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={it.unitPrice}
-                          onChange={(e) =>
-                            setRectifyItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                          className="w-28"
-                        />
-                      </td>
-                      <td className="py-1 text-right">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          value={it.taxRate}
-                          onChange={(e) =>
-                            setRectifyItems((curr) =>
-                              curr.map((row, i) =>
-                                i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
-                              ),
-                            )
-                          }
-                          className="w-20"
-                        />
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[420px] text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                      <th className="py-1">Concepto</th>
+                      <th className="py-1 text-right">Cant.</th>
+                      <th className="py-1 text-right">P. unit (€)</th>
+                      <th className="py-1 text-right">IVA %</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rectifyItems.map((it, idx) => (
+                      <tr key={idx} className="border-b last:border-0">
+                        <td className="py-1">
+                          <Input
+                            value={it.description}
+                            onChange={(e) =>
+                              setRectifyItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, description: e.target.value } : row,
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="py-1 text-right">
+                          <Input
+                            type="number"
+                            step="1"
+                            min="1"
+                            value={it.quantity}
+                            onChange={(e) =>
+                              setRectifyItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, quantity: Number(e.target.value) } : row,
+                                ),
+                              )
+                            }
+                            className="w-20"
+                          />
+                        </td>
+                        <td className="py-1 text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={it.unitPrice}
+                            onChange={(e) =>
+                              setRectifyItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, unitPrice: Number(e.target.value) } : row,
+                                ),
+                              )
+                            }
+                            className="w-28"
+                          />
+                        </td>
+                        <td className="py-1 text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            value={it.taxRate}
+                            onChange={(e) =>
+                              setRectifyItems((curr) =>
+                                curr.map((row, i) =>
+                                  i === idx ? { ...row, taxRate: Number(e.target.value) } : row,
+                                ),
+                              )
+                            }
+                            className="w-20"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <p className="text-xs text-muted-foreground">
                 La rectificativa se crea como borrador. Tendras que emitirla manualmente para que se
                 envie a AEAT.
