@@ -218,6 +218,21 @@ export function useBulkIssueInvoices() {
   });
 }
 
+/** Envío en lote de un recordatorio de pago a N facturas pendientes. */
+export function useBulkRemindInvoices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch<BulkInvoiceActionResultDto>('/invoices/bulk/remind', {
+        method: 'POST',
+        json: { ids },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['communications'] });
+    },
+  });
+}
+
 /** Cobro en lote de N facturas con el método por defecto de cada cliente. */
 export function useBulkChargeInvoices() {
   const qc = useQueryClient();

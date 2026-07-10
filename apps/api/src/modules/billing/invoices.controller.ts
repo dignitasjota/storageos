@@ -145,6 +145,22 @@ export class InvoicesController {
     });
   }
 
+  /** Envía en lote un recordatorio de pago a N facturas pendientes. ANTES de
+   *  `:id/issue` para que `bulk` no se interprete como un `:id`. */
+  @RequirePermission('communications:send')
+  @Post('bulk/remind')
+  @HttpCode(HttpStatus.OK)
+  async bulkRemind(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: BulkInvoiceActionDto,
+  ): Promise<BulkInvoiceActionResultDto> {
+    return this.invoices.bulkRemind({
+      tenantId: user.tenantId,
+      ids: body.ids,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
   @RequirePermission('invoices:manage')
   @Post(':id/issue')
   @HttpCode(HttpStatus.OK)
