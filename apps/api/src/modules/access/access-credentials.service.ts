@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { hash as argonHash } from '@node-rs/argon2';
+import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -94,6 +94,59 @@ export class AccessCredentialsService {
     private readonly crypto: CryptoService,
   ) {}
 
+  /**
+   * ¿El PIN colisiona con otra credencial VIVA del mismo tenant? Como el verify
+   * devuelve la PRIMERA credencial cuyo hash argon2 casa, dos credenciales con
+   * el mismo PIN abrirían con la credencial (y restricciones) equivocada. Se
+   * prefiltra por `secretPreview` (mismo prefijo) y se verifica argon2.
+   */
+  private async pinCollides(tenantId: string, pin: string): Promise<boolean> {
+    const candidates = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findMany({
+          where: {
+            tenantId,
+            method: 'pin' as AccessMethod,
+            secretPreview: pin.slice(-4),
+            status: {
+              in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[],
+            },
+          },
+          select: { secretHash: true },
+        }),
+      tenantId,
+    );
+    for (const c of candidates) {
+      if (c.secretHash && (await argonVerify(c.secretHash, pin))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Resuelve el PIN a usar garantizando que NO colisione con otra credencial
+   * viva del tenant. Si el staff pasa un PIN concreto y ya está en uso → 409;
+   * si no, genera uno aleatorio único (reintenta ante la rara colisión).
+   */
+  private async resolveUniquePin(
+    tenantId: string,
+    providedPin: string | undefined,
+  ): Promise<string> {
+    if (providedPin !== undefined) {
+      if (await this.pinCollides(tenantId, providedPin)) {
+        throw new ConflictException({
+          code: 'pin_collision',
+          message: 'Ese PIN ya está en uso por otra credencial',
+        });
+      }
+      return providedPin;
+    }
+    for (let i = 0; i < 8; i++) {
+      const pin = generateRandomPin();
+      if (!(await this.pinCollides(tenantId, pin))) return pin;
+    }
+    return generateRandomPin(); // improbable tras 8 intentos; no bloquear el alta
+  }
+
   async list(tenantId: string, filters: ListFilters): Promise<AccessCredentialDto[]> {
     const where: Prisma.AccessCredentialWhereInput = {};
     if (filters.status) where.status = filters.status as AccessCredentialStatus;
@@ -181,7 +234,7 @@ export class AccessCredentialsService {
 
     let secretEncrypted: string | null = null;
     if (input.method === 'pin') {
-      const pin = input.pin ?? generateRandomPin();
+      const pin = await this.resolveUniquePin(args.tenantId, input.pin);
       secretHash = await argonHash(pin);
       secretPreview = pin.slice(-4);
       secretEncrypted = this.crypto.encryptString(pin);
@@ -282,7 +335,7 @@ export class AccessCredentialsService {
     let revealedSecret: string | null = null;
 
     if (existing.method === ('pin' as AccessMethod)) {
-      const pin = args.input.pin ?? generateRandomPin();
+      const pin = await this.resolveUniquePin(args.tenantId, args.input.pin);
       data.secretHash = await argonHash(pin);
       data.secretPreview = pin.slice(-4);
       data.secretEncrypted = this.crypto.encryptString(pin);
@@ -562,7 +615,7 @@ export class AccessCredentialsService {
 
     const data: Prisma.AccessCredentialUncheckedUpdateInput = {};
     if (existing.method === ('pin' as AccessMethod)) {
-      const pin = generateRandomPin();
+      const pin = await this.resolveUniquePin(tenantId, undefined);
       data.secretHash = await argonHash(pin);
       data.secretPreview = pin.slice(-4);
       data.secretEncrypted = this.crypto.encryptString(pin);
