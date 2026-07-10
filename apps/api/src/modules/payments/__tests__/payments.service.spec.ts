@@ -341,7 +341,9 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
       gateway: 'stripe',
       gatewayCustomerId: 'cus_123',
     });
-    tx.payment.create.mockResolvedValue(createdPaymentRow('processing'));
+    // FASE 1 reserva el payment (select id); FASE 3 lo finaliza con update.
+    tx.payment.create.mockResolvedValue({ id: PAYMENT_ID });
+    tx.payment.update.mockResolvedValue(createdPaymentRow('processing'));
     const gateway = {
       charge: jest.fn().mockResolvedValue({
         gatewayPaymentId: GATEWAY_PAYMENT_ID,
@@ -367,14 +369,63 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
         offSession: true,
       }),
     );
+    // #3 (anti-cargo-huérfano): la reserva se crea `processing` ANTES de cobrar.
     expect(tx.payment.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'processing', methodType: 'sepa_debit' }),
       }),
     );
+    // FASE 3 actualiza la reserva con el resultado del gateway.
+    expect(tx.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: PAYMENT_ID },
+        data: expect.objectContaining({
+          status: 'processing',
+          gatewayPaymentId: GATEWAY_PAYMENT_ID,
+        }),
+      }),
+    );
     // processing NO suma a amountPaid: eso llega via webhook al liquidar.
     expect(tx.invoice.update).not.toHaveBeenCalled();
     expect(dto.status).toBe('processing');
+  });
+
+  it('#3: si el gateway LANZA, la reserva se marca failed (sin cargo huérfano) y se relanza', async () => {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      id: PM_ID,
+      type: 'card',
+      gateway: 'stripe',
+      gatewayCustomerId: 'cus_123',
+    });
+    tx.payment.create.mockResolvedValue({ id: PAYMENT_ID });
+    const gateway = { charge: jest.fn().mockRejectedValue(new Error('network down')) };
+    const paymentMethods = { decryptToken: jest.fn().mockResolvedValue('pm_token') };
+    const service = buildService(tx, { gateway, paymentMethods });
+
+    await expect(
+      service.chargeInvoice({
+        tenantId: TENANT,
+        userId: 'user-1',
+        invoiceId: INVOICE_ID,
+        input: { paymentMethodId: PM_ID },
+        meta,
+      }),
+    ).rejects.toThrow('network down');
+
+    // La reserva creada ANTES del cargo se marca failed (libera el slot); nunca
+    // queda un cargo real sin registro (el registro existe desde FASE 1).
+    expect(tx.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'processing' }) }),
+    );
+    expect(tx.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: PAYMENT_ID },
+        data: expect.objectContaining({ status: 'failed' }),
+      }),
+    );
+    expect(tx.invoice.update).not.toHaveBeenCalled();
   });
 
   it('PM no cobrable (cash) devuelve 400 payment_method_not_chargeable sin llamar al gateway', async () => {
