@@ -31,6 +31,7 @@ import { RentIncreasesModule } from '../../api/src/modules/rent-increases/rent-i
 import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
+import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
 
 import type { Env } from '../../api/src/config/env.schema';
 import type { Options as PinoHttpOptions } from 'pino-http';
@@ -142,6 +143,9 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     MrrModule,
     // PushModule: listener invoice_overdue (dunning corre aquí en prod) → push.
     PushModule,
+    // WaitlistModule: listener unit_available (contract_ended del cron de bookings
+    // impagados + reservas caducadas corren aquí en prod) → avisa a la lista de espera.
+    WaitlistModule,
   ],
 })
 export class WorkerModule {}

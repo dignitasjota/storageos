@@ -1,11 +1,16 @@
 import request from 'supertest';
 
+import { ReservationsService } from '../src/modules/contracts/reservations.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
+
+const DAY = 86_400_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -86,5 +91,54 @@ describe('Waitlist / lista de espera (e2e)', () => {
     // El segundo sigue esperando (solo se avisa a uno por unidad liberada).
     const list = await request(app.getHttpServer()).get('/waitlist?status=waiting').set(auth);
     expect((list.body as unknown[]).length).toBe(1);
+  });
+
+  it('una reserva caducada que libera el trastero también avisa a la cola', async () => {
+    const owner = await registerVerifiedUser(app, 'waitlistresv');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { facilityId, unitTypeId, unitIds } = await createFacilityWithUnits(
+      app,
+      owner.accessToken,
+      { unitsCount: 1 },
+    );
+    const unitId = unitIds[0]!;
+    const customerId = await createCustomer(app, owner.accessToken);
+
+    // Reserva ya vencida (validUntil en el pasado) → el trastero queda reserved.
+    await request(app.getHttpServer())
+      .post('/reservations')
+      .set(auth)
+      .send({
+        unitId,
+        customerId,
+        validFrom: new Date(Date.now() - 2 * DAY).toISOString(),
+        validUntil: new Date(Date.now() - DAY).toISOString(),
+        confirmImmediately: true,
+      })
+      .expect(201);
+
+    // Un cliente se apunta a la cola de ese tipo.
+    const entry = await request(app.getHttpServer()).post('/waitlist').set(auth).send({
+      facilityId,
+      unitTypeId,
+      contactName: 'Caro Espera',
+      contactEmail: 'caro@example.com',
+    });
+    expect(entry.status).toBe(201);
+
+    // El cron de caducidad libera el trastero (reserved → available) y emite
+    // `unit_available` → el listener de la waitlist avisa al primero de la cola.
+    await app.get(ReservationsService).expireDueAll();
+
+    let notified: { status: string } | undefined;
+    for (let i = 0; i < 10; i++) {
+      const list = await request(app.getHttpServer()).get('/waitlist').set(auth);
+      notified = (list.body as { id: string; status: string }[]).find(
+        (e) => e.id === entry.body.id,
+      );
+      if (notified?.status === 'notified') break;
+      await sleep(300);
+    }
+    expect(notified?.status).toBe('notified');
   });
 });

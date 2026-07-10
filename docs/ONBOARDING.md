@@ -13,6 +13,12 @@ según lo que use el cliente.
 > Todas las variables de servicio (passwords, etc.) deben ser **alfanuméricas**:
 > la validación `z.string().url()` de algunas rechaza `/`, `+`, `=`.
 
+> 📋 **Plantilla rellenable de variables de Portainer**:
+> [`portainer.env.template`](portainer.env.template) — lista `KEY=value` (agrupada
+> por estas fases) con lo que lee `docker-compose.portainer.yml`, comandos para
+> generar secretos y las trampas habituales. Cópiala al modo avanzado de
+> "Environment variables" del stack y rellena los `<VALORES>`.
+
 ---
 
 ## Fase 0 — Pre-requisitos
