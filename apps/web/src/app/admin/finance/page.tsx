@@ -78,7 +78,11 @@ export default function AdminFinancePage() {
         </CardHeader>
         <CardContent>
           <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 288 }}
+            >
               <BarChart data={d.monthly}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="month" fontSize={11} />

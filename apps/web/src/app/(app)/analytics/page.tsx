@@ -179,7 +179,11 @@ function OccupancyPanel() {
           {chartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay locales todavía.</p>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 256 }}
+            >
               <BarChart data={chartData} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
@@ -246,7 +250,11 @@ function ChurnPanel() {
           {chartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay datos suficientes todavía.</p>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 256 }}
+            >
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
@@ -308,7 +316,11 @@ function AgingPanel() {
           {d.totalOutstanding === 0 ? (
             <p className="text-sm text-muted-foreground">No hay deuda pendiente. ¡Todo al día!</p>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 256 }}
+            >
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="range" />
@@ -375,7 +387,11 @@ function LeadsPanel() {
           <CardDescription>Volumen de leads en cada fase del periodo.</CardDescription>
         </CardHeader>
         <CardContent className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            initialDimension={{ width: 300, height: 256 }}
+          >
             <BarChart data={funnelData} layout="vertical" margin={{ left: 24 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" />
@@ -396,7 +412,11 @@ function LeadsPanel() {
           {sourceData.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay leads todavía.</p>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 256 }}
+            >
               <BarChart data={sourceData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="source" />
@@ -759,7 +779,11 @@ function ForecastPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            initialDimension={{ width: 300, height: 256 }}
+          >
             <AreaChart data={chartData} margin={{ left: 8, right: 8 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
@@ -1138,7 +1162,11 @@ function MonthlyRevenuePanel() {
               No hay ingresos registrados en el periodo seleccionado.
             </p>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 256 }}
+            >
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" />

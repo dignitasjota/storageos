@@ -58,7 +58,11 @@ export function AgingCard() {
           </p>
         ) : (
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 256 }}
+            >
               <BarChart data={buckets} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                 <YAxis

@@ -183,7 +183,11 @@ export default function AdminMetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  initialDimension={{ width: 150, height: 150 }}
+                >
                   <BarChart
                     data={m.monthlyGrowth}
                     margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
@@ -226,7 +230,11 @@ export default function AdminMetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  initialDimension={{ width: 150, height: 150 }}
+                >
                   <BarChart
                     data={m.monthlySaasRevenue}
                     margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
@@ -319,7 +327,11 @@ function DonutChart({
   return (
     <div className="flex flex-col items-center gap-3 sm:flex-row">
       <div className="h-44 w-44 shrink-0">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          initialDimension={{ width: 150, height: 150 }}
+        >
           <PieChart>
             <Pie
               data={data}
