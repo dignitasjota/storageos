@@ -69,7 +69,11 @@ export function MrrMovementsCard() {
                   </div>
                 )}
                 <div className="h-72 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    initialDimension={{ width: 300, height: 288 }}
+                  >
                     <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis dataKey="label" tick={{ fontSize: 11 }} />

@@ -73,7 +73,11 @@ export function OccupancyCard() {
       <CardContent className="grid gap-6 md:grid-cols-2">
         <div className="flex flex-col items-center justify-center">
           <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 192 }}
+            >
               <PieChart>
                 <Pie
                   data={pieData}
