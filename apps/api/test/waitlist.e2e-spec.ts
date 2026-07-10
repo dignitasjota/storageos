@@ -141,4 +141,74 @@ describe('Waitlist / lista de espera (e2e)', () => {
     }
     expect(notified?.status).toBe('notified');
   });
+
+  it('alta pública desde la web (por slug): catálogo + apuntarse + dedup + honeypot', async () => {
+    const owner = await registerVerifiedUser(app, 'waitlistpub');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { facilityId, unitTypeId, unitIds } = await createFacilityWithUnits(
+      app,
+      owner.accessToken,
+      { unitsCount: 1 },
+    );
+    // El único trastero pasa a mantenimiento → el tipo queda a 0 disponibles.
+    await request(app.getHttpServer())
+      .post(`/units/${unitIds[0]!}/change-status`)
+      .set(auth)
+      .send({ status: 'maintenance' })
+      .expect(200);
+
+    const slug = owner.slug;
+
+    // Catálogo público: incluye el tipo aunque esté agotado (available 0).
+    const opts = await request(app.getHttpServer())
+      .get(`/public/waitlist/${slug}/options`)
+      .expect(200);
+    const fac = (
+      opts.body.facilities as { id: string; unitTypes: { id: string; available: number }[] }[]
+    ).find((f) => f.id === facilityId);
+    expect(fac).toBeTruthy();
+    const type = fac!.unitTypes.find((t) => t.id === unitTypeId);
+    expect(type?.available).toBe(0);
+
+    // Honeypot relleno → descartado (joined false), sin crear entrada.
+    const bot = await request(app.getHttpServer())
+      .post(`/public/waitlist/${slug}`)
+      .send({
+        facilityId,
+        unitTypeId,
+        contactName: 'Bot',
+        contactEmail: 'bot@example.com',
+        website: 'http://spam',
+      })
+      .expect(201);
+    expect(bot.body.joined).toBe(false);
+
+    // Alta real.
+    const join = await request(app.getHttpServer())
+      .post(`/public/waitlist/${slug}`)
+      .send({ facilityId, unitTypeId, contactName: 'Vera Web', contactEmail: 'vera@example.com' })
+      .expect(201);
+    expect(join.body.joined).toBe(true);
+
+    // Dedup: mismo email + local + tipo en 24 h → no duplica (responde ok igual).
+    await request(app.getHttpServer())
+      .post(`/public/waitlist/${slug}`)
+      .send({ facilityId, unitTypeId, contactName: 'Vera Web', contactEmail: 'vera@example.com' })
+      .expect(201);
+
+    // El staff ve UNA sola entrada `waiting` con la nota de alta web.
+    const list = await request(app.getHttpServer()).get('/waitlist?status=waiting').set(auth);
+    const mine = (list.body as { contactEmail: string; notes: string | null }[]).filter(
+      (e) => e.contactEmail === 'vera@example.com',
+    );
+    expect(mine.length).toBe(1);
+    expect(mine[0]!.notes).toBe('Alta desde la web');
+
+    // Slug inexistente → joined false (no filtra tenants).
+    const ghost = await request(app.getHttpServer())
+      .post('/public/waitlist/no-existe-tenant')
+      .send({ facilityId, unitTypeId, contactName: 'X', contactEmail: 'x@example.com' })
+      .expect(201);
+    expect(ghost.body.joined).toBe(false);
+  });
 });

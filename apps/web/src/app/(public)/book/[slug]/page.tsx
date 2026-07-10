@@ -5,7 +5,11 @@ import { useRouter } from 'next/navigation';
 import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { BookingAvailabilityDto, BookingResultDto } from '@storageos/shared';
+import type {
+  BookingAvailabilityDto,
+  BookingResultDto,
+  PublicWaitlistOptionsDto,
+} from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -119,155 +123,311 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
 
   return (
     <Centered>
-      <Card className="w-full max-w-lg">
-        <CardHeader>
-          <CardTitle>Alquila tu trastero en {data.tenantName}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {data.facilities.length === 0 ? (
+      <div className="w-full max-w-lg space-y-4">
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle>Alquila tu trastero en {data.tenantName}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {data.facilities.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Ahora mismo no hay trasteros disponibles. Vuelve a intentarlo más tarde.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-1">
+                  <Label>Local</Label>
+                  <select
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    value={facilityId}
+                    onChange={(e) => {
+                      setFacilityId(e.target.value);
+                      setUnitTypeId('');
+                    }}
+                  >
+                    <option value="">Elige un local…</option>
+                    {data.facilities.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {facility && (
+                  <div className="space-y-1">
+                    <Label>Tipo de trastero</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      value={unitTypeId}
+                      onChange={(e) => setUnitTypeId(e.target.value)}
+                    >
+                      <option value="">Elige un tipo…</option>
+                      {facility.unitTypes.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} —{' '}
+                          {(t.priceMonthly * 1.21).toLocaleString('es-ES', {
+                            style: 'currency',
+                            currency: 'EUR',
+                          })}
+                          /mes IVA incl. ({t.available} disponibles)
+                        </option>
+                      ))}
+                    </select>
+                    {selectedType && (
+                      <p className="text-sm text-muted-foreground">
+                        Cuota:{' '}
+                        <span className="font-semibold text-foreground">
+                          {(selectedType.priceMonthly * 1.21).toLocaleString('es-ES', {
+                            style: 'currency',
+                            currency: 'EUR',
+                          })}
+                          /mes
+                        </span>{' '}
+                        (IVA 21% incl.). Verás el desglose y la fianza al firmar.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <Label>Fecha de inicio</Label>
+                  <Input
+                    type="date"
+                    min={new Date().toISOString().slice(0, 10)}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>Nombre</Label>
+                    <Input
+                      value={form.firstName}
+                      onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Apellidos</Label>
+                    <Input
+                      value={form.lastName}
+                      onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Email</Label>
+                  <Input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    onBlur={() => void captureLead()}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>Teléfono</Label>
+                    <Input
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>DNI/NIF</Label>
+                    <Input
+                      value={form.documentNumber}
+                      onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Código de referido (opcional)</Label>
+                    <Input
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                      placeholder="Si te ha recomendado alguien"
+                    />
+                  </div>
+                </div>
+
+                {/* Honeypot anti-bot: oculto para humanos. */}
+                <input
+                  type="text"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  className="hidden"
+                  aria-hidden="true"
+                />
+
+                <Button onClick={submit} disabled={!canSubmit || submitting} className="w-full">
+                  {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                  Continuar a la firma
+                </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  Tras esto firmarás el contrato online y activaremos tu acceso.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <WaitlistSection slug={slug} />
+      </div>
+    </Centered>
+  );
+}
+
+/**
+ * Lista de espera self-service: si no hay stock del tamaño que busca el
+ * visitante (o quiere reservar sitio para un tipo concreto), se apunta y le
+ * avisamos cuando se libere uno. Usa el catálogo COMPLETO (incluye agotados),
+ * a diferencia del formulario de reserva de arriba (que solo muestra los libres).
+ */
+function WaitlistSection({ slug }: { slug: string }) {
+  const [options, setOptions] = useState<PublicWaitlistOptionsDto | null>(null);
+  const [facilityId, setFacilityId] = useState('');
+  const [unitTypeId, setUnitTypeId] = useState('');
+  const [form, setForm] = useState({ contactName: '', contactEmail: '', contactPhone: '' });
+  const [website, setWebsite] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    apiFetch<PublicWaitlistOptionsDto>(`/public/waitlist/${slug}/options`, { requiresAuth: false })
+      .then(setOptions)
+      .catch(() => setOptions(null));
+  }, [slug]);
+
+  const facility = options?.facilities.find((f) => f.id === facilityId);
+  const canJoin =
+    facilityId && unitTypeId && form.contactName.trim() && /.+@.+\..+/.test(form.contactEmail);
+
+  async function join() {
+    setSubmitting(true);
+    try {
+      await apiFetch(`/public/waitlist/${slug}`, {
+        method: 'POST',
+        requiresAuth: false,
+        json: {
+          facilityId,
+          unitTypeId,
+          contactName: form.contactName.trim(),
+          contactEmail: form.contactEmail.trim().toLowerCase(),
+          ...(form.contactPhone.trim() ? { contactPhone: form.contactPhone.trim() } : {}),
+          website,
+        },
+      });
+      setDone(true);
+      toast.success('Te avisaremos cuando se libere un trastero de ese tipo.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo apuntar.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!options || options.facilities.length === 0) return null;
+
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle className="text-base">¿No encuentras tu tamaño? Lista de espera</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {done ? (
+          <p className="text-sm text-muted-foreground">
+            ¡Apuntado! Te avisaremos por email en cuanto se libere un trastero del tipo elegido.
+          </p>
+        ) : (
+          <>
             <p className="text-sm text-muted-foreground">
-              Ahora mismo no hay trasteros disponibles. Vuelve a intentarlo más tarde.
+              Déjanos tu contacto y te avisamos cuando haya disponibilidad del tipo que buscas.
             </p>
-          ) : (
-            <>
+            <div className="space-y-1">
+              <Label>Local</Label>
+              <select
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                value={facilityId}
+                onChange={(e) => {
+                  setFacilityId(e.target.value);
+                  setUnitTypeId('');
+                }}
+              >
+                <option value="">Elige un local…</option>
+                {options.facilities.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {facility && (
               <div className="space-y-1">
-                <Label>Local</Label>
+                <Label>Tipo de trastero</Label>
                 <select
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                  value={facilityId}
-                  onChange={(e) => {
-                    setFacilityId(e.target.value);
-                    setUnitTypeId('');
-                  }}
+                  value={unitTypeId}
+                  onChange={(e) => setUnitTypeId(e.target.value)}
                 >
-                  <option value="">Elige un local…</option>
-                  {data.facilities.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
+                  <option value="">Elige un tipo…</option>
+                  {facility.unitTypes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} —{' '}
+                      {t.available > 0 ? `${t.available} disponibles ahora` : 'sin disponibilidad'}
                     </option>
                   ))}
                 </select>
               </div>
-
-              {facility && (
-                <div className="space-y-1">
-                  <Label>Tipo de trastero</Label>
-                  <select
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                    value={unitTypeId}
-                    onChange={(e) => setUnitTypeId(e.target.value)}
-                  >
-                    <option value="">Elige un tipo…</option>
-                    {facility.unitTypes.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} —{' '}
-                        {(t.priceMonthly * 1.21).toLocaleString('es-ES', {
-                          style: 'currency',
-                          currency: 'EUR',
-                        })}
-                        /mes IVA incl. ({t.available} disponibles)
-                      </option>
-                    ))}
-                  </select>
-                  {selectedType && (
-                    <p className="text-sm text-muted-foreground">
-                      Cuota:{' '}
-                      <span className="font-semibold text-foreground">
-                        {(selectedType.priceMonthly * 1.21).toLocaleString('es-ES', {
-                          style: 'currency',
-                          currency: 'EUR',
-                        })}
-                        /mes
-                      </span>{' '}
-                      (IVA 21% incl.). Verás el desglose y la fianza al firmar.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <Label>Fecha de inicio</Label>
-                <Input
-                  type="date"
-                  min={new Date().toISOString().slice(0, 10)}
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Nombre</Label>
-                  <Input
-                    value={form.firstName}
-                    onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Apellidos</Label>
-                  <Input
-                    value={form.lastName}
-                    onChange={(e) => setForm({ ...form, lastName: e.target.value })}
-                  />
-                </div>
-              </div>
+            )}
+            <div className="space-y-1">
+              <Label>Nombre</Label>
+              <Input
+                value={form.contactName}
+                onChange={(e) => setForm({ ...form, contactName: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Email</Label>
                 <Input
                   type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  onBlur={() => void captureLead()}
+                  value={form.contactEmail}
+                  onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
                 />
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Teléfono</Label>
-                  <Input
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>DNI/NIF</Label>
-                  <Input
-                    value={form.documentNumber}
-                    onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Código de referido (opcional)</Label>
-                  <Input
-                    value={referralCode}
-                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                    placeholder="Si te ha recomendado alguien"
-                  />
-                </div>
+              <div className="space-y-1">
+                <Label>Teléfono (opcional)</Label>
+                <Input
+                  value={form.contactPhone}
+                  onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
+                />
               </div>
-
-              {/* Honeypot anti-bot: oculto para humanos. */}
-              <input
-                type="text"
-                tabIndex={-1}
-                autoComplete="off"
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                className="hidden"
-                aria-hidden="true"
-              />
-
-              <Button onClick={submit} disabled={!canSubmit || submitting} className="w-full">
-                {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                Continuar a la firma
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Tras esto firmarás el contrato online y activaremos tu acceso.
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </Centered>
+            </div>
+            {/* Honeypot anti-bot. */}
+            <input
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              className="hidden"
+              aria-hidden="true"
+            />
+            <Button
+              onClick={join}
+              disabled={!canJoin || submitting}
+              variant="outline"
+              className="w-full"
+            >
+              {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Apuntarme a la lista de espera
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
