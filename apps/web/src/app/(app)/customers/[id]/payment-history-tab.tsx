@@ -176,27 +176,36 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
             </CardContent>
           </Card>
         ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Factura</TableHead>
-                  <TableHead>Concepto</TableHead>
-                  <TableHead>Trastero · Local</TableHead>
-                  <TableHead>Vencimiento</TableHead>
-                  <TableHead className="text-right">Importe</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Pago</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invoices.map((i) => (
-                  <InvoiceRow key={i.id} invoice={i} />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <>
+            {/* Escritorio (lg+): tabla completa (8 columnas). */}
+            <div className="hidden overflow-x-auto rounded-md border lg:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8" />
+                    <TableHead>Factura</TableHead>
+                    <TableHead>Concepto</TableHead>
+                    <TableHead>Trastero · Local</TableHead>
+                    <TableHead>Vencimiento</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Pago</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invoices.map((i) => (
+                    <InvoiceRow key={i.id} invoice={i} />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {/* Móvil/tablet: tarjetas apiladas (se ven de un vistazo, sin scroll). */}
+            <div className="space-y-2 lg:hidden">
+              {invoices.map((i) => (
+                <InvoiceCard key={i.id} invoice={i} />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -210,61 +219,98 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
             </CardContent>
           </Card>
         ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Factura</TableHead>
-                  <TableHead>Método</TableHead>
-                  <TableHead className="text-right">Importe</TableHead>
-                  <TableHead>Estado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payments.map((p: PaymentDto) => {
-                  const st = PAYMENT_STATUS[p.status] ?? {
-                    label: p.status,
-                    variant: 'secondary' as const,
-                  };
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell className="text-sm">
-                        {formatDate(p.paidAt ?? p.createdAt)}
-                      </TableCell>
-                      <TableCell>
-                        {p.invoiceId ? (
-                          <Link
-                            href={`/invoices/${p.invoiceId}`}
-                            className="font-medium hover:underline"
-                          >
-                            {p.invoiceNumber ?? '—'}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm">{METHOD_LABELS[p.methodType]}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(p.amount)}
-                        {p.refundedAmount > 0 && (
-                          <span className="block text-xs text-muted-foreground">
-                            −{formatCurrency(p.refundedAmount)} reemb.
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={st.variant}>{st.label}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+          <>
+            {/* Escritorio (md+): tabla. */}
+            <div className="hidden overflow-x-auto rounded-md border md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Factura</TableHead>
+                    <TableHead>Método</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
+                    <TableHead>Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payments.map((p: PaymentDto) => {
+                    const st = PAYMENT_STATUS[p.status] ?? {
+                      label: p.status,
+                      variant: 'secondary' as const,
+                    };
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-sm">
+                          {formatDate(p.paidAt ?? p.createdAt)}
+                        </TableCell>
+                        <TableCell>
+                          {p.invoiceId ? (
+                            <Link
+                              href={`/invoices/${p.invoiceId}`}
+                              className="font-medium hover:underline"
+                            >
+                              {p.invoiceNumber ?? '—'}
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">{METHOD_LABELS[p.methodType]}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(p.amount)}
+                          {p.refundedAmount > 0 && (
+                            <span className="block text-xs text-muted-foreground">
+                              −{formatCurrency(p.refundedAmount)} reemb.
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={st.variant}>{st.label}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            {/* Móvil: tarjetas. */}
+            <div className="space-y-2 md:hidden">
+              {payments.map((p: PaymentDto) => (
+                <PaymentCard key={p.id} payment={p} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+/** Trastero · local de una factura, con enlaces (compartido por la tabla y la
+ *  tarjeta móvil). Devuelve "—" si la factura no está anclada a una unidad. */
+function unitFacility(i: InvoiceDto) {
+  if (!i.unitCode) return <span className="text-muted-foreground">—</span>;
+  return (
+    <>
+      {i.unitId ? (
+        <Link href={`/units/${i.unitId}`} className="hover:underline">
+          {i.unitCode}
+        </Link>
+      ) : (
+        i.unitCode
+      )}
+      {i.facilityName &&
+        (i.facilityId ? (
+          <span className="text-muted-foreground">
+            {' · '}
+            <Link href={`/facilities/${i.facilityId}`} className="hover:underline">
+              {i.facilityName}
+            </Link>
+          </span>
+        ) : (
+          <span className="text-muted-foreground"> · {i.facilityName}</span>
+        ))}
+    </>
   );
 }
 
@@ -319,32 +365,7 @@ function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
             <span className="text-sm text-muted-foreground">{concept.detail}</span>
           </div>
         </TableCell>
-        <TableCell className="text-sm">
-          {i.unitCode ? (
-            <>
-              {i.unitId ? (
-                <Link href={`/units/${i.unitId}`} className="hover:underline">
-                  {i.unitCode}
-                </Link>
-              ) : (
-                i.unitCode
-              )}
-              {i.facilityName &&
-                (i.facilityId ? (
-                  <span className="text-muted-foreground">
-                    {' · '}
-                    <Link href={`/facilities/${i.facilityId}`} className="hover:underline">
-                      {i.facilityName}
-                    </Link>
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground"> · {i.facilityName}</span>
-                ))}
-            </>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </TableCell>
+        <TableCell className="text-sm">{unitFacility(i)}</TableCell>
         <TableCell className="text-sm">{formatDate(i.dueDate)}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCurrency(i.total)}</TableCell>
         <TableCell>
@@ -384,6 +405,94 @@ function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
         </TableRow>
       )}
     </>
+  );
+}
+
+/** Versión en tarjeta de un cargo (factura), para móvil/tablet: muestra la misma
+ *  información que la fila de la tabla pero apilada, sin scroll horizontal. */
+function InvoiceCard({ invoice: i }: { invoice: InvoiceDto }) {
+  const [open, setOpen] = useState(false);
+  const punc = punctuality(i);
+  const concept = invoiceConcept(i);
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <Link href={`/invoices/${i.id}`} className="font-medium hover:underline">
+          {i.invoiceNumber}
+        </Link>
+        <div className="flex items-center gap-2">
+          <span className="font-medium tabular-nums">{formatCurrency(i.total)}</span>
+          <InvoiceStatusBadge status={i.status} />
+        </div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Badge variant={concept.variant}>{concept.badge}</Badge>
+        <span className="text-muted-foreground">{concept.detail}</span>
+      </div>
+      {i.unitCode && <p className="mt-1 text-muted-foreground">{unitFacility(i)}</p>}
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>Vence: {formatDate(i.dueDate)}</span>
+        {punc && (
+          <span className="flex items-center gap-1.5">
+            <Badge variant={punc.variant}>{punc.label}</Badge>
+            {formatDate(i.paidAt)}
+          </span>
+        )}
+      </div>
+      {i.items.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="mt-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            {open ? 'Ocultar líneas' : 'Ver líneas'}
+          </button>
+          {open && (
+            <ul className="mt-1.5 space-y-1 border-t pt-1.5">
+              {i.items.map((it) => (
+                <li key={it.id} className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">
+                    {it.quantity > 1 && `${it.quantity} × `}
+                    {it.description}
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(it.total)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Versión en tarjeta de una transacción de cobro (payment), para móvil. */
+function PaymentCard({ payment: p }: { payment: PaymentDto }) {
+  const st = PAYMENT_STATUS[p.status] ?? { label: p.status, variant: 'secondary' as const };
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-medium tabular-nums">{formatCurrency(p.amount)}</span>
+        <Badge variant={st.variant}>{st.label}</Badge>
+      </div>
+      {p.refundedAmount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          −{formatCurrency(p.refundedAmount)} reembolsado
+        </p>
+      )}
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>
+          {formatDate(p.paidAt ?? p.createdAt)} · {METHOD_LABELS[p.methodType]}
+        </span>
+        {p.invoiceId && (
+          <Link href={`/invoices/${p.invoiceId}`} className="font-medium hover:underline">
+            {p.invoiceNumber ?? '—'}
+          </Link>
+        )}
+      </div>
+    </div>
   );
 }
 
