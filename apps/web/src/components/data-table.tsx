@@ -3,6 +3,7 @@
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type RowData,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -14,6 +15,17 @@ import {
 } from '@tanstack/react-table';
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { useState } from 'react';
+
+// Metadatos opcionales por columna para afinar la vista móvil (tarjetas):
+// `mobileLabel` da una etiqueta cuando el header no es un string (p. ej. un
+// checkbox de selección), y `mobileHidden` oculta la columna en la tarjeta.
+declare module '@tanstack/react-table' {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
+    mobileLabel?: string;
+    mobileHidden?: boolean;
+  }
+}
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,7 +103,8 @@ export function DataTable<TData, TValue>({
           {toolbarRight && <div className="ml-auto flex items-center gap-2">{toolbarRight}</div>}
         </div>
       )}
-      <div className="rounded-md border">
+      {/* Escritorio (md+): tabla. */}
+      <div className="hidden rounded-md border md:block">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
@@ -152,6 +165,43 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Móvil (<md): cada fila como tarjeta clave/valor. Las tablas anchas no
+          caben en un teléfono sin scroll horizontal; en su lugar apilamos las
+          columnas (etiqueta = cabecera, valor = la misma celda que la tabla).
+          Comparte el mismo `table`, así respeta búsqueda, orden y paginación. */}
+      <div className="space-y-2 md:hidden">
+        {isLoading ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">Cargando...</p>
+        ) : table.getRowModel().rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">{emptyText}</p>
+        ) : (
+          table.getRowModel().rows.map((row) => (
+            <div key={row.id} className="rounded-md border p-3">
+              <dl className="space-y-1.5 text-sm">
+                {row
+                  .getVisibleCells()
+                  .filter((cell) => !cell.column.columnDef.meta?.mobileHidden)
+                  .map((cell) => {
+                    const header = cell.column.columnDef.header;
+                    const label =
+                      typeof header === 'string'
+                        ? header
+                        : (cell.column.columnDef.meta?.mobileLabel ?? '');
+                    return (
+                      <div key={cell.id} className="flex items-start justify-between gap-3">
+                        {label ? <dt className="shrink-0 text-muted-foreground">{label}</dt> : null}
+                        <dd className={label ? 'min-w-0 text-right' : 'min-w-0 flex-1'}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </dd>
+                      </div>
+                    );
+                  })}
+              </dl>
+            </div>
+          ))
+        )}
       </div>
       {table.getPageCount() > 1 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
