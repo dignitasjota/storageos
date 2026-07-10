@@ -196,7 +196,7 @@ export default function WaitlistPage() {
             <DialogTitle>Añadir a la lista de espera</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Local</Label>
                 <Select
@@ -241,7 +241,7 @@ export default function WaitlistPage() {
                 onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Email</Label>
                 <Input

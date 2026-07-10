@@ -110,7 +110,7 @@ export default function ReportsPage() {
         ) : (reports.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">Aún no has generado ningún informe.</p>
         ) : (
-          <div className="rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                 <tr>
