@@ -135,10 +135,14 @@ terminal para "abrir" **varía por modelo/firmware** y hay que confirmarlo en su
   ten en cuenta que puede quedar en logs/proxies intermedios: **prefiere el
   header `X-Device-Key`** cuando el terminal lo soporte.
 - **Una API key por dispositivo**, revocable/rotable desde el panel.
-- **Rate limit**: `/access/verify` admite 60 req/min por IP. Detrás de un mismo
-  NAT (varios lectores en un local) comparten IP pública: dimensiona en
-  consecuencia (o pon los lectores en salidas distintas). _(Un lockout por
-  credencial/dispositivo está en el backlog de endurecimiento.)_
+- **Rate limit / anti-fuerza-bruta**: `/access/verify` tiene 60 req/min por IP
+  **y** un lockout temporal (Redis) por **dispositivo** (tras N PINs/QR no
+  reconocidos — frena el tecleo masivo) y por **credencial** (tras N
+  denegaciones sobre una misma credencial; excluye el impago para no bloquear a
+  quien va a pagar). Un acceso permitido resetea los contadores. Umbrales por
+  env `ACCESS_BRUTEFORCE_*` (defaults: 10/dispositivo, 20/credencial, ventana
+  5 min, bloqueo 15 min; fail-open si Redis cae). El lockout por dispositivo
+  (no por IP) evita que varios lectores tras el mismo NAT se bloqueen entre sí.
 - La **validación es online**: si el terminal pierde conexión con la API, nadie
   entra (no hay caché offline en Patrón A). Deja **siempre la salida libre**
   (ver [`HARDWARE_CANCELA.md §3`](HARDWARE_CANCELA.md)) y valora una conexión
