@@ -189,7 +189,7 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(unexempt.body.billingExempt).toBe(false);
   });
 
-  it('tenant action: change-plan cambia el plan de suscripción', async () => {
+  it('tenant action: change-plan cambia el plan y, si estaba en trial, lo acaba (→ active)', async () => {
     const owner = await registerVerifiedUser(app, 'admin-plan');
     // Registro → plan starter.
     const detailBefore = await request(app.getHttpServer())
@@ -197,12 +197,35 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
       .set('Authorization', `Bearer ${superAdminToken}`);
     expect(detailBefore.body.subscription.planSlug).toBe('starter');
 
+    // Forzamos el tenant a un trial explícito (con fin de trial) + suscripción en trial.
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { status: 'trial', trialEndsAt: new Date(Date.now() + 5 * 86_400_000) },
+    });
+    await adminClient.tenantSubscription.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'trial' },
+    });
+
     const r = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/change-plan`)
       .set('Authorization', `Bearer ${superAdminToken}`)
       .send({ planSlug: 'pro', reason: 'upgrade de test' });
     expect([200, 201]).toContain(r.status);
     expect(r.body.subscription.planSlug).toBe('pro');
+    // Cambiar de plan a un tenant en trial acaba el trial: estado coherente.
+    expect(r.body.status).toBe('active');
+    expect(r.body.trialEndsAt).toBeNull();
+    expect(r.body.subscription.status).toBe('active');
+
+    // En BD: los dos estados quedan sincronizados.
+    const t = await adminClient.tenant.findUnique({ where: { id: owner.tenantId } });
+    expect(t!.status).toBe('active');
+    expect(t!.trialEndsAt).toBeNull();
+    const sub = await adminClient.tenantSubscription.findFirst({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub!.status).toBe('active');
 
     // Plan inexistente → 404.
     const bad = await request(app.getHttpServer())
