@@ -6,6 +6,13 @@ import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useLeads, useTransitionLead } from '@/lib/communications/hooks';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
@@ -37,7 +44,8 @@ export default function LeadsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="text-sm text-muted-foreground">
-            Pipeline de personas interesadas en alquilar. Arrastra para mover entre fases.
+            Pipeline de personas interesadas en alquilar. Arrastra entre fases (en escritorio) o usa
+            el selector de cada tarjeta.
           </p>
         </div>
       </div>
@@ -68,7 +76,12 @@ export default function LeadsPage() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {items.map((lead) => (
-                  <LeadCard key={lead.id} lead={lead} onDragStart={() => setDragging(lead.id)} />
+                  <LeadCard
+                    key={lead.id}
+                    lead={lead}
+                    onDragStart={() => setDragging(lead.id)}
+                    onMove={(status) => transition.mutate({ id: lead.id, input: { status } })}
+                  />
                 ))}
                 {items.length === 0 && (
                   <p className="text-xs text-muted-foreground">— Sin leads —</p>
@@ -82,12 +95,20 @@ export default function LeadsPage() {
   );
 }
 
-function LeadCard({ lead, onDragStart }: { lead: LeadDto; onDragStart: () => void }) {
+function LeadCard({
+  lead,
+  onDragStart,
+  onMove,
+}: {
+  lead: LeadDto;
+  onDragStart: () => void;
+  onMove: (status: LeadStatusValue) => void;
+}) {
   return (
     <div
       draggable
       onDragStart={onDragStart}
-      className="cursor-grab rounded-md border bg-card p-3 text-sm shadow-sm hover:shadow-md"
+      className="rounded-md border bg-card p-3 text-sm shadow-sm hover:shadow-md md:cursor-grab"
     >
       <div className="font-medium">{lead.displayName}</div>
       {lead.email && <div className="text-xs text-muted-foreground">{lead.email}</div>}
@@ -108,6 +129,19 @@ function LeadCard({ lead, onDragStart }: { lead: LeadDto; onDragStart: () => voi
           /mes
         </div>
       )}
+      {/* Mover de fase: funciona en táctil (el drag&drop nativo no). */}
+      <Select value={lead.status} onValueChange={(v) => onMove(v as LeadStatusValue)}>
+        <SelectTrigger className="mt-2 h-8" aria-label="Cambiar fase">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {COLUMNS.map((c) => (
+            <SelectItem key={c.status} value={c.status}>
+              {c.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

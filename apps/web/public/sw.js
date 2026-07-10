@@ -9,8 +9,15 @@
  * autenticadas, ni peticiones que no sean GET de mismo origen. El pago y las
  * facturas requieren red por diseño.
  */
-const CACHE = 'storageos-pwa-v1';
-const PRECACHE = ['/offline.html', '/icon.svg', '/manifest.webmanifest'];
+const CACHE = 'storageos-pwa-v2';
+const PRECACHE = [
+  '/offline.html',
+  '/icon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/manifest.webmanifest',
+  '/manifest-staff.webmanifest',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -78,8 +85,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'StorageOS';
   const options = {
     body: data.body || '',
-    icon: '/icon.svg',
-    badge: '/icon.svg',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     data: { url: data.url || '/portal/login' },
   };
   event.waitUntil(self.registration.showNotification(title, options));

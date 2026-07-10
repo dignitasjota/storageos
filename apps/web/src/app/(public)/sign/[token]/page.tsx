@@ -83,7 +83,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   if (loadError) {
     return (
       <Centered>
-        <Card className="max-w-md">
+        <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Enlace no válido</CardTitle>
           </CardHeader>
@@ -104,7 +104,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   if (result || view.alreadySigned) {
     return (
       <Centered>
-        <Card className="max-w-md">
+        <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="size-5 text-green-600" /> Contrato firmado

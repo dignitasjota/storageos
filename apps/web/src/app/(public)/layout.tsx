@@ -1,16 +1,7 @@
 import type { ReactNode } from 'react';
 
-import { CookieBanner } from '@/components/public/cookie-banner';
-import { PublicFooter } from '@/components/public/public-footer';
-import { PublicHeader } from '@/components/public/public-header';
+import { PublicChrome } from '@/components/public/public-chrome';
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-screen flex-col">
-      <PublicHeader />
-      <main className="flex-1">{children}</main>
-      <PublicFooter />
-      <CookieBanner />
-    </div>
-  );
+  return <PublicChrome>{children}</PublicChrome>;
 }

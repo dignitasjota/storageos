@@ -186,8 +186,8 @@ function OccupancyPanel() {
             >
               <BarChart data={chartData} layout="vertical" margin={{ left: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis dataKey="name" type="category" width={120} />
+                <XAxis type="number" tick={{ fontSize: 11 }} />
+                <YAxis dataKey="name" type="category" width={96} tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Bar dataKey="Ocupados" stackId="a" fill="#16a34a" />
                 <Bar dataKey="Disponibles" stackId="a" fill="#94a3b8" />
@@ -394,8 +394,8 @@ function LeadsPanel() {
           >
             <BarChart data={funnelData} layout="vertical" margin={{ left: 24 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" />
-              <YAxis dataKey="stage" type="category" width={110} />
+              <XAxis type="number" tick={{ fontSize: 11 }} />
+              <YAxis dataKey="stage" type="category" width={96} tick={{ fontSize: 11 }} />
               <Tooltip />
               <Bar dataKey="count" fill="#3b82f6" />
             </BarChart>

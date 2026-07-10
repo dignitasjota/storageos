@@ -96,7 +96,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
   if (loadError) {
     return (
       <Centered>
-        <Card className="max-w-md">
+        <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>No disponible</CardTitle>
           </CardHeader>
@@ -138,7 +138,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                 <div className="space-y-1">
                   <Label>Local</Label>
                   <select
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                     value={facilityId}
                     onChange={(e) => {
                       setFacilityId(e.target.value);
@@ -158,7 +158,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                   <div className="space-y-1">
                     <Label>Tipo de trastero</Label>
                     <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                       value={unitTypeId}
                       onChange={(e) => setUnitTypeId(e.target.value)}
                     >
@@ -348,7 +348,7 @@ function WaitlistSection({ slug }: { slug: string }) {
             <div className="space-y-1">
               <Label>Local</Label>
               <select
-                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                 value={facilityId}
                 onChange={(e) => {
                   setFacilityId(e.target.value);
@@ -367,7 +367,7 @@ function WaitlistSection({ slug }: { slug: string }) {
               <div className="space-y-1">
                 <Label>Tipo de trastero</Label>
                 <select
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                   value={unitTypeId}
                   onChange={(e) => setUnitTypeId(e.target.value)}
                 >

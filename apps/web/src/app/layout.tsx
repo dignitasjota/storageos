@@ -5,7 +5,7 @@ import { getLocale, getMessages } from 'next-intl/server';
 
 import { Providers } from './providers';
 
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
 import { formats } from '@/lib/i18n/formats';
@@ -19,6 +19,26 @@ export const metadata: Metadata = {
   },
   description:
     'Software todo-en-uno para self-storage: inquilinos, contratos, facturación Veri*Factu, cobros, control de accesos, CRM y analítica. En español y multi-local.',
+  icons: {
+    icon: [
+      { url: '/favicon.png', type: 'image/png', sizes: '48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
+  },
+};
+
+// `viewport-fit=cover` es imprescindible para que iOS rellene las safe-areas
+// (`env(safe-area-inset-*)`) en modo standalone (PWA con notch/home indicator).
+// themeColor con variantes light/dark para la barra de estado del navegador.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+  ],
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

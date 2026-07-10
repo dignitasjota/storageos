@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { IosInstallHint } from '@/components/pwa/ios-install-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,7 +34,7 @@ export default function PortalLoginPage() {
   }
 
   return (
-    <div className="container flex justify-center py-12">
+    <div className="container flex flex-col items-center gap-4 py-12">
       <Card className="w-full max-w-md border-border/60">
         <CardHeader className="space-y-2 text-center">
           <CardTitle className="text-2xl">Portal del inquilino</CardTitle>
@@ -80,6 +81,9 @@ export default function PortalLoginPage() {
           )}
         </CardContent>
       </Card>
+      <div className="w-full max-w-md">
+        <IosInstallHint />
+      </div>
     </div>
   );
 }

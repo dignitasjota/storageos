@@ -135,14 +135,17 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
               ¿Qué probabilidad hay de que nos recomiendes a un amigo o familiar? (0 = nada
               probable, 10 = muy probable)
             </Label>
-            <div className="flex flex-wrap gap-1.5">
+            {/* Grid alineado en vez de wrap ragged: 6 columnas en móvil (2 filas
+                ordenadas 6+5) y las 11 en una fila desde sm. Celdas cuadradas
+                grandes para el tacto. */}
+            <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-11">
               {Array.from({ length: 11 }, (_, i) => i).map((n) => (
                 <button
                   key={n}
                   type="button"
                   onClick={() => setNps(n)}
                   className={cn(
-                    'h-10 w-10 rounded-md border text-sm font-medium transition',
+                    'flex aspect-square items-center justify-center rounded-md border text-sm font-medium transition',
                     nps === n
                       ? 'border-foreground bg-foreground text-background'
                       : 'border-input hover:border-foreground',
