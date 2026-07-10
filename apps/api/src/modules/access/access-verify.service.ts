@@ -5,6 +5,7 @@ import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { AccessRateLimitService } from './access-rate-limit.service';
 import { LOCK_PROVIDER, type LockProvider } from './providers/lock-provider';
 
 import type {
@@ -149,6 +150,7 @@ export class AccessVerifyService {
     private readonly admin: PrismaAdminService,
     private readonly crypto: CryptoService,
     @Inject(LOCK_PROVIDER) private readonly lock: LockProvider,
+    private readonly rateLimit: AccessRateLimitService,
   ) {}
 
   /**
@@ -201,8 +203,31 @@ export class AccessVerifyService {
     const { tenantId, device, method, credential, ipAddress } = args;
     const attemptedValue = sanitizeAttempted(method, credential);
 
+    // Anti-fuerza-bruta: si el dispositivo está bloqueado por demasiados PINs
+    // fallidos, deniega SIN mirar credenciales (frena el tecleo masivo).
+    if (await this.rateLimit.isDeviceLocked(device.id)) {
+      await this.log({
+        tenantId,
+        deviceId: device.id,
+        credentialId: null,
+        customerId: null,
+        method,
+        result: 'denied_unknown',
+        attemptedValue,
+        reason: 'Dispositivo bloqueado temporalmente (demasiados intentos)',
+        ipAddress,
+      });
+      return {
+        result: 'denied_unknown',
+        allowed: false,
+        reason: 'Dispositivo bloqueado temporalmente',
+      };
+    }
+
     const credentialRow = await this.findCredential(tenantId, method, credential);
     if (!credentialRow) {
+      // PIN/QR no reconocido: cuenta para el lockout del dispositivo.
+      await this.rateLimit.recordDeviceFailure(device.id);
       await this.log({
         tenantId,
         deviceId: device.id,
@@ -221,6 +246,28 @@ export class AccessVerifyService {
       };
     }
 
+    // Lockout por credencial: si esta credencial concreta está bloqueada (se
+    // martilleó fuera de sitio/horario), deniega sin procesar.
+    if (await this.rateLimit.isCredentialLocked(credentialRow.id)) {
+      await this.log({
+        tenantId,
+        deviceId: device.id,
+        credentialId: credentialRow.id,
+        customerId: credentialRow.customerId,
+        method,
+        result: 'denied_unknown',
+        attemptedValue,
+        reason: 'Credencial bloqueada temporalmente (demasiados intentos)',
+        ipAddress,
+      });
+      return {
+        result: 'denied_unknown',
+        allowed: false,
+        customerName: customerDisplay(credentialRow.customer),
+        reason: 'Credencial bloqueada temporalmente',
+      };
+    }
+
     // Toque de queda del local (zona horaria del facility del device).
     const facility = await this.admin.facility.findUnique({
       where: { id: device.facilityId },
@@ -236,6 +283,13 @@ export class AccessVerifyService {
       checkAccessWindows(credentialRow, facility) ??
       checkCurfew(facility, credentialRow);
     if (denied) {
+      // Cuenta para el lockout de la credencial salvo si es una suspensión/
+      // revocación (`denied_inactive_credential`): esas son estados legítimos
+      // (p. ej. impago) que se limpian al pagar → bloquearlas dejaría fuera a
+      // quien acaba de regularizar.
+      if (denied.result !== 'denied_inactive_credential') {
+        await this.rateLimit.recordCredentialFailure(credentialRow.id);
+      }
       await this.log({
         tenantId,
         deviceId: device.id,
@@ -354,6 +408,9 @@ export class AccessVerifyService {
         },
       })
       .catch((err) => this.logger.warn(`No se pudo actualizar lastUsedAt: ${String(err)}`));
+
+    // Acceso permitido → limpia los contadores/bloqueos del device y la credencial.
+    await this.rateLimit.reset(device.id, credentialRow.id);
 
     await this.log({
       tenantId,

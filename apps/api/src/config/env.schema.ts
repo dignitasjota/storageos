@@ -206,6 +206,19 @@ export const envSchema = z.object({
   /** Feed de notificaciones in-app: 90 días. */
   RETENTION_NOTIFICATIONS_DAYS: z.coerce.number().int().positive().default(90),
 
+  // --- Control de accesos: anti-fuerza-bruta en /access/verify ---
+  //     Además del throttle por IP (60/min), lockout por DISPOSITIVO (frena el
+  //     tecleo masivo de PINs en un lector) y por CREDENCIAL (frena el
+  //     martilleo de una credencial concreta). Contador en Redis, fail-open.
+  /** Ventana (segundos) en la que se cuentan los intentos fallidos. */
+  ACCESS_BRUTEFORCE_WINDOW_SECONDS: z.coerce.number().int().positive().default(300),
+  /** Fallos (PIN/QR no reconocido) por dispositivo antes de bloquearlo. */
+  ACCESS_BRUTEFORCE_DEVICE_MAX: z.coerce.number().int().positive().default(10),
+  /** Denegaciones sobre una MISMA credencial (excl. impago) antes de bloquearla. */
+  ACCESS_BRUTEFORCE_CREDENTIAL_MAX: z.coerce.number().int().positive().default(20),
+  /** Duración (segundos) del bloqueo una vez superado el umbral. */
+  ACCESS_BRUTEFORCE_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
+
   // --- OpenAPI / Swagger ---
   /** Activa la documentacion interactiva en `/api/docs`. En produccion el
    *  default es `false`; cuando lo activamos para inspeccion temporal,

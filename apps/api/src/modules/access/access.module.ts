@@ -1,7 +1,9 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AuthModule } from '../auth/auth.module';
+import { QUEUE_BILLING } from '../queues/queues.module';
 
 import { AccessCredentialsController } from './access-credentials.controller';
 import { AccessCredentialsService } from './access-credentials.service';
@@ -9,6 +11,7 @@ import { AccessDevicesController } from './access-devices.controller';
 import { AccessDevicesService } from './access-devices.service';
 import { AccessIntegrationsService } from './access-integrations.service';
 import { AccessLogsController } from './access-logs.controller';
+import { AccessRateLimitService } from './access-rate-limit.service';
 import { AccessVerifyController } from './access-verify.controller';
 import { AccessVerifyService } from './access-verify.service';
 import { HttpLockProvider } from './providers/http-lock.provider';
@@ -19,7 +22,9 @@ import { StubLockProvider } from './providers/stub-lock.provider';
 import type { Env } from '../../config/env.schema';
 
 @Module({
-  imports: [AuthModule],
+  // La cola de billing solo se registra para obtener su conexión ioredis
+  // (`queue.client`) — el rate-limit de accesos guarda sus contadores en Redis.
+  imports: [AuthModule, BullModule.registerQueue({ name: QUEUE_BILLING })],
   controllers: [
     AccessCredentialsController,
     AccessDevicesController,
@@ -30,6 +35,7 @@ import type { Env } from '../../config/env.schema';
     AccessCredentialsService,
     AccessDevicesService,
     AccessVerifyService,
+    AccessRateLimitService,
     AccessIntegrationsService,
     StubLockProvider,
     MqttLockProvider,
