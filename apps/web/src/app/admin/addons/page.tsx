@@ -38,7 +38,7 @@ export default function AdminAddonsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Add-ons facturables</h1>
           <p className="text-sm text-muted-foreground">
@@ -200,7 +200,7 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
             <p className="text-xs text-muted-foreground">
               Amplía los límites del plan. Déjalo vacío si el add-on no aporta capacidad.
             </p>
-            <div className="mt-2 grid grid-cols-3 gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="space-y-1">
                 <Label className="text-xs">Trasteros</Label>
                 <Input

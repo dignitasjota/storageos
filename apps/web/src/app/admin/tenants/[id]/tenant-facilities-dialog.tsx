@@ -169,7 +169,7 @@ function UnitsView({
           Este local no tiene trasteros.
         </p>
       ) : (
-        <div className="max-h-[60vh] overflow-y-auto rounded-md border">
+        <div className="max-h-[60vh] overflow-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>

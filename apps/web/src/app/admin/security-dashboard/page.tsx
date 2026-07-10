@@ -148,26 +148,28 @@ export default function SecurityDashboardPage() {
                 {data.topIps.length === 0 ? (
                   <p className="text-muted-foreground text-sm">Sin datos</p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-muted-foreground text-left">
-                        <th className="py-2">IP</th>
-                        <th className="text-right">Fallos</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.topIps.map((t) => (
-                        <tr key={t.ip} className="border-t">
-                          <td className="py-1.5 font-mono">{t.ip}</td>
-                          <td className="text-right">
-                            <Badge variant={t.exceedsThreshold ? 'destructive' : 'secondary'}>
-                              {t.count}
-                            </Badge>
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-muted-foreground text-left">
+                          <th className="py-2">IP</th>
+                          <th className="text-right">Fallos</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {data.topIps.map((t) => (
+                          <tr key={t.ip} className="border-t">
+                            <td className="py-1.5 font-mono">{t.ip}</td>
+                            <td className="text-right">
+                              <Badge variant={t.exceedsThreshold ? 'destructive' : 'secondary'}>
+                                {t.count}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -180,26 +182,28 @@ export default function SecurityDashboardPage() {
                 {data.topEmails.length === 0 ? (
                   <p className="text-muted-foreground text-sm">Sin datos</p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-muted-foreground text-left">
-                        <th className="py-2">Email</th>
-                        <th className="text-right">Fallos</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.topEmails.map((t) => (
-                        <tr key={t.email} className="border-t">
-                          <td className="py-1.5 font-mono text-xs">{t.email}</td>
-                          <td className="text-right">
-                            <Badge variant={t.exceedsThreshold ? 'destructive' : 'secondary'}>
-                              {t.count}
-                            </Badge>
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-muted-foreground text-left">
+                          <th className="py-2">Email</th>
+                          <th className="text-right">Fallos</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {data.topEmails.map((t) => (
+                          <tr key={t.email} className="border-t">
+                            <td className="py-1.5 font-mono text-xs">{t.email}</td>
+                            <td className="text-right">
+                              <Badge variant={t.exceedsThreshold ? 'destructive' : 'secondary'}>
+                                {t.count}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </CardContent>
             </Card>
