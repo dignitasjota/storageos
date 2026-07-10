@@ -269,7 +269,37 @@ export class AccessVerifyService {
       };
     }
 
-    // OK: disparar lock + log + lastUsedAt
+    // OK (pasó todas las validaciones). Para credenciales single-use (pase
+    // nocturno) RESERVA el uso de forma ATÓMICA **antes** de abrir: un
+    // `updateMany` condicionado a `usesCount < maxUses` serializa dos verify
+    // concurrentes con el mismo PIN → solo el primero incrementa; el segundo ve
+    // `count===0` y se deniega (evita que un pase de 1 uso se gaste dos veces).
+    if (credentialRow.maxUses != null) {
+      const claim = await this.admin.accessCredential.updateMany({
+        where: { id: credentialRow.id, usesCount: { lt: credentialRow.maxUses } },
+        data: { usesCount: { increment: 1 } },
+      });
+      if (claim.count === 0) {
+        await this.log({
+          tenantId,
+          deviceId: device.id,
+          credentialId: credentialRow.id,
+          customerId: credentialRow.customerId,
+          method,
+          result: 'denied_inactive_credential',
+          attemptedValue,
+          reason: 'Pase ya utilizado',
+          ipAddress,
+        });
+        return {
+          result: 'denied_inactive_credential',
+          allowed: false,
+          customerName: customerDisplay(credentialRow.customer),
+          reason: 'Pase ya utilizado',
+        };
+      }
+    }
+
     const openResult = await this.lock.open({
       tenantId,
       deviceId: device.id,
@@ -281,16 +311,45 @@ export class AccessVerifyService {
       customerId: credentialRow.customerId,
     });
 
-    // Single-use (pase nocturno): incrementa el contador y, si alcanza el
-    // máximo de usos, marca la credencial como expirada (gastada).
-    const newUses = credentialRow.usesCount + 1;
-    const spent = credentialRow.maxUses != null && newUses >= credentialRow.maxUses;
+    if (!openResult.dispatched) {
+      // La cerradura NO abrió (device offline / timeout). Si era single-use,
+      // DEVOLVEMOS el uso reservado: el inquilino no debe perder el pase (que
+      // pagó) por un fallo del hardware.
+      if (credentialRow.maxUses != null) {
+        await this.admin.accessCredential
+          .updateMany({
+            where: { id: credentialRow.id, usesCount: { gt: 0 } },
+            data: { usesCount: { decrement: 1 } },
+          })
+          .catch((err) => this.logger.warn(`No se pudo devolver el uso del pase: ${String(err)}`));
+      }
+      await this.log({
+        tenantId,
+        deviceId: device.id,
+        credentialId: credentialRow.id,
+        customerId: credentialRow.customerId,
+        method,
+        result: 'error',
+        attemptedValue,
+        reason: openResult.message ?? 'Lock dispatch fallido',
+        ipAddress,
+      });
+      return {
+        result: 'error',
+        allowed: false,
+        customerName: customerDisplay(credentialRow.customer),
+        reason: openResult.message ?? 'Fallo de dispositivo',
+      };
+    }
+
+    // Abrió: registra el uso y, si el single-use quedó agotado, márcalo expired.
+    const spent =
+      credentialRow.maxUses != null && credentialRow.usesCount + 1 >= credentialRow.maxUses;
     await this.admin.accessCredential
       .update({
         where: { id: credentialRow.id },
         data: {
           lastUsedAt: new Date(),
-          ...(credentialRow.maxUses != null ? { usesCount: { increment: 1 } } : {}),
           ...(spent ? { status: 'expired' as AccessCredentialStatus } : {}),
         },
       })
@@ -302,20 +361,12 @@ export class AccessVerifyService {
       credentialId: credentialRow.id,
       customerId: credentialRow.customerId,
       method,
-      result: openResult.dispatched ? 'allowed' : 'error',
+      result: 'allowed',
       attemptedValue,
-      reason: openResult.dispatched ? null : (openResult.message ?? 'Lock dispatch fallido'),
+      reason: null,
       ipAddress,
     });
 
-    if (!openResult.dispatched) {
-      return {
-        result: 'error',
-        allowed: false,
-        customerName: customerDisplay(credentialRow.customer),
-        reason: openResult.message ?? 'Fallo de dispositivo',
-      };
-    }
     return {
       result: 'allowed',
       allowed: true,

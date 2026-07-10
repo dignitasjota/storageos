@@ -44,6 +44,15 @@ export class AccessIntegrationsService {
     };
     entityId?: string;
   }): Promise<void> {
+    // Scope de la credencial = los locales y trasteros de los contratos VIVOS
+    // del inquilino. Sin esto (arrays vacíos) un PIN abría CUALQUIER cerradura
+    // de CUALQUIER otro inquilino del tenant (fuga de aislamiento con
+    // `unit_lock`, y en multi-local también con las cancelas). Si no se resuelve
+    // ningún contrato (edge), se deja abierto (no bloquear al inquilino).
+    const { facilityIds, unitIds } = await this.resolveCustomerScope(
+      args.tenantId,
+      args.customerId,
+    );
     const created = await this.credentials.create({
       tenantId: args.tenantId,
       userId: 'system',
@@ -51,8 +60,8 @@ export class AccessIntegrationsService {
         customerId: args.customerId,
         method: 'pin',
         label: args.label,
-        allowedFacilityIds: [],
-        allowedUnitIds: [],
+        allowedFacilityIds: facilityIds,
+        allowedUnitIds: unitIds,
         allowedHours: { windows: [] },
         bypassCurfew: false,
         metadata: { source: args.source, entityId: args.entityId },
@@ -83,6 +92,29 @@ export class AccessIntegrationsService {
     this.logger.log(
       `${args.source}: credencial PIN emitida + email encolado tenant=${args.tenantId} customer=${args.customerId}`,
     );
+  }
+
+  /**
+   * Locales (facilities) y trasteros (units) de los contratos `active`/`ending`
+   * del inquilino — el alcance físico al que su credencial debe dar acceso.
+   */
+  private async resolveCustomerScope(
+    tenantId: string,
+    customerId: string,
+  ): Promise<{ facilityIds: string[]; unitIds: string[] }> {
+    const contracts = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findMany({
+          where: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+          select: { unitId: true, unit: { select: { facilityId: true } } },
+        }),
+      tenantId,
+    );
+    const facilityIds = [
+      ...new Set(contracts.map((c) => c.unit?.facilityId).filter((x): x is string => !!x)),
+    ];
+    const unitIds = [...new Set(contracts.map((c) => c.unitId).filter((x): x is string => !!x))];
+    return { facilityIds, unitIds };
   }
 
   @OnEvent(DOMAIN_EVENTS.contract_signed, { async: true, promisify: true })
@@ -126,14 +158,15 @@ export class AccessIntegrationsService {
     if (!payload.customerId) return;
     const customerId = payload.customerId;
     try {
-      // 1. Reactiva credenciales suspendidas por impago.
+      // 1. Reactiva SOLO las credenciales suspendidas por impago (no las que el
+      //    staff suspendió por seguridad). Idempotente si no hay ninguna.
       await this.credentials.resume({
         tenantId: payload.tenantId,
         userId: 'system',
         customerId,
         onlyIfReasonStartsWith: 'dunning:',
         meta: {},
-      } as Parameters<AccessCredentialsService['resume']>[0]);
+      });
       // 2. Auto-emisión al primer pago: si el inquilino aún no tiene ninguna
       //    credencial activa (p. ej. modelo "pago primero"), le emite un PIN.
       const active = await this.credentials.listForCustomer(payload.tenantId, customerId);
