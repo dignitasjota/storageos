@@ -214,9 +214,13 @@ Patrón A; úsalo solo si necesitas apertura iniciada desde el panel.
 Si no quieres firmware propio, los providers `http`/`mqtt` de StorageOS funcionan
 con hardware comercial controlable por HTTP/MQTT:
 
+- **Terminales comerciales PIN+QR (Akuvox y similares)**: integran por el
+  **`GET /v1/access/verify`** (URL con placeholders), sin firmware propio. Ver
+  [`HARDWARE_AKUVOX.md`](HARDWARE_AKUVOX.md) (incluye qué hardware encaja y qué
+  no: Dahua/ZKTeco/Hikvision/2N).
 - **Shelly** (relé WiFi con API HTTP): apertura por Patrón B sin código.
 - **Home Assistant** como pasarela (recibe HTTP/MQTT y controla la cerradura).
 
 La integración profunda con cerraduras específicas de self-storage
-(**Noke / Janus**, **PTI**) está en el backlog del roadmap, no es plug-and-play
-todavía.
+(**Noke / Janus**, **PTI**) usa cloud propietario y está fuera de alcance por
+ahora (ver [`HARDWARE_AKUVOX.md §6`](HARDWARE_AKUVOX.md)).
