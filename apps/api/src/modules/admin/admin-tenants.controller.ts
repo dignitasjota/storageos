@@ -154,6 +154,7 @@ export class AdminTenantsController {
   }
 
   /** Cierra todas las sesiones de un usuario del tenant. */
+  @RequireSuperadmin()
   @Post(':id/users/:userId/revoke-sessions')
   @HttpCode(HttpStatus.OK)
   async revokeSessions(
@@ -622,6 +623,7 @@ export class AdminTenantsController {
     });
   }
 
+  @RequireSuperadmin()
   @Post(':id/extend-trial')
   @HttpCode(HttpStatus.OK)
   async extendTrial(
