@@ -447,7 +447,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             type="button"
             size="icon"
             variant="secondary"
-            className="size-9 shadow"
+            className="size-11 shadow"
             onClick={() => zoomTo(scale * 1.2)}
             aria-label="Acercar"
           >
@@ -457,7 +457,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             type="button"
             size="icon"
             variant="secondary"
-            className="size-9 shadow"
+            className="size-11 shadow"
             onClick={() => zoomTo(scale / 1.2)}
             aria-label="Alejar"
           >
@@ -467,7 +467,7 @@ export function PlanEditor({ facilityId, floorId }: Props) {
             type="button"
             size="icon"
             variant="secondary"
-            className="size-9 shadow"
+            className="size-11 shadow"
             onClick={fitToViewport}
             aria-label="Ajustar a la pantalla"
           >

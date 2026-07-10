@@ -869,7 +869,7 @@ function PortalConsumeContent() {
             // Al abrir Mensajes se marcan leídos en el server → ocultamos el badge.
             if (v === 'mensajes') setUnreadMessages(0);
           }}
-          className="min-w-0 flex-1 pb-20 md:pb-0"
+          className="pb-app-nav min-w-0 flex-1 md:pb-0"
         >
           <TabsContent value="inicio" className="space-y-6">
             <OverviewCard
@@ -1000,7 +1000,7 @@ function PortalConsumeContent() {
                   <select
                     value={ucContractId}
                     onChange={(e) => setUcContractId(e.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
                   >
                     <option value="">Trastero actual (opcional)</option>
                     {(contracts ?? []).map((c) => (
@@ -1016,7 +1016,7 @@ function PortalConsumeContent() {
                   placeholder="¿Qué necesitas? (p. ej. uno más grande, planta baja…)"
                   maxLength={1000}
                   rows={3}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
                 />
                 <Button onClick={requestUnitChange} disabled={ucBusy || ucNote.trim().length < 5}>
                   {ucBusy ? (
@@ -1086,7 +1086,7 @@ function PortalConsumeContent() {
                             Emitida {i.issueDate ?? '—'} · Vence {i.dueDate ?? '—'}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="text-sm tabular-nums">
                             {i.total.toLocaleString('es-ES', {
                               style: 'currency',
@@ -1396,7 +1396,7 @@ function PortalConsumeContent() {
                   onChange={(e) => setIncidentTitle(e.target.value)}
                   placeholder="Asunto (p. ej. la puerta no cierra)"
                   maxLength={160}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
                 />
                 <textarea
                   value={incidentDesc}
@@ -1404,7 +1404,7 @@ function PortalConsumeContent() {
                   placeholder="Detalles (opcional)"
                   maxLength={2000}
                   rows={3}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
                 />
                 <Button
                   onClick={reportIncident}
@@ -1563,7 +1563,7 @@ function PortalConsumeContent() {
       </div>
 
       {/* Barra de navegación inferior (móvil): principales + «Más» */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur md:hidden">
+      <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur md:hidden">
         {PORTAL_PRIMARY.map((item) => (
           <PortalBottomItem
             key={item.value}
@@ -1592,7 +1592,7 @@ function PortalConsumeContent() {
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent side="bottom" className="rounded-t-xl">
           <SheetTitle className="mb-2">Más opciones</SheetTitle>
-          <div className="grid grid-cols-3 gap-2 pb-4">
+          <div className="grid grid-cols-3 gap-2 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
             {PORTAL_MORE.map((item) => {
               const Icon = item.icon;
               const b = navBadge(item.value);
@@ -1765,7 +1765,7 @@ function MoveOutDialog({
             min={minDate}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm sm:text-sm"
           />
         </div>
         <div className="mt-4 flex justify-end gap-2">

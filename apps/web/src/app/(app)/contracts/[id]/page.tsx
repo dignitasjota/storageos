@@ -136,9 +136,9 @@ export default function ContractDetailPage() {
             <ArrowLeft className="mr-1 h-4 w-4" /> Contratos
           </Link>
         </Button>
-        <div className="mt-2 flex items-start justify-between gap-4">
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <h1 className="font-mono text-2xl font-semibold tracking-tight">
                 {c.contractNumber}
               </h1>

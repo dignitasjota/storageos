@@ -15,17 +15,27 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    // `default` (no `black-translucent`): iOS reserva la barra de estado y no
+    // dibuja el contenido debajo → evita que el portal (tema claro) quede bajo
+    // el reloj. El home indicator inferior sí se compensa con safe-area en CSS.
+    statusBarStyle: 'default',
     title: 'Mi trastero',
   },
   icons: {
-    icon: '/icon.svg',
-    apple: '/icon.svg',
+    icon: [
+      { url: '/favicon.png', type: 'image/png', sizes: '48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0f172a',
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+  ],
 };
 
 export default function PortalLayout({ children }: { children: ReactNode }) {

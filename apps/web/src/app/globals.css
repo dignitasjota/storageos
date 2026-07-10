@@ -86,3 +86,19 @@
     @apply bg-background font-sans text-foreground antialiased;
   }
 }
+
+@layer utilities {
+  /* Safe-areas (notch / home indicator) en modo standalone. Requieren
+     `viewport-fit=cover` (definido en el viewport del layout raíz). */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Relleno inferior del contenido que va sobre la bottom-nav fija del portal:
+     alto de la nav (5rem) + el home indicator. */
+  .pb-app-nav {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+}

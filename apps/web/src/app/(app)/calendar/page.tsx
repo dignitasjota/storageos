@@ -72,6 +72,15 @@ export default function CalendarPage() {
   const monthLabel = firstOfMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   const todayKey = ymd(new Date());
 
+  // Vista agenda (móvil): días del mes con eventos, en orden cronológico.
+  const agenda = useMemo(
+    () =>
+      days
+        .filter((d) => d.getMonth() === firstOfMonth.getMonth() && (byDay.get(ymd(d)) ?? []).length)
+        .map((d) => ({ day: d, key: ymd(d), events: byDay.get(ymd(d)) ?? [] })),
+    [days, firstOfMonth, byDay],
+  );
+
   function shift(delta: number) {
     setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta, 1));
   }
@@ -108,7 +117,53 @@ export default function CalendarPage() {
         ))}
       </div>
 
-      <Card>
+      {/* Móvil: vista agenda (el grid de 7 columnas es ilegible en 360px). */}
+      <div className="space-y-4 md:hidden">
+        {agenda.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No hay nada programado este mes.
+          </p>
+        ) : (
+          agenda.map(({ day, key, events }) => (
+            <div key={key}>
+              <p
+                className={`text-sm font-medium capitalize ${key === todayKey ? 'text-primary' : ''}`}
+              >
+                {day.toLocaleDateString('es-ES', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                })}
+                {key === todayKey && ' · hoy'}
+              </p>
+              <ul className="mt-1.5 space-y-1.5">
+                {events.map((e) => (
+                  <li key={`${e.type}-${e.id}`}>
+                    <Link
+                      href={e.href}
+                      className="flex items-start gap-2 rounded-md border p-2.5 text-sm hover:bg-muted"
+                    >
+                      <span
+                        className={`mt-1 size-2.5 shrink-0 rounded-full ${TYPE_COLOR[e.type]}`}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium">{e.label}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {TYPE_LABEL[e.type]}
+                          {e.detail ? ` · ${e.detail}` : ''}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Escritorio (md+): rejilla mensual. */}
+      <Card className="hidden md:block">
         <CardContent className="p-2 sm:p-3">
           <div className="grid grid-cols-7 gap-px text-center text-xs font-medium text-muted-foreground">
             {WEEKDAYS.map((w) => (

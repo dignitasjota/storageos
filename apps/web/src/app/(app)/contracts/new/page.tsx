@@ -78,11 +78,15 @@ export default function NewContractWizardPage() {
       </Button>
       <h1 className="text-2xl font-semibold tracking-tight">Nuevo contrato</h1>
 
+      {/* Móvil: paso actual en texto (el stepper con etiquetas no cabe). */}
+      <p className="text-sm font-medium sm:hidden">
+        Paso {step} de 4 · {['Inquilino', 'Trastero', 'Datos económicos', 'Revisar'][step - 1]}
+      </p>
       <div className="flex items-center gap-2 text-sm">
         {[1, 2, 3, 4].map((n) => (
           <div key={n} className="flex items-center gap-1">
             <span
-              className={`inline-flex size-6 items-center justify-center rounded-full text-xs ${
+              className={`inline-flex size-6 shrink-0 items-center justify-center rounded-full text-xs ${
                 step === n
                   ? 'bg-foreground text-background'
                   : step > n
@@ -92,10 +96,12 @@ export default function NewContractWizardPage() {
             >
               {step > n ? <Check className="size-3" /> : n}
             </span>
-            <span className={step >= n ? 'font-medium' : 'text-muted-foreground'}>
+            <span
+              className={`hidden sm:inline ${step >= n ? 'font-medium' : 'text-muted-foreground'}`}
+            >
               {['Inquilino', 'Trastero', 'Datos económicos', 'Revisar'][n - 1]}
             </span>
-            {n < 4 && <ChevronRight className="ml-2 size-4 text-muted-foreground" />}
+            {n < 4 && <ChevronRight className="size-4 shrink-0 text-muted-foreground sm:ml-2" />}
           </div>
         ))}
       </div>
