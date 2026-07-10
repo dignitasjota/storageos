@@ -153,13 +153,15 @@ export class PaymentsService {
       });
     }
 
-    // Cargo via gateway, decryption del token dentro del withTenant para no
-    // exfiltrar.
-    const { paymentRow, chargeResult } = await this.prisma.withTenant(async (tx) => {
-      // Anti-doble-cobro atómico: serializa por factura con un advisory lock (se
-      // libera al commit). El 2º request concurrente (doble clic) espera aquí,
-      // entra tras el commit del 1º, ve su pago en vuelo → 409 SIN llamar al
-      // gateway (evita el doble CARGO real, no solo el doble registro).
+    // === FASE 1 (reserva, tx corta) ===
+    // Reserva ATÓMICA del slot de cobro ANTES de llamar al gateway: crea el
+    // `payment` en estado `processing` (que cuenta en el índice único parcial
+    // `payments_one_live_gateway_charge`). Con esto el cargo externo ocurre
+    // FUERA de la transacción → si el commit fallara tras cobrar ya NO habría
+    // cargo huérfano (siempre queda el registro reservado, que el webhook
+    // reconcilia). El advisory lock serializa el doble clic; el 2º ve la reserva
+    // del 1º → 409 SIN llamar al gateway (evita el doble CARGO real).
+    const reserved = await this.prisma.withTenant(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${invoice.id}::text))`;
       const liveGatewayCharge = await tx.payment.count({
         where: {
@@ -184,36 +186,6 @@ export class PaymentsService {
         });
       }
       const tokenPlain = await this.paymentMethods.decryptToken(tx, pm.id);
-      // Multi-gateway: GoCardless cobra contra el mandato (queda `processing`
-      // hasta el webhook); el resto va por el gateway por defecto (Stripe).
-      const result =
-        pm.gateway === 'gocardless'
-          ? await this.goCardlessCharge.charge({
-              tenantId: args.tenantId,
-              mandateId: tokenPlain,
-              amountCents: toCents(amount),
-              currency: invoice.currency,
-              description: `Factura ${invoice.invoiceNumber}`,
-              metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
-            })
-          : await this.gateway.charge({
-              gatewayCustomerId: pm.gatewayCustomerId ?? '',
-              paymentMethodToken: tokenPlain,
-              paymentMethodType: pm.type,
-              amountCents: toCents(amount),
-              currency: invoice.currency,
-              description: `Factura ${invoice.invoiceNumber}`,
-              metadata: { invoiceId: invoice.id, tenantId: args.tenantId },
-              offSession: true,
-            });
-      const status: PaymentStatus =
-        result.status === 'succeeded'
-          ? 'succeeded'
-          : result.status === 'processing'
-            ? 'processing'
-            : result.status === 'requires_action'
-              ? 'pending'
-              : 'failed';
       const created = await tx.payment.create({
         data: {
           tenantId: args.tenantId,
@@ -222,12 +194,89 @@ export class PaymentsService {
           paymentMethodId: pm.id,
           amount,
           currency: invoice.currency,
-          status,
+          status: 'processing',
           methodType: pm.type,
           gateway: pm.gateway,
-          gatewayPaymentId: result.gatewayPaymentId,
-          ...(result.status === 'succeeded' ? { paidAt: new Date() } : {}),
-          ...(result.failureReason ? { failureReason: result.failureReason } : {}),
+        },
+        select: { id: true },
+      });
+      return {
+        paymentId: created.id,
+        gateway: pm.gateway,
+        type: pm.type,
+        gatewayCustomerId: pm.gatewayCustomerId,
+        tokenPlain,
+      };
+    }, args.tenantId);
+
+    // === FASE 2 (cargo externo, FUERA de tx) ===
+    // Multi-gateway: GoCardless cobra contra el mandato (queda `processing`
+    // hasta el webhook); el resto va por el gateway por defecto (Stripe). Un
+    // fallo del gateway marca la reserva como `failed` (libera el slot) y relanza.
+    let chargeResult: Awaited<ReturnType<typeof this.gateway.charge>>;
+    try {
+      chargeResult =
+        reserved.gateway === 'gocardless'
+          ? await this.goCardlessCharge.charge({
+              tenantId: args.tenantId,
+              mandateId: reserved.tokenPlain,
+              amountCents: toCents(amount),
+              currency: invoice.currency,
+              description: `Factura ${invoice.invoiceNumber}`,
+              metadata: {
+                invoiceId: invoice.id,
+                tenantId: args.tenantId,
+                paymentId: reserved.paymentId,
+              },
+            })
+          : await this.gateway.charge({
+              gatewayCustomerId: reserved.gatewayCustomerId ?? '',
+              paymentMethodToken: reserved.tokenPlain,
+              paymentMethodType: reserved.type,
+              amountCents: toCents(amount),
+              currency: invoice.currency,
+              description: `Factura ${invoice.invoiceNumber}`,
+              metadata: {
+                invoiceId: invoice.id,
+                tenantId: args.tenantId,
+                paymentId: reserved.paymentId,
+              },
+              offSession: true,
+            });
+    } catch (err) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.payment.update({
+            where: { id: reserved.paymentId },
+            data: {
+              status: 'failed',
+              failureReason: err instanceof Error ? err.message.slice(0, 500) : 'gateway_error',
+            },
+          }),
+        args.tenantId,
+      );
+      throw err;
+    }
+
+    // === FASE 3 (finalización, tx corta) ===
+    // Actualiza la reserva con el resultado real + sincroniza la factura si
+    // succeeded (el estado final también llega por el webhook).
+    const status: PaymentStatus =
+      chargeResult.status === 'succeeded'
+        ? 'succeeded'
+        : chargeResult.status === 'processing'
+          ? 'processing'
+          : chargeResult.status === 'requires_action'
+            ? 'pending'
+            : 'failed';
+    const paymentRow = await this.prisma.withTenant(async (tx) => {
+      const updated = await tx.payment.update({
+        where: { id: reserved.paymentId },
+        data: {
+          status,
+          gatewayPaymentId: chargeResult.gatewayPaymentId,
+          ...(chargeResult.status === 'succeeded' ? { paidAt: new Date() } : {}),
+          ...(chargeResult.failureReason ? { failureReason: chargeResult.failureReason } : {}),
         },
         include: {
           invoice: { select: { invoiceNumber: true } },
@@ -241,7 +290,6 @@ export class PaymentsService {
           },
         },
       });
-      // Sincronizar invoice si succeeded (la final llega del webhook tambien).
       if (status === 'succeeded') {
         const newPaid = addAmounts(invoice.amountPaid, amount);
         const fully = isAtLeast(newPaid, invoice.total);
@@ -253,7 +301,7 @@ export class PaymentsService {
           },
         });
       }
-      return { paymentRow: created, chargeResult: result };
+      return updated;
     }, args.tenantId);
 
     await this.audit.write({
