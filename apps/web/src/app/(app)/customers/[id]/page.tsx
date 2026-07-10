@@ -3,6 +3,7 @@
 import { ArrowLeft, BadgeCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { CustomerChatTab } from './chat-tab';
@@ -19,9 +20,30 @@ import { Can } from '@/components/auth/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useCustomer, useCustomerUnreadSummary, useSetKycVerified } from '@/lib/customers/hooks';
+
+/** Pestañas de la ficha del inquilino (orden = el de los TabsTrigger). En móvil
+ *  se muestran como un desplegable en lugar de una tira de 9 pestañas. */
+const CUSTOMER_TABS = [
+  { value: 'contracts', label: 'Contratos' },
+  { value: 'reservations', label: 'Reservas' },
+  { value: 'documents', label: 'Documentos' },
+  { value: 'communications', label: 'Comunicaciones' },
+  { value: 'chat', label: 'Mensajes' },
+  { value: 'followups', label: 'Seguimientos' },
+  { value: 'history', label: 'Historial de pagos' },
+  { value: 'payments', label: 'Métodos de pago' },
+  { value: 'info', label: 'Datos' },
+] as const;
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
@@ -29,6 +51,7 @@ export default function CustomerDetailPage() {
   const customer = useCustomer(id);
   const unreadMessages = useCustomerUnreadSummary().data?.byCustomer[id ?? ''] ?? 0;
   const setKyc = useSetKycVerified();
+  const [tab, setTab] = useState<string>('contracts');
 
   if (customer.isLoading || !customer.data) {
     return (
@@ -89,8 +112,31 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="contracts">
-        <TabsList>
+      <Tabs value={tab} onValueChange={setTab}>
+        {/* Móvil: desplegable (9 pestañas no caben cómodas en una tira). */}
+        <div className="sm:hidden">
+          <Select value={tab} onValueChange={setTab}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CUSTOMER_TABS.map((t) => (
+                <SelectItem key={t.value} value={t.value} textValue={t.label}>
+                  <span className="flex items-center gap-1.5">
+                    {t.label}
+                    {t.value === 'chat' && unreadMessages > 0 && (
+                      <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-medium text-white">
+                        {unreadMessages}
+                      </span>
+                    )}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {/* Escritorio: pestañas normales. */}
+        <TabsList className="hidden sm:inline-flex">
           <TabsTrigger value="contracts">Contratos</TabsTrigger>
           <TabsTrigger value="reservations">Reservas</TabsTrigger>
           <TabsTrigger value="documents">Documentos</TabsTrigger>
