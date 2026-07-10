@@ -18,7 +18,13 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useCreatePortalLink } from '@/lib/customers/hooks';
 
-export function PortalLinkButton({ customerId }: { customerId: string }) {
+export function PortalLinkButton({
+  customerId,
+  className,
+}: {
+  customerId: string;
+  className?: string;
+}) {
   const create = useCreatePortalLink(customerId);
   const [link, setLink] = useState<PortalMagicLinkDto | null>(null);
 
@@ -43,7 +49,12 @@ export function PortalLinkButton({ customerId }: { customerId: string }) {
 
   return (
     <>
-      <Button variant="outline" onClick={generate} disabled={create.isPending}>
+      <Button
+        variant="outline"
+        onClick={generate}
+        disabled={create.isPending}
+        className={className}
+      >
         {create.isPending ? (
           <Loader2 className="mr-1 h-4 w-4 animate-spin" />
         ) : (
