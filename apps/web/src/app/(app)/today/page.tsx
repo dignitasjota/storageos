@@ -12,6 +12,7 @@ import {
   FileSignature,
   LogOut,
   MessageSquare,
+  PiggyBank,
   Replace,
   Sparkles,
   UserPlus,
@@ -383,6 +384,15 @@ export default function TodayPage() {
               href="/reservations"
               itemHref={() => '/reservations'}
               empty="Ninguna reserva expira en 7 días."
+            />
+            <SectionCard
+              title="Fianzas por liquidar"
+              icon={PiggyBank}
+              count={data.depositsToSettle.count}
+              items={data.depositsToSettle.items}
+              href="/contracts"
+              itemHref={(it) => `/contracts/${it.id}`}
+              empty="Ninguna fianza pendiente de liquidar."
             />
           </div>
         </>

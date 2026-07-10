@@ -32,6 +32,7 @@ describe('Dashboard: bandeja «Hoy» (e2e)', () => {
     expect(res.body.tasksDue).toEqual({ count: 0, items: [] });
     expect(res.body.contractsEndingSoon).toEqual({ count: 0, items: [] });
     expect(res.body.collectionsDeadlines).toEqual({ count: 0, items: [] });
+    expect(res.body.depositsToSettle).toEqual({ count: 0, items: [] });
     expect(res.body.reservationsExpiring).toEqual({ count: 0, items: [] });
     expect(res.body.invoicesOverdue).toEqual({ count: 0, totalPending: 0 });
     expect(res.body.incidentsOpen).toBe(0);
