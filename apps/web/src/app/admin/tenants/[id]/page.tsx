@@ -202,7 +202,7 @@ export default function AdminTenantDetailPage() {
       </div>
 
       <Tabs defaultValue="general" className="w-full">
-        <TabsList>
+        <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="payments">Pagos</TabsTrigger>
           <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
