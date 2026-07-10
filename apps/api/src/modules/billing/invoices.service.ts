@@ -16,6 +16,7 @@ import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
 import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gateway.interface';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
@@ -100,6 +101,7 @@ export class InvoicesService {
     private readonly events: EventEmitter2,
     @InjectQueue(QUEUE_VERIFACTU) private readonly verifactuQueue: Queue<VerifactuSendJobData>,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    private readonly communications: CommunicationsService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -436,6 +438,129 @@ export class InvoicesService {
       }
     }
     return { succeeded, failed };
+  }
+
+  /**
+   * Envía en lote un recordatorio de pago a N facturas pendientes (issued/overdue).
+   * Manual, distinto del dunning automático: el staff dispara un aviso puntual desde
+   * la lista de facturas. Procesa cada una de forma independiente (un fallo —factura
+   * no pendiente, sin email— no tumba el resto) y reporta en `failed`. Reutiliza la
+   * plantilla `invoice_overdue_email` (trigger `invoice_overdue`).
+   */
+  async bulkRemind(args: {
+    tenantId: string;
+    ids: string[];
+    facilityScope?: string[] | null;
+  }): Promise<BulkInvoiceActionResultDto> {
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+    for (const invoiceId of args.ids) {
+      try {
+        await this.sendReminderForInvoice(args.tenantId, invoiceId, args.facilityScope);
+        succeeded.push(invoiceId);
+      } catch (err) {
+        failed.push({ id: invoiceId, error: this.errorCode(err) });
+      }
+    }
+    return { succeeded, failed };
+  }
+
+  /**
+   * Encola un recordatorio de pago para UNA factura. Valida que esté pendiente de
+   * cobro (issued/overdue), respeta el alcance por local y exige un cliente con
+   * email (una F2 sin destinatario no es recordable). Lanza con un `code` claro
+   * en cada caso para que `bulkRemind` lo reporte.
+   */
+  private async sendReminderForInvoice(
+    tenantId: string,
+    invoiceId: string,
+    facilityScope?: string[] | null,
+  ): Promise<void> {
+    const data = await this.prisma.withTenant(async (tx) => {
+      const invoice = await tx.invoice.findFirst({
+        where: { id: invoiceId, deletedAt: null },
+        select: {
+          invoiceNumber: true,
+          status: true,
+          total: true,
+          amountPaid: true,
+          amountRefunded: true,
+          dueDate: true,
+          customerId: true,
+          customer: {
+            select: {
+              email: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              customerType: true,
+            },
+          },
+          contract: { select: { unit: { select: { facilityId: true } } } },
+        },
+      });
+      if (!invoice) return null;
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { name: true },
+      });
+      return { invoice, tenantName: tenant.name };
+    }, tenantId);
+
+    if (!data) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    const { invoice, tenantName } = data;
+
+    const facilityId = invoice.contract?.unit?.facilityId;
+    if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
+
+    if (invoice.status !== 'issued' && invoice.status !== 'overdue') {
+      throw new BadRequestException({
+        code: 'invoice_not_pending',
+        message: 'Solo se puede recordar una factura emitida o vencida',
+      });
+    }
+    const customer = invoice.customer;
+    if (!invoice.customerId || !customer?.email) {
+      throw new BadRequestException({
+        code: 'customer_email_missing',
+        message: 'La factura no tiene un cliente con email',
+      });
+    }
+
+    const amountPending = subtractAmounts(
+      subtractAmounts(invoice.total, invoice.amountPaid),
+      invoice.amountRefunded,
+    );
+    const daysOverdue = invoice.dueDate
+      ? Math.max(0, Math.floor((Date.now() - invoice.dueDate.getTime()) / 86_400_000))
+      : 0;
+    const displayName =
+      customer.customerType === 'business'
+        ? (customer.companyName ?? 'Empresa sin nombre')
+        : [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || 'Sin nombre';
+
+    await this.communications.enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: customer.email,
+      templateCode: 'invoice_overdue_email',
+      trigger: 'invoice_overdue',
+      variables: {
+        customer: { firstName: customer.firstName ?? '', displayName },
+        invoice: {
+          number: invoice.invoiceNumber,
+          total: Number(invoice.total).toFixed(2),
+          amountPending: amountPending.toFixed(2),
+          dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
+          daysOverdue,
+        },
+        tenant: { name: tenantName },
+      },
+      customerId: invoice.customerId,
+      source: 'bulk.manual_reminder',
+    });
   }
 
   /** Extrae el `code` de una excepción Nest (o su mensaje) para el reporte en lote. */

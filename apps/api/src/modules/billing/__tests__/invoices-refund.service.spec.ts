@@ -97,6 +97,7 @@ function buildService(deps: {
     null as never,
     null as never,
     gateway,
+    null as never,
   );
   return { service, tx, gateway };
 }

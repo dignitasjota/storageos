@@ -38,6 +38,7 @@ import { ApiError } from '@/lib/auth/api';
 import {
   useBulkChargeInvoices,
   useBulkIssueInvoices,
+  useBulkRemindInvoices,
   useCreateInvoice,
   useInvoices,
 } from '@/lib/billing/hooks';
@@ -93,6 +94,7 @@ export default function InvoicesPage() {
   const createInvoice = useCreateInvoice();
   const bulkIssue = useBulkIssueInvoices();
   const bulkCharge = useBulkChargeInvoices();
+  const bulkRemind = useBulkRemindInvoices();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const rows = invoices.data ?? [];
@@ -136,6 +138,13 @@ export default function InvoicesPage() {
       reportBulk(await bulkCharge.mutateAsync(selectedChargeable));
     } catch {
       toast.error('No se pudo cobrar el lote.');
+    }
+  }
+  async function onBulkRemind() {
+    try {
+      reportBulk(await bulkRemind.mutateAsync(selectedChargeable));
+    } catch {
+      toast.error('No se pudo enviar el recordatorio.');
     }
   }
 
@@ -305,9 +314,9 @@ export default function InvoicesPage() {
       </div>
 
       {selectedIds.size > 0 && (
-        <Can permission="invoices:manage">
-          <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-            <span className="font-medium">{selectedIds.size} seleccionada(s)</span>
+        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium">{selectedIds.size} seleccionada(s)</span>
+          <Can permission="invoices:manage">
             <Button
               size="sm"
               variant="outline"
@@ -316,6 +325,8 @@ export default function InvoicesPage() {
             >
               Emitir {selectedDraft.length > 0 ? `(${selectedDraft.length})` : ''}
             </Button>
+          </Can>
+          <Can permission="payments:charge">
             <Button
               size="sm"
               variant="outline"
@@ -324,11 +335,21 @@ export default function InvoicesPage() {
             >
               Cobrar {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-              Limpiar
+          </Can>
+          <Can permission="communications:send">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedChargeable.length === 0 || bulkRemind.isPending}
+              onClick={onBulkRemind}
+            >
+              Recordatorio {selectedChargeable.length > 0 ? `(${selectedChargeable.length})` : ''}
             </Button>
-          </div>
-        </Can>
+          </Can>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+            Limpiar
+          </Button>
+        </div>
       )}
 
       <DataTable
