@@ -53,22 +53,20 @@ describe('Ventanas horarias por credencial (e2e)', () => {
       .post('/customers')
       .set(auth)
       .send({ customerType: 'individual', firstName: 'Emp', lastName: 'Leado', country: 'ES' });
-    const device = await request(app.getHttpServer())
-      .post('/access/devices')
-      .set(auth)
-      .send({
-        facilityId: facility.body.id,
-        type: 'gate',
-        name: 'Puerta',
-        hardwareId: 'win-dev-1',
-      });
+    const device = await request(app.getHttpServer()).post('/access/devices').set(auth).send({
+      facilityId: facility.body.id,
+      type: 'gate',
+      name: 'Puerta',
+      hardwareId: 'win-dev-1',
+    });
     const apiKey = device.body.revealedApiKey as string;
 
     const { weekday, minutes } = nowInMadrid();
-    // Los tests corren en cualquier hora del día → construimos las franjas con
-    // márgenes seguros (nunca cruzan medianoche: min>=2 y min<=1437 en la
-    // práctica de CI; si estuviéramos en el minuto 0/1439 el margen se ajusta).
-    const lo = Math.max(1, minutes - 30);
+    // Los tests corren a CUALQUIER hora → la franja debe contener "ahora"
+    // (start inclusive, end exclusivo). En el borde de medianoche (minuto 0) el
+    // start debe poder ser 00:00 → `Math.max(0, ...)` (antes era `max(1, ...)`,
+    // que dejaba fuera el minuto 0 y hacía flakear el test a medianoche en CI).
+    const lo = Math.max(0, minutes - 30);
     const hi = Math.min(1439, minutes + 30);
 
     // Credencial con una franja que CUBRE ahora (hoy).
