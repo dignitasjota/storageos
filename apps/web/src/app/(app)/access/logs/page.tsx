@@ -2,6 +2,7 @@
 
 import { type AccessLogDto, type AccessResultValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
+import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -174,13 +175,88 @@ export default function AccessLogsPage() {
         </Select>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={logs.data ?? []}
-        isLoading={logs.isLoading}
-        searchPlaceholder="Buscar..."
-        emptyText="No hay intentos de acceso registrados todavía."
-      />
+      {/* Escritorio (md+): tabla. */}
+      <div className="hidden md:block">
+        <DataTable
+          columns={columns}
+          data={logs.data ?? []}
+          isLoading={logs.isLoading}
+          searchPlaceholder="Buscar..."
+          emptyText="No hay intentos de acceso registrados todavía."
+        />
+      </div>
+
+      {/* Móvil: tarjetas apiladas (la tabla de 7 columnas no cabe sin scroll). */}
+      <div className="space-y-2 md:hidden">
+        {logs.isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (logs.data ?? []).length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No hay intentos de acceso registrados todavía.
+          </p>
+        ) : (
+          (logs.data ?? []).map((log) => <AccessLogCard key={log.id} log={log} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Registro de acceso en formato tarjeta, para móvil: la misma info que la fila
+ *  de la tabla pero apilada, sin scroll horizontal. */
+function AccessLogCard({ log }: { log: AccessLogDto }) {
+  const r = RESULT_LABELS[log.result] ?? {
+    label: log.result,
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  };
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${r.className}`}>
+          {r.label}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {new Date(log.occurredAt).toLocaleString('es-ES')}
+        </span>
+      </div>
+      <dl className="mt-2 space-y-1">
+        <div className="flex justify-between gap-3">
+          <dt className="text-muted-foreground">Inquilino</dt>
+          <dd className="text-right">
+            {log.customerId ? (
+              <Link href={`/customers/${log.customerId}`} className="hover:underline">
+                {log.customerName}
+              </Link>
+            ) : (
+              (log.customerName ?? '—')
+            )}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-muted-foreground">Dispositivo</dt>
+          <dd className="text-right">
+            {log.deviceName ?? '—'} · {METHOD_LABELS[log.method] ?? log.method}
+          </dd>
+        </div>
+        {log.attemptedValue && (
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">Código</dt>
+            <dd className="text-right font-mono text-xs">{log.attemptedValue}</dd>
+          </div>
+        )}
+        {log.reason && (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Motivo</dt>
+            <dd>
+              <Badge variant="outline" className="text-xs">
+                {log.reason}
+              </Badge>
+            </dd>
+          </div>
+        )}
+      </dl>
     </div>
   );
 }
