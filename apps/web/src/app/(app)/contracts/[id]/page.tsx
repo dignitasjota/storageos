@@ -281,6 +281,12 @@ export default function ContractDetailPage() {
             <p className="text-xs text-muted-foreground">
               Base {c.priceMonthly.toFixed(2)} − descuento {c.discountAmount.toFixed(2)} €
             </p>
+            {c.discountAmount > 0 && c.discountExpiresAt && (
+              <p className="text-xs text-muted-foreground">
+                Descuento hasta el {new Date(c.discountExpiresAt).toLocaleDateString('es-ES')}{' '}
+                (luego vuelve a la cuota base)
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>

@@ -1912,6 +1912,7 @@ export class ContractsService {
       priceMonthly: base,
       discountAmount: discount,
       discountReason: row.discountReason,
+      discountExpiresAt: row.discountExpiresAt ? row.discountExpiresAt.toISOString() : null,
       effectivePrice: this.pricing.computeEffectivePrice({ base, discount }),
       freeMonthsRemaining: row.freeMonthsRemaining,
       depositAmount: Number(row.depositAmount),

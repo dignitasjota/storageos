@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+import { RetentionService } from '../src/modules/retention/retention.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -89,9 +90,25 @@ describe('Retención de bajas (e2e)', () => {
     const contract = await admin.contract.findUniqueOrThrow({ where: { id: contractId } });
     expect(contract.status).toBe('active');
     expect(Number(contract.discountAmount)).toBe(10); // 20% de 50
+    // El descuento tiene fecha de fin (3 meses); no es perpetuo.
+    expect(contract.discountExpiresAt).not.toBeNull();
 
     // La oferta queda aceptada y ya no aparece como pendiente.
     const list2 = await request(app.getHttpServer()).get('/portal/me/retention-offers').set(pAuth);
     expect(list2.body).toHaveLength(0);
+
+    // Simulamos que el periodo del descuento ya venció y corremos el cron:
+    // el descuento se revierte (cuota vuelve al precio base).
+    await admin.contract.update({
+      where: { id: contractId },
+      data: { discountExpiresAt: new Date(Date.now() - 86_400_000) },
+    });
+    const result = await app.get(RetentionService).revertExpiredDiscounts();
+    expect(result.reverted).toBeGreaterThanOrEqual(1);
+
+    const reverted = await admin.contract.findUniqueOrThrow({ where: { id: contractId } });
+    expect(Number(reverted.discountAmount)).toBe(0);
+    expect(reverted.discountReason).toBeNull();
+    expect(reverted.discountExpiresAt).toBeNull();
   });
 });
