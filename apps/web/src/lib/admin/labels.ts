@@ -13,13 +13,22 @@ export const TENANT_STATUS_LABELS: Record<string, string> = {
   cancelled: 'Cancelado',
 };
 
-/** Estado de la suscripción SaaS (`tenant_subscription.status`, valores Stripe). */
+/**
+ * Estado de la suscripción SaaS (`tenant_subscription.status`). El enum real de
+ * la BD es `trial/active/past_due/cancelled/expired` (ver `SubscriptionStatus`
+ * en el schema); las claves de Stripe (`trialing`, `canceled`, `unpaid`…) se
+ * mantienen como alias por si algún flujo las expone sin mapear.
+ */
 export const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  // Valores del enum de BD:
+  trial: 'En prueba',
   active: 'Activa',
-  trialing: 'En prueba',
   past_due: 'Pago pendiente',
-  canceled: 'Cancelada',
   cancelled: 'Cancelada',
+  expired: 'Caducada',
+  // Alias de Stripe:
+  trialing: 'En prueba',
+  canceled: 'Cancelada',
   unpaid: 'Impagada',
   incomplete: 'Incompleta',
   incomplete_expired: 'Incompleta (caducada)',

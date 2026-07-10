@@ -1466,7 +1466,7 @@ export class AdminTenantsService {
     tenantId: string,
     args: { planSlug: string; reason: string } & ActionMeta,
   ): Promise<AdminTenantDto> {
-    await this.findOrThrow(tenantId);
+    const tenant = await this.findOrThrow(tenantId);
     const plan = await this.admin.subscriptionPlan.findUnique({
       where: { slug: args.planSlug },
     });
@@ -1490,11 +1490,33 @@ export class AdminTenantsService {
       });
     }
     const previousSlug = subscription.plan.slug;
+    // Cambiar de plan a un tenant EN TRIAL acaba el trial: pasa a `active` en el
+    // plan elegido y limpia `trialEndsAt`. Sincroniza los DOS estados que de otro
+    // modo quedan desalineados (`tenant.status` —el badge principal— y
+    // `subscription.status`): sin esto un tenant movido a "pro" seguía en
+    // `status='trial'`, apareciendo en "trials por expirar", nurturing de trial,
+    // etc. Para dar features de un plano superior DURANTE el trial se usan los
+    // feature overrides, no el cambio de plan.
+    const endsTrial = tenant.status === 'trial' || subscription.status === 'trial';
     await this.admin.tenantSubscription.update({
       where: { tenantId },
-      data: { planId: plan.id },
+      data: {
+        planId: plan.id,
+        ...(subscription.status === 'trial' ? { status: 'active' as const } : {}),
+      },
     });
-    const changes = { reason: args.reason, previousPlan: previousSlug, newPlan: plan.slug };
+    if (tenant.status === 'trial') {
+      await this.admin.tenant.update({
+        where: { id: tenantId },
+        data: { status: 'active', trialEndsAt: null },
+      });
+    }
+    const changes = {
+      reason: args.reason,
+      previousPlan: previousSlug,
+      newPlan: plan.slug,
+      ...(endsTrial ? { endedTrial: true } : {}),
+    };
     await this.audit.write({
       tenantId,
       userId: null,
