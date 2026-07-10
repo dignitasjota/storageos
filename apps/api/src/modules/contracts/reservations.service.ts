@@ -4,15 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { UnitAvailablePayload } from '../automations/domain-events';
 import type { Prisma, Reservation, ReservationStatus } from '@storageos/database';
 import type {
   CancelReservationInput,
@@ -49,6 +52,7 @@ export class ReservationsService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly contracts: ContractsService,
+    private readonly eventBus: EventEmitter2,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<ReservationDto[]> {
@@ -442,7 +446,7 @@ export class ReservationsService {
     userId: string | null,
     reason: string,
     excludeReservationId?: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const stillReserved = await tx.reservation.findFirst({
       where: {
         unitId,
@@ -450,9 +454,9 @@ export class ReservationsService {
         ...(excludeReservationId ? { id: { not: excludeReservationId } } : {}),
       },
     });
-    if (stillReserved) return;
+    if (stillReserved) return false;
     const unit = await tx.unit.findUniqueOrThrow({ where: { id: unitId } });
-    if (unit.status !== 'reserved') return;
+    if (unit.status !== 'reserved') return false;
     await tx.unit.update({ where: { id: unitId }, data: { status: 'available' } });
     await tx.unitStatusHistory.create({
       data: {
@@ -464,6 +468,7 @@ export class ReservationsService {
         reason,
       },
     });
+    return true;
   }
 
   /**
@@ -473,15 +478,16 @@ export class ReservationsService {
    * soltar la unidad → quedaba `reserved` para siempre. Llamado por el cron.
    */
   async expireDue(tenantId: string): Promise<{ expired: number }> {
-    return this.prisma.withTenant(async (tx) => {
+    const { expired, releasedUnitIds } = await this.prisma.withTenant(async (tx) => {
       const due = await tx.reservation.findMany({
         where: { status: { in: ['pending', 'confirmed'] }, validUntil: { lt: new Date() } },
         select: { id: true, unitId: true, status: true },
       });
+      const released: string[] = [];
       for (const r of due) {
         await tx.reservation.update({ where: { id: r.id }, data: { status: 'expired' } });
         if (r.status === 'confirmed') {
-          await this.releaseUnitIfOrphanInTx(
+          const didRelease = await this.releaseUnitIfOrphanInTx(
             tx,
             tenantId,
             r.unitId,
@@ -489,10 +495,20 @@ export class ReservationsService {
             `Reserva ${r.id} caducada`,
             r.id,
           );
+          if (didRelease) released.push(r.unitId);
         }
       }
-      return { expired: due.length };
+      return { expired: due.length, releasedUnitIds: released };
     }, tenantId);
+    // Tras el commit: el trastero liberado queda disponible → avisar a la lista
+    // de espera de su tipo (el listener corre en el worker, donde vive el cron).
+    for (const unitId of releasedUnitIds) {
+      this.eventBus.emit(DOMAIN_EVENTS.unit_available, {
+        tenantId,
+        unitId,
+      } satisfies UnitAvailablePayload);
+    }
+    return { expired };
   }
 
   /**
