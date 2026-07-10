@@ -377,6 +377,15 @@ export class AccessCredentialsService {
     userId: string;
     id?: string;
     customerId?: string;
+    /**
+     * Si se indica, SOLO reactiva las credenciales cuyo `suspendReason` empieza
+     * por este prefijo (p. ej. `dunning:`). Sin esto, pagar una factura
+     * reactivaría también credenciales que el staff suspendió por OTRO motivo
+     * (tarjeta perdida, incidencia de seguridad). Cuando se filtra por motivo,
+     * el método es **idempotente**: si no hay nada que reactivar devuelve `[]`
+     * (no lanza), porque es un path automático (integración de pago/dunning).
+     */
+    onlyIfReasonStartsWith?: string;
     meta: RequestMeta;
   }): Promise<AccessCredentialDto[]> {
     if (!args.id && !args.customerId) {
@@ -385,34 +394,42 @@ export class AccessCredentialsService {
         message: 'Debes indicar id o customerId',
       });
     }
+    const reasonPrefix = args.onlyIfReasonStartsWith;
+    const filtered = reasonPrefix !== undefined;
     const where: Prisma.AccessCredentialWhereInput = {
       status: 'suspended' as AccessCredentialStatus,
     };
     if (args.id) where.id = args.id;
     if (args.customerId) where.customerId = args.customerId;
+    if (reasonPrefix !== undefined) where.suspendReason = { startsWith: reasonPrefix };
 
     const rows = await this.prisma.withTenant(async (tx) => {
-      const result = await tx.accessCredential.updateMany({
+      // IDs concretos a reactivar (los que casan el filtro) — así el `findMany`
+      // posterior solo devuelve estos y no otras credenciales ya activas.
+      const toResume = await tx.accessCredential.findMany({
         where,
+        select: { id: true },
+      });
+      if (toResume.length === 0) return [];
+      const ids = toResume.map((r) => r.id);
+      await tx.accessCredential.updateMany({
+        where: { id: { in: ids } },
         data: {
           status: 'active' as AccessCredentialStatus,
           suspendedAt: null,
           suspendReason: null,
         },
       });
-      if (result.count === 0) return [];
-      const target: Prisma.AccessCredentialWhereInput = {
-        status: 'active' as AccessCredentialStatus,
-      };
-      if (args.id) target.id = args.id;
-      if (args.customerId) target.customerId = args.customerId;
       return tx.accessCredential.findMany({
-        where: target,
+        where: { id: { in: ids } },
         include: CUSTOMER_SELECT,
       });
     }, args.tenantId);
 
     if (rows.length === 0) {
+      // Con filtro por motivo (path automático) es idempotente: no hay nada
+      // suspendido por ese motivo → no es un error.
+      if (filtered) return [];
       throw new NotFoundException({
         code: 'credential_not_found',
         message: 'No se encontraron credenciales suspendidas',
@@ -571,6 +588,31 @@ export class AccessCredentialsService {
   }
 
   /**
+   * Locales/trasteros de los contratos vivos del inquilino — el alcance físico
+   * al que debe limitarse una credencial emitida para él (sin esto, un array
+   * vacío = acceso a TODO el tenant).
+   */
+  private async customerScope(
+    tenantId: string,
+    customerId: string,
+  ): Promise<{ allowedFacilityIds: string[]; allowedUnitIds: string[] }> {
+    const contracts = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findMany({
+          where: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+          select: { unitId: true, unit: { select: { facilityId: true } } },
+        }),
+      tenantId,
+    );
+    return {
+      allowedFacilityIds: [
+        ...new Set(contracts.map((c) => c.unit?.facilityId).filter((x): x is string => !!x)),
+      ],
+      allowedUnitIds: [...new Set(contracts.map((c) => c.unitId).filter((x): x is string => !!x))],
+    };
+  }
+
+  /**
    * El inquilino se crea un **acceso adicional** (p. ej. para un familiar)
    * desde el portal, hasta el máximo configurado por el tenant
    * (`tenants.extra_access_limit`). Solo PIN (con etiqueta).
@@ -602,6 +644,7 @@ export class AccessCredentialsService {
         message: `Has alcanzado el máximo de accesos adicionales (${max})`,
       });
     }
+    const scope = await this.customerScope(tenantId, customerId);
     const created = await this.create({
       tenantId,
       userId: 'system',
@@ -609,8 +652,8 @@ export class AccessCredentialsService {
         customerId,
         method: 'pin',
         label: label.trim() || 'Acceso adicional',
-        allowedFacilityIds: [],
-        allowedUnitIds: [],
+        allowedFacilityIds: scope.allowedFacilityIds,
+        allowedUnitIds: scope.allowedUnitIds,
         allowedHours: { windows: [] },
         bypassCurfew: false,
         metadata: { source: 'portal_self_service' },
@@ -637,6 +680,7 @@ export class AccessCredentialsService {
     tenantId: string,
     customerId: string,
   ): Promise<PortalAccessCredentialDto> {
+    const scope = await this.customerScope(tenantId, customerId);
     const created = await this.create({
       tenantId,
       userId: 'system',
@@ -644,8 +688,8 @@ export class AccessCredentialsService {
         customerId,
         method: 'pin',
         label: 'Pase nocturno',
-        allowedFacilityIds: [],
-        allowedUnitIds: [],
+        allowedFacilityIds: scope.allowedFacilityIds,
+        allowedUnitIds: scope.allowedUnitIds,
         allowedHours: { windows: [] },
         bypassCurfew: true,
         maxUses: 1,
