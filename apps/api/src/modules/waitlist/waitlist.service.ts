@@ -3,13 +3,20 @@ import { OnEvent } from '@nestjs/event-emitter';
 
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, WaitlistEntry } from '@storageos/database';
-import type { CreateWaitlistEntryInput, WaitlistEntryDto, WaitlistStatus } from '@storageos/shared';
+import type {
+  CreateWaitlistEntryInput,
+  PublicJoinWaitlistInput,
+  PublicWaitlistOptionsDto,
+  WaitlistEntryDto,
+  WaitlistStatus,
+} from '@storageos/shared';
 
 type WaitlistWithRelations = WaitlistEntry & {
   facility: { name: string };
@@ -35,10 +42,128 @@ export class WaitlistService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly email: EmailService,
     private readonly notifications: NotificationsService,
   ) {}
+
+  /**
+   * Catálogo público (por slug del tenant) para el alta self-service: todos los
+   * locales con TODOS sus tipos activos + cuántos hay disponibles ahora. A
+   * diferencia de la disponibilidad del booking, NO filtra los tipos a 0 — son
+   * justo los que interesan para apuntarse a la cola.
+   */
+  async publicOptions(slug: string): Promise<PublicWaitlistOptionsDto> {
+    const tenant = await this.admin.tenant.findUnique({ where: { slug } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    const [facilities, unitTypes, grouped] = await Promise.all([
+      this.admin.facility.findMany({
+        where: { tenantId: tenant.id, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.unitType.findMany({
+        where: { tenantId: tenant.id, isActive: true },
+        select: { id: true, name: true, defaultPriceMonthly: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { tenantId: tenant.id, status: 'available' },
+        _count: { _all: true },
+      }),
+    ]);
+    const availByFacilityType = new Map<string, number>();
+    for (const g of grouped) {
+      availByFacilityType.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
+    }
+    return {
+      tenantName: tenant.name,
+      facilities: facilities
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          unitTypes: unitTypes.map((t) => ({
+            id: t.id,
+            name: t.name,
+            priceMonthly: Number(t.defaultPriceMonthly),
+            available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
+          })),
+        }))
+        .filter((f) => f.unitTypes.length > 0),
+    };
+  }
+
+  /**
+   * Alta pública en la cola (visitante de la web). Honeypot + dedup por
+   * (email, local, tipo) en las últimas 24 h. Best-effort en el sentido de que
+   * el honeypot/tenant inválido devuelven `{ joined: false }` sin lanzar; los
+   * datos incoherentes (local/tipo de otro tenant) sí dan 404.
+   */
+  async joinFromPublic(slug: string, input: PublicJoinWaitlistInput): Promise<{ joined: boolean }> {
+    if (input.website && input.website.trim() !== '') return { joined: false };
+    const tenant = await this.admin.tenant.findUnique({ where: { slug } });
+    if (!tenant || tenant.deletedAt) return { joined: false };
+    const tenantId = tenant.id;
+
+    const facility = await this.admin.facility.findFirst({
+      where: { id: input.facilityId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    const unitType = await this.admin.unitType.findFirst({
+      where: { id: input.unitTypeId, tenantId },
+      select: { id: true },
+    });
+    if (!facility || !unitType) {
+      throw new NotFoundException({ code: 'not_found', message: 'Local o tipo no encontrado' });
+    }
+
+    const created = await this.prisma.withTenant(async (tx) => {
+      // Dedup: una entrada `waiting` del mismo email para el mismo (local, tipo)
+      // en las últimas 24 h → no duplicar (el visitante reintenta / doble clic).
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const existing = await tx.waitlistEntry.findFirst({
+        where: {
+          facilityId: input.facilityId,
+          unitTypeId: input.unitTypeId,
+          contactEmail: input.contactEmail,
+          status: 'waiting',
+          createdAt: { gte: since },
+        },
+      });
+      if (existing) return null;
+      return tx.waitlistEntry.create({
+        data: {
+          tenantId,
+          facilityId: input.facilityId,
+          unitTypeId: input.unitTypeId,
+          contactName: input.contactName,
+          contactEmail: input.contactEmail,
+          ...(input.contactPhone ? { contactPhone: input.contactPhone } : {}),
+          notes: 'Alta desde la web',
+        },
+        include: INCLUDE,
+      });
+    }, tenantId);
+
+    // Aviso al staff (best-effort) solo si se creó una entrada nueva.
+    if (created) {
+      try {
+        await this.notifications.create(tenantId, {
+          type: 'waitlist.joined',
+          title: 'Nueva alta en la lista de espera',
+          body: `${created.contactName} se ha apuntado a ${created.unitType.name} en ${created.facility.name} desde la web.`,
+          link: '/waitlist',
+        });
+      } catch (err) {
+        this.logger.warn(`[waitlist] aviso al staff falló: ${(err as Error).message}`);
+      }
+    }
+    return { joined: true };
+  }
 
   async list(
     tenantId: string,
