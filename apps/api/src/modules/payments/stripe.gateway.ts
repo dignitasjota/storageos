@@ -40,15 +40,24 @@ export class StripeGateway extends PaymentGateway {
   readonly providerName = 'stripe' as const;
   private readonly stripe: Stripe;
   private readonly webhookSecret: string;
+  private readonly configured: boolean;
 
   constructor(config: ConfigService<Env, true>) {
     super();
     const apiKey = config.get('STRIPE_SECRET_KEY', { infer: true });
+    // Con la clave placeholder de dev/test cualquier llamada a la API fallaría
+    // con un 500 opaco: los flujos que tocan Stripe deben cortar antes.
+    this.configured = Boolean(apiKey) && apiKey !== 'sk_test_dummy';
     this.stripe = new StripeSDK(apiKey, {
       typescript: true,
       telemetry: false,
     });
     this.webhookSecret = config.get('STRIPE_WEBHOOK_SECRET', { infer: true });
+  }
+
+  /** True si hay una clave real de Stripe (no el placeholder de dev/test). */
+  isConfigured(): boolean {
+    return this.configured;
   }
 
   async createCustomer(args: CreateCustomerParams): Promise<CreateCustomerResult> {

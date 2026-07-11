@@ -799,6 +799,22 @@ export interface PlatformInvoiceDto {
   issuedAt: string;
   hasPdf: boolean;
   paymentId: string | null;
+  /** Desglose por líneas (plan + add-ons); vacío en facturas antiguas monolínea. */
+  lines: PlatformInvoiceLineDto[];
+}
+
+/** Línea de detalle de una factura de plataforma. */
+export interface PlatformInvoiceLineDto {
+  id: string;
+  /** 'plan' | 'addon' | 'adjustment'. */
+  kind: string;
+  description: string;
+  quantity: number;
+  unitAmount: number;
+  baseAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
 }
 
 // --- Dunning del SaaS (cobro de tenants morosos) ---
@@ -855,6 +871,8 @@ export interface SaasAddonDto {
   grantsFacilities: number | null;
   grantsUsers: number | null;
   isActive: boolean;
+  /** Price recurrente de Stripe mapeado (null = aún sin sincronizar). */
+  stripePriceId: string | null;
 }
 
 /** Un add-on contratado por un tenant. */
@@ -872,6 +890,8 @@ export interface TenantAddonDto {
     | string
     | null; /** Suspendido por impago: no cuenta al total ni a la capacidad, feature off. */
   suspended: boolean;
+  /** Modo de cobro: 'manual' (bandeja «Hoy») | 'stripe' (subscription item). */
+  billingMode: 'manual' | 'stripe';
 }
 
 /** Resumen de la facturación efectiva del tenant (plan + add-ons). */

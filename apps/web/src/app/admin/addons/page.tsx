@@ -75,6 +75,21 @@ export default function AdminAddonsPage() {
                       inactivo
                     </Badge>
                   )}
+                  <Badge
+                    variant="outline"
+                    className={`ml-2 text-[10px] ${
+                      a.stripePriceId
+                        ? 'border-violet-400 text-violet-600 dark:text-violet-400'
+                        : 'text-muted-foreground'
+                    }`}
+                    title={
+                      a.stripePriceId
+                        ? 'Tiene un Price recurrente en Stripe'
+                        : 'El Price de Stripe se autocrea al pasar un add-on de un tenant a «Cobrar por Stripe»'
+                    }
+                  >
+                    {a.stripePriceId ? 'Stripe ✓' : 'Sin Price Stripe'}
+                  </Badge>
                   {a.description && (
                     <p className="text-xs text-muted-foreground">{a.description}</p>
                   )}

@@ -292,10 +292,19 @@ function extractSubscriptionPeriod(sub: StripeSubscriptionLike): {
   periodStart: number;
   periodEnd: number;
 } {
-  // Preferimos el item porque es la fuente actual de la API.
-  const item = sub.items?.data?.[0];
-  const periodStart = item?.current_period_start ?? sub.current_period_start ?? 0;
-  const periodEnd = item?.current_period_end ?? sub.current_period_end ?? 0;
+  // La fuente actual de la API es cada `items.data[].current_period_*`. Con
+  // add-ons en modo Stripe hay VARIOS items (plan + add-ons); todos comparten el
+  // ciclo de la suscripción, pero no dependemos de `data[0]`: tomamos el item con
+  // el `current_period_end` mayor (el ciclo completo del plan).
+  const items = sub.items?.data ?? [];
+  let periodStart = sub.current_period_start ?? 0;
+  let periodEnd = sub.current_period_end ?? 0;
+  for (const item of items) {
+    if ((item.current_period_end ?? 0) >= periodEnd) {
+      periodEnd = item.current_period_end ?? periodEnd;
+      periodStart = item.current_period_start ?? periodStart;
+    }
+  }
   return { periodStart, periodEnd };
 }
 

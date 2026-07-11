@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   AssignAddonSchema,
+  SetAddonBillingModeSchema,
   UpsertSaasAddonSchema,
   type AdminAddonAnalyticsDto,
   type SaasAddonDto,
@@ -35,6 +36,7 @@ import type { Request } from 'express';
 
 class UpsertSaasAddonDto extends createZodDto(UpsertSaasAddonSchema) {}
 class AssignAddonDto extends createZodDto(AssignAddonSchema) {}
+class SetAddonBillingModeDto extends createZodDto(SetAddonBillingModeSchema) {}
 
 /** Extrae IP + user-agent del request para dejar rastro en la auditoría. */
 function extractMeta(req: Request): { ipAddress: string | null; userAgent: string | null } {
@@ -175,6 +177,28 @@ export class SaasAddonsController {
       targetId: id,
       targetTenantId: id,
       changes: { assignmentId },
+      ...extractMeta(req),
+    });
+    return summary;
+  }
+
+  @RequireSuperadmin()
+  @Post('tenants/:id/addons/:assignmentId/billing-mode')
+  async setBillingMode(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('assignmentId', new ParseUUIDPipe()) assignmentId: string,
+    @Body() body: SetAddonBillingModeDto,
+    @Req() req: Request,
+  ): Promise<TenantBillingSummaryDto> {
+    const summary = await this.service.setBillingMode(id, assignmentId, body.mode);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.saas_addon.billing_mode_changed',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { assignmentId, mode: body.mode },
       ...extractMeta(req),
     });
     return summary;

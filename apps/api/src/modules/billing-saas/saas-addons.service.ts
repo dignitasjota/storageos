@@ -2,15 +2,20 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { TenantFeatures } from '@storageos/shared';
+import StripeSDK from 'stripe';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { StripeGateway } from '../payments/stripe.gateway';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { Prisma } from '@storageos/database';
 import type {
+  AddonBillingMode,
   AdminAddonAnalyticsDto,
   AssignAddonInput,
   SaasAddonDto,
@@ -21,6 +26,8 @@ import type {
   TenantSelfAddonsDto,
   UpsertSaasAddonInput,
 } from '@storageos/shared';
+
+type StripeClient = InstanceType<typeof StripeSDK>;
 
 const num = (d: Prisma.Decimal | number): number => Number(d);
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -34,10 +41,26 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  */
 @Injectable()
 export class SaasAddonsService {
+  private readonly logger = new Logger(SaasAddonsService.name);
+  private readonly stripe: StripeClient;
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly limits: PlanLimitsService,
-  ) {}
+    private readonly stripeGateway: StripeGateway,
+  ) {
+    this.stripe = stripeGateway.getClient();
+  }
+
+  /** Corta con 503 si Stripe no está configurado (clave placeholder de dev/test). */
+  private assertStripeConfigured(): void {
+    if (!this.stripeGateway.isConfigured()) {
+      throw new ServiceUnavailableException({
+        code: 'payments_not_configured',
+        message: 'El cobro por Stripe no está configurado todavía.',
+      });
+    }
+  }
 
   /** Estado de cuenta del tenant: pagos pendientes (plan past_due + add-ons suspendidos). */
   async billingStatus(tenantId: string): Promise<TenantBillingStatusDto> {
@@ -188,6 +211,11 @@ export class SaasAddonsService {
         isActive: input.isActive,
       },
     });
+    // Si cambió el precio y ya está mapeado a Stripe, crea un Price nuevo (Prices
+    // inmutables) para futuras activaciones en modo Stripe. Best-effort.
+    if (updated.stripePriceId && num(current.priceMonthly) !== input.priceMonthly) {
+      await this.syncStripePriceForAddon(id);
+    }
     return this.toCatalogDto(updated);
   }
 
@@ -429,6 +457,10 @@ export class SaasAddonsService {
   async assign(tenantId: string, input: AssignAddonInput): Promise<TenantBillingSummaryDto> {
     const addon = await this.findAddon(input.addonId);
     const price = input.priceMonthly ?? num(addon.priceMonthly);
+    const existing = await this.admin.tenantSubscriptionAddon.findUnique({
+      where: { tenantId_addonId: { tenantId, addonId: input.addonId } },
+      select: { billingMode: true, stripeSubscriptionItemId: true, quantity: true },
+    });
     // Upsert: reasignar actualiza cantidad/precio (unique por tenant+addon).
     await this.admin.tenantSubscriptionAddon.upsert({
       where: { tenantId_addonId: { tenantId, addonId: input.addonId } },
@@ -442,7 +474,7 @@ export class SaasAddonsService {
         nextChargeAt: new Date(),
       },
       // Reasignar NO reinicia el ciclo de cobro (conserva nextChargeAt); reactiva
-      // si estaba suspendido.
+      // si estaba suspendido. Conserva billingMode/stripeSubscriptionItemId.
       update: {
         priceMonthly: price,
         quantity: input.quantity,
@@ -450,6 +482,14 @@ export class SaasAddonsService {
         suspendedAt: null,
       },
     });
+    // Si estaba en modo Stripe y cambia la cantidad, sincroniza el subscription item.
+    if (
+      existing?.billingMode === 'stripe' &&
+      existing.stripeSubscriptionItemId &&
+      existing.quantity !== input.quantity
+    ) {
+      await this.syncStripeItemQuantity(existing.stripeSubscriptionItemId, input.quantity);
+    }
     // Reconcilia la feature del add-on (activa el override si procede).
     await this.reconcileFeatureOverride(tenantId, addon.feature);
     return this.billingSummary(tenantId);
@@ -461,6 +501,10 @@ export class SaasAddonsService {
       include: { addon: { select: { feature: true } } },
     });
     if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    // Modo Stripe: borra también el subscription item (crédito prorrateado).
+    if (row.billingMode === 'stripe' && row.stripeSubscriptionItemId) {
+      await this.deleteStripeItem(row.stripeSubscriptionItemId);
+    }
     await this.admin.tenantSubscriptionAddon.delete({ where: { id: tenantAddonId } });
     await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);
@@ -480,11 +524,22 @@ export class SaasAddonsService {
     if (row.suspendedAt) {
       throw new BadRequestException({ code: 'already_suspended', message: 'Ya está suspendido' });
     }
+    // Si estaba en modo Stripe, se retira el subscription item (deja de cobrarse)
+    // y baja a modo manual: al reactivar vuelve a la bandeja «Hoy» (el operador
+    // re-activa el cobro por Stripe si quiere).
+    if (row.billingMode === 'stripe' && row.stripeSubscriptionItemId) {
+      await this.deleteStripeItem(row.stripeSubscriptionItemId);
+    }
     // Al suspender se retira de la bandeja de cobros: limpiamos `nextChargeAt`
     // para no dejar una fecha de cobro residual (reactivar la reprograma).
     await this.admin.tenantSubscriptionAddon.update({
       where: { id: tenantAddonId },
-      data: { suspendedAt: new Date(), nextChargeAt: null },
+      data: {
+        suspendedAt: new Date(),
+        nextChargeAt: null,
+        billingMode: 'manual',
+        stripeSubscriptionItemId: null,
+      },
     });
     await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);
@@ -506,6 +561,171 @@ export class SaasAddonsService {
     });
     await this.reconcileFeatureOverride(tenantId, row.addon.feature);
     return this.billingSummary(tenantId);
+  }
+
+  // ---- cobro por Stripe (subscription items) ----
+
+  /**
+   * Cambia el modo de cobro de un add-on contratado (super admin):
+   * - `stripe`: añade un subscription item a la suscripción de Stripe del tenant
+   *   (Stripe prorratea), sale de la bandeja de cobros manuales del «Hoy».
+   * - `manual`: retira el subscription item (crédito prorrateado) y vuelve a la
+   *   bandeja «Hoy».
+   * Requiere que el tenant pague el plan por Stripe (si no, 400 `tenant_not_on_stripe`).
+   */
+  async setBillingMode(
+    tenantId: string,
+    tenantAddonId: string,
+    mode: AddonBillingMode,
+  ): Promise<TenantBillingSummaryDto> {
+    const row = await this.admin.tenantSubscriptionAddon.findFirst({
+      where: { id: tenantAddonId, tenantId },
+      include: { addon: true },
+    });
+    if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.suspendedAt) {
+      throw new BadRequestException({
+        code: 'addon_suspended',
+        message: 'Regulariza el add-on suspendido antes de cambiar su cobro.',
+      });
+    }
+    const current: AddonBillingMode = row.billingMode === 'stripe' ? 'stripe' : 'manual';
+    if (current === mode) {
+      throw new BadRequestException({ code: 'already_in_mode', message: 'Ya está en ese modo' });
+    }
+
+    if (mode === 'stripe') {
+      this.assertStripeConfigured();
+      const sub = await this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { stripeSubscriptionId: true },
+      });
+      if (!sub?.stripeSubscriptionId) {
+        throw new BadRequestException({
+          code: 'tenant_not_on_stripe',
+          message:
+            'El tenant no paga el plan por Stripe; no hay suscripción donde añadir el add-on.',
+        });
+      }
+      const priceId = await this.ensureStripePrice(row.addon);
+      const item = await this.stripe.subscriptionItems.create({
+        subscription: sub.stripeSubscriptionId,
+        price: priceId,
+        quantity: row.quantity,
+        proration_behavior: 'create_prorations',
+        metadata: { kind: 'addon', tenantAddonId: row.id, addonId: row.addonId },
+      });
+      await this.admin.tenantSubscriptionAddon.update({
+        where: { id: row.id },
+        // Sale de la bandeja «Hoy»: lo cobra Stripe.
+        data: { billingMode: 'stripe', stripeSubscriptionItemId: item.id, nextChargeAt: null },
+      });
+    } else {
+      if (row.stripeSubscriptionItemId) {
+        await this.deleteStripeItem(row.stripeSubscriptionItemId);
+      }
+      await this.admin.tenantSubscriptionAddon.update({
+        where: { id: row.id },
+        // Vuelve a la bandeja «Hoy».
+        data: { billingMode: 'manual', stripeSubscriptionItemId: null, nextChargeAt: new Date() },
+      });
+    }
+    return this.billingSummary(tenantId);
+  }
+
+  /**
+   * Asegura que el add-on del catálogo tiene un Price recurrente mensual en
+   * Stripe; lo autocrea (Product + Price EUR/mes) la primera vez y persiste el
+   * mapeo. Reutiliza el Price existente (precio congelado): editar el precio del
+   * add-on genera un Price nuevo vía `syncStripePriceForAddon` en `updateAddon`.
+   */
+  private async ensureStripePrice(addon: {
+    id: string;
+    slug: string;
+    name: string;
+    priceMonthly: Prisma.Decimal;
+    stripePriceId: string | null;
+    stripeProductId: string | null;
+  }): Promise<string> {
+    if (addon.stripePriceId) return addon.stripePriceId;
+    let productId = addon.stripeProductId;
+    if (!productId) {
+      const product = await this.stripe.products.create({
+        name: `Add-on: ${addon.name}`,
+        metadata: { addonId: addon.id, slug: addon.slug },
+      });
+      productId = product.id;
+    }
+    const price = await this.stripe.prices.create({
+      product: productId,
+      currency: 'eur',
+      unit_amount: Math.round(num(addon.priceMonthly) * 100),
+      recurring: { interval: 'month' },
+      metadata: { addonId: addon.id },
+    });
+    await this.admin.subscriptionAddon.update({
+      where: { id: addon.id },
+      data: { stripeProductId: productId, stripePriceId: price.id },
+    });
+    return price.id;
+  }
+
+  /**
+   * Tras editar el precio de un add-on ya mapeado a Stripe, crea un Price nuevo
+   * (los Prices de Stripe son inmutables) y actualiza el mapeo. Los tenants ya en
+   * modo Stripe conservan su item con el Price viejo (precio congelado); solo las
+   * nuevas activaciones usarán el nuevo. Best-effort: no rompe la edición.
+   */
+  private async syncStripePriceForAddon(addonId: string): Promise<void> {
+    if (!this.stripeGateway.isConfigured()) return;
+    try {
+      const addon = await this.admin.subscriptionAddon.findUnique({ where: { id: addonId } });
+      if (!addon?.stripeProductId) return;
+      const price = await this.stripe.prices.create({
+        product: addon.stripeProductId,
+        currency: 'eur',
+        unit_amount: Math.round(num(addon.priceMonthly) * 100),
+        recurring: { interval: 'month' },
+        metadata: { addonId: addon.id },
+      });
+      await this.admin.subscriptionAddon.update({
+        where: { id: addon.id },
+        data: { stripePriceId: price.id },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo sincronizar el Price de Stripe del add-on ${addonId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async deleteStripeItem(itemId: string): Promise<void> {
+    try {
+      await this.stripe.subscriptionItems.del(itemId, { proration_behavior: 'create_prorations' });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo borrar el subscription item ${itemId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private async syncStripeItemQuantity(itemId: string, quantity: number): Promise<void> {
+    try {
+      await this.stripe.subscriptionItems.update(itemId, {
+        quantity,
+        proration_behavior: 'create_prorations',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo actualizar la cantidad del subscription item ${itemId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   // ---- helpers ----
@@ -563,6 +783,7 @@ export class SaasAddonsService {
     grantsUnits: number | null;
     grantsFacilities: number | null;
     grantsUsers: number | null;
+    stripePriceId: string | null;
     isActive: boolean;
   }): SaasAddonDto {
     return {
@@ -576,6 +797,7 @@ export class SaasAddonsService {
       grantsFacilities: r.grantsFacilities,
       grantsUsers: r.grantsUsers,
       isActive: r.isActive,
+      stripePriceId: r.stripePriceId,
     };
   }
 
@@ -586,6 +808,7 @@ export class SaasAddonsService {
     quantity: number;
     notes: string | null;
     suspendedAt: Date | null;
+    billingMode: string;
     addon: { name: string; slug: string; feature: string | null };
   }): TenantAddonDto {
     const price = num(r.priceMonthly);
@@ -600,6 +823,7 @@ export class SaasAddonsService {
       feature: r.addon.feature,
       notes: r.notes,
       suspended: r.suspendedAt !== null,
+      billingMode: r.billingMode === 'stripe' ? 'stripe' : 'manual',
     };
   }
 }

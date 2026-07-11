@@ -1,17 +1,35 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import StripeSDK from 'stripe';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
+import { StripeGateway } from '../payments/stripe.gateway';
 
 import type { Env } from '../../config/env.schema';
 import type {
   PlatformBillingSettingsDto,
   PlatformInvoiceDto,
+  PlatformInvoiceLineDto,
   UpdatePlatformBillingSettingsInput,
 } from '@storageos/shared';
+
+type StripeClient = InstanceType<typeof StripeSDK>;
+
+/** Datos de una línea a persistir en `platform_invoice_lines`. */
+interface LineData {
+  kind: string;
+  description: string;
+  quantity: number;
+  unitAmount: number;
+  baseAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  position: number;
+}
 
 // Puppeteer ESM-only (ADR-023): dynamic import + type-only.
 type Browser = import('puppeteer').Browser;
@@ -35,13 +53,16 @@ export class PlatformInvoicesService {
   private readonly s3: S3Client;
   private readonly bucket: string;
   private browserPromise: Promise<Browser> | null = null;
+  private readonly stripe: StripeClient;
 
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly files: FilesService,
     private readonly email: EmailService,
+    private readonly stripeGateway: StripeGateway,
     config: ConfigService<Env, true>,
   ) {
+    this.stripe = stripeGateway.getClient();
     this.s3 = new S3Client({
       endpoint: config.get('MINIO_ENDPOINT', { infer: true }),
       region: 'us-east-1',
@@ -90,6 +111,7 @@ export class PlatformInvoicesService {
     const rows = await this.admin.platformInvoice.findMany({
       where: { tenantId },
       orderBy: { issuedAt: 'desc' },
+      include: { lines: { orderBy: { position: 'asc' } } },
     });
     return rows.map((r) => this.invoiceToDto(r));
   }
@@ -102,6 +124,7 @@ export class PlatformInvoicesService {
     const rows = await this.admin.platformInvoice.findMany({
       where: Object.keys(issuedAt).length ? { issuedAt } : {},
       orderBy: { issuedAt: 'asc' },
+      include: { lines: { orderBy: { position: 'asc' } } },
     });
     return rows.map((r) => this.invoiceToDto(r));
   }
@@ -151,7 +174,10 @@ export class PlatformInvoicesService {
 
   /** Emite la factura de un pago (idempotente por `payment_id`). */
   async issueForPayment(paymentId: string): Promise<PlatformInvoiceDto> {
-    const existing = await this.admin.platformInvoice.findUnique({ where: { paymentId } });
+    const existing = await this.admin.platformInvoice.findUnique({
+      where: { paymentId },
+      include: { lines: { orderBy: { position: 'asc' } } },
+    });
     if (existing) return this.invoiceToDto(existing);
 
     const payment = await this.admin.tenantSubscriptionPayment.findUnique({
@@ -184,8 +210,11 @@ export class PlatformInvoicesService {
     // serie de un año anterior (rompería la secuencia y la coherencia fiscal).
     const series = String(new Date().getUTCFullYear());
     const tenant = payment.tenant;
+    // Desglose por líneas (plan + add-ons). Se calcula ANTES de la tx (puede
+    // consultar Stripe). La cabecera monolínea (base/IVA/total) no cambia.
+    const lines = await this.buildLines(payment, taxRate, { total, base, taxAmount });
 
-    // Numeración secuencial atómica por serie (año) + creación de la factura.
+    // Numeración secuencial atómica por serie (año) + creación de la factura + líneas.
     const created = await this.admin.$transaction(async (tx) => {
       const last = await tx.platformInvoice.findFirst({
         where: { series },
@@ -194,7 +223,7 @@ export class PlatformInvoicesService {
       });
       const number = (last?.number ?? 0) + 1;
       const fullNumber = `${settings.seriesPrefix}-${series}-${String(number).padStart(4, '0')}`;
-      return tx.platformInvoice.create({
+      const invoice = await tx.platformInvoice.create({
         data: {
           series,
           number,
@@ -219,11 +248,17 @@ export class PlatformInvoicesService {
           paymentId: payment.id,
         },
       });
+      if (lines.length > 0) {
+        await tx.platformInvoiceLine.createMany({
+          data: lines.map((l) => ({ ...l, platformInvoiceId: invoice.id })),
+        });
+      }
+      return invoice;
     });
 
     // PDF (best-effort: si falla, la factura queda emitida sin PDF y se puede regenerar).
     try {
-      const key = await this.renderPdf(created.id, settings, created);
+      const key = await this.renderPdf(created.id, settings, { ...created, lines });
       await this.admin.platformInvoice.update({ where: { id: created.id }, data: { pdfUrl: key } });
       created.pdfUrl = key;
     } catch (err) {
@@ -235,7 +270,108 @@ export class PlatformInvoicesService {
       this.logger.warn(`Email factura ${created.fullNumber} falló: ${(err as Error).message}`),
     );
 
-    return this.invoiceToDto(created);
+    const finalRow = await this.admin.platformInvoice.findUnique({
+      where: { id: created.id },
+      include: { lines: { orderBy: { position: 'asc' } } },
+    });
+    return this.invoiceToDto(finalRow ?? created);
+  }
+
+  /**
+   * Construye el desglose por líneas de la factura de un pago:
+   * - Pago de Stripe con factura (`in_…`): lee las líneas reales de la factura de
+   *   Stripe (plan + add-ons + proraciones), mapeando cada Price a plan/add-on.
+   * - Resto (pago manual, cobro de add-on de la bandeja «Hoy»): una sola línea
+   *   derivada del pago (kind por el prefijo «Add-on:» de la descripción).
+   * La suma de los totales de las líneas ≈ el total de la cabecera.
+   */
+  private async buildLines(
+    payment: { provider: string; externalId: string | null; description: string | null },
+    taxRate: number,
+    header: { total: number; base: number; taxAmount: number },
+  ): Promise<LineData[]> {
+    const split = (
+      grossTotal: number,
+      quantity: number,
+      kind: string,
+      description: string,
+      position: number,
+    ): LineData => {
+      const b = round2(grossTotal / (1 + taxRate / 100));
+      return {
+        kind,
+        description,
+        quantity,
+        unitAmount: round2(grossTotal / (quantity || 1)),
+        baseAmount: b,
+        taxRate,
+        taxAmount: round2(grossTotal - b),
+        total: round2(grossTotal),
+        position,
+      };
+    };
+
+    // Factura de Stripe: intenta el desglose real por líneas.
+    if (
+      payment.provider === 'stripe' &&
+      payment.externalId?.startsWith('in_') &&
+      this.stripeGateway.isConfigured()
+    ) {
+      try {
+        const invoice = await this.stripe.invoices.retrieve(payment.externalId, {
+          expand: ['lines.data.price'],
+        });
+        const stripeLines = invoice.lines?.data ?? [];
+        if (stripeLines.length > 0) {
+          const [plans, addons] = await Promise.all([
+            this.admin.subscriptionPlan.findMany({
+              where: { stripePriceId: { not: null } },
+              select: { stripePriceId: true, name: true },
+            }),
+            this.admin.subscriptionAddon.findMany({
+              where: { stripePriceId: { not: null } },
+              select: { stripePriceId: true, name: true },
+            }),
+          ]);
+          const planByPrice = new Map(plans.map((p) => [p.stripePriceId, p.name]));
+          const addonByPrice = new Map(addons.map((a) => [a.stripePriceId, a.name]));
+          return stripeLines.map((line, i) => {
+            const priceId = extractLinePriceId(line);
+            const planName = priceId ? planByPrice.get(priceId) : undefined;
+            const addonName = priceId ? addonByPrice.get(priceId) : undefined;
+            const isProration = extractLineProration(line);
+            const kind = addonName ? 'addon' : isProration ? 'adjustment' : 'plan';
+            const description =
+              addonName ?? planName ?? line.description ?? (isProration ? 'Ajuste' : 'Suscripción');
+            const gross = (line.amount ?? 0) / 100;
+            const qty = line.quantity ?? 1;
+            return split(gross, qty, kind, description, i);
+          });
+        }
+      } catch (err) {
+        this.logger.warn(
+          `No se pudieron leer las líneas de la factura Stripe ${payment.externalId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    // Pago manual / cobro de add-on / fallback: una sola línea con la cabecera.
+    const isAddon = (payment.description ?? '').startsWith('Add-on:');
+    return [
+      {
+        kind: isAddon ? 'addon' : 'plan',
+        description: payment.description ?? 'Suscripción',
+        quantity: 1,
+        unitAmount: header.base,
+        baseAmount: header.base,
+        taxRate,
+        taxAmount: header.taxAmount,
+        total: header.total,
+        position: 0,
+      },
+    ];
   }
 
   /** Para el hook automático: no lanza (best-effort). */
@@ -311,6 +447,7 @@ export class PlatformInvoicesService {
       taxRate: unknown;
       taxAmount: unknown;
       total: unknown;
+      lines?: LineRow[];
     },
   ): Promise<string> {
     const html = this.renderHtml(settings, inv);
@@ -353,6 +490,7 @@ export class PlatformInvoicesService {
       taxRate: unknown;
       taxAmount: unknown;
       total: unknown;
+      lines?: LineRow[];
     },
   ): string {
     const period =
@@ -373,6 +511,22 @@ export class PlatformInvoicesService {
       .filter(Boolean)
       .map((l) => esc(String(l)))
       .join('<br>');
+    // Filas del detalle: una por línea (plan + add-ons); si no hay líneas, cae a
+    // la línea única del concepto (facturas antiguas / pago manual sin desglose).
+    const lines = inv.lines ?? [];
+    const rowsHtml =
+      lines.length > 0
+        ? lines
+            .map(
+              (l) =>
+                `<tr><td>${esc(l.description)}${
+                  l.quantity > 1 ? ` <span class="muted">×${l.quantity}</span>` : ''
+                }</td><td class="n">${eur(Number(l.baseAmount))}</td></tr>`,
+            )
+            .join('')
+        : `<tr><td>${esc(inv.concept ?? `Suscripción ${inv.planName ?? 'StorageOS'}`)}${
+            period ? ` · ${esc(period)}` : ''
+          }</td><td class="n">${eur(Number(inv.baseAmount))}</td></tr>`;
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
       body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px}
       h1{font-size:20px;margin:0 0 4px}
@@ -393,9 +547,7 @@ export class PlatformInvoicesService {
         <div class="box"><strong>Cliente</strong><br>${client || '—'}</div>
       </div>
       <table><thead><tr><th>Concepto</th><th class="n">Base</th></tr></thead>
-      <tbody><tr><td>${esc(inv.concept ?? `Suscripción ${inv.planName ?? 'StorageOS'}`)}${
-        period ? ` · ${esc(period)}` : ''
-      }</td><td class="n">${eur(Number(inv.baseAmount))}</td></tr></tbody></table>
+      <tbody>${rowsHtml}</tbody></table>
       <div class="totals">
         <div><span>Base imponible</span><span>${eur(Number(inv.baseAmount))}</span></div>
         <div><span>IVA (${Number(inv.taxRate)}%)</span><span>${eur(Number(inv.taxAmount))}</span></div>
@@ -466,6 +618,7 @@ export class PlatformInvoicesService {
     issuedAt: Date;
     pdfUrl: string | null;
     paymentId: string | null;
+    lines?: Array<LineRow & { id: string }>;
   }): PlatformInvoiceDto {
     return {
       id: r.id,
@@ -486,6 +639,51 @@ export class PlatformInvoicesService {
       issuedAt: r.issuedAt.toISOString(),
       hasPdf: Boolean(r.pdfUrl),
       paymentId: r.paymentId,
+      lines: (r.lines ?? []).map(
+        (l): PlatformInvoiceLineDto => ({
+          id: l.id,
+          kind: l.kind,
+          description: l.description,
+          quantity: l.quantity,
+          unitAmount: Number(l.unitAmount),
+          baseAmount: Number(l.baseAmount),
+          taxRate: Number(l.taxRate),
+          taxAmount: Number(l.taxAmount),
+          total: Number(l.total),
+        }),
+      ),
     };
   }
+}
+
+/** Fila de detalle para el render (desde Prisma o construida en `issueForPayment`). */
+interface LineRow {
+  kind: string;
+  description: string;
+  quantity: number;
+  unitAmount: unknown;
+  baseAmount: unknown;
+  taxRate: unknown;
+  taxAmount: unknown;
+  total: unknown;
+}
+
+/**
+ * Id del Price de una línea de factura de Stripe, tolerante a la versión de API:
+ * `line.price.id` (API antigua) o `line.pricing.price_details.price` (API 2025+).
+ */
+function extractLinePriceId(line: unknown): string | null {
+  const l = line as {
+    price?: string | { id?: string } | null;
+    pricing?: { price_details?: { price?: string } } | null;
+  };
+  if (typeof l.price === 'string') return l.price;
+  if (l.price && typeof l.price === 'object' && l.price.id) return l.price.id;
+  return l.pricing?.price_details?.price ?? null;
+}
+
+/** True si la línea de Stripe es una proración (campo movido según versión de API). */
+function extractLineProration(line: unknown): boolean {
+  const l = line as { proration?: boolean; parent?: { type?: string } };
+  return Boolean(l.proration);
 }
