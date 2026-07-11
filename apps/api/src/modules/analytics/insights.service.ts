@@ -16,6 +16,8 @@ import type {
   PricingSuggestionsDto,
   RevenueForecastDto,
   RevenueForecastPointDto,
+  SuggestedActionDto,
+  SuggestedActionsDto,
   UnitPricingFactorDto,
   UnitPricingSuggestionDto,
   UnitPricingSuggestionsDto,
@@ -219,6 +221,129 @@ export class InsightsService {
 
       return { summary, items: detail };
     }, tenantId);
+  }
+
+  /**
+   * «Sugerencias de hoy»: acciones concretas priorizadas cruzando las señales que
+   * ya calcula el sistema (riesgo de baja, precio por debajo de mercado, facturas
+   * vencidas, contratos que vencen sin renovación). Determinista (no depende de la
+   * IA) → funciona en cualquier entorno; cada acción enlaza al recurso exacto.
+   */
+  async getSuggestedActions(tenantId: string): Promise<SuggestedActionsDto> {
+    const [churn, pricing, extra] = await Promise.all([
+      this.getChurnRisk(tenantId),
+      this.getUnitPricingSuggestions(tenantId),
+      this.prisma.withTenant(async (tx) => {
+        const now = new Date();
+        const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
+        const [overdue, endingSoon] = await Promise.all([
+          tx.invoice.aggregate({
+            where: { status: 'overdue', deletedAt: null },
+            _count: { _all: true },
+            _sum: { total: true, amountPaid: true },
+          }),
+          tx.contract.findMany({
+            where: {
+              status: { in: ['active', 'ending'] },
+              autoRenew: false,
+              deletedAt: null,
+              endDate: { not: null, gte: now, lte: in30 },
+            },
+            select: {
+              id: true,
+              contractNumber: true,
+              endDate: true,
+              customer: {
+                select: {
+                  customerType: true,
+                  firstName: true,
+                  lastName: true,
+                  companyName: true,
+                },
+              },
+            },
+            orderBy: { endDate: 'asc' },
+            take: 3,
+          }),
+        ]);
+        return { overdue, endingSoon };
+      }, tenantId),
+    ]);
+
+    const actions: SuggestedActionDto[] = [];
+
+    // 1) Cobros: facturas vencidas por reclamar.
+    const overdueCount = extra.overdue._count._all;
+    if (overdueCount > 0) {
+      const pending = round2(
+        toNumber(extra.overdue._sum.total) - toNumber(extra.overdue._sum.amountPaid),
+      );
+      actions.push({
+        id: 'collections',
+        category: 'collections',
+        priority: pending >= 300 || overdueCount >= 3 ? 'high' : 'medium',
+        title: `Reclama ${overdueCount} factura${overdueCount === 1 ? '' : 's'} vencida${
+          overdueCount === 1 ? '' : 's'
+        }`,
+        detail: `${pending.toFixed(2)} € pendientes de cobro`,
+        href: '/invoices?status=overdue',
+        cta: 'Ver facturas',
+      });
+    }
+
+    // 2) Retención: inquilinos con riesgo de baja ALTO (top 3).
+    for (const item of churn.items.filter((i) => i.level === 'high').slice(0, 3)) {
+      actions.push({
+        id: `retention-${item.contractId}`,
+        category: 'retention',
+        priority: 'high',
+        title: `Contacta a ${item.customerName}`,
+        detail: `Riesgo de baja alto${
+          item.factors.length ? ` · ${item.factors.slice(0, 2).join(', ')}` : ''
+        }`,
+        href: `/customers/${item.customerId}`,
+        cta: 'Ver inquilino',
+      });
+    }
+
+    // 3) Precio: trasteros por debajo de mercado (mayor subida sugerida, top 2).
+    const toRaise = pricing.items
+      .filter((s) => s.action === 'raise')
+      .sort((a, b) => b.changePct - a.changePct)
+      .slice(0, 2);
+    for (const u of toRaise) {
+      actions.push({
+        id: `pricing-${u.unitId}`,
+        category: 'pricing',
+        priority: 'medium',
+        title: `Sube el precio de ${u.code}`,
+        detail: `Sugerido ${u.suggestedPrice.toFixed(2)} € (+${u.changePct}% vs ${u.currentPrice.toFixed(
+          2,
+        )} €)`,
+        href: '/analytics',
+        cta: 'Ver precios',
+      });
+    }
+
+    // 4) Renovaciones: contratos que vencen en 30 días sin renovación automática.
+    for (const c of extra.endingSoon) {
+      const name = customerName(c.customer);
+      const when = c.endDate ? new Date(c.endDate).toLocaleDateString('es-ES') : '';
+      actions.push({
+        id: `renewal-${c.id}`,
+        category: 'renewal',
+        priority: 'medium',
+        title: `${name} vence pronto`,
+        detail: `Contrato ${c.contractNumber} vence el ${when} sin renovación automática`,
+        href: `/contracts/${c.id}`,
+        cta: 'Ver contrato',
+      });
+    }
+
+    // Prioriza (alta primero) y limita a 6 para no saturar el dashboard.
+    const order: Record<SuggestedActionDto['priority'], number> = { high: 0, medium: 1 };
+    actions.sort((a, b) => order[a.priority] - order[b.priority]);
+    return { actions: actions.slice(0, 6) };
   }
 
   // ---------------------------------------------------------------------------

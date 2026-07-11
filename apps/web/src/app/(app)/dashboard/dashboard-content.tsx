@@ -14,6 +14,7 @@ import { OccupancyCard } from './occupancy-card';
 import { OnboardingCard } from './onboarding-card';
 import { QuickActions } from './quick-actions';
 import { RevenueTrendCard } from './revenue-trend-card';
+import { SuggestedActionsCard } from './suggested-actions-card';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -94,6 +95,8 @@ export function DashboardContent() {
 
       {canSeeAnalytics ? (
         <>
+          <SuggestedActionsCard />
+
           <KpiTiles />
 
           <div className="grid gap-4 lg:grid-cols-2">

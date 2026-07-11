@@ -18,6 +18,7 @@ import type {
   ApplyUnitPricingResultDto,
   RevenueForecastDto,
   RevenueKpiDto,
+  SuggestedActionsDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
@@ -33,6 +34,7 @@ export const analyticsKey = (
     | 'churn-risk'
     | 'pricing-suggestions'
     | 'unit-pricing-suggestions'
+    | 'suggested-actions'
     | 'forecast'
     | 'benchmark',
   params?: Record<string, string | undefined>,
@@ -139,6 +141,14 @@ export function usePricingSuggestions() {
   return useQuery({
     queryKey: analyticsKey('pricing-suggestions'),
     queryFn: () => apiFetch<PricingSuggestionsDto>('/analytics/pricing-suggestions'),
+  });
+}
+
+export function useSuggestedActions() {
+  return useQuery({
+    queryKey: analyticsKey('suggested-actions'),
+    queryFn: () => apiFetch<SuggestedActionsDto>('/analytics/suggested-actions'),
+    staleTime: 60_000,
   });
 }
 
