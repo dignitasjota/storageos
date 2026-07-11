@@ -21,6 +21,7 @@ import {
   useAdminAddons,
   useAssignAddon,
   useRemoveAddon,
+  useSetAddonBillingMode,
   useTenantBillingSummary,
   useTenantLimits,
 } from '@/lib/admin/hooks';
@@ -35,7 +36,28 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
   const remove = useRemoveAddon(tenantId);
   const suspend = useAddonSuspension(tenantId, 'suspend');
   const reactivate = useAddonSuspension(tenantId, 'reactivate');
+  const setBillingMode = useSetAddonBillingMode(tenantId);
   const [selected, setSelected] = useState<string>('');
+
+  async function doSetMode(assignmentId: string, mode: 'manual' | 'stripe') {
+    try {
+      await setBillingMode.mutateAsync({ assignmentId, mode });
+      toast.success(
+        mode === 'stripe'
+          ? 'El add-on se cobrará por Stripe (sale de la bandeja «Hoy»).'
+          : 'El add-on vuelve a cobro manual (bandeja «Hoy»).',
+      );
+    } catch (err) {
+      const code = (err as { body?: { code?: string } })?.body?.code;
+      toast.error(
+        code === 'tenant_not_on_stripe'
+          ? 'El tenant no paga el plan por Stripe; no hay suscripción donde añadir el add-on.'
+          : code === 'payments_not_configured'
+            ? 'Stripe no está configurado todavía.'
+            : 'No se pudo cambiar el modo de cobro.',
+      );
+    }
+  }
 
   async function doSuspend(id: string) {
     try {
@@ -123,6 +145,18 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                           Suspendido
                         </Badge>
                       )}
+                      {!a.suspended && (
+                        <Badge
+                          variant="outline"
+                          className={`ml-2 text-[10px] ${
+                            a.billingMode === 'stripe'
+                              ? 'border-violet-400 text-violet-600 dark:text-violet-400'
+                              : 'text-muted-foreground'
+                          }`}
+                        >
+                          {a.billingMode === 'stripe' ? 'Cobro Stripe' : 'Cobro manual'}
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span
@@ -132,6 +166,28 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                       >
                         {eur(a.lineTotal)}/mes
                       </span>
+                      {!a.suspended &&
+                        (a.billingMode === 'stripe' ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => doSetMode(a.id, 'manual')}
+                            disabled={setBillingMode.isPending}
+                          >
+                            Volver a manual
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-violet-600 hover:text-violet-700"
+                            onClick={() => doSetMode(a.id, 'stripe')}
+                            disabled={setBillingMode.isPending}
+                          >
+                            Cobrar por Stripe
+                          </Button>
+                        ))}
                       {a.suspended ? (
                         <Button
                           variant="outline"

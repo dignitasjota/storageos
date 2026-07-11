@@ -340,23 +340,40 @@ function SaasInvoicesSection() {
           ) : (
             <ul className="divide-y">
               {inv.map((f) => (
-                <li key={f.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <div>
-                    <span className="font-medium">{f.fullNumber}</span>
-                    <span className="ml-2 text-muted-foreground">{date(f.issuedAt)}</span>
-                    {f.concept && <div className="text-xs text-muted-foreground">{f.concept}</div>}
+                <li key={f.id} className="py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="font-medium">{f.fullNumber}</span>
+                      <span className="ml-2 text-muted-foreground">{date(f.issuedAt)}</span>
+                      {f.lines.length <= 1 && f.concept && (
+                        <div className="text-xs text-muted-foreground">{f.concept}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span>{eur(Number(f.total), f.currency)}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openPdf(f.id)}
+                        disabled={pdf.isPending}
+                      >
+                        PDF
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span>{eur(Number(f.total), f.currency)}</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openPdf(f.id)}
-                      disabled={pdf.isPending}
-                    >
-                      PDF
-                    </Button>
-                  </div>
+                  {f.lines.length > 1 && (
+                    <ul className="mt-1 space-y-0.5 border-l pl-3 text-xs text-muted-foreground">
+                      {f.lines.map((l) => (
+                        <li key={l.id} className="flex justify-between gap-2">
+                          <span>
+                            {l.description}
+                            {l.quantity > 1 && ` ×${l.quantity}`}
+                          </span>
+                          <span className="tabular-nums">{eur(Number(l.total), f.currency)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>

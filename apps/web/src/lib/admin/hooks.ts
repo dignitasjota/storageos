@@ -977,6 +977,22 @@ export function useRemoveAddon(tenantId: string) {
   });
 }
 
+/** Cambia el modo de cobro de un add-on del tenant (manual ↔ stripe). */
+export function useSetAddonBillingMode(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { assignmentId: string; mode: 'manual' | 'stripe' }) =>
+      adminApiFetch<TenantBillingSummaryDto>(
+        `/admin/tenants/${tenantId}/addons/${args.assignmentId}/billing-mode`,
+        { method: 'POST', json: { mode: args.mode } },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+    },
+  });
+}
+
 /** Suspender / reactivar un add-on por impago (action: 'suspend' | 'reactivate'). */
 export function useAddonSuspension(tenantId: string, action: 'suspend' | 'reactivate') {
   const qc = useQueryClient();

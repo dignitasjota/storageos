@@ -393,9 +393,25 @@ export class BillingSaasService {
     }
 
     const previousPlanId = sub.planId;
+    // Precio de Stripe del plan ACTUAL: identifica cuál de los subscription items
+    // es el del plan (no un add-on) para intercambiar SOLO ese. Con add-ons en
+    // modo Stripe hay varios items; `items.data[0]` ya no es necesariamente el plan.
+    const currentPlan = await this.admin.subscriptionPlan.findUnique({
+      where: { id: sub.planId },
+      select: { stripePriceId: true },
+    });
     try {
       const stripeSub = await this.stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-      const itemId = stripeSub.items.data[0]?.id;
+      const items = stripeSub.items.data;
+      // El item del plan = el que casa con el price del plan actual; si no se
+      // resuelve, el que NO es un add-on (metadata.kind !== 'addon'); último recurso, el primero.
+      const planItem =
+        (currentPlan?.stripePriceId
+          ? items.find((i) => i.price?.id === currentPlan.stripePriceId)
+          : undefined) ??
+        items.find((i) => i.metadata?.kind !== 'addon') ??
+        items[0];
+      const itemId = planItem?.id;
       if (!itemId) {
         throw new InternalServerErrorException({
           code: 'stripe_api_error',

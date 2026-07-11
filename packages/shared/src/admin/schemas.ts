@@ -523,6 +523,16 @@ export const ChargeAddonSchema = z.object({
 });
 export type ChargeAddonInput = z.infer<typeof ChargeAddonSchema>;
 
+/** Modo de cobro de un add-on contratado. */
+export const AddonBillingModeEnum = z.enum(['manual', 'stripe']);
+export type AddonBillingMode = z.infer<typeof AddonBillingModeEnum>;
+
+/** Cambiar el modo de cobro de un add-on de un tenant (manual ↔ stripe). */
+export const SetAddonBillingModeSchema = z.object({
+  mode: AddonBillingModeEnum,
+});
+export type SetAddonBillingModeInput = z.infer<typeof SetAddonBillingModeSchema>;
+
 /** Actualiza las notas/LTV/tags de un tenant (super admin). */
 export const UpdateTenantNotesSchema = z.object({
   ltvTier: z.enum(['low', 'medium', 'high', 'enterprise']).nullable().optional(),
