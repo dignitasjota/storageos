@@ -28,6 +28,7 @@ import type {
   PricingSuggestionsDto,
   RevenueForecastDto,
   RevenueKpiDto,
+  SuggestedActionsDto,
   UnitPricingSuggestionsDto,
 } from '@storageos/shared';
 import type { Request } from 'express';
@@ -142,6 +143,12 @@ export class AnalyticsController {
   @Get('churn-risk')
   getChurnRisk(@CurrentUser() user: AuthenticatedUser): Promise<ChurnRiskKpiDto> {
     return this.insights.getChurnRisk(user.tenantId);
+  }
+
+  /** «Sugerencias de hoy»: acciones concretas priorizadas para el dashboard. */
+  @Get('suggested-actions')
+  getSuggestedActions(@CurrentUser() user: AuthenticatedUser): Promise<SuggestedActionsDto> {
+    return this.insights.getSuggestedActions(user.tenantId);
   }
 
   @Get('pricing-suggestions')

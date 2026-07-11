@@ -238,6 +238,26 @@ export interface ApplyUnitPricingResultDto {
   newPrice: number;
 }
 
+// --- Sugerencias de hoy (insights accionables del dashboard) ---
+export type SuggestedActionCategory = 'retention' | 'pricing' | 'collections' | 'renewal';
+export type SuggestedActionPriority = 'high' | 'medium';
+
+/** Una acción concreta sugerida al operador, con enlace directo al recurso. */
+export interface SuggestedActionDto {
+  id: string;
+  category: SuggestedActionCategory;
+  priority: SuggestedActionPriority;
+  title: string;
+  detail: string;
+  /** Ruta del panel a la que lleva la acción. */
+  href: string;
+  cta: string;
+}
+
+export interface SuggestedActionsDto {
+  actions: SuggestedActionDto[];
+}
+
 /**
  * Comparativa anónima de una métrica frente al sector: agregados del mercado
  * (mediana, p25, p75) + el valor del propio tenant y su percentil.
