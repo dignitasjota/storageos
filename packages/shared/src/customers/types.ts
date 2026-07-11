@@ -95,6 +95,10 @@ export interface ContractDto {
   endedAt: string | null;
   cancelledAt: string | null;
   billingCycle: ContractBillingCycleValue;
+  /** Frecuencia de facturación en meses: 1 (mensual), 6 (semestral), 12 (anual). */
+  billingIntervalMonths: number;
+  /** Descuento % por prepagar (solo aplica si billingIntervalMonths>1). */
+  prepayDiscountPct: number;
   priceMonthly: number;
   discountAmount: number;
   discountReason: string | null;

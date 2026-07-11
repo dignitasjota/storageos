@@ -169,6 +169,13 @@ export const CreateContractSchema = z.object({
   startDate: dateOnly,
   endDate: dateOnly.optional(),
   billingCycle: ContractBillingCycleEnum.default('monthly'),
+  /**
+   * Frecuencia de facturación en meses: 1 (mensual), 6 (semestral), 12 (anual).
+   * Con >1 el inquilino prepaga N meses con `prepayDiscountPct` de descuento.
+   */
+  billingIntervalMonths: z.union([z.literal(1), z.literal(6), z.literal(12)]).default(1),
+  /** Descuento % sobre el alquiler por prepagar (solo aplica si interval>1). */
+  prepayDiscountPct: z.number().min(0).max(90).default(0),
   priceMonthly: positiveDecimal,
   discountAmount: nonNegativeDecimal.default(0),
   discountReason: optionalText(200),

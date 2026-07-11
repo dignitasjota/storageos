@@ -250,6 +250,8 @@ export class BookingService {
         unitId,
         startDate: input.startDate,
         billingCycle: 'monthly',
+        billingIntervalMonths: 1,
+        prepayDiscountPct: 0,
         priceMonthly,
         discountAmount: 0,
         depositAmount,

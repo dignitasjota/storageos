@@ -259,6 +259,9 @@ export class ContractsService {
           startDate: new Date(input.startDate),
           ...(input.endDate ? { endDate: new Date(input.endDate) } : {}),
           billingCycle: input.billingCycle,
+          billingIntervalMonths: input.billingIntervalMonths,
+          // El descuento por prepago solo aplica con interval>1 (mensual = 0).
+          prepayDiscountPct: input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0,
           priceMonthly: input.priceMonthly,
           discountAmount,
           discountReason,
@@ -1909,6 +1912,8 @@ export class ContractsService {
       endedAt: row.endedAt ? row.endedAt.toISOString() : null,
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
       billingCycle: row.billingCycle,
+      billingIntervalMonths: row.billingIntervalMonths,
+      prepayDiscountPct: Number(row.prepayDiscountPct),
       priceMonthly: base,
       discountAmount: discount,
       discountReason: row.discountReason,

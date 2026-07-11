@@ -1071,6 +1071,11 @@ model Contract {
   endedAt                DateTime?             @map("ended_at") @db.Timestamptz(6)
   cancelledAt            DateTime?             @map("cancelled_at") @db.Timestamptz(6)
   billingCycle           ContractBillingCycle  @default(monthly) @map("billing_cycle")
+  /// Frecuencia de facturación en meses: 1 (mensual, por defecto), 6 (semestral),
+  /// 12 (anual). Con >1 la recurrente emite UNA factura que cubre N meses con
+  /// `prepayDiscountPct` de descuento sobre el alquiler (prepago).
+  billingIntervalMonths  Int                   @default(1) @map("billing_interval_months")
+  prepayDiscountPct      Decimal               @default(0) @map("prepay_discount_pct") @db.Decimal(5, 2)
   /// Precio congelado al firmar (snapshot). Antes de firmar es el
   /// precio propuesto y puede cambiarse libremente. Tras firmar, solo
   /// cambia via ContractEvent price_changed.
