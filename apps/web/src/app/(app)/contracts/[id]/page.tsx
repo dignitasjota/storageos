@@ -287,6 +287,13 @@ export default function ContractDetailPage() {
                 (luego vuelve a la cuota base)
               </p>
             )}
+            {c.billingIntervalMonths > 1 && (
+              <p className="mt-1 text-xs font-medium text-primary">
+                Prepago {c.billingIntervalMonths === 12 ? 'anual' : 'semestral'}
+                {c.prepayDiscountPct > 0 ? ` · −${c.prepayDiscountPct}%` : ''} (factura cada{' '}
+                {c.billingIntervalMonths} meses)
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>

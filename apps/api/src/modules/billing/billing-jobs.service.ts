@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
+import { toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
@@ -106,6 +107,28 @@ export class BillingJobsService {
 
     let created = 0;
     for (const c of contracts) {
+      const interval = c.billingIntervalMonths;
+      // Periodo a facturar de ESTE contrato:
+      // - mensual (interval=1): el periodo global del run (mes natural en curso).
+      // - prepago (interval>1): el SIGUIENTE periodo no cubierto = [fin de la
+      //   última factura +1, +N meses−1 día]. Solo se emite cuando ese periodo ya
+      //   ha empezado (anchor <= fin del mes en curso); mientras la cobertura del
+      //   prepago sigue vigente, el contrato se salta (no se factura de más).
+      let cStart = periodStart;
+      let cEnd = periodEnd;
+      if (interval > 1) {
+        const last = await this.admin.invoice.findFirst({
+          where: { tenantId, contractId: c.id, status: { not: 'cancelled' }, deletedAt: null },
+          orderBy: { periodEnd: 'desc' },
+          select: { periodEnd: true },
+        });
+        cStart = last?.periodEnd
+          ? this.addDays(new Date(last.periodEnd), 1)
+          : new Date(c.startDate);
+        if (cStart > periodEnd) continue; // cobertura aún vigente / periodo futuro
+        cEnd = this.addDays(this.addMonths(cStart, interval), -1);
+      }
+
       // Dedup por SOLAPAMIENTO de periodo (no coincidencia exacta): la 1ª factura
       // del move-in cubre [alta, fin de mes natural], que rara vez casa día a día
       // con [día 1, último día] de la recurrente. Con coincidencia exacta el
@@ -115,8 +138,8 @@ export class BillingJobsService {
         where: {
           tenantId,
           contractId: c.id,
-          periodStart: { lte: periodEnd },
-          periodEnd: { gte: periodStart },
+          periodStart: { lte: cEnd },
+          periodEnd: { gte: cStart },
           status: { not: 'cancelled' },
           deletedAt: null,
         },
@@ -130,7 +153,7 @@ export class BillingJobsService {
         unitId: c.unit.id,
         unitTypeId: c.unit.unitTypeId,
         facilityId: c.unit.facilityId,
-        at: periodStart,
+        at: cStart,
       });
 
       const series = await this.series.getDefault(tenantId);
@@ -141,8 +164,22 @@ export class BillingJobsService {
 
       // Promoción `free_months`: las primeras N facturas salen con el alquiler
       // a 0 (el seguro/extras se siguen cobrando). Se decrementa al final.
-      const isFreeMonth = c.freeMonthsRemaining > 0;
-      const rentMonth = periodStart.toISOString().slice(0, 7);
+      // (No aplica a prepago: los meses gratis son un concepto mensual.)
+      const isFreeMonth = interval === 1 && c.freeMonthsRemaining > 0;
+      const rentMonth = cStart.toISOString().slice(0, 7);
+      // Alquiler del periodo: prepago = cuota × N meses × (1 − descuento prepago).
+      const prepayPct = interval > 1 ? Number(c.prepayDiscountPct) : 0;
+      const rentUnitPrice = isFreeMonth
+        ? 0
+        : Math.round(toCents(pricing.effectivePrice) * interval * (1 - prepayPct / 100)) / 100;
+      const rentDesc =
+        interval > 1
+          ? `Alquiler ${c.contractNumber} (${cStart.toISOString().slice(0, 10)}–${cEnd
+              .toISOString()
+              .slice(0, 10)}, ${interval} meses prepago${prepayPct > 0 ? ` −${prepayPct}%` : ''})`
+          : `Alquiler ${c.contractNumber} (${rentMonth})${
+              isFreeMonth ? ' — mes gratis (promoción)' : ''
+            }`;
 
       try {
         const draft = await this.invoices.create({
@@ -153,35 +190,34 @@ export class BillingJobsService {
             customerId: c.customerId,
             contractId: c.id,
             seriesId: series.id,
-            periodStart: periodStart.toISOString().slice(0, 10),
-            periodEnd: periodEnd.toISOString().slice(0, 10),
-            dueDate: this.addDays(periodEnd, 15).toISOString().slice(0, 10),
+            periodStart: cStart.toISOString().slice(0, 10),
+            periodEnd: cEnd.toISOString().slice(0, 10),
+            dueDate: this.addDays(cEnd, 15).toISOString().slice(0, 10),
             items: [
               {
-                description: `Alquiler ${c.contractNumber} (${rentMonth})${
-                  isFreeMonth ? ' — mes gratis (promoción)' : ''
-                }`,
+                description: rentDesc,
                 quantity: 1,
-                unitPrice: isFreeMonth ? 0 : pricing.effectivePrice,
+                unitPrice: rentUnitPrice,
                 taxRate: 21,
                 relatedContractId: c.id,
                 relatedUnitId: c.unit.id,
-                periodStart: periodStart.toISOString().slice(0, 10),
-                periodEnd: periodEnd.toISOString().slice(0, 10),
+                periodStart: cStart.toISOString().slice(0, 10),
+                periodEnd: cEnd.toISOString().slice(0, 10),
               },
-              // Línea de seguro/protección si el contrato tiene un plan asignado.
+              // Línea de seguro/protección si el contrato tiene un plan asignado
+              // (prepago = prima × N meses, sin descuento de prepago).
               ...(c.insurancePlanId && c.insurancePrice && Number(c.insurancePrice) > 0
                 ? [
                     {
                       description: `Protección de contenido${
                         c.insurancePlan?.name ? ` — ${c.insurancePlan.name}` : ''
-                      } (${periodStart.toISOString().slice(0, 7)})`,
+                      } (${interval > 1 ? `${interval} meses` : cStart.toISOString().slice(0, 7)})`,
                       quantity: 1,
-                      unitPrice: Number(c.insurancePrice),
+                      unitPrice: Number(c.insurancePrice) * interval,
                       taxRate: Number(c.insurancePlan?.taxRate ?? 21),
                       relatedContractId: c.id,
-                      periodStart: periodStart.toISOString().slice(0, 10),
-                      periodEnd: periodEnd.toISOString().slice(0, 10),
+                      periodStart: cStart.toISOString().slice(0, 10),
+                      periodEnd: cEnd.toISOString().slice(0, 10),
                     },
                   ]
                 : []),
@@ -246,5 +282,10 @@ export class BillingJobsService {
     const copy = new Date(d);
     copy.setUTCDate(copy.getUTCDate() + days);
     return copy;
+  }
+
+  /** Suma N meses conservando el día del mes (para los periodos de prepago). */
+  private addMonths(d: Date, months: number): Date {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate()));
   }
 }

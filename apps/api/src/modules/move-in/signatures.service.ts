@@ -24,6 +24,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   ContractSignViewDto,
   ContractSignatureDto,
+  CreateInvoiceItemInput,
   PublicSignSubmitInput,
   RequestSignatureResultDto,
   SignResultDto,
@@ -292,32 +293,81 @@ export class SignaturesService {
       }
       const contract = await this.admin.contract.findUniqueOrThrow({
         where: { id: contractId },
-        include: { unit: { select: { id: true } } },
+        include: {
+          unit: { select: { id: true } },
+          insurancePlan: { select: { name: true, taxRate: true } },
+        },
       });
-      // La 1ª factura cubre desde el alta hasta el FIN del mes natural, y el
-      // alquiler se PRORRATEA por los días ocupados. Así encaja con la
-      // facturación recurrente (que va por mes natural [día 1, último día]) y no
-      // se solapa/duplica el primer mes. Si el alta es el día 1, sale el mes
-      // completo (sin prorrateo).
-      const start = new Date(contract.startDate);
-      const y = start.getUTCFullYear();
-      const m = start.getUTCMonth();
-      const dayOfMonth = start.getUTCDate();
-      const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-      const periodStart = new Date(Date.UTC(y, m, dayOfMonth));
-      const periodEnd = new Date(Date.UTC(y, m, daysInMonth));
-      const dueDate = new Date(periodEnd);
-      dueDate.setUTCDate(dueDate.getUTCDate() + 15);
-      const daysOccupied = daysInMonth - dayOfMonth + 1;
+      const interval = contract.billingIntervalMonths;
       const fullPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
-      const isFullMonth = daysOccupied >= daysInMonth;
-      const unitPrice = isFullMonth
-        ? fullPrice
-        : Math.round((toCents(fullPrice) * daysOccupied) / daysInMonth) / 100;
       const deposit = Number(contract.depositAmount);
+      const start = new Date(contract.startDate);
 
-      const items = [
-        {
+      let periodStart: Date;
+      let periodEnd: Date;
+      const items: CreateInvoiceItemInput[] = [];
+
+      if (interval > 1) {
+        // PREPAGO (semestral/anual): la 1ª factura cubre el intervalo COMPLETO
+        // desde el alta ([alta, alta+N meses−1 día]) con `prepayDiscountPct` de
+        // descuento sobre el alquiler. La recurrente no vuelve a facturar este
+        // contrato mientras el periodo esté cubierto (dedup por solapamiento).
+        periodStart = start;
+        periodEnd = new Date(
+          Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + interval, start.getUTCDate()),
+        );
+        periodEnd.setUTCDate(periodEnd.getUTCDate() - 1);
+        const pct = Number(contract.prepayDiscountPct);
+        const rent = Math.round(toCents(fullPrice) * interval * (1 - pct / 100)) / 100;
+        items.push({
+          description: `Alquiler ${contract.contractNumber} (${periodStart
+            .toISOString()
+            .slice(0, 10)}–${periodEnd.toISOString().slice(0, 10)}, ${interval} meses prepago${
+            pct > 0 ? ` −${pct}%` : ''
+          })`,
+          quantity: 1,
+          unitPrice: rent,
+          taxRate: 21,
+          relatedContractId: contractId,
+          relatedUnitId: contract.unit.id,
+          periodStart: periodStart.toISOString().slice(0, 10),
+          periodEnd: periodEnd.toISOString().slice(0, 10),
+        });
+        // El seguro/protección se prepaga por los N meses (sin descuento de prepago).
+        if (
+          contract.insurancePlanId &&
+          contract.insurancePrice &&
+          Number(contract.insurancePrice) > 0
+        ) {
+          items.push({
+            description: `Protección de contenido${
+              contract.insurancePlan?.name ? ` — ${contract.insurancePlan.name}` : ''
+            } (${interval} meses)`,
+            quantity: 1,
+            unitPrice: Number(contract.insurancePrice) * interval,
+            taxRate: Number(contract.insurancePlan?.taxRate ?? 21),
+            relatedContractId: contractId,
+            periodStart: periodStart.toISOString().slice(0, 10),
+            periodEnd: periodEnd.toISOString().slice(0, 10),
+          });
+        }
+      } else {
+        // MENSUAL: la 1ª factura cubre desde el alta hasta el FIN del mes natural,
+        // y el alquiler se PRORRATEA por los días ocupados. Así encaja con la
+        // facturación recurrente (mes natural [día 1, último día]) y no se
+        // solapa/duplica el primer mes. Si el alta es el día 1, sale el mes completo.
+        const y = start.getUTCFullYear();
+        const m = start.getUTCMonth();
+        const dayOfMonth = start.getUTCDate();
+        const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+        periodStart = new Date(Date.UTC(y, m, dayOfMonth));
+        periodEnd = new Date(Date.UTC(y, m, daysInMonth));
+        const daysOccupied = daysInMonth - dayOfMonth + 1;
+        const isFullMonth = daysOccupied >= daysInMonth;
+        const unitPrice = isFullMonth
+          ? fullPrice
+          : Math.round((toCents(fullPrice) * daysOccupied) / daysInMonth) / 100;
+        items.push({
           description: isFullMonth
             ? `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 7)})`
             : `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 10)}–${periodEnd
@@ -330,21 +380,23 @@ export class SignaturesService {
           relatedUnitId: contract.unit.id,
           periodStart: periodStart.toISOString().slice(0, 10),
           periodEnd: periodEnd.toISOString().slice(0, 10),
-        },
-        // La fianza/depósito es indemnizatoria (garantía reembolsable) → IVA 0.
-        ...(deposit > 0
-          ? [
-              {
-                description: `Fianza ${contract.contractNumber}`,
-                quantity: 1,
-                unitPrice: deposit,
-                taxRate: 0,
-                relatedContractId: contractId,
-                relatedUnitId: contract.unit.id,
-              },
-            ]
-          : []),
-      ];
+        });
+      }
+
+      // La fianza/depósito es indemnizatoria (garantía reembolsable) → IVA 0.
+      if (deposit > 0) {
+        items.push({
+          description: `Fianza ${contract.contractNumber}`,
+          quantity: 1,
+          unitPrice: deposit,
+          taxRate: 0,
+          relatedContractId: contractId,
+          relatedUnitId: contract.unit.id,
+        });
+      }
+
+      const dueDate = new Date(periodEnd);
+      dueDate.setUTCDate(dueDate.getUTCDate() + 15);
 
       const invoice = await this.invoices.create({
         tenantId,
@@ -434,6 +486,8 @@ export class SignaturesService {
         unitId,
         startDate: today,
         billingCycle: 'monthly',
+        billingIntervalMonths: 1,
+        prepayDiscountPct: 0,
         priceMonthly: Number(unit.basePriceMonthly),
         discountAmount: 0,
         depositAmount: Number(unit.unitType.defaultDepositAmount ?? 0),

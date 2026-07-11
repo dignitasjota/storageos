@@ -40,6 +40,8 @@ export default function NewContractWizardPage() {
   const [promotionCode, setPromotionCode] = useState('');
   const [depositAmount, setDepositAmount] = useState(0);
   const [insurancePlanId, setInsurancePlanId] = useState('');
+  const [billingIntervalMonths, setBillingIntervalMonths] = useState<1 | 6 | 12>(1);
+  const [prepayDiscountPct, setPrepayDiscountPct] = useState(0);
 
   const create = useCreateContract();
 
@@ -51,6 +53,8 @@ export default function NewContractWizardPage() {
       startDate,
       ...(endDate ? { endDate } : {}),
       billingCycle: 'monthly',
+      billingIntervalMonths,
+      prepayDiscountPct: billingIntervalMonths > 1 ? prepayDiscountPct : 0,
       priceMonthly,
       discountAmount,
       ...(discountReason ? { discountReason } : {}),
@@ -134,6 +138,8 @@ export default function NewContractWizardPage() {
           promotionCode={promotionCode}
           depositAmount={depositAmount}
           insurancePlanId={insurancePlanId}
+          billingIntervalMonths={billingIntervalMonths}
+          prepayDiscountPct={prepayDiscountPct}
           onChange={(p) => {
             if (p.startDate !== undefined) setStartDate(p.startDate);
             if (p.endDate !== undefined) setEndDate(p.endDate);
@@ -143,6 +149,9 @@ export default function NewContractWizardPage() {
             if (p.promotionCode !== undefined) setPromotionCode(p.promotionCode);
             if (p.depositAmount !== undefined) setDepositAmount(p.depositAmount);
             if (p.insurancePlanId !== undefined) setInsurancePlanId(p.insurancePlanId);
+            if (p.billingIntervalMonths !== undefined)
+              setBillingIntervalMonths(p.billingIntervalMonths);
+            if (p.prepayDiscountPct !== undefined) setPrepayDiscountPct(p.prepayDiscountPct);
           }}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
@@ -157,6 +166,8 @@ export default function NewContractWizardPage() {
           priceMonthly={priceMonthly}
           discountAmount={discountAmount}
           depositAmount={depositAmount}
+          billingIntervalMonths={billingIntervalMonths}
+          prepayDiscountPct={prepayDiscountPct}
           submitting={create.isPending}
           onBack={() => setStep(3)}
           onSubmit={submit}
@@ -280,6 +291,8 @@ function StepEconomics(props: {
   promotionCode: string;
   depositAmount: number;
   insurancePlanId: string;
+  billingIntervalMonths: 1 | 6 | 12;
+  prepayDiscountPct: number;
   onChange: (
     p: Partial<{
       startDate: string;
@@ -290,6 +303,8 @@ function StepEconomics(props: {
       promotionCode: string;
       depositAmount: number;
       insurancePlanId: string;
+      billingIntervalMonths: 1 | 6 | 12;
+      prepayDiscountPct: number;
     }>,
   ) => void;
   onBack: () => void;
@@ -415,12 +430,74 @@ function StepEconomics(props: {
           value={props.insurancePlanId}
           onChange={(v) => props.onChange({ insurancePlanId: v })}
         />
+        {/* Prepago: facturar de una vez varios meses con descuento. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <Label>Facturación</Label>
+            <Select
+              value={String(props.billingIntervalMonths)}
+              onValueChange={(v) =>
+                props.onChange({ billingIntervalMonths: Number(v) as 1 | 6 | 12 })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Mensual</SelectItem>
+                <SelectItem value="6">Semestral (prepago 6 meses)</SelectItem>
+                <SelectItem value="12">Anual (prepago 12 meses)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {props.billingIntervalMonths > 1 && (
+            <div>
+              <Label>Descuento por prepago (%)</Label>
+              <Input
+                type="number"
+                step="1"
+                min={0}
+                max={90}
+                value={props.prepayDiscountPct}
+                onChange={(e) => props.onChange({ prepayDiscountPct: Number(e.target.value) })}
+              />
+            </div>
+          )}
+        </div>
         <div className="rounded-md bg-muted/40 px-3 py-2 text-sm">
-          Cuota efectiva mensual:{' '}
-          <strong className="tabular-nums">
-            {Math.max(0, props.priceMonthly - props.discountAmount).toFixed(2)} €
-          </strong>
-          <span className="text-muted-foreground"> (el seguro se factura como línea aparte)</span>
+          {props.billingIntervalMonths > 1 ? (
+            (() => {
+              const effMonthly = Math.max(0, props.priceMonthly - props.discountAmount);
+              const months = props.billingIntervalMonths;
+              const gross = effMonthly * months;
+              const net = gross * (1 - props.prepayDiscountPct / 100);
+              const saving = gross - net;
+              return (
+                <>
+                  Prepago {months === 12 ? 'anual' : 'semestral'}: paga{' '}
+                  <strong className="tabular-nums">{net.toFixed(2)} €</strong> por adelantado
+                  {saving > 0 && (
+                    <span className="text-green-600">
+                      {' '}
+                      (ahorra {saving.toFixed(2)} € vs {gross.toFixed(2)} € mensual)
+                    </span>
+                  )}
+                  <span className="text-muted-foreground"> · el seguro se prorratea aparte</span>
+                </>
+              );
+            })()
+          ) : (
+            <>
+              Cuota efectiva mensual:{' '}
+              <strong className="tabular-nums">
+                {Math.max(0, props.priceMonthly - props.discountAmount).toFixed(2)} €
+              </strong>
+              <span className="text-muted-foreground">
+                {' '}
+                (el seguro se factura como línea aparte)
+              </span>
+            </>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={props.onBack}>
@@ -443,6 +520,8 @@ function StepReview(props: {
   priceMonthly: number;
   discountAmount: number;
   depositAmount: number;
+  billingIntervalMonths: 1 | 6 | 12;
+  prepayDiscountPct: number;
   submitting: boolean;
   onBack: () => void;
   onSubmit: () => void;
@@ -483,6 +562,16 @@ function StepReview(props: {
           <div>
             <dt className="text-muted-foreground">Fianza</dt>
             <dd className="tabular-nums">{props.depositAmount.toFixed(2)} €</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Facturación</dt>
+            <dd>
+              {props.billingIntervalMonths === 1
+                ? 'Mensual'
+                : `${props.billingIntervalMonths === 12 ? 'Anual' : 'Semestral'} (prepago${
+                    props.prepayDiscountPct > 0 ? ` −${props.prepayDiscountPct}%` : ''
+                  })`}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Cuota efectiva</dt>
