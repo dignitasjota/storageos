@@ -9,7 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { resolvePlanFeatures } from '@storageos/shared';
+import { renderContractClauses, resolvePlanFeatures } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
@@ -498,21 +498,48 @@ export class ContractsService {
           `Contrato ${row.contractNumber} firmado`,
         );
 
+        // Texto de condiciones firmado = cabecera + cláusulas del tenant
+        // renderizadas + consentimiento eIDAS. Se congela en `signedTermsText`
+        // para que editar la plantilla después no altere este contrato.
+        const tenantRow = await tx.tenant.findUnique({
+          where: { id: args.tenantId },
+          select: { name: true, contractClauses: true },
+        });
+        const signerCustomerName =
+          row.customer.customerType === 'business'
+            ? (row.customer.companyName ?? '')
+            : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ');
+        const renderedClauses = tenantRow?.contractClauses
+          ? renderContractClauses(tenantRow.contractClauses, {
+              contractNumber: row.contractNumber,
+              customerName: signerCustomerName,
+              unitCode: row.unit.code,
+              facilityName: row.unit.facility.name,
+              priceMonthly: `${Number(row.priceMonthly).toFixed(2)} €`,
+              depositAmount: `${Number(row.depositAmount).toFixed(2)} €`,
+              startDate: row.startDate.toISOString().slice(0, 10),
+              cancellationNoticeDays: String(row.cancellationNoticeDays),
+              tenantName: tenantRow.name,
+            })
+          : null;
+        const termsText = buildContractTermsText({
+          contractNumber: row.contractNumber,
+          customerName: signerCustomerName,
+          unitCode: row.unit.code,
+          facilityName: row.unit.facility.name,
+          priceMonthly: Number(row.priceMonthly),
+          depositAmount: Number(row.depositAmount),
+          billingCycle: row.billingCycle,
+          startDate: row.startDate.toISOString().slice(0, 10),
+          customClauses: renderedClauses,
+        });
+        await tx.contract.update({
+          where: { id: args.contractId },
+          data: { signedTermsText: termsText },
+        });
+
         // Registro probatorio de la firma electrónica simple.
         if (args.signature) {
-          const termsText = buildContractTermsText({
-            contractNumber: row.contractNumber,
-            customerName:
-              row.customer.customerType === 'business'
-                ? (row.customer.companyName ?? '')
-                : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' '),
-            unitCode: row.unit.code,
-            facilityName: row.unit.facility.name,
-            priceMonthly: Number(row.priceMonthly),
-            depositAmount: Number(row.depositAmount),
-            billingCycle: row.billingCycle,
-            startDate: row.startDate.toISOString().slice(0, 10),
-          });
           const documentHash = createHash('sha256').update(termsText).digest('hex');
           await tx.contractSignature.create({
             data: {

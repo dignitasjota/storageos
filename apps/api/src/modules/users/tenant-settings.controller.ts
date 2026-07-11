@@ -1,11 +1,13 @@
 import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
 import {
+  type ContractTemplateDto,
   type TenantAccessSettingsResponse,
   type TenantBillingSettingsResponse,
   type TenantBrandingResponse,
   type TenantReferralSettingsResponse,
   type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
+  UpdateContractTemplateSchema,
   UpdateTenantAccessSettingsSchema,
   UpdateTenantBillingSettingsSchema,
   UpdateTenantBrandingSchema,
@@ -32,6 +34,7 @@ class UpdateTenantReviewsSettingsDto extends createZodDto(UpdateTenantReviewsSet
 class UpdateTenantReferralSettingsDto extends createZodDto(UpdateTenantReferralSettingsSchema) {}
 class UpdateTenantAccessSettingsDto extends createZodDto(UpdateTenantAccessSettingsSchema) {}
 class UpdateTenantBrandingDto extends createZodDto(UpdateTenantBrandingSchema) {}
+class UpdateContractTemplateDto extends createZodDto(UpdateContractTemplateSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -131,6 +134,28 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantBrandingResponse> {
     return this.settings.updateBranding({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Cláusulas del contrato editables por el tenant (plantilla). */
+  @RequirePermission('settings:read')
+  @Get('contract-template')
+  async getContractTemplate(@CurrentUser() user: AuthenticatedUser): Promise<ContractTemplateDto> {
+    return this.settings.getContractTemplate(user.tenantId);
+  }
+
+  @RequirePermission('settings:manage')
+  @Patch('contract-template')
+  async updateContractTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateContractTemplateDto,
+    @Req() req: Request,
+  ): Promise<ContractTemplateDto> {
+    return this.settings.updateContractTemplate({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,

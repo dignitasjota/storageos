@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import { renderContractClauses } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { InvoiceSeriesService } from '../billing/invoice-series.service';
@@ -129,16 +130,39 @@ export class SignaturesService {
   async getSignView(token: string): Promise<ContractSignViewDto> {
     const contract = await this.resolveToken(token);
     const customerName = displayName(contract.customer);
-    const termsText = buildContractTermsText({
-      contractNumber: contract.contractNumber,
-      customerName,
-      unitCode: contract.unit.code,
-      facilityName: contract.unit.facility.name,
-      priceMonthly: Number(contract.priceMonthly),
-      depositAmount: Number(contract.depositAmount),
-      billingCycle: contract.billingCycle,
-      startDate: contract.startDate.toISOString().slice(0, 10),
+    // Contrato aún sin firmar → renderiza las cláusulas del tenant en vivo (el
+    // snapshot `signedTermsText` no existe hasta firmar). Si ya está firmado y
+    // hay snapshot, se usa el texto congelado.
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: contract.tenantId },
+      select: { name: true, contractClauses: true },
     });
+    const renderedClauses = tenant?.contractClauses
+      ? renderContractClauses(tenant.contractClauses, {
+          contractNumber: contract.contractNumber,
+          customerName,
+          unitCode: contract.unit.code,
+          facilityName: contract.unit.facility.name,
+          priceMonthly: `${Number(contract.priceMonthly).toFixed(2)} €`,
+          depositAmount: `${Number(contract.depositAmount).toFixed(2)} €`,
+          startDate: contract.startDate.toISOString().slice(0, 10),
+          cancellationNoticeDays: String(contract.cancellationNoticeDays),
+          tenantName: tenant.name,
+        })
+      : null;
+    const termsText =
+      contract.signedTermsText ??
+      buildContractTermsText({
+        contractNumber: contract.contractNumber,
+        customerName,
+        unitCode: contract.unit.code,
+        facilityName: contract.unit.facility.name,
+        priceMonthly: Number(contract.priceMonthly),
+        depositAmount: Number(contract.depositAmount),
+        billingCycle: contract.billingCycle,
+        startDate: contract.startDate.toISOString().slice(0, 10),
+        customClauses: renderedClauses,
+      });
     return {
       contractNumber: contract.contractNumber,
       customerName,

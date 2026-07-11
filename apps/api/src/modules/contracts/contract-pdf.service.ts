@@ -1,6 +1,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { renderContractClauses } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -75,7 +76,13 @@ export class ContractPdfService implements OnModuleDestroy {
       (tx) =>
         tx.tenant.findUniqueOrThrow({
           where: { id: args.tenantId },
-          select: { name: true, slug: true, country: true, taxId: true },
+          select: {
+            name: true,
+            slug: true,
+            country: true,
+            taxId: true,
+            contractClauses: true,
+          },
         }),
       args.tenantId,
     );
@@ -158,7 +165,13 @@ export class ContractPdfService implements OnModuleDestroy {
 
   private renderHtml(args: {
     contract: Awaited<ReturnType<ContractsService['detail']>>;
-    tenant: { name: string; slug: string; country: string; taxId: string | null };
+    tenant: {
+      name: string;
+      slug: string;
+      country: string;
+      taxId: string | null;
+      contractClauses: string | null;
+    };
     customer: {
       firstName: string | null;
       lastName: string | null;
@@ -190,6 +203,38 @@ export class ContractPdfService implements OnModuleDestroy {
             day: 'numeric',
           })
         : '—';
+    const esc = (s: string) =>
+      s.replace(
+        /[&<>"]/g,
+        (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!,
+      );
+
+    // Condiciones: si el tenant definió cláusulas propias, se renderizan con las
+    // variables del contrato y sustituyen a las 5 cláusulas por defecto. El texto
+    // legalmente firmado (prueba) es la firma electrónica + su hash; este PDF
+    // refleja la plantilla vigente.
+    const customClauses = args.tenant.contractClauses
+      ? renderContractClauses(args.tenant.contractClauses, {
+          contractNumber: c.contractNumber,
+          customerName,
+          unitCode: c.unitCode,
+          facilityName: c.facilityName,
+          priceMonthly: formatEur(c.priceMonthly),
+          depositAmount: formatEur(c.depositAmount),
+          startDate: formatDate(c.startDate),
+          cancellationNoticeDays: String(c.cancellationNoticeDays),
+          tenantName: args.tenant.name,
+        })
+      : null;
+    const conditionsHtml = customClauses
+      ? `<div style="white-space: pre-wrap;">${esc(customClauses)}</div>`
+      : `<ol>
+  <li>El presente contrato se renueva automáticamente cada periodo de facturación salvo notificación de baja con ${c.cancellationNoticeDays} días de antelación.</li>
+  <li>El arrendatario es responsable del contenido depositado en el trastero. El arrendador no responde de objetos de valor.</li>
+  <li>Está prohibido almacenar productos perecederos, inflamables o ilegales.</li>
+  <li>El impago de dos cuotas consecutivas faculta al arrendador a desactivar el acceso al trastero.</li>
+  <li>La devolución del trastero requiere retirar todos los enseres y dejarlo en las mismas condiciones de entrega.</li>
+</ol>`;
 
     return `<!doctype html>
 <html lang="es">
@@ -249,13 +294,7 @@ export class ContractPdfService implements OnModuleDestroy {
 </div>
 
 <h2>Condiciones</h2>
-<ol>
-  <li>El presente contrato se renueva automáticamente cada periodo de facturación salvo notificación de baja con ${c.cancellationNoticeDays} días de antelación.</li>
-  <li>El arrendatario es responsable del contenido depositado en el trastero. El arrendador no responde de objetos de valor.</li>
-  <li>Está prohibido almacenar productos perecederos, inflamables o ilegales.</li>
-  <li>El impago de dos cuotas consecutivas faculta al arrendador a desactivar el acceso al trastero.</li>
-  <li>La devolución del trastero requiere retirar todos los enseres y dejarlo en las mismas condiciones de entrega.</li>
-</ol>
+${conditionsHtml}
 
 <div class="signs">
   <div class="line">Arrendador (${args.tenant.name})</div>

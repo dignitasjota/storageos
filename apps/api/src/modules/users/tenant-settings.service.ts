@@ -12,10 +12,12 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  ContractTemplateDto,
   TenantAccessSettingsResponse,
   TenantBillingSettingsResponse,
   TenantBrandingResponse,
   TenantFeature,
+  UpdateContractTemplateInput,
   TenantReferralSettingsResponse,
   TenantReviewsSettingsResponse,
   TenantSecuritySettingsResponse,
@@ -316,6 +318,42 @@ export class TenantSettingsService {
     });
 
     return this.toBrandingResponse(updated);
+  }
+
+  async getContractTemplate(tenantId: string): Promise<ContractTemplateDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { contractClauses: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
+    return { clauses: tenant.contractClauses };
+  }
+
+  async updateContractTemplate(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateContractTemplateInput;
+    meta: RequestMeta;
+  }): Promise<ContractTemplateDto> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
+    // '' o ausente = volver a la plantilla por defecto (null).
+    const clauses = args.input.clauses?.trim() ? args.input.clauses : null;
+    await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: { contractClauses: clauses },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'tenant.contract_template.changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { hasCustomClauses: clauses !== null },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { clauses };
   }
 
   async getReferrals(tenantId: string): Promise<TenantReferralSettingsResponse> {
