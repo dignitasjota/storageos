@@ -56,6 +56,6 @@ import type { Env } from '../../config/env.schema';
       inject: [ConfigService, StubLockProvider, MqttLockProvider, HttpLockProvider],
     },
   ],
-  exports: [AccessCredentialsService, AccessIntegrationsService],
+  exports: [AccessCredentialsService, AccessIntegrationsService, AccessVerifyService],
 })
 export class AccessModule {}

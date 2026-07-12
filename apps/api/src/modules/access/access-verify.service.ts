@@ -21,6 +21,8 @@ import type {
 import type {
   AccessMethodValue,
   AccessResultValue,
+  PortalDoorDto,
+  PortalOpenDoorResultDto,
   VerifyAccessResultDto,
 } from '@storageos/shared';
 
@@ -428,6 +430,193 @@ export class AccessVerifyService {
       result: 'allowed',
       allowed: true,
       customerName: customerDisplay(credentialRow.customer),
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Apertura desde el PORTAL del inquilino («tu móvil es la llave»). Reusa el
+  // pipeline del verify (credencial del cliente + curfew/ventanas/suspensión +
+  // LockProvider + access_logs), pero identificado por el customer del token de
+  // portal en vez de por un secreto presentado.
+  // -------------------------------------------------------------------------
+
+  /** Puertas que el inquilino puede intentar abrir: dispositivos de los locales donde tiene contrato vivo. */
+  async listDoorsForCustomer(tenantId: string, customerId: string): Promise<PortalDoorDto[]> {
+    const contracts = await this.admin.contract.findMany({
+      where: { tenantId, customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+      select: { unit: { select: { facilityId: true } } },
+    });
+    const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
+    if (facilityIds.length === 0) return [];
+    const devices = await this.admin.accessDevice.findMany({
+      where: { tenantId, facilityId: { in: facilityIds }, isActive: true },
+      select: { id: true, name: true, facility: { select: { name: true } } },
+      orderBy: [{ name: 'asc' }],
+    });
+    return devices.map((d) => ({ id: d.id, name: d.name, facilityName: d.facility.name }));
+  }
+
+  /** El inquilino abre una puerta desde el portal (con sus credenciales activas). */
+  async openForCustomer(args: {
+    tenantId: string;
+    customerId: string;
+    deviceId: string;
+    ipAddress?: string | undefined;
+  }): Promise<PortalOpenDoorResultDto> {
+    const { tenantId, customerId, deviceId, ipAddress } = args;
+    const device = await this.admin.accessDevice.findFirst({
+      where: { id: deviceId, tenantId },
+    });
+    if (!device || !device.isActive) {
+      return { opened: false, message: 'Puerta no disponible.' };
+    }
+    // El inquilino solo puede abrir puertas de los locales donde tiene contrato vivo.
+    const hasContract = await this.admin.contract.count({
+      where: {
+        tenantId,
+        customerId,
+        status: { in: ['active', 'ending'] },
+        deletedAt: null,
+        unit: { facilityId: device.facilityId },
+      },
+    });
+    if (hasContract === 0) {
+      return { opened: false, message: 'No tienes un contrato en este local.' };
+    }
+    if (await this.rateLimit.isDeviceLocked(device.id)) {
+      return { opened: false, message: 'Demasiados intentos. Prueba en unos minutos.' };
+    }
+    const facility = await this.admin.facility.findUnique({
+      where: { id: device.facilityId },
+      select: {
+        timezone: true,
+        accessCurfewEnabled: true,
+        accessCurfewStart: true,
+        accessCurfewEnd: true,
+      },
+    });
+
+    const creds = (await this.admin.accessCredential.findMany({
+      where: {
+        tenantId,
+        customerId,
+        status: 'active' as AccessCredentialStatus,
+        method: { in: ['pin', 'qr'] as AccessMethod[] },
+      },
+      include: {
+        customer: {
+          select: { customerType: true, firstName: true, lastName: true, companyName: true },
+        },
+      },
+    })) as CredentialWithCustomer[];
+
+    if (creds.length === 0) {
+      await this.log({
+        tenantId,
+        deviceId: device.id,
+        credentialId: null,
+        customerId,
+        method: 'pin',
+        result: 'denied_inactive_credential',
+        attemptedValue: null,
+        reason: 'portal: sin credencial activa',
+        ipAddress,
+      });
+      return {
+        opened: false,
+        message:
+          'No tienes acceso activo. Si tienes un pago pendiente, tu acceso puede estar suspendido.',
+      };
+    }
+
+    // Elige la 1ª credencial que pase TODAS las validaciones; prefiere las que NO
+    // son de un solo uso (para no gastar un pase nocturno si hay una normal).
+    const ordered = [...creds].sort(
+      (a, b) => (a.maxUses == null ? 0 : 1) - (b.maxUses == null ? 0 : 1),
+    );
+    let chosen: CredentialWithCustomer | null = null;
+    let lastDenied: { result: AccessResultValue; reason: string } | null = null;
+    for (const c of ordered) {
+      const denied =
+        this.evaluateCredential(c, device) ??
+        checkAccessWindows(c, facility) ??
+        checkCurfew(facility, c);
+      if (!denied) {
+        chosen = c;
+        break;
+      }
+      lastDenied = denied;
+    }
+    if (!chosen) {
+      const d = lastDenied ?? {
+        result: 'denied_unknown' as AccessResultValue,
+        reason: 'No permitido',
+      };
+      await this.log({
+        tenantId,
+        deviceId: device.id,
+        credentialId: null,
+        customerId,
+        method: 'pin',
+        result: d.result,
+        attemptedValue: null,
+        reason: `portal: ${d.reason}`,
+        ipAddress,
+      });
+      return { opened: false, message: d.reason };
+    }
+
+    // Single-use (pase nocturno): reserva el uso ATÓMICAMENTE antes de abrir.
+    if (chosen.maxUses != null) {
+      const claim = await this.admin.accessCredential.updateMany({
+        where: { id: chosen.id, usesCount: { lt: chosen.maxUses } },
+        data: { usesCount: { increment: 1 } },
+      });
+      if (claim.count === 0) {
+        return { opened: false, message: 'Ese pase ya se ha utilizado.' };
+      }
+    }
+
+    const openResult = await this.lock.open({
+      tenantId,
+      deviceId: device.id,
+      mqttTopic: device.mqttTopic,
+      controlUrl: device.controlUrl,
+      controlSecret: device.controlSecretEncrypted
+        ? this.crypto.decryptString(device.controlSecretEncrypted)
+        : null,
+      customerId,
+    });
+    // Si la cerradura NO abrió y era single-use, devuelve el uso reservado.
+    if (!openResult.dispatched && chosen.maxUses != null) {
+      await this.admin.accessCredential.updateMany({
+        where: { id: chosen.id, usesCount: { gt: 0 } },
+        data: { usesCount: { decrement: 1 } },
+      });
+    }
+    await this.log({
+      tenantId,
+      deviceId: device.id,
+      credentialId: chosen.id,
+      customerId,
+      method: chosen.method as AccessMethodValue,
+      result: (openResult.dispatched ? 'allowed' : 'error') as AccessResultValue,
+      attemptedValue: null,
+      reason: openResult.dispatched
+        ? 'portal_open_by_customer'
+        : (openResult.message ?? 'lock_error'),
+      ipAddress,
+    });
+    if (openResult.dispatched) {
+      await this.rateLimit.reset(device.id, chosen.id);
+      await this.admin.accessDevice
+        .update({ where: { id: device.id }, data: { isOnline: true, lastSeenAt: new Date() } })
+        .catch(() => undefined);
+      return { opened: true, message: 'Abriendo la puerta…' };
+    }
+    return {
+      opened: false,
+      message: 'No se pudo abrir la puerta ahora mismo. Vuelve a intentarlo.',
     };
   }
 
