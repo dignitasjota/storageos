@@ -11,7 +11,7 @@ import { type AiCompletion, type AiMessageParam, AiProvider } from './ai-provide
 export class StubAiProvider extends AiProvider {
   readonly available = true;
 
-  createMessage(args: { messages: AiMessageParam[] }): Promise<AiCompletion> {
+  createMessage(args: { messages: AiMessageParam[]; tools?: unknown[] }): Promise<AiCompletion> {
     const last = args.messages[args.messages.length - 1];
 
     // Si el último mensaje trae resultados de herramienta → responde con texto.
@@ -28,7 +28,9 @@ export class StubAiProvider extends AiProvider {
     }
 
     const text = this.lastUserText(args.messages).toLowerCase();
-    const tool = this.pickTool(text);
+    // Sin herramientas disponibles (llamada single-shot, p. ej. sugerir respuesta)
+    // → nunca emite tool_use; responde directamente con texto.
+    const tool = args.tools && args.tools.length > 0 ? this.pickTool(text) : null;
     if (tool) {
       return Promise.resolve({
         stopReason: 'tool_use',

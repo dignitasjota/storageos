@@ -1,24 +1,37 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Send, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useSuggestReply } from '@/lib/ai/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature } from '@/lib/auth/hooks';
 import { useCustomerMessages, useSendCustomerMessage } from '@/lib/customers/hooks';
 
 export function CustomerChatTab({ customerId }: { customerId: string }) {
   const messages = useCustomerMessages(customerId);
   const send = useSendCustomerMessage(customerId);
+  const suggest = useSuggestReply();
+  const hasAi = useHasFeature('ai_assistant');
   const qc = useQueryClient();
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
   const items = messages.data ?? [];
+
+  async function suggestReply() {
+    try {
+      const res = await suggest.mutateAsync(customerId);
+      setText(res.suggestion);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo sugerir una respuesta.');
+    }
+  }
 
   // Al cargar el hilo se marcan leídos en el server → refrescamos el badge.
   useEffect(() => {
@@ -108,6 +121,21 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
             placeholder="Escribe una respuesta…"
             maxLength={5000}
           />
+          {hasAi && (
+            <Button
+              variant="outline"
+              onClick={suggestReply}
+              disabled={suggest.isPending}
+              title="Sugerir respuesta con IA"
+              aria-label="Sugerir respuesta con IA"
+            >
+              {suggest.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+            </Button>
+          )}
           <Button onClick={submit} disabled={send.isPending || !text.trim()} aria-label="Enviar">
             {send.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -116,6 +144,12 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
             )}
           </Button>
         </div>
+        {hasAi && (
+          <p className="text-[11px] text-muted-foreground">
+            <Sparkles className="mr-1 inline size-3" /> «Sugerir respuesta» redacta un borrador con
+            IA a partir del hilo; revísalo antes de enviar.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

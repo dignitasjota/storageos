@@ -7,6 +7,7 @@ import type {
   AiConversationDto,
   ChatInput,
   ChatResultDto,
+  SuggestReplyResultDto,
 } from '@storageos/shared';
 
 const listKey = ['ai', 'conversations'] as const;
@@ -36,6 +37,17 @@ export function useAiChat() {
       qc.invalidateQueries({ queryKey: listKey });
       qc.invalidateQueries({ queryKey: detailKey(data.conversationId) });
     },
+  });
+}
+
+/** Redacta (sin enviar) una respuesta para el chat con un inquilino. */
+export function useSuggestReply() {
+  return useMutation({
+    mutationFn: (customerId: string) =>
+      apiFetch<SuggestReplyResultDto>('/ai/suggest-reply', {
+        method: 'POST',
+        json: { customerId },
+      }),
   });
 }
 

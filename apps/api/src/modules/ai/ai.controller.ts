@@ -14,6 +14,8 @@ import {
   type AiConversationDto,
   ChatSchema,
   type ChatResultDto,
+  SuggestReplySchema,
+  type SuggestReplyResultDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -27,6 +29,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { AiService } from './ai.service';
 
 class ChatDto extends createZodDto(ChatSchema) {}
+class SuggestReplyDto extends createZodDto(SuggestReplySchema) {}
 
 @RequirePermission('ai:use')
 @Controller('ai')
@@ -38,6 +41,16 @@ export class AiController {
   @HttpCode(HttpStatus.OK)
   chat(@CurrentUser() user: AuthenticatedUser, @Body() body: ChatDto): Promise<ChatResultDto> {
     return this.ai.chat({ tenantId: user.tenantId, userId: user.sub, input: body });
+  }
+
+  /** Redacta (no envía) una respuesta sugerida para el chat con un inquilino. */
+  @Post('suggest-reply')
+  @HttpCode(HttpStatus.OK)
+  suggestReply(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: SuggestReplyDto,
+  ): Promise<SuggestReplyResultDto> {
+    return this.ai.suggestReply({ tenantId: user.tenantId, customerId: body.customerId });
   }
 
   @Get('conversations')
