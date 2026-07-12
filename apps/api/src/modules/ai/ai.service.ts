@@ -26,6 +26,14 @@ Cuando la pregunta requiera datos reales (ocupación, facturas vencidas, métric
 
 Responde en español, de forma concisa y profesional. Usa euros (€) y el formato español. Si no tienes datos suficientes, dilo claramente.`;
 
+const SUGGEST_REPLY_SYSTEM_PROMPT = `Eres un agente de atención al cliente de un negocio de self-storage (alquiler de trasteros). Redacta una respuesta breve, cordial y profesional EN ESPAÑOL para el inquilino, basada en la conversación y sus datos.
+
+Reglas:
+- No inventes cifras, fechas ni promesas que no estén en los datos aportados.
+- Si el inquilino pregunta algo que no puedes saber con los datos, ofrece ayuda y di que lo revisarás.
+- Tono humano y resolutivo. Sin florituras.
+- Devuelve SOLO el texto del mensaje (sin asunto, sin "Estimado", sin firma).`;
+
 const MAX_TOOL_ITERATIONS = 5;
 
 @Injectable()
@@ -125,6 +133,97 @@ export class AiService {
     }, tenantId);
 
     return { conversationId, message: this.messageDto(assistant) };
+  }
+
+  /**
+   * Redacta (sin enviar) una respuesta sugerida para el staff en el chat con un
+   * inquilino, a partir del hilo reciente + los datos del cliente (contratos,
+   * deuda). Single-shot (sin herramientas). El staff la revisa y envía.
+   */
+  async suggestReply(args: {
+    tenantId: string;
+    customerId: string;
+  }): Promise<{ suggestion: string }> {
+    if (!this.provider.available) {
+      throw new ServiceUnavailableException({
+        code: 'ai_not_configured',
+        message: 'El asistente IA no está configurado en este entorno',
+      });
+    }
+    const { tenantId, customerId } = args;
+    const ctx = await this.prisma.withTenant(async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, deletedAt: null },
+        select: { customerType: true, firstName: true, lastName: true, companyName: true },
+      });
+      if (!customer) {
+        throw new NotFoundException({
+          code: 'customer_not_found',
+          message: 'Cliente no encontrado',
+        });
+      }
+      const [contracts, invoices, messages] = await Promise.all([
+        tx.contract.findMany({
+          where: { customerId, status: { in: ['active', 'ending'] } },
+          select: {
+            priceMonthly: true,
+            unit: { select: { code: true, facility: { select: { name: true } } } },
+          },
+        }),
+        tx.invoice.findMany({
+          where: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          select: { total: true, amountPaid: true },
+        }),
+        tx.customerMessage.findMany({
+          where: { customerId },
+          orderBy: { createdAt: 'desc' },
+          take: 12,
+          select: { senderType: true, body: true },
+        }),
+      ]);
+      return { customer, contracts, invoices, thread: messages.reverse() };
+    }, tenantId);
+
+    const custName =
+      ctx.customer.customerType === 'business'
+        ? (ctx.customer.companyName ?? 'Cliente')
+        : [ctx.customer.firstName, ctx.customer.lastName].filter(Boolean).join(' ') || 'Cliente';
+    const debt = ctx.invoices.reduce(
+      (s, i) => s + Math.max(0, Number(i.total) - Number(i.amountPaid)),
+      0,
+    );
+    const contractsText =
+      ctx.contracts
+        .map(
+          (c) =>
+            `${c.unit?.code ?? '—'} (${c.unit?.facility?.name ?? '—'}) ${Number(c.priceMonthly)} €/mes`,
+        )
+        .join('; ') || 'ninguno';
+    const threadText =
+      ctx.thread
+        .map((m) => `${m.senderType === 'customer' ? 'Inquilino' : 'Nosotros'}: ${m.body}`)
+        .join('\n') || '(sin mensajes previos)';
+    const contextText = `Datos del inquilino:
+- Nombre: ${custName}
+- Contratos activos: ${contractsText}
+- Facturas pendientes: ${ctx.invoices.length}${debt > 0 ? ` (deuda ${Math.round(debt * 100) / 100} €)` : ''}
+
+Conversación reciente (la última línea del inquilino es a lo que respondemos):
+${threadText}
+
+Redacta la respuesta al inquilino:`;
+
+    const completion = await this.provider.createMessage({
+      system: SUGGEST_REPLY_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: contextText }],
+      tools: [],
+    });
+    const suggestion = completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    return { suggestion: suggestion || 'No he podido redactar una respuesta. Escríbela a mano.' };
   }
 
   async listConversations(tenantId: string, userId: string): Promise<AiConversationDto[]> {

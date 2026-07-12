@@ -30,3 +30,13 @@ export interface ChatResultDto {
   conversationId: string;
   message: AiMessageDto;
 }
+
+/** Sugerir una respuesta de staff en el chat con un inquilino (IA, no envía). */
+export const SuggestReplySchema = z.object({
+  customerId: z.string().uuid(),
+});
+export type SuggestReplyInput = z.infer<typeof SuggestReplySchema>;
+
+export interface SuggestReplyResultDto {
+  suggestion: string;
+}
