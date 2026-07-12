@@ -39,6 +39,7 @@ import { DataRetentionModule } from './modules/data-retention/data-retention.mod
 import { DatabaseModule } from './modules/database/database.module';
 import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FaqModule } from './modules/faq/faq.module';
 import { FilesModule } from './modules/files/files.module';
@@ -166,6 +167,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     CustomerMessagesModule,
     InboundMessagesModule,
     CollectionsModule,
+    ExpensesModule,
     PlanLimitsModule,
     FaqModule,
     ContractsModule,

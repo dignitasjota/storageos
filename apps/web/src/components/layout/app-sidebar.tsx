@@ -27,6 +27,7 @@ import {
   MessageSquare,
   Package,
   PackagePlus,
+  Receipt,
   Replace,
   Settings,
   Shield,
@@ -196,6 +197,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/invoices', labelKey: 'invoices', icon: CreditCard, permission: 'invoices:read' },
       { href: '/cash', labelKey: 'cash', icon: Wallet, permission: 'payments:read' },
+      { href: '/expenses', labelKey: 'expenses', icon: Receipt, permission: 'expenses:read' },
       {
         href: 'billing-bank',
         labelKey: 'billingBank',
