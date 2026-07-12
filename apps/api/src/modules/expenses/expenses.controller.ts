@@ -11,7 +11,12 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { CreateExpenseSchema, UpdateExpenseSchema } from '@storageos/shared';
+import {
+  CreateExpenseSchema,
+  CreateRecurringExpenseSchema,
+  UpdateExpenseSchema,
+  UpdateRecurringExpenseSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -20,10 +25,12 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { ExpensesService } from './expenses.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import type { ExpenseDto, ProfitLossDto } from '@storageos/shared';
+import type { ExpenseDto, ProfitLossDto, RecurringExpenseDto } from '@storageos/shared';
 
 class CreateExpenseDto extends createZodDto(CreateExpenseSchema) {}
 class UpdateExpenseDto extends createZodDto(UpdateExpenseSchema) {}
+class CreateRecurringExpenseDto extends createZodDto(CreateRecurringExpenseSchema) {}
+class UpdateRecurringExpenseDto extends createZodDto(UpdateRecurringExpenseSchema) {}
 
 @Controller('expenses')
 export class ExpensesController {
@@ -55,6 +62,50 @@ export class ExpensesController {
     @Query('to') to: string,
   ): Promise<ProfitLossDto> {
     return this.expenses.getProfitLoss(user.tenantId, from, to);
+  }
+
+  // ---- gastos recurrentes (plantillas) ----
+
+  @RequirePermission('expenses:read')
+  @Get('recurring')
+  listRecurring(@CurrentUser() user: AuthenticatedUser): Promise<RecurringExpenseDto[]> {
+    return this.expenses.listRecurring(user.tenantId);
+  }
+
+  @RequirePermission('expenses:manage')
+  @Post('recurring')
+  createRecurring(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateRecurringExpenseDto,
+  ): Promise<RecurringExpenseDto> {
+    return this.expenses.createRecurring(user.tenantId, user.sub, body);
+  }
+
+  /** Genera ya los gastos recurrentes vencidos de este tenant (sin esperar al cron). */
+  @RequirePermission('expenses:manage')
+  @Post('recurring/run')
+  runRecurring(@CurrentUser() user: AuthenticatedUser): Promise<{ created: number }> {
+    return this.expenses.generateForTenant(user.tenantId);
+  }
+
+  @RequirePermission('expenses:manage')
+  @Patch('recurring/:id')
+  updateRecurring(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateRecurringExpenseDto,
+  ): Promise<RecurringExpenseDto> {
+    return this.expenses.updateRecurring(user.tenantId, id, body);
+  }
+
+  @RequirePermission('expenses:manage')
+  @Delete('recurring/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeRecurring(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    await this.expenses.removeRecurring(user.tenantId, id);
   }
 
   @RequirePermission('expenses:manage')

@@ -4,9 +4,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
   CreateExpenseInput,
+  CreateRecurringExpenseInput,
   ExpenseDto,
   ProfitLossDto,
+  RecurringExpenseDto,
   UpdateExpenseInput,
+  UpdateRecurringExpenseInput,
 } from '@storageos/shared';
 
 import { apiFetch } from '@/lib/auth/api';
@@ -62,5 +65,52 @@ export function useDeleteExpense() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/expenses/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+  });
+}
+
+// --- recurrentes ---
+const recurringKey = ['expenses', 'recurring'] as const;
+
+export function useRecurringExpenses() {
+  return useQuery({
+    queryKey: recurringKey,
+    queryFn: () => apiFetch<RecurringExpenseDto[]>('/expenses/recurring'),
+  });
+}
+
+export function useCreateRecurringExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateRecurringExpenseInput) =>
+      apiFetch<RecurringExpenseDto>('/expenses/recurring', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: recurringKey }),
+  });
+}
+
+export function useUpdateRecurringExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; input: UpdateRecurringExpenseInput }) =>
+      apiFetch<RecurringExpenseDto>(`/expenses/recurring/${args.id}`, {
+        method: 'PATCH',
+        json: args.input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: recurringKey }),
+  });
+}
+
+export function useDeleteRecurringExpense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/expenses/recurring/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: recurringKey }),
+  });
+}
+
+export function useRunRecurringExpenses() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ created: number }>('/expenses/recurring/run', { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['expenses'] }),
   });
 }

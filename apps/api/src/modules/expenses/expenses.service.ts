@@ -1,15 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
 import type {
   CreateExpenseInput,
+  CreateRecurringExpenseInput,
   ExpenseCategory,
   ExpenseDto,
   ProfitLossDto,
   ProfitLossRowDto,
+  RecurringExpenseDto,
   UpdateExpenseInput,
+  UpdateRecurringExpenseInput,
 } from '@storageos/shared';
 
 const num = (d: Prisma.Decimal | number): number => Number(d);
@@ -28,9 +32,27 @@ type ExpenseRow = {
   facility: { name: string } | null;
 };
 
+type RecurringRow = {
+  id: string;
+  facilityId: string | null;
+  category: string;
+  description: string;
+  amount: Prisma.Decimal;
+  dayOfMonth: number;
+  active: boolean;
+  lastGeneratedMonth: Date | null;
+  createdAt: Date;
+  facility: { name: string } | null;
+};
+
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ExpensesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
+  ) {}
 
   async list(
     tenantId: string,
@@ -196,6 +218,161 @@ export class ExpensesService {
 
       return { from, to, rows, totals, byCategory };
     }, tenantId);
+  }
+
+  // ---- gastos recurrentes (plantillas) ----
+
+  async listRecurring(tenantId: string): Promise<RecurringExpenseDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.recurringExpense.findMany({
+        include: { facility: { select: { name: true } } },
+        orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
+      });
+      return rows.map((r) => this.toRecurringDto(r));
+    }, tenantId);
+  }
+
+  async createRecurring(
+    tenantId: string,
+    userId: string | null,
+    input: CreateRecurringExpenseInput,
+  ): Promise<RecurringExpenseDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.recurringExpense.create({
+        data: {
+          tenantId,
+          facilityId: input.facilityId ?? null,
+          category: input.category,
+          description: input.description,
+          amount: input.amount,
+          dayOfMonth: input.dayOfMonth,
+          active: input.active,
+          createdByUserId: userId,
+        },
+        include: { facility: { select: { name: true } } },
+      });
+      return this.toRecurringDto(row);
+    }, tenantId);
+  }
+
+  async updateRecurring(
+    tenantId: string,
+    id: string,
+    input: UpdateRecurringExpenseInput,
+  ): Promise<RecurringExpenseDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const existing = await tx.recurringExpense.findFirst({ where: { id }, select: { id: true } });
+      if (!existing)
+        throw new NotFoundException({ code: 'recurring_not_found', message: 'No encontrado' });
+      const data: Prisma.RecurringExpenseUpdateInput = {};
+      if (input.facilityId !== undefined)
+        data.facility = input.facilityId
+          ? { connect: { id: input.facilityId } }
+          : { disconnect: true };
+      if (input.category !== undefined) data.category = input.category;
+      if (input.description !== undefined) data.description = input.description;
+      if (input.amount !== undefined) data.amount = input.amount;
+      if (input.dayOfMonth !== undefined) data.dayOfMonth = input.dayOfMonth;
+      if (input.active !== undefined) data.active = input.active;
+      const row = await tx.recurringExpense.update({
+        where: { id },
+        data,
+        include: { facility: { select: { name: true } } },
+      });
+      return this.toRecurringDto(row);
+    }, tenantId);
+  }
+
+  async removeRecurring(tenantId: string, id: string): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.recurringExpense.findFirst({ where: { id }, select: { id: true } });
+      if (!existing)
+        throw new NotFoundException({ code: 'recurring_not_found', message: 'No encontrado' });
+      await tx.recurringExpense.delete({ where: { id } });
+    }, tenantId);
+  }
+
+  /**
+   * Genera los gastos de las plantillas recurrentes vencidas de un tenant: por
+   * cada plantilla activa cuyo `dayOfMonth` ya llegó este mes y que no se ha
+   * generado aún este mes, crea el `expense` y avanza `lastGeneratedMonth`.
+   * Idempotente (dedup por `lastGeneratedMonth`).
+   */
+  async generateForTenant(tenantId: string, now = new Date()): Promise<{ created: number }> {
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const day = now.getUTCDate();
+    return this.prisma.withTenant(async (tx) => {
+      const due = await tx.recurringExpense.findMany({
+        where: {
+          active: true,
+          dayOfMonth: { lte: day },
+          OR: [{ lastGeneratedMonth: null }, { lastGeneratedMonth: { lt: monthStart } }],
+        },
+      });
+      let created = 0;
+      for (const r of due) {
+        const expenseDate = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), r.dayOfMonth),
+        );
+        await tx.expense.create({
+          data: {
+            tenantId,
+            facilityId: r.facilityId,
+            category: r.category,
+            description: r.description,
+            amount: r.amount,
+            expenseDate,
+            notes: 'Generado automáticamente (gasto recurrente)',
+          },
+        });
+        await tx.recurringExpense.update({
+          where: { id: r.id },
+          data: { lastGeneratedMonth: monthStart },
+        });
+        created += 1;
+      }
+      return { created };
+    }, tenantId);
+  }
+
+  /** Cron: genera los gastos recurrentes vencidos de TODOS los tenants. */
+  async generateDueAll(): Promise<{ tenants: number; created: number }> {
+    const tenants = await this.admin.recurringExpense.findMany({
+      where: { active: true },
+      select: { tenantId: true },
+      distinct: ['tenantId'],
+    });
+    let created = 0;
+    for (const t of tenants) {
+      try {
+        const res = await this.generateForTenant(t.tenantId);
+        created += res.created;
+      } catch (err) {
+        this.logger.warn(
+          `Gastos recurrentes del tenant ${t.tenantId} fallaron: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    return { tenants: tenants.length, created };
+  }
+
+  private toRecurringDto(r: RecurringRow): RecurringExpenseDto {
+    return {
+      id: r.id,
+      facilityId: r.facilityId,
+      facilityName: r.facility?.name ?? null,
+      category: r.category as ExpenseCategory,
+      description: r.description,
+      amount: num(r.amount),
+      dayOfMonth: r.dayOfMonth,
+      active: r.active,
+      lastGeneratedMonth: r.lastGeneratedMonth
+        ? r.lastGeneratedMonth.toISOString().slice(0, 10)
+        : null,
+      createdAt: r.createdAt.toISOString(),
+    };
   }
 
   private toDto(r: ExpenseRow): ExpenseDto {
