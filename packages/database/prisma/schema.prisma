@@ -326,6 +326,8 @@ model Tenant {
   /// Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas
   /// en borrador para revisión manual.
   autoIssueRecurring          Boolean               @default(false) @map("auto_issue_recurring")
+  /// Informe mensual por email al operador (ocupación/ingresos/morosidad/altas/leads). Opt-in.
+  monthlyDigestEnabled        Boolean               @default(false) @map("monthly_digest_enabled")
   /// Recargo por mora (opt-in): a los `lateFeeGraceDays` de vencimiento se
   /// emite una factura de recargo (% del vencido o € fijo) vía el dunning.
   lateFeeEnabled              Boolean               @default(false) @map("late_fee_enabled")
