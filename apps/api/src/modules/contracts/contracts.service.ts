@@ -535,7 +535,7 @@ export class ContractsService {
         });
         await tx.contract.update({
           where: { id: args.contractId },
-          data: { signedTermsText: termsText },
+          data: { signedTermsText: termsText, signedClausesText: renderedClauses },
         });
 
         // Registro probatorio de la firma electrónica simple.

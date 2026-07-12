@@ -1107,6 +1107,10 @@ model Contract {
   /// ya renderizadas). Congela lo firmado: editar la plantilla luego NO cambia el
   /// PDF ni la prueba de este contrato. Null en contratos sin firmar.
   signedTermsText        String?               @map("signed_terms_text")
+  /// Snapshot SOLO de las cláusulas particulares renderizadas que se firmaron
+  /// (subconjunto de `signedTermsText`). El PDF lo usa para mostrar las cláusulas
+  /// exactas de un contrato firmado aunque la plantilla del tenant cambie luego.
+  signedClausesText      String?               @map("signed_clauses_text")
   /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
   signingTokenHash       String?               @map("signing_token_hash")
   signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)

@@ -107,7 +107,22 @@ export class ContractPdfService implements OnModuleDestroy {
         }),
       args.tenantId,
     );
-    const html = this.renderHtml({ contract, tenant, customer });
+    // Snapshot de las cláusulas firmadas (si el contrato ya se firmó con cláusulas
+    // propias): el PDF muestra EXACTAMENTE lo firmado, no la plantilla vigente.
+    const signed = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findUnique({
+          where: { id: contract.id },
+          select: { signedClausesText: true },
+        }),
+      args.tenantId,
+    );
+    const html = this.renderHtml({
+      contract,
+      tenant,
+      customer,
+      signedClausesText: signed?.signedClausesText ?? null,
+    });
 
     const browser = await this.getBrowser();
     const page = await browser.newPage();
@@ -172,6 +187,8 @@ export class ContractPdfService implements OnModuleDestroy {
       taxId: string | null;
       contractClauses: string | null;
     };
+    /** Snapshot de las cláusulas firmadas (contratos ya firmados con cláusulas propias). */
+    signedClausesText?: string | null;
     customer: {
       firstName: string | null;
       lastName: string | null;
@@ -209,23 +226,26 @@ export class ContractPdfService implements OnModuleDestroy {
         (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!,
       );
 
-    // Condiciones: si el tenant definió cláusulas propias, se renderizan con las
-    // variables del contrato y sustituyen a las 5 cláusulas por defecto. El texto
-    // legalmente firmado (prueba) es la firma electrónica + su hash; este PDF
-    // refleja la plantilla vigente.
-    const customClauses = args.tenant.contractClauses
-      ? renderContractClauses(args.tenant.contractClauses, {
-          contractNumber: c.contractNumber,
-          customerName,
-          unitCode: c.unitCode,
-          facilityName: c.facilityName,
-          priceMonthly: formatEur(c.priceMonthly),
-          depositAmount: formatEur(c.depositAmount),
-          startDate: formatDate(c.startDate),
-          cancellationNoticeDays: String(c.cancellationNoticeDays),
-          tenantName: args.tenant.name,
-        })
-      : null;
+    // Condiciones: si el contrato YA se firmó con cláusulas propias, se usa el
+    // snapshot congelado (`signedClausesText`) → el PDF muestra exactamente lo
+    // firmado aunque la plantilla haya cambiado. Si aún es borrador, se renderiza
+    // la plantilla vigente del tenant. En ambos casos sustituyen a las cláusulas
+    // por defecto.
+    const customClauses =
+      args.signedClausesText ??
+      (args.tenant.contractClauses
+        ? renderContractClauses(args.tenant.contractClauses, {
+            contractNumber: c.contractNumber,
+            customerName,
+            unitCode: c.unitCode,
+            facilityName: c.facilityName,
+            priceMonthly: formatEur(c.priceMonthly),
+            depositAmount: formatEur(c.depositAmount),
+            startDate: formatDate(c.startDate),
+            cancellationNoticeDays: String(c.cancellationNoticeDays),
+            tenantName: args.tenant.name,
+          })
+        : null);
     const conditionsHtml = customClauses
       ? `<div style="white-space: pre-wrap;">${esc(customClauses)}</div>`
       : `<ol>

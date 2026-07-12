@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { SaasPaymentProviderValue } from '@storageos/shared';
@@ -161,64 +161,86 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((p) => (
-                    <tr key={p.id} className="border-t">
-                      <td className="p-2 whitespace-nowrap">{fmtDate(p.paidAt ?? p.createdAt)}</td>
-                      <td className="p-2">{PROVIDER_LABELS[p.provider] ?? p.provider}</td>
-                      <td className="p-2 text-xs text-muted-foreground">
-                        {fmtPeriod(p.periodStart, p.periodEnd)}
-                      </td>
-                      <td className="p-2">{p.planName ?? p.planSlug ?? '—'}</td>
-                      <td className="p-2 text-right tabular-nums">
-                        {fmtMoney(p.amount, p.currency)}
-                        {p.discount ? (
-                          <span className="block text-xs text-muted-foreground">
-                            −{fmtMoney(p.discount, p.currency)} desc.
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="p-2">{STATUS_LABELS[p.status] ?? p.status}</td>
-                      <td className="space-x-2 p-2">
-                        {p.invoiceUrl && (
-                          <a
-                            href={p.invoiceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                          >
-                            Stripe
-                          </a>
-                        )}
-                        {(() => {
-                          const inv = invoiceByPayment.get(p.id);
-                          if (inv) {
-                            return (
-                              <button
-                                type="button"
+                  {rows.map((p) => {
+                    const inv = invoiceByPayment.get(p.id);
+                    const lines = inv?.lines ?? [];
+                    return (
+                      <Fragment key={p.id}>
+                        <tr className="border-t">
+                          <td className="p-2 whitespace-nowrap">
+                            {fmtDate(p.paidAt ?? p.createdAt)}
+                          </td>
+                          <td className="p-2">{PROVIDER_LABELS[p.provider] ?? p.provider}</td>
+                          <td className="p-2 text-xs text-muted-foreground">
+                            {fmtPeriod(p.periodStart, p.periodEnd)}
+                          </td>
+                          <td className="p-2">{p.planName ?? p.planSlug ?? '—'}</td>
+                          <td className="p-2 text-right tabular-nums">
+                            {fmtMoney(p.amount, p.currency)}
+                            {p.discount ? (
+                              <span className="block text-xs text-muted-foreground">
+                                −{fmtMoney(p.discount, p.currency)} desc.
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="p-2">{STATUS_LABELS[p.status] ?? p.status}</td>
+                          <td className="space-x-2 p-2">
+                            {p.invoiceUrl && (
+                              <a
+                                href={p.invoiceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="text-primary hover:underline"
-                                onClick={() => onDownload(inv.id)}
                               >
-                                {inv.fullNumber}
-                              </button>
-                            );
-                          }
-                          if (p.status === 'paid') {
-                            return (
-                              <button
-                                type="button"
-                                className="text-muted-foreground hover:underline"
-                                disabled={issueInvoice.isPending}
-                                onClick={() => onIssue(p.id)}
-                              >
-                                Emitir
-                              </button>
-                            );
-                          }
-                          return !p.invoiceUrl ? '—' : null;
-                        })()}
-                      </td>
-                    </tr>
-                  ))}
+                                Stripe
+                              </a>
+                            )}
+                            {(() => {
+                              if (inv) {
+                                return (
+                                  <button
+                                    type="button"
+                                    className="text-primary hover:underline"
+                                    onClick={() => onDownload(inv.id)}
+                                  >
+                                    {inv.fullNumber}
+                                  </button>
+                                );
+                              }
+                              if (p.status === 'paid') {
+                                return (
+                                  <button
+                                    type="button"
+                                    className="text-muted-foreground hover:underline"
+                                    disabled={issueInvoice.isPending}
+                                    onClick={() => onIssue(p.id)}
+                                  >
+                                    Emitir
+                                  </button>
+                                );
+                              }
+                              return !p.invoiceUrl ? '—' : null;
+                            })()}
+                          </td>
+                        </tr>
+                        {lines.length > 1 && (
+                          <tr className="bg-muted/20 text-xs text-muted-foreground">
+                            <td className="px-2 pb-2" colSpan={7}>
+                              <span className="mr-2 font-medium">Desglose:</span>
+                              {lines.map((l, idx) => (
+                                <span key={l.id} className="whitespace-nowrap">
+                                  {idx > 0 && ' · '}
+                                  {l.description}
+                                  {l.quantity > 1 && ` ×${l.quantity}`} (
+                                  {fmtMoney(l.total, inv?.currency ?? p.currency)})
+                                </span>
+                              ))}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
