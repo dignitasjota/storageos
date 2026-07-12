@@ -63,6 +63,8 @@ export const Permissions = [
   'insurance:manage', // crear/editar planes de seguro (owner+manager)
   'collections:read',
   'collections:manage', // gestionar expedientes de impago (owner+manager)
+  'expenses:read',
+  'expenses:manage', // registrar/editar gastos (owner+manager, contabilidad)
   'referrals:read',
   'access:read',
   'access:manage',

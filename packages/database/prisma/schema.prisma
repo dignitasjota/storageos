@@ -460,6 +460,7 @@ model Tenant {
   inspectionPhotos        ContractInspectionPhoto[]
   delinquencyCases        DelinquencyCase[]
   retentionOffers         RetentionOffer[]
+  expenses                Expense[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
@@ -531,6 +532,7 @@ model User {
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
   retentionOffers          RetentionOffer[]
+  expenses                 Expense[]
   delinquencyCaseEvents    DelinquencyCaseEvent[]    @relation("DelinquencyCaseEventCreatedBy")
   delinquencyCaseFiles     DelinquencyCaseFile[]     @relation("DelinquencyCaseFileCreatedBy")
 
@@ -834,6 +836,7 @@ model Facility {
   accessDevices        AccessDevice[]       @relation("DeviceFacility")
   userFacilities       UserFacility[]
   cashClosures         CashClosure[]
+  expenses             Expense[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -1174,6 +1177,32 @@ model RetentionOffer {
   @@index([tenantId, contractId])
   @@index([tenantId, customerId])
   @@map("retention_offers")
+}
+
+/// Gasto del operador (para la cuenta de resultados / P&L por local). Anclado a
+/// un local (`facilityId`) o general de la empresa (null).
+model Expense {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  facilityId      String?  @map("facility_id") @db.Uuid
+  /// rent | utilities | staff | maintenance | marketing | insurance | supplies | taxes | other
+  category        String   @default("other")
+  description     String
+  amount          Decimal  @db.Decimal(12, 2)
+  expenseDate     DateTime @map("expense_date") @db.Date
+  vendor          String?
+  notes           String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, expenseDate(sort: Desc)])
+  @@index([tenantId, facilityId])
+  @@map("expenses")
 }
 
 /// Foto del estado del trastero en una inspección (check-in o check-out) —
