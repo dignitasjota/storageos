@@ -77,6 +77,7 @@ import { RgpdModule } from './modules/rgpd/rgpd.module';
 import { SearchModule } from './modules/search/search.module';
 import { SecurityEventsModule } from './modules/security-events/security-events.module';
 import { SepaModule } from './modules/sepa/sepa.module';
+import { TenantDigestModule } from './modules/tenant-digest/tenant-digest.module';
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UnitChangesModule } from './modules/unit-changes/unit-changes.module';
@@ -168,6 +169,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     InboundMessagesModule,
     CollectionsModule,
     ExpensesModule,
+    TenantDigestModule,
     PlanLimitsModule,
     FaqModule,
     ContractsModule,

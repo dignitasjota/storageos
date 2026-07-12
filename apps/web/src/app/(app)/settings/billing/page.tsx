@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 
 import { GoCardlessCard } from './gocardless-card';
 import { HoldedCard } from './holded-card';
+import { MonthlyDigestCard } from './monthly-digest-card';
 import { RedsysCard } from './redsys-card';
 
 import { DataTable } from '@/components/data-table';
@@ -139,6 +140,7 @@ export default function BillingSettingsPage() {
       <AutoChargeRetryCard />
       <AutoIssueCard />
       <LateFeeCard />
+      <MonthlyDigestCard />
       <SepaSettingsCard />
 
       <HoldedCard />

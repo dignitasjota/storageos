@@ -219,6 +219,12 @@ export const UpdateTenantReviewsSettingsSchema = z.object({
 });
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
 
+/** Informe mensual por email al operador (opt-in). */
+export const UpdateMonthlyDigestSchema = z.object({
+  enabled: z.boolean(),
+});
+export type UpdateMonthlyDigestInput = z.infer<typeof UpdateMonthlyDigestSchema>;
+
 /** White-label del portal del inquilino: color de marca (hex) + URL del logo. */
 /**
  * Nombre de host de un dominio propio: sin esquema, puerto ni ruta; al menos un

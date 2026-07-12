@@ -160,6 +160,15 @@ export interface TenantReviewsSettingsResponse {
   googleReviewUrl: string | null;
 }
 
+export interface TenantMonthlyDigestSettingsResponse {
+  enabled: boolean;
+}
+
+export interface TenantMonthlyDigestResultDto {
+  sent: boolean;
+  recipients: number;
+}
+
 export interface TenantBrandingResponse {
   portalBrandColor: string | null;
   portalLogoUrl: string | null;
