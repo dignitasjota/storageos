@@ -1,4 +1,11 @@
-import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 
@@ -16,6 +23,9 @@ import type {
   AiMessageDto,
   ChatInput,
   ChatResultDto,
+  PortalAiChatInput,
+  PortalAiChatResultDto,
+  TenantFeature,
 } from '@storageos/shared';
 
 const SYSTEM_PROMPT = `Eres el asistente de StorageOS, un SaaS de gestión de self-storage (trasteros), integrado en el panel del equipo de un negocio.
@@ -33,6 +43,14 @@ Reglas:
 - Si el inquilino pregunta algo que no puedes saber con los datos, ofrece ayuda y di que lo revisarás.
 - Tono humano y resolutivo. Sin florituras.
 - Devuelve SOLO el texto del mensaje (sin asunto, sin "Estimado", sin firma).`;
+
+const PORTAL_ASSISTANT_SYSTEM_PROMPT = `Eres el asistente virtual del portal de un inquilino de un negocio de self-storage (alquiler de trasteros). Ayudas al inquilino a resolver dudas sobre SU cuenta.
+
+Reglas ESTRICTAS:
+- Responde SOLO con la información de las «Preguntas frecuentes» y los «Datos del inquilino» que se te dan. NUNCA inventes precios, fechas, importes ni políticas.
+- NUNCA reveles datos de otros clientes ni información interna del negocio.
+- Si la duda no se puede resolver con lo dado (p. ej. requiere una gestión o una decisión), dile amablemente que escriba a su gestor desde la pestaña «Mensajes» del portal.
+- Español, tono cercano y breve. Devuelve SOLO el texto de la respuesta.`;
 
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -224,6 +242,131 @@ Redacta la respuesta al inquilino:`;
       .join('')
       .trim();
     return { suggestion: suggestion || 'No he podido redactar una respuesta. Escríbela a mano.' };
+  }
+
+  /** ¿El tenant tiene la feature `ai_assistant` (plan + overrides)? */
+  async isAiEnabled(tenantId: string): Promise<boolean> {
+    if (!this.provider.available) return false;
+    return this.prisma.withTenant(async (tx) => {
+      const [subscription, overrides] = await Promise.all([
+        tx.tenantSubscription.findUnique({
+          where: { tenantId },
+          include: { plan: { select: { slug: true, tenantFeatures: true } } },
+        }),
+        tx.tenantFeatureOverride.findMany({ select: { feature: true, enabled: true } }),
+      ]);
+      const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
+      const features = effectiveFeaturesFromList(
+        base,
+        overrides as { feature: TenantFeature; enabled: boolean }[],
+      );
+      return features.includes('ai_assistant');
+    }, tenantId);
+  }
+
+  /**
+   * Chatbot de autoservicio del PORTAL del inquilino: responde con la FAQ del
+   * negocio + los datos del PROPIO inquilino (contratos, deuda). Single-shot,
+   * sin herramientas (no accede a datos de otros clientes). Si no puede, deriva
+   * a «Mensajes». No persiste (el hilo lo mantiene el cliente).
+   */
+  async portalAnswer(args: {
+    tenantId: string;
+    customerId: string;
+    input: PortalAiChatInput;
+  }): Promise<PortalAiChatResultDto> {
+    if (!this.provider.available) {
+      throw new ServiceUnavailableException({
+        code: 'ai_not_configured',
+        message: 'El asistente no está disponible',
+      });
+    }
+    const { tenantId, customerId, input } = args;
+    if (!(await this.isAiEnabled(tenantId))) {
+      throw new ForbiddenException({
+        code: 'feature_not_in_plan',
+        message: 'El asistente no está activo',
+      });
+    }
+    const ctx = await this.prisma.withTenant(async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, deletedAt: null },
+        select: { customerType: true, firstName: true, lastName: true, companyName: true },
+      });
+      if (!customer) {
+        throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
+      }
+      const [tenant, faqs, contracts, invoices] = await Promise.all([
+        tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+        tx.faqEntry.findMany({
+          where: { isPublished: true },
+          orderBy: { position: 'asc' },
+          select: { question: true, answer: true },
+          take: 50,
+        }),
+        tx.contract.findMany({
+          where: { customerId, status: { in: ['active', 'ending'] } },
+          select: {
+            priceMonthly: true,
+            unit: { select: { code: true, facility: { select: { name: true } } } },
+          },
+        }),
+        tx.invoice.findMany({
+          where: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          select: { total: true, amountPaid: true, dueDate: true, status: true },
+        }),
+      ]);
+      return { customer, tenant, faqs, contracts, invoices };
+    }, tenantId);
+
+    const custName =
+      ctx.customer.customerType === 'business'
+        ? (ctx.customer.companyName ?? 'Cliente')
+        : [ctx.customer.firstName, ctx.customer.lastName].filter(Boolean).join(' ') || 'Cliente';
+    const debt = ctx.invoices.reduce(
+      (s, i) => s + Math.max(0, Number(i.total) - Number(i.amountPaid)),
+      0,
+    );
+    const faqText =
+      ctx.faqs.map((f, i) => `${i + 1}. P: ${f.question}\n   R: ${f.answer}`).join('\n') ||
+      '(sin preguntas frecuentes)';
+    const contractsText =
+      ctx.contracts
+        .map(
+          (c) =>
+            `Trastero ${c.unit?.code ?? '—'} en ${c.unit?.facility?.name ?? '—'}, ${Number(c.priceMonthly)} €/mes`,
+        )
+        .join('; ') || 'ninguno';
+    const system = `${PORTAL_ASSISTANT_SYSTEM_PROMPT}
+
+Negocio: ${ctx.tenant?.name ?? 'el operador'}.
+
+Preguntas frecuentes:
+${faqText}
+
+Datos del inquilino (${custName}):
+- Trasteros activos: ${contractsText}
+- Facturas pendientes: ${ctx.invoices.length}${debt > 0 ? ` (importe pendiente ${Math.round(debt * 100) / 100} €)` : ''}`;
+
+    const history = (input.history ?? []).slice(-10).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    const completion = await this.provider.createMessage({
+      system,
+      messages: [...history, { role: 'user', content: input.message }],
+      tools: [],
+    });
+    const answer = completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    return {
+      answer:
+        answer ||
+        'No he podido resolver tu duda. Escríbenos desde la pestaña «Mensajes» y te ayudamos.',
+    };
   }
 
   async listConversations(tenantId: string, userId: string): Promise<AiConversationDto[]> {

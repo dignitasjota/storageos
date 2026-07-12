@@ -40,3 +40,23 @@ export type SuggestReplyInput = z.infer<typeof SuggestReplySchema>;
 export interface SuggestReplyResultDto {
   suggestion: string;
 }
+
+/** Chatbot de autoservicio del portal del inquilino. */
+export const PortalAiChatSchema = z.object({
+  message: z.string().trim().min(1).max(2000),
+  /** Historial reciente (lo mantiene el cliente; no se persiste). */
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().max(4000),
+      }),
+    )
+    .max(12)
+    .optional(),
+});
+export type PortalAiChatInput = z.infer<typeof PortalAiChatSchema>;
+
+export interface PortalAiChatResultDto {
+  answer: string;
+}
