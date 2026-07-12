@@ -55,6 +55,34 @@ export interface ExpenseDto {
   createdAt: string;
 }
 
+// --- Gastos recurrentes (plantilla mensual) ---
+export const CreateRecurringExpenseSchema = z.object({
+  facilityId: z.string().uuid().nullish(),
+  category: ExpenseCategoryEnum.default('other'),
+  description: z.string().trim().min(1).max(300),
+  amount: z.number().positive().finite(),
+  /** Día del mes (1-28) en que se imputa el gasto generado. */
+  dayOfMonth: z.number().int().min(1).max(28).default(1),
+  active: z.boolean().default(true),
+});
+export type CreateRecurringExpenseInput = z.infer<typeof CreateRecurringExpenseSchema>;
+
+export const UpdateRecurringExpenseSchema = CreateRecurringExpenseSchema.partial();
+export type UpdateRecurringExpenseInput = z.infer<typeof UpdateRecurringExpenseSchema>;
+
+export interface RecurringExpenseDto {
+  id: string;
+  facilityId: string | null;
+  facilityName: string | null;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  dayOfMonth: number;
+  active: boolean;
+  lastGeneratedMonth: string | null;
+  createdAt: string;
+}
+
 // --- Cuenta de resultados (P&L) por local ---
 export interface ProfitLossRowDto {
   /** null = gastos generales sin local asignado. */
