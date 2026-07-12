@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
 import { AccessModule } from '../access/access.module';
+import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { ContractsModule } from '../contracts/contracts.module';
@@ -59,6 +60,7 @@ import { PortalService } from './portal.service';
     CustomerMessagesModule,
     // FaqModule: centro de ayuda (preguntas frecuentes).
     FaqModule,
+    AiModule,
   ],
   controllers: [PortalController, PortalLinkController],
   // CustomerDocumentsService se PROVEE aquí (sus deps —Prisma/Files globales,

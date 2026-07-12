@@ -39,6 +39,8 @@ import {
   type CustomerDocumentUploadDto,
   type CustomerMessageDto,
   type FaqEntryDto,
+  PortalAiChatSchema,
+  type PortalAiChatResultDto,
   RegisterCustomerDocumentSchema,
   RequestCustomerDocumentUploadSchema,
   type InsurancePlanDto,
@@ -68,6 +70,7 @@ import { createZodDto } from 'nestjs-zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
+import { AiService } from '../ai/ai.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
@@ -94,6 +97,7 @@ class PortalGoCardlessMandateCompleteDto extends createZodDto(
 ) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
+class PortalAiChatDto extends createZodDto(PortalAiChatSchema) {}
 class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
@@ -125,6 +129,7 @@ export class PortalController {
     private readonly faq: FaqService,
     private readonly documents: CustomerDocumentsService,
     private readonly retention: RetentionService,
+    private readonly ai: AiService,
   ) {}
 
   @Public()
@@ -158,6 +163,28 @@ export class PortalController {
   async myFaq(@Headers('authorization') auth: string | undefined): Promise<FaqEntryDto[]> {
     const { tenantId } = await this.requirePortalSession(auth);
     return this.faq.listPublished(tenantId);
+  }
+
+  /** ¿El asistente virtual está disponible para este inquilino? */
+  @Public()
+  @Get('me/ai-enabled')
+  async myAiEnabled(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<{ enabled: boolean }> {
+    const { tenantId } = await this.requirePortalSession(auth);
+    return { enabled: await this.ai.isAiEnabled(tenantId) };
+  }
+
+  /** Chatbot de autoservicio del portal: responde con la FAQ + los datos del inquilino. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/ai-chat')
+  async myAiChat(
+    @Headers('authorization') auth: string | undefined,
+    @Body() body: PortalAiChatDto,
+  ): Promise<PortalAiChatResultDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.ai.portalAnswer({ tenantId, customerId, input: body });
   }
 
   /** Chat con el staff: hilo del inquilino. */

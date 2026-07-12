@@ -46,6 +46,7 @@ import { toast } from 'sonner';
 
 import { AccessLogsCard } from './access-logs-card';
 import { AdditionalUnitCard } from './additional-unit-card';
+import { PortalAiChatCard } from './ai-chat-card';
 import { ChatCard } from './chat-card';
 import { DocumentsCard } from './documents-card';
 import { FaqCard } from './faq-card';
@@ -1377,6 +1378,7 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="mensajes" className="space-y-6">
+            {session && <PortalAiChatCard session={session} />}
             {session && <ChatCard session={session} />}
           </TabsContent>
 
