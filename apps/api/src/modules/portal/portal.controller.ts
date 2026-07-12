@@ -41,6 +41,8 @@ import {
   type FaqEntryDto,
   PortalAiChatSchema,
   type PortalAiChatResultDto,
+  type PortalDoorDto,
+  type PortalOpenDoorResultDto,
   RegisterCustomerDocumentSchema,
   RequestCustomerDocumentUploadSchema,
   type InsurancePlanDto,
@@ -70,6 +72,7 @@ import { createZodDto } from 'nestjs-zod';
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
+import { AccessVerifyService } from '../access/access-verify.service';
 import { AiService } from '../ai/ai.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
@@ -130,6 +133,7 @@ export class PortalController {
     private readonly documents: CustomerDocumentsService,
     private readonly retention: RetentionService,
     private readonly ai: AiService,
+    private readonly accessVerify: AccessVerifyService,
   ) {}
 
   @Public()
@@ -185,6 +189,32 @@ export class PortalController {
   ): Promise<PortalAiChatResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.ai.portalAnswer({ tenantId, customerId, input: body });
+  }
+
+  /** Puertas que el inquilino puede abrir desde el portal («tu móvil es la llave»). */
+  @Public()
+  @Get('me/doors')
+  async myDoors(@Headers('authorization') auth: string | undefined): Promise<PortalDoorDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.accessVerify.listDoorsForCustomer(tenantId, customerId);
+  }
+
+  /** El inquilino abre una puerta desde el portal. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/doors/:deviceId/open')
+  async openDoor(
+    @Headers('authorization') auth: string | undefined,
+    @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
+    @Req() req: Request,
+  ): Promise<PortalOpenDoorResultDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.accessVerify.openForCustomer({
+      tenantId,
+      customerId,
+      deviceId,
+      ...(req.ip ? { ipAddress: req.ip } : {}),
+    });
   }
 
   /** Chat con el staff: hilo del inquilino. */

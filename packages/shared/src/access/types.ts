@@ -113,6 +113,19 @@ export interface PortalAccessCredentialDto {
   lastUsedAt: string | null;
 }
 
+/** Una puerta que el inquilino puede abrir desde el portal («tu móvil es la llave»). */
+export interface PortalDoorDto {
+  id: string;
+  name: string;
+  facilityName: string;
+}
+
+/** Resultado de intentar abrir una puerta desde el portal. */
+export interface PortalOpenDoorResultDto {
+  opened: boolean;
+  message: string;
+}
+
 /** Una entrada del historial de accesos del inquilino (slim, sin datos internos). */
 export interface PortalAccessLogDto {
   id: string;

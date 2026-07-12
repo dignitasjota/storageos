@@ -49,6 +49,7 @@ import { AdditionalUnitCard } from './additional-unit-card';
 import { PortalAiChatCard } from './ai-chat-card';
 import { ChatCard } from './chat-card';
 import { DocumentsCard } from './documents-card';
+import { DoorOpenCard } from './door-open-card';
 import { FaqCard } from './faq-card';
 import { InsuranceCard } from './insurance-card';
 import { NightAccessCard } from './night-access-card';
@@ -1262,6 +1263,7 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="accesos" className="space-y-6">
+            {session && <DoorOpenCard session={session} />}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
