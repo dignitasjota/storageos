@@ -468,7 +468,12 @@ export class AdminTenantsController {
     return this.tenants.listCustomDomains();
   }
 
-  /** Activa el dominio propio de un tenant (tras configurar NPM + SSL). */
+  /**
+   * Activa el dominio propio de un tenant (tras configurar NPM + SSL).
+   * Es una palanca de plan (white-label = feature de pago) → superadmin-only,
+   * como change-plan / features / add-ons (el rol `support` no la regala).
+   */
+  @RequireSuperadmin()
   @Post(':id/custom-domain/verify')
   @HttpCode(HttpStatus.OK)
   async verifyCustomDomain(
@@ -485,7 +490,8 @@ export class AdminTenantsController {
     });
   }
 
-  /** Desactiva el dominio propio de un tenant. */
+  /** Desactiva el dominio propio de un tenant. Superadmin-only (ver verify). */
+  @RequireSuperadmin()
   @Post(':id/custom-domain/revoke')
   @HttpCode(HttpStatus.OK)
   async revokeCustomDomain(

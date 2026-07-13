@@ -112,6 +112,13 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
     expect(ext.status).toBe(403);
     expect(ext.body.code).toBe('insufficient_super_admin_role');
 
+    // support → activar el dominio propio (white-label = feature de pago) = 403.
+    const domain = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/custom-domain/verify`)
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(domain.status).toBe(403);
+    expect(domain.body.code).toBe('insufficient_super_admin_role');
+
     // support SÍ puede LEER (la lectura no está restringida).
     const read = await request(app.getHttpServer())
       .get('/admin/tenants/at-risk')
