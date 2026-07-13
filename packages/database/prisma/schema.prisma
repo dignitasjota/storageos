@@ -2259,6 +2259,9 @@ model Lead {
   wonAt                   DateTime?  @map("won_at") @db.Timestamptz(6)
   lostAt                  DateTime?  @map("lost_at") @db.Timestamptz(6)
   lostReason              String?    @map("lost_reason")
+  /// Recuperación de reservas abandonadas: fecha en que se envió el recordatorio
+  /// de nurture al lead de booking sin convertir (idempotencia del cron).
+  bookingReminderSentAt   DateTime?  @map("booking_reminder_sent_at") @db.Timestamptz(6)
   convertedCustomerId     String?    @map("converted_customer_id") @db.Uuid
   convertedContractId     String?    @map("converted_contract_id") @db.Uuid
   convertedReservationId  String?    @map("converted_reservation_id") @db.Uuid
