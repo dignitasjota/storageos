@@ -83,7 +83,8 @@ describe('Redsys (e2e)', () => {
 
     const redirect = await request(app.getHttpServer())
       .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
-      .set('Authorization', `Bearer ${owner.accessToken}`);
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({});
     expect(redirect.status).toBe(200);
     expect(redirect.body.url).toContain('redsys.es');
     expect(redirect.body.signature.length).toBeGreaterThan(20);
@@ -139,7 +140,8 @@ describe('Redsys (e2e)', () => {
 
     const redirect = await request(app.getHttpServer())
       .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
-      .set('Authorization', `Bearer ${owner.accessToken}`);
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({});
     const params = JSON.parse(
       Buffer.from(redirect.body.merchantParameters, 'base64').toString('utf8'),
     );
@@ -157,5 +159,52 @@ describe('Redsys (e2e)', () => {
       .get(`/invoices/${invoiceId}`)
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(detail.body.status).toBe('issued');
+  });
+
+  it('Bizum: sin activar → 400; activado → el redirect fuerza PAYMETHODS z', async () => {
+    const owner = await registerVerifiedUser(app, 'redsys-bizum');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await configureRedsys(app, owner.accessToken); // enabled, bizum off por defecto
+    const invoiceId = await issuedInvoice(app, owner.accessToken);
+
+    // Bizum desactivado → 400 bizum_not_enabled.
+    const denied = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({ payMethod: 'bizum' });
+    expect(denied.status).toBe(400);
+    expect(denied.body.code).toBe('bizum_not_enabled');
+
+    // Activar Bizum.
+    const upd = await request(app.getHttpServer()).put('/settings/redsys').set(auth).send({
+      merchantCode: '999008881',
+      terminal: '1',
+      environment: 'test',
+      enabled: true,
+      bizumEnabled: true,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.bizumEnabled).toBe(true);
+
+    // Redirect con payMethod bizum → DS_MERCHANT_PAYMETHODS = 'z'.
+    const redirect = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({ payMethod: 'bizum' });
+    expect(redirect.status).toBe(200);
+    const params = JSON.parse(
+      Buffer.from(redirect.body.merchantParameters, 'base64').toString('utf8'),
+    );
+    expect(params.DS_MERCHANT_PAYMETHODS).toBe('z');
+
+    // Redirect con tarjeta → 'C'.
+    const card = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({ payMethod: 'card' });
+    const cardParams = JSON.parse(
+      Buffer.from(card.body.merchantParameters, 'base64').toString('utf8'),
+    );
+    expect(cardParams.DS_MERCHANT_PAYMETHODS).toBe('C');
   });
 });

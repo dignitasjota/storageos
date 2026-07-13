@@ -64,6 +64,7 @@ import {
   PushSubscribeSchema,
   PushUnsubscribeSchema,
   type RedsysRedirectDto,
+  RedsysRedirectRequestSchema,
   RequestMoveOutSchema,
   type SetupIntentResponseDto,
 } from '@storageos/shared';
@@ -104,6 +105,7 @@ class PortalAiChatDto extends createZodDto(PortalAiChatSchema) {}
 class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
 class PortalPurchaseDto extends createZodDto(PortalPurchaseSchema) {}
+class RedsysRedirectBody extends createZodDto(RedsysRedirectRequestSchema) {}
 class PortalSendMessageDto extends createZodDto(SendCustomerMessageSchema) {}
 class RequestDocumentUploadDto extends createZodDto(RequestCustomerDocumentUploadSchema) {}
 class RegisterDocumentDto extends createZodDto(RegisterCustomerDocumentSchema) {}
@@ -718,14 +720,14 @@ export class PortalController {
     return this.portal.registerMyPaymentMethod(tenantId, customerId, input);
   }
 
-  /** ¿Ofrece el negocio pago con tarjeta vía Redsys? (para gatear el botón). */
+  /** ¿Ofrece el negocio pago con tarjeta/Bizum vía Redsys? (para gatear los botones). */
   @Public()
   @Get('me/redsys/enabled')
   async redsysEnabled(
     @Headers('authorization') auth: string | undefined,
-  ): Promise<{ enabled: boolean }> {
+  ): Promise<{ enabled: boolean; bizumEnabled: boolean }> {
     const { tenantId } = await this.requirePortalSession(auth);
-    return { enabled: await this.redsys.isEnabled(tenantId) };
+    return this.redsys.availability(tenantId);
   }
 
   @Public()
@@ -779,9 +781,13 @@ export class PortalController {
   async redsysRedirect(
     @Headers('authorization') auth: string | undefined,
     @Param('id', ParseUUIDPipe) invoiceId: string,
+    @Body() body: RedsysRedirectBody,
   ): Promise<RedsysRedirectDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    return this.redsys.createRedirect(tenantId, invoiceId, customerId);
+    return this.redsys.createRedirect(tenantId, invoiceId, {
+      expectedCustomerId: customerId,
+      ...(body.payMethod ? { payMethod: body.payMethod } : {}),
+    });
   }
 
   /**

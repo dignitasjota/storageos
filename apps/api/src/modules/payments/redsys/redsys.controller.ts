@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   type RedsysRedirectDto,
+  RedsysRedirectRequestSchema,
   type RedsysSettingsDto,
   UpdateRedsysSettingsSchema,
 } from '@storageos/shared';
@@ -26,6 +27,7 @@ import { RedsysSettingsService } from './redsys-settings.service';
 import { RedsysService } from './redsys.service';
 
 class UpdateRedsysSettingsBody extends createZodDto(UpdateRedsysSettingsSchema) {}
+class RedsysRedirectBody extends createZodDto(RedsysRedirectRequestSchema) {}
 
 @Controller('settings/redsys')
 export class RedsysController {
@@ -55,7 +57,10 @@ export class RedsysController {
   redirect(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: RedsysRedirectBody,
   ): Promise<RedsysRedirectDto> {
-    return this.redsys.createRedirect(user.tenantId, id);
+    return this.redsys.createRedirect(user.tenantId, id, {
+      ...(body.payMethod ? { payMethod: body.payMethod } : {}),
+    });
   }
 }

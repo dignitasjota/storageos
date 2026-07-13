@@ -271,6 +271,8 @@ export interface RedsysSettingsDto {
   terminal: string;
   environment: 'test' | 'live';
   enabled: boolean;
+  /** El comercio acepta Bizum (el banco debe tenerlo activo en el TPV). */
+  bizumEnabled: boolean;
   /** true si hay clave secreta guardada (nunca se devuelve). */
   hasSecretKey: boolean;
 }

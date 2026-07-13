@@ -3250,6 +3250,8 @@ model RedsysSettings {
   /// "test" (sis-t) | "live" (sis).
   environment        String   @default("test")
   enabled            Boolean  @default(false)
+  /// El comercio acepta Bizum (su banco debe tenerlo activo en el TPV).
+  bizumEnabled       Boolean  @default(false) @map("bizum_enabled")
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
