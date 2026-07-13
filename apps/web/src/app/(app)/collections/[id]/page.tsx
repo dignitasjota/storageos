@@ -46,6 +46,7 @@ export default function CollectionsDetailPage() {
   const [noticeDays, setNoticeDays] = useState(15);
   const [disposalType, setDisposalType] = useState<DisposalType>('auction_notarial');
   const [proceeds, setProceeds] = useState('0');
+  const [applyDeposit, setApplyDeposit] = useState(true);
   const [note, setNote] = useState('');
 
   const c = detail.data;
@@ -201,30 +202,44 @@ export default function CollectionsDetailPage() {
                   </div>
                 )}
                 {c.status === 'disposal' && (
-                  <div className="flex items-end gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Importe obtenido (€)</Label>
-                      <Input
-                        type="number"
-                        className="w-28"
-                        value={proceeds}
-                        onChange={(e) => setProceeds(e.target.value)}
-                      />
+                  <div className="space-y-2">
+                    <div className="flex items-end gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Importe obtenido (€)</Label>
+                        <Input
+                          type="number"
+                          className="w-28"
+                          value={proceeds}
+                          onChange={(e) => setProceeds(e.target.value)}
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          run(
+                            {
+                              action: 'complete-disposal',
+                              input: {
+                                proceedsCents: Math.round((Number(proceeds) || 0) * 100),
+                                applyDeposit,
+                              },
+                            },
+                            'Disposición completada',
+                          )
+                        }
+                      >
+                        Completar disposición
+                      </Button>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        run(
-                          {
-                            action: 'complete-disposal',
-                            input: { proceedsCents: Math.round((Number(proceeds) || 0) * 100) },
-                          },
-                          'Disposición completada',
-                        )
-                      }
-                    >
-                      Completar disposición
-                    </Button>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={applyDeposit}
+                        onChange={(e) => setApplyDeposit(e.target.checked)}
+                      />
+                      Aplicar la fianza retenida + lo obtenido a las facturas pendientes (más
+                      antigua primero)
+                    </label>
                   </div>
                 )}
                 <Button

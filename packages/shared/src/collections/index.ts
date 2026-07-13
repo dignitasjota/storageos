@@ -94,9 +94,30 @@ export type StartDisposalInput = z.infer<typeof StartDisposalSchema>;
 export const CompleteDisposalSchema = z.object({
   /** Importe obtenido de la disposición en céntimos (0 si donación/destrucción). */
   proceedsCents: z.number().int().min(0).max(100_000_000).default(0),
+  /**
+   * Liquidación fina: aplica la fianza retenida + lo obtenido de la disposición
+   * a las facturas pendientes por antigüedad (más antigua primero). Por defecto sí.
+   */
+  applyDeposit: z.boolean().default(true),
   notes: z.string().trim().max(2000).optional(),
 });
 export type CompleteDisposalInput = z.infer<typeof CompleteDisposalSchema>;
+
+/** Desglose de la liquidación fina de un expediente al cerrarlo por disposición. */
+export interface DelinquencySettlementDto {
+  /** Deuda viva (céntimos) antes de aplicar fondos. */
+  debtBeforeCents: number;
+  /** Fianza retenida aplicada a la deuda (céntimos). */
+  depositAppliedCents: number;
+  /** Producto de la disposición aplicado a la deuda (céntimos). */
+  proceedsAppliedCents: number;
+  /** Deuda viva (céntimos) tras aplicar los fondos. */
+  debtAfterCents: number;
+  /** Sobrante devuelto/pendiente de devolver al inquilino (céntimos). */
+  surplusCents: number;
+  /** Nº de facturas saldadas total o parcialmente. */
+  invoicesSettled: number;
+}
 
 /** Cancelación del expediente (el operador desiste). */
 export const CancelCaseSchema = z.object({

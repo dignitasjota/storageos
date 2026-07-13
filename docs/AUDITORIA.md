@@ -195,11 +195,15 @@ hallazgos críticos/altos quedaron cerrados** (9 PRs).
    ya exigían `@RequireSuperadmin` (verificado); se cierra además `custom-domain verify/revoke`
    (white-label = feature de pago) como superadmin-only.
 
+## ✅ Resuelto (cont.)
+
+5. **Fianza** → `feat/collections-deposit-settlement`: `completeDisposal` aplica la fianza
+   retenida + lo obtenido de la disposición a las facturas pendientes por antigüedad (más
+   antigua primero) vía `markPaidManually` y marca la fianza liquidada; el sobrante queda
+   documentado en el evento `disposal_done`. Checkbox «Aplicar fianza» en `/collections/:id`.
+
 ## ⏳ Pendiente (menor, priorizado)
 
-5. **Fianza**: liquidación fina al cerrar el expediente de impago (producto + fianza →
-   facturas por antigüedad); hoy hay alerta de fianza sin liquidar (#320) pero no la
-   liquidación imputada automática.
 7. **Tokens de staff** no revalidan el estado del tenant (suspendido/cancelado) hasta que
    expira el access token (ventana corta por el TTL).
 

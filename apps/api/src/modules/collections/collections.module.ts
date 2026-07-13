@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 import { CollectionsListenersService } from './collections-listeners.service';
@@ -14,7 +15,7 @@ import { CollectionsService } from './collections.service';
  * `AuditService`.
  */
 @Module({
-  imports: [AuthModule, NotificationsModule],
+  imports: [AuthModule, BillingModule, NotificationsModule],
   controllers: [CollectionsController],
   providers: [CollectionsService, CollectionsListenersService],
   exports: [CollectionsService],
