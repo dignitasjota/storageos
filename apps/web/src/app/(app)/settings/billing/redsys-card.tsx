@@ -28,6 +28,7 @@ export function RedsysCard() {
   const [environment, setEnvironment] = useState<'test' | 'live'>('test');
   const [secretKey, setSecretKey] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [bizumEnabled, setBizumEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
   const data = settings.data;
@@ -36,6 +37,7 @@ export function RedsysCard() {
     setTerminal(data.terminal);
     setEnvironment(data.environment);
     setEnabled(data.enabled);
+    setBizumEnabled(data.bizumEnabled);
     setInitialized(true);
   }
 
@@ -46,6 +48,7 @@ export function RedsysCard() {
         terminal,
         environment,
         enabled,
+        bizumEnabled,
         ...(secretKey ? { secretKey } : {}),
       });
       setSecretKey('');
@@ -102,6 +105,18 @@ export function RedsysCard() {
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
           Activar pago por Redsys
+        </label>
+
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={bizumEnabled}
+            onCheckedChange={(v) => setBizumEnabled(v === true)}
+            disabled={!enabled}
+          />
+          Aceptar Bizum
+          <span className="text-xs text-muted-foreground">
+            (tu banco debe tenerlo activo en el TPV)
+          </span>
         </label>
 
         <Button onClick={save} disabled={update.isPending}>

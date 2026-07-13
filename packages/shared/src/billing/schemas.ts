@@ -140,8 +140,20 @@ export const UpdateRedsysSettingsSchema = z.object({
   secretKey: z.string().trim().min(10).max(200).optional(),
   environment: RedsysEnvironmentEnum.default('test'),
   enabled: z.boolean(),
+  /** El comercio acepta Bizum (el banco debe tenerlo activo en el TPV). */
+  bizumEnabled: z.boolean().default(false),
 });
 export type UpdateRedsysSettingsInput = z.infer<typeof UpdateRedsysSettingsSchema>;
+
+/** Método de pago a forzar en el redirect de Redsys (tarjeta o Bizum). */
+export const RedsysPayMethodEnum = z.enum(['card', 'bizum']);
+export type RedsysPayMethod = z.infer<typeof RedsysPayMethodEnum>;
+
+/** Body opcional del redirect: elige tarjeta o Bizum (omitido = default del TPV). */
+export const RedsysRedirectRequestSchema = z.object({
+  payMethod: RedsysPayMethodEnum.optional(),
+});
+export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSchema>;
 
 export const DunningActionTypeEnum = z.enum([
   'email_reminder',

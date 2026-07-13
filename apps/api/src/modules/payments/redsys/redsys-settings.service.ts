@@ -22,6 +22,7 @@ export class RedsysSettingsService {
       terminal: row?.terminal ?? '1',
       environment: (row?.environment as 'test' | 'live') ?? 'test',
       enabled: row?.enabled ?? false,
+      bizumEnabled: row?.bizumEnabled ?? false,
       hasSecretKey: !!row?.secretKeyEncrypted,
     };
   }
@@ -52,6 +53,7 @@ export class RedsysSettingsService {
             secretKeyEncrypted: secretKeyEncrypted ?? '',
             environment: input.environment,
             enabled: input.enabled,
+            bizumEnabled: input.bizumEnabled,
           },
           update: {
             merchantCode: input.merchantCode,
@@ -59,6 +61,7 @@ export class RedsysSettingsService {
             ...(secretKeyEncrypted ? { secretKeyEncrypted } : {}),
             environment: input.environment,
             enabled: input.enabled,
+            bizumEnabled: input.bizumEnabled,
           },
         }),
       tenantId,
@@ -73,6 +76,7 @@ export class RedsysSettingsService {
     secretKey: string;
     environment: 'test' | 'live';
     enabled: boolean;
+    bizumEnabled: boolean;
   } | null> {
     const row = await this.prisma.withTenant(
       (tx) => tx.redsysSettings.findUnique({ where: { tenantId } }),
@@ -85,6 +89,7 @@ export class RedsysSettingsService {
       secretKey: this.crypto.decryptString(row.secretKeyEncrypted),
       environment: row.environment as 'test' | 'live',
       enabled: row.enabled,
+      bizumEnabled: row.bizumEnabled,
     };
   }
 }

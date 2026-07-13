@@ -300,6 +300,7 @@ function PortalConsumeContent() {
   const [addPending, setAddPending] = useState(false);
   const [goCardlessEnabled, setGoCardlessEnabled] = useState(false);
   const [redsysEnabled, setRedsysEnabled] = useState(false);
+  const [bizumEnabled, setBizumEnabled] = useState(false);
   const [gcPending, setGcPending] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
 
@@ -402,8 +403,14 @@ function PortalConsumeContent() {
         }
         // ¿Ofrece el negocio pago con tarjeta (Redsys)? (best-effort).
         try {
-          const r = await portalFetch<{ enabled: boolean }>(s, '/portal/me/redsys/enabled');
-          if (!cancelled) setRedsysEnabled(r.enabled);
+          const r = await portalFetch<{ enabled: boolean; bizumEnabled: boolean }>(
+            s,
+            '/portal/me/redsys/enabled',
+          );
+          if (!cancelled) {
+            setRedsysEnabled(r.enabled);
+            setBizumEnabled(r.bizumEnabled);
+          }
         } catch {
           /* redsys opcional */
         }
@@ -1125,7 +1132,11 @@ function PortalConsumeContent() {
                               onClick={async () => {
                                 try {
                                   submitRedsysForm(
-                                    await fetchPortalRedsysRedirect(session.accessToken, i.id),
+                                    await fetchPortalRedsysRedirect(
+                                      session.accessToken,
+                                      i.id,
+                                      bizumEnabled ? 'card' : undefined,
+                                    ),
                                   );
                                 } catch (err) {
                                   toast.error(
@@ -1137,6 +1148,30 @@ function PortalConsumeContent() {
                               }}
                             >
                               Pagar con tarjeta
+                            </Button>
+                          )}
+                          {bizumEnabled && i.amountPending > 0 && !i.paymentInProgress && (
+                            <Button
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  submitRedsysForm(
+                                    await fetchPortalRedsysRedirect(
+                                      session.accessToken,
+                                      i.id,
+                                      'bizum',
+                                    ),
+                                  );
+                                } catch (err) {
+                                  toast.error(
+                                    err instanceof ApiError
+                                      ? err.body.message
+                                      : 'Bizum no disponible',
+                                  );
+                                }
+                              }}
+                            >
+                              Pagar con Bizum
                             </Button>
                           )}
                           {i.pdfUrl && (

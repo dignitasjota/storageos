@@ -25,7 +25,7 @@ import {
 } from './redsys-signature';
 
 import type { Env } from '../../../config/env.schema';
-import type { RedsysRedirectDto } from '@storageos/shared';
+import type { RedsysPayMethod, RedsysRedirectDto } from '@storageos/shared';
 
 /** Genera un `Ds_Merchant_Order` de 12 chars (primeros 4 numéricos). */
 function generateOrder(): string {
@@ -54,13 +54,21 @@ export class RedsysService {
   async createRedirect(
     tenantId: string,
     invoiceId: string,
-    expectedCustomerId?: string,
+    opts?: { expectedCustomerId?: string; payMethod?: RedsysPayMethod },
   ): Promise<RedsysRedirectDto> {
+    const expectedCustomerId = opts?.expectedCustomerId;
+    const payMethod = opts?.payMethod;
     const cfg = await this.settings.getResolved(tenantId);
     if (!cfg || !cfg.enabled) {
       throw new BadRequestException({
         code: 'redsys_not_enabled',
         message: 'La pasarela Redsys no está activa',
+      });
+    }
+    if (payMethod === 'bizum' && !cfg.bizumEnabled) {
+      throw new BadRequestException({
+        code: 'bizum_not_enabled',
+        message: 'El pago con Bizum no está activo para este negocio',
       });
     }
     const invoice = await this.admin.invoice.findFirst({
@@ -118,6 +126,9 @@ export class RedsysService {
       DS_MERCHANT_URLOK: `${webBase}/pay/redsys/ok`,
       DS_MERCHANT_URLKO: `${webBase}/pay/redsys/ko`,
       DS_MERCHANT_PRODUCTDESCRIPTION: `Factura ${invoice.invoiceNumber}`,
+      // 'z' = Bizum, 'C' = tarjeta. Sin el campo, el TPV ofrece los métodos que
+      // tenga configurados el comercio (retrocompatible con el flujo anterior).
+      ...(payMethod ? { DS_MERCHANT_PAYMETHODS: payMethod === 'bizum' ? 'z' : 'C' } : {}),
     };
     const merchantParameters = encodeMerchantParameters(merchantParams);
     const signature = signRequest(merchantParameters, order, cfg.secretKey);
@@ -134,6 +145,12 @@ export class RedsysService {
   async isEnabled(tenantId: string): Promise<boolean> {
     const cfg = await this.settings.getResolved(tenantId);
     return !!cfg?.enabled;
+  }
+
+  /** Estado de Redsys para gatear los botones del portal (tarjeta y Bizum). */
+  async availability(tenantId: string): Promise<{ enabled: boolean; bizumEnabled: boolean }> {
+    const cfg = await this.settings.getResolved(tenantId);
+    return { enabled: !!cfg?.enabled, bizumEnabled: !!(cfg?.enabled && cfg.bizumEnabled) };
   }
 
   /** Procesa la notificación servidor-a-servidor de Redsys. */

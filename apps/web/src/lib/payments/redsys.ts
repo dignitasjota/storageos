@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  RedsysPayMethod,
   RedsysRedirectDto,
   RedsysSettingsDto,
   UpdateRedsysSettingsInput,
@@ -47,10 +48,14 @@ export function submitRedsysForm(redirect: RedsysRedirectDto): void {
   form.submit();
 }
 
-/** Staff: obtiene el formulario de pago Redsys para una factura. */
-export async function fetchRedsysRedirect(invoiceId: string): Promise<RedsysRedirectDto> {
+/** Staff: obtiene el formulario de pago Redsys para una factura (tarjeta o Bizum). */
+export async function fetchRedsysRedirect(
+  invoiceId: string,
+  payMethod?: RedsysPayMethod,
+): Promise<RedsysRedirectDto> {
   return apiFetch<RedsysRedirectDto>(`/settings/redsys/invoices/${invoiceId}/redirect`, {
     method: 'POST',
+    json: payMethod ? { payMethod } : {},
   });
 }
 
@@ -58,10 +63,12 @@ export async function fetchRedsysRedirect(invoiceId: string): Promise<RedsysRedi
 export async function fetchPortalRedsysRedirect(
   portalToken: string,
   invoiceId: string,
+  payMethod?: RedsysPayMethod,
 ): Promise<RedsysRedirectDto> {
   return apiFetch<RedsysRedirectDto>(`/portal/me/invoices/${invoiceId}/redsys-redirect`, {
     method: 'POST',
     requiresAuth: false,
     headers: { Authorization: `Bearer ${portalToken}` },
+    json: payMethod ? { payMethod } : {},
   });
 }
