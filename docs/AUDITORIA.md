@@ -181,18 +181,25 @@ hallazgos críticos/altos quedaron cerrados** (9 PRs).
   `changeUnit()` → dos firmas/traslados concurrentes sobre la misma unidad ya no dejan
   dos contratos activos en el mismo trastero.
 
+## ✅ Resuelto (antes en «Pendiente»)
+
+1. **Arqueo de caja** → `fix/cash-closure-refunds-sales`: los reembolsos en efectivo restan
+   del esperado y las ventas sin contrato entran en la caja por local.
+2. **Conciliación N43** → `fix/n43-partial-amount`: `matchTransaction` aplica el importe real
+   del apunte (parcial deja saldo pendiente).
+3. **Cargo huérfano** → `#321`: el cargo por pasarela sale fuera de la transacción del
+   `payment.create`.
+4. **`end()`/`cancel()`** → `#320`: cancelan las `dunning_actions` `scheduled` del contrato +
+   alerta de fianza sin liquidar en «Hoy».
+6. **Rol `support`** → `fix/admin-support-monetization-guard`: `revoke-sessions`/`extend-trial`
+   ya exigían `@RequireSuperadmin` (verificado); se cierra además `custom-domain verify/revoke`
+   (white-label = feature de pago) como superadmin-only.
+
 ## ⏳ Pendiente (menor, priorizado)
 
-1. **Arqueo de caja**: los reembolsos en efectivo no restan del esperado; las ventas sin
-   contrato (tienda/pase nocturno) no entran en la caja por local → descuadres.
-2. **Conciliación N43**: `matchTransaction` salda el pendiente completo ignorando el
-   importe real del apunte bancario.
-3. **Cargo huérfano**: `gateway.charge` dentro de la tx del `payment.create` → si el commit
-   falla tras cobrar, el dinero no se acredita (ventana estrecha, sin red de recuperación).
-4. **`end()`/`cancel()`** no cancelan las `dunning_actions` `scheduled` del contrato.
-5. **Fianza** que se puede dejar sin liquidar al finalizar (sin alerta/report).
-6. **Rol `support`**: `revoke-sessions` y `extend-trial` (single) sin `@RequireSuperadmin`
-   (inconsistente con las demás acciones sensibles).
+5. **Fianza**: liquidación fina al cerrar el expediente de impago (producto + fianza →
+   facturas por antigüedad); hoy hay alerta de fianza sin liquidar (#320) pero no la
+   liquidación imputada automática.
 7. **Tokens de staff** no revalidan el estado del tenant (suspendido/cancelado) hasta que
    expira el access token (ventana corta por el TTL).
 
