@@ -50,6 +50,7 @@ export default function SaasBillingPage() {
   const portal = useCreatePortalSession();
   const changePlan = useChangePlan();
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+  const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
 
   if (subscription.isLoading) {
     return (
@@ -82,6 +83,7 @@ export default function SaasBillingPage() {
     try {
       const session = await checkout.mutateAsync({
         planId,
+        billingCycle: cycle,
         successUrl: `${originUrl()}/settings/saas-billing?status=success`,
         cancelUrl: `${originUrl()}/settings/saas-billing?status=cancel`,
       });
@@ -108,7 +110,7 @@ export default function SaasBillingPage() {
   async function onChangePlan(planId: string) {
     setPendingPlanId(planId);
     try {
-      await changePlan.mutateAsync(planId);
+      await changePlan.mutateAsync({ planId, billingCycle: cycle });
       toast.success('Plan cambiado. Stripe ajustará la diferencia en tu próxima factura.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar el plan.');
@@ -178,6 +180,23 @@ export default function SaasBillingPage() {
           </p>
         </div>
 
+        <div className="inline-flex rounded-lg border p-1 text-sm">
+          <button
+            type="button"
+            onClick={() => setCycle('monthly')}
+            className={`rounded-md px-3 py-1 ${cycle === 'monthly' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+          >
+            Mensual
+          </button>
+          <button
+            type="button"
+            onClick={() => setCycle('yearly')}
+            className={`rounded-md px-3 py-1 ${cycle === 'yearly' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+          >
+            Anual
+          </button>
+        </div>
+
         {plans.isLoading ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -201,13 +220,36 @@ export default function SaasBillingPage() {
                       )}
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="text-2xl font-semibold">
-                        {p.priceMonthly.toLocaleString('es-ES', {
-                          style: 'currency',
-                          currency: p.currency,
-                        })}
-                        <span className="ml-1 text-xs font-normal text-muted-foreground">/mes</span>
-                      </div>
+                      {cycle === 'yearly' ? (
+                        <div>
+                          <div className="text-2xl font-semibold">
+                            {p.priceYearly.toLocaleString('es-ES', {
+                              style: 'currency',
+                              currency: p.currency,
+                            })}
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              /año
+                            </span>
+                          </div>
+                          {p.priceMonthly > 0 && p.priceYearly < p.priceMonthly * 12 && (
+                            <p className="text-xs font-medium text-green-600 dark:text-green-400">
+                              Ahorras{' '}
+                              {Math.round((1 - p.priceYearly / (p.priceMonthly * 12)) * 100)}% vs
+                              mensual
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-2xl font-semibold">
+                          {p.priceMonthly.toLocaleString('es-ES', {
+                            style: 'currency',
+                            currency: p.currency,
+                          })}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            /mes
+                          </span>
+                        </div>
+                      )}
 
                       {p.tenantFeatures.length > 0 ? (
                         <ul className="space-y-1 text-xs text-muted-foreground">
@@ -224,7 +266,11 @@ export default function SaasBillingPage() {
 
                       <PlanCta
                         isCurrent={isCurrent}
-                        hasStripePrice={p.stripePriceId !== null}
+                        hasStripePrice={
+                          cycle === 'yearly'
+                            ? p.stripePriceIdYearly !== null
+                            : p.stripePriceId !== null
+                        }
                         pending={pending}
                         mode={isTrialOrInactive ? 'subscribe' : hasStripeSub ? 'change' : 'manual'}
                         onSubscribe={() => onCheckout(p.id)}

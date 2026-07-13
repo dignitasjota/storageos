@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  BillingCycle,
   BillingSessionResponseDto,
   CreateCheckoutSessionInput,
   CreatePortalSessionInput,
@@ -60,10 +61,10 @@ export function useCreatePortalSession() {
 export function useChangePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (planId: string) =>
+    mutationFn: (input: { planId: string; billingCycle?: BillingCycle }) =>
       apiFetch<TenantSubscriptionDto>('/settings/saas-billing/change-plan', {
         method: 'POST',
-        json: { planId },
+        json: input,
       }),
     onSuccess: (data) => {
       qc.setQueryData(saasSubscriptionKey, data);

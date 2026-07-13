@@ -86,6 +86,7 @@ export class BillingSaasController {
       tenantId: user.tenantId,
       userId: user.sub,
       planId: input.planId,
+      billingCycle: input.billingCycle,
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
       meta: extractMeta(req),
@@ -119,6 +120,7 @@ export class BillingSaasController {
       tenantId: user.tenantId,
       userId: user.sub,
       planId: input.planId,
+      billingCycle: input.billingCycle,
       meta: extractMeta(req),
     });
   }

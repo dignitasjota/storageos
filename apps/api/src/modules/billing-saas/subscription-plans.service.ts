@@ -55,6 +55,9 @@ export class SubscriptionPlansService {
         features: (input.features ?? {}) as Prisma.InputJsonValue,
         tenantFeatures: input.tenantFeatures ?? [],
         ...(input.stripePriceId !== undefined ? { stripePriceId: input.stripePriceId } : {}),
+        ...(input.stripePriceIdYearly !== undefined
+          ? { stripePriceIdYearly: input.stripePriceIdYearly }
+          : {}),
         ...(input.maxUnits !== undefined ? { maxUnits: input.maxUnits } : {}),
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
         ...(input.maxUsers !== undefined ? { maxUsers: input.maxUsers } : {}),
@@ -86,6 +89,9 @@ export class SubscriptionPlansService {
           : {}),
         ...(input.tenantFeatures !== undefined ? { tenantFeatures: input.tenantFeatures } : {}),
         ...(input.stripePriceId !== undefined ? { stripePriceId: input.stripePriceId } : {}),
+        ...(input.stripePriceIdYearly !== undefined
+          ? { stripePriceIdYearly: input.stripePriceIdYearly }
+          : {}),
         ...(input.maxUnits !== undefined ? { maxUnits: input.maxUnits } : {}),
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
         ...(input.maxUsers !== undefined ? { maxUsers: input.maxUsers } : {}),
@@ -119,6 +125,7 @@ export class SubscriptionPlansService {
     features: unknown;
     tenantFeatures?: string[];
     stripePriceId: string | null;
+    stripePriceIdYearly?: string | null;
     maxUnits?: number | null;
     maxFacilities?: number | null;
     maxUsers?: number | null;
@@ -135,6 +142,7 @@ export class SubscriptionPlansService {
       features: (row.features ?? {}) as Record<string, unknown>,
       tenantFeatures: normalizePlanFeatures(row.tenantFeatures),
       stripePriceId: row.stripePriceId,
+      stripePriceIdYearly: row.stripePriceIdYearly ?? null,
       maxUnits: row.maxUnits ?? null,
       maxFacilities: row.maxFacilities ?? null,
       maxUsers: row.maxUsers ?? null,

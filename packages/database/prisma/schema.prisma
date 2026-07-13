@@ -619,6 +619,9 @@ model SubscriptionPlan {
   /// Features premium gateadas por este plan (editable desde /admin/plans).
   tenantFeatures String[] @map("tenant_features")
   stripePriceId  String?  @map("stripe_price_id")
+  /// Stripe Price anual (opcional): el checkout/cambio de plan lo usa cuando
+  /// el tenant elige facturación anual.
+  stripePriceIdYearly String? @map("stripe_price_id_yearly")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
