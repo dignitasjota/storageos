@@ -26,10 +26,13 @@
   un escáner QR→HTTP genérico). El QR lo procesa el propio terminal (p. ej.
   **ASI6214S**) contra las credenciales sincronizadas. Para **PIN y RFID** el
   encaje es total; para **QR** hace falta un terminal que lo procese nativamente.
-- **Cámaras/NVR: viable, pero es un proyecto mayor por el NAT.** La API existe
-  (snapshot, eventos, grabaciones, RTSP) y las cámaras son ONVIF; el reto no es
-  la API sino que el equipo vive en la LAN del local tras NAT y RTSP no se
-  reproduce en el navegador. Requiere un **gateway on-site por local**.
+- **Cámaras/NVR: alcance acotado (decisión 2026-07-14) = solo logs de eventos +
+  snapshots.** El **vídeo en vivo/grabado se deja a la app oficial de Dahua**
+  (DMSS), lo que **elimina** el trozo caro (media-server + transcodificación
+  RTSP→HLS/WebRTC). La integración se reduce a **ingesta de eventos + snapshot**,
+  que además puede resolverse con **push del propio equipo** (FTP/email/HTTP
+  linkage) a un endpoint nuestro, **sin gateway ni túnel** si tiene salida a
+  Internet. Un agente on-site ligero solo si se quiere "snapshot on-demand".
 - **Antes de comprar:** la doc oficial de la API de accesos **no es 100%
   pública** (portal de partners). Pedir al distribuidor español (By Demes /
   Visiotech) la *"HTTP API for Access Control"* del firmware exacto del modelo.
@@ -245,62 +248,88 @@ Series con API HTTP de accesos confirmada: **ASI3xxx / ASI6xxx / ASI7xxx**.
 
 ---
 
-# Parte B — Cámaras y NVR (consultar eventos e imágenes)
+# Parte B — Cámaras y NVR (solo logs de eventos + snapshots)
 
-## B.1 Qué expone Dahua (device-direct, auth Digest)
+> **Decisión de alcance (2026-07-14):** la app integra **únicamente** el **log de
+> eventos** (con su miniatura) y **snapshots**. El **vídeo en vivo y la
+> reproducción de grabaciones se dejan a la app oficial de Dahua** (DMSS /
+> gDMSS / iDMSS en móvil, SmartPSS/DSS en escritorio), que ya resuelve el vídeo
+> por su nube P2P sin que tengamos que montar streaming.
+>
+> Esto **elimina** el trozo caro: no hace falta media-server (MediaMTX/go2rtc/
+> Frigate) ni transcodificación RTSP→HLS/WebRTC. La integración se reduce a
+> **ingesta de eventos + snapshots**.
 
-| Necesidad | Cómo |
-|---|---|
-| **Snapshot JPEG** de una cámara o canal del NVR | `GET /cgi-bin/snapshot.cgi?channel=N` (Digest) → win rápido |
-| **Vídeo en vivo** | RTSP: `rtsp://user:pass@<ip>:554/cam/realmonitor?channel=1&subtype=0` (main) / `subtype=1` (sub) |
-| **Eventos en tiempo real** (movimiento, IVS/línea cruzada, detección de persona) | `GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]` (stream persistente) + snapshot del evento vía `snapManager` |
-| **Grabaciones del NVR** | `mediaFileFind` para localizar el clip por fecha/hora/tipo + reproducción RTSP con rango temporal (`.../playback?...&starttime=&endtime=`) |
-| **Estándar agnóstico de marca** | **ONVIF** Profile S (streaming) / G (grabación-playback) / T (analítica) — snapshot, stream y eventos por estándar, no solo Dahua |
+## B.1 Qué usamos y qué NO
 
-## B.2 El problema real: NAT + RTSP en el navegador
+| | Integramos en la app | Cómo |
+|---|---|---|
+| **Log de eventos** (movimiento, IVS/línea cruzada, detección de persona, sabotaje…) | ✅ Sí | Con su **snapshot del momento** |
+| **Snapshot / imagen** | ✅ Sí | JPEG del evento (y opcionalmente on-demand) |
+| **Vídeo en vivo** | ❌ No — app de Dahua (DMSS) | — |
+| **Reproducción de grabaciones** | ❌ No — app de Dahua (DMSS/SmartPSS) | — |
 
-- Las cámaras/NVR viven en la **LAN del local detrás de NAT/CGNAT**. Nuestra app
-  en la nube **no las alcanza directamente**; abrir puertos o VPN por local es
-  frágil e inseguro.
-- **RTSP no se reproduce nativo en el navegador** → hay que transcodificar a
-  **HLS/WebRTC**.
+Endpoints device-direct (auth **Digest**) que sí usamos:
+- **Snapshot JPEG:** `GET /cgi-bin/snapshot.cgi?channel=N`.
+- **Eventos con snapshot:** `eventManager.cgi?action=attach&codes=[All]` (stream) o
+  `snapManager.cgi?action=attachFileProc` (el evento trae la imagen). También por
+  **ONVIF** (pull-point) para no atarnos a Dahua.
 
-## B.3 Arquitectura recomendada — gateway on-site por local
+## B.2 Arquitectura — más simple sin vídeo, pero sigue el NAT
 
+Las cámaras/NVR viven en la **LAN del local tras NAT/CGNAT**. Al quitar el vídeo,
+el camino se simplifica mucho: **basta que los eventos + snapshot lleguen a un
+endpoint de ingesta nuestro**, y hay dos formas de conseguirlo **sin abrir
+puertos ni túnel** si el equipo tiene salida a Internet.
+
+**Opción 1 (recomendada, casi sin infra) — push del propio equipo:**
 ```
-[ Cámaras/NVR Dahua ]  --LAN-->  [ Gateway on-site (cajita) ]  --túnel saliente-->  [ StorageOS cloud ]  -->  navegador
-    RTSP / CGI / ONVIF            · media-server (MediaMTX/                WireGuard/Tailscale         (HLS/WebRTC, snapshots,
-                                    go2rtc/Frigate) → HLS/WebRTC           (sin abrir puertos)          metadatos de evento)
-                                  · pull de snapshots + eventos
-                                  · nuestro agente ligero
+[ Cámara/NVR Dahua ]  --evento + snapshot (salida a Internet)-->  [ POST /webhooks/camera-events (StorageOS) ]
+   alarm linkage: HTTP upload / FTP / email
 ```
+Los equipos Dahua permiten **subir la captura del evento** por **FTP**, **email**
+o (según modelo/firmware) **HTTP upload** como "linkage" de la alarma. Montamos un
+**endpoint de ingesta** (FTP embebido o webhook HTTP + un buzón email→webhook) y
+el dispositivo nos empuja el evento con su JPEG. Cero gateway, cero puertos
+entrantes. Limitación: el snapshot es **el del evento**, no "una foto ahora mismo"
+arbitraria.
 
-- **Gateway** = una pequeña caja por local (o el NVR si expone lo necesario) que:
-  1. abre un **túnel saliente** a nuestra nube (nada de port-forwarding),
-  2. **transcodifica** RTSP→HLS/WebRTC para el navegador,
-  3. hace pull de snapshots y suscribe eventos, y nos los reenvía.
-- Nuestro backend **proxya**: el navegador nunca habla con la cámara → resuelve
-  CORS y no expone credenciales del equipo. Las credenciales de cada cámara se
-  guardan **cifradas** por device (mismo patrón que `controlSecretEncrypted`).
-- **Soportar ONVIF** para no atarnos solo a Dahua (sirve para Hikvision y otras).
+**Opción 2 (si se quiere snapshot on-demand "ver una foto ahora") — agente ligero:**
+Un **agente on-site muy ligero** por local (una cajita, o el propio NVR si expone
+lo necesario) con **túnel saliente** (WireGuard/Tailscale) que, a petición de
+nuestra nube, hace `snapshot.cgi` y devuelve el JPEG. Es **mucho más ligero que un
+media-server** (no transcodifica vídeo; solo un GET puntual). Solo se añade si el
+"ver una foto ahora" se considera necesario; para el 90% del valor (eventos con
+miniatura) basta la Opción 1.
 
-## B.4 Reparto de esfuerzo (cámaras)
+En ambos casos, **nuestro backend hace de proxy/almacén**: el navegador nunca
+habla con la cámara → resuelve CORS y no expone credenciales del equipo. Las
+credenciales de cada cámara se guardan **cifradas** (patrón `controlSecretEncrypted`).
 
-- **Fase 1 (esfuerzo bajo, valor inmediato):** snapshots + metadatos de eventos.
-  P. ej. "ver el pasillo ahora" en la ficha del local y "eventos del día"
-  (con miniatura) en la ficha del trastero/incidencia. Aun así necesita el
-  camino de red (gateway o, en piloto, una cámara accesible por VPN).
-- **Fase 2 (proyecto grande):** vídeo en vivo/grabado embebido en el navegador →
-  media-server + gateway + gestión de sesiones/permisos.
+## B.3 Modelo de datos sugerido (cuando se aborde)
 
-## B.5 Modelo de datos sugerido (cámaras) — cuando se aborde
+- Tabla `camera_devices` (tenant + facility + `channel` + credenciales cifradas +
+  `onvifUrl`/IP + `serialNumber` para que el operador la añada también a **DMSS**).
+- Tabla `camera_events` (`deviceId` + tipo de evento + **`snapshotKey`** en MinIO +
+  `occurredAt` + `metadata`). El endpoint de ingesta valida el origen (HMAC como
+  los webhooks salientes, o secreto por device) e inserta la fila + sube el JPEG.
+- Los snapshots van a un **bucket privado** (evidencia), servidos con **URL firmada
+  temporal** (mismo patrón que las fotos de inspección de contrato).
 
-- Reutilizar el patrón de `access_devices`: una tabla `cameras`/`camera_devices`
-  (tenant + facility + `rtspPath`/`channel` + credenciales cifradas + `onvifUrl`)
-  y una `camera_events` (evento + snapshot key en MinIO + `occurredAt` + tipo),
-  con el gateway empujando a un endpoint autenticado (HMAC, como los webhooks).
-- Los snapshots van a un bucket **privado** (evidencia), servidos con URL firmada
-  temporal (patrón de las fotos de inspección de contrato).
+## B.4 Dónde se ve en la app
+
+- **Ficha del local:** «Últimos eventos de cámara» (lista con miniatura + hora + tipo).
+- **Ficha del trastero / incidencia:** eventos de cámara del pasillo/zona en la
+  ventana de tiempo relevante (evidencia junto a la incidencia).
+- **Botón «Ver en directo»** → enlace/nota que remite a la **app de Dahua (DMSS)**
+  con el nº de serie del equipo; no reproducimos vídeo nosotros.
+
+## B.5 Reparto de esfuerzo (con el alcance acotado)
+
+- **Fase 1 (bajo esfuerzo):** ingesta de eventos + snapshot por **push** (Opción 1)
+  + modelo de datos + las dos vistas de arriba. Es el grueso del valor.
+- **Fase 2 (opcional):** agente on-site para **snapshot on-demand** (Opción 2).
+- **Fuera de alcance:** vídeo en vivo y grabaciones → app de Dahua.
 
 ---
 
@@ -321,5 +350,8 @@ Series con API HTTP de accesos confirmada: **ASI3xxx / ASI6xxx / ASI7xxx**.
 2. Piloto de accesos: `DahuaLockProvider` (Digest `openDoor`) + `DahuaSyncService`
    (insert/`CardStatus`/`recordFinder`) con **PIN** primero; validar el flujo
    **QR** en campo antes de comprometerlo.
-3. Piloto de cámaras: montar un gateway (MediaMTX/go2rtc) con una cámara y validar
-   snapshot + un evento hacia un endpoint autenticado + HLS en el navegador.
+3. Piloto de cámaras (alcance acotado): configurar el **linkage de alarma** de una
+   cámara para que suba el snapshot del evento por **FTP/email/HTTP** a un endpoint
+   de ingesta nuestro y validar que el evento + miniatura aparecen en la app. El
+   vídeo en vivo se comprueba directamente con la **app DMSS** (sin trabajo por
+   nuestra parte).
