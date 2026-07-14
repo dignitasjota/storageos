@@ -453,6 +453,47 @@ Series con API HTTP de accesos confirmada: **ASI3xxx / ASI6xxx / ASI7xxx**.
   aceptado", **no** "la puerta abrió físicamente". El ACK físico de apertura
   sigue siendo un pendiente transversal (igual que con el resto del hardware).
 
+## A.9 Resiliencia: ¿qué pasa si se va internet o la luz?
+
+### Corte de INTERNET → los inquilinos SIGUEN entrando ✅ (por diseño)
+
+Es la razón principal de elegir **Patrón B** como modo nativo: las credenciales
+están sincronizadas **dentro del terminal** y él valida **en local, sin red**.
+Las aperturas quedan como *offline records* (el ASI6214S guarda hasta 300.000
+eventos) y se reconcilian a `access_logs` cuando vuelve la conexión.
+
+Qué se degrada durante el corte (aceptable y conocido):
+
+| Función | Sin internet |
+|---|---|
+| Entrar con PIN / tarjeta / QR en el lector | ✅ Funciona |
+| «Tu móvil es la llave» (apertura desde el portal/staff) | ❌ No (nube→terminal) |
+| Alta de PIN nuevo / pase nocturno recién comprado | ⏳ No llega al terminal hasta el sync |
+| **Corte por impago** decidido durante la caída | ⏳ El moroso sigue entrando hasta que el sync propague `CardStatus` |
+| Logs/eventos en la app | ⏳ Llegan al reconciliar, no en vivo |
+
+Contraste: una puerta en **Patrón A puro** (el hardware valida contra nuestro
+`/access/verify`, p. ej. ESP32/Akuvox) **NO abre sin internet**. De ahí el
+híbrido: **Patrón B para la validación diaria** + Patrón A solo como capa extra
+(apertura remota).
+
+### Corte de LUZ → solo con respaldo (hardware, no software)
+
+Sin electricidad no funciona ningún terminal ni cerradura, del fabricante que
+sea. Checklist de instalación:
+
+1. **SAI/UPS** (o fuente de alimentación con batería de 12 V, estándar en control
+   de accesos) alimentando terminal + cerradura + router/switch. El consumo es de
+   vatios: un SAI modesto aguanta horas.
+2. **Tipo de cerradura (decisión de seguridad):** **fail-secure** (abrepuertas
+   eléctrico: sin luz queda **cerrada**) vs **fail-safe** (ventosa magnética: sin
+   luz queda **abierta**). Para accesos exteriores de un trastero: **fail-secure
+   + SAI**.
+3. **Evacuación (normativa):** la salida **desde dentro** debe ser siempre posible
+   sin corriente (manilla/barra antipánico **mecánica**) — independiente del lector.
+4. La alarma **AirShield** sigue protegiendo: el hub lleva batería de respaldo y
+   los detectores van a pilas; al volver la red reporta lo ocurrido.
+
 ---
 
 # Parte B — Cámaras y NVR (solo logs de eventos + snapshots)
