@@ -1,10 +1,10 @@
-# Integración con hardware Dahua (control de accesos + cámaras/NVR) — diseño técnico
+# Integración con hardware Dahua (control de accesos + cámaras/NVR + alarma) — diseño técnico
 
 > **Estado:** propuesta de diseño (2026-07-14). Ningún código Dahua está aún
 > implementado. Este documento describe **cómo** encajarían los terminales de
-> control de accesos y las cámaras/NVR de Dahua en el sistema de accesos y en la
-> app, con las interfaces exactas del código actual y los endpoints reales de la
-> API de Dahua.
+> control de accesos, las cámaras/NVR y la alarma (AirShield) de Dahua en el
+> sistema de accesos y en la app, con las interfaces exactas del código actual y
+> los endpoints reales de la API de Dahua.
 >
 > Complementa a [`HARDWARE_AKUVOX.md`](HARDWARE_AKUVOX.md) (patrones A/B y el
 > endpoint `/access/verify`), [`HARDWARE_ESP32.md`](HARDWARE_ESP32.md) y
@@ -33,6 +33,13 @@
   que además puede resolverse con **push del propio equipo** (FTP/email/HTTP
   linkage) a un endpoint nuestro, **sin gateway ni túnel** si tiene salida a
   Internet. Un agente on-site ligero solo si se quiere "snapshot on-demand".
+- **Alarma: Dahua AirShield frente a Ajax (decisión 2026-07-14).** Ajax es mejor
+  alarma como producto, pero su API es **gated** (Enterprise API para empresas
+  "con miles de sistemas") y **cloud-only**. AirShield **enlazado al NVR** entra
+  por la **misma API/adapter** que cámaras/accesos → una integración, un timeline
+  unificado (alarma + vídeo + acceso) y verificación por vídeo nativa. Ajax queda
+  como **adapter futuro "premium"** detrás del mismo puerto si un cliente lo
+  exige. Detalle en la Parte C.
 - **Antes de comprar:** la doc oficial de la API de accesos **no es 100%
   pública** (portal de partners). Pedir al distribuidor español (By Demes /
   Visiotech) la *"HTTP API for Access Control"* del firmware exacto del modelo.
@@ -113,8 +120,18 @@ interface AccessHardwareProvider {
 | `pullEvents` | `recordFinder.cgi ... AccessControlCardRec` → map a `AccessEvent` |
 
 Cambiar a otro fabricante mañana = escribir `AcmeProvider implements
-AccessHardwareProvider` con **su** mapeo; el core no cambia una línea. La factory
-por env (`LOCK_PROVIDER=dahua|acme|...`) selecciona el adapter.
+AccessHardwareProvider` con **su** mapeo; el core no cambia una línea.
+
+**⚠️ Resolución del adapter: por DEVICE, no global.** Hoy la factory por env
+(`LOCK_PROVIDER=stub|mqtt|http`) elige **un** provider para toda la plataforma.
+En un SaaS multi-tenant eso no basta: cada local puede tener hardware distinto
+(un tenant con ESP32/HTTP, otro con Dahua, la cancela por MQTT). El diseño
+objetivo es que **cada `access_devices` declare su provider** (columna
+`provider` o `metadata.provider`) y un `ProviderRegistry` resuelva el adapter
+**por device** en `remoteOpen`/`openForCustomer`/sync (fallback al env global si
+el device no lo declara → retrocompatible). Puede hacerse en el mismo PR del
+`DahuaLockProvider`: es un cambio pequeño y evita una migración de comportamiento
+después.
 
 ## Cuándo SÍ extraer un adapter a un servicio aparte (triggers)
 
@@ -381,6 +398,25 @@ Es lo que convierte a Dahua en fuente de verdad del hardware. Análogo al
 | `suspended` por staff (seguridad) | `4` (Frozen) |
 | `revoked` / fin de contrato | `remove` (baja) |
 
+## A.5-bis ⚠️ Límites del Patrón B: qué reglas nuestras NO aplican en la puerta
+
+En Patrón B **el terminal valida solo** → las reglas que hoy viven en NUESTRO
+`AccessVerifyService` **no se ejecutan en cada apertura física**. Hay que
+mapearlas al terminal o asumir la degradación de forma consciente:
+
+| Regla nuestra (server-side) | En Patrón B con Dahua | Mitigación |
+|---|---|---|
+| **Toque de queda del local** (`facilities.access_curfew_*`) | El terminal no consulta nuestro curfew | Mapear a los **perfiles horarios del terminal** (time sections/period de la credencial Dahua); el sync los recalcula al cambiar la config del local |
+| **Ventanas horarias por credencial** (`allowedHours.windows`) | Ídem | Ídem (validar en piloto que la granularidad de Dahua — días de semana + franjas — cubre nuestro modelo) |
+| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | El terminal no descuenta usos nuestros | Sincronizarlo como credencial con **validez temporal** (`ValidDateStart/End`) y **borrarla tras el primer uso reconciliado** (ventana de carrera: entre el uso y la reconciliación podría reutilizarse) — o mantener el pase nocturno SOLO en puertas Patrón A |
+| **Anti-fuerza-bruta** (`AccessRateLimitService`, Redis) | No aplica en la puerta | El terminal trae su propio anti-passback/lockout (verificar en piloto); nuestra capa sigue protegiendo `/access/verify` y la apertura remota |
+| **Suspensión por impago** | ✅ Sí aplica | Vía `CardStatus=8` (con la **latencia del sync**, no instantánea si el terminal está offline) |
+
+**Regla de oro:** las features "ricas" (pase nocturno, single-use, ventanas
+finas) funcionan al 100% en **Patrón A**; en **Patrón B** se degradan a lo que el
+terminal soporte. Documentar por local qué patrón usa cada puerta y no prometer
+al operador features que su hardware no puede cumplir.
+
 ## A.6 El gotcha del QR (importante)
 
 - Con ESP32/Akuvox describimos un flujo "escáner QR → HTTP a nuestra URL" donde
@@ -416,6 +452,67 @@ Series con API HTTP de accesos confirmada: **ASI3xxx / ASI6xxx / ASI7xxx**.
 - La apertura real depende del hardware: `dispatched:true` = "comando enviado y
   aceptado", **no** "la puerta abrió físicamente". El ACK físico de apertura
   sigue siendo un pendiente transversal (igual que con el resto del hardware).
+
+## A.9 Resiliencia: ¿qué pasa si se va internet o la luz?
+
+### Corte de INTERNET → los inquilinos SIGUEN entrando ✅ (por diseño)
+
+Es la razón principal de elegir **Patrón B** como modo nativo: las credenciales
+están sincronizadas **dentro del terminal** y él valida **en local, sin red**.
+Las aperturas quedan como *offline records* (el ASI6214S guarda hasta 300.000
+eventos) y se reconcilian a `access_logs` cuando vuelve la conexión.
+
+Qué se degrada durante el corte (aceptable y conocido):
+
+| Función | Sin internet |
+|---|---|
+| Entrar con PIN / tarjeta / QR en el lector | ✅ Funciona |
+| «Tu móvil es la llave» (apertura desde el portal/staff) | ❌ No (nube→terminal) |
+| Alta de PIN nuevo / pase nocturno recién comprado | ⏳ No llega al terminal hasta el sync |
+| **Corte por impago** decidido durante la caída | ⏳ El moroso sigue entrando hasta que el sync propague `CardStatus` |
+| Logs/eventos en la app | ⏳ Llegan al reconciliar, no en vivo |
+
+Contraste: una puerta en **Patrón A puro** (el hardware valida contra nuestro
+`/access/verify`, p. ej. ESP32/Akuvox) **NO abre sin internet**. De ahí el
+híbrido: **Patrón B para la validación diaria** + Patrón A solo como capa extra
+(apertura remota).
+
+### Corte de LUZ → solo con respaldo (hardware, no software)
+
+Sin electricidad no funciona ningún terminal ni cerradura, del fabricante que
+sea. Checklist de instalación:
+
+1. **SAI/UPS** (o fuente de alimentación con batería de 12 V, estándar en control
+   de accesos) alimentando terminal + cerradura + router/switch. El consumo es de
+   vatios: un SAI modesto aguanta horas.
+2. **Tipo de cerradura (decisión de seguridad):** **fail-secure** (abrepuertas
+   eléctrico: sin luz queda **cerrada**) vs **fail-safe** (ventosa magnética: sin
+   luz queda **abierta**). Para accesos exteriores de un trastero: **fail-secure
+   + SAI**.
+3. **Evacuación (normativa):** la salida **desde dentro** debe ser siempre posible
+   sin corriente (manilla/barra antipánico **mecánica**) — independiente del lector.
+4. La alarma **AirShield** sigue protegiendo: el hub lleva batería de respaldo y
+   los detectores van a pilas; al volver la red reporta lo ocurrido.
+
+### ¿Y una llave física o un "código de emergencia"?
+
+- **Sin internet no hace falta nada especial**: los códigos normales funcionan
+  (validación local, Patrón B).
+- **Sin electricidad NINGÚN código funciona** (el teclado está muerto) — no
+  existe el "código de emergencia" sin corriente. La respuesta del sector es
+  **mecánica**:
+  1. Toda puerta electrificada conserva un **bombín mecánico con llave física**
+     (el abrepuertas fail-secure se monta junto a una cerradura normal). La llave
+     la tiene **el staff**, no los inquilinos — idealmente con **amaestramiento**
+     (una llave maestra para todos los cilindros del local).
+  2. Las cancelas/puertas **motorizadas** traen de serie **desbloqueo manual con
+     llave** (se desembraga el motor y se abre a mano).
+  3. La **ventosa magnética no tiene llave** (sin luz queda abierta) — otro motivo
+     para fail-secure + bombín.
+- **Jerarquía de respaldo**: red caída → códigos locales (Patrón B) · luz caída →
+  el **SAI** mantiene los códigos vivos · SAI agotado o **terminal averiado** →
+  **llave mecánica del staff**. En un apagón largo el inquilino depende del staff
+  (asumible); la salida desde dentro siempre es mecánica por normativa.
 
 ---
 
@@ -460,10 +557,18 @@ puertos ni túnel** si el equipo tiene salida a Internet.
 ```
 Los equipos Dahua permiten **subir la captura del evento** por **FTP**, **email**
 o (según modelo/firmware) **HTTP upload** como "linkage" de la alarma. Montamos un
-**endpoint de ingesta** (FTP embebido o webhook HTTP + un buzón email→webhook) y
-el dispositivo nos empuja el evento con su JPEG. Cero gateway, cero puertos
-entrantes. Limitación: el snapshot es **el del evento**, no "una foto ahora mismo"
-arbitraria.
+**endpoint de ingesta** (webhook HTTP; si el equipo solo habla FTP, un pequeño
+contenedor FTP→webhook) y el dispositivo nos empuja el evento con su JPEG. Cero
+gateway, cero puertos entrantes **en el local**. Limitación: el snapshot es **el
+del evento**, no "una foto ahora mismo" arbitraria.
+
+> **Nota de despliegue:** este ingest (webhook y/o contenedor FTP) es
+> **centralizado** y SÍ vive en **nuestro compose de la nube** — no confundir con
+> la regla "el agente on-site no va en la nube": el agente resuelve *salida hacia
+> la LAN*; el ingest recibe *entradas desde los equipos*. Preferir **HTTP upload**
+> si el firmware lo trae; FTP como fallback (ojo a los puertos pasivos del FTP en
+> el VPS/NPM). Autenticación realista: **credenciales/token por device** (el
+> equipo no sabe firmar HMAC nuestro).
 
 **Opción 2 (si se quiere snapshot on-demand "ver una foto ahora") — agente ligero:**
 Un **agente on-site muy ligero** por local (una cajita, o el propio NVR si expone
@@ -504,6 +609,143 @@ credenciales de cada cámara se guardan **cifradas** (patrón `controlSecretEncr
 
 ---
 
+# Parte C — Alarma de intrusión (Dahua AirShield; Ajax descartado por ahora)
+
+> **Decisión (2026-07-14): Dahua AirShield** como alarma por defecto. **Ajax
+> Systems** es mejor alarma como producto, pero para NUESTRO caso pierde por la
+> integración. Ajax queda como **adapter futuro "premium"** detrás del mismo
+> puerto neutral si un cliente lo exige y se consigue acceso a su API.
+
+## C.1 Por qué AirShield y no Ajax (comparativa)
+
+| Criterio | **Ajax Systems** | **Dahua AirShield** |
+|---|---|---|
+| **Calidad como alarma** | ⭐ Referencia del mercado (Jeweller, retrofit impecable, catálogo enorme) | Más reciente/menos rodada; correcta |
+| **Grados EN 50131** | Grade 2 estándar; **Grade 3** disponible (Superior MotionCam G3 / Hub Hybrid) | Grade 2 + PD6662 (sin Grade 3 público) |
+| **Verificación** | Foto (MotionCam, líder) | Foto (PIR-Cam) + **vídeo nativo con las cámaras Dahua** (alarma + persona detectada) |
+| **API para nuestra app** | **Enterprise API**: existe pero **muy gated** (literal: para empresas "que ya sirven miles de sistemas Ajax", aprobación previa) y **cloud-only** (Ajax Cloud; sin API local/LAN ni MQTT oficial). Push real → vía **CMS/SIA DC-09** (posicionarse como CRA) | **Enlazado al NVR por red** → los eventos de intrusión entran por el **mismo `eventManager.cgi` device-direct** que cámaras/accesos. Alternativa **Open IoT API** (cloud DoLynk) |
+| **Coste de integración para nosotros** | **Un adapter nuevo entero**, cloud, con gate de acceso incierto | **≈ 0 marginal**: un tipo de evento más en el adapter Dahua |
+| **Timeline unificado** (alarma+vídeo+acceso) | No (dos ecosistemas a correlacionar) | ✅ Nativo (NVR/DMSS agregan todo) |
+
+**Cuándo compensaría Ajax:** cliente que lo exija por marca/seguro/CRA, o que
+necesite Grade 3 con verificación fotográfica premium. Gracias a ports &
+adapters, añadirlo después es un adapter más — no bloquear el diseño por Ajax hoy.
+
+## C.2 Vía de integración de AirShield
+
+- **Hardware:** Alarm Hub (p. ej. `ARC3800H`, hasta 150 periféricos, 433/868 MHz,
+  AES128) + detectores (PIR, PIR-Cam, apertura, sirena…).
+- **La vía recomendada — enlazar el Hub al NVR** ("network protocol", no contacto
+  seco): el NVR agrega los eventos de intrusión junto a los de las cámaras →
+  nuestro adapter Dahua los consume por la **misma suscripción de eventos del
+  NVR** (`eventManager.cgi?action=attach`) que la Parte B. Además habilita el
+  linkage alarma↔vídeo (verificación) y **armar/desarmar desde el NVR**.
+- **Armar/desarmar desde la app:** vía NVR-linkage (device-direct) o vía **Open
+  IoT API** (cloud DoLynk — rompe la preferencia device-direct; usar solo si la
+  vía NVR no lo cubre). En el puerto neutral sería un verbo nuevo
+  (`setArmedState(partition, 'armed'|'disarmed'|'home')`).
+- **CRA (recepción profesional):** AirShield sale a central receptora por
+  **SIA DC-09 / Sur-Gard** vía su converter. **Nota España:** para que una alarma
+  despache a policía debe estar conectada a una **CRA homologada** e instalada
+  por empresa de seguridad autorizada (RD 2364/1994 / Orden INT/316/2011) — eso
+  es un contrato del operador con una CRA, **no** algo que sustituya nuestra app.
+  Nuestra app muestra el timeline; la CRA gestiona la intervención.
+
+## C.3 Encaje en la app (mismo modelo que cámaras)
+
+- Los eventos de alarma (armado, desarmado, salto de zona, tamper, batería) entran
+  como **un tipo más de evento** en la ingesta de la Parte B (`camera_events` o una
+  tabla `security_events_hw` común con `kind: camera|alarm`), correlacionables con
+  el snapshot de la cámara de la misma zona.
+- Vistas: los mismos sitios que B.4 (ficha del local + incidencias) + un **estado
+  de armado por local** en la ficha del local (y opcionalmente armar/desarmar para
+  staff con permiso, cuando se implemente el verbo).
+- El «ver en directo» de una alarma → app DMSS (misma decisión que cámaras).
+
+## C.4 Cautelas a validar en el piloto de alarma
+
+1. **Modelo/firmware del NVR**: no todos exponen el menú IoT/alarm-hub (puede
+   requerir firmware específico).
+2. Validar que la suscripción vía NVR entrega el **detalle** (zona, detector,
+   tamper), no solo un evento genérico.
+3. Confirmar el **armado/desarmado por API vía NVR**; si solo existe por Open IoT
+   (cloud), decidir si se acepta esa dependencia o se deja el armado en DMSS.
+
+---
+
+# Anexo — Lista de materiales (BOM) para un local tipo
+
+> Local mediano de referencia: 1 puerta peatonal de entrada + pasillos + (opcional)
+> cancela de vehículos, ~6 cámaras, alarma de 4 zonas. Precios orientativos de
+> calle (2026), IVA aparte. Ajustar cantidades al plano real.
+
+## A. Control de accesos (por puerta peatonal)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| Terminal de acceso (PIN+tarjeta+QR+cara) | **Dahua ASI6214S** (valida en local = Patrón B) | 250–400 € |
+| Abrepuertas eléctrico **fail-secure** 12 V | Dorcas/CDVI estándar | 30–60 € |
+| Cerradura mecánica + **bombín amaestrado** | Llave maestra del staff (último recurso) | 40–80 € |
+| Fuente 12 V con batería ("SAI de la puerta") | Caja 12 V 3–5 A con hueco de batería | 40–70 € |
+| Batería 12 V 7 Ah | Plomo AGM | 15–25 € |
+| Manilla/barra **antipánico mecánica** interior | Obligatoria (evacuación sin corriente) | 60–150 € |
+| Contacto magnético de puerta | Estado abierta/cerrada (ACK + alarma) | 5–15 € |
+| Cableado (Cat6 al terminal + 2×1 mm² a cerradura + canaleta) | — | 30–60 € |
+
+Cancela de vehículos: motor con desbloqueo manual por llave (de serie) + relé
+accionado por el terminal o segundo lector — ver `HARDWARE_CANCELA.md`.
+**Subtotal por puerta: ~500–800 €.**
+
+## B. Cámaras (alcance acotado: eventos + snapshots)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| **NVR Dahua PoE** 4–8 canales | Serie NVR4x04/4x08-P — ⚠️ **modelo con menú IoT compatible AirShield, confirmar ANTES de comprar** | 120–300 € |
+| Disco de videovigilancia | WD Purple 2–4 TB | 60–120 € |
+| Cámaras IP PoE **con IA** (detección de persona/IVS — evita falsos positivos en el push) | Domo/bullet 4 MP (IPC-HDW2441 / HFW2441) × 4–8: entrada ext. · recepción · 1/pasillo · cancela | 60–120 €/ud |
+| Cable UTP Cat6 por cámara (el NVR PoE alimenta) | — | 50–100 € |
+
+**Subtotal (6 cámaras): ~700–1.200 €.**
+
+## C. Alarma (AirShield, enlazada al NVR)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| **Alarm Hub** | ARC3800H (batería integrada, 150 periféricos) | 150–250 € |
+| Detectores PIR (1/zona: recepción, pasillos, muelle) | PIR estándar o **PIR-Cam** (foto de verificación) | 30–60 € / 80–120 € |
+| Contactos magnéticos inalámbricos (puertas acceso/emergencia) | — | 25–40 €/ud |
+| Sirena interior + exterior | Inalámbricas AirShield | 50–90 €/ud |
+| Teclado/mando de armado (opcional; se arma por app/horario) | — | 30–60 € |
+
+Detectores a pilas. **Subtotal (4 zonas): ~500–900 €.**
+⚠️ **CRA**: despacho a policía = contrato con CRA homologada + instalación por
+empresa autorizada (RD 2364/1994); sin CRA, la alarma avisa a app/DMSS y suena.
+
+## D. Red e infraestructura común (el "rack" del local)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| **Router con failover 4G/LTE** | Teltonika RUT241/RUT906 — si cae la fibra, el push y el sync siguen por 4G | 150–250 € |
+| Switch PoE 8 puertos | Para el terminal ASI / cámaras extra | 60–100 € |
+| **SAI/UPS 600–1000 VA** | Rack: router + switch + NVR + agente | 80–150 € |
+| **Agente on-site** (sync Patrón B + reconciliación por túnel saliente) | Raspberry Pi 5 / mini-PC + SSD + Docker | 80–150 € |
+| Armario/caja rack **con llave** | — | 60–120 € |
+| VLAN de dispositivos (cámaras/terminal sin salida a Internet salvo push) | Config del router | — |
+
+**Subtotal: ~450–800 €.**
+
+## Total orientativo del local tipo
+
+| Bloque | Rango |
+|---|---|
+| Accesos (1 puerta) | 500–800 € |
+| Cámaras (6) | 700–1.200 € |
+| Alarma (4 zonas) | 500–900 € |
+| Red/infra | 450–800 € |
+| **Total hardware** | **~2.200–3.700 €** + instalación |
+
+---
+
 ## Fuentes
 
 - DAHUA ACCESS CONTROL PRODUCTS INTEGRATION INSTRUCTION Ver1.0 (portal de
@@ -513,6 +755,11 @@ credenciales de cada cámara se guardan **cifradas** (patrón `controlSecretEncr
   `mediaFileFind`).
 - DahuaWiki — Access Control; manuales ASI6214S / ASI7214Y-V3 / ASR2100A-ME.
 - ONVIF Profiles S/G/T.
+- Dahua AirShield (dahuasecurity.com/singlePage/custom/AirShield) + nota Open
+  ARC / Open IoT API + manual del Alarm Hub.
+- Ajax Systems: Enterprise API (ajax.systems/blog/enterprise-api), soporte "do
+  you have an API", Ajax Cloud Signaling (SIA DC-09), Translator PRO; grados
+  EN 50131 y MotionCam.
 
 ## Checklist antes de comprometerse
 
@@ -526,3 +773,13 @@ credenciales de cada cámara se guardan **cifradas** (patrón `controlSecretEncr
    de ingesta nuestro y validar que el evento + miniatura aparecen en la app. El
    vídeo en vivo se comprueba directamente con la **app DMSS** (sin trabajo por
    nuestra parte).
+4. Piloto de alarma (AirShield): Alarm Hub + 1-2 detectores **enlazados al NVR**;
+   validar que los eventos de intrusión llegan por la suscripción del NVR con
+   detalle de zona, el linkage alarma↔cámara, y el armado/desarmado por API vía
+   NVR (cautelas C.4). Confirmar el modelo de NVR compatible ANTES de comprarlo.
+5. En el primer PR de código: **resolución del provider por device** (columna/
+   metadata en `access_devices` + registry con fallback al env) — evita una
+   migración de comportamiento después.
+6. Validar en piloto el **mapeo de reglas al terminal** (A.5-bis): curfew y
+   ventanas → perfiles horarios Dahua; decidir si el pase nocturno se limita a
+   puertas Patrón A.
