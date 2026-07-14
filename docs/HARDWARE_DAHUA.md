@@ -146,6 +146,70 @@ la nube accesibles a través del túnel. No confundir los dos ejes.
 
 ---
 
+# Despliegue: nube vs on-site
+
+> **Regla:** el agente on-site **NO va en el `docker-compose` de la nube**. Son dos
+> planos distintos, en máquinas distintas.
+
+## Los dos planos
+
+```
+┌─ NUBE (tu VPS + Portainer) ──────────────┐          ┌─ LOCAL del cliente (LAN) ─────────────┐
+│  docker-compose.prod / portainer         │          │  Caja on-site (mini-PC / RPi / NVR)   │
+│  · api  · worker  · web                  │          │  · agente StorageOS (su propio Docker)│
+│  · postgres · redis · minio              │◄────────►│  · alcanza terminales/cámaras Dahua   │
+│  MULTI-TENANT, centralizado              │  túnel   │    por la LAN                         │
+└──────────────────────────────────────────┘ saliente └───────────────────────────────────────┘
+```
+
+- **Nube:** tu stack actual (`docker-compose.prod.yml` / `docker-compose.portainer.yml`)
+  en el VPS, centralizado y multi-tenant. **No puede alcanzar** la LAN de ningún
+  local (está tras el NAT del cliente) → el agente **no se añade aquí**.
+- **On-site:** un componente **por local**, en la LAN junto al hardware. Artefacto
+  **separado** (repo/imagen aparte), **uno por instalación**, no uno global.
+
+## Forma del agente on-site
+
+Docker es buen empaquetado, pero **desplegado en la caja del local** con su
+**propio compose de 1 servicio** (no el de la nube):
+
+- Cajita barata en el local (mini-PC / Raspberry Pi, o el NVR si admite
+  contenedores) con Docker + `docker-compose.agent.yml`: el agente + el cliente de
+  túnel (WireGuard/Tailscale, **saliente** — sin abrir puertos).
+- **Actualizaciones:** imagen versionada que la caja hace `pull` (Watchtower o
+  mecanismo propio), por-sitio.
+- **Alternativa sin Docker:** binario Go/Node como servicio `systemd`. Docker =
+  aislamiento + updates limpios; systemd = menos dependencias en la caja.
+- **Diseño recomendado: agente "tonto"** = solo túnel/proxy hacia la LAN; la
+  lógica del fabricante se queda en tus **adapters de la nube** (así el mismo
+  agente sirve para cualquier fabricante — no reimplementas Dahua en la caja).
+
+## Cuándo hace falta caja on-site (y cuándo NO)
+
+| Caso | ¿Agente/caja on-site? |
+|---|---|
+| Cámara: eventos + snapshot por **push** del equipo (FTP/email/HTTP linkage) | ❌ No (si el equipo sale a Internet) |
+| Cámara: snapshot **on-demand** ("una foto ahora") | ✅ Sí |
+| Accesos **Patrón A** (abrir puerta remoto: tú llamas al terminal) | ✅ Sí |
+| Accesos **Patrón B** (sync de credenciales + leer logs) | ✅ Sí |
+
+Para **cámaras con el alcance acotado** (solo eventos + snapshot) puedes empezar
+**sin caja**: el equipo empuja el evento a tu endpoint. Para **accesos** casi
+siempre necesitas alcanzar la LAN (abrir/sincronizar es "tú → terminal"), así que
+el agente es el patrón realista salvo que el terminal soporte auto-registro
+saliente (modo tipo DSS, propietario).
+
+## Recomendación de despliegue
+
+1. **No metas el agente en el `docker-compose` de la nube.** Es repo/imagen aparte
+   con su compose propio, por local.
+2. **Empieza sin agente donde puedas:** cámaras por push (90% del valor de cámaras,
+   cero infra por sitio).
+3. **Agente on-site solo para accesos** (y snapshot on-demand si se quiere), y
+   diseñado **tonto** (túnel/proxy) para no atarlo a Dahua.
+
+---
+
 # Parte A — Control de accesos
 
 ## A.1 Los dos patrones (recordatorio)
