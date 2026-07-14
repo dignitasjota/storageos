@@ -39,6 +39,113 @@
 
 ---
 
+# Arquitectura de integración (ports & adapters)
+
+> **Objetivo:** que cambiar de fabricante en el futuro (Dahua → otro) cueste
+> **escribir otro adapter**, no tocar la aplicación. Esta sección fija **cómo** se
+> aísla el proveedor. Es la guía de referencia; el detalle específico de Dahua
+> vive en las Partes A y B.
+
+## La decisión: adapter **in-process**, NO microservicio
+
+Lo que da la capacidad de cambiar de proveedor con impacto mínimo **es la
+interfaz (el "puerto"), no un límite de proceso**. StorageOS ya usa este patrón
+(anti-corruption layer / adapter) **dentro del propio proceso** en todas las
+integraciones externas: `PaymentGateway` (Stripe), `EmailProvider` (smtp/resend),
+`WhatsAppProvider` (stub/meta_waba), `AiProvider` (stub/anthropic) y, para
+hardware, **`LockProvider`** (stub/mqtt/http) — clase abstracta + DI por `Symbol`
++ factory por env. **Dahua se añade igual: una implementación más detrás del
+puerto**; el core no se entera.
+
+**Un microservicio separado NO es necesario para desacoplarse del proveedor** y
+añade coste (despliegue, red, latencia, otro punto de fallo) sin más
+desacoplamiento del que ya da la interfaz. Se reserva para presiones concretas
+(ver más abajo).
+
+## Regla de oro: el core habla en verbos de dominio
+
+El riesgo real no es "servicio sí/no", es **que se filtren conceptos del
+fabricante al core** (`CardStatus`, `recordUpdater`, Digest, `channel`,
+`snapshot.cgi`…). Si `AccessIntegrationsService` mencionara `CardStatus=8`, ya
+estaría atado a Dahua aunque hubiese una interfaz. **Todo lo específico del
+fabricante vive DENTRO del adapter.**
+
+## El puerto neutral (propuesta)
+
+Extiende el `LockProvider` actual (`apps/api/src/modules/access/providers/lock-provider.ts`)
+hacia un puerto de hardware de accesos más amplio, en verbos de dominio:
+
+```ts
+// Puerto neutral — NINGÚN concepto de fabricante aquí.
+interface AccessHardwareProvider {
+  // Patrón A — apertura remota (ya existe como LockProvider.open()).
+  openDoor(device: DeviceRef): Promise<{ dispatched: boolean; message?: string }>;
+
+  // Patrón B — sincronización de credenciales al terminal.
+  upsertCredential(device: DeviceRef, cred: CredentialSpec): Promise<HardwareCredRef>;
+  setCredentialState(ref: HardwareCredRef, state: 'active' | 'suspended' | 'revoked'): Promise<void>;
+  removeCredential(ref: HardwareCredRef): Promise<void>;
+
+  // Reconciliación de logs del hardware → nuestra tabla access_logs.
+  pullEvents(device: DeviceRef, since: Date): Promise<AccessEvent[]>;
+}
+```
+
+- `CredentialSpec` = método (pin/qr/rfid) + secreto + scope (locales/trasteros) +
+  ventanas; conceptos **nuestros**, no de Dahua.
+- `AccessEvent` = `{ method, result, credentialRef, occurredAt, ... }`, mapeado
+  ya a nuestros enums (`AccessResult`, `AccessMethod`).
+- El core (`AccessVerifyService`, `AccessDevicesService`,
+  `AccessIntegrationsService`) **solo conoce este puerto**.
+
+## Dónde vive lo de Dahua (dentro del adapter)
+
+`DahuaProvider implements AccessHardwareProvider` traduce el puerto a Dahua y
+**nada de esto sale del adapter**:
+
+| Verbo del puerto | Traducción Dahua (encapsulada) |
+|---|---|
+| `openDoor` | `GET accessControl.cgi?action=openDoor` + **Digest** |
+| `upsertCredential` | `recordUpdater.cgi?action=insert&name=AccessControlCard...` |
+| `setCredentialState('suspended')` | `recordUpdater update CardStatus=8` (impago) / `=4` (staff) |
+| `setCredentialState('active')` | `recordUpdater update CardStatus=0` |
+| `removeCredential` | `recordUpdater action=remove` |
+| `pullEvents` | `recordFinder.cgi ... AccessControlCardRec` → map a `AccessEvent` |
+
+Cambiar a otro fabricante mañana = escribir `AcmeProvider implements
+AccessHardwareProvider` con **su** mapeo; el core no cambia una línea. La factory
+por env (`LOCK_PROVIDER=dahua|acme|...`) selecciona el adapter.
+
+## Cuándo SÍ extraer un adapter a un servicio aparte (triggers)
+
+No por defecto; solo ante una presión concreta. Y como la **interfaz ya existe**,
+extraerlo entonces es un refactor **barato y localizado** (no te casas hoy):
+
+1. **Runtime incompatible**: el fabricante solo trae SDK binario/Python (p. ej. el
+   Dahua **NetSDK** C/.NET) que no quieres en tu API Node → sidecar. *(Con Dahua
+   por CGI HTTP NO aplica: se hace en Node.)*
+2. **Aislar el radio de fallo**: SDK inestable que no debe tumbar API/worker.
+3. **Despliegue/escalado o equipo independientes.**
+
+## El eje ORTOGONAL: el NAT (esto sí es un deployable aparte)
+
+Independiente de la abstracción de proveedor. El hardware vive en la **LAN del
+local tras NAT**, así que el Patrón B (sync + `pullEvents`) y los snapshots/eventos
+de cámara necesitan alcanzar la LAN. Ahí sí hay un **agente on-site** por local
+con túnel saliente — pero resuelve **red, no vendor-lock-in**, y puede ser
+**tonto** (solo túnel/proxy), dejando la lógica del proveedor en tus adapters de
+la nube accesibles a través del túnel. No confundir los dos ejes.
+
+## Resumen
+
+- **Abstracción de proveedor → in-process, extendiendo `LockProvider`** hacia
+  `AccessHardwareProvider`. Es lo que ya haces en el resto del sistema.
+- **Disciplina clave:** el fabricante no se filtra al core; todo dentro del adapter.
+- **Servicio/agente aparte → solo por el NAT**, o por un trigger concreto (SDK
+  binario, aislamiento). Extraerlo luego es barato porque el puerto ya existe.
+
+---
+
 # Parte A — Control de accesos
 
 ## A.1 Los dos patrones (recordatorio)
