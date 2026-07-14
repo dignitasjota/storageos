@@ -673,6 +673,79 @@ adapters, añadirlo después es un adapter más — no bloquear el diseño por A
 
 ---
 
+# Anexo — Lista de materiales (BOM) para un local tipo
+
+> Local mediano de referencia: 1 puerta peatonal de entrada + pasillos + (opcional)
+> cancela de vehículos, ~6 cámaras, alarma de 4 zonas. Precios orientativos de
+> calle (2026), IVA aparte. Ajustar cantidades al plano real.
+
+## A. Control de accesos (por puerta peatonal)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| Terminal de acceso (PIN+tarjeta+QR+cara) | **Dahua ASI6214S** (valida en local = Patrón B) | 250–400 € |
+| Abrepuertas eléctrico **fail-secure** 12 V | Dorcas/CDVI estándar | 30–60 € |
+| Cerradura mecánica + **bombín amaestrado** | Llave maestra del staff (último recurso) | 40–80 € |
+| Fuente 12 V con batería ("SAI de la puerta") | Caja 12 V 3–5 A con hueco de batería | 40–70 € |
+| Batería 12 V 7 Ah | Plomo AGM | 15–25 € |
+| Manilla/barra **antipánico mecánica** interior | Obligatoria (evacuación sin corriente) | 60–150 € |
+| Contacto magnético de puerta | Estado abierta/cerrada (ACK + alarma) | 5–15 € |
+| Cableado (Cat6 al terminal + 2×1 mm² a cerradura + canaleta) | — | 30–60 € |
+
+Cancela de vehículos: motor con desbloqueo manual por llave (de serie) + relé
+accionado por el terminal o segundo lector — ver `HARDWARE_CANCELA.md`.
+**Subtotal por puerta: ~500–800 €.**
+
+## B. Cámaras (alcance acotado: eventos + snapshots)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| **NVR Dahua PoE** 4–8 canales | Serie NVR4x04/4x08-P — ⚠️ **modelo con menú IoT compatible AirShield, confirmar ANTES de comprar** | 120–300 € |
+| Disco de videovigilancia | WD Purple 2–4 TB | 60–120 € |
+| Cámaras IP PoE **con IA** (detección de persona/IVS — evita falsos positivos en el push) | Domo/bullet 4 MP (IPC-HDW2441 / HFW2441) × 4–8: entrada ext. · recepción · 1/pasillo · cancela | 60–120 €/ud |
+| Cable UTP Cat6 por cámara (el NVR PoE alimenta) | — | 50–100 € |
+
+**Subtotal (6 cámaras): ~700–1.200 €.**
+
+## C. Alarma (AirShield, enlazada al NVR)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| **Alarm Hub** | ARC3800H (batería integrada, 150 periféricos) | 150–250 € |
+| Detectores PIR (1/zona: recepción, pasillos, muelle) | PIR estándar o **PIR-Cam** (foto de verificación) | 30–60 € / 80–120 € |
+| Contactos magnéticos inalámbricos (puertas acceso/emergencia) | — | 25–40 €/ud |
+| Sirena interior + exterior | Inalámbricas AirShield | 50–90 €/ud |
+| Teclado/mando de armado (opcional; se arma por app/horario) | — | 30–60 € |
+
+Detectores a pilas. **Subtotal (4 zonas): ~500–900 €.**
+⚠️ **CRA**: despacho a policía = contrato con CRA homologada + instalación por
+empresa autorizada (RD 2364/1994); sin CRA, la alarma avisa a app/DMSS y suena.
+
+## D. Red e infraestructura común (el "rack" del local)
+
+| Componente | Modelo/tipo | Aprox. |
+|---|---|---|
+| **Router con failover 4G/LTE** | Teltonika RUT241/RUT906 — si cae la fibra, el push y el sync siguen por 4G | 150–250 € |
+| Switch PoE 8 puertos | Para el terminal ASI / cámaras extra | 60–100 € |
+| **SAI/UPS 600–1000 VA** | Rack: router + switch + NVR + agente | 80–150 € |
+| **Agente on-site** (sync Patrón B + reconciliación por túnel saliente) | Raspberry Pi 5 / mini-PC + SSD + Docker | 80–150 € |
+| Armario/caja rack **con llave** | — | 60–120 € |
+| VLAN de dispositivos (cámaras/terminal sin salida a Internet salvo push) | Config del router | — |
+
+**Subtotal: ~450–800 €.**
+
+## Total orientativo del local tipo
+
+| Bloque | Rango |
+|---|---|
+| Accesos (1 puerta) | 500–800 € |
+| Cámaras (6) | 700–1.200 € |
+| Alarma (4 zonas) | 500–900 € |
+| Red/infra | 450–800 € |
+| **Total hardware** | **~2.200–3.700 €** + instalación |
+
+---
+
 ## Fuentes
 
 - DAHUA ACCESS CONTROL PRODUCTS INTEGRATION INSTRUCTION Ver1.0 (portal de
