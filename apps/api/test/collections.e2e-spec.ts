@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { CollectionsService } from '../src/modules/collections/collections.service';
@@ -10,6 +11,10 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 /**
  * Expedientes de impago (overlock → requerimiento → disposición). Ciclo
  * completo de la máquina de estados + cierre automático por pago + guards +
@@ -17,14 +22,17 @@ import type { INestApplication } from '@nestjs/common';
  */
 describe('Collections / expedientes de impago (e2e)', () => {
   let app: INestApplication;
+  let admin: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await admin.$disconnect();
     await cleanupTestTenants();
   });
 
@@ -212,5 +220,60 @@ describe('Collections / expedientes de impago (e2e)', () => {
       .send({ contractId: contract.body.id });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('no_debt');
+  });
+
+  it('liquidación fina: la fianza + disposición saldan la factura por antigüedad', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-settle');
+    await setTenantPlan(owner.slug, 'starter');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { contractId, invoiceId } = await seedContractWithDebt(owner.accessToken); // deuda 121€
+
+    // Fijamos una fianza retenida de 50€ en el contrato (como si se firmó con fianza).
+    await admin.contract.update({
+      where: { id: contractId },
+      data: { depositAmount: 50, depositStatus: 'held' },
+    });
+
+    const open = await request(app.getHttpServer())
+      .post('/collections')
+      .set(auth)
+      .send({ contractId });
+    const caseId = open.body.id as string;
+    for (const step of ['overlock', 'notice', 'resolution-pending', 'disposal'] as const) {
+      const body =
+        step === 'disposal' ? { disposalType: 'auction_notarial' } : step === 'notice' ? {} : {};
+      await request(app.getHttpServer()).post(`/collections/${caseId}/${step}`).set(auth).send(body);
+    }
+
+    // Cierre con 30€ de producto de la disposición + aplicar fianza (50€).
+    const done = await request(app.getHttpServer())
+      .post(`/collections/${caseId}/complete-disposal`)
+      .set(auth)
+      .send({ proceedsCents: 3000, applyDeposit: true });
+    expect(done.body.status).toBe('closed_disposed');
+
+    // El evento disposal_done lleva el desglose de la liquidación.
+    const detail = await request(app.getHttpServer()).get(`/collections/${caseId}`).set(auth);
+    const dispEvent = (detail.body.events as { eventType: string; payload: unknown }[]).find(
+      (e) => e.eventType === 'disposal_done',
+    );
+    const settlement = (dispEvent?.payload as { settlement?: Record<string, number> })?.settlement;
+    expect(settlement).toBeTruthy();
+    expect(settlement!.debtBeforeCents).toBe(12100);
+    expect(settlement!.depositAppliedCents).toBe(5000);
+    expect(settlement!.proceedsAppliedCents).toBe(3000);
+    expect(settlement!.debtAfterCents).toBe(4100); // 12100 - 5000 - 3000
+    expect(settlement!.invoicesSettled).toBe(1);
+
+    // La factura quedó con 80€ abonados (50 fianza + 30 producto).
+    const inv = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(inv.body.amountPaid).toBe(80);
+    expect(inv.body.status).not.toBe('paid'); // sigue con saldo pendiente
+
+    // La fianza quedó liquidada (consumida entera → returned, 0 devuelto).
+    const contract = await admin.contract.findUnique({ where: { id: contractId } });
+    expect(contract?.depositStatus).toBe('returned');
+    expect(Number(contract?.depositReturnedAmount)).toBe(0);
+    expect(contract?.depositSettledAt).not.toBeNull();
   });
 });

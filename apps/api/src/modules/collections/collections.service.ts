@@ -11,6 +11,7 @@ import { CLOSED_CASE_STATUSES } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
+import { InvoicesService } from '../billing/invoices.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -25,6 +26,7 @@ import type {
   DelinquencyCaseDetailDto,
   DelinquencyCaseDto,
   DelinquencyCaseStatus,
+  DelinquencySettlementDto,
   OpenCaseInput,
   OverlockCaseInput,
   RegisterCaseFileInput,
@@ -89,6 +91,7 @@ export class CollectionsService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly files: FilesService,
+    private readonly invoices: InvoicesService,
   ) {}
 
   // ---- config ----
@@ -555,9 +558,27 @@ export class CollectionsService {
     input: CompleteDisposalInput,
     facilityScope: string[] | null,
   ): Promise<DelinquencyCaseDto> {
-    // La liquidación fina (aplicar producto + fianza a las facturas por
-    // antigüedad + sobrante documentado) llega en el PR3; aquí registramos el
-    // cierre por disposición con el importe obtenido.
+    // Liquidación fina: aplica la fianza retenida + lo obtenido de la disposición
+    // a las facturas pendientes por antigüedad (más antigua primero) ANTES de
+    // cerrar el expediente. Solo se ejecuta si el expediente está en `disposal`
+    // (si no, `transition` lanzará invalid_transition sin haber tocado dinero).
+    const caseRow = await this.prisma.withTenant(
+      (tx) => this.findOrThrow(tx, tenantId, caseId, facilityScope),
+      tenantId,
+    );
+    let settlement: DelinquencySettlementDto | null = null;
+    if (caseRow.status === 'disposal') {
+      settlement = await this.applyFineSettlement(
+        tenantId,
+        userId,
+        caseRow.contractId,
+        input.proceedsCents,
+        input.applyDeposit,
+        caseId,
+        facilityScope,
+      );
+    }
+
     return this.transition(
       tenantId,
       caseId,
@@ -566,8 +587,114 @@ export class CollectionsService {
       'closed_disposed',
       { disposedAt: new Date(), closedAt: new Date() },
       'disposal_done',
-      { proceedsCents: input.proceedsCents, notes: input.notes ?? null },
+      {
+        proceedsCents: input.proceedsCents,
+        notes: input.notes ?? null,
+        ...(settlement ? { settlement } : {}),
+      },
     );
+  }
+
+  /**
+   * Aplica la fianza retenida (si `applyDeposit`) + el producto de la disposición
+   * a las facturas pendientes del contrato por antigüedad (más antigua primero),
+   * saldándolas con `markPaidManually` (methodType `other`, parcial permitido por
+   * ser una liquidación real). Marca la fianza como liquidada y devuelve el
+   * desglose. NO se anida en la tx del expediente (cada cobro abre la suya).
+   */
+  private async applyFineSettlement(
+    tenantId: string,
+    userId: string,
+    contractId: string,
+    proceedsCents: number,
+    applyDeposit: boolean,
+    caseId: string,
+    facilityScope: string[] | null,
+  ): Promise<DelinquencySettlementDto> {
+    const contract = await this.admin.contract.findFirst({
+      where: { id: contractId, tenantId },
+      select: { depositAmount: true, depositStatus: true },
+    });
+    const depositCents =
+      applyDeposit && contract?.depositStatus === 'held' ? toCents(contract.depositAmount) : 0;
+
+    const invoices = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where: { tenantId, contractId, status: { in: ['issued', 'overdue'] } },
+          select: { id: true, total: true, amountPaid: true, amountRefunded: true },
+          orderBy: [{ issueDate: 'asc' }, { createdAt: 'asc' }],
+        }),
+      tenantId,
+    );
+    const debtBeforeCents = invoices.reduce(
+      (sum, inv) =>
+        sum + Math.max(0, toCents(inv.total) - toCents(inv.amountPaid) - toCents(inv.amountRefunded)),
+      0,
+    );
+
+    let fundsCents = depositCents + proceedsCents;
+    let depositAppliedCents = 0;
+    let proceedsAppliedCents = 0;
+    let invoicesSettled = 0;
+
+    for (const inv of invoices) {
+      if (fundsCents <= 0) break;
+      const pendingCents = Math.max(
+        0,
+        toCents(inv.total) - toCents(inv.amountPaid) - toCents(inv.amountRefunded),
+      );
+      if (pendingCents <= 0) continue;
+      const payCents = Math.min(pendingCents, fundsCents);
+      // Reparte el pago entre fianza (primero) y producto para el desglose.
+      const fromDeposit = Math.min(payCents, depositCents - depositAppliedCents);
+      depositAppliedCents += fromDeposit;
+      proceedsAppliedCents += payCents - fromDeposit;
+      await this.invoices.markPaidManually({
+        tenantId,
+        userId,
+        invoiceId: inv.id,
+        facilityScope,
+        input: {
+          amount: payCents / 100,
+          methodType: 'other',
+          notes: `Liquidación expediente ${caseId} (fianza + disposición)`,
+          allowPartialNonCash: true,
+          overridePaymentInFlight: true,
+        },
+        meta: {},
+      });
+      fundsCents -= payCents;
+      invoicesSettled += 1;
+    }
+
+    // La fianza que no fue necesaria para la deuda queda como devolución al
+    // inquilino (real; el reembolso se tramita aparte). Marca la fianza liquidada.
+    if (depositCents > 0) {
+      const depositReturnedCents = depositCents - depositAppliedCents;
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.contract.update({
+            where: { id: contractId },
+            data: {
+              depositStatus: depositReturnedCents > 0 ? 'partially_returned' : 'returned',
+              depositReturnedAmount: depositReturnedCents / 100,
+              depositSettledAt: new Date(),
+              depositRetentionReason: `Aplicada a la deuda del expediente ${caseId}`,
+            },
+          }),
+        tenantId,
+      );
+    }
+
+    return {
+      debtBeforeCents,
+      depositAppliedCents,
+      proceedsAppliedCents,
+      debtAfterCents: Math.max(0, debtBeforeCents - depositAppliedCents - proceedsAppliedCents),
+      surplusCents: Math.max(0, fundsCents),
+      invoicesSettled,
+    };
   }
 
   async cancel(
