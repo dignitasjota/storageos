@@ -19,6 +19,7 @@ import { PlatformInvoicesService } from './platform-invoices.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type { SubscriptionStatus } from '@storageos/database';
 import type {
+  BillingCycle,
   BillingSessionResponseDto,
   SubscriptionPlanDto,
   TenantSubscriptionDto,
@@ -199,6 +200,7 @@ export class BillingSaasService {
     tenantId: string;
     userId: string;
     planId: string;
+    billingCycle?: BillingCycle;
     successUrl: string;
     cancelUrl: string;
     meta: RequestMeta;
@@ -230,10 +232,14 @@ export class BillingSaasService {
     if (!plan.isActive) {
       throw new BadRequestException({ code: 'plan_inactive', message: 'El plan no esta activo' });
     }
-    if (!plan.stripePriceId) {
+    const yearly = args.billingCycle === 'yearly';
+    const priceId = yearly ? plan.stripePriceIdYearly : plan.stripePriceId;
+    if (!priceId) {
       throw new BadRequestException({
-        code: 'plan_inactive',
-        message: 'El plan no tiene un Stripe price configurado',
+        code: 'plan_price_not_configured',
+        message: yearly
+          ? 'El plan no tiene un Stripe price anual configurado'
+          : 'El plan no tiene un Stripe price configurado',
       });
     }
 
@@ -249,7 +255,7 @@ export class BillingSaasService {
       session = await this.stripe.checkout.sessions.create({
         mode: 'subscription',
         customer: stripeCustomerId,
-        line_items: [{ price: plan.stripePriceId, quantity: 1 }],
+        line_items: [{ price: priceId, quantity: 1 }],
         success_url: args.successUrl,
         cancel_url: args.cancelUrl,
         client_reference_id: args.tenantId,
@@ -258,6 +264,7 @@ export class BillingSaasService {
             tenantId: args.tenantId,
             planId: plan.id,
             planSlug: plan.slug,
+            billingCycle: yearly ? 'yearly' : 'monthly',
           },
         },
         metadata: {
@@ -364,6 +371,7 @@ export class BillingSaasService {
     tenantId: string;
     userId: string;
     planId: string;
+    billingCycle?: BillingCycle;
     meta: RequestMeta;
   }): Promise<TenantSubscriptionDto> {
     const [sub, plan] = await Promise.all([
@@ -385,10 +393,14 @@ export class BillingSaasService {
         message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
       });
     }
-    if (!plan.stripePriceId) {
+    const yearly = args.billingCycle === 'yearly';
+    const newPriceId = yearly ? plan.stripePriceIdYearly : plan.stripePriceId;
+    if (!newPriceId) {
       throw new BadRequestException({
         code: 'plan_not_available',
-        message: 'El plan no tiene un precio configurado en Stripe',
+        message: yearly
+          ? 'El plan no tiene un precio anual configurado en Stripe'
+          : 'El plan no tiene un precio configurado en Stripe',
       });
     }
 
@@ -419,7 +431,7 @@ export class BillingSaasService {
         });
       }
       await this.stripe.subscriptions.update(sub.stripeSubscriptionId, {
-        items: [{ id: itemId, price: plan.stripePriceId }],
+        items: [{ id: itemId, price: newPriceId }],
         proration_behavior: 'create_prorations',
       });
     } catch (err) {
@@ -740,6 +752,7 @@ export class BillingSaasService {
       features: (row.plan.features ?? {}) as Record<string, unknown>,
       tenantFeatures: normalizePlanFeatures(row.plan.tenantFeatures),
       stripePriceId: row.plan.stripePriceId,
+      stripePriceIdYearly: null,
       maxUnits: null,
       maxFacilities: null,
       maxUsers: null,

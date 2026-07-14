@@ -226,8 +226,13 @@ export type AssignTicketInput = z.infer<typeof AssignTicketSchema>;
 // SaaS billing
 // ============================================================================
 
+/** Ciclo de facturación de la suscripción SaaS (mensual o anual con descuento). */
+export const BillingCycleEnum = z.enum(['monthly', 'yearly']);
+export type BillingCycle = z.infer<typeof BillingCycleEnum>;
+
 export const CreateCheckoutSessionSchema = z.object({
   planId: z.string().uuid(),
+  billingCycle: BillingCycleEnum.default('monthly'),
   successUrl: z.string().url(),
   cancelUrl: z.string().url(),
 });
@@ -241,6 +246,7 @@ export type CreatePortalSessionInput = z.infer<typeof CreatePortalSessionSchema>
 /** Cambio de plan self-service del tenant (upgrade/downgrade). */
 export const SelfChangePlanSchema = z.object({
   planId: z.string().uuid(),
+  billingCycle: BillingCycleEnum.default('monthly'),
 });
 export type SelfChangePlanInput = z.infer<typeof SelfChangePlanSchema>;
 
@@ -390,6 +396,7 @@ export const UpsertSubscriptionPlanSchema = z.object({
   features: z.record(z.unknown()).default({}),
   tenantFeatures: z.array(z.enum(TenantFeatures)).default([]),
   stripePriceId: z.string().trim().max(120).nullable().optional(),
+  stripePriceIdYearly: z.string().trim().max(120).nullable().optional(),
   maxUnits: z.number().int().nonnegative().nullable().optional(),
   maxFacilities: z.number().int().nonnegative().nullable().optional(),
   maxUsers: z.number().int().nonnegative().nullable().optional(),

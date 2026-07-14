@@ -526,6 +526,8 @@ export interface SubscriptionPlanDto {
   /** Features premium que incluye este plan (gating por plan, editable). */
   tenantFeatures: TenantFeature[];
   stripePriceId: string | null;
+  /** Stripe Price anual (opcional). Null si el plan no ofrece anualidad. */
+  stripePriceIdYearly: string | null;
   maxUnits: number | null;
   maxFacilities: number | null;
   maxUsers: number | null;

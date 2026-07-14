@@ -47,6 +47,8 @@ type FormState = {
   description: string;
   priceMonthly: number;
   priceYearly: number;
+  stripePriceId: string;
+  stripePriceIdYearly: string;
   maxUnits: string;
   maxFacilities: string;
   maxUsers: string;
@@ -60,6 +62,8 @@ const emptyForm: FormState = {
   description: '',
   priceMonthly: 0,
   priceYearly: 0,
+  stripePriceId: '',
+  stripePriceIdYearly: '',
   maxUnits: '',
   maxFacilities: '',
   maxUsers: '',
@@ -74,6 +78,8 @@ function toForm(p: SubscriptionPlanDto): FormState {
     description: p.description ?? '',
     priceMonthly: p.priceMonthly,
     priceYearly: p.priceYearly,
+    stripePriceId: p.stripePriceId ?? '',
+    stripePriceIdYearly: p.stripePriceIdYearly ?? '',
     maxUnits: p.maxUnits?.toString() ?? '',
     maxFacilities: p.maxFacilities?.toString() ?? '',
     maxUsers: p.maxUsers?.toString() ?? '',
@@ -109,6 +115,8 @@ export default function PlansPage() {
       description: form.description || null,
       priceMonthly: form.priceMonthly,
       priceYearly: form.priceYearly,
+      stripePriceId: form.stripePriceId.trim() || null,
+      stripePriceIdYearly: form.stripePriceIdYearly.trim() || null,
       currency: 'EUR',
       features: {},
       tenantFeatures: form.tenantFeatures,
@@ -281,6 +289,22 @@ export default function PlansPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, priceYearly: e.target.valueAsNumber || 0 }))
                 }
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label>Stripe Price ID (mensual)</Label>
+              <Input
+                value={form.stripePriceId}
+                onChange={(e) => setForm((f) => ({ ...f, stripePriceId: e.target.value }))}
+                placeholder="price_..."
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label>Stripe Price ID (anual)</Label>
+              <Input
+                value={form.stripePriceIdYearly}
+                onChange={(e) => setForm((f) => ({ ...f, stripePriceIdYearly: e.target.value }))}
+                placeholder="price_... (opcional, habilita el pago anual)"
               />
             </div>
             <div className="space-y-1">

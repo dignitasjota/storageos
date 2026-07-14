@@ -85,6 +85,15 @@ describe('Cambio de plan self-service (e2e)', () => {
       });
     expect(dup.status).toBe(400);
     expect(dup.body.code).toBe('already_subscribed');
+
+    // Cambiar a plan anual sin Stripe price anual configurado → 400 (antes de
+    // tocar Stripe). El seed no configura el price anual de pro.
+    const yearly = await request(app.getHttpServer())
+      .post('/settings/saas-billing/change-plan')
+      .set(auth)
+      .send({ planId: pro!.id, billingCycle: 'yearly' });
+    expect(yearly.status).toBe(400);
+    expect(yearly.body.code).toBe('plan_not_available');
   });
 
   it('sin sesión → 401', async () => {
