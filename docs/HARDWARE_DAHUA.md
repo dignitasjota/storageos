@@ -494,6 +494,26 @@ sea. Checklist de instalación:
 4. La alarma **AirShield** sigue protegiendo: el hub lleva batería de respaldo y
    los detectores van a pilas; al volver la red reporta lo ocurrido.
 
+### ¿Y una llave física o un "código de emergencia"?
+
+- **Sin internet no hace falta nada especial**: los códigos normales funcionan
+  (validación local, Patrón B).
+- **Sin electricidad NINGÚN código funciona** (el teclado está muerto) — no
+  existe el "código de emergencia" sin corriente. La respuesta del sector es
+  **mecánica**:
+  1. Toda puerta electrificada conserva un **bombín mecánico con llave física**
+     (el abrepuertas fail-secure se monta junto a una cerradura normal). La llave
+     la tiene **el staff**, no los inquilinos — idealmente con **amaestramiento**
+     (una llave maestra para todos los cilindros del local).
+  2. Las cancelas/puertas **motorizadas** traen de serie **desbloqueo manual con
+     llave** (se desembraga el motor y se abre a mano).
+  3. La **ventosa magnética no tiene llave** (sin luz queda abierta) — otro motivo
+     para fail-secure + bombín.
+- **Jerarquía de respaldo**: red caída → códigos locales (Patrón B) · luz caída →
+  el **SAI** mantiene los códigos vivos · SAI agotado o **terminal averiado** →
+  **llave mecánica del staff**. En un apagón largo el inquilino depende del staff
+  (asumible); la salida desde dentro siempre es mecánica por normativa.
+
 ---
 
 # Parte B — Cámaras y NVR (solo logs de eventos + snapshots)
