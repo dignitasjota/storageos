@@ -158,7 +158,7 @@ export const envSchema = z.object({
   /** Selecciona la implementacion del control de accesos. `stub` registra
    *  intentos en BD sin abrir nada fisico (dev/test). `mqtt` publica
    *  comandos open/close en un broker MQTT comun. */
-  LOCK_PROVIDER: z.enum(['stub', 'mqtt', 'http']).default('stub'),
+  LOCK_PROVIDER: z.enum(['stub', 'mqtt', 'http', 'dahua']).default('stub'),
   MQTT_BROKER_URL: z.string().default('mqtt://localhost:1883'),
   MQTT_USERNAME: z.string().default(''),
   MQTT_PASSWORD: z.string().default(''),

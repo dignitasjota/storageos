@@ -157,6 +157,10 @@ export type SuspendCredentialInput = z.infer<typeof SuspendCredentialSchema>;
 // Devices
 // ============================================================================
 
+/** Provider de cerradura por dispositivo (null/omitido = default global env). */
+export const LockProviderEnum = z.enum(['stub', 'mqtt', 'http', 'dahua']);
+export type LockProviderValue = z.infer<typeof LockProviderEnum>;
+
 export const CreateDeviceSchema = z.object({
   facilityId: z.string().uuid(),
   unitId: z.string().uuid().optional(),
@@ -164,7 +168,14 @@ export const CreateDeviceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   hardwareId: z.string().trim().min(1).max(120),
   mqttTopic: optionalText(200),
-  /** Provider HTTP: URL del controlador + secreto HMAC (se guarda cifrado). */
+  /** Provider de cerradura de este device; omitido = default global (env). */
+  provider: LockProviderEnum.optional(),
+  /**
+   * Provider HTTP/Dahua: URL del controlador/terminal. HTTP = URL a la que se
+   * hace POST firmado (HMAC); Dahua = base del terminal (`http://<ip>`), la
+   * apertura va por `accessControl.cgi` con Digest usando `controlSecret`
+   * en formato `user:pass`.
+   */
   controlUrl: z.string().url().max(500).optional(),
   controlSecret: z.string().trim().min(8).max(200).optional(),
   metadata: z.record(z.unknown()).default({}),

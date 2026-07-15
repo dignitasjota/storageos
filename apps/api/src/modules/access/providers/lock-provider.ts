@@ -37,5 +37,3 @@ export interface OpenLockResult {
   dispatched: boolean;
   message?: string;
 }
-
-export const LOCK_PROVIDER = Symbol('LockProvider');

@@ -392,6 +392,7 @@ function CreateDeviceDialog({
         hardwareId: values.hardwareId,
         metadata: values.metadata ?? {},
         ...(values.unitId ? { unitId: values.unitId } : {}),
+        ...(values.provider ? { provider: values.provider } : {}),
         ...(values.mqttTopic ? { mqttTopic: values.mqttTopic } : {}),
         ...(values.controlUrl ? { controlUrl: values.controlUrl } : {}),
         ...(values.controlSecret ? { controlSecret: values.controlSecret } : {}),
@@ -485,6 +486,29 @@ function CreateDeviceDialog({
                   <FormControl>
                     <Input {...field} value={field.value ?? ''} placeholder="Ej: ESP32-A1B2C3" />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="provider"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Provider de cerradura (opcional)</FormLabel>
+                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Por defecto (config global)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="stub">stub (dev)</SelectItem>
+                      <SelectItem value="mqtt">mqtt</SelectItem>
+                      <SelectItem value="http">http (HMAC)</SelectItem>
+                      <SelectItem value="dahua">dahua (ASI · Digest)</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

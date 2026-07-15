@@ -171,6 +171,40 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     expect(items.some((l) => l.reason === 'remote_open_by_staff')).toBe(true);
   });
 
+  it('devices: provider dahua se persiste; apertura contra terminal inalcanzable → dispatched false (no rompe)', async () => {
+    const owner = await registerVerifiedUser(app, 'access-dahua');
+    const facility = await request(app.getHttpServer())
+      .post('/facilities')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Local Dahua' });
+    expect(facility.status).toBe(201);
+
+    const dev = await request(app.getHttpServer())
+      .post('/access/devices')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        facilityId: facility.body.id,
+        type: 'door',
+        name: 'Puerta Dahua ASI',
+        hardwareId: 'dahua-door-001',
+        provider: 'dahua',
+        // Terminal inalcanzable (puerto 1 → ECONNREFUSED inmediato).
+        controlUrl: 'http://127.0.0.1:1',
+        controlSecret: 'admin:pass-del-terminal',
+      });
+    expect(dev.status).toBe(201);
+    expect(dev.body.provider).toBe('dahua'); // el device declara su provider
+
+    // El registry resuelve 'dahua' para ESTE device (no el stub global del test);
+    // como el terminal no responde, dispatched=false pero NO lanza.
+    const open = await request(app.getHttpServer())
+      .post(`/access/devices/${dev.body.id}/open`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send();
+    expect([200, 201]).toContain(open.status);
+    expect(open.body.dispatched).toBe(false);
+  });
+
   it('verify: PIN correcto → allowed; PIN incorrecto → denied + audit log', async () => {
     const owner = await registerVerifiedUser(app, 'access-verify');
     const facility = await request(app.getHttpServer())

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -8,7 +8,7 @@ import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facil
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
-import { LOCK_PROVIDER, type LockProvider } from './providers/lock-provider';
+import { LockProviderRegistry } from './providers/lock-provider.registry';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
@@ -56,7 +56,7 @@ export class AccessDevicesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly crypto: CryptoService,
-    @Inject(LOCK_PROVIDER) private readonly lock: LockProvider,
+    private readonly locks: LockProviderRegistry,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<AccessDeviceDto[]> {
@@ -108,6 +108,7 @@ export class AccessDevicesService {
       apiKeyHash,
       apiKeyPreview,
       mqttTopic: args.input.mqttTopic?.trim() || null,
+      provider: args.input.provider ?? null,
       controlUrl: args.input.controlUrl?.trim() || null,
       controlSecretEncrypted: args.input.controlSecret
         ? this.crypto.encryptString(args.input.controlSecret)
@@ -150,6 +151,7 @@ export class AccessDevicesService {
     if (input.type !== undefined) data.type = input.type as AccessDeviceType;
     if (input.hardwareId !== undefined) data.hardwareId = input.hardwareId;
     if (input.mqttTopic !== undefined) data.mqttTopic = input.mqttTopic?.trim() || null;
+    if (input.provider !== undefined) data.provider = input.provider ?? null;
     if (input.controlUrl !== undefined) data.controlUrl = input.controlUrl?.trim() || null;
     if (input.controlSecret !== undefined)
       data.controlSecretEncrypted = input.controlSecret
@@ -218,7 +220,7 @@ export class AccessDevicesService {
     facilityScope?: string[] | null;
   }): Promise<{ online: boolean }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    const result = await this.lock.open({
+    const result = await this.locks.resolve(device.provider).open({
       tenantId: args.tenantId,
       deviceId: device.id,
       mqttTopic: device.mqttTopic,
@@ -251,7 +253,7 @@ export class AccessDevicesService {
     facilityScope?: string[] | null;
   }): Promise<{ dispatched: boolean; message?: string }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    const result = await this.lock.open({
+    const result = await this.locks.resolve(device.provider).open({
       tenantId: args.tenantId,
       deviceId: device.id,
       mqttTopic: device.mqttTopic,
@@ -354,6 +356,7 @@ export class AccessDevicesService {
       hardwareId: d.hardwareId,
       apiKeyPreview: d.apiKeyPreview,
       mqttTopic: d.mqttTopic,
+      provider: d.provider,
       controlUrl: d.controlUrl,
       hasControlSecret: d.controlSecretEncrypted !== null,
       isOnline: d.isOnline,

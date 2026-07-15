@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
 
@@ -6,7 +6,7 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AccessRateLimitService } from './access-rate-limit.service';
-import { LOCK_PROVIDER, type LockProvider } from './providers/lock-provider';
+import { LockProviderRegistry } from './providers/lock-provider.registry';
 
 import type {
   AccessCredential,
@@ -151,7 +151,7 @@ export class AccessVerifyService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly crypto: CryptoService,
-    @Inject(LOCK_PROVIDER) private readonly lock: LockProvider,
+    private readonly locks: LockProviderRegistry,
     private readonly rateLimit: AccessRateLimitService,
   ) {}
 
@@ -356,7 +356,7 @@ export class AccessVerifyService {
       }
     }
 
-    const openResult = await this.lock.open({
+    const openResult = await this.locks.resolve(device.provider).open({
       tenantId,
       deviceId: device.id,
       mqttTopic: device.mqttTopic,
@@ -577,7 +577,7 @@ export class AccessVerifyService {
       }
     }
 
-    const openResult = await this.lock.open({
+    const openResult = await this.locks.resolve(device.provider).open({
       tenantId,
       deviceId: device.id,
       mqttTopic: device.mqttTopic,
