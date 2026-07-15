@@ -2902,6 +2902,9 @@ model AccessDevice {
   apiKeyHash             String?          @map("api_key_hash")
   apiKeyPreview          String?          @map("api_key_preview")
   mqttTopic              String?          @map("mqtt_topic")
+  /// Provider de cerradura de ESTE device: 'stub'|'mqtt'|'http'|'dahua'.
+  /// Null = usar el default global de la env `LOCK_PROVIDER` (retrocompat).
+  provider               String?          @map("provider")
   /// Provider HTTP (LOCK_PROVIDER=http): URL del controlador a la que el
   /// servidor hace POST firmado (HMAC) para abrir, y el secreto HMAC cifrado
   /// (AES-256-GCM). Null si el device no usa el provider HTTP.
