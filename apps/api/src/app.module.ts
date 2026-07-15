@@ -26,6 +26,7 @@ import { BankReconciliationModule } from './modules/bank-reconciliation/bank-rec
 import { BillingModule } from './modules/billing/billing.module';
 import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { CamerasModule } from './modules/cameras/cameras.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CashModule } from './modules/cash/cash.module';
 import { CollectionsModule } from './modules/collections/collections.module';
@@ -223,6 +224,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     WaitlistModule,
     CompetitorsModule,
     FiscalModule,
+    CamerasModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },

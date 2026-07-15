@@ -455,6 +455,8 @@ model Tenant {
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
+  cameraDevices           CameraDevice[]
+  cameraEvents            CameraEvent[]
   competitorFacilities    CompetitorFacility[]
   platformInvoices        PlatformInvoice[]
   platformDunningEvents   PlatformDunningEvent[]
@@ -841,6 +843,7 @@ model Facility {
   productStocks        ProductStock[]       @relation("ProductStockFacility")
   productSales         ProductSale[]        @relation("ProductSaleFacility")
   accessDevices        AccessDevice[]       @relation("DeviceFacility")
+  cameraDevices        CameraDevice[]
   userFacilities       UserFacility[]
   cashClosures         CashClosure[]
   expenses             Expense[]
@@ -2955,6 +2958,54 @@ model AccessLog {
   @@index([tenantId, deviceId, occurredAt(sort: Desc)])
   @@index([tenantId, result])
   @@map("access_logs")
+}
+
+/// Cámara/alarma registrada por el operador. La ingesta de eventos+snapshots es
+/// agnóstica del origen (push del equipo, agente on-site o puente DSS).
+model CameraDevice {
+  id                 String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String        @map("tenant_id") @db.Uuid
+  facilityId         String        @map("facility_id") @db.Uuid
+  name               String
+  channel            Int           @default(1)
+  serialNumber       String?       @map("serial_number")
+  ingestTokenHash    String        @map("ingest_token_hash")
+  ingestTokenPreview String        @map("ingest_token_preview")
+  isActive           Boolean       @default(true) @map("is_active")
+  lastEventAt        DateTime?     @map("last_event_at") @db.Timestamptz(6)
+  metadata           Json          @default("{}")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility Facility      @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  events   CameraEvent[]
+
+  @@unique([ingestTokenHash])
+  @@index([tenantId, facilityId])
+  @@map("camera_devices")
+}
+
+/// Evento recibido de una cámara (vídeo/IA) o de la alarma (intrusión).
+model CameraEvent {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  cameraDeviceId String   @map("camera_device_id") @db.Uuid
+  /// 'camera' (vídeo/IA) | 'alarm' (intrusión AirShield).
+  kind           String   @default("camera")
+  eventType      String   @map("event_type")
+  /// Key del snapshot en MinIO (bucket privado); null si el evento no trae imagen.
+  snapshotKey    String?  @map("snapshot_key")
+  metadata       Json     @default("{}")
+  occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device CameraDevice @relation(fields: [cameraDeviceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, cameraDeviceId, occurredAt(sort: Desc)])
+  @@map("camera_events")
 }
 
 // ============================================================================

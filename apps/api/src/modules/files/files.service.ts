@@ -142,6 +142,33 @@ export class FilesService implements OnModuleInit {
     return `${tenantId}/contracts/${contractId}/${kind}/${randomUUID()}.${ext}`;
   }
 
+  /**
+   * Sube bytes al bucket desde el servidor (p. ej. el snapshot de un evento de
+   * cámara recibido por la ingesta). Devuelve la key almacenada.
+   */
+  async putObject(args: {
+    bucket: PresignArgs['bucket'];
+    key: string;
+    body: Buffer;
+    contentType: string;
+  }): Promise<string> {
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucketMap[args.bucket],
+        Key: args.key,
+        Body: args.body,
+        ContentType: args.contentType,
+      }),
+    );
+    return args.key;
+  }
+
+  /** Key para el snapshot de un evento de cámara (bucket privado `uploads`). */
+  buildCameraSnapshotKey(tenantId: string, cameraDeviceId: string, mimeType: string): string {
+    const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+    return `${tenantId}/cameras/${cameraDeviceId}/${randomUUID()}.${ext}`;
+  }
+
   /** Genera una key unica para un plano de planta. */
   buildFloorPlanKey(
     tenantId: string,
