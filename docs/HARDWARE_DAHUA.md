@@ -1,7 +1,29 @@
 # Integración con hardware Dahua (control de accesos + cámaras/NVR + alarma) — diseño técnico
 
-> **Estado:** propuesta de diseño (2026-07-14). Ningún código Dahua está aún
-> implementado. Este documento describe **cómo** encajarían los terminales de
+> **Estado (2026-07-16): software implementado y en verde, a falta del kit físico.**
+> El andamiaje de la integración está construido y testeado **con stubs/servidores
+> simulados** (sin hardware). Lo pendiente es rellenar los cuerpos CGI reales del
+> adapter (marcados `VERIFY` en el código) contra el doc de firmware del terminal.
+> Lo ya mergeado:
+>
+> - **Fase 1 (#360)** — auth **Digest** (sin dependencia nueva) + `DahuaLockProvider`
+>   (apertura remota por `accessControl.cgi`) + **resolución del provider por device**
+>   (`access_devices.provider` + `LockProviderRegistry`; multi-tenant con hardware mixto).
+> - **Cámaras/alarma (#361)** — ingesta de **eventos + snapshots** (webhook con token
+>   por device → snapshot a MinIO privado → feed `/cameras`); agnóstica del origen
+>   (push del equipo / agente on-site / puente DSS). La alarma reutiliza el webhook
+>   (`kind:'alarm'`).
+> - **Fase 2A (#362)** — sync **Patrón B**: `CredentialSyncProvider` + `StubSyncProvider`
+>   + `DahuaSyncProvider` (scaffold `VERIFY`) + `DahuaSyncService` + cron de reconciliación.
+> - **Cámaras en la ficha del local (#363)** — pestaña «Cámaras».
+>
+> **Pendiente (necesita el kit)**: cuerpos CGI reales (`recordUpdater`/`recordFinder`,
+> campos del firmware), perfiles horarios (curfew/ventanas → time profiles), armar/
+> desarmar contra el NVR, y el agente on-site del NAT si el equipo queda en una LAN
+> sin ruta desde la nube. Antes de comprar: pedir la *"HTTP API for Access Control"*
+> del firmware a By Demes/Visiotech + confirmar NVR compatible con AirShield.
+>
+> Este documento describe **cómo** encajan los terminales de
 > control de accesos, las cámaras/NVR y la alarma (AirShield) de Dahua en el
 > sistema de accesos y en la app, con las interfaces exactas del código actual y
 > los endpoints reales de la API de Dahua.
