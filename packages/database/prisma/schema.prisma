@@ -457,6 +457,7 @@ model Tenant {
   waitlistEntries         WaitlistEntry[]
   cameraDevices           CameraDevice[]
   cameraEvents            CameraEvent[]
+  accessCredentialSyncs   AccessCredentialSync[]
   competitorFacilities    CompetitorFacility[]
   platformInvoices        PlatformInvoice[]
   platformDunningEvents   PlatformDunningEvent[]
@@ -2883,6 +2884,7 @@ model AccessCredential {
   customer Customer    @relation("CredentialCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   contract Contract?   @relation("CredentialContract", fields: [contractId], references: [id], onDelete: SetNull)
   logs     AccessLog[]
+  syncEntries AccessCredentialSync[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -2915,6 +2917,8 @@ model AccessDevice {
   controlSecretEncrypted String?          @map("control_secret_encrypted")
   isOnline               Boolean          @default(false) @map("is_online")
   lastSeenAt             DateTime?        @map("last_seen_at") @db.Timestamptz(6)
+  /// Patrón B: última reconciliación de los registros de acceso del terminal.
+  lastReconciledAt       DateTime?        @map("last_reconciled_at") @db.Timestamptz(6)
   isActive               Boolean          @default(true) @map("is_active")
   metadata               Json             @default("{}")
   createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -2924,12 +2928,33 @@ model AccessDevice {
   facility Facility    @relation("DeviceFacility", fields: [facilityId], references: [id], onDelete: Cascade)
   unit     Unit?       @relation("DeviceUnit", fields: [unitId], references: [id], onDelete: SetNull)
   logs     AccessLog[]
+  syncEntries AccessCredentialSync[]
 
   @@unique([tenantId, hardwareId])
   @@index([tenantId])
   @@index([tenantId, facilityId])
   @@index([tenantId, isOnline])
   @@map("access_devices")
+}
+
+/// Patrón B: qué credencial está sincronizada en qué terminal + el ref del
+/// hardware (CardNo) y su estado, para propagar cambios y evitar duplicados.
+model AccessCredentialSync {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  credentialId String   @map("credential_id") @db.Uuid
+  deviceId     String   @map("device_id") @db.Uuid
+  hardwareRef  String   @map("hardware_ref")
+  state        String   @default("active")
+  syncedAt     DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  credential AccessCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  device     AccessDevice     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([credentialId, deviceId])
+  @@index([tenantId])
+  @@map("access_credential_sync")
 }
 
 /// Audit trail de cada intento de acceso (exitoso, denegado, error).

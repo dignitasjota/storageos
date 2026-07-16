@@ -8,6 +8,8 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import { DahuaSyncService } from './dahua-sync.service';
+
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   AccessCredential,
@@ -92,6 +94,7 @@ export class AccessCredentialsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly crypto: CryptoService,
+    private readonly sync: DahuaSyncService,
   ) {}
 
   /**
@@ -282,6 +285,8 @@ export class AccessCredentialsService {
       args.tenantId,
     );
     await this.writeAudit('access.credential_created', args, created.id);
+    // Patrón B: propaga la credencial a los terminales autónomos del scope (best-effort).
+    await this.sync.syncCredential(args.tenantId, created.id);
     return { ...this.toDto(created), revealedSecret };
   }
 
@@ -421,6 +426,7 @@ export class AccessCredentialsService {
     }
     for (const r of rows) {
       await this.writeAudit('access.credential_suspended', args, r.id);
+      await this.sync.applyState(args.tenantId, r.id, 'suspended');
     }
     return rows.map((r) => this.toDto(r));
   }
@@ -490,6 +496,7 @@ export class AccessCredentialsService {
     }
     for (const r of rows) {
       await this.writeAudit('access.credential_resumed', args, r.id);
+      await this.sync.applyState(args.tenantId, r.id, 'active');
     }
     return rows.map((r) => this.toDto(r));
   }
@@ -520,6 +527,7 @@ export class AccessCredentialsService {
       args.tenantId,
     );
     await this.writeAudit('access.credential_revoked', args, args.id);
+    await this.sync.applyState(args.tenantId, args.id, 'revoked');
     return this.toDto(updated);
   }
 
