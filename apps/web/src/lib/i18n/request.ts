@@ -4,6 +4,8 @@ import messages from '../../../messages/es.json';
 
 import { formats } from './formats';
 
+import type { AbstractIntlMessages } from 'next-intl';
+
 /**
  * Configuracion de next-intl. Hoy solo soportamos `es-ES`; cuando anadamos
  * mas idiomas, este es el unico sitio que cambia (lee la cookie
@@ -11,7 +13,9 @@ import { formats } from './formats';
  */
 export default getRequestConfig(async () => ({
   locale: 'es-ES',
-  messages,
+  // next-intl acepta arrays en los mensajes en runtime (`t.raw`), pero su tipo
+  // `AbstractIntlMessages` no los contempla; el cast lo concilia.
+  messages: messages as unknown as AbstractIntlMessages,
   timeZone: 'Europe/Madrid',
   now: new Date(),
   formats,
