@@ -12,13 +12,52 @@ import { formats } from '@/lib/i18n/formats';
 
 import './globals.css';
 
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  process.env.NEXT_PUBLIC_WEB_URL ??
+  'https://trasteros.app'
+).replace(/\/$/, '');
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: 'TrasterOS',
+    default: 'TrasterOS — Software de gestión para self-storage y trasteros',
     template: '%s · TrasterOS',
   },
   description:
-    'Software todo-en-uno para self-storage: inquilinos, contratos, facturación Veri*Factu, cobros, control de accesos, CRM y analítica. En español y multi-local.',
+    'Software todo-en-uno para self-storage: inquilinos, contratos, facturación Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, CRM y analítica. En español y multi-local.',
+  applicationName: 'TrasterOS',
+  authors: [{ name: 'TrasterOS' }],
+  creator: 'TrasterOS',
+  publisher: 'TrasterOS',
+  formatDetection: { telephone: false, email: false, address: false },
+  alternates: { canonical: '/' },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  openGraph: {
+    type: 'website',
+    siteName: 'TrasterOS',
+    locale: 'es_ES',
+    url: SITE_URL,
+    title: 'TrasterOS — Software de gestión para self-storage y trasteros',
+    description:
+      'Software todo-en-uno para self-storage: inventario, contratos, facturación Veri*Factu, cobros, control de accesos, CRM y analítica. En español y multi-local.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'TrasterOS — Software de gestión para self-storage',
+    description:
+      'La plataforma todo-en-uno para gestionar tu self-storage: contratos, facturación Veri*Factu, cobros, accesos, CRM y analítica.',
+  },
   icons: {
     icon: [
       { url: '/favicon.png', type: 'image/png', sizes: '48x48' },

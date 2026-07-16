@@ -27,11 +27,17 @@
     "cookies": "Cookies"
   },
   "landing": {
-    "heroTitle": "El software todo-en-uno para tu self-storage",
-    "heroSubtitle": "Inquilinos, contratos, facturación conforme a Veri*Factu, cobros, control de accesos, CRM y analítica. Todo en una plataforma, en español y lista para varios locales.",
-    "heroNote": "Prueba 14 días gratis. Sin tarjeta.",
-    "primaryCta": "Crear cuenta",
+    "heroTitle": "Software de gestión para self-storage y trasteros",
+    "heroSubtitle": "Inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros, control de accesos, CRM y analítica. Todo en una sola plataforma, en español y lista para varios locales.",
+    "heroNote": "Prueba 14 días gratis. Sin tarjeta ni permanencia.",
+    "primaryCta": "Crear cuenta gratis",
     "secondaryCta": "Iniciar sesión",
+    "badges": [
+      "Conforme a Veri*Factu y AEAT",
+      "Cobros por SEPA, tarjeta y Bizum",
+      "En español y multi-local",
+      "Cumple el RGPD"
+    ],
     "features": {
       "title": "Todo lo que necesita tu negocio, en un solo sitio",
       "subtitle": "Desde el alta del inquilino hasta el cobro y el acceso al trastero, sin hojas de cálculo ni papeleo.",
@@ -49,7 +55,7 @@
       },
       "payments": {
         "title": "Cobros sin esfuerzo",
-        "description": "Tarjeta (Stripe), domiciliación SEPA (remesas y mandatos), Redsys, recargos por mora automáticos y conciliación bancaria con la Norma 43."
+        "description": "Tarjeta (Stripe), domiciliación SEPA, Bizum y Redsys, recargos por mora automáticos y conciliación bancaria con la Norma 43."
       },
       "access": {
         "title": "Control de accesos",
@@ -57,11 +63,19 @@
       },
       "portal": {
         "title": "Portal del inquilino (app)",
-        "description": "Tus clientes pagan, ven sus facturas, reportan incidencias, piden cambios de trastero y reciben avisos push desde una app instalable."
+        "description": "Tus clientes pagan, ven sus facturas, reportan incidencias, piden cambios de trastero y abren la puerta desde una app instalable."
+      },
+      "booking": {
+        "title": "Reserva y contratación online",
+        "description": "Página de reserva self-service: el cliente elige trastero, firma y paga la primera cuota y la fianza sin que muevas un dedo."
       },
       "crm": {
         "title": "Capta más clientes (CRM)",
         "description": "Leads, campañas segmentadas, promociones, programa de referidos, reseñas y NPS, win-back de bajas y una landing pública con SEO para cada local."
+      },
+      "whitelabel": {
+        "title": "Tu marca y tu dominio",
+        "description": "Publica tu web de captación bajo tu propio dominio y con tu logo (white-label). Cada local, con su página optimizada para buscadores."
       },
       "operations": {
         "title": "Operativa y mantenimiento",
@@ -70,7 +84,53 @@
       "analytics": {
         "title": "Analítica e inteligencia",
         "description": "Cuadro de mando con ocupación, ingresos, churn y previsión. Riesgo de baja, precio dinámico aplicable de un clic y un asistente IA para tu equipo."
+      },
+      "insurance": {
+        "title": "Seguros y extras recurrentes",
+        "description": "Añade protección de contenido y servicios recurrentes a la cuota mensual, y vende accesorios desde el panel y el portal del inquilino."
       }
+    },
+    "howItWorks": {
+      "title": "Pon en marcha tu self-storage en 4 pasos",
+      "subtitle": "Sin instalaciones ni hojas de cálculo. Todo en la nube y en minutos.",
+      "steps": [
+        {
+          "title": "Crea tus locales y trasteros",
+          "description": "Da de alta tus locales, tipos de trastero y plazas con un editor visual del plano. O impórtalos por CSV/Excel desde tu software actual."
+        },
+        {
+          "title": "Publica y capta online",
+          "description": "Cada local tiene una página web indexable en Google con reserva online. Recibe leads y conviértelos en contratos."
+        },
+        {
+          "title": "Firma y cobra en automático",
+          "description": "Contratos con firma electrónica, facturación recurrente conforme a Veri*Factu y cobros por tarjeta, SEPA, Bizum o Redsys."
+        },
+        {
+          "title": "Controla accesos y opera",
+          "description": "PIN/QR, bloqueo por impago, incidencias, mantenimiento y un cuadro de mando con toda la analítica de tu negocio."
+        }
+      ]
+    },
+    "compliance": {
+      "title": "Facturación conforme a la ley española",
+      "description": "Emite facturas válidas y llega a tu asesoría sin fricción.",
+      "points": [
+        "Sistema de facturación Veri*Factu con envío a la AEAT",
+        "Facturas F1/F2, rectificativas y numeración encadenada con hash",
+        "Libro registro de IVA y modelos 303 y 347",
+        "Integración contable con Holded"
+      ]
+    },
+    "seoLocal": {
+      "title": "Que te encuentren en Google cuando busquen «trasteros en tu ciudad»",
+      "description": "Cada uno de tus locales tiene su propia página optimizada para SEO local, con datos estructurados que Google entiende (ficha de self-storage con dirección, precios y disponibilidad). Complementa tu perfil de Google Business y capta clientes de tu zona sin pagar publicidad.",
+      "points": [
+        "Página por local con URL propia y datos estructurados (schema.org SelfStorage)",
+        "Sitemap y metadatos automáticos para indexar en buscadores",
+        "Dominio propio y marca blanca para tu web pública",
+        "Widget embebible para tu web actual y captación de leads"
+      ]
     },
     "extras": {
       "title": "Y mucho más, incluido",
@@ -80,11 +140,51 @@
       "rgpd": "Seguridad: 2FA, registro de auditoría y cumplimiento RGPD",
       "reports": "Informes exportables en PDF y Excel",
       "ai": "Asistente IA que responde sobre tus datos del negocio",
-      "reservations": "Reservas online con pago y fianza, y move-out self-service"
+      "reservations": "Reservas online con pago y fianza, y move-out self-service",
+      "dunning": "Reclamación de impagos automática (dunning) por email",
+      "messaging": "Avisos por email y WhatsApp a tus inquilinos"
+    },
+    "faq": {
+      "title": "Preguntas frecuentes",
+      "subtitle": "Resolvemos las dudas más habituales sobre el software de gestión de trasteros.",
+      "items": [
+        {
+          "q": "¿Qué es un software de gestión de self-storage?",
+          "a": "Es una plataforma que centraliza todo tu negocio de trasteros: inventario y planos, inquilinos, contratos, facturación, cobros, control de accesos y analítica. TrasterOS lo reúne todo en la nube, en español y para varios locales."
+        },
+        {
+          "q": "¿Es compatible con Veri*Factu y la AEAT?",
+          "a": "Sí. TrasterOS emite facturas conforme a Veri*Factu con hash encadenado y envío a la AEAT, además del libro de IVA y los modelos 303 y 347 para tu asesoría."
+        },
+        {
+          "q": "¿Cómo cobro a mis inquilinos?",
+          "a": "Con facturación recurrente automática y cobro por tarjeta (Stripe), domiciliación SEPA, Bizum o Redsys. Incluye recargos por mora, conciliación bancaria Norma 43 y reclamación de impagos automática."
+        },
+        {
+          "q": "¿Puedo gestionar varios locales?",
+          "a": "Sí. TrasterOS es multi-local desde el primer día, con equipos, roles y permisos por local, y analítica consolidada o por establecimiento."
+        },
+        {
+          "q": "¿Tiene control de accesos?",
+          "a": "Sí. Genera credenciales PIN, QR y RFID, aplica toque de queda por local, vende pases nocturnos, abre puertas en remoto y bloquea el acceso automáticamente cuando hay un impago."
+        },
+        {
+          "q": "¿Me ayuda a captar clientes por Google?",
+          "a": "Sí. Cada local tiene una página pública indexable con datos estructurados para SEO local, reserva online, dominio propio y un widget para tu web. Ideal para complementar tu ficha de Google Business."
+        },
+        {
+          "q": "¿Puedo migrar mis datos desde otro programa?",
+          "a": "Sí. Importa inquilinos, trasteros y contratos por CSV/Excel con vista previa antes de confirmar, para migrar desde tu software anterior sin perder información."
+        },
+        {
+          "q": "¿Hay prueba gratuita?",
+          "a": "Sí. Puedes probar TrasterOS 14 días gratis, sin tarjeta ni permanencia."
+        }
+      ]
     },
     "cta": {
       "title": "Moderniza la gestión de tu self-storage",
-      "subtitle": "Empieza hoy y ten tus trasteros, contratos y cobros bajo control en minutos."
+      "subtitle": "Empieza hoy y ten tus trasteros, contratos y cobros bajo control en minutos. Prueba 14 días gratis, sin tarjeta."
     }
   },
   "auth": {

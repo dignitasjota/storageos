@@ -29,7 +29,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   const urls: MetadataRoute.Sitemap = [
-    { url: `${base}/`, changeFrequency: 'weekly', priority: 0.5 },
+    { url: `${base}/`, changeFrequency: 'weekly', priority: 1.0 },
+    { url: `${base}/terminos`, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${base}/privacidad`, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${base}/cookies`, changeFrequency: 'yearly', priority: 0.3 },
   ];
   for (const entry of data.entries) {
     const lastModified = new Date(entry.updatedAt);
