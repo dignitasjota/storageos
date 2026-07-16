@@ -1,6 +1,6 @@
 {
   "id": "/portal",
-  "name": "StorageOS — Mi trastero",
+  "name": "TrasterOS — Mi trastero",
   "short_name": "Mi trastero",
   "description": "Accede a tu trastero: facturas, pago y tu código de acceso (QR/PIN).",
   "lang": "es-ES",

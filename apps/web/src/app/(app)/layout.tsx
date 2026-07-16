@@ -16,7 +16,7 @@ import { AuthBootstrap } from '@/lib/auth/bootstrap';
 // del inquilino, que tiene scope /portal). Comparten el mismo service worker.
 export const metadata: Metadata = {
   manifest: '/manifest-staff.webmanifest',
-  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'StorageOS' },
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'TrasterOS' },
 };
 
 export const viewport: Viewport = {

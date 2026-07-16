@@ -1,7 +1,7 @@
 {
   "id": "/dashboard",
-  "name": "StorageOS — Panel",
-  "short_name": "StorageOS",
+  "name": "TrasterOS — Panel",
+  "short_name": "TrasterOS",
   "description": "Gestiona tus locales de trasteros: contratos, inquilinos, facturación y accesos.",
   "lang": "es-ES",
   "start_url": "/dashboard",

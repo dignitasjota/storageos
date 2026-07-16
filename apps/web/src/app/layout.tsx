@@ -14,8 +14,8 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'StorageOS',
-    template: '%s · StorageOS',
+    default: 'TrasterOS',
+    template: '%s · TrasterOS',
   },
   description:
     'Software todo-en-uno para self-storage: inquilinos, contratos, facturación Veri*Factu, cobros, control de accesos, CRM y analítica. En español y multi-local.',

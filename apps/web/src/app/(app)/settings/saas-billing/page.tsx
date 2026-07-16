@@ -122,7 +122,7 @@ export default function SaasBillingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Suscripción a StorageOS</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Suscripción a TrasterOS</h1>
         <p className="text-sm text-muted-foreground">
           Gestiona el plan que tienes contratado con nosotros.
         </p>
@@ -369,7 +369,7 @@ function SaasInvoicesSection() {
       <div>
         <h2 className="text-lg font-semibold">Facturas y pagos</h2>
         <p className="text-sm text-muted-foreground">
-          Las facturas que StorageOS te emite por tu suscripción y tu historial de pagos. (No
+          Las facturas que TrasterOS te emite por tu suscripción y tu historial de pagos. (No
           confundir con las facturas que tú emites a tus inquilinos, en Ajustes → Facturación.)
         </p>
       </div>

@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "StorageOS",
+    "appName": "TrasterOS",
     "tagline": "El SaaS para gestionar tus locales de self-storage",
     "loading": "Cargando...",
     "save": "Guardar",
@@ -21,7 +21,7 @@
     "goToApp": "Ir al panel"
   },
   "publicFooter": {
-    "copyright": "© {year} StorageOS",
+    "copyright": "© {year} TrasterOS",
     "terms": "Términos",
     "privacy": "Privacidad",
     "cookies": "Cookies"
@@ -561,7 +561,7 @@
   "admin": {
     "auth": {
       "loginTitle": "Panel super admin",
-      "loginSubtitle": "Acceso restringido al equipo de StorageOS.",
+      "loginSubtitle": "Acceso restringido al equipo de TrasterOS.",
       "email": "Email",
       "password": "Contraseña",
       "submit": "Iniciar sesión",

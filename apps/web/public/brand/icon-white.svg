@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="100"
+   height="100"
+   viewBox="0 0 100 100"
+   role="img"
+   aria-label="TrasterOS icon"
+   version="1.1"
+   id="svg8"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs8" />
+  <title
+     id="title1">TrasterOS icon</title>
+  <g
+     id="isotipo">
+    <rect
+       x="8"
+       y="8"
+       width="84"
+       height="84"
+       rx="16"
+       fill="#FFFFFF"
+       id="rect1" />
+    <path
+       d="M27 39 L50 25 L73 39"
+       fill="none"
+       stroke="#0F172A"
+       stroke-width="7"
+       stroke-linecap="round"
+       stroke-linejoin="round"
+       id="path1" />
+    <rect
+       x="25"
+       y="41"
+       width="50"
+       height="35"
+       rx="7"
+       fill="#0F172A"
+       id="rect2" />
+    <rect
+       x="33"
+       y="48"
+       width="34"
+       height="5"
+       rx="2.5"
+       fill="#FFFFFF"
+       id="rect3" />
+    <rect
+       x="33"
+       y="58"
+       width="34"
+       height="5"
+       rx="2.5"
+       fill="#FFFFFF"
+       id="rect4" />
+    <rect
+       x="33"
+       y="68"
+       width="21"
+       height="5"
+       rx="2.5"
+       fill="#FFFFFF"
+       id="rect5" />
+    <rect
+       x="59"
+       y="68"
+       width="8"
+       height="5"
+       rx="2.5"
+       fill="#FFFFFF"
+       id="rect6" />
+    <rect
+       x="73"
+       y="24"
+       width="8"
+       height="8"
+       rx="2.2"
+       fill="#FFFFFF"
+       id="rect7" />
+    <rect
+       x="82"
+       y="33"
+       width="6"
+       height="6"
+       rx="1.8"
+       fill="#FFFFFF"
+       id="rect8" />
+  </g>
+</svg>

@@ -9,7 +9,7 @@
  * autenticadas, ni peticiones que no sean GET de mismo origen. El pago y las
  * facturas requieren red por diseño.
  */
-const CACHE = 'storageos-pwa-v2';
+const CACHE = 'storageos-pwa-v3';
 const PRECACHE = [
   '/offline.html',
   '/icon.svg',
