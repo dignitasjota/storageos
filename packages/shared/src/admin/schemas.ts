@@ -296,7 +296,7 @@ export const CreateManualSaasPaymentSchema = z.object({
 export type CreateManualSaasPaymentInput = z.infer<typeof CreateManualSaasPaymentSchema>;
 
 // ============================================================================
-// Cupones de plataforma (StorageOS -> tenant): descuento del cobro SaaS
+// Cupones de plataforma (TrasterOS -> tenant): descuento del cobro SaaS
 // ============================================================================
 
 export const PlatformCouponDiscountTypeEnum = z.enum(['percentage', 'fixed']);
@@ -441,7 +441,7 @@ export const UpdatePlatformAlertSettingsSchema = z.object({
 });
 export type UpdatePlatformAlertSettingsInput = z.infer<typeof UpdatePlatformAlertSettingsSchema>;
 
-/** Datos fiscales del emisor (StorageOS) para las facturas de suscripción. */
+/** Datos fiscales del emisor (TrasterOS) para las facturas de suscripción. */
 export const UpdatePlatformBillingSettingsSchema = z.object({
   legalName: z.string().trim().max(200).default(''),
   taxId: z.string().trim().max(40).default(''),

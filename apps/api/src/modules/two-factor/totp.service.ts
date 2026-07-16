@@ -19,8 +19,8 @@ export class TotpService {
   private readonly issuer: string;
 
   constructor(config: ConfigService<Env, true>) {
-    // Mostrar "StorageOS" como issuer en la app del autenticador.
-    this.issuer = config.get('SMTP_FROM_NAME', { infer: true }) || 'StorageOS';
+    // Mostrar "TrasterOS" como issuer en la app del autenticador.
+    this.issuer = config.get('SMTP_FROM_NAME', { infer: true }) || 'TrasterOS';
   }
 
   /** Devuelve un nuevo secret base32 (160 bits, longitud estandar). */

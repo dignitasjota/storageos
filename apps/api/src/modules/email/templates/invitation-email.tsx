@@ -19,11 +19,11 @@ export function InvitationEmail({
 }: InvitationEmailProps) {
   return (
     <EmailLayout
-      preview={`${inviterName} te ha invitado a ${tenantName} en StorageOS`}
+      preview={`${inviterName} te ha invitado a ${tenantName} en TrasterOS`}
       heading={`Hola ${recipientName}, te han invitado a ${tenantName}`}
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>
-        {inviterName} te ha invitado a unirte a <strong>{tenantName}</strong> en StorageOS como{' '}
+        {inviterName} te ha invitado a unirte a <strong>{tenantName}</strong> en TrasterOS como{' '}
         <strong>{role}</strong>. Acepta la invitacion para crear tu cuenta:
       </Text>
 

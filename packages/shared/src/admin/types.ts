@@ -767,7 +767,7 @@ export interface AdminImpersonationActivityDto {
   occurredAt: string;
 }
 
-// --- Facturación del SaaS (StorageOS → tenant) ---
+// --- Facturación del SaaS (TrasterOS → tenant) ---
 export interface PlatformBillingSettingsDto {
   legalName: string;
   taxId: string;
@@ -1193,7 +1193,7 @@ export interface AdminPaymentRetryAnalysisDto {
   currency: string;
 }
 
-/** Cupón de descuento de plataforma (StorageOS -> tenant). */
+/** Cupón de descuento de plataforma (TrasterOS -> tenant). */
 export interface PlatformCouponDto {
   id: string;
   code: string;

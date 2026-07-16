@@ -146,7 +146,7 @@ export class SecurityAlertsService {
    */
   private async sendEmailAlert(to: string, args: AlertArgs): Promise<void> {
     const kindLabel = args.kind === 'email' ? 'EMAIL' : 'IP';
-    const subject = `[StorageOS] Posible brute-force: ${args.kind}=${args.identifier} (${args.count} en ${args.windowMin}min)`;
+    const subject = `[TrasterOS] Posible brute-force: ${args.kind}=${args.identifier} (${args.count} en ${args.windowMin}min)`;
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     const dashboardUrl = `${webBase}/admin/security-events`;
 

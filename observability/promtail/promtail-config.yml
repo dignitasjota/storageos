@@ -18,7 +18,7 @@ scrape_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 15s
     relabel_configs:
-      # Solo contenedores del stack StorageOS.
+      # Solo contenedores del stack TrasterOS.
       - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
         regex: '(storageos.*)'
         action: keep

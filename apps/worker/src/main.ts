@@ -19,7 +19,7 @@ import { Logger } from 'nestjs-pino';
 import { WorkerModule } from './worker.module';
 
 /**
- * Entry point del worker StorageOS.
+ * Entry point del worker TrasterOS.
  *
  * Arranca un NestJS application context (sin HTTP server) que carga los
  * modulos con `@Processor` BullMQ y `@Cron`. Los controllers que arrastren
@@ -40,7 +40,7 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   const logger = app.get(Logger);
-  logger.log('StorageOS worker started');
+  logger.log('TrasterOS worker started');
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.log(`${signal} received, shutting down worker`);

@@ -68,7 +68,7 @@ export class WeeklyDigestService {
 
     await this.email.send({
       to: settings.alertEmail,
-      subject: `[StorageOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
+      subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
       html,
       text,
     });
@@ -110,7 +110,7 @@ export class WeeklyDigestService {
     const risk = [...atRisk.pastDue, ...atRisk.trialExpiring].slice(0, 5);
 
     // --- Texto plano ---
-    const textLines: string[] = ['Resumen semanal de KPIs — StorageOS', ''];
+    const textLines: string[] = ['Resumen semanal de KPIs — TrasterOS', ''];
     for (const [label, value] of kpis) textLines.push(`- ${label}: ${value}`);
     if (risk.length > 0) {
       textLines.push('', 'Tenants a vigilar:');
@@ -135,7 +135,7 @@ export class WeeklyDigestService {
     }
     const html = `<div style="font-family:system-ui,-apple-system,sans-serif;color:#111">
 <h2 style="margin:0 0 4px">Resumen semanal de KPIs</h2>
-<p style="margin:0 0 16px;color:#777">StorageOS · plataforma</p>
+<p style="margin:0 0 16px;color:#777">TrasterOS · plataforma</p>
 <table style="border-collapse:collapse;min-width:320px">${rows}</table>
 ${riskHtml}
 </div>`;

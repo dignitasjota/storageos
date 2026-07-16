@@ -2,7 +2,7 @@ import type { Config } from 'tailwindcss';
 import animate from 'tailwindcss-animate';
 
 /**
- * Preset compartido de Tailwind para StorageOS.
+ * Preset compartido de Tailwind para TrasterOS.
  * Incluye los tokens de color de shadcn/ui usando variables CSS,
  * para que apps/web y packages/ui consuman exactamente el mismo sistema.
  */

@@ -448,7 +448,7 @@ persistirse; los recovery codes se guardan con hash argon2id.
 
    ```json
    {
-     "otpauthUri": "otpauth://totp/StorageOS:jane%40acme.com?...",
+     "otpauthUri": "otpauth://totp/TrasterOS:jane%40acme.com?...",
      "secretBase32": "JBSWY3DPEHPK3PXP"
    }
    ```

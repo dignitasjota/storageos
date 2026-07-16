@@ -168,7 +168,7 @@ Todos los servicios viven en una red Docker interna; solo NPM expone puertos al 
 
 ## Veri\*Factu: arquitectura del envío AEAT (Fase 10)
 
-A partir del **RD 1007/2023** (entrada en vigor 2026-07-01) cada factura emitida por un tenant español debe enviarse al AEAT en tiempo real (modo "verificable"). StorageOS implementa el envío end-to-end con cliente propio mTLS y certificado por tenant.
+A partir del **RD 1007/2023** (entrada en vigor 2026-07-01) cada factura emitida por un tenant español debe enviarse al AEAT en tiempo real (modo "verificable"). TrasterOS implementa el envío end-to-end con cliente propio mTLS y certificado por tenant.
 
 ### Flujo de envío
 

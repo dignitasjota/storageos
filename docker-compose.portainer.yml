@@ -67,11 +67,11 @@ x-app-env: &app-env
   AEAT_MODE: ${AEAT_MODE:-stub}
   AEAT_TENANT_TAX_ID: ${AEAT_TENANT_TAX_ID:-}
   AEAT_SISTEMA_NIF: ${AEAT_SISTEMA_NIF:-B00000000}
-  AEAT_SISTEMA_NOMBRE: ${AEAT_SISTEMA_NOMBRE:-StorageOS}
+  AEAT_SISTEMA_NOMBRE: ${AEAT_SISTEMA_NOMBRE:-TrasterOS}
   AEAT_SISTEMA_VERSION: ${AEAT_SISTEMA_VERSION:-1.0.0}
   AEAT_SISTEMA_INSTALACION: ${AEAT_SISTEMA_INSTALACION:-001}
   EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
-  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-StorageOS}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-TrasterOS}
   EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@storageos.local}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   SUPER_ADMIN_JWT_SECRET: ${SUPER_ADMIN_JWT_SECRET}
@@ -369,7 +369,7 @@ services:
       GF_SMTP_USER: ${GF_SMTP_USER:-}
       GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:-}
       GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:-}
-      GF_SMTP_FROM_NAME: StorageOS Alerts
+      GF_SMTP_FROM_NAME: TrasterOS Alerts
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro

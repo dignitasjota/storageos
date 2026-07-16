@@ -85,7 +85,7 @@ async function bootstrap() {
   const openapiEnabled = config.get('OPENAPI_ENABLED', { infer: true });
   if (openapiEnabled || nodeEnv === 'development') {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('StorageOS API')
+      .setTitle('TrasterOS API')
       .setDescription('SaaS multi-tenant para self-storage')
       .setVersion('1.0.0')
       .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'jwt')

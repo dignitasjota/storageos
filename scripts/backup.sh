@@ -78,7 +78,7 @@ command -v docker >/dev/null || fail "docker no instalado"
 command -v gpg >/dev/null    || fail "gpg no instalado (apt install gnupg)"
 command -v aws >/dev/null    || fail "aws-cli no instalado (apt install awscli)"
 
-log "===== Backup StorageOS - ${TS} ====="
+log "===== Backup TrasterOS - ${TS} ====="
 log "Dump destino: ${DUMP_FILE}"
 log "Bucket remoto: s3://${B2_BUCKET}/"
 

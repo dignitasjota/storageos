@@ -7,14 +7,14 @@
 
 ## Contexto
 
-Para vender StorageOS como SaaS de facturación a empresas españolas a partir del **2026-07-01** (entrada en vigor del **RD 1007/2023** Veri\*Factu) hace falta envío real e inmediato de cada factura al AEAT.
+Para vender TrasterOS como SaaS de facturación a empresas españolas a partir del **2026-07-01** (entrada en vigor del **RD 1007/2023** Veri\*Factu) hace falta envío real e inmediato de cada factura al AEAT.
 
 En Fase 4 ya dejamos preparada toda la estructura de "registro de facturación" (hash SHA-256 encadenado entre facturas de la misma serie, QR AEAT como data URL, campos `aeat_status`/`aeat_sent_at`/`aeat_response`/`csv` en `invoices`). En Fase 9A.5 abstraímos el envío (`AeatClient` interface + `StubAeatClient` + `RealAeatClient` skeleton) para que el cambio a real fuera por env var. Fase 10 completa el `RealAeatClient`.
 
 Cuestiones a resolver:
 
 1. ¿Veri\*Factu o SII?
-2. ¿Quién es el emisor fiscal: cada tenant o StorageOS como presentador?
+2. ¿Quién es el emisor fiscal: cada tenant o TrasterOS como presentador?
 3. ¿Es necesaria firma XAdES?
 4. ¿Qué librerías HTTP/SOAP/crypto usar?
 5. ¿Cómo gestionar errores AEAT y reintentos?
@@ -23,13 +23,13 @@ Cuestiones a resolver:
 
 ### 1. Veri\*Factu (modo verificable), NO SII
 
-Implementamos **Veri\*Factu** (sistema de emisión de facturas verificables). El **SII** (Suministro Inmediato de Información) solo aplica a empresas con facturación > 6M€ anuales y a inscritas en el régimen de devolución mensual — atípico en el sector self-storage objetivo de StorageOS.
+Implementamos **Veri\*Factu** (sistema de emisión de facturas verificables). El **SII** (Suministro Inmediato de Información) solo aplica a empresas con facturación > 6M€ anuales y a inscritas en el régimen de devolución mensual — atípico en el sector self-storage objetivo de TrasterOS.
 
 Veri\*Factu cubre el caso de uso de PYMEs/autónomos y satisface igualmente el RD 1007/2023: emisión + envío inmediato + encadenamiento criptográfico.
 
 ### 2. Certificado por tenant (no "presentador autorizado")
 
-Cada tenant sube su **propio certificado digital PKCS#12** (FNMT-CERES, Camerfirma, ANCERT, EDICOM o cualquier PSC reconocido). El tenant es el **emisor fiscal real**; StorageOS solo opera el software.
+Cada tenant sube su **propio certificado digital PKCS#12** (FNMT-CERES, Camerfirma, ANCERT, EDICOM o cualquier PSC reconocido). El tenant es el **emisor fiscal real**; TrasterOS solo opera el software.
 
 - El certificado se almacena en `tenant_aeat_credentials` cifrado AES-256-GCM con `MASTER_ENCRYPTION_KEY` (mismo mecanismo que tokens Stripe, ADR-007/ADR-015). La password del certificado se cifra con el mismo mecanismo en columna independiente.
 - La metadata (CN, NIF, issuer, `notBefore`, `notAfter`) se extrae al subir y se persiste en claro para mostrarla en `/settings/billing/verifactu` sin descifrar en cada render.
@@ -62,7 +62,7 @@ XAdES sería necesario solo en el "sistema NO verificable" (offline batch + firm
 ## Alternativas consideradas y rechazadas
 
 1. **SII en lugar de Veri\*Factu** — solo aplica a empresas grandes; raro en self-storage. Además SII requiere más campos (regímenes especiales, contraprestación, etc.) y tiene endpoints distintos.
-2. **StorageOS como "presentador autorizado"** — un único certificado de StorageOS firma todos los envíos en nombre de los tenants. Requiere autorización notarial por cada tenant (modelo "apoderado") y abriría responsabilidad fiscal sobre nosotros. Demasiada fricción operacional y legal. Descartado.
+2. **TrasterOS como "presentador autorizado"** — un único certificado de TrasterOS firma todos los envíos en nombre de los tenants. Requiere autorización notarial por cada tenant (modelo "apoderado") y abriría responsabilidad fiscal sobre nosotros. Demasiada fricción operacional y legal. Descartado.
 3. **Implementar XAdES-BES con `xadesjs` o `xml-crypto`** — el modo Veri\*Factu no lo requiere. Solo sería necesario en el "sistema no verificable", que no implementamos.
 4. **Usar una librería SOAP completa (`node-soap`)** — añadiría un cliente generado desde WSDL para una sola operación (`RegFactuSistemaFacturacion`). El XML manual es ~150 líneas y nos da control sobre namespaces y formato; con `node-soap` perderíamos esa control y heredaríamos sus bugs históricos con mTLS.
 5. **Usar `axios` para el POST** — soporta mTLS pero requiere instanciar un `https.Agent` igualmente, y `axios` añade overhead de parsing JSON automático que aquí no queremos (la respuesta es XML). El `https.request` nativo es 30 líneas y suficiente.
@@ -70,9 +70,9 @@ XAdES sería necesario solo en el "sistema NO verificable" (offline batch + firm
 ## Trade-offs
 
 - **Operacional**: cada tenant debe gestionar su propio certificado (renovación cada 2-4 años según PSC). El onboarding incluye una pantalla específica (`/settings/billing/verifactu`) y un email de aviso al expirar. No es invisible para el cliente, pero es el modelo correcto: el emisor fiscal es el tenant.
-- **Legal**: el emisor real es el tenant; StorageOS aparece declarado como "Sistema Informático" en cada registro (campos `AEAT_SISTEMA_*`). Esto encaja con la responsabilidad fiscal de cada empresa.
+- **Legal**: el emisor real es el tenant; TrasterOS aparece declarado como "Sistema Informático" en cada registro (campos `AEAT_SISTEMA_*`). Esto encaja con la responsabilidad fiscal de cada empresa.
 - **Falta `getStatus` async**: actualmente no hay un endpoint de consulta de estado post-envío. La respuesta SOAP es síncrona (`accepted` o `rejected` en el mismo POST). Si en el futuro AEAT añade un flow asíncrono (CSV consultable a posteriori), habrá que implementar polling. Por ahora no hace falta.
-- **Multi-instalación**: `AEAT_SISTEMA_INSTALACION=001` es fijo en `.env`. Si un día desplegamos varias instalaciones del SaaS bajo el mismo NIF de desarrollador (StorageOS), cada una necesita un identificador distinto.
+- **Multi-instalación**: `AEAT_SISTEMA_INSTALACION=001` es fijo en `.env`. Si un día desplegamos varias instalaciones del SaaS bajo el mismo NIF de desarrollador (TrasterOS), cada una necesita un identificador distinto.
 
 ## Implementación (fichero por bloque)
 

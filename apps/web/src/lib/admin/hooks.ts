@@ -1393,7 +1393,7 @@ export function useDeactivatePlan() {
   });
 }
 
-// --- Facturación del SaaS (StorageOS → tenant) ---
+// --- Facturación del SaaS (TrasterOS → tenant) ---
 export function useAdminPlatformBillingSettings() {
   return useQuery({
     queryKey: ['admin', 'platform-billing', 'settings'] as const,

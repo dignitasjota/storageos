@@ -11,7 +11,7 @@ export interface PasswordResetEmailProps {
 export function PasswordResetEmail({ fullName, resetUrl, ipAddress }: PasswordResetEmailProps) {
   return (
     <EmailLayout
-      preview="Restablece tu contrasena de StorageOS"
+      preview="Restablece tu contrasena de TrasterOS"
       heading={`Hola ${fullName}, restablece tu contrasena`}
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>

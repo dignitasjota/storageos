@@ -192,7 +192,7 @@ export class TenantLifecycleEmailsService {
 
   private welcomeTemplate(tenantName: string): EmailTemplate {
     const body = [
-      `¡Bienvenido a StorageOS, ${tenantName}!`,
+      `¡Bienvenido a TrasterOS, ${tenantName}!`,
       '',
       'Gracias por darte de alta. Ya puedes empezar a gestionar tus locales, trasteros,',
       'contratos y facturación desde el panel.',
@@ -205,9 +205,9 @@ export class TenantLifecycleEmailsService {
       'Si necesitas ayuda, responde a este correo o abre un ticket de soporte desde el panel.',
       '',
       'Un saludo,',
-      'El equipo de StorageOS',
+      'El equipo de TrasterOS',
     ].join('\n');
-    return { subject: '¡Bienvenido a StorageOS!', ...renderEmail(body) };
+    return { subject: '¡Bienvenido a TrasterOS!', ...renderEmail(body) };
   }
 
   private trialTemplate(tenantName: string, days: number): EmailTemplate {
@@ -225,10 +225,10 @@ export class TenantLifecycleEmailsService {
       '¿Dudas sobre qué plan te conviene? Responde a este correo y te ayudamos.',
       '',
       'Un saludo,',
-      'El equipo de StorageOS',
+      'El equipo de TrasterOS',
     ].join('\n');
     return {
-      subject: `Tu prueba de StorageOS termina en ${daysLabel}`,
+      subject: `Tu prueba de TrasterOS termina en ${daysLabel}`,
       ...renderEmail(body),
     };
   }
@@ -237,7 +237,7 @@ export class TenantLifecycleEmailsService {
     const body = [
       `Hola, ${tenantName}:`,
       '',
-      'No hemos podido cobrar la cuota de tu suscripción a StorageOS. Para mantener tu cuenta',
+      'No hemos podido cobrar la cuota de tu suscripción a TrasterOS. Para mantener tu cuenta',
       'activa y evitar la suspensión del servicio, por favor regulariza el pago:',
       '',
       this.billingUrl,
@@ -247,8 +247,8 @@ export class TenantLifecycleEmailsService {
       'Si crees que se trata de un error o necesitas ayuda, responde a este correo.',
       '',
       'Un saludo,',
-      'El equipo de StorageOS',
+      'El equipo de TrasterOS',
     ].join('\n');
-    return { subject: 'No hemos podido cobrar tu suscripción a StorageOS', ...renderEmail(body) };
+    return { subject: 'No hemos podido cobrar tu suscripción a TrasterOS', ...renderEmail(body) };
   }
 }

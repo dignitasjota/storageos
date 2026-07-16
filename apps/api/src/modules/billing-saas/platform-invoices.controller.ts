@@ -31,7 +31,7 @@ import type { Response } from 'express';
 class UpdateSettingsDto extends createZodDto(UpdatePlatformBillingSettingsSchema) {}
 class IssueDto extends createZodDto(IssuePlatformInvoiceSchema) {}
 
-/** Facturación del SaaS (StorageOS → tenant). Solo super admin. */
+/** Facturación del SaaS (TrasterOS → tenant). Solo super admin. */
 @Public()
 @UseGuards(AdminGuard)
 @Controller('admin')

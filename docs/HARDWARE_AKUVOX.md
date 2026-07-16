@@ -1,10 +1,10 @@
 # Control de accesos con terminales comerciales (Akuvox / QR / PIN) — guía
 
 Guía para integrar un **terminal comercial de acceso** (teclado PIN + lector QR)
-con StorageOS **por API abierta, sin depender del software del fabricante**.
+con TrasterOS **por API abierta, sin depender del software del fabricante**.
 
 El caso de referencia es **Akuvox** (serie A0x), porque tiene el mejor encaje con
-la arquitectura que StorageOS ya soporta (**Patrón A**: el lector consulta
+la arquitectura que TrasterOS ya soporta (**Patrón A**: el lector consulta
 `/access/verify` en tiempo real). El mismo enfoque sirve para cualquier lector
 que pueda **componer una URL con el código leído** (escáneres QR/Wiegand→HTTP,
 2N, y muchos terminales IP en "modo servidor de terceros").
@@ -17,14 +17,14 @@ que pueda **componer una URL con el código leído** (escáneres QR/Wiegand→HT
 ## 1. Los dos patrones (recordatorio)
 
 - **Patrón A — el lector pregunta** (recomendado): al presentar PIN/QR, el
-  terminal hace una petición HTTP a StorageOS con el código; StorageOS valida
+  terminal hace una petición HTTP a TrasterOS con el código; TrasterOS valida
   (estado, pago al día, horario, local/trastero) y responde permitir/denegar.
-  La credencial vive **solo** en StorageOS; el terminal no guarda usuarios.
-- **Patrón B — sincronizar credenciales al terminal**: StorageOS empuja los
+  La credencial vive **solo** en TrasterOS; el terminal no guarda usuarios.
+- **Patrón B — sincronizar credenciales al terminal**: TrasterOS empuja los
   PIN/QR al terminal por su API local y el terminal valida **offline**. Más
   resiliente si se cae la red, pero exige un módulo de sincronización +
   reconciliación (altas/bajas/impagos). Es el modelo de ZKTeco (ADMS/PUSH) y
-  Dahua. **No implementado** en StorageOS todavía (ver §7).
+  Dahua. **No implementado** en TrasterOS todavía (ver §7).
 
 Esta guía cubre el **Patrón A**, que ya está soportado end-to-end.
 
@@ -48,7 +48,7 @@ Body:    { "method": "pin", "credential": "481902", "deviceId": "<HW_ID>" }
 Muchos terminales comerciales (Akuvox en modo _servidor de terceros_, escáneres
 QR/Wiegand→HTTP) **no permiten POST con body ni cabeceras personalizadas**: solo
 dejan configurar **una URL con placeholders** que el terminal rellena con lo
-leído. Para esos, StorageOS expone la **misma verificación por GET**:
+leído. Para esos, TrasterOS expone la **misma verificación por GET**:
 
 ```
 GET https://<API>/v1/access/verify?key=<DEVICE_KEY>&device=<HW_ID>&pin={Pin}
@@ -72,7 +72,7 @@ GET https://<API>/v1/access/verify?key=<DEVICE_KEY>&device=<HW_ID>&card={Card}
 `allowed:false` con `result` = `denied_invalid_credential` /
 `denied_inactive_credential` / `denied_outside_hours` / `denied_wrong_facility` /
 `denied_dunning` (impago) / `denied_unknown`. `401` si falta/es incorrecta la
-API key. StorageOS **registra cada intento** en su log de accesos.
+API key. TrasterOS **registra cada intento** en su log de accesos.
 
 ---
 
@@ -80,7 +80,7 @@ API key. StorageOS **registra cada intento** en su log de accesos.
 
 En el Patrón A, tras validar hay que **accionar el relé**. Dos opciones:
 
-### Opción 1 (recomendada) — StorageOS acciona el relé
+### Opción 1 (recomendada) — TrasterOS acciona el relé
 
 `/access/verify`, si el resultado es permitido, dispara el `LockProvider`
 configurado en el dispositivo (**HTTP firmado** o **MQTT**). Así el "abrir" **no
@@ -89,7 +89,7 @@ nosotros. Configura el device con:
 
 - **`controlUrl`** = la API de relé del propio terminal (p. ej. Akuvox tiene un
   endpoint HTTP para conmutar su relé), **o** un relé independiente (Shelly,
-  ESP32, Home Assistant). StorageOS hará un `POST` firmado con HMAC (ver
+  ESP32, Home Assistant). TrasterOS hará un `POST` firmado con HMAC (ver
   [`HARDWARE_ESP32.md §7`](HARDWARE_ESP32.md)).
 - o **`mqttTopic`** si usas un relé por MQTT.
 
@@ -113,7 +113,7 @@ terminal para "abrir" **varía por modelo/firmware** y hay que confirmarlo en su
 > (en España: **By Demes**, **Visiotech**). Verifica en el manual del modelo
 > concreto que soporta el "modo servidor de terceros" con lectura QR.
 
-1. Da de alta el dispositivo en StorageOS: **Accesos → Dispositivos → Nuevo**,
+1. Da de alta el dispositivo en TrasterOS: **Accesos → Dispositivos → Nuevo**,
    tipo `gate` (cancela) / `door`, asígnalo al local, copia la **API key** (se
    muestra una vez) y fija un **Hardware ID** estable.
 2. En el terminal Akuvox, entra en la sección de **integración con dispositivo/
@@ -123,7 +123,7 @@ terminal para "abrir" **varía por modelo/firmware** y hay que confirmarlo en su
 3. Autenticación de la petición: usa `key` en la URL o, si el terminal lo
    permite, mueve la API key al header `X-Device-Key` (más seguro).
 4. Apertura del relé: elige la Opción 1 (recomendada, configura `controlUrl`/
-   `mqttTopic` en StorageOS) o la Opción 2 (mapea `allowed` en el terminal).
+   `mqttTopic` en TrasterOS) o la Opción 2 (mapea `allowed` en el terminal).
 5. Prueba: PIN/QR de un cliente al corriente → abre; de un cliente con factura
    vencida → `denied_dunning` (no abre). Revisa **Accesos → Registro**.
 
@@ -173,7 +173,7 @@ offline pero exige el módulo del §7).
 ## 7. Roadmap — Patrón B (sincronización de credenciales)
 
 Para terminales que solo validan **offline** (ZKTeco ADMS/PUSH, Dahua, Hikvision
-ISAPI), StorageOS necesitaría un módulo que:
+ISAPI), TrasterOS necesitaría un módulo que:
 
 1. **Empuje** las credenciales (`access_credentials`) al terminal por su API
    local cuando se emiten/suspenden/revocan (alta al firmar, bloqueo por impago,

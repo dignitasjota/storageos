@@ -34,7 +34,7 @@ Esta información se facilita en cumplimiento de la Ley 34/2002 de servicios de 
 
 ## 2. Objeto y descripción del servicio
 
-StorageOS es una plataforma en la nube (SaaS) para la gestión integral de locales de self-storage: trasteros, contratos, inquilinos, facturación, control de accesos y operativa diaria. El servicio se presta bajo la modalidad de suscripción y se dirige a empresas y profesionales; no está destinado a consumidores.
+TrasterOS es una plataforma en la nube (SaaS) para la gestión integral de locales de self-storage: trasteros, contratos, inquilinos, facturación, control de accesos y operativa diaria. El servicio se presta bajo la modalidad de suscripción y se dirige a empresas y profesionales; no está destinado a consumidores.
 
 ## 3. Cuenta y registro
 
@@ -65,7 +65,7 @@ Te comprometes a utilizar el servicio conforme a la ley y a estas condiciones, y
 
 ## 7. Datos de tus inquilinos y protección de datos
 
-Respecto de los datos personales que introduces en la plataforma sobre tus inquilinos, contratos o accesos, tú actúas como responsable del tratamiento y StorageOS como encargado, tratándolos únicamente para prestarte el servicio y siguiendo tus instrucciones, conforme al art. 28 RGPD y al acuerdo de tratamiento de datos aplicable. Eres responsable de disponer de base jurídica y de informar a tus inquilinos. El tratamiento de tus propios datos como cliente se rige por nuestra [Política de Privacidad](/privacidad).
+Respecto de los datos personales que introduces en la plataforma sobre tus inquilinos, contratos o accesos, tú actúas como responsable del tratamiento y TrasterOS como encargado, tratándolos únicamente para prestarte el servicio y siguiendo tus instrucciones, conforme al art. 28 RGPD y al acuerdo de tratamiento de datos aplicable. Eres responsable de disponer de base jurídica y de informar a tus inquilinos. El tratamiento de tus propios datos como cliente se rige por nuestra [Política de Privacidad](/privacidad).
 
 ## 8. Propiedad intelectual
 
@@ -97,7 +97,7 @@ Estas condiciones se rigen por la legislación española. Para la resolución de
 
 Para cualquier duda sobre estas condiciones, escríbenos a **[correo@dominio]**.`;
 
-const PRIVACY_MD = `En StorageOS nos tomamos en serio la protección de tus datos. Esta política explica qué datos personales tratamos, con qué finalidad y base jurídica, con quién los compartimos y qué derechos te asisten, conforme al Reglamento (UE) 2016/679 (RGPD) y a la Ley Orgánica 3/2018 (LOPDGDD). Los campos entre corchetes deben completarse con los datos del prestador antes de publicar.
+const PRIVACY_MD = `En TrasterOS nos tomamos en serio la protección de tus datos. Esta política explica qué datos personales tratamos, con qué finalidad y base jurídica, con quién los compartimos y qué derechos te asisten, conforme al Reglamento (UE) 2016/679 (RGPD) y a la Ley Orgánica 3/2018 (LOPDGDD). Los campos entre corchetes deben completarse con los datos del prestador antes de publicar.
 
 ## 1. Responsable del tratamiento
 
@@ -107,14 +107,14 @@ const PRIVACY_MD = `En StorageOS nos tomamos en serio la protección de tus dato
 - Correo de contacto: **[correo@dominio]**
 - Delegado de Protección de Datos (DPD), si aplica: **[correo del DPD]**
 
-En adelante, «StorageOS», «nosotros» o «el prestador». StorageOS es una plataforma de gestión de trasteros (self-storage) que se ofrece como servicio (SaaS) a empresas.
+En adelante, «TrasterOS», «nosotros» o «el prestador». TrasterOS es una plataforma de gestión de trasteros (self-storage) que se ofrece como servicio (SaaS) a empresas.
 
 ## 2. Doble rol: responsable y encargado del tratamiento
 
 Es importante distinguir dos situaciones, porque nuestro papel cambia en cada una:
 
-- **Como responsable.** Respecto de los datos de las empresas clientes y de los usuarios de su equipo (quien contrata y administra la cuenta), StorageOS decide los fines y medios del tratamiento y actúa como responsable. Esta política regula ese tratamiento.
-- **Como encargado.** Respecto de los datos que la empresa cliente introduce en la plataforma sobre sus propios inquilinos, contratos, facturas o accesos, la empresa cliente es la responsable y StorageOS actúa como *encargado del tratamiento*, tratando esos datos únicamente siguiendo sus instrucciones y para prestarle el servicio. Las condiciones de ese encargo se regulan en el correspondiente acuerdo de tratamiento de datos (DPA), conforme al art. 28 RGPD.
+- **Como responsable.** Respecto de los datos de las empresas clientes y de los usuarios de su equipo (quien contrata y administra la cuenta), TrasterOS decide los fines y medios del tratamiento y actúa como responsable. Esta política regula ese tratamiento.
+- **Como encargado.** Respecto de los datos que la empresa cliente introduce en la plataforma sobre sus propios inquilinos, contratos, facturas o accesos, la empresa cliente es la responsable y TrasterOS actúa como *encargado del tratamiento*, tratando esos datos únicamente siguiendo sus instrucciones y para prestarle el servicio. Las condiciones de ese encargo se regulan en el correspondiente acuerdo de tratamiento de datos (DPA), conforme al art. 28 RGPD.
 
 ## 3. Datos que tratamos
 
@@ -185,7 +185,7 @@ Podemos actualizar esta política para adaptarla a cambios normativos o del serv
 
 Para cualquier cuestión relativa a esta política o al tratamiento de tus datos, contacta con nosotros en **[correo@dominio]**.`;
 
-const COOKIES_MD = `Esta política explica qué son las cookies y tecnologías similares, cuáles utiliza StorageOS y cómo puedes gestionarlas.
+const COOKIES_MD = `Esta política explica qué son las cookies y tecnologías similares, cuáles utiliza TrasterOS y cómo puedes gestionarlas.
 
 ## 1. ¿Qué son las cookies?
 
@@ -193,7 +193,7 @@ Una cookie es un pequeño fichero de texto que un sitio web almacena en tu naveg
 
 ## 2. Cookies que utilizamos
 
-StorageOS utiliza únicamente las cookies y el almacenamiento **estrictamente necesarios** para el funcionamiento y la seguridad de la plataforma. En particular:
+TrasterOS utiliza únicamente las cookies y el almacenamiento **estrictamente necesarios** para el funcionamiento y la seguridad de la plataforma. En particular:
 
 - **Sesión y autenticación:** para mantener tu sesión iniciada de forma segura y proteger frente a accesos no autorizados. Sin ellas no es posible usar el panel ni el portal.
 - **Preferencias:** para recordar ajustes como el tema (claro/oscuro) o el idioma.

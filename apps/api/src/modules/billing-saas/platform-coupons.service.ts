@@ -41,7 +41,7 @@ function toDto(r: {
 }
 
 /**
- * Cupones de descuento de PLATAFORMA (StorageOS -> tenant), aplicables al cobro
+ * Cupones de descuento de PLATAFORMA (TrasterOS -> tenant), aplicables al cobro
  * manual de la suscripción SaaS. Tabla global (sin RLS, solo super admin).
  *
  * NO confundir con `PromoCode` (descuentos del negocio del TENANT a SUS

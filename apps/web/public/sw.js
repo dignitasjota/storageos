@@ -1,4 +1,4 @@
-/* Service worker mínimo de StorageOS (PWA del inquilino).
+/* Service worker mínimo de TrasterOS (PWA del inquilino).
  *
  * Objetivos:
  *  - Instalabilidad (junto al manifest).
@@ -82,7 +82,7 @@ self.addEventListener('push', (event) => {
   } catch {
     data = {};
   }
-  const title = data.title || 'StorageOS';
+  const title = data.title || 'TrasterOS';
   const options = {
     body: data.body || '',
     icon: '/icon-192.png',

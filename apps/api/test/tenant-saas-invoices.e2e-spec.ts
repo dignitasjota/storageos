@@ -14,7 +14,7 @@ const ADMIN_URL =
   'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
 
 /**
- * El tenant ve/descarga SUS facturas de plataforma (las que le emite StorageOS)
+ * El tenant ve/descarga SUS facturas de plataforma (las que le emite TrasterOS)
  * y su historial de pagos SaaS, sin ver las de otros tenants.
  */
 describe('Facturas SaaS del tenant (e2e)', () => {
@@ -113,11 +113,11 @@ describe('Facturas SaaS del tenant (e2e)', () => {
     if (settings) {
       await admin.platformBillingSettings.update({
         where: { id: settings.id },
-        data: { enabled: true, legalName: 'StorageOS SL' },
+        data: { enabled: true, legalName: 'TrasterOS SL' },
       });
     } else {
       await admin.platformBillingSettings.create({
-        data: { enabled: true, legalName: 'StorageOS SL' },
+        data: { enabled: true, legalName: 'TrasterOS SL' },
       });
     }
 

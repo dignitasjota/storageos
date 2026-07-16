@@ -37,7 +37,7 @@ const STATUS_LABELS: Record<string, string> = {
 const statusLabel = (s: string) => STATUS_LABELS[s] ?? s;
 
 /**
- * Pantalla de la suscripcion SaaS del propio tenant a StorageOS.
+ * Pantalla de la suscripcion SaaS del propio tenant a TrasterOS.
  * Solo accesible para owner (el backend ya lo aplica con `billing:configure`).
  *
  * - Trial: muestra plan actual + CTA "Suscribirse" → Stripe Checkout.

@@ -10,7 +10,7 @@ export interface VerificationEmailProps {
 export function VerificationEmail({ fullName, verifyUrl }: VerificationEmailProps) {
   return (
     <EmailLayout
-      preview="Verifica tu cuenta de StorageOS"
+      preview="Verifica tu cuenta de TrasterOS"
       heading={`Hola ${fullName}, confirma tu email`}
     >
       <Text style={{ margin: 0, marginBottom: 16 }}>

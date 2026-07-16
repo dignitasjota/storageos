@@ -151,7 +151,7 @@ export class BillingSaasController {
 
   // --- Facturas de la plataforma + historial de pagos (lo que paga el tenant) ---
 
-  /** Facturas que StorageOS emite al tenant por su suscripción. */
+  /** Facturas que TrasterOS emite al tenant por su suscripción. */
   @Get('invoices')
   listInvoices(@CurrentUser() user: AuthenticatedUser): Promise<PlatformInvoiceDto[]> {
     return this.invoices.listForTenant(user.tenantId);

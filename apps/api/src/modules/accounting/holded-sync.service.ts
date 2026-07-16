@@ -99,7 +99,7 @@ export class HoldedSyncService {
           price: Number(it.unitPrice),
           tax: Number(it.taxRate),
         })),
-        notes: `StorageOS ${invoice.invoiceNumber}`,
+        notes: `TrasterOS ${invoice.invoiceNumber}`,
       });
 
       await this.prisma.withTenant(async (tx) => {

@@ -96,7 +96,7 @@ export class PlatformAlertsService {
     const { html, text } = this.renderDigest(pastDue, trialExpiring);
     await this.email.send({
       to: settings.alertEmail,
-      subject: `[StorageOS] Alerta de plataforma: ${pastDue.length} pago(s) fallido(s), ${trialExpiring.length} trial(es) por expirar`,
+      subject: `[TrasterOS] Alerta de plataforma: ${pastDue.length} pago(s) fallido(s), ${trialExpiring.length} trial(es) por expirar`,
       html,
       text,
     });

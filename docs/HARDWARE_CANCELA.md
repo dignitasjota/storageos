@@ -2,10 +2,10 @@
 
 Guía para el escenario más habitual de self-storage: **se controla solo la(s)
 cancela(s) de entrada al recinto**; cada trastero lo cierra el cliente con **su
-propio candado físico** (StorageOS no gestiona la cerradura del trastero).
+propio candado físico** (TrasterOS no gestiona la cerradura del trastero).
 
 El cliente abre la cancela presentando su **PIN** (auto-emitido al contratar /
-primer pago, visible en su portal). StorageOS valida y, si está **al corriente de
+primer pago, visible en su portal). TrasterOS valida y, si está **al corriente de
 pago**, abre. Un moroso recibe `denied_dunning` en la puerta → no entra; al pagar
 se reactiva solo.
 
@@ -26,11 +26,11 @@ seco** para "abrir". Es la misma señal que usan:
 - o un teclado/telefonillo existente.
 
 **Tú solo añades una señal más en paralelo**: un **relé de contacto seco** que,
-cuando StorageOS dice _allowed_, cierra ese contacto un instante y la cancela abre.
+cuando TrasterOS dice _allowed_, cierra ese contacto un instante y la cancela abre.
 No tocas el motor ni la mecánica.
 
 ```
-[Cliente teclea PIN] → [ESP32 + teclado IP65] → POST /v1/access/verify → [StorageOS]
+[Cliente teclea PIN] → [ESP32 + teclado IP65] → POST /v1/access/verify → [TrasterOS]
                                                           ↓ allowed:true
                   [relé cierra contacto seco] → [borne "START/OPEN" del cuadro] → cancela ABRE
 ```
@@ -68,7 +68,7 @@ firmware es `RELAY_OPEN_MS`. La mayoría de cuadros esperan un pulso momentáneo
 
 ## 3. La salida del recinto (¡importante!)
 
-StorageOS controla la **entrada**. Para **salir**, deja **salida libre** — nadie
+TrasterOS controla la **entrada**. Para **salir**, deja **salida libre** — nadie
 debe quedar atrapado:
 
 - **Espira magnética (lazo inductivo)** bajo el asfalto en el carril de salida:
@@ -76,7 +76,7 @@ debe quedar atrapado:
 - **Fotocélula / detector de salida** o **botón de salida** interior.
 - Muchos cuadros ya traen entrada para detector de salida; úsala.
 
-> No pongas la apertura de salida detrás de StorageOS: si se cae la red o la API,
+> No pongas la apertura de salida detrás de TrasterOS: si se cae la red o la API,
 > la gente debe poder salir igualmente.
 
 ---
@@ -126,7 +126,7 @@ cancela puede abrir cada cliente (útil si tienes varios locales o zonas).
 2. **Montaje**: poste con teclado IP65 a altura de ventanilla + caja estanca con el
    ESP32 y el relé cerca del cuadro.
 3. **Cableado**: relé (NO/COM) → borne de "abrir" del cuadro. Alimentación + UPS.
-4. **StorageOS**: panel → **Accesos → Dispositivos → Nuevo**, tipo **`gate`**,
+4. **TrasterOS**: panel → **Accesos → Dispositivos → Nuevo**, tipo **`gate`**,
    asígnalo al local, copia la **API key** (se muestra una vez) y el **Hardware ID**.
 5. **Firmware**: graba el ESP32 con el ejemplo de
    [`HARDWARE_ESP32.md`](HARDWARE_ESP32.md), rellenando WiFi + `API_HOST` +
@@ -149,7 +149,7 @@ cancela puede abrir cada cliente (útil si tienes varios locales o zonas).
   regénerala en el panel. Detalle de seguridad del controlador en
   [`HARDWARE_ESP32.md §8`](HARDWARE_ESP32.md).
 - Recomendable un **electricista/instalador de automatismos** para el conexionado al
-  cuadro; la parte de StorageOS + ESP32 la configuras tú.
+  cuadro; la parte de TrasterOS + ESP32 la configuras tú.
 
 ---
 

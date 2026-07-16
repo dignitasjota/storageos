@@ -1,6 +1,6 @@
 # apps/web
 
-Frontend Next.js 15 (App Router) + React 19 de StorageOS. Aloja el panel del
+Frontend Next.js 15 (App Router) + React 19 de TrasterOS. Aloja el panel del
 tenant, el panel de super admin y el widget público hasta que el alcance
 justifique separarlos en apps dedicadas.
 

@@ -50,7 +50,7 @@ describe('Add-on Stripe billing (e2e)', () => {
     await request(app.getHttpServer())
       .put('/admin/platform-billing/settings')
       .set({ Authorization: `Bearer ${token}` })
-      .send({ legalName: 'StorageOS SL', taxId: 'B1', enabled: false });
+      .send({ legalName: 'TrasterOS SL', taxId: 'B1', enabled: false });
     await app.close();
     await adminClient.subscriptionAddon.deleteMany({
       where: { slug: { startsWith: 'e2e-strp-' } },
@@ -113,7 +113,7 @@ describe('Add-on Stripe billing (e2e)', () => {
       .put('/admin/platform-billing/settings')
       .set(bearer())
       .send({
-        legalName: 'StorageOS SL',
+        legalName: 'TrasterOS SL',
         taxId: 'B12345678',
         country: 'ES',
         taxRate: 21,

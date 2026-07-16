@@ -1,8 +1,8 @@
 /*
- * StorageOS — Controlador de acceso de ejemplo para ESP32 (Patrón A)
+ * TrasterOS — Controlador de acceso de ejemplo para ESP32 (Patrón A)
  * -----------------------------------------------------------------------------
  * El inquilino teclea su PIN en un teclado 4x4 y pulsa '#'. El ESP32 valida el
- * PIN contra StorageOS (POST /v1/access/verify) y, si la respuesta es
+ * PIN contra TrasterOS (POST /v1/access/verify) y, si la respuesta es
  * "allowed": true, da un pulso al relé que abre el cerradero/cancela.
  *
  * Comentarios en español; identificadores en inglés (convención del proyecto).
@@ -28,7 +28,7 @@
 static const char* WIFI_SSID = "TU_WIFI";
 static const char* WIFI_PASS = "TU_PASSWORD";
 
-// --- StorageOS ---
+// --- TrasterOS ---
 // Host de tu API (sin https:// ni barra final), p. ej. "api.tudominio.com".
 static const char* API_HOST = "api.tudominio.com";
 static const int   API_PORT = 443;

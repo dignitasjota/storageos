@@ -259,17 +259,17 @@ export class AdminCommsService {
 
     // 2) Email de retención (best-effort: 0 destinatarios no rompe el playbook).
     const recipients = await this.recipientsFor(tenantId);
-    const subject = '¿Podemos ayudarte con StorageOS?';
+    const subject = '¿Podemos ayudarte con TrasterOS?';
     const body = [
       'Hola,',
       '',
-      'Somos el equipo de StorageOS. Queremos asegurarnos de que le estás sacando el máximo partido a la plataforma.',
+      'Somos el equipo de TrasterOS. Queremos asegurarnos de que le estás sacando el máximo partido a la plataforma.',
       'Si hay algo que podamos mejorar, una duda que resolver o quieres que valoremos un descuento para que te siga saliendo a cuenta, estamos a tu disposición.',
       '',
       `Responde a este correo o escríbenos desde tu panel: ${this.webBaseUrl}/support`,
       '',
       'Un saludo,',
-      'El equipo de StorageOS',
+      'El equipo de TrasterOS',
     ].join('\n');
     await this.enqueue(recipients, subject, body);
     const emailRecipients = recipients.length;

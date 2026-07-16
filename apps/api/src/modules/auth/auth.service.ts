@@ -559,7 +559,7 @@ export class AuthService {
 
     await this.email.send({
       to: user.email,
-      subject: 'Restablece tu contrasena de StorageOS',
+      subject: 'Restablece tu contrasena de TrasterOS',
       template: PasswordResetEmail({
         fullName: user.fullName,
         resetUrl,
@@ -722,7 +722,7 @@ export class AuthService {
 
     await this.email.send({
       to: user.email,
-      subject: 'Verifica tu cuenta de StorageOS',
+      subject: 'Verifica tu cuenta de TrasterOS',
       template: VerificationEmail({ fullName: user.fullName, verifyUrl }),
     });
 

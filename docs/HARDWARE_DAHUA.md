@@ -78,7 +78,7 @@
 ## La decisión: adapter **in-process**, NO microservicio
 
 Lo que da la capacidad de cambiar de proveedor con impacto mínimo **es la
-interfaz (el "puerto"), no un límite de proceso**. StorageOS ya usa este patrón
+interfaz (el "puerto"), no un límite de proceso**. TrasterOS ya usa este patrón
 (anti-corruption layer / adapter) **dentro del propio proceso** en todas las
 integraciones externas: `PaymentGateway` (Stripe), `EmailProvider` (smtp/resend),
 `WhatsAppProvider` (stub/meta_waba), `AiProvider` (stub/anthropic) y, para
@@ -195,7 +195,7 @@ la nube accesibles a través del túnel. No confundir los dos ejes.
 ```
 ┌─ NUBE (tu VPS + Portainer) ──────────────┐          ┌─ LOCAL del cliente (LAN) ─────────────┐
 │  docker-compose.prod / portainer         │          │  Caja on-site (mini-PC / RPi / NVR)   │
-│  · api  · worker  · web                  │          │  · agente StorageOS (su propio Docker)│
+│  · api  · worker  · web                  │          │  · agente TrasterOS (su propio Docker)│
 │  · postgres · redis · minio              │◄────────►│  · alcanza terminales/cámaras Dahua   │
 │  MULTI-TENANT, centralizado              │  túnel   │    por la LAN                         │
 └──────────────────────────────────────────┘ saliente └───────────────────────────────────────┘
@@ -574,7 +574,7 @@ puertos ni túnel** si el equipo tiene salida a Internet.
 
 **Opción 1 (recomendada, casi sin infra) — push del propio equipo:**
 ```
-[ Cámara/NVR Dahua ]  --evento + snapshot (salida a Internet)-->  [ POST /webhooks/camera-events (StorageOS) ]
+[ Cámara/NVR Dahua ]  --evento + snapshot (salida a Internet)-->  [ POST /webhooks/camera-events (TrasterOS) ]
    alarm linkage: HTTP upload / FTP / email
 ```
 Los equipos Dahua permiten **subir la captura del evento** por **FTP**, **email**

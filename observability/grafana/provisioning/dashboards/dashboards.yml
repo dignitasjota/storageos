@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: StorageOS
+  - name: TrasterOS
     orgId: 1
-    folder: StorageOS
+    folder: TrasterOS
     type: file
     disableDeletion: false
     editable: true

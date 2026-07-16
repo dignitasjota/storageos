@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "display": "StorageOS library",
+  "display": "TrasterOS library",
   "extends": "./base.json",
   "compilerOptions": {
     "declaration": true,

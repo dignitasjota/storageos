@@ -44,7 +44,7 @@ describe('Facturación del SaaS (e2e)', () => {
       .put('/admin/platform-billing/settings')
       .set(auth)
       .send({
-        legalName: 'StorageOS SL',
+        legalName: 'TrasterOS SL',
         taxId: 'B12345678',
         country: 'ES',
         taxRate: 21,
@@ -91,7 +91,7 @@ describe('Facturación del SaaS (e2e)', () => {
     await request(app.getHttpServer())
       .put('/admin/platform-billing/settings')
       .set(auth)
-      .send({ legalName: 'StorageOS SL', taxId: 'B1', enabled: false })
+      .send({ legalName: 'TrasterOS SL', taxId: 'B1', enabled: false })
       .expect(200);
 
     const pay = await request(app.getHttpServer())
