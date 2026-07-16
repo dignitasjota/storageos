@@ -131,7 +131,7 @@ describe('Fase 12A.2: security alerts brute-force (e2e)', () => {
       expect(result.alertsSent).toBeGreaterThanOrEqual(1);
 
       const mail = await waitForEmail(ALERT_EMAIL, {
-        subjectIncludes: '[StorageOS] Posible brute-force: email=',
+        subjectIncludes: '[TrasterOS] Posible brute-force: email=',
       });
       expect(mail.Subject).toContain(target);
       expect(mail.Subject).toContain('15min');
@@ -179,7 +179,7 @@ describe('Fase 12A.2: security alerts brute-force (e2e)', () => {
       expect(result.alertsSent).toBeGreaterThanOrEqual(1);
 
       const mail = await waitForEmail(ALERT_EMAIL, {
-        subjectIncludes: '[StorageOS] Posible brute-force: ip=',
+        subjectIncludes: '[TrasterOS] Posible brute-force: ip=',
       });
       expect(mail.Subject).toContain(ip);
     } finally {

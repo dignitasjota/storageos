@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "display": "StorageOS NestJS",
+  "display": "TrasterOS NestJS",
   "extends": "./base.json",
   "compilerOptions": {
     "module": "CommonJS",

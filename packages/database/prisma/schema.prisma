@@ -1,4 +1,4 @@
-// Esquema Prisma de StorageOS.
+// Esquema Prisma de TrasterOS.
 //
 // Fase 1A: núcleo de tenancy (tenants, users, planes, suscripciones, audit_logs).
 // El resto del modelo (facilities, units, contracts, invoices, ...) llega en
@@ -3662,7 +3662,7 @@ model TenantSubscriptionPayment {
   @@map("tenant_subscription_payments")
 }
 
-/// Cupones de descuento de PLATAFORMA (StorageOS -> tenant), aplicables al
+/// Cupones de descuento de PLATAFORMA (TrasterOS -> tenant), aplicables al
 /// cobro manual de la suscripción SaaS. Tabla global sin RLS (solo super admin).
 /// Distinta de `PromoCode` (esos son del negocio del TENANT a sus inquilinos).
 model PlatformCoupon {
@@ -3680,7 +3680,7 @@ model PlatformCoupon {
   @@map("platform_coupons")
 }
 
-/// Datos fiscales del emisor (StorageOS) para las facturas de suscripción.
+/// Datos fiscales del emisor (TrasterOS) para las facturas de suscripción.
 /// Singleton (una sola fila). Tabla global sin RLS (solo super admin).
 model PlatformBillingSettings {
   id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
@@ -3700,7 +3700,7 @@ model PlatformBillingSettings {
   @@map("platform_billing_settings")
 }
 
-/// Factura de suscripción emitida por StorageOS a un tenant. Tabla global
+/// Factura de suscripción emitida por TrasterOS a un tenant. Tabla global
 /// (solo super admin la gestiona). Numeración secuencial por serie (año).
 model PlatformInvoice {
   id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid

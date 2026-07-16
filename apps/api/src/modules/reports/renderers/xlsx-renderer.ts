@@ -7,7 +7,7 @@ import type { ReportResult } from '../generators/types';
 export class XlsxRenderer {
   async render(result: ReportResult): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'StorageOS';
+    wb.creator = 'TrasterOS';
     wb.created = result.generatedAt;
     const sheet = wb.addWorksheet(result.title.slice(0, 31));
 

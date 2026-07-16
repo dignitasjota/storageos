@@ -94,7 +94,7 @@ export class PdfRenderer {
   ${r.subtitle ? `<div class="sub">${escape(r.subtitle)}</div>` : ''}
   <table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>
   ${summary}
-  <div class="footer">Generado el ${r.generatedAt.toISOString()} · StorageOS</div>
+  <div class="footer">Generado el ${r.generatedAt.toISOString()} · TrasterOS</div>
 </body></html>`;
   }
 }

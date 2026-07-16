@@ -1,4 +1,4 @@
-# StorageOS
+# TrasterOS
 
 SaaS multi-tenant para la gestión integral de locales de self-storage.
 

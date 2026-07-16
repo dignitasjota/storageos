@@ -60,7 +60,7 @@ El datasource Postgres reutiliza `POSTGRES_USER` / `POSTGRES_PASSWORD` /
 
 ## Dashboard
 
-**StorageOS — Overview**: volumen de logs por servicio, errores API/worker
+**TrasterOS — Overview**: volumen de logs por servicio, errores API/worker
 (24h), violaciones CSP (24h), intentos de login fallidos (desde
 `security_events`), top emails/IP con login fallido, y paneles de logs de
 errores + violaciones CSP recientes.

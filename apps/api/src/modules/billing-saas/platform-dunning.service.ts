@@ -137,13 +137,13 @@ export class PlatformDunningService {
     const to = sub.tenant.billingEmail;
     if (!to) return;
     const subject = suspended
-      ? 'Tu cuenta de StorageOS ha sido suspendida por impago'
-      : 'Recordatorio de pago de tu suscripción StorageOS';
+      ? 'Tu cuenta de TrasterOS ha sido suspendida por impago'
+      : 'Recordatorio de pago de tu suscripción TrasterOS';
     const link = `${this.webBaseUrl}/settings/saas-billing`;
     const cta = `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none">Regularizar el pago</a></p>`;
     const intro = suspended
-      ? `<p>Hola,</p><p>Tu suscripción a StorageOS lleva ${daysOverdue} días impagada y hemos <strong>suspendido</strong> tu cuenta. Regulariza el pago para reactivarla.</p>`
-      : `<p>Hola,</p><p>Tu suscripción a StorageOS (${sub.plan?.name ?? 'plan'}) tiene un pago pendiente desde hace ${daysOverdue} días. Por favor, regulariza el pago para evitar la suspensión del servicio.</p>`;
+      ? `<p>Hola,</p><p>Tu suscripción a TrasterOS lleva ${daysOverdue} días impagada y hemos <strong>suspendido</strong> tu cuenta. Regulariza el pago para reactivarla.</p>`
+      : `<p>Hola,</p><p>Tu suscripción a TrasterOS (${sub.plan?.name ?? 'plan'}) tiene un pago pendiente desde hace ${daysOverdue} días. Por favor, regulariza el pago para evitar la suspensión del servicio.</p>`;
     const body = `${intro}${cta}`;
     await this.email.sendRendered({
       to,

@@ -43,7 +43,7 @@ const esc = (s: string): string =>
 const csvCell = (v: string): string => (/[";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 /**
- * Facturación del SaaS: StorageOS emite facturas de suscripción a sus tenants.
+ * Facturación del SaaS: TrasterOS emite facturas de suscripción a sus tenants.
  * Distinto de las facturas del tenant a sus inquilinos (Fase 4 / Veri*Factu).
  * v1: factura conforme (numeración por serie/año + IVA + PDF), SIN Veri*Factu.
  */
@@ -421,7 +421,7 @@ export class PlatformInvoicesService {
     const html = `<p>Tu factura <strong>${esc(inv.fullNumber)}</strong> por ${eur(
       Number(inv.total),
     )} ya está disponible.</p><p>Puedes descargarla desde tu panel, en <strong>Ajustes → Suscripción → Facturas y pagos</strong>. Gracias por confiar en ${esc(
-      settings.legalName || 'StorageOS',
+      settings.legalName || 'TrasterOS',
     )}.</p>`;
     await this.email.sendRendered({
       to: inv.tenantEmail,
@@ -524,7 +524,7 @@ export class PlatformInvoicesService {
                 }</td><td class="n">${eur(Number(l.baseAmount))}</td></tr>`,
             )
             .join('')
-        : `<tr><td>${esc(inv.concept ?? `Suscripción ${inv.planName ?? 'StorageOS'}`)}${
+        : `<tr><td>${esc(inv.concept ?? `Suscripción ${inv.planName ?? 'TrasterOS'}`)}${
             period ? ` · ${esc(period)}` : ''
           }</td><td class="n">${eur(Number(inv.baseAmount))}</td></tr>`;
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>

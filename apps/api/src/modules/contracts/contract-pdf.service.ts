@@ -321,7 +321,7 @@ ${conditionsHtml}
   <div class="line">Arrendatario (${customerName})</div>
 </div>
 
-<div class="footer">Documento generado automáticamente por StorageOS — ${args.tenant.slug}</div>
+<div class="footer">Documento generado automáticamente por TrasterOS — ${args.tenant.slug}</div>
 </body>
 </html>`;
   }

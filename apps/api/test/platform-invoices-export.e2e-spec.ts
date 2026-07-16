@@ -60,7 +60,7 @@ describe('Export de facturas SaaS (e2e)', () => {
       .put('/admin/platform-billing/settings')
       .set(bearer())
       .send({
-        legalName: 'StorageOS SL',
+        legalName: 'TrasterOS SL',
         taxId: 'B12345678',
         country: 'ES',
         taxRate: 21,

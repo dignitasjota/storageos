@@ -323,7 +323,7 @@ services:
       GF_SMTP_USER: ${GF_SMTP_USER:-}
       GF_SMTP_PASSWORD: ${GF_SMTP_PASSWORD:-}
       GF_SMTP_FROM_ADDRESS: ${GF_SMTP_FROM_ADDRESS:-}
-      GF_SMTP_FROM_NAME: StorageOS Alerts
+      GF_SMTP_FROM_NAME: TrasterOS Alerts
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro

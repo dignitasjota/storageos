@@ -78,7 +78,7 @@ export function EmailLayout({ preview, heading, children }: EmailLayoutProps) {
           <Hr style={{ borderColor: '#e2e8f0', marginTop: 32, marginBottom: 16 }} />
           <Section>
             <Text style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
-              © {year} StorageOS. Este email se envia automaticamente; no es necesario que
+              © {year} TrasterOS. Este email se envia automaticamente; no es necesario que
               respondas.
             </Text>
           </Section>

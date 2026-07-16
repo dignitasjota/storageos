@@ -19,7 +19,7 @@ function createConfig(
 ): ConfigService<Env, true> {
   const values: Record<string, string> = {
     AEAT_SISTEMA_NIF: 'B00000000',
-    AEAT_SISTEMA_NOMBRE: 'StorageOS',
+    AEAT_SISTEMA_NOMBRE: 'TrasterOS',
     AEAT_SISTEMA_VERSION: '1.0.0',
     AEAT_SISTEMA_INSTALACION: '001',
     ...(overrides as Record<string, string>),
@@ -156,7 +156,7 @@ describe('VerifactuXmlBuilder', () => {
 
       // Sistema informatico.
       expect(xml).toContain(
-        '<sum1:NombreSistemaInformatico>StorageOS</sum1:NombreSistemaInformatico>',
+        '<sum1:NombreSistemaInformatico>TrasterOS</sum1:NombreSistemaInformatico>',
       );
       expect(xml).toContain('<sum1:IdSistemaInformatico>01</sum1:IdSistemaInformatico>');
       expect(xml).toContain('<sum1:Version>1.0.0</sum1:Version>');

@@ -1,6 +1,6 @@
 # ESP32 — controlador de acceso (firmware de ejemplo)
 
-Firmware de ejemplo para validar accesos de StorageOS desde un **ESP32** con un
+Firmware de ejemplo para validar accesos de TrasterOS desde un **ESP32** con un
 teclado 4x4 y un relé. Implementa el **Patrón A** (el lector pregunta a
 `POST /v1/access/verify`). Guía completa: [`../../HARDWARE_ESP32.md`](../../HARDWARE_ESP32.md).
 

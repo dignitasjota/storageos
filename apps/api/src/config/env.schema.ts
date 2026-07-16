@@ -89,7 +89,7 @@ export const envSchema = z.object({
    *  en nuestro caso). Veri*Factu lo exige en el bloque `SistemaInformatico`.
    *  Default solo para dev/test; en produccion debe configurarse. */
   AEAT_SISTEMA_NIF: z.string().default('B00000000'),
-  AEAT_SISTEMA_NOMBRE: z.string().default('StorageOS'),
+  AEAT_SISTEMA_NOMBRE: z.string().default('TrasterOS'),
   AEAT_SISTEMA_VERSION: z.string().default('1.0.0'),
   AEAT_SISTEMA_INSTALACION: z.string().default('001'),
   /** Endpoint SOAP del entorno sandbox de AEAT (Veri*Factu). */
@@ -130,7 +130,7 @@ export const envSchema = z.object({
   // --- Email provider ---
   /** Selecciona la implementacion. En dev/test = smtp (Mailpit). En prod = resend. */
   EMAIL_PROVIDER: z.enum(['smtp', 'resend']).default('smtp'),
-  EMAIL_FROM_NAME: z.string().default('StorageOS'),
+  EMAIL_FROM_NAME: z.string().default('TrasterOS'),
   EMAIL_FROM_ADDRESS: z.string().email().default('no-reply@storageos.local'),
 
   // --- SMTP (provider = smtp / Mailpit en dev) ---
@@ -139,7 +139,7 @@ export const envSchema = z.object({
   /** @deprecated alias historico de EMAIL_FROM_ADDRESS. */
   SMTP_FROM: z.string().email().default('no-reply@storageos.local'),
   /** @deprecated alias historico de EMAIL_FROM_NAME. */
-  SMTP_FROM_NAME: z.string().default('StorageOS'),
+  SMTP_FROM_NAME: z.string().default('TrasterOS'),
 
   // --- Resend (provider = resend) ---
   RESEND_API_KEY: z.string().default(''),

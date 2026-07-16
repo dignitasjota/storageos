@@ -70,7 +70,7 @@ cd /opt/storageos
 Si todo va bien verás algo como:
 
 ```
-[2026-05-20T01:00:00Z] ===== Backup StorageOS - 20260520-010000 =====
+[2026-05-20T01:00:00Z] ===== Backup TrasterOS - 20260520-010000 =====
 [2026-05-20T01:00:00Z] [1/4] pg_dump...
 [2026-05-20T01:00:02Z] pg_dump OK (4.2M)
 ...

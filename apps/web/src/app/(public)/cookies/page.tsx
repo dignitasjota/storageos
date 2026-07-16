@@ -5,9 +5,9 @@ import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Política de Cookies · StorageOS',
+  title: 'Política de Cookies · TrasterOS',
   description:
-    'Qué cookies y tecnologías equivalentes utiliza StorageOS, su finalidad, base jurídica y cómo gestionarlas.',
+    'Qué cookies y tecnologías equivalentes utiliza TrasterOS, su finalidad, base jurídica y cómo gestionarlas.',
 };
 
 export default async function CookiesPage() {

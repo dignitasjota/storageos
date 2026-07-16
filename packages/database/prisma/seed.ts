@@ -1,5 +1,5 @@
 /**
- * Seed de desarrollo para StorageOS.
+ * Seed de desarrollo para TrasterOS.
  *
  * Idempotente: usa `upsert` y `count` para no duplicar datos al reejecutar.
  * Se conecta como admin (`storageos`), por lo que las politicas RLS NO
@@ -255,7 +255,7 @@ async function seedAddons() {
 }
 
 async function main() {
-  console.info('Seeding StorageOS...');
+  console.info('Seeding TrasterOS...');
 
   const plans = await seedPlans();
   if (!plans.starter) {

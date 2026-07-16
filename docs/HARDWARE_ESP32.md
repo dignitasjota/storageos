@@ -1,9 +1,9 @@
 # Control de accesos con ESP32 — guía + firmware de ejemplo
 
 Esta guía explica cómo montar un **controlador de puerta** barato con un **ESP32**
-que valida los códigos de los inquilinos contra StorageOS y abre la cerradura.
+que valida los códigos de los inquilinos contra TrasterOS y abre la cerradura.
 
-StorageOS es el **cerebro** (guarda las credenciales, decide si se permite el
+TrasterOS es el **cerebro** (guarda las credenciales, decide si se permite el
 acceso, registra cada intento). El ESP32 es el **músculo** en la puerta: lee el
 código, pregunta a la API y, si la respuesta es _permitido_, acciona el relé.
 
@@ -14,13 +14,13 @@ código, pregunta a la API y, si la respuesta es _permitido_, acciona el relé.
 
 ## 1. Arquitectura: dos patrones
 
-StorageOS soporta dos formas de integrar un controlador físico. Esta guía cubre
+TrasterOS soporta dos formas de integrar un controlador físico. Esta guía cubre
 sobre todo el **Patrón A**, que es el más sencillo y autónomo.
 
 ### Patrón A — el lector pregunta (`/access/verify`) ← recomendado para empezar
 
 ```
-[Inquilino teclea PIN] → [ESP32 + teclado] → POST /v1/access/verify → [StorageOS]
+[Inquilino teclea PIN] → [ESP32 + teclado] → POST /v1/access/verify → [TrasterOS]
                                                         ↓ allowed:true
                               [ESP32 acciona el relé] → [Cerradero eléctrico abre]
 ```
@@ -29,7 +29,7 @@ El ESP32 inicia la conexión saliente (HTTPS) hacia la API. **No necesita IP
 pública ni abrir puertos** en el local: solo salida a internet. Ideal para
 teclados, lectores QR y RFID.
 
-### Patrón B — StorageOS manda abrir (apertura remota)
+### Patrón B — TrasterOS manda abrir (apertura remota)
 
 El backend hace `POST` a una URL del dispositivo (`controlUrl`) cuando el staff
 pulsa **"Abrir (remoto)"** en el panel. Requiere que el ESP32 exponga un
@@ -78,7 +78,7 @@ Teclado 4x4 → filas/columnas a 8 GPIO (ver el firmware: ROW_PINS / COL_PINS)
 
 ---
 
-## 4. Dar de alta el dispositivo en StorageOS
+## 4. Dar de alta el dispositivo en TrasterOS
 
 1. En el panel: **Accesos → Dispositivos → Nuevo dispositivo**.
 2. Rellena:
@@ -87,7 +87,7 @@ Teclado 4x4 → filas/columnas a 8 GPIO (ver el firmware: ROW_PINS / COL_PINS)
    - **Nombre**: p. ej. "Cancela entrada".
    - **Hardware ID**: un identificador estable que pondrás también en el firmware
      (`DEVICE_ID`). P. ej. `gate-entrada-01`.
-3. Al crear el dispositivo, StorageOS muestra **la API key una sola vez**
+3. Al crear el dispositivo, TrasterOS muestra **la API key una sola vez**
    (`revealedApiKey`). **Cópiala**: va al firmware como `DEVICE_KEY`. Si la
    pierdes, regenérala desde el panel (invalida la anterior).
 
@@ -138,7 +138,7 @@ Respuesta `200 OK`:
 
 > **Importante:** llama a **`/v1/access/verify`** (con el prefijo de versión). La
 > ruta sin versión responde un redirect 308 que complica el cliente del ESP32.
-> StorageOS **ya registra cada intento** (permitido o denegado) en su log de
+> TrasterOS **ya registra cada intento** (permitido o denegado) en su log de
 > accesos; el ESP32 no tiene que reportar nada.
 
 ---
@@ -166,7 +166,7 @@ Flujo del firmware (Patrón A):
 
 ## 7. Patrón B — apertura remota (avanzado)
 
-Cuando el staff pulsa **"Abrir (remoto)"** en el panel, StorageOS hace un `POST`
+Cuando el staff pulsa **"Abrir (remoto)"** en el panel, TrasterOS hace un `POST`
 a la `controlUrl` que configuraste en el dispositivo, **firmado con HMAC** usando
 el `control_secret` del device:
 
@@ -211,7 +211,7 @@ Patrón A; úsalo solo si necesitas apertura iniciada desde el panel.
 
 ## 9. Alternativas sin programar
 
-Si no quieres firmware propio, los providers `http`/`mqtt` de StorageOS funcionan
+Si no quieres firmware propio, los providers `http`/`mqtt` de TrasterOS funcionan
 con hardware comercial controlable por HTTP/MQTT:
 
 - **Terminales comerciales PIN+QR (Akuvox y similares)**: integran por el

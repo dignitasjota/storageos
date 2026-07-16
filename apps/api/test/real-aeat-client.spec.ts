@@ -63,7 +63,7 @@ function createConfig(
       'https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1',
     AEAT_TIMEOUT_MS: 30_000,
     AEAT_SISTEMA_NIF: 'B00000000',
-    AEAT_SISTEMA_NOMBRE: 'StorageOS',
+    AEAT_SISTEMA_NOMBRE: 'TrasterOS',
     AEAT_SISTEMA_VERSION: '1.0.0',
     AEAT_SISTEMA_INSTALACION: '001',
     ...overrides,

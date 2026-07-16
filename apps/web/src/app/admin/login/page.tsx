@@ -66,7 +66,7 @@ export default function AdminLoginPage() {
           <CardDescription>
             {pendingToken
               ? 'Verifica tu identidad con el segundo factor.'
-              : 'Acceso restringido al equipo de StorageOS.'}
+              : 'Acceso restringido al equipo de TrasterOS.'}
           </CardDescription>
         </CardHeader>
         <CardContent>

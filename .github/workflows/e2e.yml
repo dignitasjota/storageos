@@ -74,7 +74,7 @@ jobs:
       SMTP_HOST: localhost
       SMTP_PORT: '1026'
       SMTP_FROM: no-reply@storageos.local
-      SMTP_FROM_NAME: StorageOS
+      SMTP_FROM_NAME: TrasterOS
       WEB_BASE_URL: http://localhost:3000
       MAILPIT_API: http://localhost:8026
       AEAT_MODE: stub

@@ -610,7 +610,7 @@ Necesario **antes** del primer envío real desde producción. Sin SPF/DKIM/DMARC
 
 ```env
 EMAIL_PROVIDER=resend
-EMAIL_FROM_NAME=StorageOS
+EMAIL_FROM_NAME=TrasterOS
 EMAIL_FROM_ADDRESS=no-reply@send.tu-dominio.com   # el subdominio que verificaste
 RESEND_API_KEY=re_xxxxxxxx
 ```
@@ -674,9 +674,9 @@ AEAT_SANDBOX_ENDPOINT=https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturaci
 AEAT_PRODUCTION_ENDPOINT=https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/SistemaFacturacionV1
 AEAT_TIMEOUT_MS=30000
 
-# Identificación del Sistema Informático (StorageOS) — comunes a todos los tenants
+# Identificación del Sistema Informático (TrasterOS) — comunes a todos los tenants
 AEAT_SISTEMA_NIF=B12345678         # NIF del desarrollador/operador del software
-AEAT_SISTEMA_NOMBRE=StorageOS
+AEAT_SISTEMA_NOMBRE=TrasterOS
 AEAT_SISTEMA_VERSION=1.0.0
 AEAT_SISTEMA_INSTALACION=001
 ```
@@ -721,7 +721,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-rec
 ### 11.7. Incidencias conocidas
 
 - **Mantenimiento AEAT**: la sede tiene ventanas de mantenimiento programadas (ver `https://sede.agenciatributaria.gob.es/Sede/incidencias-comunicaciones.html`). Durante una ventana, los envíos pueden fallar; el retry BullMQ los recoge automáticamente.
-- **Versión del sistema informático**: si actualizas StorageOS a una versión que altera el comportamiento del registro (campos, hash, formato XML), incrementa `AEAT_SISTEMA_VERSION` para que el campo declarado en el XML refleje la versión real desplegada.
+- **Versión del sistema informático**: si actualizas TrasterOS a una versión que altera el comportamiento del registro (campos, hash, formato XML), incrementa `AEAT_SISTEMA_VERSION` para que el campo declarado en el XML refleje la versión real desplegada.
 - **NIF mal formado**: si AEAT rechaza con error de validación, verifica que `customers.documentNumber` esté bien formateado (DNI sin guiones, CIF con letra inicial + 8 dígitos). El builder XML escapa pero no normaliza.
 - **Certificado caducado**: si el certificado del tenant expira, todas las facturas quedan en `error` con mensaje `cert_expired`. El tenant debe subir uno nuevo desde `/settings/billing/verifactu`. Las facturas en error se pueden reenviar manualmente una vez actualizado.
 
@@ -755,7 +755,7 @@ El flag `ENABLE_WORKERS_IN_API` controla este comportamiento.
 
    ```bash
    docker compose -f docker-compose.prod.yml logs -f worker
-   # Debes ver: "StorageOS worker started"
+   # Debes ver: "TrasterOS worker started"
    ```
 
 ### 12.2. Riesgo si el worker está caído
@@ -843,7 +843,7 @@ Tras validar todo en test mode (§12B), pasar a claves live. **Un solo webhook**
 
 Stack **autohospedado y opcional** (perfil `observability`, apagado por defecto). Los logs no salen del VPS. Config versionada en [`observability/`](../observability/) (ver su `README.md`).
 
-- **Qué hace**: Promtail descubre los contenedores por el socket de Docker y envía sus logs a Loki, etiquetados por servicio (`api`/`worker`/`web`). Grafana provisiona automáticamente datasources (Loki + Postgres), el dashboard **StorageOS — Overview** y dos reglas de alerta.
+- **Qué hace**: Promtail descubre los contenedores por el socket de Docker y envía sus logs a Loki, etiquetados por servicio (`api`/`worker`/`web`). Grafana provisiona automáticamente datasources (Loki + Postgres), el dashboard **TrasterOS — Overview** y dos reglas de alerta.
 - **Dashboard**: volumen de logs por servicio, errores API/worker (24h), violaciones CSP (24h), intentos de login fallidos (sobre `security_events`), top emails/IP con login fallido, y logs de errores + violaciones CSP recientes.
 - **Alertas por email** (contact point provisionado, reutiliza tu SMTP):
   - _Pico de violaciones CSP_ — > 50 en 5 min.
@@ -870,7 +870,7 @@ El envío de WhatsApp (recordatorios de dunning, avisos) usa el `WhatsAppProvide
    - `WHATSAPP_ACCESS_TOKEN=<token permanente>`
    - Redeploy del `api` (y `worker`).
 4. **Plantillas aprobadas (clave)**: los mensajes **iniciados por el negocio** (dunning, avisos proactivos) SOLO se pueden enviar con una **plantilla aprobada** por Meta — el texto libre únicamente vale dentro de la ventana de 24h tras un mensaje del cliente. Da de alta y aprueba las plantillas en _WhatsApp Manager → Plantillas_ antes de usarlas.
-5. **Conectar la plantilla WABA a una `message_template`** (Layer B): en la plantilla de StorageOS del canal `whatsapp`, rellena por API (`PATCH /v1/message-templates/:id`):
+5. **Conectar la plantilla WABA a una `message_template`** (Layer B): en la plantilla de TrasterOS del canal `whatsapp`, rellena por API (`PATCH /v1/message-templates/:id`):
    - `whatsappTemplateName`: nombre exacto de la plantilla aprobada en Meta.
    - `whatsappTemplateLanguage`: código de idioma (e.g. `es`).
    - `whatsappTemplateVariables`: lista **ordenada** de nombres de variable que mapean a los parámetros posicionales `{{1}}`, `{{2}}`… de la plantilla.
@@ -885,7 +885,7 @@ El envío de WhatsApp (recordatorios de dunning, avisos) usa el `WhatsAppProvide
 Export automático de facturas a Holded por tenant (no requiere variables de entorno; la API key se configura por tenant desde el panel).
 
 1. En Holded: **Ajustes → Desarrolladores → API** → copiar la API key.
-2. En StorageOS: **Ajustes → Facturación → Contabilidad — Holded** → pegar la API key, marcar "Exportar facturas automáticamente", **Guardar** y **Probar conexión**.
+2. En TrasterOS: **Ajustes → Facturación → Contabilidad — Holded** → pegar la API key, marcar "Exportar facturas automáticamente", **Guardar** y **Probar conexión**.
 3. A partir de ahí, cada factura **emitida** se exporta a Holded (crea/asocia el contacto por NIF/email + crea el documento). El estado y los errores se ven en esa misma tarjeta; "Exportar pendientes" hace backfill de las facturas emitidas aún sin exportar, y cada factura tiene un botón "Exportar a Holded" para reintento manual.
 
 > La API key se guarda **cifrada** (AES-256-GCM) en `holded_settings`. El export es best-effort sobre `domain.invoice_issued`; los fallos quedan registrados y se reintentan con el backfill / botón manual. Las facturas F2 (sin cliente) no se exportan.
@@ -897,9 +897,9 @@ Export automático de facturas a Holded por tenant (no requiere variables de ent
 Permite a los inquilinos pagar facturas con tarjeta vía la pasarela alojada del banco. Config por tenant (no requiere variables salvo `API_BASE_URL`).
 
 1. **`API_BASE_URL`** (variable de entorno del API): URL pública del API, p. ej. `https://api.tu-dominio.com`. Redsys envía ahí la notificación servidor-a-servidor (`/webhooks/redsys`).
-2. En StorageOS: **Ajustes → Facturación → Pago con tarjeta — Redsys** → introducir **código de comercio (FUC)**, **terminal**, **clave secreta** del comercio (la da el banco), **entorno** (Pruebas/Producción) y activar. La clave se guarda **cifrada** (AES-256-GCM).
+2. En TrasterOS: **Ajustes → Facturación → Pago con tarjeta — Redsys** → introducir **código de comercio (FUC)**, **terminal**, **clave secreta** del comercio (la da el banco), **entorno** (Pruebas/Producción) y activar. La clave se guarda **cifrada** (AES-256-GCM).
 3. El inquilino paga desde su **portal** ("Pagar con tarjeta") o el staff desde la factura ("Pagar con Redsys"): se genera un formulario firmado (`HMAC_SHA256_V1`) y el navegador se redirige a la pasarela del banco.
-4. Al completar el pago, Redsys hace POST a `/webhooks/redsys`; StorageOS **verifica la firma** y marca la factura pagada (idempotente). El cliente vuelve a `/pay/redsys/ok` o `/pay/redsys/ko`.
+4. Al completar el pago, Redsys hace POST a `/webhooks/redsys`; TrasterOS **verifica la firma** y marca la factura pagada (idempotente). El cliente vuelve a `/pay/redsys/ok` o `/pay/redsys/ko`.
 
 > En el panel del banco/Redsys hay que configurar la **clave secreta del comercio** y, si aplica, la URL de notificación. Entorno de pruebas: `sis-t.redsys.es`; producción: `sis.redsys.es` (lo elige el campo "entorno"). Verificación de firma + flujo testeados (`redsys-signature` 5/5, `redsys.e2e` 4/4); el pago real se valida en el entorno de pruebas del banco.
 
