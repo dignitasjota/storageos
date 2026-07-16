@@ -96,7 +96,7 @@ export default function SupportTicketPage() {
 function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
   const isStaff = message.authorAdminId !== null;
   const author = isStaff
-    ? `${message.authorAdminName ?? 'Soporte StorageOS'} (staff)`
+    ? `${message.authorAdminName ?? 'Soporte TrasterOS'} (staff)`
     : (message.authorUserName ?? 'Tú');
   return (
     <div className={`rounded-md border px-3 py-2 text-sm ${isStaff ? 'bg-muted/40' : 'bg-card'}`}>

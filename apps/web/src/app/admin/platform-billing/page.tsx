@@ -85,7 +85,7 @@ export default function PlatformBillingPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Facturación del SaaS</h1>
         <p className="text-sm text-muted-foreground">
-          Datos fiscales del emisor (StorageOS) para las facturas de suscripción que emites a los
+          Datos fiscales del emisor (TrasterOS) para las facturas de suscripción que emites a los
           tenants. Actívala para poder emitir facturas.
         </p>
       </div>

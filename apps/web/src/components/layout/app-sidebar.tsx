@@ -41,7 +41,6 @@ import {
   TrendingUp,
   Users,
   Wallet,
-  Warehouse,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -552,11 +551,14 @@ export function AppSidebar() {
           href="/dashboard"
           className="flex h-14 items-center gap-2 px-2 transition-opacity hover:opacity-80"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-            <Warehouse className="size-4" />
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/icon.svg"
+            alt="TrasterOS"
+            className="size-8 shrink-0 rounded-lg shadow-sm"
+          />
           <span className="text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            StorageOS
+            TrasterOS
           </span>
         </Link>
       </SidebarHeader>

@@ -401,8 +401,10 @@ function AdminShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen bg-background">
       {/* Sidebar fijo en desktop */}
       <aside className="hidden w-60 shrink-0 border-r border-border bg-muted/30 md:flex md:flex-col">
-        <div className="flex h-14 items-center border-b border-border px-4 text-base font-semibold tracking-tight">
-          StorageOS Admin
+        <div className="flex h-14 items-center gap-2 border-b border-border px-4 text-base font-semibold tracking-tight">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/icon.svg" alt="TrasterOS" className="size-7 rounded-md shadow-sm" />
+          TrasterOS Admin
         </div>
         <AdminNavLinks pathname={pathname} openTickets={openTickets} urgentToday={urgentToday} />
       </aside>
@@ -410,8 +412,10 @@ function AdminShell({ children }: { children: ReactNode }) {
       {/* Drawer del sidebar en móvil */}
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent side="left" className="w-64 p-0">
-          <SheetTitle className="flex h-14 items-center border-b border-border px-4 text-base font-semibold tracking-tight">
-            StorageOS Admin
+          <SheetTitle className="flex h-14 items-center gap-2 border-b border-border px-4 text-base font-semibold tracking-tight">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/icon.svg" alt="TrasterOS" className="size-7 rounded-md shadow-sm" />
+            TrasterOS Admin
           </SheetTitle>
           <AdminNavLinks
             pathname={pathname}
