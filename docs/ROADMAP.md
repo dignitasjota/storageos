@@ -463,6 +463,12 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
   - **Hardware por API (#339)**: `GET /access/verify` (URL con placeholders) para integrar terminales comerciales sin firmware propio + guía `docs/HARDWARE_AKUVOX.md` (Akuvox ⭐ Patrón A / 2N / ESP32 piloto / ZKTeco Patrón B; Dahua-QR, C3, PTI/Noke ✗).
   - **Roadmap (necesita hardware)**: modo offline (Patrón B: `SyncLockProvider` + sync de credenciales al terminal para operar sin red) y ACK físico de apertura en el log.
 
+- 🚧 **Integración de hardware físico Dahua (accesos + cámaras + alarma)** — software construido y en verde con stubs; **falta el kit físico** (2026-07-14→16, #360–#363). Doc canónico: [`docs/HARDWARE_DAHUA.md`](HARDWARE_DAHUA.md); decisión en ADR-049 (ports & adapters in-process, provider **por device**, Patrón B nativo, cámaras = eventos+snapshots con vídeo en vivo → DMSS, alarma **AirShield** sobre Ajax).
+  - **Fase 1 (#360)**: auth Digest (sin dependencia nueva) + `DahuaLockProvider` (apertura remota) + resolución del provider por device (`access_devices.provider` + registry, multi-tenant con hardware mixto).
+  - **Cámaras/alarma (#361)**: ingesta de eventos + snapshots (webhook con token por device → MinIO privado → feed `/cameras`), agnóstica del origen; la alarma reutiliza el webhook (`kind:'alarm'`). Pestaña «Cámaras» en la ficha del local (#363).
+  - **Fase 2A (#362)**: sync Patrón B — `CredentialSyncProvider` + `StubSyncProvider` (inspeccionable en tests) + `DahuaSyncProvider` (scaffold `VERIFY`) + `DahuaSyncService` + cron de reconciliación → `access_logs`.
+  - **Pendiente (con el kit)**: rellenar los CGI reales (`recordUpdater`/`recordFinder`, campos del firmware), perfiles horarios (curfew/ventanas → time profiles), armar/desarmar contra NVR, agente on-site del NAT. Antes de comprar: pedir la *"HTTP API for Access Control"* del firmware + confirmar NVR compatible con AirShield.
+
 ### Prioridad recomendada
 
 | #        | Iniciativa                                   | Por qué                                                                       |
