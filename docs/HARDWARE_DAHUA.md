@@ -1,10 +1,13 @@
 # Integración con hardware Dahua (control de accesos + cámaras/NVR + alarma) — diseño técnico
 
-> **Estado (2026-07-16): software implementado y en verde, a falta del kit físico.**
-> El andamiaje de la integración está construido y testeado **con stubs/servidores
-> simulados** (sin hardware). Lo pendiente es rellenar los cuerpos CGI reales del
-> adapter (marcados `VERIFY` en el código) contra el doc de firmware del terminal.
-> Lo ya mergeado:
+> **Estado (2026-07-17): software implementado y en verde + API oficial CONSEGUIDA y
+> aplicada al adapter.** El andamiaje está construido y testeado **con stubs/servidores
+> simulados** (sin hardware) y los antiguos marcadores `VERIFY` del adapter se han
+> **rellenado con la doc oficial** «DAHUA ACCESS CONTROL PRODUCTS INTEGRATION
+> INSTRUCTION v1.0» (2021-09-28), guardada en
+> [`docs/vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf`](vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf)
+> (origen público: files.dahua.support → Solutions → Access Control Solution →
+> Integration). Ya NO hace falta pedirla a By Demes/Visiotech. Lo mergeado:
 >
 > - **Fase 1 (#360)** — auth **Digest** (sin dependencia nueva) + `DahuaLockProvider`
 >   (apertura remota por `accessControl.cgi`) + **resolución del provider por device**
@@ -14,14 +17,23 @@
 >   (push del equipo / agente on-site / puente DSS). La alarma reutiliza el webhook
 >   (`kind:'alarm'`).
 > - **Fase 2A (#362)** — sync **Patrón B**: `CredentialSyncProvider` + `StubSyncProvider`
->   + `DahuaSyncProvider` (scaffold `VERIFY`) + `DahuaSyncService` + cron de reconciliación.
+>   + `DahuaSyncProvider` + `DahuaSyncService` + cron de reconciliación.
 > - **Cámaras en la ficha del local (#363)** — pestaña «Cámaras».
+> - **API verificada (2026-07-17)** — `DahuaSyncProvider` actualizado con los campos
+>   confirmados de la doc: el PIN viaja en `Password` del `AccessControlCard`; el
+>   CardNo de RFID/QR = el UID/token real (casa con los eventos); `CardStatus`
+>   bitmask confirmado (0 Normal · 2 Canceled · **8 Arrearage/impago**); update/
+>   remove por `recno` (resuelto vía `recordFinder` + fallback por CardNo); parser
+>   real del body key=value de `recordFinder` (`records[i].Campo`); **caducidad y
+>   single-use sincronizados** (`ValidDateEnd` en hora local del terminal +
+>   `UseTimes`) → el pase nocturno ya funciona offline en Patrón B (A.5-bis).
+>   Unit 10/10 contra terminal simulado + e2e `dahua-sync` en verde. Ver §A.10.
 >
-> **Pendiente (necesita el kit)**: cuerpos CGI reales (`recordUpdater`/`recordFinder`,
-> campos del firmware), perfiles horarios (curfew/ventanas → time profiles), armar/
-> desarmar contra el NVR, y el agente on-site del NAT si el equipo queda en una LAN
-> sin ruta desde la nube. Antes de comprar: pedir la *"HTTP API for Access Control"*
-> del firmware a By Demes/Visiotech + confirmar NVR compatible con AirShield.
+> **Pendiente (necesita el kit físico)**: smoke real contra un ASI (confirmar que el
+> firmware acepta update/remove por `recno`), perfiles horarios (curfew/ventanas →
+> time profiles), armar/desarmar contra el NVR, y el agente on-site del NAT si el
+> equipo queda en una LAN sin ruta desde la nube. Antes de comprar: confirmar NVR
+> compatible con AirShield.
 >
 > Este documento describe **cómo** encajan los terminales de
 > control de accesos, las cámaras/NVR y la alarma (AirShield) de Dahua en el
@@ -62,9 +74,13 @@
   unificado (alarma + vídeo + acceso) y verificación por vídeo nativa. Ajax queda
   como **adapter futuro "premium"** detrás del mismo puerto si un cliente lo
   exige. Detalle en la Parte C.
-- **Antes de comprar:** la doc oficial de la API de accesos **no es 100%
-  pública** (portal de partners). Pedir al distribuidor español (By Demes /
-  Visiotech) la *"HTTP API for Access Control"* del firmware exacto del modelo.
+- **Doc oficial de la API: ✅ CONSEGUIDA (2026-07-17).** «DAHUA ACCESS CONTROL
+  PRODUCTS INTEGRATION INSTRUCTION v1.0» descargada del propio soporte de Dahua
+  (files.dahua.support) y guardada en
+  [`docs/vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf`](vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf).
+  Confirma modelos soportados (ASI3XXX/6XXX/7XXX), campos exactos de
+  `AccessControlCard`/`AccessControlCardRec`, `CardStatus`, openDoor y la
+  suscripción de eventos en tiempo real. Detalle aplicado en §A.10.
 
 ---
 
@@ -430,7 +446,7 @@ mapearlas al terminal o asumir la degradación de forma consciente:
 |---|---|---|
 | **Toque de queda del local** (`facilities.access_curfew_*`) | El terminal no consulta nuestro curfew | Mapear a los **perfiles horarios del terminal** (time sections/period de la credencial Dahua); el sync los recalcula al cambiar la config del local |
 | **Ventanas horarias por credencial** (`allowedHours.windows`) | Ídem | Ídem (validar en piloto que la granularidad de Dahua — días de semana + franjas — cubre nuestro modelo) |
-| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | El terminal no descuenta usos nuestros | Sincronizarlo como credencial con **validez temporal** (`ValidDateStart/End`) y **borrarla tras el primer uso reconciliado** (ventana de carrera: entre el uso y la reconciliación podría reutilizarse) — o mantener el pase nocturno SOLO en puertas Patrón A |
+| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | ✅ **Implementado en el sync (2026-07-17)**: la credencial viaja con **`ValidDateEnd`** (en hora local del terminal — el pase muere solo a las 08:00 aunque no haya red) + **`UseTimes`** (límite de usos; nombre del campo VERIFY en el smoke — la doc v1.0 confirma la desactivación automática por «maximum number of usage» vía `IsValid`) | Si el firmware ignorase `UseTimes`, queda la cota temporal (`ValidDateEnd`) + borrar tras el primer uso reconciliado |
 | **Anti-fuerza-bruta** (`AccessRateLimitService`, Redis) | No aplica en la puerta | El terminal trae su propio anti-passback/lockout (verificar en piloto); nuestra capa sigue protegiendo `/access/verify` y la apertura remota |
 | **Suspensión por impago** | ✅ Sí aplica | Vía `CardStatus=8` (con la **latencia del sync**, no instantánea si el terminal está offline) |
 
@@ -535,6 +551,37 @@ sea. Checklist de instalación:
   el **SAI** mantiene los códigos vivos · SAI agotado o **terminal averiado** →
   **llave mecánica del staff**. En un apagón largo el inquilino depende del staff
   (asumible); la salida desde dentro siempre es mecánica por normativa.
+
+## A.10 API oficial confirmada (2026-07-17) — lo aplicado al adapter
+
+Fuente: **«DAHUA ACCESS CONTROL PRODUCTS INTEGRATION INSTRUCTION v1.0»**
+(2021-09-28, Claire Xu), guardada en
+[`docs/vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf`](vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf).
+Modelos CGI soportados: **ASI3XXX / ASI6XXX / ASI7XXX** (además: Wiegand, OSDP
+V2 en ASC2XXX, ONVIF Profile A/C y SDK completo).
+
+### Lo confirmado (y aplicado en `dahua-sync.provider.ts` / `dahua-lock.provider.ts`)
+
+| Ítem | Confirmado |
+|---|---|
+| **Alta de credencial** | `GET recordUpdater.cgi?action=insert&name=AccessControlCard` con `CardNo` (req, string), `UserID` (req), `CardName` (≤32), `CardStatus`, `CardType`, **`Password`** (el PIN «card + password»), `Doors[]`, `TimeSections[]`, `ValidDateStart/End` (`yyyyMMdd hhmmss`). **Responde `RecNo=<n>`.** |
+| **PIN** | Viaja en el campo **`Password`** del card record (antes NO lo enviábamos → el terminal no habría validado el PIN offline). |
+| **RFID/QR** | El **`CardNo` debe ser el UID/token real** (es lo que el lector compara y lo que reportan los eventos). Antes usábamos un nº derivado → la tarjeta no habría abierto. |
+| **`CardStatus`** (bitmask) | `0` Normal · `1` Loss · `2` **Canceled** · `4` Frozen · `8` **Arrearage (impago)** · `16` Overdue · `32` Pre-arrearage (abre con aviso de voz). Nuestro mapeo (0/2/8) era correcto. |
+| **Update/remove** | El API general opera por **`recno`** → el adapter lo resuelve con `recordFinder.cgi?name=AccessControlCard&condition.CardNo=<n>` y hay fallback por `CardNo` directo (smoke con hardware pendiente). |
+| **Logs offline** | `recordFinder.cgi?action=find&name=AccessControlCardRec&StartTime=<epoch s>&EndTime=<epoch s>&count=1024` → body key=value `records[i].RecNo/CreateTime/CardNo/UserID/Type (Entry\|Exit)/Status (0 fallo·1 ok)/Method/Door/ErrorCode`. **Paginación**: si `totalCount > found`, re-pedir con `StartTime` = `CreateTime` del último registro (puede devolver duplicados en la frontera → dedup del cliente, avisado por la propia doc). |
+| **`Method` del evento** | `0` password · `1` tarjeta · `2/3` tarjeta+password · `6` huella · `15` cara. Mapeo nuestro: `0→pin`, resto→`rfid` (raw en metadata). |
+| **Apertura remota** | `accessControl.cgi?action=openDoor&channel=<n>&Type=Remote` (channel desde 1; `UserID` opcional) → responde `OK`. También `closeDoor`. Tal cual lo teníamos. |
+| **Eventos en TIEMPO REAL (push)** | `snapManager.cgi?action=attachFileProc&Flags[0]=Event&Events=[AccessControl]&heartbeat=5` → stream multipart con los eventos **+ el JPEG del snapshot**. Ideal para el **agente on-site** del futuro (alimenta también la ingesta de cámaras); nuestro polling por `recordFinder` sigue siendo el plan B robusto. |
+| **Caras (si algún día)** | `FaceInfoManager.cgi?action=add` (POST JSON, foto base64 ≤100KB). |
+| **RTSP** | `rtsp://<ip>:554/cam/realmonitor?channel=1&subtype=0` (el vídeo sigue siendo cosa de DMSS). |
+
+### Único VERIFY restante (smoke con el terminal físico)
+
+1. Confirmar que el firmware del modelo comprado acepta `action=update/remove`
+   por `recno` (el adapter ya trae el fallback por `CardNo`).
+2. Validar el **modo de desbloqueo solo-PIN** del teclado (el `Password` del card
+   record) y el flujo **QR** en campo.
 
 ---
 
@@ -785,8 +832,9 @@ empresa autorizada (RD 2364/1994); sin CRA, la alarma avisa a app/DMSS y suena.
 
 ## Checklist antes de comprometerse
 
-1. Pedir al distribuidor (By Demes / Visiotech) la **"HTTP API for Access
-   Control"** del firmware exacto del **ASI6214S** (o serie ASI7xxx).
+1. ~~Pedir al distribuidor la "HTTP API for Access Control"~~ ✅ **Conseguida**
+   (2026-07-17): `docs/vendor/DAHUA-ACCESS-CONTROL-INTEGRATION-V1.0.pdf` — campos
+   y formatos ya aplicados al adapter (§A.10). Con el kit solo queda el smoke.
 2. Piloto de accesos: `DahuaLockProvider` (Digest `openDoor`) + `DahuaSyncService`
    (insert/`CardStatus`/`recordFinder`) con **PIN** primero; validar el flujo
    **QR** en campo antes de comprometerlo.

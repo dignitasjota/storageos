@@ -19,6 +19,8 @@ export interface SyncDevice {
   controlUrl: string | null;
   /** Credenciales del terminal en formato `user:pass` (descifradas). */
   controlSecret: string | null;
+  /** Zona horaria del local (las fechas de validez van en hora local del terminal). */
+  timezone: string;
 }
 
 /** Credencial a sincronizar (secreto en claro para escribirlo en el terminal). */
@@ -30,6 +32,10 @@ export interface SyncCredentialSpec {
   secret: string;
   label: string | null;
   state: SyncState;
+  /** Caducidad de la credencial (pase nocturno, accesos temporales) o null. */
+  validUntil: Date | null;
+  /** Límite de usos (pase single-use) o null = ilimitado. */
+  maxUses: number | null;
 }
 
 /** Registro de acceso leído del terminal (para reconciliar a `access_logs`). */

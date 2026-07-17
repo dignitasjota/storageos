@@ -12,6 +12,12 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
 
 import type { AccessCredential, AccessDevice, AccessMethod, AccessResult } from '@storageos/database';
 
+/** Device con la timezone de su local (para las fechas de validez del terminal). */
+type DeviceWithFacility = AccessDevice & { facility?: { timezone: string } | null };
+
+/** Include común: la timezone del local viaja con el device a `toSyncDevice`. */
+const DEVICE_FACILITY_INCLUDE = { facility: { select: { timezone: true } } } as const;
+
 /** Estado de credencial → estado de sincronización (pending = no se sincroniza). */
 function toSyncState(status: string): SyncState | null {
   if (status === 'active') return 'active';
@@ -38,7 +44,7 @@ export class DahuaSyncService {
     private readonly registry: SyncProviderRegistry,
   ) {}
 
-  private toSyncDevice(d: AccessDevice): SyncDevice {
+  private toSyncDevice(d: DeviceWithFacility): SyncDevice {
     return {
       id: d.id,
       hardwareId: d.hardwareId,
@@ -47,6 +53,7 @@ export class DahuaSyncService {
       controlSecret: d.controlSecretEncrypted
         ? this.crypto.decryptString(d.controlSecretEncrypted)
         : null,
+      timezone: d.facility?.timezone ?? 'Europe/Madrid',
     };
   }
 
@@ -61,7 +68,7 @@ export class DahuaSyncService {
   private async syncableDevices(
     tenantId: string,
     allowedFacilityIds: string[],
-  ): Promise<AccessDevice[]> {
+  ): Promise<DeviceWithFacility[]> {
     const devices = await this.prisma.withTenant(
       (tx) =>
         tx.accessDevice.findMany({
@@ -69,6 +76,7 @@ export class DahuaSyncService {
             isActive: true,
             ...(allowedFacilityIds.length > 0 ? { facilityId: { in: allowedFacilityIds } } : {}),
           },
+          include: DEVICE_FACILITY_INCLUDE,
         }),
       tenantId,
     );
@@ -100,6 +108,10 @@ export class DahuaSyncService {
             secret,
             label: cred.label,
             state,
+            // Caducidad + límite de usos: sin ellos, un pase nocturno synced a un
+            // terminal Patrón B validaría offline PARA SIEMPRE.
+            validUntil: cred.expiresAt,
+            maxUses: cred.maxUses,
           });
           await this.prisma.withTenant(
             (tx) =>
@@ -136,7 +148,7 @@ export class DahuaSyncService {
         (tx) =>
           tx.accessCredentialSync.findMany({
             where: { credentialId },
-            include: { device: true },
+            include: { device: { include: DEVICE_FACILITY_INCLUDE } },
           }),
         tenantId,
       );
@@ -174,7 +186,8 @@ export class DahuaSyncService {
   /** Reconcilia los registros de acceso de un terminal → `access_logs`. */
   async reconcileDevice(tenantId: string, deviceId: string): Promise<{ imported: number }> {
     const device = await this.prisma.withTenant(
-      (tx) => tx.accessDevice.findFirst({ where: { id: deviceId } }),
+      (tx) =>
+        tx.accessDevice.findFirst({ where: { id: deviceId }, include: DEVICE_FACILITY_INCLUDE }),
       tenantId,
     );
     if (!device) return { imported: 0 };
