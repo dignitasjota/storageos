@@ -22,7 +22,7 @@ export default function FacilityDetailPage() {
   const facility = useFacility(id);
   const canManage = useHasPermission('facilities:manage');
   const canAccessRead = useHasPermission('access:read');
-  const hasCamerasFeature = useHasFeature('access_control');
+  const hasCamerasFeature = useHasFeature('cameras');
   const canSeeCameras = canAccessRead && hasCamerasFeature;
 
   if (facility.isLoading || !facility.data) {

@@ -616,6 +616,7 @@ export class AdminTenantsService {
       insuranceRows,
       credentialRows,
       deviceRows,
+      cameraRows,
       automationRows,
       sepaRows,
       unitRows,
@@ -637,6 +638,7 @@ export class AdminTenantsService {
       }),
       this.admin.accessCredential.groupBy({ by: ['tenantId'], _count: { _all: true } }),
       this.admin.accessDevice.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.cameraDevice.groupBy({ by: ['tenantId'], _count: { _all: true } }),
       this.admin.automationRule.groupBy({
         by: ['tenantId'],
         where: { isActive: true },
@@ -661,6 +663,7 @@ export class AdminTenantsService {
     const insurance = countMap(insuranceRows);
     const credentials = countMap(credentialRows);
     const devices = countMap(deviceRows);
+    const cameras = countMap(cameraRows);
     const automations = countMap(automationRows);
     const sepaEnabled = new Set(sepaRows.map((r) => r.tenantId));
     const units = countMap(unitRows);
@@ -676,6 +679,7 @@ export class AdminTenantsService {
       if ((rent.get(id) ?? 0) > 0) s.add('rent_increases');
       if ((insurance.get(id) ?? 0) > 0) s.add('insurance');
       if ((credentials.get(id) ?? 0) > 0 || (devices.get(id) ?? 0) > 0) s.add('access_control');
+      if ((cameras.get(id) ?? 0) > 0) s.add('cameras');
       if ((automations.get(id) ?? 0) > 0) s.add('automations');
       return s;
     };

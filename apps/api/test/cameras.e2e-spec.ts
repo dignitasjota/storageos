@@ -1,7 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -29,6 +29,8 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
 
   it('registra cámara → ingesta con token + imagen → evento con snapshot → feed; token inválido 401', async () => {
     const owner = await registerVerifiedUser(app, 'cameras');
+    // La feature `cameras` (videovigilancia + alarma) solo está en el plan `pro`.
+    await setTenantPlan(owner.slug, 'pro');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const facility = await request(app.getHttpServer())
       .post('/facilities')

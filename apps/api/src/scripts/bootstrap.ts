@@ -66,6 +66,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'automations',
       'custom_domain',
       'collections',
+      'cameras',
     ],
   },
 ];

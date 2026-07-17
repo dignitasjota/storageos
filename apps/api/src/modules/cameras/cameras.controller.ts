@@ -46,9 +46,12 @@ function meta(req: Request): { ipAddress?: string; userAgent?: string } {
 
 /**
  * Cámaras/alarma (staff): CRUD de dispositivos + feed de eventos. La ingesta de
- * eventos es un webhook público aparte (`CameraIngestController`).
+ * eventos es un webhook público aparte (`CameraIngestController`) — NO gateado
+ * por la feature, para que el hardware siga empujando eventos aunque el plan la
+ * suspenda (mismo criterio que `/access/verify`: cortar la feature no rompe la
+ * operación física ya configurada).
  */
-@RequireFeature('access_control')
+@RequireFeature('cameras')
 @Controller('cameras')
 export class CamerasController {
   constructor(

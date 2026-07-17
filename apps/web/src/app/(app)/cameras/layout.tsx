@@ -6,5 +6,5 @@ import { FeatureGate } from '@/components/auth/feature-gate';
 
 
 export default function CamerasLayout({ children }: { children: ReactNode }) {
-  return <FeatureGate feature="access_control">{children}</FeatureGate>;
+  return <FeatureGate feature="cameras">{children}</FeatureGate>;
 }

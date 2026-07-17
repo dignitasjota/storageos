@@ -79,4 +79,11 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     priceMonthly: 15,
     feature: 'custom_domain',
   },
+  {
+    slug: 'addon-cameras',
+    name: 'Cámaras y alarma',
+    description: 'Videovigilancia y alarma: log de eventos, snapshots y avisos de intrusión.',
+    priceMonthly: 18,
+    feature: 'cameras',
+  },
 ];

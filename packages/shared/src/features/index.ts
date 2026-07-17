@@ -17,11 +17,15 @@ export const TenantFeatures = [
   'automations', // /automations
   'custom_domain', // dominio propio en la landing/portal (white-label)
   'collections', // expedientes de impago (overlock → disposición)
+  'cameras', // /cameras (videovigilancia + alarma; hardware Dahua/NVR)
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
 
-/** Features incluidas en cada plan (por slug). */
+/**
+ * Features incluidas en cada plan (por slug). `cameras` (videovigilancia +
+ * alarma) es tier alto → solo en `pro` (el plan más caro), no en `starter`.
+ */
 export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
   free: [],
   starter: ['rent_increases', 'insurance', 'access_control', 'automations', 'collections'],
@@ -95,4 +99,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   automations: 'Automatizaciones',
   custom_domain: 'Dominio propio (white-label)',
   collections: 'Gestión de impagos (overlock)',
+  cameras: 'Cámaras y alarma',
 };
