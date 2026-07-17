@@ -945,6 +945,80 @@ Para desactivarlo: botón **Desactivar** en `/admin/custom-domains` (o el tenant
 
 ---
 
+## 19. Dominio de producción de la PLATAFORMA (`trasteros.pro`) + checklist de cambio de dominio
+
+> Desde 2026-07-16 la plataforma vive en **`trasteros.pro`** (web) y
+> **`api.trasteros.pro`** (API). Esta sección documenta el checklist completo
+> para un cambio de dominio de plataforma y los 2 gotchas que costaron el
+> primer despliegue.
+
+### 19.1 DNS + Nginx Proxy Manager
+
+Por cada hostname hace falta **su registro A y su Proxy Host con certificado
+propio** (NPM emite un cert por hostname, no wildcard):
+
+| Hostname | A → | Proxy Host (Scheme http) | SSL |
+|---|---|---|---|
+| `trasteros.pro` | IP del VPS | `web:3000` | Let's Encrypt + Force SSL |
+| `api.trasteros.pro` | IP del VPS | `api:3001` | Let's Encrypt + Force SSL |
+
+### 19.2 Variables del stack (Portainer)
+
+| Variable | Valor | Nota |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `https://api.trasteros.pro` | **Origen pelado, SIN `/v1`** (el frontend lo añade). ⚠️ Build-time, ver 19.3 |
+| `NEXT_PUBLIC_SITE_URL` | `https://trasteros.pro` | Canonical/OG/sitemap. ⚠️ Build-time |
+| `WEB_BASE_URL` | `https://trasteros.pro` | Enlaces en emails |
+| `API_BASE_URL` | `https://api.trasteros.pro` | Notificaciones Redsys / URLs absolutas |
+| `ALLOWED_ORIGINS` | `https://trasteros.pro` | CORS del API |
+| `COOKIE_DOMAIN` | `.trasteros.pro` | Cookie de refresh |
+| `COOKIE_SAMESITE` | `lax` | Web y API comparten dominio raíz (same-site) |
+| `COOKIE_SECURE` | `true` | HTTPS |
+| `MINIO_PUBLIC_URL` | `https://files.trasteros.pro` (o el que sirva MinIO) | URLs públicas de ficheros |
+
+Tras cambiarlas: **reiniciar api y worker** (las leen en runtime).
+
+### 19.3 ⚠️ Gotcha 1 — `NEXT_PUBLIC_*` se hornean en el bundle en `next build`
+
+Las `NEXT_PUBLIC_*` son **build-args del Dockerfile del web** (quedan inline en
+el JS del cliente). Cambiarlas en Portainer **NO afecta al contenedor en
+marcha**: hay que **reconstruir la imagen del web** (redeploy con pull efectivo
+— el webhook de deploy ya invalida la capa `COPY`; si no hay commits nuevos,
+forzar el rebuild o hacer un commit trivial). **Síntoma** de bundle viejo: la
+web carga pero el login «no hace nada» y en el log del API **solo aparecen
+`/health`** (las peticiones van al dominio antiguo — verificar en la pestaña
+Network del navegador la Request URL real del `POST /v1/auth/login`).
+
+### 19.4 ⚠️ Gotcha 2 — `ERR_SSL_UNRECOGNIZED_NAME_ALERT` en el login
+
+Si el navegador da `net::ERR_SSL_UNRECOGNIZED_NAME_ALERT` al llamar a
+`api.<dominio>`: **nginx no tiene vhost 443 para ese hostname** → el
+certificado del subdominio `api` **no está emitido/asignado** en NPM (típico:
+se creó el Proxy Host pero la pestaña SSL quedó en «None», o la emisión falló
+en silencio). Diagnóstico:
+
+```bash
+dig +short api.trasteros.pro          # ¿resuelve a la IP del VPS?
+curl -I http://api.trasteros.pro/.well-known/acme-challenge/test
+#   → 404 con "Server: openresty" = el challenge HTTP-01 SÍ llega a NPM
+openssl s_client -connect api.trasteros.pro:443 -servername api.trasteros.pro </dev/null \
+  | openssl x509 -noout -subject      # debe decir CN=api.trasteros.pro
+```
+
+Arreglo: Proxy Host de `api.<dominio>` → pestaña SSL → **Request a new SSL
+Certificate** + Force SSL. Resuelto cuando el `openssl s_client` devuelve el
+subject correcto y `curl -I https://api.<dominio>/health` da 200.
+
+### 19.5 Post-cambio (SEO)
+
+- **Google Search Console**: verificar el dominio nuevo + enviar
+  `https://trasteros.pro/sitemap.xml` (dispara la indexación de la landing y
+  las páginas públicas `/s/<tenant>`).
+- **Bing Webmaster Tools**: mismo sitemap.
+- **Google Business Profile** de TrasterOS (categoría «Empresa de software»).
+
+---
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.
