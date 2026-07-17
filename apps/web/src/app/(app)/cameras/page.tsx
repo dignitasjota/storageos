@@ -1,5 +1,10 @@
 'use client';
 
+import {
+  CAMERA_PROVIDER_LABELS,
+  CameraProviderEnum,
+  type CameraProviderValue,
+} from '@storageos/shared';
 import { Camera, Copy, Loader2, Trash2, Video } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -81,6 +86,7 @@ export default function CamerasPage() {
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{d.name}</span>
                       <Badge variant="outline">canal {d.channel}</Badge>
+                      <Badge variant="outline">{CAMERA_PROVIDER_LABELS[d.provider]}</Badge>
                       {!d.isActive && <Badge variant="secondary">inactiva</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -190,6 +196,7 @@ function CreateCameraDialog({
   const [facilityId, setFacilityId] = useState<string | undefined>();
   const [name, setName] = useState('');
   const [channel, setChannel] = useState('1');
+  const [provider, setProvider] = useState<CameraProviderValue>('dahua');
   const [serialNumber, setSerialNumber] = useState('');
 
   async function submit() {
@@ -202,6 +209,7 @@ function CreateCameraDialog({
         facilityId,
         name: name.trim(),
         channel: Number(channel) || 1,
+        provider,
         metadata: {},
         ...(serialNumber.trim() ? { serialNumber: serialNumber.trim() } : {}),
       });
@@ -238,6 +246,25 @@ function CreateCameraDialog({
           <div className="space-y-1">
             <Label>Nombre</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cámara pasillo 1" />
+          </div>
+          <div className="space-y-1">
+            <Label>Marca del equipo</Label>
+            <Select value={provider} onValueChange={(v) => setProvider(v as CameraProviderValue)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CameraProviderEnum.options.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {CAMERA_PROVIDER_LABELS[p]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              La ingesta de eventos es igual para todas; la marca se usará para acciones futuras
+              (snapshot bajo demanda, armar/desarmar la alarma).
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
