@@ -11,7 +11,14 @@ import type { AddressInfo } from 'node:net';
  */
 describe('DahuaSyncProvider', () => {
   const provider = new DahuaSyncProvider();
-  const noDevice = { id: 'd', hardwareId: 'hw', channel: 1, controlUrl: null, controlSecret: null };
+  const noDevice = {
+    id: 'd',
+    hardwareId: 'hw',
+    channel: 1,
+    controlUrl: null,
+    controlSecret: null,
+    timezone: 'Europe/Madrid',
+  };
 
   const pinSpec = {
     credentialId: 'cred-abc',
@@ -20,6 +27,8 @@ describe('DahuaSyncProvider', () => {
     secret: '1234',
     label: null,
     state: 'active' as const,
+    validUntil: null,
+    maxUses: null,
   };
 
   it('sin controlUrl/creds → push devuelve un ref determinista sin lanzar', async () => {
@@ -44,6 +53,13 @@ describe('DahuaSyncProvider', () => {
     await expect(provider.setState(noDevice, '1', 'suspended')).resolves.toBeUndefined();
     await expect(provider.remove(noDevice, '1')).resolves.toBeUndefined();
     await expect(provider.pullEvents(noDevice, null)).resolves.toEqual([]);
+  });
+
+  it('formatDahuaDate: `yyyyMMdd HHmmss` en la hora LOCAL del terminal', () => {
+    // 06:00 UTC en julio = 08:00 en Madrid (CEST, UTC+2).
+    const d = new Date('2026-07-18T06:00:00Z');
+    expect(DahuaSyncProvider.formatDahuaDate(d, 'Europe/Madrid')).toBe('20260718 080000');
+    expect(DahuaSyncProvider.formatDahuaDate(d, 'UTC')).toBe('20260718 060000');
   });
 
   it('parseRecords: body key=value del ejemplo EXACTO de la doc oficial', () => {
@@ -77,6 +93,7 @@ describe('DahuaSyncProvider', () => {
       channel: number;
       controlUrl: string | null;
       controlSecret: string | null;
+      timezone: string;
     };
     const urls: string[] = [];
 
@@ -129,6 +146,7 @@ describe('DahuaSyncProvider', () => {
         channel: 1,
         controlUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
         controlSecret: 'admin:pw',
+        timezone: 'Europe/Madrid',
       };
     });
 
@@ -146,6 +164,20 @@ describe('DahuaSyncProvider', () => {
       expect(insert).toContain(`CardNo=${ref}`);
       expect(insert).toContain('Password=1234'); // el PIN viaja en Password
       expect(insert).toContain('CardStatus=0');
+    });
+
+    it('un pase nocturno single-use envía ValidDateEnd (hora local) + UseTimes', async () => {
+      urls.length = 0;
+      await provider.pushCredential(device, {
+        ...pinSpec,
+        credentialId: 'night-pass-1',
+        // 06:00 UTC = 08:00 Madrid (la mañana en que caduca el pase).
+        validUntil: new Date('2026-07-18T06:00:00Z'),
+        maxUses: 1,
+      });
+      const insert = urls.find((u) => u.includes('action=insert'));
+      expect(insert).toContain('ValidDateEnd=20260718%20080000'); // %20, no '+'
+      expect(insert).toContain('UseTimes=1');
     });
 
     it('setState resuelve el recno vía recordFinder y actualiza CardStatus=8 (impago)', async () => {

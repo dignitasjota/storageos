@@ -24,8 +24,10 @@
 >   CardNo de RFID/QR = el UID/token real (casa con los eventos); `CardStatus`
 >   bitmask confirmado (0 Normal · 2 Canceled · **8 Arrearage/impago**); update/
 >   remove por `recno` (resuelto vía `recordFinder` + fallback por CardNo); parser
->   real del body key=value de `recordFinder` (`records[i].Campo`). Unit 8/8 contra
->   terminal simulado + e2e `dahua-sync` en verde. Ver §A.10.
+>   real del body key=value de `recordFinder` (`records[i].Campo`); **caducidad y
+>   single-use sincronizados** (`ValidDateEnd` en hora local del terminal +
+>   `UseTimes`) → el pase nocturno ya funciona offline en Patrón B (A.5-bis).
+>   Unit 10/10 contra terminal simulado + e2e `dahua-sync` en verde. Ver §A.10.
 >
 > **Pendiente (necesita el kit físico)**: smoke real contra un ASI (confirmar que el
 > firmware acepta update/remove por `recno`), perfiles horarios (curfew/ventanas →
@@ -444,7 +446,7 @@ mapearlas al terminal o asumir la degradación de forma consciente:
 |---|---|---|
 | **Toque de queda del local** (`facilities.access_curfew_*`) | El terminal no consulta nuestro curfew | Mapear a los **perfiles horarios del terminal** (time sections/period de la credencial Dahua); el sync los recalcula al cambiar la config del local |
 | **Ventanas horarias por credencial** (`allowedHours.windows`) | Ídem | Ídem (validar en piloto que la granularidad de Dahua — días de semana + franjas — cubre nuestro modelo) |
-| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | El terminal no descuenta usos nuestros | Sincronizarlo como credencial con **validez temporal** (`ValidDateStart/End`) y **borrarla tras el primer uso reconciliado** (ventana de carrera: entre el uso y la reconciliación podría reutilizarse) — o mantener el pase nocturno SOLO en puertas Patrón A |
+| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | ✅ **Implementado en el sync (2026-07-17)**: la credencial viaja con **`ValidDateEnd`** (en hora local del terminal — el pase muere solo a las 08:00 aunque no haya red) + **`UseTimes`** (límite de usos; nombre del campo VERIFY en el smoke — la doc v1.0 confirma la desactivación automática por «maximum number of usage» vía `IsValid`) | Si el firmware ignorase `UseTimes`, queda la cota temporal (`ValidDateEnd`) + borrar tras el primer uso reconciliado |
 | **Anti-fuerza-bruta** (`AccessRateLimitService`, Redis) | No aplica en la puerta | El terminal trae su propio anti-passback/lockout (verificar en piloto); nuestra capa sigue protegiendo `/access/verify` y la apertura remota |
 | **Suspensión por impago** | ✅ Sí aplica | Vía `CardStatus=8` (con la **latencia del sync**, no instantánea si el terminal está offline) |
 

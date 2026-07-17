@@ -13,6 +13,8 @@ interface StubEntry {
   state: SyncState;
   method: 'pin' | 'qr' | 'rfid';
   credentialId: string;
+  validUntil: Date | null;
+  maxUses: number | null;
 }
 
 /**
@@ -51,6 +53,8 @@ export class StubSyncProvider extends CredentialSyncProvider {
       state: cred.state,
       method: cred.method,
       credentialId: cred.credentialId,
+      validUntil: cred.validUntil,
+      maxUses: cred.maxUses,
     });
     return { ref };
   }

@@ -76,6 +76,27 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
   }
 
   /**
+   * Fecha en el formato de Dahua `yyyyMMdd HHmmss` (doc v1.0), en la HORA LOCAL
+   * del terminal (la timezone del local): el terminal compara contra su reloj.
+   */
+  static formatDahuaDate(date: Date, timezone: string): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? '00';
+    // `hour12:false` puede dar "24" a medianoche según runtime → normaliza a 00.
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    return `${get('year')}${get('month')}${get('day')} ${hour}${get('minute')}${get('second')}`;
+  }
+
+  /**
    * Parsea un body key=value de Dahua (`records[i].Campo=valor` + `found=N`)
    * → array de registros. Formato confirmado con la doc v1.0.
    */
@@ -128,9 +149,20 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       // El PIN viaja en `Password` (doc v1.0: «the password when unlocking»).
       // Para rfid/qr el propio CardNo es el secreto; no llevan Password.
       ...(cred.method === 'pin' ? { Password: cred.secret } : {}),
+      // Caducidad (pases nocturnos, accesos temporales): el terminal desactiva
+      // la card al expirar (`IsValid` → false, doc v1.0). En hora local del local.
+      ...(cred.validUntil
+        ? { ValidDateEnd: DahuaSyncProvider.formatDahuaDate(cred.validUntil, device.timezone) }
+        : {}),
+      // Límite de usos (pase single-use). La doc v1.0 confirma la desactivación
+      // por «maximum number of usage» pero no nombra el campo del insert →
+      // `UseTimes` (API general de Dahua), VERIFY con el firmware en el smoke.
+      ...(cred.maxUses != null ? { UseTimes: String(cred.maxUses) } : {}),
     });
     const res = await digestRequest({
-      url: `${this.base(device)}/cgi-bin/recordUpdater.cgi?${params}`,
+      // `URLSearchParams` codifica el espacio como '+'; Dahua espera '%20'
+      // (ejemplo literal de la doc: `ValidDateEnd=20151222%20093811`).
+      url: `${this.base(device)}/cgi-bin/recordUpdater.cgi?${params.toString().replace(/\+/g, '%20')}`,
       username: c.user,
       password: c.pass,
     });
