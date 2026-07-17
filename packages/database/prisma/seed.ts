@@ -79,6 +79,7 @@ async function seedPlans() {
         'automations',
         'custom_domain',
         'collections',
+        'cameras',
       ],
     },
   ];

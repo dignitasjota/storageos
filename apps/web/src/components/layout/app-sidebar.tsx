@@ -175,7 +175,7 @@ const GROUPS: NavGroup[] = [
         labelKey: 'cameras',
         icon: Cctv,
         permission: 'access:read',
-        feature: 'access_control',
+        feature: 'cameras',
       },
     ],
   },
