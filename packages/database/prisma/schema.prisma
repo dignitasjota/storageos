@@ -2993,6 +2993,11 @@ model CameraDevice {
   facilityId         String        @map("facility_id") @db.Uuid
   name               String
   channel            Int           @default(1)
+  /// Marca/fabricante del equipo, resuelto POR DEVICE (como access_devices.provider).
+  /// Hoy la ingesta es agnóstica (webhook); este campo prepara las acciones
+  /// salientes futuras (snapshot on-demand, armar/desarmar) que sí hablan la API
+  /// del fabricante. `generic` = solo ingesta, sin acciones salientes.
+  provider           String        @default("dahua")
   serialNumber       String?       @map("serial_number")
   ingestTokenHash    String        @map("ingest_token_hash")
   ingestTokenPreview String        @map("ingest_token_preview")

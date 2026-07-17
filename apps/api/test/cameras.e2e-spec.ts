@@ -42,9 +42,10 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
     const dev = await request(app.getHttpServer())
       .post('/cameras/devices')
       .set(auth)
-      .send({ facilityId: facility.body.id, name: 'Cámara pasillo 1', channel: 3 });
+      .send({ facilityId: facility.body.id, name: 'Cámara pasillo 1', channel: 3, provider: 'dahua' });
     expect(dev.status).toBe(201);
     expect(dev.body.revealedIngestToken).toBeTruthy();
+    expect(dev.body.provider).toBe('dahua');
     expect(dev.body.ingestUrl).toContain('/webhooks/cameras/events');
     expect(dev.body.ingestTokenPreview).toBe(dev.body.revealedIngestToken.slice(0, 8));
     const token = dev.body.revealedIngestToken as string;

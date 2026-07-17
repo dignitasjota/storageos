@@ -73,6 +73,7 @@ export class CameraDevicesService {
             facilityId: args.input.facilityId,
             name: args.input.name,
             channel: args.input.channel,
+            provider: args.input.provider,
             serialNumber: args.input.serialNumber?.trim() || null,
             ingestTokenHash: hashIngestToken(token),
             ingestTokenPreview: token.slice(0, 8),
@@ -99,6 +100,7 @@ export class CameraDevicesService {
     const i = args.input;
     if (i.name !== undefined) data.name = i.name;
     if (i.channel !== undefined) data.channel = i.channel;
+    if (i.provider !== undefined) data.provider = i.provider;
     if (i.serialNumber !== undefined) data.serialNumber = i.serialNumber?.trim() || null;
     if (i.facilityId !== undefined) {
       assertFacilityAllowed(args.facilityScope, i.facilityId);
@@ -192,6 +194,7 @@ export class CameraDevicesService {
       facilityName: d.facility?.name ?? '',
       name: d.name,
       channel: d.channel,
+      provider: (d.provider as CameraDeviceDto['provider']) ?? 'dahua',
       serialNumber: d.serialNumber,
       ingestTokenPreview: d.ingestTokenPreview,
       isActive: d.isActive,

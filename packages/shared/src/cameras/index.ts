@@ -11,12 +11,30 @@ import { z } from 'zod';
 export const CameraEventKindEnum = z.enum(['camera', 'alarm']);
 export type CameraEventKind = z.infer<typeof CameraEventKindEnum>;
 
+/**
+ * Marca/fabricante del equipo, resuelto POR DEVICE (igual que el provider de
+ * las cerraduras). La INGESTA de eventos es agnóstica (webhook normalizado), así
+ * que hoy el provider no cambia el comportamiento; prepara las ACCIONES
+ * SALIENTES futuras (snapshot on-demand, armar/desarmar la alarma), que sí
+ * necesitan la API del fabricante. Añadir una marca = 1 valor aquí + su adapter.
+ * `generic` = cualquier equipo que solo empuje eventos al webhook (sin acciones).
+ */
+export const CameraProviderEnum = z.enum(['dahua', 'generic']);
+export type CameraProviderValue = z.infer<typeof CameraProviderEnum>;
+
+export const CAMERA_PROVIDER_LABELS: Record<CameraProviderValue, string> = {
+  dahua: 'Dahua (NVR / cámara IP)',
+  generic: 'Genérico (solo ingesta de eventos)',
+};
+
 // --- Gestión de dispositivos (staff) ---
 
 export const CreateCameraDeviceSchema = z.object({
   facilityId: z.string().uuid(),
   name: z.string().trim().min(1).max(120),
   channel: z.number().int().min(1).max(256).default(1),
+  /** Marca del equipo (para las acciones salientes futuras). Default `dahua`. */
+  provider: CameraProviderEnum.default('dahua'),
   /** Nº de serie del equipo (para añadirlo también a DMSS). */
   serialNumber: z.string().trim().max(120).optional(),
   metadata: z.record(z.unknown()).default({}),
@@ -36,6 +54,7 @@ export interface CameraDeviceDto {
   facilityName: string;
   name: string;
   channel: number;
+  provider: CameraProviderValue;
   serialNumber: string | null;
   /** Primeros caracteres del token de ingesta (sin exponerlo entero). */
   ingestTokenPreview: string;
