@@ -25,10 +25,10 @@ const TERMS_MD = `## 1. Información del prestador
 
 El servicio es prestado por:
 
-- Titular: **[Razón social del prestador]**
+- Titular: **TrasterOS**
 - NIF/CIF: **[NIF]**
 - Domicilio: **[Domicilio social]**
-- Contacto: **[correo@dominio]**
+- Contacto: **info@trasteros.pro**
 
 Esta información se facilita en cumplimiento de la Ley 34/2002 de servicios de la sociedad de la información y de comercio electrónico (LSSI-CE).
 
@@ -95,16 +95,16 @@ Estas condiciones se rigen por la legislación española. Para la resolución de
 
 ## 14. Contacto
 
-Para cualquier duda sobre estas condiciones, escríbenos a **[correo@dominio]**.`;
+Para cualquier duda sobre estas condiciones, escríbenos a **info@trasteros.pro**.`;
 
 const PRIVACY_MD = `En TrasterOS nos tomamos en serio la protección de tus datos. Esta política explica qué datos personales tratamos, con qué finalidad y base jurídica, con quién los compartimos y qué derechos te asisten, conforme al Reglamento (UE) 2016/679 (RGPD) y a la Ley Orgánica 3/2018 (LOPDGDD). Los campos entre corchetes deben completarse con los datos del prestador antes de publicar.
 
 ## 1. Responsable del tratamiento
 
-- Titular: **[Razón social del prestador]**
+- Titular: **TrasterOS**
 - NIF/CIF: **[NIF]**
 - Domicilio: **[Domicilio social]**
-- Correo de contacto: **[correo@dominio]**
+- Correo de contacto: **info@trasteros.pro**
 - Delegado de Protección de Datos (DPD), si aplica: **[correo del DPD]**
 
 En adelante, «TrasterOS», «nosotros» o «el prestador». TrasterOS es una plataforma de gestión de trasteros (self-storage) que se ofrece como servicio (SaaS) a empresas.
@@ -163,7 +163,7 @@ Puedes ejercer en cualquier momento los siguientes derechos:
 - Portabilidad de los datos.
 - Retirar el consentimiento prestado, sin efecto retroactivo.
 
-Para ejercerlos, escríbenos a **[correo@dominio]** indicando el derecho que deseas ejercer. Si tus datos los trata una empresa cliente (como responsable) y nosotros solo actuamos como encargado, te redirigiremos a dicha empresa. Tienes además derecho a presentar una reclamación ante la Agencia Española de Protección de Datos ([www.aepd.es](https://www.aepd.es)) si consideras que el tratamiento no se ajusta a la normativa.
+Para ejercerlos, escríbenos a **info@trasteros.pro** indicando el derecho que deseas ejercer. Si tus datos los trata una empresa cliente (como responsable) y nosotros solo actuamos como encargado, te redirigiremos a dicha empresa. Tienes además derecho a presentar una reclamación ante la Agencia Española de Protección de Datos ([www.aepd.es](https://www.aepd.es)) si consideras que el tratamiento no se ajusta a la normativa.
 
 ## 9. Seguridad
 
@@ -183,7 +183,7 @@ Podemos actualizar esta política para adaptarla a cambios normativos o del serv
 
 ## 13. Contacto
 
-Para cualquier cuestión relativa a esta política o al tratamiento de tus datos, contacta con nosotros en **[correo@dominio]**.`;
+Para cualquier cuestión relativa a esta política o al tratamiento de tus datos, contacta con nosotros en **info@trasteros.pro**.`;
 
 const COOKIES_MD = `Esta política explica qué son las cookies y tecnologías similares, cuáles utiliza TrasterOS y cómo puedes gestionarlas.
 
@@ -214,7 +214,7 @@ Podemos actualizar esta política de cookies para adaptarla a cambios legales o 
 
 ## 6. Contacto
 
-Para cualquier duda sobre el uso de cookies, escríbenos a **[correo@dominio]**. Puedes consultar también nuestra [Política de Privacidad](/privacidad).`;
+Para cualquier duda sobre el uso de cookies, escríbenos a **info@trasteros.pro**. Puedes consultar también nuestra [Política de Privacidad](/privacidad).`;
 
 /** Contenido por defecto (seed + fallback si la BD está vacía). */
 export const DEFAULT_LEGAL_DOCUMENTS: Record<LegalSlug, { title: string; content: string }> = {
