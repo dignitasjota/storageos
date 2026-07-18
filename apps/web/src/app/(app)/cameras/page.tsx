@@ -5,7 +5,8 @@ import {
   CameraProviderEnum,
   type CameraProviderValue,
 } from '@storageos/shared';
-import { Camera, Copy, Loader2, Trash2, Video } from 'lucide-react';
+import { Camera, Copy, Loader2, ShieldAlert, Trash2, Video } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -35,6 +36,7 @@ import {
   useCameraDevices,
   useCameraEvents,
   useCreateCameraDevice,
+  useCreateIncidentFromEvent,
   useDeleteCameraDevice,
 } from '@/lib/cameras/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
@@ -47,6 +49,20 @@ export default function CamerasPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [revealed, setRevealed] = useState<CameraDeviceWithTokenDto | null>(null);
   const del = useDeleteCameraDevice();
+  const createIncident = useCreateIncidentFromEvent();
+  const [creatingIncidentId, setCreatingIncidentId] = useState<string | null>(null);
+
+  async function handleCreateIncident(eventId: string) {
+    setCreatingIncidentId(eventId);
+    try {
+      await createIncident.mutateAsync({ eventId, input: {} });
+      toast.success('Incidencia creada y vinculada al evento.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    } finally {
+      setCreatingIncidentId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -151,7 +167,7 @@ export default function CamerasPage() {
                       <Video className="h-6 w-6" />
                     </div>
                   )}
-                  <div className="space-y-0.5 p-2">
+                  <div className="space-y-1 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-medium">{e.eventType}</span>
                       <Badge variant={e.kind === 'alarm' ? 'destructive' : 'outline'}>
@@ -161,6 +177,32 @@ export default function CamerasPage() {
                     <p className="truncate text-xs text-muted-foreground">
                       {e.cameraName} · {new Date(e.occurredAt).toLocaleString('es-ES')}
                     </p>
+                    <Can permission="access:manage">
+                      {e.incidentId ? (
+                        <Link
+                          href="/incidents"
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <ShieldAlert className="h-3 w-3" />
+                          <span className="truncate">{e.incidentTitle ?? 'Incidencia vinculada'}</span>
+                        </Link>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 w-full text-xs"
+                          disabled={creatingIncidentId === e.id}
+                          onClick={() => void handleCreateIncident(e.id)}
+                        >
+                          {creatingIncidentId === e.id ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <ShieldAlert className="mr-1 h-3 w-3" />
+                          )}
+                          Crear incidencia
+                        </Button>
+                      )}
+                    </Can>
                   </div>
                 </div>
               ))}

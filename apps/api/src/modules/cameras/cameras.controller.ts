@@ -18,6 +18,9 @@ import {
   type CameraDeviceWithTokenDto,
   type CameraEventDto,
   CreateCameraDeviceSchema,
+  CreateIncidentFromEventSchema,
+  type IncidentDto,
+  LinkCameraEventSchema,
   UpdateCameraDeviceSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -36,6 +39,8 @@ import type { Request } from 'express';
 
 class CreateCameraDeviceDto extends createZodDto(CreateCameraDeviceSchema) {}
 class UpdateCameraDeviceDto extends createZodDto(UpdateCameraDeviceSchema) {}
+class CreateIncidentFromEventDto extends createZodDto(CreateIncidentFromEventSchema) {}
+class LinkCameraEventDto extends createZodDto(LinkCameraEventSchema) {}
 
 function meta(req: Request): { ipAddress?: string; userAgent?: string } {
   return {
@@ -142,12 +147,59 @@ export class CamerasController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
     @Query('kind') kind?: string,
+    @Query('incidentId') incidentId?: string,
   ): Promise<CameraEventDto[]> {
     const parsedKind = CameraEventKindEnum.safeParse(kind);
     return this.events.list(user.tenantId, {
       facilityScope: user.facilityScope ?? null,
       ...(facilityId ? { facilityId } : {}),
       ...(parsedKind.success ? { kind: parsedKind.data } : {}),
+      ...(incidentId ? { incidentId } : {}),
     });
+  }
+
+  /** Crear una incidencia a partir de un evento (alarma) y vincularla. */
+  @RequirePermission('access:manage')
+  @Post('events/:id/incident')
+  createIncident(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: CreateIncidentFromEventDto,
+    @Req() req: Request,
+  ): Promise<IncidentDto> {
+    return this.events.createIncidentFromEvent({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      eventId: id,
+      input: body,
+      meta: meta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Vincular un evento a una incidencia existente. */
+  @RequirePermission('access:manage')
+  @Post('events/:id/link')
+  linkIncident(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: LinkCameraEventDto,
+  ): Promise<CameraEventDto> {
+    return this.events.linkToIncident({
+      tenantId: user.tenantId,
+      eventId: id,
+      incidentId: body.incidentId,
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Desvincular un evento de su incidencia. */
+  @RequirePermission('access:manage')
+  @Delete('events/:id/incident')
+  unlinkIncident(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CameraEventDto> {
+    return this.events.unlinkFromIncident(user.tenantId, id, user.facilityScope ?? null);
   }
 }

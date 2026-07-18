@@ -2646,7 +2646,8 @@ model Incident {
   contract   Contract?         @relation("IncidentContract", fields: [contractId], references: [id], onDelete: SetNull)
   assignedTo User?             @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   reportedBy User?             @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: SetNull)
-  comments   IncidentComment[]
+  comments     IncidentComment[]
+  cameraEvents CameraEvent[]
 
   @@index([tenantId])
   @@index([tenantId, status, severity])
@@ -3026,12 +3027,15 @@ model CameraEvent {
   eventType      String   @map("event_type")
   /// Key del snapshot en MinIO (bucket privado); null si el evento no trae imagen.
   snapshotKey    String?  @map("snapshot_key")
+  /// Incidencia a la que se ha vinculado el evento (cross-link operativo).
+  incidentId     String?  @map("incident_id") @db.Uuid
   metadata       Json     @default("{}")
   occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  device CameraDevice @relation(fields: [cameraDeviceId], references: [id], onDelete: Cascade)
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device   CameraDevice @relation(fields: [cameraDeviceId], references: [id], onDelete: Cascade)
+  incident Incident?    @relation(fields: [incidentId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, occurredAt(sort: Desc)])
   @@index([tenantId, cameraDeviceId, occurredAt(sort: Desc)])

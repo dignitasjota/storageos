@@ -97,6 +97,23 @@ export interface CameraEventDto {
   eventType: string;
   /** URL firmada temporal del snapshot (null si el evento no trae imagen). */
   snapshotUrl: string | null;
+  /** Incidencia vinculada (cross-link), o null. */
+  incidentId: string | null;
+  incidentTitle: string | null;
   metadata: Record<string, unknown>;
   occurredAt: string;
 }
+
+// --- Cross-link evento ↔ incidencia ---
+
+/** Crear una incidencia a partir de un evento de cámara/alarma. */
+export const CreateIncidentFromEventSchema = z.object({
+  /** Título (por defecto se deriva del tipo de evento). */
+  title: z.string().trim().min(1).max(200).optional(),
+  severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+});
+export type CreateIncidentFromEventInput = z.infer<typeof CreateIncidentFromEventSchema>;
+
+/** Vincular un evento a una incidencia existente. */
+export const LinkCameraEventSchema = z.object({ incidentId: z.string().uuid() });
+export type LinkCameraEventInput = z.infer<typeof LinkCameraEventSchema>;

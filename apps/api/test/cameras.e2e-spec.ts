@@ -102,6 +102,43 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
     // La cámara aparece en el listado de dispositivos con lastEventAt seteado.
     const devices = await request(app.getHttpServer()).get('/cameras/devices').set(auth);
     expect((devices.body as { lastEventAt: string | null }[])[0]?.lastEventAt).toBeTruthy();
+
+    // --- Cross-link: crear una incidencia a partir del evento de alarma ---
+    const alarmEvent = (alarms.body as { id: string; eventType: string }[])[0]!;
+    const inc = await request(app.getHttpServer())
+      .post(`/cameras/events/${alarmEvent.id}/incident`)
+      .set(auth)
+      .send({});
+    expect(inc.status).toBe(201);
+    expect(inc.body.title).toBe('Alarma: zone_triggered'); // título derivado del evento
+    expect(inc.body.severity).toBe('high'); // las alarmas → severidad alta
+    const incidentId = inc.body.id as string;
+
+    // El evento queda vinculado a la incidencia (incidentId + título en el DTO).
+    const feed2 = await request(app.getHttpServer()).get('/cameras/events?kind=alarm').set(auth);
+    const linked = (feed2.body as { id: string; incidentId: string | null; incidentTitle: string | null }[])[0];
+    expect(linked?.incidentId).toBe(incidentId);
+    expect(linked?.incidentTitle).toBe('Alarma: zone_triggered');
+
+    // Filtro por incidencia → devuelve el evento vinculado (para la ficha de incidencia).
+    const byIncident = await request(app.getHttpServer())
+      .get(`/cameras/events?incidentId=${incidentId}`)
+      .set(auth);
+    expect((byIncident.body as unknown[]).length).toBe(1);
+
+    // La incidencia existe en el módulo de incidencias.
+    const incidentDetail = await request(app.getHttpServer())
+      .get(`/incidents/${incidentId}`)
+      .set(auth);
+    expect(incidentDetail.status).toBe(200);
+    expect(incidentDetail.body.metadata?.source).toBe('camera');
+
+    // Desvincular → el evento deja de tener incidencia.
+    const unlink = await request(app.getHttpServer())
+      .delete(`/cameras/events/${alarmEvent.id}/incident`)
+      .set(auth);
+    expect(unlink.status).toBe(200);
+    expect(unlink.body.incidentId).toBeNull();
   });
 
   it('sin autenticación no se puede listar el feed (401)', async () => {
