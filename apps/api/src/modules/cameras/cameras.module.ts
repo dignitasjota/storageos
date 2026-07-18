@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { OperationsModule } from '../operations/operations.module';
 
 import { CameraDevicesService } from './camera-devices.service';
 import { CameraEventsService } from './camera-events.service';
@@ -16,7 +17,7 @@ import { CamerasController } from './cameras.controller';
  * globales; `AuthModule` aporta `AuditService`.
  */
 @Module({
-  imports: [AuthModule, NotificationsModule],
+  imports: [AuthModule, NotificationsModule, OperationsModule],
   controllers: [CamerasController, CameraIngestController],
   providers: [CameraDevicesService, CameraEventsService],
 })

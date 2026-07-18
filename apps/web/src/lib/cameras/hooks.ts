@@ -7,6 +7,8 @@ import type {
   CameraDeviceWithTokenDto,
   CameraEventDto,
   CreateCameraDeviceInput,
+  CreateIncidentFromEventInput,
+  IncidentDto,
 } from '@storageos/shared';
 
 const devicesKey = (facilityId?: string) => ['cameras', 'devices', facilityId ?? 'all'] as const;
@@ -63,5 +65,27 @@ export function useDeleteCameraDevice() {
     mutationFn: (id: string) =>
       apiFetch<void>(`/cameras/devices/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['cameras', 'devices'] }),
+  });
+}
+
+/** Eventos de cámara vinculados a una incidencia (para la ficha de incidencia). */
+export function useCameraEventsByIncident(incidentId: string | null) {
+  return useQuery({
+    queryKey: ['cameras', 'events', 'incident', incidentId],
+    queryFn: () => apiFetch<CameraEventDto[]>(`/cameras/events?incidentId=${incidentId}`),
+    enabled: !!incidentId,
+  });
+}
+
+/** Crea una incidencia a partir de un evento de alarma/cámara y lo vincula. */
+export function useCreateIncidentFromEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ eventId, input }: { eventId: string; input: CreateIncidentFromEventInput }) =>
+      apiFetch<IncidentDto>(`/cameras/events/${eventId}/incident`, { method: 'POST', json: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['cameras', 'events'] });
+      void qc.invalidateQueries({ queryKey: ['incidents'] });
+    },
   });
 }

@@ -45,6 +45,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
+import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
@@ -490,6 +492,8 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
               </div>
             )}
 
+            <CameraEventsSection incidentId={id} />
+
             <div className="space-y-2">
               <h3 className="text-sm font-medium">Comentarios</h3>
               <div className="max-h-48 space-y-2 overflow-y-auto">
@@ -525,5 +529,43 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Eventos de cámara/alarma vinculados a la incidencia (cross-link). Se auto-oculta
+ * si el tenant no tiene la feature de cámaras, si el usuario no puede verlas, o si
+ * no hay eventos vinculados.
+ */
+function CameraEventsSection({ incidentId }: { incidentId: string }) {
+  const canAccessRead = useHasPermission('access:read');
+  const hasCamerasFeature = useHasFeature('cameras');
+  const canSee = canAccessRead && hasCamerasFeature;
+  const events = useCameraEventsByIncident(canSee ? incidentId : null);
+  if (!canSee || (events.data ?? []).length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium">Eventos de cámara</h3>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(events.data ?? []).map((e) => (
+          <div key={e.id} className="overflow-hidden rounded-md border">
+            {e.snapshotUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={e.snapshotUrl} alt={e.eventType} className="h-20 w-full bg-muted object-cover" />
+            ) : (
+              <div className="flex h-20 w-full items-center justify-center bg-muted text-muted-foreground">
+                <span className="text-xs">sin imagen</span>
+              </div>
+            )}
+            <div className="p-1.5">
+              <p className="truncate text-xs font-medium">{e.eventType}</p>
+              <p className="truncate text-[10px] text-muted-foreground">
+                {e.cameraName} · {new Date(e.occurredAt).toLocaleString('es-ES')}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
