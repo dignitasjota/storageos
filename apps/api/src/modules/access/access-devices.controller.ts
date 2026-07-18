@@ -194,4 +194,22 @@ export class AccessDevicesController {
       facilityScope: user.facilityScope ?? null,
     });
   }
+
+  // Cierre remoto / lockdown disparado por el staff.
+  @Post(':id/close')
+  @RequirePermission('access:manage')
+  @HttpCode(HttpStatus.OK)
+  close(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ dispatched: boolean; message?: string }> {
+    return this.service.remoteClose({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
 }

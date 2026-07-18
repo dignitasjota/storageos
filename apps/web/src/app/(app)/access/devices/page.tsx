@@ -11,6 +11,7 @@ import {
 import { type ColumnDef } from '@tanstack/react-table';
 import {
   Copy,
+  DoorClosed,
   DoorOpen,
   Loader2,
   Lock,
@@ -61,6 +62,7 @@ import {
 import {
   useCreateDevice,
   useDeleteDevice,
+  useCloseDevice,
   useOpenDevice,
   useDevices,
   usePingDevice,
@@ -100,6 +102,7 @@ export default function DevicesPage() {
   });
   const ping = usePingDevice();
   const openDevice = useOpenDevice();
+  const closeDevice = useCloseDevice();
 
   const filteredDevices = (devices.data ?? []).filter((d) => {
     if (onlineFilter === 'online') return d.isOnline;
@@ -123,6 +126,18 @@ export default function DevicesPage() {
       const res = await openDevice.mutateAsync(device.id);
       if (res.dispatched) toast.success(`Comando de apertura enviado a ${device.name}.`);
       else toast.error(`No se pudo abrir ${device.name}${res.message ? `: ${res.message}` : ''}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function handleClose(device: AccessDeviceDto) {
+    try {
+      const res = await closeDevice.mutateAsync(device.id);
+      if (res.dispatched) toast.success(`Comando de cierre enviado a ${device.name}.`);
+      else if (res.message === 'close_not_supported')
+        toast.warning(`${device.name} no admite cierre remoto (solo apertura).`);
+      else toast.error(`No se pudo cerrar ${device.name}${res.message ? `: ${res.message}` : ''}.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -210,6 +225,15 @@ export default function DevicesPage() {
                 >
                   <DoorOpen className="mr-2 h-4 w-4" />
                   Abrir (remoto)
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <DropdownMenuItem
+                  onClick={() => handleClose(device)}
+                  disabled={closeDevice.isPending}
+                >
+                  <DoorClosed className="mr-2 h-4 w-4" />
+                  Cerrar (remoto)
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={() => handlePing(device)} disabled={ping.isPending}>

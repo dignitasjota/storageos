@@ -227,6 +227,18 @@ export function useOpenDevice() {
   });
 }
 
+/** Cierre remoto / lockdown disparado por el staff. */
+export function useCloseDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ dispatched: boolean; message?: string }>(`/access/devices/${id}/close`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'devices'] }),
+  });
+}
+
 // ============================================================================
 // Access logs
 // ============================================================================

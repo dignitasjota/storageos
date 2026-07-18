@@ -19,6 +19,11 @@ export class StubLockProvider extends LockProvider {
     return { dispatched: true, message: 'stub' };
   }
 
+  override async close(args: OpenLockArgs): Promise<OpenLockResult> {
+    this.logger.warn(`[lock_stub] tenant=${args.tenantId} device=${args.deviceId} close dispatched`);
+    return { dispatched: true, message: 'stub' };
+  }
+
   async start(): Promise<void> {
     // sin estado
   }

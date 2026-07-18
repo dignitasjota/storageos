@@ -162,13 +162,22 @@ describe('Fase 7: access credentials + devices + verify (e2e)', () => {
     expect([200, 201]).toContain(open.status);
     expect(open.body.dispatched).toBe(true);
 
-    // Queda registrado en el audit trail de accesos (remote).
+    // Cierre remoto / lockdown: en test stub → dispatched true.
+    const close = await request(app.getHttpServer())
+      .post(`/access/devices/${dev.body.id}/close`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send();
+    expect([200, 201]).toContain(close.status);
+    expect(close.body.dispatched).toBe(true);
+
+    // Ambas acciones quedan registradas en el audit trail de accesos (remote).
     const logs = await request(app.getHttpServer())
       .get('/access/logs')
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(logs.status).toBe(200);
     const items = (logs.body.items ?? logs.body) as { reason: string | null }[];
     expect(items.some((l) => l.reason === 'remote_open_by_staff')).toBe(true);
+    expect(items.some((l) => l.reason === 'remote_close_by_staff')).toBe(true);
   });
 
   it('devices: provider dahua se persiste; apertura contra terminal inalcanzable → dispatched false (no rompe)', async () => {
