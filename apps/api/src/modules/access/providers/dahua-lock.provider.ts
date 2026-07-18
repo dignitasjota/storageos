@@ -32,6 +32,18 @@ export class DahuaLockProvider extends LockProvider {
   }
 
   async open(args: OpenLockArgs): Promise<OpenLockResult> {
+    return this.sendCommand(args, 'openDoor');
+  }
+
+  /** Cierre remoto / lockdown (echa el cerrojo del terminal). */
+  override async close(args: OpenLockArgs): Promise<OpenLockResult> {
+    return this.sendCommand(args, 'closeDoor');
+  }
+
+  private async sendCommand(
+    args: OpenLockArgs,
+    action: 'openDoor' | 'closeDoor',
+  ): Promise<OpenLockResult> {
     if (!args.controlUrl) {
       return { dispatched: false, message: 'device_sin_control_url' };
     }
@@ -43,7 +55,7 @@ export class DahuaLockProvider extends LockProvider {
 
     const base = args.controlUrl.replace(/\/+$/, '');
     const channel = 1;
-    const url = `${base}/cgi-bin/accessControl.cgi?action=openDoor&channel=${channel}&Type=Remote`;
+    const url = `${base}/cgi-bin/accessControl.cgi?action=${action}&channel=${channel}&Type=Remote`;
 
     const res = await digestRequest({
       url,
@@ -53,7 +65,7 @@ export class DahuaLockProvider extends LockProvider {
       timeoutMs: TIMEOUT_MS,
     });
     if (res.ok) return { dispatched: true };
-    this.logger.warn(`[dahua-lock] openDoor ${base} → status ${res.status}`);
+    this.logger.warn(`[dahua-lock] ${action} ${base} → status ${res.status}`);
     return { dispatched: false, message: `dahua_${res.status}` };
   }
 

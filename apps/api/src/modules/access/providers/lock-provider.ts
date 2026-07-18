@@ -13,6 +13,15 @@ export abstract class LockProvider {
   abstract get name(): string;
   /** Envia comando "abrir" al device. Async porque MQTT tarda en publish + ack. */
   abstract open(args: OpenLockArgs): Promise<OpenLockResult>;
+  /**
+   * Cierre remoto / lockdown (echa el cerrojo). Por defecto NO soportado: solo
+   * lo sobreescriben los providers cuyo hardware permite forzar el cierre
+   * (p. ej. Dahua `closeDoor`). Una ventosa magnética sin control de cierre o
+   * un abrepuertas simple no pueden cerrar → `dispatched:false`.
+   */
+  async close(_args: OpenLockArgs): Promise<OpenLockResult> {
+    return { dispatched: false, message: 'close_not_supported' };
+  }
   /** Conexion inicial. Llamado en onModuleInit. */
   abstract start?(): Promise<void>;
   /** Cierre limpio. Llamado en onModuleDestroy. */

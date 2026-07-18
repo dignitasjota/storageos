@@ -292,6 +292,42 @@ export class AccessDevicesService {
     };
   }
 
+  /** Cierre remoto / lockdown del device (echa el cerrojo). */
+  async remoteClose(args: {
+    tenantId: string;
+    userId: string;
+    id: string;
+    meta: RequestMeta;
+    facilityScope?: string[] | null;
+  }): Promise<{ dispatched: boolean; message?: string }> {
+    const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    const result = await this.locks.resolve(device.provider).close({
+      tenantId: args.tenantId,
+      deviceId: device.id,
+      mqttTopic: device.mqttTopic,
+      ...this.controlArgs(device),
+    });
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.accessLog.create({
+          data: {
+            tenantId: args.tenantId,
+            deviceId: device.id,
+            method: 'pin' as AccessMethod,
+            result: (result.dispatched ? 'allowed' : 'error') as AccessResult,
+            reason: result.dispatched ? 'remote_close_by_staff' : (result.message ?? 'lock_error'),
+            metadata: { remote: true, action: 'close', userId: args.userId },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.writeAudit('access.device_remote_close', args, device.id);
+    return {
+      dispatched: result.dispatched,
+      ...(result.message ? { message: result.message } : {}),
+    };
+  }
+
   /** Descifra el secreto HMAC del device y lo pasa al provider HTTP. */
   private controlArgs(device: AccessDevice): {
     controlUrl: string | null;
