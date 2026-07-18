@@ -64,7 +64,7 @@ export interface AuthFlowResult<TBody> {
   refreshToken: string;
 }
 
-const TRIAL_DAYS = 14;
+const TRIAL_DAYS = 30;
 const TRIAL_PLAN_SLUG = 'starter';
 
 @Injectable()

@@ -26,12 +26,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ??
   process.env.NEXT_PUBLIC_WEB_URL ??
-  'https://trasteros.app'
+  'https://trasteros.pro'
 ).replace(/\/$/, '');
 
 const TITLE = 'TrasterOS — Software de gestión para self-storage y trasteros';
 const DESCRIPTION =
-  'Software todo-en-uno para gestionar tu self-storage: inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, CRM y analítica. En español, multi-local y con prueba gratis de 14 días.';
+  'Software todo-en-uno para gestionar tu self-storage: inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, CRM y analítica. En español, multi-local y con prueba gratis de 30 días.';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },
@@ -98,6 +98,15 @@ export default function LandingPage() {
   const compliancePoints = t.raw('compliance.points') as string[];
   const seoPoints = t.raw('seoLocal.points') as string[];
   const faqItems = t.raw('faq.items') as { q: string; a: string }[];
+  const plans = t.raw('pricing.plans') as {
+    name: string;
+    price: string;
+    yearly?: number;
+    tagline: string;
+    cta: string;
+    highlight?: boolean;
+    features: string[];
+  }[];
 
   // Datos estructurados (schema.org) para SEO / rich results.
   const jsonLd = [
@@ -115,7 +124,7 @@ export default function LandingPage() {
         '@type': 'Offer',
         price: '0',
         priceCurrency: 'EUR',
-        description: 'Prueba gratuita de 14 días, sin tarjeta.',
+        description: 'Prueba gratuita de 30 días, sin tarjeta.',
       },
       provider: { '@type': 'Organization', name: 'TrasterOS', url: SITE_URL },
     },
@@ -279,6 +288,74 @@ export default function LandingPage() {
             ))}
           </ul>
         </div>
+      </section>
+
+      {/* Precios */}
+      <section className="container pb-16" aria-labelledby="pricing-title">
+        <div className="mb-8 text-center">
+          <h2 id="pricing-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
+            {t('pricing.title')}
+          </h2>
+          <p className="mx-auto mt-2 max-w-2xl text-muted-foreground">{t('pricing.subtitle')}</p>
+        </div>
+
+        {/* Oferta fundador */}
+        <div className="mx-auto mb-8 max-w-3xl rounded-2xl border border-primary/30 bg-primary/5 p-5 text-center">
+          <p className="text-sm font-semibold text-primary">🚀 {t('pricing.founderTitle')}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t('pricing.founderText')}</p>
+          <p className="mt-2 text-sm">
+            <s className="text-muted-foreground">{t('pricing.setupStrike')}</s>{' '}
+            <span className="font-medium">{t('pricing.setupText')}</span>
+          </p>
+        </div>
+
+        <div className="grid items-start gap-4 md:grid-cols-3">
+          {plans.map((plan) => (
+            <Card
+              key={plan.name}
+              className={plan.highlight ? 'relative border-primary shadow-lg' : 'border-border/60'}
+            >
+              {plan.highlight && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-0.5 text-xs font-medium text-primary-foreground">
+                  {t('pricing.mostPopular')}
+                </span>
+              )}
+              <CardHeader>
+                <CardTitle className="text-lg">{plan.name}</CardTitle>
+                <p className="text-sm text-muted-foreground">{plan.tagline}</p>
+                <div className="mt-2 flex items-baseline gap-1">
+                  <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
+                  {plan.price !== '0€' && (
+                    <span className="text-sm text-muted-foreground">{t('pricing.perMonth')}</span>
+                  )}
+                </div>
+                {plan.yearly && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('pricing.yearlyLabel', { yearly: plan.yearly })} · {t('pricing.ivaNote')}
+                  </p>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <ul className="space-y-2">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm">
+                      <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  asChild
+                  className="w-full"
+                  variant={plan.highlight ? 'default' : 'outline'}
+                >
+                  <Link href="/register">{plan.cta}</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <p className="mt-6 text-center text-sm text-muted-foreground">{t('pricing.trialNote')}</p>
       </section>
 
       {/* Preguntas frecuentes */}

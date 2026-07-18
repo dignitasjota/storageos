@@ -29,7 +29,7 @@
   "landing": {
     "heroTitle": "Software de gestión para self-storage y trasteros",
     "heroSubtitle": "Inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros, control de accesos, CRM y analítica. Todo en una sola plataforma, en español y lista para varios locales.",
-    "heroNote": "Prueba 14 días gratis. Sin tarjeta ni permanencia.",
+    "heroNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia.",
     "primaryCta": "Crear cuenta gratis",
     "secondaryCta": "Iniciar sesión",
     "badges": [
@@ -144,6 +144,62 @@
       "dunning": "Reclamación de impagos automática (dunning) por email",
       "messaging": "Avisos por email y WhatsApp a tus inquilinos"
     },
+    "pricing": {
+      "title": "Precios claros, sin sorpresas",
+      "subtitle": "Sin cuota de integración de miles de euros y sin permanencia. Cambia de plan o cancela cuando quieras.",
+      "perMonth": "/mes",
+      "yearlyLabel": "o {yearly}€/año",
+      "ivaNote": "IVA no incluido",
+      "mostPopular": "Más popular",
+      "founderTitle": "Oferta fundador",
+      "founderText": "Los primeros 15 operadores: −40% para siempre + puesta en marcha y migración de datos gratis (valor 490€). Plazas limitadas.",
+      "setupStrike": "490€",
+      "setupText": "Puesta en marcha y migración de tus datos: gratis mientras dure la oferta.",
+      "trialNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia. Te migramos tus datos.",
+      "plans": [
+        {
+          "name": "Free",
+          "price": "0€",
+          "tagline": "Para empezar y probar",
+          "cta": "Crear cuenta",
+          "features": [
+            "Hasta 10 trasteros",
+            "1 local · 2 usuarios",
+            "Contratos, inquilinos y facturación Veri*Factu",
+            "Cobros por tarjeta y SEPA"
+          ]
+        },
+        {
+          "name": "Starter",
+          "price": "79€",
+          "yearly": 790,
+          "tagline": "Para operadores en marcha",
+          "highlight": true,
+          "cta": "Empezar 30 días gratis",
+          "features": [
+            "Hasta 200 trasteros · 3 locales · 10 usuarios",
+            "Todo lo de Free, y además:",
+            "Control de accesos (PIN/QR/RFID)",
+            "Subidas de precio (ECRI), seguros y automatizaciones",
+            "Gestión de impagos (overlock)"
+          ]
+        },
+        {
+          "name": "Pro",
+          "price": "149€",
+          "yearly": 1490,
+          "tagline": "Sin límites, todo incluido",
+          "cta": "Empezar 30 días gratis",
+          "features": [
+            "Trasteros, locales y usuarios ilimitados",
+            "Todo lo de Starter, y además:",
+            "Asistente IA + chatbot del portal",
+            "Domiciliación SEPA + conciliación bancaria (N43)",
+            "Cámaras y alarma · dominio propio (white-label)"
+          ]
+        }
+      ]
+    },
     "faq": {
       "title": "Preguntas frecuentes",
       "subtitle": "Resolvemos las dudas más habituales sobre el software de gestión de trasteros.",
@@ -178,19 +234,19 @@
         },
         {
           "q": "¿Hay prueba gratuita?",
-          "a": "Sí. Puedes probar TrasterOS 14 días gratis, sin tarjeta ni permanencia."
+          "a": "Sí. Puedes probar TrasterOS 30 días gratis, sin tarjeta ni permanencia."
         }
       ]
     },
     "cta": {
       "title": "Moderniza la gestión de tu self-storage",
-      "subtitle": "Empieza hoy y ten tus trasteros, contratos y cobros bajo control en minutos. Prueba 14 días gratis, sin tarjeta."
+      "subtitle": "Empieza hoy y ten tus trasteros, contratos y cobros bajo control en minutos. Prueba 30 días gratis, sin tarjeta."
     }
   },
   "auth": {
     "register": {
       "title": "Crea tu cuenta",
-      "subtitle": "Pruébalo 14 días gratis. Sin tarjeta.",
+      "subtitle": "Pruébalo 30 días gratis. Sin tarjeta.",
       "tenantName": "Nombre de la empresa",
       "tenantSlug": "Subdominio",
       "tenantSlugHint": "Se generará automáticamente si lo dejas vacío",

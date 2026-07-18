@@ -103,16 +103,12 @@ describe('Límites de plan + add-ons de capacidad (e2e)', () => {
 
   it('bloquea al superar el límite de trasteros del plan', async () => {
     const owner = await registerVerifiedUser(app, 'limit-units');
-    await setTenantPlan(owner.slug, 'free'); // free: maxUnits = 50
+    await setTenantPlan(owner.slug, 'free'); // free: maxUnits = 10
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     const tenant = await adminClient.tenant.findUnique({ where: { slug: owner.slug } });
 
-    // Bajamos el límite del plan del tenant a 1 para el test (vía el plan free
-    // no es práctico crear 50). Creamos un local con 1 trastero → al alcanzar
-    // el tope, el siguiente falla.
-    // Reutilizamos maxUnits=50: creamos 1 unidad y forzamos el límite bajando
-    // el plan a uno con maxUnits pequeño no existe; en su lugar comprobamos el
-    // camino feliz + que el endpoint de límites devuelve el tope del plan.
+    // Comprobamos el camino feliz (crear dentro del límite) + que el endpoint de
+    // límites devuelve el tope del plan free (maxUnits = 10).
     const { facilityId, unitTypeId } = await createFacilityWithUnits(app, owner.accessToken, {
       facilityName: 'Local U',
       unitsCount: 1,
@@ -123,8 +119,8 @@ describe('Límites de plan + add-ons de capacidad (e2e)', () => {
     const limits = await request(app.getHttpServer())
       .get(`/admin/tenants/${tenantId}/limits`)
       .set({ Authorization: `Bearer ${adminToken}` });
-    // free → maxUnits 50; ya hay 1 usada.
-    expect(limits.body.units).toMatchObject({ limit: 50 });
+    // free → maxUnits 10; ya hay 1 usada.
+    expect(limits.body.units).toMatchObject({ limit: 10 });
     expect(limits.body.units.used).toBeGreaterThanOrEqual(1);
 
     // Crear un trastero adicional dentro del límite → OK.

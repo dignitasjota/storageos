@@ -15,7 +15,7 @@ import './globals.css';
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ??
   process.env.NEXT_PUBLIC_WEB_URL ??
-  'https://trasteros.app'
+  'https://trasteros.pro'
 ).replace(/\/$/, '');
 
 export const metadata: Metadata = {
