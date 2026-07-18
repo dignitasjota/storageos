@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import {
+  useCameraControl,
   useCameraDevices,
   useCameraEvents,
   useCreateCameraDevice,
@@ -51,6 +52,27 @@ export default function CamerasPage() {
   const del = useDeleteCameraDevice();
   const createIncident = useCreateIncidentFromEvent();
   const [creatingIncidentId, setCreatingIncidentId] = useState<string | null>(null);
+  const snapshot = useCameraControl('snapshot');
+  const arm = useCameraControl('arm');
+  const disarm = useCameraControl('disarm');
+
+  async function handleControl(
+    deviceId: string,
+    action: 'snapshot' | 'arm' | 'disarm',
+    label: string,
+  ) {
+    const hook = action === 'snapshot' ? snapshot : action === 'arm' ? arm : disarm;
+    try {
+      const res = await hook.mutateAsync(deviceId);
+      if (res.dispatched) {
+        toast.success(action === 'snapshot' ? 'Captura guardada.' : `${label} enviado.`);
+      } else {
+        toast.warning(`No disponible: ${res.message ?? 'requiere el equipo/agente on-site'}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
 
   async function handleCreateIncident(eventId: string) {
     setCreatingIncidentId(eventId);
@@ -113,16 +135,46 @@ export default function CamerasPage() {
                     </p>
                   </div>
                   <Can permission="access:manage">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Eliminar"
-                      onClick={() => {
-                        if (window.confirm(`¿Eliminar la cámara «${d.name}»?`)) del.mutate(d.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {d.controlUrl && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => void handleControl(d.id, 'snapshot', 'Captura')}
+                          >
+                            <Camera className="mr-1 h-3 w-3" /> Captura
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => void handleControl(d.id, 'arm', 'Armado')}
+                          >
+                            Armar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => void handleControl(d.id, 'disarm', 'Desarmado')}
+                          >
+                            Desarmar
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Eliminar"
+                        onClick={() => {
+                          if (window.confirm(`¿Eliminar la cámara «${d.name}»?`)) del.mutate(d.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </Can>
                 </div>
               ))}
@@ -240,6 +292,8 @@ function CreateCameraDialog({
   const [channel, setChannel] = useState('1');
   const [provider, setProvider] = useState<CameraProviderValue>('dahua');
   const [serialNumber, setSerialNumber] = useState('');
+  const [controlUrl, setControlUrl] = useState('');
+  const [controlSecret, setControlSecret] = useState('');
 
   async function submit() {
     if (!facilityId || !name.trim()) {
@@ -254,9 +308,13 @@ function CreateCameraDialog({
         provider,
         metadata: {},
         ...(serialNumber.trim() ? { serialNumber: serialNumber.trim() } : {}),
+        ...(controlUrl.trim() ? { controlUrl: controlUrl.trim() } : {}),
+        ...(controlSecret.trim() ? { controlSecret: controlSecret.trim() } : {}),
       });
       setName('');
       setSerialNumber('');
+      setControlUrl('');
+      setControlSecret('');
       onRevealed(dto);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -296,11 +354,13 @@ function CreateCameraDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {CameraProviderEnum.options.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {CAMERA_PROVIDER_LABELS[p]}
-                  </SelectItem>
-                ))}
+                {CameraProviderEnum.options
+                  .filter((p) => p !== 'stub')
+                  .map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {CAMERA_PROVIDER_LABELS[p]}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -321,6 +381,28 @@ function CreateCameraDialog({
             <div className="space-y-1">
               <Label>Nº de serie (opcional)</Label>
               <Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Acciones salientes (opcional) — para captura bajo demanda y armar/desarmar
+            </p>
+            <div className="space-y-1">
+              <Label>URL del equipo/NVR</Label>
+              <Input
+                value={controlUrl}
+                onChange={(e) => setControlUrl(e.target.value)}
+                placeholder="http://192.168.1.108"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Credenciales (usuario:contraseña)</Label>
+              <Input
+                type="password"
+                value={controlSecret}
+                onChange={(e) => setControlSecret(e.target.value)}
+                placeholder="admin:••••••"
+              />
             </div>
           </div>
           <Button onClick={submit} disabled={create.isPending} className="w-full">

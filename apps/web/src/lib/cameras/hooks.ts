@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  CameraControlResultDto,
   CameraDeviceDto,
   CameraDeviceWithTokenDto,
   CameraEventDto,
@@ -74,6 +75,16 @@ export function useCameraEventsByIncident(incidentId: string | null) {
     queryKey: ['cameras', 'events', 'incident', incidentId],
     queryFn: () => apiFetch<CameraEventDto[]>(`/cameras/events?incidentId=${incidentId}`),
     enabled: !!incidentId,
+  });
+}
+
+/** Acción saliente sobre un equipo (captura on-demand / armar / desarmar). */
+export function useCameraControl(action: 'snapshot' | 'arm' | 'disarm') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (deviceId: string) =>
+      apiFetch<CameraControlResultDto>(`/cameras/devices/${deviceId}/${action}`, { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['cameras', 'events'] }),
   });
 }
 

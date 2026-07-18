@@ -3000,6 +3000,10 @@ model CameraDevice {
   /// del fabricante. `generic` = solo ingesta, sin acciones salientes.
   provider           String        @default("dahua")
   serialNumber       String?       @map("serial_number")
+  /// Base del equipo/NVR (http://<ip>) para acciones salientes (snapshot/armar).
+  controlUrl             String?   @map("control_url")
+  /// user:pass del equipo, cifrado AES-256-GCM (como access_devices).
+  controlSecretEncrypted String?   @map("control_secret_encrypted")
   ingestTokenHash    String        @map("ingest_token_hash")
   ingestTokenPreview String        @map("ingest_token_preview")
   isActive           Boolean       @default(true) @map("is_active")

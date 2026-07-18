@@ -141,6 +141,64 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
     expect(unlink.body.incidentId).toBeNull();
   });
 
+  it('acciones salientes: snapshot on-demand + armar/desarmar (provider stub)', async () => {
+    const owner = await registerVerifiedUser(app, 'cam-control');
+    await setTenantPlan(owner.slug, 'pro');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const facility = await request(app.getHttpServer())
+      .post('/facilities')
+      .set(auth)
+      .send({ name: 'Local control' });
+
+    // Cámara con provider 'stub' (simula el equipo) + datos de conexión.
+    const dev = await request(app.getHttpServer())
+      .post('/cameras/devices')
+      .set(auth)
+      .send({
+        facilityId: facility.body.id,
+        name: 'NVR stub',
+        channel: 1,
+        provider: 'stub',
+        controlUrl: 'http://127.0.0.1:1',
+        controlSecret: 'admin:pw',
+      });
+    expect(dev.status).toBe(201);
+    expect(dev.body.controlUrl).toBe('http://127.0.0.1:1');
+    expect(dev.body.hasControlSecret).toBe(true);
+    const deviceId = dev.body.id as string;
+
+    // Snapshot on-demand → el stub devuelve un JPEG → se guarda y aparece en el feed.
+    const snap = await request(app.getHttpServer())
+      .post(`/cameras/devices/${deviceId}/snapshot`)
+      .set(auth);
+    expect(snap.status).toBe(200);
+    expect(snap.body.dispatched).toBe(true);
+    expect(snap.body.snapshotUrl).toBeTruthy();
+
+    const feed = await request(app.getHttpServer()).get('/cameras/events').set(auth);
+    const onDemand = (feed.body as { eventType: string }[]).find(
+      (e) => e.eventType === 'on_demand_snapshot',
+    );
+    expect(onDemand).toBeDefined();
+
+    // Armar / desarmar → el stub simula éxito.
+    const armed = await request(app.getHttpServer()).post(`/cameras/devices/${deviceId}/arm`).set(auth);
+    expect(armed.status).toBe(200);
+    expect(armed.body.dispatched).toBe(true);
+
+    // Un device 'generic' no soporta acciones salientes → dispatched:false limpio.
+    const generic = await request(app.getHttpServer())
+      .post('/cameras/devices')
+      .set(auth)
+      .send({ facilityId: facility.body.id, name: 'Cam generic', provider: 'generic' });
+    const snapGeneric = await request(app.getHttpServer())
+      .post(`/cameras/devices/${generic.body.id}/snapshot`)
+      .set(auth);
+    expect(snapGeneric.status).toBe(200);
+    expect(snapGeneric.body.dispatched).toBe(false);
+    expect(snapGeneric.body.message).toBe('provider_sin_acciones');
+  });
+
   it('sin autenticación no se puede listar el feed (401)', async () => {
     await request(app.getHttpServer()).get('/cameras/events').expect(401);
   });

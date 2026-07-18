@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -32,6 +33,7 @@ export class CameraDevicesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly crypto: CryptoService,
   ) {}
 
   async list(
@@ -75,6 +77,10 @@ export class CameraDevicesService {
             channel: args.input.channel,
             provider: args.input.provider,
             serialNumber: args.input.serialNumber?.trim() || null,
+            controlUrl: args.input.controlUrl?.trim() || null,
+            controlSecretEncrypted: args.input.controlSecret?.trim()
+              ? this.crypto.encryptString(args.input.controlSecret.trim())
+              : null,
             ingestTokenHash: hashIngestToken(token),
             ingestTokenPreview: token.slice(0, 8),
             metadata: args.input.metadata as Prisma.InputJsonValue,
@@ -102,6 +108,12 @@ export class CameraDevicesService {
     if (i.channel !== undefined) data.channel = i.channel;
     if (i.provider !== undefined) data.provider = i.provider;
     if (i.serialNumber !== undefined) data.serialNumber = i.serialNumber?.trim() || null;
+    if (i.controlUrl !== undefined) data.controlUrl = i.controlUrl?.trim() || null;
+    if (i.controlSecret !== undefined) {
+      data.controlSecretEncrypted = i.controlSecret?.trim()
+        ? this.crypto.encryptString(i.controlSecret.trim())
+        : null;
+    }
     if (i.facilityId !== undefined) {
       assertFacilityAllowed(args.facilityScope, i.facilityId);
       data.facilityId = i.facilityId;
@@ -196,6 +208,8 @@ export class CameraDevicesService {
       channel: d.channel,
       provider: (d.provider as CameraDeviceDto['provider']) ?? 'dahua',
       serialNumber: d.serialNumber,
+      controlUrl: d.controlUrl,
+      hasControlSecret: d.controlSecretEncrypted !== null,
       ingestTokenPreview: d.ingestTokenPreview,
       isActive: d.isActive,
       lastEventAt: d.lastEventAt?.toISOString() ?? null,

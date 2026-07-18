@@ -13,6 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  type CameraControlResultDto,
   CameraEventKindEnum,
   type CameraDeviceDto,
   type CameraDeviceWithTokenDto,
@@ -32,6 +33,7 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { CameraControlService } from './camera-control.service';
 import { CameraDevicesService } from './camera-devices.service';
 import { CameraEventsService } from './camera-events.service';
 
@@ -62,6 +64,7 @@ export class CamerasController {
   constructor(
     private readonly devices: CameraDevicesService,
     private readonly events: CameraEventsService,
+    private readonly control: CameraControlService,
   ) {}
 
   @RequirePermission('access:read')
@@ -122,6 +125,39 @@ export class CamerasController {
       meta: meta(req),
       facilityScope: user.facilityScope ?? null,
     });
+  }
+
+  /** Captura un fotograma bajo demanda (lo guarda como evento). */
+  @RequirePermission('access:manage')
+  @Post('devices/:id/snapshot')
+  @HttpCode(HttpStatus.OK)
+  snapshot(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CameraControlResultDto> {
+    return this.control.snapshot(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Arma la alarma del equipo/NVR. */
+  @RequirePermission('access:manage')
+  @Post('devices/:id/arm')
+  @HttpCode(HttpStatus.OK)
+  arm(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CameraControlResultDto> {
+    return this.control.arm(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Desarma la alarma del equipo/NVR. */
+  @RequirePermission('access:manage')
+  @Post('devices/:id/disarm')
+  @HttpCode(HttpStatus.OK)
+  disarm(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CameraControlResultDto> {
+    return this.control.disarm(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('access:manage')

@@ -19,13 +19,24 @@ export type CameraEventKind = z.infer<typeof CameraEventKindEnum>;
  * necesitan la API del fabricante. Añadir una marca = 1 valor aquí + su adapter.
  * `generic` = cualquier equipo que solo empuje eventos al webhook (sin acciones).
  */
-export const CameraProviderEnum = z.enum(['dahua', 'generic']);
+export const CameraProviderEnum = z.enum(['dahua', 'generic', 'stub']);
 export type CameraProviderValue = z.infer<typeof CameraProviderEnum>;
 
 export const CAMERA_PROVIDER_LABELS: Record<CameraProviderValue, string> = {
   dahua: 'Dahua (NVR / cámara IP)',
   generic: 'Genérico (solo ingesta de eventos)',
+  stub: 'Simulador (pruebas)',
 };
+
+/** Resultado de una acción saliente (snapshot / armar / desarmar). */
+export interface CameraControlResultDto {
+  /** El comando se envió al equipo (no garantiza el resultado físico). */
+  dispatched: boolean;
+  /** Motivo cuando `dispatched:false` (no configurado, sin agente, error…). */
+  message: string | null;
+  /** URL firmada del snapshot capturado (solo en la acción de snapshot). */
+  snapshotUrl: string | null;
+}
 
 // --- Gestión de dispositivos (staff) ---
 
@@ -37,6 +48,10 @@ export const CreateCameraDeviceSchema = z.object({
   provider: CameraProviderEnum.default('dahua'),
   /** Nº de serie del equipo (para añadirlo también a DMSS). */
   serialNumber: z.string().trim().max(120).optional(),
+  /** Base del equipo/NVR (http://<ip>) para snapshot/armar. `''` = quitar. */
+  controlUrl: z.string().max(300).optional(),
+  /** Credenciales del equipo `user:pass` (se cifran en BD). `''` = quitar. */
+  controlSecret: z.string().max(200).optional(),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateCameraDeviceInput = z.infer<typeof CreateCameraDeviceSchema>;
@@ -56,6 +71,10 @@ export interface CameraDeviceDto {
   channel: number;
   provider: CameraProviderValue;
   serialNumber: string | null;
+  /** Base del equipo para acciones salientes (null si no configurado). */
+  controlUrl: string | null;
+  /** Si tiene credenciales del equipo guardadas (sin exponer el secreto). */
+  hasControlSecret: boolean;
   /** Primeros caracteres del token de ingesta (sin exponerlo entero). */
   ingestTokenPreview: string;
   isActive: boolean;
