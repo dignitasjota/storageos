@@ -25,10 +25,10 @@ const TERMS_MD = `## 1. Información del prestador
 
 El servicio es prestado por:
 
-- Titular: **[Razón social del prestador]**
+- Titular: **TrasterOS**
 - NIF/CIF: **[NIF]**
 - Domicilio: **[Domicilio social]**
-- Contacto: **[correo@dominio]**
+- Contacto: **info@trasteros.pro**
 
 Esta información se facilita en cumplimiento de la Ley 34/2002 de servicios de la sociedad de la información y de comercio electrónico (LSSI-CE).
 
@@ -95,7 +95,7 @@ Estas condiciones se rigen por la legislación española. Para la resolución de
 
 ## 14. Contacto
 
-Para cualquier duda sobre estas condiciones, escríbenos a **[correo@dominio]**.`;
+Para cualquier duda sobre estas condiciones, escríbenos a **info@trasteros.pro**.`;
 
 const PRIVACY_MD = `En TrasterOS nos tomamos en serio la protección de tus datos. Esta política explica qué datos personales tratamos, con qué finalidad y base jurídica, con quién los compartimos y qué derechos te asisten, conforme al Reglamento (UE) 2016/679 (RGPD) y a la Ley Orgánica 3/2018 (LOPDGDD). Los campos entre corchetes deben completarse con los datos del prestador antes de publicar.
 
