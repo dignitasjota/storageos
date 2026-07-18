@@ -51,7 +51,7 @@ export default function OpengraphImage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '26px', color: '#eff6ff' }}>
-          <span>En español · Multi-local · Prueba 14 días gratis</span>
+          <span>En español · Multi-local · Prueba 30 días gratis</span>
         </div>
       </div>
     ),

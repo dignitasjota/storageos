@@ -26,12 +26,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ??
   process.env.NEXT_PUBLIC_WEB_URL ??
-  'https://trasteros.app'
+  'https://trasteros.pro'
 ).replace(/\/$/, '');
 
 const TITLE = 'TrasterOS — Software de gestión para self-storage y trasteros';
 const DESCRIPTION =
-  'Software todo-en-uno para gestionar tu self-storage: inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, CRM y analítica. En español, multi-local y con prueba gratis de 14 días.';
+  'Software todo-en-uno para gestionar tu self-storage: inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, CRM y analítica. En español, multi-local y con prueba gratis de 30 días.';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },
@@ -124,7 +124,7 @@ export default function LandingPage() {
         '@type': 'Offer',
         price: '0',
         priceCurrency: 'EUR',
-        description: 'Prueba gratuita de 14 días, sin tarjeta.',
+        description: 'Prueba gratuita de 30 días, sin tarjeta.',
       },
       provider: { '@type': 'Organization', name: 'TrasterOS', url: SITE_URL },
     },
