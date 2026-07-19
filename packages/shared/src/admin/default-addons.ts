@@ -86,4 +86,11 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     priceMonthly: 24,
     feature: 'cameras',
   },
+  {
+    slug: 'addon-facial-access',
+    name: 'Acceso por reconocimiento facial',
+    description: '«Tu cara es la llave»: el inquilino entra con reconocimiento facial en el terminal.',
+    priceMonthly: 20,
+    feature: 'facial_access',
+  },
 ];

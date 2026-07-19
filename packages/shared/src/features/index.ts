@@ -18,18 +18,33 @@ export const TenantFeatures = [
   'custom_domain', // dominio propio en la landing/portal (white-label)
   'collections', // expedientes de impago (overlock → disposición)
   'cameras', // /cameras (videovigilancia + alarma; hardware Dahua/NVR)
+  'facial_access', // reconocimiento facial ("tu cara es la llave") — SOLO add-on
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
 
 /**
  * Features incluidas en cada plan (por slug). `cameras` (videovigilancia +
- * alarma) es tier alto → solo en `pro` (el plan más caro), no en `starter`.
+ * alarma) es tier alto → solo en `pro`. `facial_access` (reconocimiento facial)
+ * NO va en ningún plan: es un **add-on facturable aparte** que el super admin
+ * activa (add-on `addon-facial-access` u override). Por eso `pro` es una lista
+ * explícita en vez del spread `[...TenantFeatures]` (que la incluiría).
  */
 export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
   free: [],
   starter: ['rent_increases', 'insurance', 'access_control', 'automations', 'collections'],
-  pro: [...TenantFeatures],
+  pro: [
+    'ai_assistant',
+    'sepa',
+    'bank_reconciliation',
+    'rent_increases',
+    'insurance',
+    'access_control',
+    'automations',
+    'custom_domain',
+    'collections',
+    'cameras',
+  ],
 };
 
 /** Features efectivas de un plan. Slug desconocido → todas (default seguro). */
@@ -100,4 +115,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   custom_domain: 'Dominio propio (white-label)',
   collections: 'Gestión de impagos (overlock)',
   cameras: 'Cámaras y alarma',
+  facial_access: 'Acceso por reconocimiento facial',
 };

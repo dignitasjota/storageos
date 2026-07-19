@@ -1,4 +1,4 @@
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
@@ -7,6 +7,7 @@ import { accessWindowsFrom } from '@storageos/shared';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import { DahuaSyncService } from './dahua-sync.service';
 
@@ -25,6 +26,7 @@ import type {
   AccessCredentialWithSecretDto,
   AccessMethodValue,
   CreateCredentialInput,
+  CreateFacialCredentialInput,
   NightPassListDto,
   PortalAccessCredentialDto,
   PortalAccessLogDto,
@@ -95,6 +97,7 @@ export class AccessCredentialsService {
     private readonly audit: AuditService,
     private readonly crypto: CryptoService,
     private readonly sync: DahuaSyncService,
+    private readonly files: FilesService,
   ) {}
 
   /**
@@ -288,6 +291,58 @@ export class AccessCredentialsService {
     // Patrón B: propaga la credencial a los terminales autónomos del scope (best-effort).
     await this.sync.syncCredential(args.tenantId, created.id);
     return { ...this.toDto(created), revealedSecret };
+  }
+
+  /**
+   * Alta de una credencial FACIAL («tu cara es la llave»). La foto se guarda en
+   * MinIO (bucket privado); el terminal (Patrón B) hace el matching offline con
+   * la plantilla que le sincronizamos. Feature `facial_access` (add-on). Sin
+   * scope explícito, se acota a los contratos vivos del inquilino (como el resto
+   * de auto-emitidas — evita el bug de scope vacío = acceso a todo).
+   */
+  async createFacial(args: {
+    tenantId: string;
+    userId: string;
+    input: CreateFacialCredentialInput;
+    meta: RequestMeta;
+  }): Promise<AccessCredentialDto> {
+    const input = args.input;
+    const scope =
+      input.allowedFacilityIds || input.allowedUnitIds
+        ? {
+            allowedFacilityIds: input.allowedFacilityIds ?? [],
+            allowedUnitIds: input.allowedUnitIds ?? [],
+          }
+        : await this.customerScope(args.tenantId, input.customerId);
+
+    // Guarda la foto en MinIO (bucket privado); en BD solo la key.
+    const ext = input.photoMimeType === 'image/png' ? 'png' : 'jpg';
+    const key = `${args.tenantId}/customers/${input.customerId}/face/${randomUUID()}.${ext}`;
+    await this.files.putObject({
+      bucket: 'uploads',
+      key,
+      body: Buffer.from(input.photoBase64, 'base64'),
+      contentType: input.photoMimeType,
+    });
+
+    const data: Prisma.AccessCredentialUncheckedCreateInput = {
+      tenantId: args.tenantId,
+      customerId: input.customerId,
+      method: 'face' as AccessMethod,
+      status: 'active' as AccessCredentialStatus,
+      label: input.label?.trim() || 'Reconocimiento facial',
+      facePhotoKey: key,
+      allowedFacilityIds: scope.allowedFacilityIds,
+      allowedUnitIds: scope.allowedUnitIds,
+      activatedAt: new Date(),
+    };
+    const created = await this.prisma.withTenant(
+      (tx) => tx.accessCredential.create({ data, include: CUSTOMER_SELECT }),
+      args.tenantId,
+    );
+    await this.writeAudit('access.credential_created', args, created.id);
+    await this.sync.syncCredential(args.tenantId, created.id);
+    return this.toDto(created);
   }
 
   async update(args: {

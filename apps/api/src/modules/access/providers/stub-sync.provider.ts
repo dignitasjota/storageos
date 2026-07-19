@@ -11,10 +11,12 @@ import {
 interface StubEntry {
   ref: string;
   state: SyncState;
-  method: 'pin' | 'qr' | 'rfid';
+  method: 'pin' | 'qr' | 'rfid' | 'face';
   credentialId: string;
   validUntil: Date | null;
   maxUses: number | null;
+  /** Solo facial: indica que se recibió la plantilla (foto). */
+  hasFace: boolean;
 }
 
 /**
@@ -55,6 +57,7 @@ export class StubSyncProvider extends CredentialSyncProvider {
       credentialId: cred.credentialId,
       validUntil: cred.validUntil,
       maxUses: cred.maxUses,
+      hasFace: cred.method === 'face' && !!cred.photoBase64,
     });
     return { ref };
   }

@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import {
   type SyncDevice,
@@ -42,6 +43,7 @@ export class DahuaSyncService {
     private readonly admin: PrismaAdminService,
     private readonly crypto: CryptoService,
     private readonly registry: SyncProviderRegistry,
+    private readonly files: FilesService,
   ) {}
 
   private toSyncDevice(d: DeviceWithFacility): SyncDevice {
@@ -93,8 +95,22 @@ export class DahuaSyncService {
       if (!cred) return;
       const state = toSyncState(cred.status);
       if (!state) return; // pending: aún no se sincroniza
+      const isFace = cred.method === ('face' as AccessMethod);
       const secret = this.secretOf(cred);
-      if (!secret) return;
+      // Facial: el "secreto" es la foto (bucket privado), no un PIN/UID.
+      let photoBase64: string | undefined;
+      if (isFace) {
+        if (!cred.facePhotoKey) return;
+        try {
+          photoBase64 = (
+            await this.files.getObject({ bucket: 'uploads', key: cred.facePhotoKey })
+          ).toString('base64');
+        } catch {
+          return; // sin la foto no hay nada que sincronizar
+        }
+      } else if (!secret) {
+        return;
+      }
 
       const devices = await this.syncableDevices(tenantId, cred.allowedFacilityIds);
       for (const device of devices) {
@@ -104,8 +120,9 @@ export class DahuaSyncService {
           const { ref } = await provider.pushCredential(this.toSyncDevice(device), {
             credentialId: cred.id,
             customerId: cred.customerId,
-            method: cred.method as 'pin' | 'qr' | 'rfid',
-            secret,
+            method: cred.method as 'pin' | 'qr' | 'rfid' | 'face',
+            secret: secret ?? '',
+            ...(photoBase64 ? { photoBase64, photoMimeType: 'image/jpeg' } : {}),
             label: cred.label,
             state,
             // Caducidad + límite de usos: sin ellos, un pase nocturno synced a un
