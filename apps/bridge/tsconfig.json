@@ -1,0 +1,10 @@
+{
+  "extends": "@storageos/tsconfig/base.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "types": ["node", "jest"],
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "test/**/*"]
+}
