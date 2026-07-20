@@ -14,6 +14,7 @@ import type {
   AccessMethodValue,
   AccessResultValue,
   CreateCredentialInput,
+  CreateFacialCredentialInput,
   CreateDeviceInput,
   RotateCredentialInput,
   SuspendCredentialInput,
@@ -74,6 +75,18 @@ export function useCreateCredential() {
   return useMutation({
     mutationFn: (input: CreateCredentialInput) =>
       apiFetch<AccessCredentialWithSecretDto>('/access/credentials', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['access', 'credentials'] }),
+  });
+}
+
+export function useCreateFacialCredential() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateFacialCredentialInput) =>
+      apiFetch<AccessCredentialDto>('/access/credentials/face', {
         method: 'POST',
         json: input,
       }),

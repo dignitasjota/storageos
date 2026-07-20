@@ -137,3 +137,27 @@ export async function setTenantPlan(tenantSlug: string, planSlug: string): Promi
     await admin.$disconnect();
   }
 }
+
+/**
+ * Activa/desactiva una feature de un tenant vía override (lo que hace el super
+ * admin en `/admin/tenants/:id/features`). Para features que NO están en ningún
+ * plan (add-ons como `facial_access`), es la única vía de activarla en tests.
+ */
+export async function setTenantFeatureOverride(
+  tenantSlug: string,
+  feature: string,
+  enabled: boolean,
+): Promise<void> {
+  const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
+  try {
+    const tenant = await admin.tenant.findUnique({ where: { slug: tenantSlug } });
+    if (!tenant) return;
+    await admin.tenantFeatureOverride.upsert({
+      where: { tenantId_feature: { tenantId: tenant.id, feature } },
+      create: { tenantId: tenant.id, feature, enabled },
+      update: { enabled },
+    });
+  } finally {
+    await admin.$disconnect();
+  }
+}

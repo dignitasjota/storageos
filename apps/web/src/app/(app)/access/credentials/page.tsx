@@ -24,6 +24,7 @@ import {
   Plus,
   QrCode,
   RotateCw,
+  ScanFace,
   Trash2,
   ShieldOff,
   Pause,
@@ -72,6 +73,7 @@ import {
 } from '@/components/ui/select';
 import {
   useCreateCredential,
+  useCreateFacialCredential,
   useCredentials,
   useResumeCredential,
   useRevokeCredential,
@@ -80,7 +82,7 @@ import {
 } from '@/lib/access/hooks';
 import { useAccessSettings, useUpdateAccessSettings } from '@/lib/access/settings-hooks';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
@@ -88,6 +90,7 @@ const METHOD_LABELS: Record<AccessMethodValue, { label: string; Icon: React.Elem
   pin: { label: 'PIN', Icon: KeyRound },
   qr: { label: 'QR', Icon: QrCode },
   rfid: { label: 'RFID', Icon: CreditCard },
+  face: { label: 'Facial', Icon: ScanFace },
 };
 
 const STATUS_LABELS: Record<AccessCredentialStatusValue, { label: string; className: string }> = {
@@ -112,10 +115,12 @@ const STATUS_LABELS: Record<AccessCredentialStatusValue, { label: string; classN
 
 export default function CredentialsPage() {
   const canManage = useHasPermission('access:manage');
+  const hasFacial = useHasFeature('facial_access');
   const [status, setStatus] = useState<AccessCredentialStatusValue | undefined>();
   const [method, setMethod] = useState<AccessMethodValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [facialOpen, setFacialOpen] = useState(false);
   const [revealed, setRevealed] = useState<AccessCredentialWithSecretDto | null>(null);
   const [rotateTarget, setRotateTarget] = useState<AccessCredentialDto | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<AccessCredentialDto | null>(null);
@@ -338,9 +343,16 @@ export default function CredentialsPage() {
         emptyText="No hay credenciales. Crea la primera para empezar."
         toolbarRight={
           canManage ? (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-1 h-4 w-4" /> Nueva credencial
-            </Button>
+            <div className="flex gap-2">
+              {hasFacial && (
+                <Button variant="outline" onClick={() => setFacialOpen(true)}>
+                  <ScanFace className="mr-1 h-4 w-4" /> Añadir facial
+                </Button>
+              )}
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-1 h-4 w-4" /> Nueva credencial
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -355,6 +367,8 @@ export default function CredentialsPage() {
           }}
         />
       )}
+
+      {facialOpen && <FacialCredentialDialog onClose={() => setFacialOpen(false)} />}
 
       {rotateTarget && (
         <RotateCredentialDialog
@@ -495,11 +509,13 @@ function CreateCredentialDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {(Object.keys(METHOD_LABELS) as AccessMethodValue[]).map((m) => (
-                        <SelectItem key={m} value={m}>
-                          {METHOD_LABELS[m].label}
-                        </SelectItem>
-                      ))}
+                      {(Object.keys(METHOD_LABELS) as AccessMethodValue[])
+                        .filter((m) => m !== 'face')
+                        .map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {METHOD_LABELS[m].label}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -639,6 +655,125 @@ function CreateCredentialDialog({
             </DialogFooter>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// Facial credential (add-on)
+// ============================================================================
+
+function FacialCredentialDialog({ onClose }: { onClose: () => void }) {
+  const create = useCreateFacialCredential();
+  const customers = useCustomers();
+  const [customerId, setCustomerId] = useState('');
+  const [label, setLabel] = useState('');
+  const [preview, setPreview] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<{ base64: string; mime: 'image/jpeg' | 'image/png' } | null>(
+    null,
+  );
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    setFileError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+      setFileError('La foto debe ser JPEG o PNG.');
+      return;
+    }
+    // Dahua FaceInfoManager limita la foto a ~100 KB.
+    if (file.size > 100_000) {
+      setFileError('La foto no puede superar los 100 KB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      const base64 = dataUrl.split(',')[1] ?? '';
+      setPhoto({ base64, mime: file.type as 'image/jpeg' | 'image/png' });
+      setPreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function submit() {
+    if (!customerId || !photo) return;
+    try {
+      await create.mutateAsync({
+        customerId,
+        ...(label.trim() ? { label: label.trim() } : {}),
+        photoBase64: photo.base64,
+        photoMimeType: photo.mime,
+      });
+      toast.success('Credencial facial creada. Se sincronizará con el terminal.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Acceso por reconocimiento facial</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            «Tu cara es la llave»: sube una foto del rostro del inquilino. El terminal la usa para
+            validar el acceso sin PIN ni tarjeta.
+          </p>
+          <div className="space-y-1.5">
+            <Label>Inquilino</Label>
+            <Select onValueChange={setCustomerId} value={customerId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona inquilino" />
+              </SelectTrigger>
+              <SelectContent>
+                {(customers.data ?? []).map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Etiqueta (opcional)</Label>
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Ej: Rostro principal"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Foto del rostro (JPEG/PNG, máx. 100 KB)</Label>
+            <Input type="file" accept="image/jpeg,image/png" onChange={onFile} />
+            {fileError && <p className="text-sm text-destructive">{fileError}</p>}
+            {preview && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={preview}
+                alt="Vista previa del rostro"
+                className="mt-2 h-32 w-32 rounded-md border object-cover"
+              />
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!customerId || !photo || create.isPending}
+          >
+            {create.isPending ? 'Creando...' : 'Crear credencial facial'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

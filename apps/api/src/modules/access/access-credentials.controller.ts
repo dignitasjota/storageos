@@ -20,6 +20,7 @@ import {
   AccessMethodEnum,
   type AccessMethodValue,
   CreateCredentialSchema,
+  CreateFacialCredentialSchema,
   RotateCredentialSchema,
   SuspendCredentialSchema,
   UpdateCredentialSchema,
@@ -39,6 +40,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class CreateCredentialDto extends createZodDto(CreateCredentialSchema) {}
+class CreateFacialCredentialDto extends createZodDto(CreateFacialCredentialSchema) {}
 class UpdateCredentialDto extends createZodDto(UpdateCredentialSchema) {}
 class RotateCredentialDto extends createZodDto(RotateCredentialSchema) {}
 class SuspendCredentialDto extends createZodDto(SuspendCredentialSchema) {}
@@ -110,6 +112,27 @@ export class AccessCredentialsController {
     @Req() req: Request,
   ): Promise<AccessCredentialWithSecretDto> {
     return this.service.create({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      meta: extractMeta(req),
+    });
+  }
+
+  /**
+   * Alta de credencial FACIAL. Gateada por la feature `facial_access` (add-on),
+   * que **sustituye** al `access_control` de la clase (FeatureGuard resuelve
+   * override método > clase) → sin el add-on facial → 403 aunque tenga accesos.
+   */
+  @Post('face')
+  @RequireFeature('facial_access')
+  @RequirePermission('access:manage')
+  createFacial(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateFacialCredentialDto,
+    @Req() req: Request,
+  ): Promise<AccessCredentialDto> {
+    return this.service.createFacial({
       tenantId: user.tenantId,
       userId: user.sub,
       input: body,

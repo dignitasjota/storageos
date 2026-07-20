@@ -27,9 +27,12 @@ export interface SyncDevice {
 export interface SyncCredentialSpec {
   credentialId: string;
   customerId: string;
-  method: 'pin' | 'qr' | 'rfid';
-  /** PIN / token QR / UID RFID en claro. */
+  method: 'pin' | 'qr' | 'rfid' | 'face';
+  /** PIN / token QR / UID RFID en claro. Vacío en facial (el secreto es la foto). */
   secret: string;
+  /** Foto en base64 (solo `method=face`; el terminal la registra en FaceInfoManager). */
+  photoBase64?: string;
+  photoMimeType?: string;
   label: string | null;
   state: SyncState;
   /** Caducidad de la credencial (pase nocturno, accesos temporales) o null. */

@@ -2808,6 +2808,7 @@ enum AccessMethod {
   pin
   qr
   rfid
+  face
 
   @@map("access_method")
 }
@@ -2862,6 +2863,9 @@ model AccessCredential {
   /// credenciales antiguas (anteriores a esta feature) y en RFID.
   secretEncrypted    String?                @map("secret_encrypted")
   rfidUid            String?                @map("rfid_uid")
+  /// Key en MinIO (bucket privado) de la foto facial (method=face). La plantilla
+  /// vive en el terminal; guardamos la foto para re-sincronizarla.
+  facePhotoKey       String?                @map("face_photo_key")
   allowedFacilityIds String[]               @default([]) @map("allowed_facility_ids")
   allowedUnitIds     String[]               @default([]) @map("allowed_unit_ids")
   allowedHours       Json                   @default("{}") @map("allowed_hours")

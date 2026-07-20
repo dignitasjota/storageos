@@ -6,8 +6,23 @@ const optionalText = (max: number) => z.string().trim().max(max).optional().or(z
 // Enums
 // ============================================================================
 
-export const AccessMethodEnum = z.enum(['pin', 'qr', 'rfid']);
+export const AccessMethodEnum = z.enum(['pin', 'qr', 'rfid', 'face']);
 export type AccessMethodValue = z.infer<typeof AccessMethodEnum>;
+
+/**
+ * Alta de una credencial FACIAL. La foto va aparte (base64 JPEG/PNG, ≤100KB por
+ * el límite de Dahua `FaceInfoManager`). Feature `facial_access` (add-on).
+ */
+export const CreateFacialCredentialSchema = z.object({
+  customerId: z.string().uuid(),
+  label: z.string().trim().max(120).optional(),
+  /** Foto de la cara en base64 (sin el prefijo `data:`). */
+  photoBase64: z.string().min(1).max(200_000),
+  photoMimeType: z.enum(['image/jpeg', 'image/png']).default('image/jpeg'),
+  allowedFacilityIds: z.array(z.string().uuid()).optional(),
+  allowedUnitIds: z.array(z.string().uuid()).optional(),
+});
+export type CreateFacialCredentialInput = z.infer<typeof CreateFacialCredentialSchema>;
 
 export const AccessCredentialStatusEnum = z.enum([
   'pending',

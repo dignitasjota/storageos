@@ -134,8 +134,45 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
     return rec?.RecNo ?? null;
   }
 
+  /**
+   * Alta de una plantilla FACIAL en el terminal (`FaceInfoManager.cgi?action=add`,
+   * doc v1.0 §Face): la cara se vincula a un `UserID`; el terminal hace el matching
+   * offline (Patrón B). La foto va en base64 (≤100 KB según la doc).
+   *
+   * ⚠️ Los nombres exactos de los campos del insert facial (PhotoData vs Photo,
+   * multipart vs base64 en query) dependen del firmware → marcado VERIFY para el
+   * smoke con el terminal físico. El `ref` persistido es el UserID (estable).
+   */
+  private async pushFace(
+    device: SyncDevice,
+    cred: SyncCredentialSpec,
+    c: { user: string; pass: string },
+  ): Promise<{ ref: string }> {
+    const userId = cred.customerId.replace(/-/g, '').slice(0, 20);
+    const params = new URLSearchParams({
+      action: 'add',
+      // VERIFY firmware: algunos exponen `UserID`, otros `PhotoData.UserID`.
+      UserID: userId,
+      // VERIFY firmware: la foto puede ir como base64 en query (`PhotoData`) o
+      // como multipart. Aquí base64 en query (scaffold).
+      ...(cred.photoBase64 ? { PhotoData: cred.photoBase64 } : {}),
+    });
+    const res = await digestRequest({
+      url: `${this.base(device)}/cgi-bin/FaceInfoManager.cgi?${params}`,
+      username: c.user,
+      password: c.pass,
+    });
+    if (!res.ok) this.logger.warn(`[dahua-sync] pushFace ${device.hardwareId} → ${res.status}`);
+    return { ref: userId };
+  }
+
   async pushCredential(device: SyncDevice, cred: SyncCredentialSpec): Promise<{ ref: string }> {
     const c = this.creds(device);
+    if (cred.method === 'face') {
+      const userId = cred.customerId.replace(/-/g, '').slice(0, 20);
+      if (!c || !device.controlUrl) return { ref: userId };
+      return this.pushFace(device, cred, c);
+    }
     const cardNo = this.cardNo(cred);
     if (!c || !device.controlUrl) return { ref: cardNo };
     const params = new URLSearchParams({

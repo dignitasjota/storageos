@@ -163,6 +163,15 @@ export class FilesService implements OnModuleInit {
     return args.key;
   }
 
+  /** Descarga un objeto a memoria (bytes). Para procesar server-side (p. ej. foto facial). */
+  async getObject(args: { bucket: PresignArgs['bucket']; key: string }): Promise<Buffer> {
+    const res = await this.s3.send(
+      new GetObjectCommand({ Bucket: this.bucketMap[args.bucket], Key: args.key }),
+    );
+    const bytes = await res.Body!.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
   /** Key para el snapshot de un evento de cámara (bucket privado `uploads`). */
   buildCameraSnapshotKey(tenantId: string, cameraDeviceId: string, mimeType: string): string {
     const ext = mimeType === 'image/png' ? 'png' : 'jpg';
