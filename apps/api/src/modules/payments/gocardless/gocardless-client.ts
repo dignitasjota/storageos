@@ -312,6 +312,52 @@ export class GoCardlessClient {
     return { id: p.id, status: p.status };
   }
 
+  /**
+   * Crea un reembolso (Refund) de un Payment ya confirmado. GoCardless exige
+   * `total_amount_confirmation` = suma total reembolsada del payment (incluido
+   * este reembolso, en céntimos) como salvaguarda contra dobles reembolsos: si
+   * no cuadra con sus registros, la API responde 422 y no devuelve el dinero.
+   * El reembolso es asíncrono (SEPA): arranca en `submitted` y liquida en días.
+   */
+  async createRefund(
+    accessToken: string,
+    environment: GoCardlessEnvironment,
+    args: {
+      paymentId: string;
+      amountCents: number;
+      totalAmountConfirmationCents: number;
+      metadata?: Record<string, string>;
+      idempotencyKey?: string;
+    },
+  ): Promise<{ id: string; status: string }> {
+    if (this.stub) {
+      return { id: `RF-stub-${stubSuffix()}`, status: 'submitted' };
+    }
+    const { status, data } = await this.request<{
+      refunds?: { id: string; status: string };
+      error?: { message?: string };
+    }>({
+      accessToken,
+      environment,
+      method: 'POST',
+      path: '/refunds',
+      body: {
+        refunds: {
+          amount: args.amountCents,
+          total_amount_confirmation: args.totalAmountConfirmationCents,
+          links: { payment: args.paymentId },
+          ...(args.metadata ? { metadata: args.metadata } : {}),
+        },
+      },
+      idempotencyKey: args.idempotencyKey ?? `refund-${stubSuffix()}`,
+    });
+    const r = data.refunds;
+    if (status >= 300 || !r) {
+      throw new Error(`createRefund: ${data.error?.message ?? `HTTP ${status}`}`);
+    }
+    return { id: r.id, status: r.status };
+  }
+
   /** Lee la cuenta bancaria del cliente (para los últimos 4 del IBAN). */
   async getCustomerBankAccount(
     accessToken: string,

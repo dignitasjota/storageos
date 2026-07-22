@@ -238,4 +238,81 @@ describe('GoCardless settings + webhook (e2e)', () => {
     expect(reverted.body.status).not.toBe('paid');
     expect(Number(reverted.body.amountPaid)).toBe(0);
   });
+
+  it('reembolso: una factura cobrada por GoCardless se reembolsa por su API', async () => {
+    const owner = await registerVerifiedUser(app, 'gocardless-refund');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const webhookSecret = 'whsec_refund_123456';
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken, { email: 'gc-r@e2e.local' });
+
+    await request(app.getHttpServer()).put('/settings/gocardless').set(auth).send({
+      accessToken: 'sandbox_token_refund_123456',
+      webhookSecret,
+      environment: 'sandbox',
+      enabled: true,
+    });
+    const start = await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/start')
+      .set(auth)
+      .send({ customerId });
+    await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/complete')
+      .set(auth)
+      .send({ customerId, billingRequestId: start.body.billingRequestId });
+
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+
+    // Cobro + confirmación por webhook → factura pagada (100 €).
+    const charge = await request(app.getHttpServer())
+      .post(`/payments/invoices/${invoiceId}/charge`)
+      .set(auth)
+      .send({});
+    const gatewayPaymentId = charge.body.gatewayPaymentId as string;
+    // Id de evento único por tenant: `processed_gocardless_events` es global y no
+    // se limpia entre runs → un id fijo daría "duplicado" en la 2ª ejecución.
+    const okBody = JSON.stringify({
+      events: [
+        {
+          id: `EV-refund-pay-${owner.tenantId}`,
+          resource_type: 'payments',
+          action: 'confirmed',
+          links: { payment: gatewayPaymentId },
+        },
+      ],
+    });
+    await request(app.getHttpServer())
+      .post(`/webhooks/gocardless/${owner.tenantId}`)
+      .set('Content-Type', 'application/json')
+      .set('Webhook-Signature', createHmac('sha256', webhookSecret).update(okBody).digest('hex'))
+      .send(okBody)
+      .expect(200);
+    const paid = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(paid.body.status).toBe('paid');
+
+    // La factura de 100 € lleva IVA 21% → total 121 €.
+    expect(Number(paid.body.total)).toBe(121);
+
+    // Reembolso parcial (40 €) → se procesa por la API de GoCardless (stub),
+    // la factura queda `partially_refunded` (antes daba 400 refund_not_supported_gateway).
+    const refund = await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/refund`)
+      .set(auth)
+      .send({ amount: 40, reason: 'baja anticipada' });
+    expect(refund.status).toBe(200);
+    expect(refund.body.status).toBe('partially_refunded');
+    expect(Number(refund.body.amountRefunded)).toBe(40);
+
+    // Reembolso del resto (81 €) → total 121, factura totalmente reembolsada.
+    const rest = await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/refund`)
+      .set(auth)
+      .send({ amount: 81 });
+    expect(rest.status).toBe(200);
+    expect(rest.body.status).toBe('refunded');
+    expect(Number(rest.body.amountRefunded)).toBe(121);
+  });
 });

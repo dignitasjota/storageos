@@ -18,6 +18,7 @@ import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
+import { GoCardlessChargeService } from '../payments/gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gateway.interface';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
@@ -102,6 +103,7 @@ export class InvoicesService {
     @InjectQueue(QUEUE_VERIFACTU) private readonly verifactuQueue: Queue<VerifactuSendJobData>,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly communications: CommunicationsService,
+    private readonly goCardlessCharge: GoCardlessChargeService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -1003,10 +1005,9 @@ export class InvoicesService {
 
     let gatewayRefundId: string | null = null;
     if (gatewayPayment?.gatewayPaymentId) {
-      // El PAYMENT_GATEWAY inyectado es Stripe: reembolsar aquí un cobro de otra
-      // pasarela (GoCardless/Redsys) llamaría a Stripe con un id ajeno → 500.
-      // Se bloquea con un mensaje claro para hacerlo a mano en su pasarela.
-      if (gatewayPayment.gateway !== 'stripe') {
+      // Redsys (y cualquier otra pasarela sin API de reembolso integrada): se
+      // reembolsa a mano en su panel. Stripe y GoCardless SÍ se reembolsan aquí.
+      if (gatewayPayment.gateway !== 'stripe' && gatewayPayment.gateway !== 'gocardless') {
         throw new BadRequestException({
           code: 'refund_not_supported_gateway',
           message: `Este cobro se hizo por ${gatewayPayment.gateway}; reembólsalo desde el panel de ${gatewayPayment.gateway} (aún no se puede desde la app).`,
@@ -1022,11 +1023,26 @@ export class InvoicesService {
           message: 'El importe excede lo cobrado por la pasarela para este pago',
         });
       }
-      const result = await this.gateway.refund({
-        gatewayPaymentId: gatewayPayment.gatewayPaymentId,
-        amountCents: toCents(amount),
-        ...(args.input.reason ? { reason: args.input.reason } : {}),
-      });
+      // GoCardless usa su propia API (SEPA, reembolso asíncrono); el resto (Stripe)
+      // va por el `PAYMENT_GATEWAY` inyectado.
+      const result =
+        gatewayPayment.gateway === 'gocardless'
+          ? await this.goCardlessCharge.refund({
+              tenantId: args.tenantId,
+              paymentId: gatewayPayment.gatewayPaymentId,
+              amountCents: toCents(amount),
+              // Suma total reembolsada del payment (incluido este) para la
+              // salvaguarda `total_amount_confirmation` de GoCardless.
+              totalAmountConfirmationCents: toCents(
+                addAmounts(gatewayPayment.refundedAmount, amount),
+              ),
+              ...(args.input.reason ? { reason: args.input.reason } : {}),
+            })
+          : await this.gateway.refund({
+              gatewayPaymentId: gatewayPayment.gatewayPaymentId,
+              amountCents: toCents(amount),
+              ...(args.input.reason ? { reason: args.input.reason } : {}),
+            });
       if (result.status === 'failed') {
         throw new BadRequestException({
           code: 'gateway_refund_failed',
