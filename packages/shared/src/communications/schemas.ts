@@ -9,16 +9,59 @@ const optionalText = (max: number) => z.string().trim().max(max).optional().or(z
 export const LeadStatusEnum = z.enum(['new', 'contacted', 'qualified', 'won', 'lost']);
 export type LeadStatusValue = z.infer<typeof LeadStatusEnum>;
 
-export const LeadSourceEnum = z.enum([
-  'widget',
-  'referral',
-  'manual',
-  'import',
-  'phone',
-  'walkin',
-  'other',
-]);
-export type LeadSourceValue = z.infer<typeof LeadSourceEnum>;
+/**
+ * El origen del lead es **texto libre** (no un enum cerrado): el tenant puede dar
+ * de alta orígenes propios al vuelo (Idealista, Fotocasa, una campaña concreta…).
+ * `LEAD_SOURCE_SUGGESTIONS` son los valores sugeridos en la UI; cualquier otro
+ * string normalizado también es válido. `LeadSourceValue` = string por compat.
+ */
+export type LeadSourceValue = string;
+
+/** Orígenes sugeridos (clave interna → etiqueta legible) para el selector de alta. */
+export const LEAD_SOURCE_SUGGESTIONS: { value: string; label: string }[] = [
+  { value: 'portal_inmobiliario', label: 'Portal inmobiliario' },
+  { value: 'idealista', label: 'Idealista' },
+  { value: 'fotocasa', label: 'Fotocasa' },
+  { value: 'milanuncios', label: 'Milanuncios' },
+  { value: 'wallapop', label: 'Wallapop' },
+  { value: 'google', label: 'Google / búsqueda' },
+  { value: 'redes_sociales', label: 'Redes sociales' },
+  { value: 'phone', label: 'Llamada' },
+  { value: 'walkin', label: 'Visita al local' },
+  { value: 'referral', label: 'Recomendación' },
+  { value: 'boca_a_boca', label: 'Boca a boca' },
+  { value: 'cartel', label: 'Cartel / publicidad exterior' },
+  { value: 'widget', label: 'Web (formulario)' },
+  { value: 'import', label: 'Importado' },
+  { value: 'manual', label: 'Alta manual' },
+  { value: 'other', label: 'Otro' },
+];
+
+const LEAD_SOURCE_LABELS: Record<string, string> = Object.fromEntries(
+  LEAD_SOURCE_SUGGESTIONS.map((s) => [s.value, s.label]),
+);
+
+/**
+ * Normaliza un origen escrito a mano a una clave estable (minúsculas, sin
+ * acentos, espacios → `_`), para que «Idealista» y «idealista» no dupliquen.
+ */
+export function normalizeLeadSource(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+}
+
+/** Etiqueta legible de un origen (sugerido → su etiqueta; propio → capitalizado). */
+export function leadSourceLabel(value: string): string {
+  if (LEAD_SOURCE_LABELS[value]) return LEAD_SOURCE_LABELS[value];
+  const words = value.replace(/_/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : value;
+}
 
 export const CommunicationChannelEnum = z.enum(['email', 'sms', 'whatsapp']);
 export type CommunicationChannelValue = z.infer<typeof CommunicationChannelEnum>;
@@ -73,7 +116,15 @@ export const utmFields = {
 };
 
 export const CreateLeadSchema = z.object({
-  source: LeadSourceEnum.default('manual'),
+  /** Origen libre (sugerencias en `LEAD_SOURCE_SUGGESTIONS`); se normaliza a clave. */
+  source: z
+    .string()
+    .trim()
+    .min(1)
+    .max(60)
+    .transform(normalizeLeadSource)
+    .pipe(z.string().min(1))
+    .default('manual'),
   ...utmFields,
   firstName: optionalText(120),
   lastName: optionalText(120),

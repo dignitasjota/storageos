@@ -1,11 +1,22 @@
 'use client';
 
-import { type LeadDto, type LeadStatusValue } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
+import { type LeadDto, type LeadStatusValue, leadSourceLabel } from '@storageos/shared';
+import { Loader2, Plus } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -13,7 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useLeads, useTransitionLead } from '@/lib/communications/hooks';
+import { Textarea } from '@/components/ui/textarea';
+import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
+import { useCreateLead, useLeads, useLeadSources, useTransitionLead } from '@/lib/communications/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
   { status: 'new', label: 'Nuevos' },
@@ -26,7 +41,9 @@ const COLUMNS: { status: LeadStatusValue; label: string }[] = [
 export default function LeadsPage() {
   const leads = useLeads();
   const transition = useTransitionLead();
+  const canWrite = useHasPermission('leads:write');
   const [dragging, setDragging] = useState<string | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
 
   if (leads.isLoading) {
     return (
@@ -48,7 +65,14 @@ export default function LeadsPage() {
             el selector de cada tarjeta.
           </p>
         </div>
+        {canWrite && (
+          <Button onClick={() => setNewOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> Nuevo lead
+          </Button>
+        )}
       </div>
+
+      {newOpen && <NewLeadDialog onClose={() => setNewOpen(false)} />}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         {COLUMNS.map((col) => {
@@ -120,7 +144,7 @@ function LeadCard({
       )}
       {lead.source && (
         <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {lead.source}
+          {leadSourceLabel(lead.source)}
         </div>
       )}
       {lead.budgetMonthly !== null && (
@@ -143,5 +167,185 @@ function LeadCard({
         </SelectContent>
       </Select>
     </div>
+  );
+}
+
+// ============================================================================
+// Alta manual de lead (Idealista, llamada, visita…) — origen propio al vuelo
+// ============================================================================
+
+const CUSTOM_SOURCE = '__custom__';
+
+function NewLeadDialog({ onClose }: { onClose: () => void }) {
+  const create = useCreateLead();
+  const sources = useLeadSources();
+  const facilities = useFacilities();
+
+  const [source, setSource] = useState('portal_inmobiliario');
+  const [customSource, setCustomSource] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [message, setMessage] = useState('');
+  const [facilityId, setFacilityId] = useState<string>('');
+  const [budget, setBudget] = useState('');
+
+  const resolvedSource = source === CUSTOM_SOURCE ? customSource.trim() : source;
+  const hasName = Boolean(firstName.trim() || lastName.trim() || companyName.trim());
+  const canSubmit = Boolean(resolvedSource) && hasName && !create.isPending;
+
+  async function submit() {
+    if (!canSubmit) return;
+    try {
+      await create.mutateAsync({
+        source: resolvedSource,
+        metadata: {},
+        ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
+        ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+        ...(companyName.trim() ? { companyName: companyName.trim() } : {}),
+        ...(email.trim() ? { email: email.trim() } : {}),
+        ...(phone.trim() ? { phone: phone.trim() } : {}),
+        ...(message.trim() ? { message: message.trim() } : {}),
+        ...(facilityId ? { preferredFacilityId: facilityId } : {}),
+        ...(budget && Number(budget) > 0 ? { budgetMonthly: Number(budget) } : {}),
+      });
+      toast.success('Lead creado. Está en «Nuevos» para hacerle seguimiento.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el lead');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Nuevo lead</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Origen</Label>
+            <Select value={source} onValueChange={setSource}>
+              <SelectTrigger>
+                <SelectValue placeholder="¿De dónde viene?" />
+              </SelectTrigger>
+              <SelectContent>
+                {(sources.data ?? []).map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value={CUSTOM_SOURCE}>➕ Añadir origen…</SelectItem>
+              </SelectContent>
+            </Select>
+            {source === CUSTOM_SOURCE && (
+              <Input
+                autoFocus
+                value={customSource}
+                onChange={(e) => setCustomSource(e.target.value)}
+                placeholder="Nombre del origen (p. ej. Habitaclia)"
+                className="text-base sm:text-sm"
+              />
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>Nombre</Label>
+              <Input
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Apellidos</Label>
+              <Input
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Empresa (opcional)</Label>
+            <Input
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              className="text-base sm:text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Teléfono</Label>
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label>Local de interés (opcional)</Label>
+              <Select value={facilityId} onValueChange={setFacilityId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(facilities.data ?? []).map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Presupuesto €/mes (opcional)</Label>
+              <Input
+                type="number"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                className="text-base sm:text-sm"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Notas / lo que busca</Label>
+            <Textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={2}
+              placeholder="Ej.: busca un trastero de ~5 m² para agosto"
+            />
+          </div>
+          {!hasName && (
+            <p className="text-xs text-muted-foreground">
+              Indica al menos un nombre, apellidos o empresa.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={() => void submit()} disabled={!canSubmit}>
+            {create.isPending ? 'Creando…' : 'Crear lead'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
