@@ -6,6 +6,7 @@ import {
   Download,
   FileText,
   Loader2,
+  Lock,
   Pause,
   PenTool,
   Send,
@@ -42,7 +43,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
+import { useContractDelinquencyCase } from '@/lib/collections/hooks';
 import {
   useAddContractNote,
   useCancelContract,
@@ -268,6 +270,8 @@ export default function ContractDetailPage() {
           </div>
         </div>
       </div>
+
+      <OverlockBanner contractId={c.id} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
@@ -704,5 +708,46 @@ function InsuranceCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================================
+// Aviso de overlock (expediente de impago abierto sobre el contrato)
+// ============================================================================
+
+const CASE_STATUS_TEXT: Record<string, string> = {
+  open: 'Expediente abierto',
+  overlocked: 'Trastero con candado (overlock)',
+  final_notice: 'Requerimiento enviado',
+  resolution_pending: 'Plazo vencido',
+  disposal: 'En disposición',
+};
+
+function OverlockBanner({ contractId }: { contractId: string }) {
+  const hasFeature = useHasFeature('collections');
+  const canRead = useHasPermission('collections:read');
+  const query = useContractDelinquencyCase(contractId, hasFeature && canRead);
+  const c = query.data?.case;
+  if (!c) return null;
+
+  const debt = (c.debtCents / 100).toLocaleString('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+  });
+  return (
+    <Link
+      href={`/collections/${c.id}`}
+      className="flex items-center gap-3 rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-sm hover:bg-orange-100 dark:border-orange-900 dark:bg-orange-950 dark:hover:bg-orange-900"
+    >
+      <Lock className="size-5 shrink-0 text-orange-600 dark:text-orange-400" />
+      <div className="min-w-0">
+        <div className="font-medium text-orange-800 dark:text-orange-200">
+          Impago en curso · {CASE_STATUS_TEXT[c.status] ?? 'Expediente'}
+        </div>
+        <div className="text-orange-700 dark:text-orange-300">
+          Deuda viva {debt}. Ver expediente →
+        </div>
+      </div>
+    </Link>
   );
 }

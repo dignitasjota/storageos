@@ -239,6 +239,27 @@ export class CollectionsService {
     }, tenantId);
   }
 
+  /**
+   * Expediente NO cerrado del contrato (si lo hay), para el badge de overlock en
+   * la ficha del contrato / portal. Devuelve null si no hay ninguno abierto.
+   */
+  async findActiveByContract(
+    tenantId: string,
+    contractId: string,
+    facilityScope: string[] | null,
+  ): Promise<DelinquencyCaseDto | null> {
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.delinquencyCase.findFirst({
+        where: { tenantId, contractId, status: { notIn: CLOSED_CASE_STATUSES } },
+        include: caseInclude,
+        orderBy: { openedAt: 'desc' },
+      });
+      if (!row) return null;
+      if (facilityScope && row.facilityId && !facilityScope.includes(row.facilityId)) return null;
+      return this.toDto(tx, row);
+    }, tenantId);
+  }
+
   private async findOrThrow(
     tx: Tx,
     tenantId: string,

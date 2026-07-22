@@ -9,7 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { renderContractClauses, resolvePlanFeatures } from '@storageos/shared';
+import { CLOSED_CASE_STATUSES, renderContractClauses, resolvePlanFeatures } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
@@ -707,7 +707,7 @@ export class ContractsService {
     signedPdfUrl: string | null;
     unit: { code: string; facility: { name: string } };
     insurancePlan: { name: string } | null;
-  }): PortalContractDto {
+  }, overlocked = false): PortalContractDto {
     const base = Number(row.priceMonthly);
     const discount = Number(row.discountAmount);
     return {
@@ -730,24 +730,34 @@ export class ContractsService {
       insurancePlanName: row.insurancePlan?.name ?? null,
       insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,
       hasSignedPdf: !!row.signedPdfUrl,
+      overlocked,
     };
   }
 
   /** Contratos active/ending del inquilino (para el portal). */
   async listForCustomer(tenantId: string, customerId: string): Promise<PortalContractDto[]> {
-    const rows = await this.prisma.withTenant(
-      (tx) =>
-        tx.contract.findMany({
-          where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
-          orderBy: { startDate: 'desc' },
-          include: {
-            unit: { select: { code: true, facility: { select: { name: true } } } },
-            insurancePlan: { select: { name: true } },
-          },
-        }),
-      tenantId,
-    );
-    return rows.map((r) => this.toPortalDto(r));
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.contract.findMany({
+        where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
+        orderBy: { startDate: 'desc' },
+        include: {
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+          insurancePlan: { select: { name: true } },
+        },
+      });
+      // Trasteros con candado por impago (expediente overlock no cerrado).
+      const overlocked = await tx.delinquencyCase.findMany({
+        where: {
+          tenantId,
+          contractId: { in: rows.map((r) => r.id) },
+          status: { notIn: CLOSED_CASE_STATUSES },
+          overlockedAt: { not: null },
+        },
+        select: { contractId: true },
+      });
+      const overlockedSet = new Set(overlocked.map((o) => o.contractId));
+      return rows.map((r) => this.toPortalDto(r, overlockedSet.has(r.id)));
+    }, tenantId);
   }
 
   /**
