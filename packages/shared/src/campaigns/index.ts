@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { LeadSourceEnum, LeadStatusEnum } from '../communications/schemas';
+import { LeadStatusEnum } from '../communications/schemas';
 
 export const CampaignStatusEnum = z.enum(['draft', 'sending', 'sent', 'cancelled']);
 export type CampaignStatusValue = z.infer<typeof CampaignStatusEnum>;
@@ -27,7 +27,7 @@ export const CustomerSegmentSchema = z.object({
 export const LeadSegmentSchema = z.object({
   audience: z.literal('leads'),
   leadStatus: LeadStatusEnum.optional(),
-  leadSource: LeadSourceEnum.optional(),
+  leadSource: z.string().trim().min(1).max(60).optional(),
 });
 
 export const CampaignSegmentSchema = z.discriminatedUnion('audience', [

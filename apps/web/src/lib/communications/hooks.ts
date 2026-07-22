@@ -155,6 +155,14 @@ export function useLeads(params?: { status?: string; search?: string }) {
   });
 }
 
+export function useLeadSources() {
+  return useQuery({
+    queryKey: ['leads', 'sources'] as const,
+    queryFn: () => apiFetch<{ value: string; label: string }[]>('/leads/sources'),
+    staleTime: 60_000,
+  });
+}
+
 export function useCreateLead() {
   const qc = useQueryClient();
   return useMutation({

@@ -69,6 +69,15 @@ export class LeadsController {
     });
   }
 
+  /** Orígenes disponibles (sugeridos + los que el tenant ya usó). Antes de `:id`. */
+  @Get('sources')
+  @RequirePermission('leads:read')
+  sources(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ value: string; label: string }[]> {
+    return this.service.listSources(user.tenantId);
+  }
+
   @Get(':id')
   @RequirePermission('leads:read')
   detail(

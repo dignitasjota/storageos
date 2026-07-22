@@ -2157,17 +2157,6 @@ enum LeadStatus {
   @@map("lead_status")
 }
 
-enum LeadSource {
-  widget // formulario embebible
-  referral // recomendacion de cliente
-  manual // alta manual por staff
-  import // importado de sistema previo
-  phone // llamada
-  walkin // entro en el local
-  other
-
-  @@map("lead_source")
-}
 
 enum CommunicationChannel {
   email
@@ -2244,7 +2233,7 @@ model Lead {
   id                      String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId                String     @map("tenant_id") @db.Uuid
   status                  LeadStatus @default(new)
-  source                  LeadSource @default(manual)
+  source                  String     @default("manual")
   firstName               String?    @map("first_name")
   lastName                String?    @map("last_name")
   companyName             String?    @map("company_name")

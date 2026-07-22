@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { LEAD_SOURCE_SUGGESTIONS, leadSourceLabel } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
@@ -86,6 +87,24 @@ export class LeadsService {
   async detail(tenantId: string, id: string): Promise<LeadDto> {
     const row = await this.findOrThrow(tenantId, id, true);
     return this.toDto(row);
+  }
+
+  /**
+   * Orígenes disponibles para el selector de alta: los sugeridos + los que el
+   * tenant ya ha usado (para que un origen propio, creado al vuelo, reaparezca).
+   */
+  async listSources(tenantId: string): Promise<{ value: string; label: string }[]> {
+    const used = await this.prisma.withTenant(
+      (tx) => tx.lead.findMany({ where: { deletedAt: null }, distinct: ['source'], select: { source: true } }),
+      tenantId,
+    );
+    const suggested = new Set(LEAD_SOURCE_SUGGESTIONS.map((s) => s.value));
+    const custom = used
+      .map((r) => r.source)
+      .filter((s): s is string => !!s && !suggested.has(s))
+      .sort()
+      .map((value) => ({ value, label: leadSourceLabel(value) }));
+    return [...LEAD_SOURCE_SUGGESTIONS, ...custom];
   }
 
   async create(args: {
