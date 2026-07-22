@@ -90,6 +90,18 @@ export class CollectionsController {
     });
   }
 
+  /** Expediente abierto de un contrato (para el badge de overlock). Antes de `:id`. */
+  @RequirePermission('collections:read')
+  @Get('by-contract/:contractId')
+  byContract(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('contractId', new ParseUUIDPipe()) contractId: string,
+  ): Promise<{ case: DelinquencyCaseDto | null }> {
+    return this.service
+      .findActiveByContract(user.tenantId, contractId, user.facilityScope ?? null)
+      .then((c) => ({ case: c }));
+  }
+
   @RequirePermission('collections:read')
   @Get(':id')
   detail(

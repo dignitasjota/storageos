@@ -27,6 +27,8 @@ export interface PortalContractDto {
   insurancePrice: number | null;
   /** true si hay PDF del contrato firmado disponible para descargar. */
   hasSignedPdf: boolean;
+  /** true si el trastero tiene el candado puesto por impago (expediente overlock). */
+  overlocked: boolean;
 }
 
 /** Un pago del inquilino, visto en su portal (historial de cobros). */

@@ -37,6 +37,16 @@ export function useCollectionsCase(id: string) {
   });
 }
 
+/** Expediente de impago abierto de un contrato (para el badge de overlock). */
+export function useContractDelinquencyCase(contractId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...key, 'by-contract', contractId] as const,
+    queryFn: () =>
+      apiFetch<{ case: DelinquencyCaseDto | null }>(`/collections/by-contract/${contractId}`),
+    enabled: enabled && Boolean(contractId),
+  });
+}
+
 export function useCollectionsSettings() {
   return useQuery({
     queryKey: [...key, 'settings'] as const,

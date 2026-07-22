@@ -949,6 +949,12 @@ function PortalConsumeContent() {
                           </Button>
                         )}
                       </div>
+                      {c.overlocked && (
+                        <div className="rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-xs text-orange-800 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
+                          🔒 Acceso al trastero restringido por un pago pendiente. Regulariza la
+                          deuda desde «Tus facturas» para reactivarlo.
+                        </div>
+                      )}
                       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         {c.depositAmount > 0 && (
                           <span>
