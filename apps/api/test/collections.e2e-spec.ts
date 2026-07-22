@@ -276,4 +276,25 @@ describe('Collections / expedientes de impago (e2e)', () => {
     expect(Number(contract?.depositReturnedAmount)).toBe(0);
     expect(contract?.depositSettledAt).not.toBeNull();
   });
+
+  // Nota: la generación REAL del PDF usa Puppeteer (`await import('puppeteer')`),
+  // que no funciona bajo ts-jest (CommonJS) — como el resto de PDFs del proyecto,
+  // no se ejercita en e2e. El render (HTML) se cubre en el unit
+  // `requirement-template.spec`. Aquí solo verificamos el gating del endpoint.
+  it('el requerimiento (PDF) exige la feature collections y autenticación', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-req-gate');
+    await setTenantPlan(owner.slug, 'free'); // free NO incluye collections
+    const fakeCaseId = '00000000-0000-0000-0000-000000000000';
+
+    // Sin la feature → 403 (el FeatureGuard corta antes de tocar Puppeteer).
+    await request(app.getHttpServer())
+      .post(`/collections/${fakeCaseId}/requirement-pdf`)
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .expect(403);
+
+    // Sin autenticación → 401.
+    await request(app.getHttpServer())
+      .post(`/collections/${fakeCaseId}/requirement-pdf`)
+      .expect(401);
+  });
 });

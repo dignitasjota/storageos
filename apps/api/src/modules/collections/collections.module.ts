@@ -5,6 +5,7 @@ import { BillingModule } from '../billing/billing.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 import { CollectionsListenersService } from './collections-listeners.service';
+import { CollectionsRequirementPdfService } from './collections-requirement-pdf.service';
 import { CollectionsController } from './collections.controller';
 import { CollectionsService } from './collections.service';
 
@@ -17,7 +18,11 @@ import { CollectionsService } from './collections.service';
 @Module({
   imports: [AuthModule, BillingModule, NotificationsModule],
   controllers: [CollectionsController],
-  providers: [CollectionsService, CollectionsListenersService],
+  providers: [
+    CollectionsService,
+    CollectionsListenersService,
+    CollectionsRequirementPdfService,
+  ],
   exports: [CollectionsService],
 })
 export class CollectionsModule {}
