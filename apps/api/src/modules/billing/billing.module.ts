@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
+import { GoCardlessCoreModule } from '../payments/gocardless/gocardless-core.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { QUEUE_BILLING, QUEUE_VERIFACTU } from '../queues/queues.module';
 
@@ -40,6 +41,7 @@ import type { Env } from '../../config/env.schema';
   imports: [
     AuthModule,
     PaymentsModule,
+    GoCardlessCoreModule,
     BullModule.registerQueue({ name: QUEUE_BILLING }, { name: QUEUE_VERIFACTU }),
   ],
   controllers: [
