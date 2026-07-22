@@ -7,9 +7,39 @@ import type {
   CampaignPreviewDto,
   CampaignSegmentInput,
   CreateCampaignInput,
+  UpdateWinbackSettingsInput,
+  WinbackRunResultDto,
+  WinbackSettingsResponse,
 } from '@storageos/shared';
 
 const campaignsKey = ['campaigns'] as const;
+const winbackKey = ['campaigns', 'winback-settings'] as const;
+
+export function useWinbackSettings() {
+  return useQuery({
+    queryKey: winbackKey,
+    queryFn: () => apiFetch<WinbackSettingsResponse>('/campaigns/winback-settings'),
+  });
+}
+
+export function useUpdateWinbackSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateWinbackSettingsInput) =>
+      apiFetch<WinbackSettingsResponse>('/campaigns/winback-settings', {
+        method: 'PATCH',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: winbackKey }),
+  });
+}
+
+export function useRunWinback() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<WinbackRunResultDto>('/campaigns/winback/run', { method: 'POST' }),
+  });
+}
 
 export function useCampaigns() {
   return useQuery({

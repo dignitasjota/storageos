@@ -72,3 +72,42 @@ export interface CampaignPreviewDto {
   /** Destinatarios con email válido que recibirían la campaña. */
   audienceCount: number;
 }
+
+// ============================================================================
+// Win-back automático de bajas
+// ============================================================================
+
+/** Sugerencias por defecto para la oferta de vuelta (editables por el operador). */
+export const DEFAULT_WINBACK_SUBJECT = 'Te echamos de menos 👋';
+export const DEFAULT_WINBACK_BODY =
+  'Hola {{customer.firstName}},\n\n' +
+  'Hace un tiempo confiaste en {{tenant.name}} para guardar tus cosas. ' +
+  'Si vuelves a necesitar espacio, nos encantaría verte de nuevo — y esta vez con una oferta especial.\n\n' +
+  'Escríbenos o pásate por el local y te lo ponemos fácil.\n\n' +
+  'Un saludo,\n{{tenant.name}}';
+
+export const UpdateWinbackSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    /** Días tras la baja para enviar la oferta de vuelta. */
+    delayDays: z.number().int().min(1).max(730).optional(),
+    subject: z.string().trim().max(200).optional().or(z.literal('')),
+    bodyText: z.string().trim().max(20_000).optional().or(z.literal('')),
+  })
+  .refine((v) => Object.values(v).some((f) => f !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
+export type UpdateWinbackSettingsInput = z.infer<typeof UpdateWinbackSettingsSchema>;
+
+export interface WinbackSettingsResponse {
+  enabled: boolean;
+  delayDays: number;
+  /** null = se usa el texto por defecto (`DEFAULT_WINBACK_*`). */
+  subject: string | null;
+  bodyText: string | null;
+}
+
+export interface WinbackRunResultDto {
+  /** Ex-clientes a los que se les encoló la oferta en esta ejecución. */
+  sent: number;
+}
