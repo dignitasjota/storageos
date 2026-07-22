@@ -365,6 +365,10 @@ model Tenant {
   collectionsOpenAfterDays    Int                   @default(30) @map("collections_open_after_days")
   collectionsNoticeDays       Int                   @default(15) @map("collections_notice_days")
   collectionsClauseRef        String?               @map("collections_clause_ref")
+  winbackEnabled              Boolean               @default(false) @map("winback_enabled")
+  winbackDelayDays            Int                   @default(90) @map("winback_delay_days")
+  winbackSubject              String?               @map("winback_subject")
+  winbackBodyText             String?               @map("winback_body_text")
   deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt                   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -470,6 +474,7 @@ model Tenant {
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
+  winbackSends            WinbackSend[]
 
   // Índices para las queries cross-tenant del panel admin (filtros omnipresentes
   // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
@@ -1040,6 +1045,7 @@ model Customer {
   followups          CustomerFollowup[]
   delinquencyCases   DelinquencyCase[]
   retentionOffers    RetentionOffer[]
+  winbackSends       WinbackSend[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1701,6 +1707,21 @@ model Campaign {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("campaigns")
+}
+
+/// Win-back automático: registro de que a un ex-cliente ya se le envió la oferta
+/// de vuelta (idempotencia: un solo win-back por cliente).
+model WinbackSend {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  sentAt     DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, customerId])
+  @@map("winback_sends")
 }
 
 /// Revenue (ECRI): tanda de subida de precio a clientes en cartera. Aplica un
