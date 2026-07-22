@@ -2,7 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
-import type { ImportCommitDto, ImportDuplicatePolicy, ImportPreviewDto } from '@storageos/shared';
+import type {
+  ImportCommitDto,
+  ImportDuplicatePolicy,
+  ImportFormat,
+  ImportPreviewDto,
+} from '@storageos/shared';
 
 export type ImportEntity = 'customers' | 'units' | 'contracts';
 
@@ -15,10 +20,10 @@ const INVALIDATE_KEYS: Record<ImportEntity, string[]> = {
 
 export function useImportPreview(entity: ImportEntity) {
   return useMutation({
-    mutationFn: (csv: string) =>
+    mutationFn: (args: { csv: string; format: ImportFormat }) =>
       apiFetch<ImportPreviewDto>(`/imports/${entity}/preview`, {
         method: 'POST',
-        json: { csv },
+        json: args,
       }),
   });
 }
@@ -26,7 +31,7 @@ export function useImportPreview(entity: ImportEntity) {
 export function useImportCommit(entity: ImportEntity) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { csv: string; onDuplicate: ImportDuplicatePolicy }) =>
+    mutationFn: (args: { csv: string; format: ImportFormat; onDuplicate: ImportDuplicatePolicy }) =>
       apiFetch<ImportCommitDto>(`/imports/${entity}/commit`, {
         method: 'POST',
         json: args,

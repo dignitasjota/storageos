@@ -14,10 +14,12 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ContractsImportService } from './contracts-import.service';
+import { resolveImportCsv } from './import-engine';
 import { ImportsService } from './imports.service';
 import { UnitsImportService } from './units-import.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { ImportFormat } from '@storageos/shared';
 import type { Request } from 'express';
 
 class ImportPreviewBody extends createZodDto(ImportPreviewSchema) {}
@@ -49,25 +51,27 @@ export class ImportsController {
 
   @RequirePermission('imports:manage')
   @Post('customers/preview')
-  previewCustomers(
+  async previewCustomers(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ImportPreviewBody,
   ): Promise<ImportPreviewDto> {
-    return this.imports.previewCustomers(user.tenantId, body.csv);
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.imports.previewCustomers(user.tenantId, csv);
   }
 
   @RequirePermission('imports:manage')
   @Post('customers/commit')
-  commitCustomers(
+  async commitCustomers(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ImportCommitBody,
     @Req() req: Request,
   ): Promise<ImportCommitDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
     return this.imports.commitCustomers({
       tenantId: user.tenantId,
       userId: user.sub,
       meta: extractMeta(req),
-      csv: body.csv,
+      csv,
       onDuplicate: body.onDuplicate,
     });
   }
@@ -81,25 +85,27 @@ export class ImportsController {
 
   @RequirePermission('imports:manage')
   @Post('units/preview')
-  previewUnits(
+  async previewUnits(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ImportPreviewBody,
   ): Promise<ImportPreviewDto> {
-    return this.unitsImport.preview(user.tenantId, body.csv);
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.unitsImport.preview(user.tenantId, csv);
   }
 
   @RequirePermission('imports:manage')
   @Post('units/commit')
-  commitUnits(
+  async commitUnits(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ImportCommitBody,
     @Req() req: Request,
   ): Promise<ImportCommitDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
     return this.unitsImport.commit({
       tenantId: user.tenantId,
       userId: user.sub,
       meta: extractMeta(req),
-      csv: body.csv,
+      csv,
       onDuplicate: body.onDuplicate,
     });
   }
@@ -113,25 +119,27 @@ export class ImportsController {
 
   @RequirePermission('imports:manage')
   @Post('contracts/preview')
-  previewContracts(
+  async previewContracts(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ImportPreviewBody,
   ): Promise<ImportPreviewDto> {
-    return this.contractsImport.preview(user.tenantId, body.csv);
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.contractsImport.preview(user.tenantId, csv);
   }
 
   @RequirePermission('imports:manage')
   @Post('contracts/commit')
-  commitContracts(
+  async commitContracts(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ImportCommitBody,
     @Req() req: Request,
   ): Promise<ImportCommitDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
     return this.contractsImport.commit({
       tenantId: user.tenantId,
       userId: user.sub,
       meta: extractMeta(req),
-      csv: body.csv,
+      csv,
       onDuplicate: body.onDuplicate,
     });
   }

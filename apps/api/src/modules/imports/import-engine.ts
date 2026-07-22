@@ -1,9 +1,11 @@
+import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 
 import type {
   ImportCommitDto,
   ImportCommitRowResult,
   ImportDuplicatePolicy,
+  ImportFormat,
   ImportPreviewDto,
   ImportPreviewRowDto,
   ImportRowStatus,
@@ -18,6 +20,61 @@ export interface RowEval {
 }
 
 export type RowEvaluator = (raw: Record<string, string>, index: number) => RowEval;
+
+/** Valor de celda de exceljs → texto plano (resuelve fórmulas, fechas, hyperlinks…). */
+function cellToText(value: ExcelJS.CellValue): string {
+  if (value == null) return '';
+  if (value instanceof Date) {
+    // Fecha → YYYY-MM-DD (los importadores ya normalizan formatos).
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'object') {
+    const v = value as { text?: string; result?: unknown; richText?: { text: string }[] };
+    if (typeof v.text === 'string') return v.text;
+    if (Array.isArray(v.richText)) return v.richText.map((r) => r.text).join('');
+    if (v.result != null) return String(v.result);
+    return '';
+  }
+  return String(value);
+}
+
+/**
+ * Convierte un XLSX (base64) a CSV usando la PRIMERA hoja. La primera fila no
+ * vacía se toma como cabecera. Se reusa `Papa.unparse` para escapar igual que
+ * un CSV normal → el resto del pipeline (`parseRaw` + alias) no cambia.
+ */
+export async function xlsxBase64ToCsv(base64: string): Promise<string> {
+  const buffer = Buffer.from(base64, 'base64');
+  const arrayBuffer = buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  ) as ArrayBuffer;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(arrayBuffer);
+  const ws = wb.worksheets[0];
+  if (!ws) return '';
+  const rows: string[][] = [];
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    const cells: string[] = [];
+    // row.values es 1-indexado (índice 0 = undefined); recorremos por columna.
+    const count = Math.max(row.cellCount, (row.values as unknown[]).length - 1);
+    for (let col = 1; col <= count; col++) {
+      cells.push(cellToText(row.getCell(col).value).trim());
+    }
+    // Salta filas totalmente vacías.
+    if (cells.some((c) => c !== '')) rows.push(cells);
+  });
+  if (rows.length === 0) return '';
+  return Papa.unparse(rows);
+}
+
+/**
+ * Normaliza el contenido de importación a CSV: si `format` es `xlsx`, `content`
+ * es el XLSX en base64 y se convierte; si es `csv`, se devuelve tal cual.
+ */
+export async function resolveImportCsv(content: string, format: ImportFormat): Promise<string> {
+  return format === 'xlsx' ? xlsxBase64ToCsv(content) : content;
+}
 
 /** Parser CSV genérico (cabecera + filas), tolerante a comillas y comas internas. */
 export function parseRaw(csv: string): { columns: string[]; records: Record<string, string>[] } {
