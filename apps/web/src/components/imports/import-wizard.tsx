@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type {
   ImportCommitDto,
   ImportDuplicatePolicy,
+  ImportFormat,
   ImportPreviewDto,
   ImportRowStatus,
 } from '@storageos/shared';
@@ -65,6 +66,7 @@ export function ImportWizard({
   note,
 }: ImportWizardProps) {
   const [csv, setCsv] = useState('');
+  const [format, setFormat] = useState<ImportFormat>('csv');
   const [fileName, setFileName] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreviewDto | null>(null);
   const [onDuplicate, setOnDuplicate] = useState<ImportDuplicatePolicy>('skip');
@@ -74,28 +76,40 @@ export function ImportWizard({
   const commitMutation = useImportCommit(entity);
 
   function handleFile(file: File) {
+    const isXlsx = /\.xlsx?$/i.test(file.name);
     const reader = new FileReader();
     reader.onload = () => {
-      setCsv(typeof reader.result === 'string' ? reader.result : '');
+      if (isXlsx) {
+        // XLSX: enviamos el fichero en base64; el backend lo convierte a CSV.
+        const bytes = new Uint8Array(reader.result as ArrayBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+        setCsv(btoa(binary));
+        setFormat('xlsx');
+      } else {
+        setCsv(typeof reader.result === 'string' ? reader.result : '');
+        setFormat('csv');
+      }
       setFileName(file.name);
       setPreview(null);
       setResult(null);
     };
-    reader.readAsText(file);
+    if (isXlsx) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
   }
 
   async function analyze() {
     try {
       setResult(null);
-      setPreview(await previewMutation.mutateAsync(csv));
+      setPreview(await previewMutation.mutateAsync({ csv, format }));
     } catch {
-      toast.error('No se pudo analizar el CSV.');
+      toast.error('No se pudo analizar el archivo.');
     }
   }
 
   async function commit() {
     try {
-      const res = await commitMutation.mutateAsync({ csv, onDuplicate });
+      const res = await commitMutation.mutateAsync({ csv, format, onDuplicate });
       setResult(res);
       toast.success(`Importación completada: ${res.summary.created} creados.`);
     } catch {
@@ -129,7 +143,7 @@ export function ImportWizard({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">1. Archivo CSV</CardTitle>
+          <CardTitle className="text-base">1. Archivo (CSV o Excel)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -138,7 +152,7 @@ export function ImportWizard({
                 <Upload className="mr-1 h-4 w-4" /> Seleccionar archivo
                 <input
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -157,11 +171,20 @@ export function ImportWizard({
             >
               <Download className="mr-1 h-4 w-4" /> Descargar plantilla
             </Button>
-            {fileName && <span className="text-sm text-muted-foreground">{fileName}</span>}
+            {fileName && (
+              <span className="text-sm text-muted-foreground">
+                {fileName}
+                {format === 'xlsx' && <Badge className="ml-2 text-[10px]">Excel</Badge>}
+              </span>
+            )}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Admite CSV y Excel (.xlsx). En Excel se usa la primera hoja; la primera fila son las
+            cabeceras.
+          </p>
           <Button onClick={analyze} disabled={!csv || previewMutation.isPending}>
             {previewMutation.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            Analizar CSV
+            Analizar archivo
           </Button>
         </CardContent>
       </Card>

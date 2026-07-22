@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -100,5 +101,38 @@ describe('Import customers (e2e)', () => {
     expect(res.status).toBe(201);
     expect(res.body.summary.valid).toBe(1);
     expect(res.body.summary.duplicates).toBe(0);
+  });
+
+  it('acepta un Excel (.xlsx) en base64 con format=xlsx', async () => {
+    const owner = await registerVerifiedUser(app, 'imp-xlsx');
+
+    // Construye un XLSX con las mismas filas que el CSV.
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Clientes');
+    ws.addRow(['customerType', 'firstName', 'lastName', 'email']);
+    ws.addRow(['individual', 'Xls', 'Uno', 'xls1@import.local']);
+    ws.addRow(['individual', 'Xls', 'Dos', 'xls2@import.local']);
+    const base64 = Buffer.from(await wb.xlsx.writeBuffer()).toString('base64');
+
+    const preview = await request(app.getHttpServer())
+      .post('/imports/customers/preview')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ csv: base64, format: 'xlsx' });
+    expect(preview.status).toBe(201);
+    expect(preview.body.summary).toEqual({ total: 2, valid: 2, invalid: 0, duplicates: 0 });
+
+    const commit = await request(app.getHttpServer())
+      .post('/imports/customers/commit')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ csv: base64, format: 'xlsx', onDuplicate: 'skip' });
+    expect(commit.status).toBe(201);
+    expect(commit.body.summary.created).toBe(2);
+
+    const list = await request(app.getHttpServer())
+      .get('/customers')
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(list.body.some((c: { email: string | null }) => c.email === 'xls1@import.local')).toBe(
+      true,
+    );
   });
 });
