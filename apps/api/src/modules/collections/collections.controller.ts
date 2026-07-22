@@ -25,6 +25,7 @@ import {
   type DelinquencyCaseDetailDto,
   type DelinquencyCaseDto,
   type DelinquencyCaseStatus,
+  type DelinquencyRequirementPdfDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -35,6 +36,7 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { CollectionsRequirementPdfService } from './collections-requirement-pdf.service';
 import { CollectionsService } from './collections.service';
 
 class OpenCaseDto extends createZodDto(OpenCaseSchema) {}
@@ -56,7 +58,10 @@ class RegisterCaseFileDto extends createZodDto(RegisterCaseFileSchema) {}
 @RequireFeature('collections')
 @Controller('collections')
 export class CollectionsController {
-  constructor(private readonly service: CollectionsService) {}
+  constructor(
+    private readonly service: CollectionsService,
+    private readonly requirementPdf: CollectionsRequirementPdfService,
+  ) {}
 
   @RequirePermission('settings:read')
   @Get('settings')
@@ -183,6 +188,22 @@ export class CollectionsController {
     @Body() body: CancelCaseDto,
   ): Promise<DelinquencyCaseDto> {
     return this.service.cancel(user.tenantId, user.sub, id, body, user.facilityScope ?? null);
+  }
+
+  /** Genera el PDF del requerimiento fehaciente (carta a enviar por burofax). */
+  @RequirePermission('collections:manage')
+  @Post(':id/requirement-pdf')
+  @HttpCode(HttpStatus.OK)
+  requirementPdfGen(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<DelinquencyRequirementPdfDto> {
+    return this.requirementPdf.generate({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      caseId: id,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('collections:manage')

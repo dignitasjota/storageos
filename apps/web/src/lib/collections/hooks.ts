@@ -9,6 +9,7 @@ import type {
   DelinquencyCaseDetailDto,
   DelinquencyCaseDto,
   DelinquencyCaseStatus,
+  DelinquencyRequirementPdfDto,
   OpenCaseInput,
   OverlockCaseInput,
   RegisterCaseFileInput,
@@ -86,6 +87,18 @@ export function useCaseAction(caseId: string) {
       void qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] });
       void qc.invalidateQueries({ queryKey: [...key, 'list'] });
     },
+  });
+}
+
+/** Genera el requerimiento fehaciente (PDF) y refresca las evidencias del caso. */
+export function useGenerateRequirementPdf(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<DelinquencyRequirementPdfDto>(`/collections/${caseId}/requirement-pdf`, {
+        method: 'POST',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] }),
   });
 }
 

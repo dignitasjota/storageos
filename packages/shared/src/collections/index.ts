@@ -34,6 +34,7 @@ export const DISPOSAL_TYPE_LABELS: Record<DisposalType, string> = {
 };
 
 export const CASE_FILE_KINDS = [
+  'requirement', // el requerimiento fehaciente generado por el sistema (PDF)
   'overlock_photo',
   'burofax_receipt',
   'inventory',
@@ -41,6 +42,15 @@ export const CASE_FILE_KINDS = [
   'other',
 ] as const;
 export type CaseFileKind = (typeof CASE_FILE_KINDS)[number];
+
+export const CASE_FILE_KIND_LABELS: Record<CaseFileKind, string> = {
+  requirement: 'Requerimiento (PDF)',
+  overlock_photo: 'Foto del candado',
+  burofax_receipt: 'Acuse del burofax',
+  inventory: 'Inventario',
+  disposal_act: 'Acta de disposición',
+  other: 'Otro',
+};
 
 /** Tipos de evento del timeline del expediente. */
 export const CASE_EVENT_TYPES = [
@@ -209,4 +219,10 @@ export interface DelinquencyCaseDto {
 export interface DelinquencyCaseDetailDto extends DelinquencyCaseDto {
   events: DelinquencyCaseEventDto[];
   files: DelinquencyCaseFileDto[];
+}
+
+/** Resultado de generar el requerimiento fehaciente (PDF) del expediente. */
+export interface DelinquencyRequirementPdfDto {
+  /** URL GET firmada (5 min) del PDF generado. */
+  url: string;
 }

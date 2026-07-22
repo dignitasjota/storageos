@@ -1,7 +1,12 @@
 'use client';
 
-import { DISPOSAL_TYPE_LABELS, DISPOSAL_TYPES, type DisposalType } from '@storageos/shared';
-import { ArrowLeft, FileUp, Loader2, Lock } from 'lucide-react';
+import {
+  CASE_FILE_KIND_LABELS,
+  DISPOSAL_TYPE_LABELS,
+  DISPOSAL_TYPES,
+  type DisposalType,
+} from '@storageos/shared';
+import { ArrowLeft, FileText, FileUp, Loader2, Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRef, useState } from 'react';
@@ -24,7 +29,12 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useCaseAction, useCollectionsCase, useUploadCaseFile } from '@/lib/collections/hooks';
+import {
+  useCaseAction,
+  useCollectionsCase,
+  useGenerateRequirementPdf,
+  useUploadCaseFile,
+} from '@/lib/collections/hooks';
 
 const FILE_KINDS = [
   { value: 'overlock_photo', label: 'Foto del candado' },
@@ -39,6 +49,7 @@ export default function CollectionsDetailPage() {
   const detail = useCollectionsCase(id);
   const action = useCaseAction(id);
   const upload = useUploadCaseFile(id);
+  const requirementPdf = useGenerateRequirementPdf(id);
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileKind, setFileKind] = useState<(typeof FILE_KINDS)[number]['value']>('overlock_photo');
 
@@ -66,6 +77,16 @@ export default function CollectionsDetailPage() {
       toast.success('Evidencia subida.');
     } catch {
       toast.error('No se pudo subir.');
+    }
+  }
+
+  async function onGenerateRequirement() {
+    try {
+      const { url } = await requirementPdf.mutateAsync();
+      window.open(url, '_blank', 'noopener');
+      toast.success('Requerimiento generado. Se ha guardado en las evidencias.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo generar');
     }
   }
 
@@ -127,6 +148,28 @@ export default function CollectionsDetailPage() {
               {c.deadlineExpired && <Badge variant="destructive">vencido</Badge>}
             </div>
           )}
+
+          <Can permission="collections:manage">
+            <div className="border-t pt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void onGenerateRequirement()}
+                disabled={requirementPdf.isPending}
+              >
+                {requirementPdf.isPending ? (
+                  <Loader2 className="mr-1.5 size-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-1.5 size-4" />
+                )}
+                Generar requerimiento (PDF)
+              </Button>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Carta de requerimiento fehaciente para enviar por burofax. Se guarda en las
+                evidencias del expediente.
+              </p>
+            </div>
+          </Can>
 
           <Can permission="collections:manage">
             {!isClosed && (
@@ -323,7 +366,8 @@ export default function CollectionsDetailPage() {
                     className="rounded-md border p-2 text-xs hover:bg-accent"
                   >
                     <div className="truncate font-medium">
-                      {FILE_KINDS.find((k) => k.value === f.kind)?.label ?? f.kind}
+                      {CASE_FILE_KIND_LABELS[f.kind as keyof typeof CASE_FILE_KIND_LABELS] ??
+                        f.kind}
                     </div>
                     <div className="text-muted-foreground">
                       {new Date(f.createdAt).toLocaleDateString('es-ES')}
