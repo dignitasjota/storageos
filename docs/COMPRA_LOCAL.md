@@ -13,14 +13,19 @@ facial, agente Bridge) antes de equipar el local completo.
 
 ---
 
-## ⚠️ Verificar ANTES de pedir (2 preguntas al distribuidor)
+## ⚠️ Verificar ANTES de pedir
 
+- [ ] **Controladora ASC4201C-D — integración por HTTP CGI de terceros**
+  (`recordUpdater.cgi` / `accessControl.cgi` / `recordFinder.cgi` /
+  `eventManager.cgi`), no solo NetSDK/DSS. Es lo que usa nuestro adapter Dahua.
+  «API disponible» es buena señal; se confirma en el smoke con el kit. Si fuera
+  **solo NetSDK** → hay que escribir un adapter nuevo (más trabajo).
+- [ ] **Lector ASR2201A con teclado (PIN)** además de tarjeta (confirmado) →
+  el inquilino abre con tarjeta **o** con su PIN del portal. (Estos lectores **no
+  leen QR**; el facial necesitaría un terminal ASI, no este lector.)
 - [ ] **NVR compatible con AirShield**: que el modelo de NVR lleve **menú IoT** y
   admita enlazar el **Alarm Hub AirShield** (para el timeline unificado
   alarma+vídeo). Si no, la alarma va por su cuenta.
-- [ ] **Terminal ASI6214S con lector QR nativo** que **reporte el token del QR**
-  (no solo un CardNo interno): es lo que sincronizamos desde TrasterOS. Confirmar
-  también **modo solo-PIN** en el teclado.
 
 ---
 
@@ -29,14 +34,28 @@ facial, agente Bridge) antes de equipar el local completo.
 Objetivo: 1 puerta peatonal con accesos + facial + 2 cámaras + alarma de 1–2 zonas
 + el agente on-site. Suficiente para cerrar todos los `VERIFY` del software.
 
-### Accesos (1 puerta)
-- [ ] **1× Terminal Dahua ASI6214S** (PIN + tarjeta + QR + **cara** + huella) — *el add-on facial se prueba aquí* · 250–400 €
+### Accesos (1 puerta) — **configuración elegida: controladora + lector (Patrón B, anti-vandálico)**
+
+> El «cerebro» (controladora) va **dentro, en caja/rack protegido**; a la intemperie
+> solo queda el **lector metálico**. La controladora valida en local → **funciona sin
+> internet**. Tarjeta + PIN (ambos sincronizados por nuestro adapter); el PIN es el
+> «tu móvil es la llave» (el portal se lo muestra al inquilino). **QR y facial NO**
+> con este lector — para facial haría falta un terminal ASI6214S/7214 en esa puerta.
+
+- [ ] **1× Controladora de accesos Dahua ASC4201C-D** (1 puerta, red, Patrón B; **confirmar API HTTP CGI de terceros** en el smoke) — *va en armario protegido* · 100–180 €
+- [ ] **1× Lector Dahua ASR2201A** (tarjeta + **teclado/PIN**, metálico anti-vandálico, Wiegand/RS-485) · 60–120 €
 - [ ] 1× Abrepuertas eléctrico **fail-secure** 12 V (Dorcas/CDVI) · 30–60 €
 - [ ] 1× Cerradura mecánica + **bombín amaestrado** (llave maestra del staff, último recurso) · 40–80 €
 - [ ] 1× Fuente 12 V 3–5 A con hueco de batería + **1× batería 12 V 7 Ah AGM** («SAI de la puerta») · 55–95 €
+- [ ] 1× **Botón de salida (REX)** o barra antipánico con contacto (la controladora necesita petición de salida) · 10–30 €
 - [ ] 1× Contacto magnético de puerta (ACK abierta/cerrada) · 5–15 €
 - [ ] 1× Manilla/barra **antipánico mecánica** interior (evacuación sin corriente) · 60–150 €
-- [ ] Cableado: Cat6 al terminal + 2×1 mm² a la cerradura + canaleta · 30–60 €
+- [ ] 1× Tarjetas/llaveros RFID Mifare (pack para repartir a inquilinos) · 1–2 €/ud
+- [ ] Cableado: Cat6 a la controladora + RS-485/Wiegand controladora↔lector + 2×1 mm² a la cerradura + canaleta · 40–70 €
+
+> **Alternativa** (si en alguna puerta se quiere **cara + QR**): terminal todo-en-uno
+> **ASI6214S** (PIN+tarjeta+QR+cara) en lugar de controladora+lector — es donde se
+> prueba el add-on `facial_access`.
 
 ### Cámaras (mínimo para probar la ingesta)
 - [ ] **1× NVR Dahua PoE 4 canales** (serie NVR4x04-P, *con menú IoT — ver arriba*) · 120–200 €
