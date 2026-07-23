@@ -106,7 +106,11 @@ export default function CustomerDetailPage() {
             en fila a partir de sm. */}
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Can permission="customers:write">
-            <PortalLinkButton customerId={c.id} className="w-full justify-center sm:w-auto" />
+            <PortalLinkButton
+              customerId={c.id}
+              portalAccessEnabled={c.portalAccessEnabled}
+              className="w-full justify-center sm:w-auto"
+            />
           </Can>
           <Button
             variant="outline"

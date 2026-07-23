@@ -71,6 +71,23 @@ export default function PortalLoginPage() {
     }
   }
 
+  async function forgot() {
+    if (!tenantSlug || !email) {
+      toast.error('Indica la empresa y el email.');
+      return;
+    }
+    try {
+      await apiFetch<void>('/portal/login/forgot', {
+        method: 'POST',
+        json: { tenantSlug, email },
+        requiresAuth: false,
+      });
+      toast.success('Si el email pertenece a algún cliente, te enviamos un enlace para tu contraseña.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   return (
     <div className="container flex flex-col items-center gap-4 py-12">
       <Card className="w-full max-w-md border-border/60">
@@ -176,11 +193,11 @@ export default function PortalLoginPage() {
                   <button
                     type="button"
                     className="underline hover:text-foreground"
-                    onClick={() => setMode('link')}
+                    onClick={() => void forgot()}
                   >
-                    Entra con un enlace
-                  </button>{' '}
-                  y ponla desde «Mis datos».
+                    Te enviamos un enlace para establecerla
+                  </button>
+                  .
                 </p>
               ) : (
                 <p className="mt-4 text-center text-xs text-muted-foreground">

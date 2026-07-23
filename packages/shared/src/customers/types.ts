@@ -30,6 +30,8 @@ export interface CustomerDto {
   tags: string[];
   kycVerified: boolean;
   kycVerifiedAt: string | null;
+  /** true si el inquilino tiene el acceso por contraseña al portal activado. */
+  portalAccessEnabled: boolean;
   activeContracts: number;
   pendingReservations: number;
   createdAt: string;

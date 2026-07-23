@@ -497,6 +497,13 @@ export const PortalSetPasswordSchema = z.object({
 });
 export type PortalSetPasswordInput = z.infer<typeof PortalSetPasswordSchema>;
 
+/** Restablecer la contraseña con el token del email (auto-login al terminar). */
+export const PortalResetPasswordSchema = z.object({
+  token: z.string().regex(/^[0-9a-f]{16,64}\.[A-Za-z0-9_-]{20,}$/, 'Token invalido'),
+  password: z.string().min(8, 'Mínimo 8 caracteres').max(200),
+});
+export type PortalResetPasswordInput = z.infer<typeof PortalResetPasswordSchema>;
+
 /**
  * Registro de payment method desde el portal del inquilino. A diferencia
  * de `RegisterPaymentMethodSchema` (staff), NO acepta `customerId` ni
