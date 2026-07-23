@@ -61,13 +61,13 @@ describe('Admin adoption / upsell (e2e)', () => {
     await deleteAllMessages();
   });
 
-  it('estructura: 11 features + tenants + candidateCount', async () => {
+  it('estructura: 12 features + tenants + candidateCount', async () => {
     const res = await request(app.getHttpServer())
       .get('/admin/tenants/adoption')
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     const body = res.body as AdoptionDto;
-    expect(body.featureAdoption).toHaveLength(11);
+    expect(body.featureAdoption).toHaveLength(12);
     expect(Array.isArray(body.tenants)).toBe(true);
     expect(typeof body.candidateCount).toBe('number');
   });

@@ -33,6 +33,14 @@ export interface PublicLandingDto {
   logoUrl: string | null;
   /** Dominio propio activo (verificado), o null → canonical al dominio custom. */
   customDomain: string | null;
+  /**
+   * Web Premium: plantilla de diseño (`default`/`modern`/`industrial`) + textos
+   * personalizados. Sin la feature `web_premium`, el backend fuerza `default` y
+   * `headline`/`about` a null.
+   */
+  webTemplate: string;
+  webHeadline: string | null;
+  webAbout: string | null;
   facilities: PublicLandingFacilityDto[];
 }
 

@@ -353,6 +353,12 @@ model Tenant {
   /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
   portalBrandColor            String?               @map("portal_brand_color")
   portalLogoUrl               String?               @map("portal_logo_url")
+  /// Web «Premium» (feature `web_premium`): plantilla de diseño de la web pública
+  /// (`/s/<slug>`) + claim del hero + sección «quiénes somos». Sin la feature se
+  /// usa la plantilla `default` y estos textos se ignoran.
+  webTemplate                 String                @default("default") @map("web_template")
+  webHeadline                 String?               @map("web_headline")
+  webAbout                    String?               @map("web_about")
   /// Cláusulas particulares editables por el tenant para el contrato (con
   /// variables {{...}}). Null = plantilla por defecto. Se renderizan al firmar y
   /// en el PDF; el texto firmado se congela en `contracts.signedTermsText`.

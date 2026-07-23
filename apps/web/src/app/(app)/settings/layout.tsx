@@ -22,6 +22,7 @@ interface NavTab {
     | 'verifactu'
     | 'widget'
     | 'branding'
+    | 'web'
     | 'contractTemplate'
     | 'faq'
     | 'integrations'
@@ -43,6 +44,7 @@ const TABS: NavTab[] = [
   { href: '/settings/billing/verifactu', labelKey: 'verifactu', permission: 'invoices:manage' },
   { href: '/settings/widget', labelKey: 'widget' },
   { href: '/settings/branding', labelKey: 'branding', permission: 'settings:manage' },
+  { href: '/settings/web', labelKey: 'web', permission: 'settings:manage' },
   {
     href: '/settings/contract-template',
     labelKey: 'contractTemplate',

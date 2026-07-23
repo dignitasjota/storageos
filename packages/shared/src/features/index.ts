@@ -19,6 +19,7 @@ export const TenantFeatures = [
   'collections', // expedientes de impago (overlock → disposición)
   'cameras', // /cameras (videovigilancia + alarma; hardware Dahua/NVR)
   'facial_access', // reconocimiento facial ("tu cara es la llave") — SOLO add-on
+  'web_premium', // web pública personalizable (plantillas + secciones) — SOLO add-on
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -116,4 +117,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   collections: 'Gestión de impagos (overlock)',
   cameras: 'Cámaras y alarma',
   facial_access: 'Acceso por reconocimiento facial',
+  web_premium: 'Web Premium (plantillas)',
 };
