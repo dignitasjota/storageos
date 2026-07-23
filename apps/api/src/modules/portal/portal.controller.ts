@@ -18,6 +18,8 @@ import {
   type PortalAccessCredentialDto,
   type PortalAccessLogDto,
   PortalConsumeMagicLinkSchema,
+  PortalLoginPasswordSchema,
+  PortalSetPasswordSchema,
   PortalGoCardlessMandateCompleteSchema,
   type PaymentMethodDto,
   type PortalChargeResultDto,
@@ -95,6 +97,8 @@ import type { Request } from 'express';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
+class PortalLoginPasswordDto extends createZodDto(PortalLoginPasswordSchema) {}
+class PortalSetPasswordDto extends createZodDto(PortalSetPasswordSchema) {}
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
 class PortalGoCardlessMandateCompleteDto extends createZodDto(
   PortalGoCardlessMandateCompleteSchema,
@@ -152,6 +156,28 @@ export class PortalController {
   @HttpCode(HttpStatus.OK)
   async consume(@Body() input: PortalConsumeMagicLinkDto): Promise<PortalSessionDto> {
     return this.portal.consumeMagicLink(input.token);
+  }
+
+  /** Login por email + contraseña (opt-in; el inquilino la fija desde el portal). */
+  @Public()
+  @ThrottleLogin()
+  @Post('login/password')
+  @HttpCode(HttpStatus.OK)
+  async loginPassword(@Body() input: PortalLoginPasswordDto): Promise<PortalSessionDto> {
+    return this.portal.loginWithPassword(input);
+  }
+
+  /** El inquilino fija/cambia su contraseña de portal (requiere sesión activa). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setPassword(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalSetPasswordDto,
+  ): Promise<void> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    await this.portal.setMyPassword(tenantId, customerId, input.password);
   }
 
   @Public()

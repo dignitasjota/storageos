@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2, UserCog } from 'lucide-react';
+import { KeyRound, Loader2, UserCog } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -161,8 +161,95 @@ export function ProfileCard({ session }: { session: PortalSessionDto }) {
           {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
           Guardar cambios
         </Button>
+
+        <PasswordSection
+          session={session}
+          hasPassword={profile.hasPortalPassword}
+          onChanged={() => setProfile((p) => (p ? { ...p, hasPortalPassword: true } : p))}
+        />
       </CardContent>
     </Card>
+  );
+}
+
+/** Fijar/cambiar la contraseña de acceso al portal (opt-in). */
+function PasswordSection({
+  session,
+  hasPassword,
+  onChanged,
+}: {
+  session: PortalSessionDto;
+  hasPassword: boolean;
+  onChanged: () => void;
+}) {
+  const [pwd, setPwd] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (pwd.length < 8) {
+      toast.error('La contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+    if (pwd !== confirm) {
+      toast.error('Las contraseñas no coinciden.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch<void>('/portal/me/password', {
+        method: 'POST',
+        json: { password: pwd },
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        requiresAuth: false,
+      });
+      setPwd('');
+      setConfirm('');
+      onChanged();
+      toast.success('Contraseña guardada. Ya puedes entrar con email y contraseña.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar la contraseña.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <KeyRound className="h-4 w-4 text-muted-foreground" />
+        {hasPassword ? 'Cambiar contraseña' : 'Crear una contraseña'}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {hasPassword
+          ? 'Actualiza tu contraseña de acceso al portal.'
+          : 'Ponte una contraseña para entrar con email y contraseña, sin depender del enlace por email.'}
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="Nueva contraseña (mín. 8)">
+          <Input
+            type="password"
+            value={pwd}
+            autoComplete="new-password"
+            onChange={(e) => setPwd(e.target.value)}
+            className="text-base sm:text-sm"
+          />
+        </Field>
+        <Field label="Repite la contraseña">
+          <Input
+            type="password"
+            value={confirm}
+            autoComplete="new-password"
+            onChange={(e) => setConfirm(e.target.value)}
+            className="text-base sm:text-sm"
+          />
+        </Field>
+      </div>
+      <Button variant="outline" size="sm" onClick={save} disabled={saving || !pwd || !confirm}>
+        {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+        {hasPassword ? 'Actualizar contraseña' : 'Guardar contraseña'}
+      </Button>
+    </div>
   );
 }
 

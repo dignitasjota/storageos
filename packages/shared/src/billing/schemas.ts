@@ -481,6 +481,23 @@ export const PortalConsumeMagicLinkSchema = z.object({
 export type PortalConsumeMagicLinkInput = z.infer<typeof PortalConsumeMagicLinkSchema>;
 
 /**
+ * Login del inquilino por email + contraseña (alternativa opt-in al magic link).
+ * El inquilino fija su contraseña él mismo desde el portal (`PortalSetPassword`).
+ */
+export const PortalLoginPasswordSchema = z.object({
+  tenantSlug: z.string().trim().toLowerCase().min(3).max(63),
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1).max(200),
+});
+export type PortalLoginPasswordInput = z.infer<typeof PortalLoginPasswordSchema>;
+
+/** El inquilino fija/cambia su contraseña de portal (requiere sesión activa). */
+export const PortalSetPasswordSchema = z.object({
+  password: z.string().min(8, 'Mínimo 8 caracteres').max(200),
+});
+export type PortalSetPasswordInput = z.infer<typeof PortalSetPasswordSchema>;
+
+/**
  * Registro de payment method desde el portal del inquilino. A diferencia
  * de `RegisterPaymentMethodSchema` (staff), NO acepta `customerId` ni
  * `type`: el customer sale del JWT de portal y el tipo real lo deriva el

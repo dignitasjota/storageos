@@ -87,6 +87,8 @@ export interface PortalProfileDto {
   country: string;
   documentType: string | null;
   documentNumber: string | null;
+  /** true si el inquilino ya tiene una contraseña de portal configurada. */
+  hasPortalPassword: boolean;
 }
 
 const optionalProfileText = (max: number) => z.string().trim().max(max).optional();
