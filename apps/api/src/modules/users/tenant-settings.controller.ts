@@ -14,6 +14,8 @@ import {
   UpdateTenantReferralSettingsSchema,
   UpdateTenantReviewsSettingsSchema,
   UpdateTenantSecuritySettingsSchema,
+  UpdateWebSettingsSchema,
+  type WebSettingsResponse,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -21,6 +23,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { TenantSettingsService } from './tenant-settings.service';
@@ -35,6 +38,7 @@ class UpdateTenantReferralSettingsDto extends createZodDto(UpdateTenantReferralS
 class UpdateTenantAccessSettingsDto extends createZodDto(UpdateTenantAccessSettingsSchema) {}
 class UpdateTenantBrandingDto extends createZodDto(UpdateTenantBrandingSchema) {}
 class UpdateContractTemplateDto extends createZodDto(UpdateContractTemplateSchema) {}
+class UpdateWebSettingsDto extends createZodDto(UpdateWebSettingsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -134,6 +138,30 @@ export class TenantSettingsController {
     @Req() req: Request,
   ): Promise<TenantBrandingResponse> {
     return this.settings.updateBranding({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Web Premium: plantilla + textos de la web pública. Feature `web_premium`. */
+  @RequireFeature('web_premium')
+  @RequirePermission('settings:read')
+  @Get('web')
+  async getWeb(@CurrentUser() user: AuthenticatedUser): Promise<WebSettingsResponse> {
+    return this.settings.getWebSettings(user.tenantId);
+  }
+
+  @RequireFeature('web_premium')
+  @RequirePermission('settings:manage')
+  @Patch('web')
+  async updateWeb(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateWebSettingsDto,
+    @Req() req: Request,
+  ): Promise<WebSettingsResponse> {
+    return this.settings.updateWebSettings({
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
-import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
+import { effectiveFeaturesFromList, isWebTemplate, resolvePlanFeatures } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -27,6 +27,8 @@ import type {
   UpdateTenantReferralSettingsInput,
   UpdateTenantReviewsSettingsInput,
   UpdateTenantSecuritySettingsInput,
+  UpdateWebSettingsInput,
+  WebSettingsResponse,
 } from '@storageos/shared';
 
 @Injectable()
@@ -233,8 +235,8 @@ export class TenantSettingsService {
     };
   }
 
-  /** ¿El tenant tiene la feature `custom_domain` (plan + overrides)? */
-  private async hasCustomDomainFeature(tenantId: string): Promise<boolean> {
+  /** ¿El tenant tiene una feature concreta (plan + overrides)? */
+  private async hasFeature(tenantId: string, feature: TenantFeature): Promise<boolean> {
     const [subscription, overrides] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
@@ -250,7 +252,7 @@ export class TenantSettingsService {
       base,
       overrides as { feature: TenantFeature; enabled: boolean }[],
     );
-    return features.includes('custom_domain');
+    return features.includes(feature);
   }
 
   async updateBranding(args: {
@@ -277,7 +279,7 @@ export class TenantSettingsService {
         data.customDomainVerifiedAt = null;
       } else if (domain !== tenant.customDomain) {
         // Setear/cambiar el dominio requiere la feature del plan.
-        if (!(await this.hasCustomDomainFeature(args.tenantId))) {
+        if (!(await this.hasFeature(args.tenantId, 'custom_domain'))) {
           throw new ForbiddenException({
             code: 'feature_not_in_plan',
             message: 'El dominio propio no está incluido en tu plan',
@@ -354,6 +356,49 @@ export class TenantSettingsService {
       userAgent: args.meta.userAgent ?? null,
     });
     return { clauses };
+  }
+
+  async getWebSettings(tenantId: string): Promise<WebSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { webTemplate: true, webHeadline: true, webAbout: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
+    return {
+      template: isWebTemplate(tenant.webTemplate) ? tenant.webTemplate : 'default',
+      headline: tenant.webHeadline,
+      about: tenant.webAbout,
+    };
+  }
+
+  async updateWebSettings(args: {
+    tenantId: string;
+    actorUserId: string;
+    input: UpdateWebSettingsInput;
+    meta: RequestMeta;
+  }): Promise<WebSettingsResponse> {
+    const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
+    if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
+    const { input } = args;
+    const data: Prisma.TenantUpdateInput = {};
+    if (input.template !== undefined) data.webTemplate = input.template;
+    // '' = borrar (null); undefined = no tocar.
+    if (input.headline !== undefined) data.webHeadline = input.headline || null;
+    if (input.about !== undefined) data.webAbout = input.about || null;
+    if (Object.keys(data).length > 0) {
+      await this.admin.tenant.update({ where: { id: args.tenantId }, data });
+      await this.audit.write({
+        tenantId: args.tenantId,
+        userId: args.actorUserId,
+        action: 'tenant.web_settings.changed',
+        entityType: 'Tenant',
+        entityId: args.tenantId,
+        changes: data as unknown as Prisma.InputJsonValue,
+        ipAddress: args.meta.ipAddress ?? null,
+        userAgent: args.meta.userAgent ?? null,
+      });
+    }
+    return this.getWebSettings(args.tenantId);
   }
 
   async getReferrals(tenantId: string): Promise<TenantReferralSettingsResponse> {

@@ -29,6 +29,7 @@ export * from './integrations';
 export * from './imports';
 export * from './move-in';
 export * from './landing';
+export * from './web';
 export * from './accounting';
 export * from './notifications';
 export * from './reviews';

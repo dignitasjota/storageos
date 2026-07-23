@@ -2,7 +2,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -110,5 +110,60 @@ describe('Landing pública por tenant (e2e)', () => {
     );
     expect(entry).toBeTruthy();
     expect(entry!.facilitySlugs).toContain('local-sur');
+  });
+
+  it('web premium: sin la feature, el settings da 403 y la landing usa default', async () => {
+    const owner = await registerVerifiedUser(app, 'web-off');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    // El endpoint de ajustes está gateado por la feature → 403 sin ella.
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ template: 'modern', headline: 'Mi web' })
+      .expect(403);
+
+    // La landing pública siempre responde, con plantilla por defecto y sin textos.
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.status).toBe(200);
+    expect(landing.body.webTemplate).toBe('default');
+    expect(landing.body.webHeadline).toBeNull();
+    expect(landing.body.webAbout).toBeNull();
+  });
+
+  it('web premium: con la feature, se guarda y la landing aplica plantilla + textos', async () => {
+    const owner = await registerVerifiedUser(app, 'web-on');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    // Guardar plantilla + textos.
+    const save = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ template: 'modern', headline: 'Guarda con seguridad', about: 'Somos el mejor.' });
+    expect(save.status).toBe(200);
+    expect(save.body).toMatchObject({
+      template: 'modern',
+      headline: 'Guarda con seguridad',
+      about: 'Somos el mejor.',
+    });
+
+    // La landing pública refleja la plantilla y los textos.
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.webTemplate).toBe('modern');
+    expect(landing.body.webHeadline).toBe('Guarda con seguridad');
+    expect(landing.body.webAbout).toBe('Somos el mejor.');
+
+    // Vaciar el about ('' = borrar) lo pone a null.
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ about: '' })
+      .expect(200);
+    const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(after.body.webAbout).toBeNull();
+    expect(after.body.webTemplate).toBe('modern'); // se conserva
   });
 });

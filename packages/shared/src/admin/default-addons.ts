@@ -93,4 +93,12 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     priceMonthly: 20,
     feature: 'facial_access',
   },
+  {
+    slug: 'addon-web-premium',
+    name: 'Web Premium',
+    description:
+      'Web pública personalizable: elige plantilla de diseño y presenta tu empresa con reserva online integrada.',
+    priceMonthly: 18,
+    feature: 'web_premium',
+  },
 ];

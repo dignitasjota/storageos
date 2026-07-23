@@ -1,9 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { isValidCustomDomain } from '@storageos/shared';
+import {
+  effectiveFeaturesFromList,
+  isValidCustomDomain,
+  isWebTemplate,
+  resolvePlanFeatures,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
+import type { TenantFeature } from '@storageos/shared';
 import type {
   PublicFacilityLandingDto,
   PublicLandingDto,
@@ -64,12 +70,21 @@ export class LandingService {
       availByFacilityType.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
     }
 
+    // Web Premium: solo si el tenant tiene la feature se aplica la plantilla y los
+    // textos personalizados; si no, se sirve `default` sin headline/about custom.
+    const hasWebPremium = await this.hasWebPremium(tenant.id);
+    const webTemplate =
+      hasWebPremium && isWebTemplate(tenant.webTemplate) ? tenant.webTemplate : 'default';
+
     return {
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
+      webTemplate,
+      webHeadline: hasWebPremium ? tenant.webHeadline : null,
+      webAbout: hasWebPremium ? tenant.webAbout : null,
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -91,6 +106,26 @@ export class LandingService {
           .filter((t) => t.available > 0),
       })),
     };
+  }
+
+  /** ¿El tenant tiene la feature `web_premium` (plan + overrides)? */
+  private async hasWebPremium(tenantId: string): Promise<boolean> {
+    const [subscription, overrides] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { slug: true, tenantFeatures: true } } },
+      }),
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId },
+        select: { feature: true, enabled: true },
+      }),
+    ]);
+    const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
+    const features = effectiveFeaturesFromList(
+      base,
+      overrides as { feature: TenantFeature; enabled: boolean }[],
+    );
+    return features.includes('web_premium');
   }
 
   /** Landing de un único local por su `publicSlug`. */
