@@ -39,6 +39,7 @@ import type {
   PortalDownloadDto,
   PortalFacilityDto,
   PortalInvoiceDto,
+  PortalLoginPasswordInput,
   PortalMagicLinkDto,
   PortalPaymentDto,
   PortalProfileDto,
@@ -299,14 +300,81 @@ export class PortalService {
         message: 'Enlace no válido para esta cuenta',
       });
     }
+    return this.buildSession(customer, tenant);
+  }
+
+  /**
+   * Login del inquilino por email + contraseña (opt-in; alternativa al magic
+   * link). Resuelve `(tenantSlug, email)` a UN cliente con acceso por contraseña
+   * activo y verifica el hash argon2. Error genérico `portal_login_failed` en
+   * cualquier fallo (no filtra si existe el email, si tiene contraseña, etc.).
+   * Recuperación: el inquilino usa el magic link para entrar y re-fija la clave.
+   */
+  async loginWithPassword(input: PortalLoginPasswordInput): Promise<PortalSessionDto> {
+    const fail = (): never => {
+      throw new UnauthorizedException({
+        code: 'portal_login_failed',
+        message: 'Email o contraseña incorrectos',
+      });
+    };
+    const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
+    if (!tenant || tenant.deletedAt || tenant.status === 'suspended' || tenant.status === 'cancelled') {
+      return fail();
+    }
+    // Debe resolver a EXACTAMENTE un cliente con contraseña (el email no es único
+    // por tenant): si hay 0 o varios candidatos con acceso por contraseña, falla.
+    const candidates = await this.admin.customer.findMany({
+      where: {
+        tenantId: tenant.id,
+        email: input.email,
+        deletedAt: null,
+        portalAccessEnabled: true,
+        portalPasswordHash: { not: null },
+      },
+    });
+    if (candidates.length !== 1) return fail();
+    const customer = candidates[0]!;
+    const ok = await argonVerify(customer.portalPasswordHash!, input.password).catch(() => false);
+    if (!ok) return fail();
+    return this.buildSession(customer, tenant);
+  }
+
+  /**
+   * El inquilino fija/cambia su contraseña de portal (requiere sesión activa,
+   * p. ej. entró por magic link). Activa `portalAccessEnabled` para habilitar el
+   * login por contraseña.
+   */
+  async setMyPassword(tenantId: string, customerId: string, password: string): Promise<void> {
+    await this.requireCustomer(tenantId, customerId);
+    const portalPasswordHash = await argonHash(password);
+    await this.admin.customer.update({
+      where: { id: customerId },
+      data: { portalPasswordHash, portalAccessEnabled: true },
+    });
+  }
+
+  /** Construye la sesión (JWT de portal + DTO) para un cliente autenticado. */
+  private async buildSession(
+    customer: {
+      id: string;
+      customerType: string;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+      email: string | null;
+    },
+    tenant: {
+      id: string;
+      name: string;
+      slug: string;
+      portalBrandColor: string | null;
+      portalLogoUrl: string | null;
+    },
+  ): Promise<PortalSessionDto> {
     const ttl = PORTAL_SESSION_TTL_SECONDS;
     const accessToken = await this.jwt.signAsync(
       { customerId: customer.id, tenantId: tenant.id, purpose: 'portal' },
-      {
-        subject: customer.id,
-        secret: this.portalSecret(),
-        expiresIn: ttl,
-      },
+      { subject: customer.id, secret: this.portalSecret(), expiresIn: ttl },
     );
     const displayName =
       customer.customerType === 'business'
@@ -669,6 +737,7 @@ export class PortalService {
     country: string;
     documentType: string | null;
     documentNumber: string | null;
+    portalPasswordHash?: string | null;
   }): PortalProfileDto {
     return {
       customerType: c.customerType as PortalProfileDto['customerType'],
@@ -683,6 +752,7 @@ export class PortalService {
       country: c.country,
       documentType: c.documentType,
       documentNumber: c.documentNumber,
+      hasPortalPassword: c.portalPasswordHash != null,
     };
   }
 
