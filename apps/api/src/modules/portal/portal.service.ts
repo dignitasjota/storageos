@@ -65,6 +65,11 @@ const STAFF_MAGIC_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
  */
 const PORTAL_SESSION_TTL_SECONDS = 48 * 60 * 60;
 const MAGIC_LINK_KEY_PREFIX = 'portal:magiclink:';
+/** Enlace de restablecimiento de contraseña (self-service por email): 30 min. */
+const RESET_TOKEN_TTL_SECONDS = 30 * 60;
+/** Enlace de restablecimiento generado por el staff (lo reparte a mano): 7 días. */
+const STAFF_RESET_TTL_SECONDS = 7 * 24 * 60 * 60;
+const RESET_KEY_PREFIX = 'portal:pwreset:';
 
 interface MagicLinkEntry {
   secretHash: string;
@@ -164,9 +169,10 @@ export class PortalService {
     tokenId: string,
     entry: MagicLinkEntry,
     ttlSeconds: number = MAGIC_LINK_TTL_SECONDS,
+    keyPrefix: string = MAGIC_LINK_KEY_PREFIX,
   ): Promise<void> {
     const client = await this.emailQueue.client;
-    await client.set(`${MAGIC_LINK_KEY_PREFIX}${tokenId}`, JSON.stringify(entry), 'EX', ttlSeconds);
+    await client.set(`${keyPrefix}${tokenId}`, JSON.stringify(entry), 'EX', ttlSeconds);
   }
 
   /**
@@ -214,10 +220,13 @@ export class PortalService {
     return { url, expiresAt };
   }
 
-  /** Lee Y borra el magic link en un solo paso atomico (single-use). */
-  private async takeMagicLink(tokenId: string): Promise<MagicLinkEntry | null> {
+  /** Lee Y borra el token en un solo paso atomico (single-use). */
+  private async takeMagicLink(
+    tokenId: string,
+    keyPrefix: string = MAGIC_LINK_KEY_PREFIX,
+  ): Promise<MagicLinkEntry | null> {
     const client = await this.emailQueue.client;
-    const raw = await client.getdel(`${MAGIC_LINK_KEY_PREFIX}${tokenId}`);
+    const raw = await client.getdel(`${keyPrefix}${tokenId}`);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as MagicLinkEntry;
@@ -350,6 +359,154 @@ export class PortalService {
     await this.admin.customer.update({
       where: { id: customerId },
       data: { portalPasswordHash, portalAccessEnabled: true },
+    });
+  }
+
+  /**
+   * Solicitud pública de restablecimiento de contraseña: envía por email un
+   * enlace de reset (single-use, 30 min). 204 silencioso para no filtrar si el
+   * email pertenece a un cliente. Sirve también para FIJAR la primera contraseña.
+   */
+  async requestPasswordReset(input: PortalRequestMagicLinkInput): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
+    if (!tenant || tenant.deletedAt) return;
+    const customer = await this.admin.customer.findFirst({
+      where: { tenantId: tenant.id, email: input.email, deletedAt: null },
+    });
+    if (!customer) return;
+
+    const tokenId = randomBytes(16).toString('hex');
+    const secret = randomBytes(24).toString('base64url');
+    const secretHash = await argonHash(secret);
+    await this.storeMagicLink(
+      tokenId,
+      { secretHash, customerId: customer.id, tenantId: tenant.id },
+      RESET_TOKEN_TTL_SECONDS,
+      RESET_KEY_PREFIX,
+    );
+    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
+    const link = `${webBase}/portal/reset?token=${tokenId}.${secret}`;
+    await this.email.send({
+      to: input.email,
+      subject: `Restablece tu contraseña de ${tenant.name}`,
+      template: PortalMagicLinkEmail({ tenantName: tenant.name, link, ttlMinutes: 30 }),
+    });
+  }
+
+  /**
+   * Consume un enlace de reset (single-use), fija la nueva contraseña + activa el
+   * acceso, y devuelve una sesión (auto-login). Error genérico si el token no es
+   * válido/caducó o la cuenta ya no existe.
+   */
+  async resetPassword(token: string, password: string): Promise<PortalSessionDto> {
+    if (!PORTAL_TOKEN_PREFIX_REGEX.test(token)) {
+      throw new UnauthorizedException({ code: 'portal_token_invalid', message: 'Enlace invalido' });
+    }
+    const [tokenId, secret] = token.split('.');
+    if (!tokenId || !secret) {
+      throw new UnauthorizedException({ code: 'portal_token_invalid', message: 'Enlace invalido' });
+    }
+    const entry = await this.takeMagicLink(tokenId, RESET_KEY_PREFIX);
+    if (!entry) {
+      throw new UnauthorizedException({ code: 'portal_token_expired', message: 'Enlace caducado' });
+    }
+    const ok = await argonVerify(entry.secretHash, secret).catch(() => false);
+    if (!ok) {
+      throw new UnauthorizedException({ code: 'portal_token_invalid', message: 'Enlace invalido' });
+    }
+    const customer = await this.admin.customer.findFirst({
+      where: { id: entry.customerId, deletedAt: null },
+    });
+    const tenant = await this.admin.tenant.findFirst({
+      where: { id: entry.tenantId, deletedAt: null },
+    });
+    if (!customer || !tenant || tenant.status === 'suspended' || tenant.status === 'cancelled') {
+      throw new UnauthorizedException({
+        code: 'portal_token_invalid',
+        message: 'Enlace no válido para esta cuenta',
+      });
+    }
+    const portalPasswordHash = await argonHash(password);
+    const updated = await this.admin.customer.update({
+      where: { id: customer.id },
+      data: { portalPasswordHash, portalAccessEnabled: true },
+    });
+    return this.buildSession(updated, tenant);
+  }
+
+  /**
+   * El staff genera un enlace para que un inquilino (re)establezca su contraseña
+   * de portal y lo recibe de vuelta (lo reparte a mano). TTL largo (7 días),
+   * single-use. Auditado.
+   */
+  async createPasswordResetLinkForCustomer(
+    tenantId: string,
+    customerId: string,
+    userId: string,
+    meta: { ipAddress: string | null; userAgent: string | null },
+  ): Promise<PortalMagicLinkDto> {
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
+    }
+    const tokenId = randomBytes(16).toString('hex');
+    const secret = randomBytes(24).toString('base64url');
+    const secretHash = await argonHash(secret);
+    await this.storeMagicLink(
+      tokenId,
+      { secretHash, customerId, tenantId },
+      STAFF_RESET_TTL_SECONDS,
+      RESET_KEY_PREFIX,
+    );
+    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
+    const url = `${webBase}/portal/reset?token=${tokenId}.${secret}`;
+    const expiresAt = new Date(Date.now() + STAFF_RESET_TTL_SECONDS * 1000).toISOString();
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'portal.password_reset_link_generated',
+      entityType: 'Customer',
+      entityId: customerId,
+      changes: { expiresAt },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return { url, expiresAt };
+  }
+
+  /**
+   * El staff desactiva el acceso por contraseña de un inquilino (revoca): borra
+   * el hash y pone `portalAccessEnabled=false` → el login por contraseña deja de
+   * funcionar (el magic link sigue disponible). Auditado.
+   */
+  async disablePortalPassword(
+    tenantId: string,
+    customerId: string,
+    userId: string,
+    meta: { ipAddress: string | null; userAgent: string | null },
+  ): Promise<void> {
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
+    }
+    await this.admin.customer.update({
+      where: { id: customerId },
+      data: { portalAccessEnabled: false, portalPasswordHash: null },
+    });
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'portal.password_access_disabled',
+      entityType: 'Customer',
+      entityId: customerId,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
     });
   }
 

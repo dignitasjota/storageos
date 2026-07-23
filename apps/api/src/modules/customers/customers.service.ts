@@ -310,6 +310,7 @@ export class CustomersService {
       tags: row.tags,
       kycVerified: row.kycVerified,
       kycVerifiedAt: row.kycVerifiedAt ? row.kycVerifiedAt.toISOString() : null,
+      portalAccessEnabled: row.portalAccessEnabled,
       activeContracts: row._count?.contracts ?? 0,
       pendingReservations: row._count?.reservations ?? 0,
       createdAt: row.createdAt.toISOString(),

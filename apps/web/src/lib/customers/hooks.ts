@@ -469,6 +469,26 @@ export function useCreatePortalLink(customerId: string) {
   });
 }
 
+/** El staff genera un enlace para que el inquilino (re)establezca su contraseña. */
+export function useCreatePasswordResetLink(customerId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<PortalMagicLinkDto>(`/customers/${customerId}/portal-link/password-reset-link`, {
+        method: 'POST',
+      }),
+  });
+}
+
+/** El staff desactiva el acceso por contraseña del inquilino (borra el hash). */
+export function useDisablePortalPassword(customerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/customers/${customerId}/portal-link/password`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: customerKey(customerId) }),
+  });
+}
+
 // --- Chat con el inquilino ---------------------------------------------------
 
 export function useCustomerMessages(id: string | undefined, enabled = true) {

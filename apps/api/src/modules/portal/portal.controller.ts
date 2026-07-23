@@ -20,6 +20,7 @@ import {
   PortalConsumeMagicLinkSchema,
   PortalLoginPasswordSchema,
   PortalSetPasswordSchema,
+  PortalResetPasswordSchema,
   PortalGoCardlessMandateCompleteSchema,
   type PaymentMethodDto,
   type PortalChargeResultDto,
@@ -99,6 +100,7 @@ class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchem
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
 class PortalLoginPasswordDto extends createZodDto(PortalLoginPasswordSchema) {}
 class PortalSetPasswordDto extends createZodDto(PortalSetPasswordSchema) {}
+class PortalResetPasswordDto extends createZodDto(PortalResetPasswordSchema) {}
 class PortalRegisterPaymentMethodDto extends createZodDto(PortalRegisterPaymentMethodSchema) {}
 class PortalGoCardlessMandateCompleteDto extends createZodDto(
   PortalGoCardlessMandateCompleteSchema,
@@ -178,6 +180,24 @@ export class PortalController {
   ): Promise<void> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     await this.portal.setMyPassword(tenantId, customerId, input.password);
+  }
+
+  /** Solicitar un enlace de restablecimiento de contraseña por email (204 silencioso). */
+  @Public()
+  @ThrottleLogin()
+  @Post('login/forgot')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async forgotPassword(@Body() input: PortalRequestMagicLinkDto): Promise<void> {
+    await this.portal.requestPasswordReset(input);
+  }
+
+  /** Fijar la nueva contraseña con el token del email → sesión (auto-login). */
+  @Public()
+  @ThrottleLogin()
+  @Post('login/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() input: PortalResetPasswordDto): Promise<PortalSessionDto> {
+    return this.portal.resetPassword(input.token, input.password);
   }
 
   @Public()

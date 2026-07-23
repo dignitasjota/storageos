@@ -110,4 +110,75 @@ describe('Portal — login por contraseña (e2e)', () => {
       .send({ password: 'corta' })
       .expect(400);
   });
+
+  it('reset por email (forgot → reset) fija la contraseña y auto-loguea', async () => {
+    const owner = await registerVerifiedUser(app, 'portal-pwd-reset');
+    const email = `reset-${Date.now()}@e2e.local`;
+    await createCustomer(app, owner.accessToken, { email });
+
+    // Solicita el enlace de reset por email.
+    await request(app.getHttpServer())
+      .post('/portal/login/forgot')
+      .send({ tenantSlug: owner.slug, email })
+      .expect(204);
+    const mail = await waitForEmail(email, { subjectIncludes: 'Restablece' });
+    const token = mail.Text.match(/reset\?token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
+    expect(token).toBeTruthy();
+
+    // Fija la contraseña con el token → sesión (auto-login).
+    const reset = await request(app.getHttpServer())
+      .post('/portal/login/reset')
+      .send({ token, password: 'NuevaClave1' });
+    expect(reset.status).toBe(200);
+    expect(reset.body.accessToken).toBeTruthy();
+
+    // El token es de un solo uso → replay falla.
+    await request(app.getHttpServer())
+      .post('/portal/login/reset')
+      .send({ token, password: 'Otra12345' })
+      .expect(401);
+
+    // Y ya puede entrar con la nueva contraseña.
+    const login = await request(app.getHttpServer())
+      .post('/portal/login/password')
+      .send({ tenantSlug: owner.slug, email, password: 'NuevaClave1' });
+    expect(login.status).toBe(200);
+  });
+
+  it('staff: enlace de reset + desactivar el acceso por contraseña', async () => {
+    const owner = await registerVerifiedUser(app, 'portal-pwd-staff');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const email = `staff-${Date.now()}@e2e.local`;
+    const customerId = await createCustomer(app, owner.accessToken, { email });
+
+    // El staff genera un enlace de reset (para repartir a mano).
+    const gen = await request(app.getHttpServer())
+      .post(`/customers/${customerId}/portal-link/password-reset-link`)
+      .set(auth);
+    expect(gen.status).toBe(201);
+    const token = gen.body.url.match(/reset\?token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
+    expect(token).toBeTruthy();
+
+    // El inquilino usa ese enlace → contraseña fijada + acceso activado.
+    await request(app.getHttpServer())
+      .post('/portal/login/reset')
+      .send({ token, password: 'ClaveStaff1' })
+      .expect(200);
+    const enabled = await request(app.getHttpServer()).get(`/customers/${customerId}`).set(auth);
+    expect(enabled.body.portalAccessEnabled).toBe(true);
+
+    // El staff desactiva el acceso por contraseña.
+    await request(app.getHttpServer())
+      .delete(`/customers/${customerId}/portal-link/password`)
+      .set(auth)
+      .expect(204);
+    const disabled = await request(app.getHttpServer()).get(`/customers/${customerId}`).set(auth);
+    expect(disabled.body.portalAccessEnabled).toBe(false);
+
+    // Ya no puede entrar con contraseña.
+    await request(app.getHttpServer())
+      .post('/portal/login/password')
+      .send({ tenantSlug: owner.slug, email, password: 'ClaveStaff1' })
+      .expect(401);
+  });
 });
