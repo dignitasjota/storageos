@@ -6,6 +6,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AnalyticsService } from './analytics.service';
@@ -30,6 +31,7 @@ import type {
   RevenueKpiDto,
   SuggestedActionsDto,
   UnitPricingSuggestionsDto,
+  WebPerformanceDto,
 } from '@storageos/shared';
 import type { Request } from 'express';
 
@@ -135,6 +137,20 @@ export class AnalyticsController {
     @Query('to') to?: string,
   ): Promise<LeadsUtmKpiDto> {
     return this.service.getLeadsUtm(user.tenantId, {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+  }
+
+  /** Rendimiento de la web pública (Web Premium): leads → contrato → MRR. */
+  @RequireFeature('web_premium')
+  @Get('web-performance')
+  getWebPerformance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<WebPerformanceDto> {
+    return this.service.getWebPerformance(user.tenantId, {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     });

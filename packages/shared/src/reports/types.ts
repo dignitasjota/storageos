@@ -292,3 +292,33 @@ export interface BenchmarkDto {
   /** Precio medio por m² (€/m²·mes). */
   pricePerSqm?: BenchmarkMetricDto;
 }
+
+/** Rendimiento de la web pública por fuente (Web Premium). */
+export interface WebPerformanceSourceDto {
+  /** Clave de la fuente (`web` = formulario de contacto, `widget` = embebido). */
+  source: string;
+  /** Etiqueta legible. */
+  label: string;
+  /** Leads captados por esa fuente en el rango. */
+  leads: number;
+  /** De esos, cuántos acabaron en contrato (ganados). */
+  won: number;
+  /** MRR (€/mes) de los contratos vivos originados por esos leads. */
+  mrr: number;
+}
+
+export interface WebPerformanceDto {
+  /** Desde/hasta del rango (YYYY-MM-DD). */
+  from: string;
+  to: string;
+  /** Total de leads de la web (todas las fuentes web) en el rango. */
+  totalLeads: number;
+  /** Total de leads ganados (convertidos en contrato). */
+  totalWon: number;
+  /** % de conversión leads→contrato. */
+  conversionRate: number;
+  /** MRR total (€/mes) atribuido a la web. */
+  totalMrr: number;
+  /** Desglose por fuente. */
+  bySource: WebPerformanceSourceDto[];
+}

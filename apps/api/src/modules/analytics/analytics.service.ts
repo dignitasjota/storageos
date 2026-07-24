@@ -13,6 +13,7 @@ import type {
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   RevenueKpiDto,
+  WebPerformanceDto,
 } from '@storageos/shared';
 
 type AgingBucketRange = '0-30' | '30-60' | '60-90' | '+90';
@@ -463,6 +464,83 @@ export class AnalyticsService {
         })
         .sort((a, b) => b.total - a.total);
       return { rows, totalTracked: rows.reduce((s, r) => s + r.total, 0) };
+    }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4c. Rendimiento de la web (Web Premium): leads → contrato → MRR
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Cuánto genera la web pública: leads captados por sus fuentes (`web` =
+   * formulario de contacto, `widget` = embebido), cuántos acaban en contrato y el
+   * MRR (€/mes) de los contratos vivos originados por esos leads. Por defecto los
+   * últimos 90 días.
+   */
+  async getWebPerformance(
+    tenantId: string,
+    filters?: { from?: string; to?: string },
+  ): Promise<WebPerformanceDto> {
+    const now = new Date();
+    const defaultTo = startOfDayUtc(now);
+    const defaultFrom = new Date(defaultTo.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const fromDate = filters?.from ? parseDate(filters.from) : defaultFrom;
+    const toExclusive = filters?.to
+      ? new Date(parseDate(filters.to).getTime() + 24 * 60 * 60 * 1000)
+      : new Date(defaultTo.getTime() + 24 * 60 * 60 * 1000);
+
+    const WEB_SOURCES: { source: string; label: string }[] = [
+      { source: 'web', label: 'Formulario de la web' },
+      { source: 'widget', label: 'Widget embebido' },
+    ];
+    const sourceKeys = WEB_SOURCES.map((s) => s.source);
+
+    return this.prisma.withTenant(async (tx) => {
+      const leads = await tx.lead.findMany({
+        where: {
+          deletedAt: null,
+          source: { in: sourceKeys },
+          createdAt: { gte: fromDate, lt: toExclusive },
+        },
+        select: {
+          source: true,
+          status: true,
+          convertedContract: { select: { priceMonthly: true, status: true } },
+        },
+      });
+
+      const acc = new Map<string, { leads: number; won: number; mrr: number }>();
+      for (const key of sourceKeys) acc.set(key, { leads: 0, won: 0, mrr: 0 });
+      for (const l of leads) {
+        const bucket = acc.get(l.source) ?? { leads: 0, won: 0, mrr: 0 };
+        bucket.leads += 1;
+        const contract = l.convertedContract;
+        // «Ganado» = convertido en contrato (o marcado won). El MRR solo cuenta
+        // contratos vivos (active/ending) para no inflar con bajas.
+        if (contract || l.status === 'won') bucket.won += 1;
+        if (contract && (contract.status === 'active' || contract.status === 'ending')) {
+          bucket.mrr += Number(contract.priceMonthly);
+        }
+        acc.set(l.source, bucket);
+      }
+
+      const bySource = WEB_SOURCES.map((s) => {
+        const b = acc.get(s.source)!;
+        return { source: s.source, label: s.label, leads: b.leads, won: b.won, mrr: b.mrr };
+      });
+      const totalLeads = bySource.reduce((s, r) => s + r.leads, 0);
+      const totalWon = bySource.reduce((s, r) => s + r.won, 0);
+      const totalMrr = bySource.reduce((s, r) => s + r.mrr, 0);
+
+      return {
+        from: fromDate.toISOString().slice(0, 10),
+        to: new Date(toExclusive.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        totalLeads,
+        totalWon,
+        conversionRate: totalLeads > 0 ? totalWon / totalLeads : 0,
+        totalMrr,
+        bySource,
+      };
     }, tenantId);
   }
 

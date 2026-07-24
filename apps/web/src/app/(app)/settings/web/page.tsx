@@ -1,7 +1,7 @@
 'use client';
 
 import { WEB_TEMPLATES, type WebSections, type WebTemplateValue } from '@storageos/shared';
-import { ExternalLink, Globe, Loader2 } from 'lucide-react';
+import { ExternalLink, Globe, Loader2, TrendingUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
-import { useUpdateWebSettings, useWebSettings } from '@/lib/web-settings/hooks';
+import { useUpdateWebSettings, useWebPerformance, useWebSettings } from '@/lib/web-settings/hooks';
 
 const DEFAULT_SECTIONS: WebSections = { testimonials: false, faq: false, contact: false };
 
@@ -75,6 +75,8 @@ export default function WebSettingsPage() {
           </Button>
         )}
       </div>
+
+      <WebPerformanceCard />
 
       <Card>
         <CardHeader>
@@ -193,5 +195,79 @@ function SectionToggle({
         <span className="block text-xs text-muted-foreground">{hint}</span>
       </span>
     </label>
+  );
+}
+
+function eur(n: number): string {
+  return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+}
+
+/** «Cuánto te genera tu web»: leads → contrato → MRR (últimos 90 días). */
+function WebPerformanceCard() {
+  const perf = useWebPerformance();
+  const d = perf.data;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <TrendingUp className="h-5 w-5 text-muted-foreground" /> Rendimiento de tu web
+        </CardTitle>
+        <CardDescription>
+          Lo que ha generado tu web en los últimos 90 días (formulario de contacto + widget).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {perf.isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : d && d.totalLeads > 0 ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric label="Contactos" value={String(d.totalLeads)} />
+              <Metric label="Se hicieron clientes" value={String(d.totalWon)} />
+              <Metric label="Conversión" value={`${Math.round(d.conversionRate * 100)}%`} />
+              <Metric label="Ingresos/mes generados" value={eur(d.totalMrr)} highlight />
+            </div>
+            <div className="divide-y rounded-md border text-sm">
+              {d.bySource
+                .filter((s) => s.leads > 0)
+                .map((s) => (
+                  <div key={s.source} className="flex items-center justify-between px-3 py-2">
+                    <span>{s.label}</span>
+                    <span className="text-muted-foreground">
+                      {s.leads} contacto{s.leads === 1 ? '' : 's'} · {s.won} cliente
+                      {s.won === 1 ? '' : 's'} · {eur(s.mrr)}/mes
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        ) : (
+          <p className="py-2 text-sm text-muted-foreground">
+            Aún no hay contactos desde tu web. Activa el formulario de contacto y comparte tu
+            enlace para empezar a captar clientes.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="rounded-md border p-3">
+      <div className={`text-xl font-semibold ${highlight ? 'text-primary' : ''}`}>{value}</div>
+      <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
+    </div>
   );
 }

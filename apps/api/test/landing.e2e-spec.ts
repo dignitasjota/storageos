@@ -242,4 +242,35 @@ describe('Landing pública por tenant (e2e)', () => {
       .send({ firstName: 'X', email: 'x@web.local' })
       .expect(404);
   });
+
+  it('rendimiento de la web: gating + cuenta los leads captados por la web', async () => {
+    const owner = await registerVerifiedUser(app, 'web-perf');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    // Sin la feature → 403.
+    await request(app.getHttpServer()).get('/analytics/web-performance').set(auth).expect(403);
+
+    // Con la feature + contacto activo → un envío de contacto crea un lead web.
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ sections: { contact: true } })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/public/landing/${owner.slug}/contact`)
+      .send({ firstName: 'Web', email: 'perf@web.local', message: 'Info' })
+      .expect(201);
+
+    const perf = await request(app.getHttpServer()).get('/analytics/web-performance').set(auth);
+    expect(perf.status).toBe(200);
+    expect(perf.body.totalLeads).toBe(1);
+    expect(perf.body.totalMrr).toBe(0); // aún sin contrato convertido
+    const web = (perf.body.bySource as { source: string; leads: number }[]).find(
+      (s) => s.source === 'web',
+    );
+    expect(web?.leads).toBe(1);
+    expect(perf.body).toHaveProperty('conversionRate');
+  });
 });
