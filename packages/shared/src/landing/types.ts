@@ -36,12 +36,30 @@ export interface PublicLandingDto {
   /**
    * Web Premium: plantilla de diseño (`default`/`modern`/`industrial`) + textos
    * personalizados. Sin la feature `web_premium`, el backend fuerza `default` y
-   * `headline`/`about` a null.
+   * `headline`/`about` a null y las secciones vacías.
    */
   webTemplate: string;
   webHeadline: string | null;
   webAbout: string | null;
+  /** Testimonios (reseñas NPS ≥ 9). Vacío si la sección está desactivada. */
+  testimonials: PublicTestimonialDto[];
+  /** Preguntas frecuentes publicadas. Vacío si la sección está desactivada. */
+  faqs: PublicFaqDto[];
+  /** Muestra el formulario de contacto (crea un lead). */
+  contactEnabled: boolean;
   facilities: PublicLandingFacilityDto[];
+}
+
+export interface PublicTestimonialDto {
+  author: string;
+  comment: string;
+  /** Estrellas (1-5) si el inquilino las dejó. */
+  rating: number | null;
+}
+
+export interface PublicFaqDto {
+  question: string;
+  answer: string;
 }
 
 /** Landing de un único local (`/s/<tenant>/<facilitySlug>`). */

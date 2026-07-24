@@ -1,16 +1,41 @@
-import { Controller, Get, Param, Query, VERSION_NEUTRAL } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  VERSION_NEUTRAL,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { PublicContactSchema } from '@storageos/shared';
+import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
 import { LandingService } from './landing.service';
 
+import type { RequestMeta } from '../auth/auth.service';
 import type {
+  LeadDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicSitemapDto,
   ResolveDomainDto,
 } from '@storageos/shared';
+import type { Request } from 'express';
+
+class PublicContactDto extends createZodDto(PublicContactSchema) {}
+
+function extractMeta(req: Request): RequestMeta {
+  const ua = req.header('user-agent');
+  const ip = req.ip;
+  return {
+    ...(ua ? { userAgent: ua } : {}),
+    ...(ip ? { ipAddress: ip } : {}),
+  };
+}
 
 /**
  * Endpoint público de la landing por tenant (`/s/[slug]`). Sin auth ni
@@ -40,6 +65,17 @@ export class LandingController {
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   get(@Param('slug') slug: string): Promise<PublicLandingDto> {
     return this.landing.getBySlug(slug);
+  }
+
+  /** Formulario de contacto de la web pública → crea un lead (source `web`). */
+  @Post(':slug/contact')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  contact(
+    @Param('slug') slug: string,
+    @Body() body: PublicContactDto,
+    @Req() req: Request,
+  ): Promise<LeadDto> {
+    return this.landing.submitContact(slug, body, extractMeta(req));
   }
 
   @Get(':slug/:facilitySlug')

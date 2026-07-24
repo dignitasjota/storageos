@@ -1,18 +1,21 @@
 'use client';
 
-import { WEB_TEMPLATES, type WebTemplateValue } from '@storageos/shared';
+import { WEB_TEMPLATES, type WebSections, type WebTemplateValue } from '@storageos/shared';
 import { ExternalLink, Globe, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
 import { useUpdateWebSettings, useWebSettings } from '@/lib/web-settings/hooks';
+
+const DEFAULT_SECTIONS: WebSections = { testimonials: false, faq: false, contact: false };
 
 export default function WebSettingsPage() {
   const settings = useWebSettings();
@@ -23,21 +26,27 @@ export default function WebSettingsPage() {
   const [template, setTemplate] = useState<WebTemplateValue>('default');
   const [headline, setHeadline] = useState('');
   const [about, setAbout] = useState('');
+  const [sections, setSections] = useState<WebSections>(DEFAULT_SECTIONS);
 
   useEffect(() => {
     if (!settings.data) return;
     setTemplate(settings.data.template);
     setHeadline(settings.data.headline ?? '');
     setAbout(settings.data.about ?? '');
+    setSections(settings.data.sections ?? DEFAULT_SECTIONS);
   }, [settings.data]);
 
   async function save() {
     try {
-      await update.mutateAsync({ template, headline, about });
+      await update.mutateAsync({ template, headline, about, sections });
       toast.success('Web actualizada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
     }
+  }
+
+  function toggle(key: keyof WebSections) {
+    setSections((s) => ({ ...s, [key]: !s[key] }));
   }
 
   if (settings.isLoading) {
@@ -100,6 +109,33 @@ export default function WebSettingsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-base">Secciones</CardTitle>
+          <CardDescription>Elige qué mostrar en tu web pública.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <SectionToggle
+            checked={sections.testimonials}
+            onToggle={() => toggle('testimonials')}
+            label="Testimonios"
+            hint="Muestra reseñas positivas de tus clientes (valoraciones NPS ≥ 9 con comentario)."
+          />
+          <SectionToggle
+            checked={sections.faq}
+            onToggle={() => toggle('faq')}
+            label="Preguntas frecuentes"
+            hint="Muestra las FAQ publicadas en tu centro de ayuda."
+          />
+          <SectionToggle
+            checked={sections.contact}
+            onToggle={() => toggle('contact')}
+            label="Formulario de contacto"
+            hint="Un formulario en tu web; cada envío entra como lead en tu panel."
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base">Textos</CardTitle>
           <CardDescription>Personaliza el mensaje principal y tu presentación.</CardDescription>
         </CardHeader>
@@ -135,5 +171,27 @@ export default function WebSettingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function SectionToggle({
+  checked,
+  onToggle,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3">
+      <Checkbox checked={checked} onCheckedChange={onToggle} className="mt-0.5" />
+      <span className="space-y-0.5">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+    </label>
   );
 }

@@ -359,6 +359,8 @@ model Tenant {
   webTemplate                 String                @default("default") @map("web_template")
   webHeadline                 String?               @map("web_headline")
   webAbout                    String?               @map("web_about")
+  /// Secciones activables de la web pública (testimonios/FAQ/contacto). Flags jsonb.
+  webSections                 Json                  @default("{}") @map("web_sections")
   /// Cláusulas particulares editables por el tenant para el contrato (con
   /// variables {{...}}). Null = plantilla por defecto. Se renderizan al firmar y
   /// en el PDF; el texto firmado se congela en `contracts.signedTermsText`.
