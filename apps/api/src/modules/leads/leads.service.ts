@@ -200,6 +200,59 @@ export class LeadsService {
     return this.toDto(created);
   }
 
+  /**
+   * Lead desde el formulario de contacto de la web pública (Web Premium). Como el
+   * widget, pero source `web` y teléfono opcional. El honeypot lo filtra el
+   * llamador (LandingService).
+   */
+  async createFromWebContact(args: {
+    tenantId: string;
+    input: {
+      firstName: string;
+      lastName?: string | undefined;
+      email: string;
+      phone?: string | undefined;
+      message?: string | undefined;
+    };
+    meta: RequestMeta;
+  }): Promise<LeadDto> {
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.create({
+          data: {
+            tenantId: args.tenantId,
+            source: 'web',
+            firstName: args.input.firstName,
+            lastName: args.input.lastName || null,
+            email: args.input.email,
+            phone: args.input.phone || null,
+            message: args.input.message || null,
+            metadata: {
+              origin: 'web_contact',
+              userAgent: args.meta.userAgent ?? null,
+              ipAddress: args.meta.ipAddress ?? null,
+            } satisfies Prisma.InputJsonValue,
+          },
+          include: {
+            preferredFacility: { select: { name: true } },
+            preferredUnitType: { select: { name: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      action: 'lead.web_contact_received',
+      entityType: 'Lead',
+      entityId: created.id,
+      ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
+      ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
+    });
+    this.emitLeadCreated(args.tenantId, created);
+    return this.toDto(created);
+  }
+
   async update(args: {
     tenantId: string;
     userId: string;

@@ -3,13 +3,22 @@ import {
   effectiveFeaturesFromList,
   isValidCustomDomain,
   isWebTemplate,
+  parseWebSections,
   resolvePlanFeatures,
 } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
+import { LeadsService } from '../leads/leads.service';
 
-import type { TenantFeature } from '@storageos/shared';
+import type { RequestMeta } from '../auth/auth.service';
+import type {
+  LeadDto,
+  PublicContactInput,
+  PublicFaqDto,
+  PublicTestimonialDto,
+  TenantFeature,
+} from '@storageos/shared';
 import type {
   PublicFacilityLandingDto,
   PublicLandingDto,
@@ -29,6 +38,7 @@ export class LandingService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly files: FilesService,
+    private readonly leads: LeadsService,
   ) {}
 
   async getBySlug(slug: string): Promise<PublicLandingDto> {
@@ -75,6 +85,13 @@ export class LandingService {
     const hasWebPremium = await this.hasWebPremium(tenant.id);
     const webTemplate =
       hasWebPremium && isWebTemplate(tenant.webTemplate) ? tenant.webTemplate : 'default';
+    const sections = hasWebPremium
+      ? parseWebSections(tenant.webSections)
+      : { testimonials: false, faq: false, contact: false };
+    const [testimonials, faqs] = await Promise.all([
+      sections.testimonials ? this.loadTestimonials(tenant.id) : Promise.resolve([]),
+      sections.faq ? this.loadFaqs(tenant.id) : Promise.resolve([]),
+    ]);
 
     return {
       tenantName: tenant.name,
@@ -85,6 +102,9 @@ export class LandingService {
       webTemplate,
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
       webAbout: hasWebPremium ? tenant.webAbout : null,
+      testimonials,
+      faqs,
+      contactEnabled: sections.contact,
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -126,6 +146,79 @@ export class LandingService {
       overrides as { feature: TenantFeature; enabled: boolean }[],
     );
     return features.includes('web_premium');
+  }
+
+  /** Testimonios: reseñas enviadas, promotoras (NPS ≥ 9) y con comentario. */
+  private async loadTestimonials(tenantId: string): Promise<PublicTestimonialDto[]> {
+    const rows = await this.admin.review.findMany({
+      where: {
+        tenantId,
+        status: 'submitted',
+        npsScore: { gte: 9 },
+        comment: { not: null },
+      },
+      select: {
+        comment: true,
+        rating: true,
+        customer: { select: { firstName: true, lastName: true, companyName: true } },
+      },
+      orderBy: { submittedAt: 'desc' },
+      take: 6,
+    });
+    return rows
+      .filter((r) => (r.comment ?? '').trim().length > 0)
+      .map((r) => {
+        const first = r.customer?.firstName?.trim() ?? '';
+        const lastInitial = r.customer?.lastName?.trim()?.[0];
+        // Anonimizado a «Nombre A.» (o razón social) para no exponer el apellido.
+        const author =
+          first || lastInitial
+            ? [first, lastInitial ? `${lastInitial}.` : ''].filter(Boolean).join(' ')
+            : (r.customer?.companyName ?? 'Cliente');
+        return { author, comment: r.comment!.trim(), rating: r.rating };
+      });
+  }
+
+  /** FAQ publicadas del centro de ayuda del negocio. */
+  private async loadFaqs(tenantId: string): Promise<PublicFaqDto[]> {
+    const rows = await this.admin.faqEntry.findMany({
+      where: { tenantId, isPublished: true },
+      select: { question: true, answer: true },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      take: 20,
+    });
+    return rows.map((r) => ({ question: r.question, answer: r.answer }));
+  }
+
+  /**
+   * Formulario de contacto de la web pública → crea un lead (source `web`). Solo
+   * si el tenant tiene la feature `web_premium` y la sección de contacto activa.
+   */
+  async submitContact(slug: string, input: PublicContactInput, meta: RequestMeta): Promise<LeadDto> {
+    if (input.hp) {
+      throw new NotFoundException({ code: 'invalid_payload', message: 'Solicitud invalida' });
+    }
+    const tenant = await this.admin.tenant.findUnique({ where: { slug } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    const sections = (await this.hasWebPremium(tenant.id))
+      ? parseWebSections(tenant.webSections)
+      : { testimonials: false, faq: false, contact: false };
+    if (!sections.contact) {
+      throw new NotFoundException({ code: 'contact_disabled', message: 'No disponible' });
+    }
+    return this.leads.createFromWebContact({
+      tenantId: tenant.id,
+      input: {
+        firstName: input.firstName,
+        lastName: input.lastName || undefined,
+        email: input.email,
+        phone: input.phone || undefined,
+        message: input.message || undefined,
+      },
+      meta,
+    });
   }
 
   /** Landing de un único local por su `publicSlug`. */

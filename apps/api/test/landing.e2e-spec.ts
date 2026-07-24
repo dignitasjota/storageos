@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -165,5 +166,80 @@ describe('Landing pública por tenant (e2e)', () => {
     const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(after.body.webAbout).toBeNull();
     expect(after.body.webTemplate).toBe('modern'); // se conserva
+  });
+
+  it('secciones: testimonios (reseña NPS≥9), FAQ y contacto→lead', async () => {
+    const owner = await registerVerifiedUser(app, 'web-sec');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    // Una reseña promotora con comentario (via request → submit público).
+    const customerId = await createCustomer(app, owner.accessToken, { email: 'sec@e2e.local' });
+    const reqRes = await request(app.getHttpServer())
+      .post('/reviews/request')
+      .set(auth)
+      .send({ customerId, channel: 'email' });
+    const token = (reqRes.body.reviewUrl as string).match(/review\/([^/?#]+)/)?.[1];
+    await request(app.getHttpServer())
+      .post(`/public/reviews/${token}`)
+      .send({ npsScore: 10, rating: 5, comment: 'Trato excelente y muy limpio' })
+      .expect(201);
+
+    // Una FAQ publicada.
+    await request(app.getHttpServer())
+      .post('/faq-entries')
+      .set(auth)
+      .send({ question: '¿Horario?', answer: '24/7 con tu código', isPublished: true })
+      .expect(201);
+
+    // Activar las 3 secciones.
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ sections: { testimonials: true, faq: true, contact: true } })
+      .expect(200);
+
+    // La landing las expone.
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.contactEnabled).toBe(true);
+    expect(landing.body.testimonials.length).toBe(1);
+    expect(landing.body.testimonials[0].comment).toContain('excelente');
+    expect(landing.body.testimonials[0].rating).toBe(5);
+    expect(landing.body.faqs.length).toBe(1);
+    expect(landing.body.faqs[0].question).toBe('¿Horario?');
+
+    // El formulario de contacto crea un lead (source web).
+    const contact = await request(app.getHttpServer())
+      .post(`/public/landing/${owner.slug}/contact`)
+      .send({ firstName: 'Pepe', email: 'pepe@web.local', message: 'Quiero un trastero' });
+    expect(contact.status).toBe(201);
+    expect(contact.body.source).toBe('web');
+
+    // Honeypot relleno → rechazado por el schema (400) antes de crear nada.
+    await request(app.getHttpServer())
+      .post(`/public/landing/${owner.slug}/contact`)
+      .send({ firstName: 'Bot', email: 'bot@web.local', hp: 'spam' })
+      .expect(400);
+
+    // El lead aparece en el panel del staff.
+    const leads = await request(app.getHttpServer()).get('/leads?source=web').set(auth);
+    expect(leads.body.some((l: { email: string }) => l.email === 'pepe@web.local')).toBe(true);
+  });
+
+  it('secciones: sin la feature, no se exponen ni el contacto funciona', async () => {
+    const owner = await registerVerifiedUser(app, 'web-sec-off');
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.testimonials).toEqual([]);
+    expect(landing.body.faqs).toEqual([]);
+    expect(landing.body.contactEnabled).toBe(false);
+
+    // El endpoint de contacto responde 404 (sección desactivada).
+    await request(app.getHttpServer())
+      .post(`/public/landing/${owner.slug}/contact`)
+      .send({ firstName: 'X', email: 'x@web.local' })
+      .expect(404);
   });
 });

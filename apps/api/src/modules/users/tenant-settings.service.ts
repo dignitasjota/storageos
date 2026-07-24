@@ -5,7 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
-import { effectiveFeaturesFromList, isWebTemplate, resolvePlanFeatures } from '@storageos/shared';
+import {
+  effectiveFeaturesFromList,
+  isWebTemplate,
+  parseWebSections,
+  resolvePlanFeatures,
+} from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -361,13 +366,20 @@ export class TenantSettingsService {
   async getWebSettings(tenantId: string): Promise<WebSettingsResponse> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { webTemplate: true, webHeadline: true, webAbout: true, deletedAt: true },
+      select: {
+        webTemplate: true,
+        webHeadline: true,
+        webAbout: true,
+        webSections: true,
+        deletedAt: true,
+      },
     });
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
     return {
       template: isWebTemplate(tenant.webTemplate) ? tenant.webTemplate : 'default',
       headline: tenant.webHeadline,
       about: tenant.webAbout,
+      sections: parseWebSections(tenant.webSections),
     };
   }
 
@@ -385,6 +397,11 @@ export class TenantSettingsService {
     // '' = borrar (null); undefined = no tocar.
     if (input.headline !== undefined) data.webHeadline = input.headline || null;
     if (input.about !== undefined) data.webAbout = input.about || null;
+    if (input.sections !== undefined) {
+      // Merge parcial sobre las secciones actuales.
+      const current = parseWebSections(tenant.webSections);
+      data.webSections = { ...current, ...input.sections } as unknown as Prisma.InputJsonValue;
+    }
     if (Object.keys(data).length > 0) {
       await this.admin.tenant.update({ where: { id: args.tenantId }, data });
       await this.audit.write({

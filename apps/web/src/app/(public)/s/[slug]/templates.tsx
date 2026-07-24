@@ -1,5 +1,7 @@
-import { MapPin, Phone, Mail } from 'lucide-react';
+import { MapPin, Phone, Mail, Star, Quote } from 'lucide-react';
 import Link from 'next/link';
+
+import { ContactForm } from './contact-form';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -121,6 +123,7 @@ function DefaultTemplate({ data }: TplProps) {
       )}
 
       <FacilitiesGrid data={data} />
+      <ExtraSections data={data} />
     </div>
   );
 }
@@ -168,6 +171,7 @@ function ModernTemplate({ data }: TplProps) {
           </section>
         )}
         <FacilitiesGrid data={data} cols />
+        <ExtraSections data={data} />
       </div>
     </div>
   );
@@ -234,6 +238,7 @@ function IndustrialTemplate({ data }: TplProps) {
             </section>
           ))}
         </div>
+        <ExtraSections data={data} />
       </div>
     </div>
   );
@@ -279,5 +284,85 @@ function FacilitiesGrid({ data, cols }: TplProps & { cols?: boolean }) {
         </section>
       ))}
     </div>
+  );
+}
+
+// ============================================================================
+// Secciones opcionales (Web Premium v2): testimonios · FAQ · contacto
+// ============================================================================
+
+function brandOf(data: PublicLandingDto): string {
+  return data.brandColor ?? '#2563EB';
+}
+
+export function TestimonialsSection({ data }: TplProps) {
+  if (data.testimonials.length === 0) return null;
+  return (
+    <section className="mt-14">
+      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">Lo que dicen nuestros clientes</h2>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {data.testimonials.map((t, i) => (
+          <figure key={i} className="rounded-lg border bg-card p-5 shadow-sm">
+            <Quote className="h-5 w-5 opacity-40" style={{ color: brandOf(data) }} />
+            <blockquote className="mt-2 text-sm leading-relaxed">{t.comment}</blockquote>
+            <figcaption className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{t.author}</span>
+              {t.rating != null && (
+                <span className="flex items-center gap-0.5">
+                  {Array.from({ length: t.rating }).map((_, s) => (
+                    <Star key={s} className="h-3.5 w-3.5 fill-current" style={{ color: '#f59e0b' }} />
+                  ))}
+                </span>
+              )}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function FaqSection({ data }: TplProps) {
+  if (data.faqs.length === 0) return null;
+  return (
+    <section className="mt-14">
+      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">Preguntas frecuentes</h2>
+      <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
+        {data.faqs.map((f, i) => (
+          <details key={i} className="group px-5 py-4">
+            <summary className="cursor-pointer list-none font-medium marker:content-none">
+              {f.question}
+            </summary>
+            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+              {f.answer}
+            </p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function ContactSection({ data }: TplProps) {
+  if (!data.contactEnabled) return null;
+  return (
+    <section className="mt-14">
+      <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">¿Hablamos?</h2>
+      <p className="mb-6 text-center text-sm text-muted-foreground">
+        Déjanos tus datos y te contactamos sin compromiso.
+      </p>
+      <ContactForm slug={data.tenantSlug} brand={brandOf(data)} />
+    </section>
+  );
+}
+
+/** Bloque con las tres secciones opcionales, en orden. */
+export function ExtraSections({ data }: TplProps) {
+  return (
+    <>
+      <TestimonialsSection data={data} />
+      <FaqSection data={data} />
+      <ContactSection data={data} />
+    </>
   );
 }
