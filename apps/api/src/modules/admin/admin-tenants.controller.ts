@@ -405,6 +405,33 @@ export class AdminTenantsController {
     return payment;
   }
 
+  /**
+   * Pasa el tenant de Stripe a pago manual: cancela la suscripción en Stripe y
+   * la desvincula (deja de cobrar), conservando el periodo ya pagado.
+   */
+  @RequireSuperadmin()
+  @Post(':id/switch-to-manual')
+  @HttpCode(HttpStatus.OK)
+  async switchToManual(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<AdminTenantDto> {
+    const meta = extractMeta(req);
+    await this.saasBilling.switchToManualBilling(id);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.switched_to_manual_billing',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: {},
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return this.tenants.detail(id);
+  }
+
   @Get()
   async list(
     @Query('search') search?: string,

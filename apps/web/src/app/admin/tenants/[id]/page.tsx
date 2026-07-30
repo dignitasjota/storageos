@@ -79,6 +79,7 @@ import {
   useExtendTrial,
   useEndTrial,
   useSetBillingExempt,
+  useSwitchToManualBilling,
   useImpersonateTenant,
   useReactivateTenant,
   useSuspendTenant,
@@ -266,6 +267,10 @@ export default function AdminTenantDetailPage() {
                       tenantId={id}
                       currentSlug={t.subscription.planSlug ?? null}
                     />
+                    {/* Pasar de Stripe a pago manual: solo si hoy cobra por Stripe. */}
+                    {t.subscription.stripeSubscriptionId && (
+                      <SwitchToManualControl tenantId={id} />
+                    )}
                   </>
                 ) : (
                   <p className="text-muted-foreground">Sin suscripción activa.</p>
@@ -917,6 +922,57 @@ function AnonymizeDialog({
 void IMPERSONATION_KEY;
 
 /** Selector inline para cambiar el plan de suscripción del tenant. */
+function SwitchToManualControl({ tenantId }: { tenantId: string }) {
+  const switchMutation = useSwitchToManualBilling();
+  const [open, setOpen] = useState(false);
+  async function confirm() {
+    try {
+      await switchMutation.mutateAsync(tenantId);
+      toast.success('Suscripción pasada a pago manual. Stripe deja de cobrar.');
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+  return (
+    <div className="border-t pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Cobro por Stripe</p>
+          <p className="text-xs text-muted-foreground">
+            Cancela la suscripción en Stripe (deja de cobrar) y pasa a cobro manual
+            (transferencia/efectivo), conservando el periodo ya pagado.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+          Pasar a pago manual
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pasar a pago manual</DialogTitle>
+            <DialogDescription>
+              Se cancelará la suscripción en Stripe (deja de cobrar de inmediato) y el tenant
+              pasará a cobro manual. Conserva el periodo ya pagado; cuando venza, cobrarás por
+              transferencia y le aparecerá el aviso de pago pendiente. Para volver a Stripe, el
+              tenant debe suscribirse de nuevo desde su panel.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirm} disabled={switchMutation.isPending}>
+              {switchMutation.isPending ? 'Procesando…' : 'Sí, pasar a manual'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function BillingExemptControl({ tenantId, exempt }: { tenantId: string; exempt: boolean }) {
   const setExempt = useSetBillingExempt();
   async function toggle() {

@@ -300,6 +300,46 @@ describe('Admin SaaS manual payment (e2e)', () => {
     expect(newEndMs).toBeLessThan(Date.now() + 27 * 24 * 3600 * 1000);
   });
 
+  it('pasa un tenant de Stripe a pago manual: desvincula + conserva el periodo', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-switch');
+
+    // Simula un tenant que hoy paga por Stripe.
+    const periodEnd = new Date(Date.now() + 20 * 24 * 3600 * 1000);
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: {
+        status: 'active',
+        stripeSubscriptionId: `sub_switch_${Date.now()}`,
+        stripeCustomerId: `cus_switch_${Date.now()}`,
+        currentPeriodEnd: periodEnd,
+        manualExtensionDays: 15,
+      },
+    });
+
+    // Pasar a pago manual (la cancelación en Stripe es best-effort: con clave
+    // dummy falla silenciosa, pero la desvinculación se aplica igual).
+    const res = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/switch-to-manual`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+
+    const sub = await adminClient.tenantSubscription.findUnique({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub!.stripeSubscriptionId).toBeNull();
+    expect(sub!.stripeCustomerId).toBeNull();
+    expect(sub!.status).toBe('active');
+    expect(sub!.manualExtensionDays).toBe(0); // reset (el crédito ya está en el periodo)
+    // Conserva el periodo ya pagado.
+    expect(sub!.currentPeriodEnd.getTime()).toBe(periodEnd.getTime());
+
+    // Sin token → 401.
+    const noAuth = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/switch-to-manual`)
+      .send();
+    expect(noAuth.status).toBe(401);
+  });
+
   it('enforcement manual: un pago parcial que no cubre "ahora" sigue past_due', async () => {
     const owner = await registerVerifiedUser(app, 'admin-smp-partial');
 

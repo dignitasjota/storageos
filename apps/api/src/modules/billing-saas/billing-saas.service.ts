@@ -950,6 +950,65 @@ export class BillingSaasService {
   }
 
   /**
+   * Pasa un tenant de cobro por Stripe a PAGO MANUAL (transferencia/efectivo):
+   * cancela la suscripción en Stripe (deja de cobrar) y la desvincula de nuestra
+   * BD, dejándola `active` y **conservando `currentPeriodEnd`** (no pierde el
+   * tiempo ya pagado). A partir de aquí el cobro es manual (el enforcement marca
+   * `past_due` + banner cuando venza). Best-effort con Stripe: si la sub ya no
+   * existe o Stripe no está configurado, solo desvincula.
+   *
+   * Resetea `manualExtensionDays` a 0: el crédito ya está reflejado en
+   * `currentPeriodEnd`; si el tenant volviera a Stripe más tarde, no debe
+   * regalársele ese tiempo otra vez (el weblog lo sumaría de nuevo).
+   */
+  async switchToManualBilling(tenantId: string): Promise<void> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { id: true, stripeSubscriptionId: true },
+    });
+    if (!sub) {
+      throw new NotFoundException({
+        code: 'subscription_not_found',
+        message: 'Suscripción no encontrada',
+      });
+    }
+
+    // Cancela en Stripe inmediatamente (deja de cobrar). Best-effort: ignora si
+    // ya estaba cancelada o si Stripe no está configurado (clave dummy).
+    if (sub.stripeSubscriptionId) {
+      try {
+        await this.stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+      } catch (err) {
+        this.logger.warn(
+          `switchToManualBilling: no se pudo cancelar la sub Stripe ${sub.stripeSubscriptionId} (tenant ${tenantId}): ${String(err)}`,
+        );
+      }
+    }
+
+    await this.admin.tenantSubscription.update({
+      where: { tenantId },
+      data: {
+        stripeSubscriptionId: null,
+        stripeCustomerId: null,
+        cancelAtPeriodEnd: false,
+        status: 'active',
+        manualExtensionDays: 0,
+      },
+    });
+
+    await this.audit.write({
+      tenantId,
+      userId: null,
+      action: 'saas_billing.switched_to_manual',
+      entityType: 'TenantSubscription',
+      entityId: sub.id,
+      changes: { previousStripeSubscriptionId: sub.stripeSubscriptionId },
+      ipAddress: null,
+      userAgent: null,
+    });
+  }
+
+  /**
    * Backfill: trae las facturas del cliente en Stripe y las registra
    * (idempotente). No lanza si Stripe no está configurado o el tenant no tiene
    * `stripeCustomerId` (devuelve `{ synced: 0 }`).
