@@ -193,6 +193,19 @@ function UserActions({
           <DropdownMenuItem
             onClick={() =>
               onRun({
+                action: 'verify-email',
+                label: 'Activar cuenta',
+                success: 'Cuenta activada.',
+              })
+            }
+          >
+            Activar cuenta (verificar email)
+          </DropdownMenuItem>
+        )}
+        {!u.emailVerified && (
+          <DropdownMenuItem
+            onClick={() =>
+              onRun({
                 action: 'resend-verification',
                 label: 'Reenviar verificación',
                 success: 'Email de verificación reenviado.',

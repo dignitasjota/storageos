@@ -196,7 +196,24 @@ export class AdminTenantsService {
         message: 'Tenant no encontrado',
       });
     }
-    return this.toDto(row);
+    // Propietario (quien registró la cuenta) → permite activar/reenviar el email
+    // de activación desde el panel si aún no ha verificado.
+    const owner = await this.admin.user.findFirst({
+      where: { tenantId, role: 'owner' },
+      select: { id: true, email: true, fullName: true, emailVerifiedAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return {
+      ...this.toDto(row),
+      owner: owner
+        ? {
+            userId: owner.id,
+            email: owner.email,
+            fullName: owner.fullName,
+            emailVerified: owner.emailVerifiedAt !== null,
+          }
+        : null,
+    };
   }
 
   /**

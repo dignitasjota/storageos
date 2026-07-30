@@ -114,6 +114,51 @@ describe('Admin support actions (e2e)', () => {
     expect(noAuth.status).toBe(401);
   });
 
+  it('activa manualmente la cuenta del owner sin verificar (verify-email) + lo expone el detalle', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-activate');
+    const auth = { Authorization: `Bearer ${token}` };
+
+    // Dejar al owner como "sin activar" (email sin verificar).
+    await adminClient.user.updateMany({
+      where: { tenantId: owner.tenantId, role: 'owner' },
+      data: { emailVerifiedAt: null },
+    });
+
+    // El detalle expone al owner marcado como no verificado.
+    const beforeDetail = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set(auth);
+    expect(beforeDetail.status).toBe(200);
+    expect(beforeDetail.body.owner).toBeTruthy();
+    expect(beforeDetail.body.owner.email).toBe(owner.email);
+    expect(beforeDetail.body.owner.emailVerified).toBe(false);
+    const userId = beforeDetail.body.owner.userId as string;
+
+    // Activar manualmente → 200.
+    const verify = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${userId}/verify-email`)
+      .set(auth);
+    expect(verify.status).toBe(200);
+
+    // El detalle ya lo marca verificado.
+    const afterDetail = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set(auth);
+    expect(afterDetail.body.owner.emailVerified).toBe(true);
+
+    // Volver a activar una cuenta ya verificada → 400.
+    const again = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${userId}/verify-email`)
+      .set(auth);
+    expect(again.status).toBe(400);
+
+    // Sin token → 401.
+    const noAuth = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${userId}/verify-email`)
+      .send();
+    expect(noAuth.status).toBe(401);
+  });
+
   it('reactivar un usuario cuenta contra maxUsers (403 al topar el plan)', async () => {
     const owner = await registerVerifiedUser(app, 'reactivate-lim');
     await setTenantPlan(owner.slug, 'free'); // free: maxUsers = 2
