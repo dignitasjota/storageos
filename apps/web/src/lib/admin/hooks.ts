@@ -453,6 +453,19 @@ export function useSetBillingExempt() {
   });
 }
 
+/** Pasa el tenant de Stripe a pago manual (cancela Stripe + desvincula). */
+export function useSwitchToManualBilling() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${id}/switch-to-manual`, { method: 'POST' }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] });
+    },
+  });
+}
+
 /** Catálogo de planes (endpoint público) para el selector de cambio de plan. */
 export function useAdminSubscriptionPlans() {
   return useQuery({
