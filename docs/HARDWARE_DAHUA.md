@@ -585,6 +585,125 @@ V2 en ASC2XXX, ONVIF Profile A/C y SDK completo).
 
 ---
 
+## A.11 Manuales de la controladora comprada — ASC4201C-D (2026-07-30)
+
+Fuente: los 4 PDFs oficiales del modelo elegido (**controladora Dahua
+ASC4201C-D** + lector **ASR2201A** tarjeta+teclado), guardados en
+[`docs/dahua/`](dahua/): *User's Manual V1.0.0* (68 pág), *Quick Start Guide
+V1.0.0* (32 pág), *Communication Matrix V1.0.0* (oct-2025), *Installation
+Method*. Complementan la spec CGI de §A.10 (que es la de la familia ASI); estos
+son los del equipo real y **confirman la vía de integración de punta a punta**.
+Todo lo de abajo es de la **web/UI del equipo** (lo que expone la CGI por debajo);
+el smoke con el kit sigue siendo lo único pendiente para fijar nombres exactos.
+
+### A.11.1 Red y activación de la CGI (Communication Matrix + §2.8)
+
+- **La CGI se activa desde la web**: `Communication Settings > Basic Services` →
+  toggles **CGI** y **ONVIF** («To connect the Device to a third-party platform,
+  turn on the CGI and ONVIF functions»). **Requisito de setup del instalador.**
+- **Puertos** (configurables en `Communication Settings > Port`): **HTTP 80**
+  (donde vive la CGI, auth Password/Digest, **habilitado por defecto**), HTTPS
+  443, **TCP 37777** (NetSDK / protocolo privado), RTSP 554, ONVIF discovery
+  3702/UDP, P2P (DMSS) por rango alto UDP.
+- **Gotcha de auth**: en `Basic Services` hay *Private Protocol Authentication
+  Mode* con **Security Mode** (bloquea Digest/DES/plaintext) vs **Compatible
+  Mode**. Afecta al **protocolo privado (NetSDK 37777)**, no a la CGI de puerto
+  80 — pero si algún día usamos NetSDK, hará falta Compatible Mode. Nuestra vía
+  (CGI HTTP + `digest-fetch`) no depende de esto.
+
+### A.11.2 Los dos patrones, confirmados por el propio equipo
+
+- **Patrón B (offline, lo que ya tenemos)** — se cargan las personas al terminal
+  y valida él. El modelo *Person* (`Person Management > Add`, §2.5) mapea 1:1 con
+  nuestra sincronización:
+  - **No.** = User ID (≤30, letras/números) · **Password** = PIN (**máx 8
+    dígitos**) · **Card** (manual o leído por enrollment reader) · **Fingerprint**
+    (el equipo lo soporta; nuestro lector no) · **Validity Period** (→ `validUntil`
+    / `ValidDateEnd`) · **Times Used** (límite de usos → `maxUses`/single-use) ·
+    **General Plan / Holiday Plan** (plantillas horarias → curfew/ventanas) ·
+    **Channel Permissions** (puerta/canal).
+  - **User Type** con dos que nos encajan directamente:
+    - **Guest User** = «desbloquea durante un periodo definido o **N veces**» →
+      **es literalmente nuestro pase nocturno single-use** (via `Times Used` +
+      `Validity Period`).
+    - **Blocklist User** = bloqueado, dispara alarma al intentar → **vía alternativa
+      al corte por impago** (además del `CardStatus=8 Arrearage` de §A.10; el
+      Arrearage sigue siendo el preferido porque «abre con aviso» en pre-arrearage).
+  - Import por plantilla hasta 10.000 usuarios (equivale al alta masiva por CGI).
+- **Patrón A (online) = §2.6.7 «Back-end Comparison»** — `Access Control >
+  Back-end Comparison`: **QR Code Pass-through** y **Card No. Pass-through**. Con
+  ellos, el terminal **manda el QR/tarjeta presentado a NUESTRA plataforma** para
+  validar en vez de decidir en local → es exactamente nuestro `/access/verify`.
+  **Corrección a lo que asumíamos**: el *controlador* SÍ soporta QR/tarjeta
+  pass-through; lo que no tiene escáner QR es el **lector ASR2201A** (tarjeta +
+  teclado). Con ese lector seguimos con **tarjeta + PIN**, pero el controlador no
+  nos limita si algún día se añade un lector con QR/cámara.
+
+### A.11.3 Cómo recibir los eventos de acceso — PUSH, mejor que el polling
+
+Tres funciones nativas que cambian (a mejor) lo que teníamos planeado:
+
+- **§2.8.7 Auto Upload** — `Communication Settings > Auto Upload`: el terminal
+  **empuja** *person info* + **unlock records** por HTTP a la plataforma
+  («unlock records can be pushed to **multiple** management platforms»; hay
+  *Push Person Info*, *Event Type* seleccionable, auth con user/pass, HTTPS). →
+  **Sustituye el polling de `recordFinder.cgi`** por un push a un webhook nuestro
+  para la reconciliación de `access_logs`. (El polling de §A.10 queda como plan B.)
+- **§2.8.6 CGI Auto Registration** — el terminal **se registra solo** contra
+  nuestro servidor (Device ID + Host IP/Domain + user/pass + HTTPS). →
+  Junto al Auto Upload, **puede resolver el NAT sin el agente Bridge** (el
+  terminal empuja hacia nosotros; ya no hace falta que seamos accesibles a él).
+- **§2.8.4 Cloud Service (P2P/DMSS)** — NAT penetration por la nube de Dahua
+  (para la app oficial DMSS); alternativa de conectividad, no la usamos para datos.
+
+> **Implicación para el roadmap**: el **agente Bridge on-site** (`apps/bridge`)
+> deja de ser imprescindible para accesos si usamos **CGI Auto Registration +
+> Auto Upload** (el terminal empuja eventos y se auto-registra). El Bridge sigue
+> teniendo sentido para **cámaras** (stream multipart de snapshots) donde el push
+> HTTP simple no basta. A validar en el smoke.
+
+### A.11.4 Control remoto de puerta (§2.7 Access Monitoring)
+
+Por puerta: **Open** / **Close** / **Always Open** / **Always Closed**
+(lockdown) / **Normal** (restaura la verificación configurada). Mapea a
+`DahuaLockProvider.open`/`close` (ya implementados) + un futuro «always
+open/closed» para modo evento/lockdown prolongado.
+
+### A.11.5 Gotchas nuevos del modelo real
+
+- **Solo-PIN**: por defecto el desbloqueo por PIN pide **User No. + password**;
+  para «el móvil es la llave» (PIN a secas) hay que activar
+  **§2.6.5 *PIN Code Authentication*** («open the door with just the password»).
+  Requisito de setup + a confirmar por CGI en el smoke.
+- **Duress password = password + 1** (§2.5.2): un PIN `+1` dispara **alarma de
+  coacción**. → al **auto-generar PINs** conviene evitar que `PIN_a + 1 == PIN_b`
+  de otro inquilino (colisionaría con la coacción). Reforzar `resolveUniquePin`
+  para excluir también los adyacentes ±1.
+- **Card No.**: decimal/hex + Wiegand (5 formatos por defecto + custom, HID26
+  solo Wiegand 26) con **padding de ceros** (p. ej. `56 → 000056`). → fijar el
+  formato exacto del UID al casar tarjetas (coherente con «CardNo = UID real» de
+  §A.10).
+- Extras disponibles para el mapeo horario/seguridad del Patrón B: **General
+  Plan** (128 periodos No.0–127), **Holiday Plan** (4), first-card unlock,
+  anti-passback, multi-door interlock.
+- El equipo soporta **cara y huella** (hay `FaceInfoManager.cgi` y un anexo de
+  registro de huella), pero el lector ASR2201A comprado es **tarjeta+teclado** →
+  facial/huella quedan fuera con este lector (encajan con un ASI6214S, §A.10).
+
+### A.11.6 Qué NO cambia y qué queda por confirmar en el smoke
+
+- **No cambia** el diseño: CGI HTTP + Digest, Patrón B ya construido, `CardStatus`
+  para impago, apertura remota. Los manuales **validan** todo lo de §A.10.
+- **A confirmar con el kit** (además de los 2 VERIFY de §A.10): (a) nombres/campos
+  exactos del **Auto Upload** (formato del push de unlock records → parser del
+  webhook) y del **CGI Auto Registration**; (b) que **Back-end Comparison**
+  responde con el contrato que espera `/access/verify`; (c) activación por CGI de
+  **PIN Code Authentication**; (d) que la ASC4201C-D expone la CGI de terceros
+  del mismo modo que la familia ASI (los manuales lo sugieren, pero la spec CGI
+  detallada de §A.10 es de los ASI).
+
+---
+
 # Parte B — Cámaras y NVR (solo logs de eventos + snapshots)
 
 > **Decisión de alcance (2026-07-14):** la app integra **únicamente** el **log de
