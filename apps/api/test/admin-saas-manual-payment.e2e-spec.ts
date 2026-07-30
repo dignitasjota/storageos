@@ -3,6 +3,7 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { BillingSaasService } from '../src/modules/billing-saas/billing-saas.service';
+import { PlatformDunningService } from '../src/modules/billing-saas/platform-dunning.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages } from './helpers/mailpit';
@@ -243,5 +244,87 @@ describe('Admin SaaS manual payment (e2e)', () => {
     // Al pagar la suscripción, el tenant deja de ser trial → active.
     const tenant = await adminClient.tenant.findUnique({ where: { id: owner.tenantId } });
     expect(tenant!.status).toBe('active');
+  });
+
+  it('enforcement manual: periodo vencido → past_due + banner; el pago cuenta desde la fecha debida', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-enf');
+
+    // Simula un tenant de pago manual (sin Stripe) cuyo periodo venció hace 10 días.
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 3600 * 1000);
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: {
+        status: 'active',
+        stripeSubscriptionId: null,
+        currentPeriodStart: new Date(Date.now() - 40 * 24 * 3600 * 1000),
+        currentPeriodEnd: tenDaysAgo,
+      },
+    });
+    await adminClient.tenant.update({ where: { id: owner.tenantId }, data: { status: 'active' } });
+
+    // El enforcement lo marca past_due.
+    const dunning = app.get(PlatformDunningService, { strict: false });
+    const flagged = await dunning.markLapsedManualPastDue();
+    expect(flagged).toBeGreaterThanOrEqual(1);
+
+    const sub1 = await adminClient.tenantSubscription.findUnique({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub1!.status).toBe('past_due');
+
+    // El tenant ve el banner (billing-status: pastDue + planManual, sin Stripe).
+    const status = await request(app.getHttpServer())
+      .get('/settings/billing-status')
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(status.status).toBe(200);
+    expect(status.body.pastDue).toBe(true);
+    expect(status.body.planManual).toBe(true);
+    expect(status.body.hasIssue).toBe(true);
+
+    // Paga 1 mes: el nuevo periodo cuenta desde la fecha DEBIDA (hace 10 días),
+    // no desde hoy → fin ≈ hoy+20d, y como cubre "ahora" vuelve a active.
+    const pay = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ provider: 'bank_transfer', amount: 79, durationMonths: 1 });
+    expect(pay.status).toBe(201);
+
+    const sub2 = await adminClient.tenantSubscription.findUnique({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub2!.status).toBe('active');
+    const newEndMs = sub2!.currentPeriodEnd.getTime();
+    // Contado desde la fecha debida (−10d): fin ≈ hoy+20d. Si contara desde hoy
+    // sería hoy+30d → nuestro fin es claramente menor que hoy+27d.
+    expect(newEndMs).toBeGreaterThan(Date.now()); // cubre "ahora" (active)
+    expect(newEndMs).toBeLessThan(Date.now() + 27 * 24 * 3600 * 1000);
+  });
+
+  it('enforcement manual: un pago parcial que no cubre "ahora" sigue past_due', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-partial');
+
+    // Periodo vencido hace 40 días.
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: {
+        status: 'past_due',
+        stripeSubscriptionId: null,
+        currentPeriodStart: new Date(Date.now() - 70 * 24 * 3600 * 1000),
+        currentPeriodEnd: new Date(Date.now() - 40 * 24 * 3600 * 1000),
+      },
+    });
+
+    // Paga 1 mes: −40d + 1mes ≈ −10d (aún en el pasado) → sigue past_due.
+    const pay = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ provider: 'cash', amount: 79, durationMonths: 1 });
+    expect(pay.status).toBe(201);
+
+    const sub = await adminClient.tenantSubscription.findUnique({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub!.status).toBe('past_due');
+    expect(sub!.currentPeriodEnd.getTime()).toBeLessThan(Date.now());
   });
 });
