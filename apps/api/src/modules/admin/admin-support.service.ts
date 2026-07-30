@@ -132,6 +132,27 @@ export class AdminSupportService {
     await this.trace(tenantId, userId, 'admin.user.verification_resent', meta, {});
   }
 
+  /**
+   * Verifica manualmente el email del usuario (soporte): marca la cuenta como
+   * activada sin que el usuario tenga que pulsar el enlace del email. Útil
+   * cuando el operador no recibe/encuentra el correo de activación.
+   */
+  async verifyEmailManually(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
+    await this.getTenant(tenantId);
+    const user = await this.getUser(tenantId, userId);
+    if (user.emailVerifiedAt) {
+      throw new BadRequestException({
+        code: 'already_verified',
+        message: 'El email del usuario ya está verificado.',
+      });
+    }
+    await this.admin.user.update({
+      where: { id: userId },
+      data: { emailVerifiedAt: new Date() },
+    });
+    await this.trace(tenantId, userId, 'admin.user.email_verified_manually', meta, {});
+  }
+
   /** Dispara el flujo de restablecimiento de contraseña (email con enlace). */
   async sendPasswordReset(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
     const { slug } = await this.getTenant(tenantId);

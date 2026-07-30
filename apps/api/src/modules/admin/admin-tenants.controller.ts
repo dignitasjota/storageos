@@ -137,6 +137,22 @@ export class AdminTenantsController {
     return { ok: true };
   }
 
+  /** Verifica manualmente el email de un usuario (activa la cuenta desde soporte). */
+  @Post(':id/users/:userId/verify-email')
+  @HttpCode(HttpStatus.OK)
+  async verifyEmail(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    await this.support.verifyEmailManually(id, userId, {
+      superAdminId: admin.sub,
+      ...extractMeta(req),
+    });
+    return { ok: true };
+  }
+
   /** Envía un email de restablecimiento de contraseña a un usuario del tenant. */
   @Post(':id/users/:userId/password-reset')
   @HttpCode(HttpStatus.OK)

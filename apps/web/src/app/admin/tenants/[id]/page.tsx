@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { AccountActivationBanner } from './account-activation-banner';
 import { FeatureOverridesCard } from './feature-overrides-card';
 import { OnboardingCard } from './onboarding-card';
 import { SaasPaymentsCard } from './saas-payments-card';
@@ -200,6 +201,10 @@ export default function AdminTenantDetailPage() {
           </DropdownMenu>
         </div>
       </div>
+
+      {t.owner && !t.owner.emailVerified && (
+        <AccountActivationBanner tenantId={t.id} owner={t.owner} />
+      )}
 
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="w-full sm:w-auto">

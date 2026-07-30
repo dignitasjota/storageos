@@ -305,6 +305,7 @@ export function useUpdateTenant(id: string) {
 
 export type TenantUserActionName =
   | 'resend-verification'
+  | 'verify-email'
   | 'password-reset'
   | 'revoke-sessions'
   | 'disable-2fa'

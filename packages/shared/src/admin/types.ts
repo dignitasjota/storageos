@@ -93,6 +93,20 @@ export interface AdminTenantDto {
     currentPeriodEnd: string | null;
     stripeSubscriptionId: string | null;
   } | null;
+  /**
+   * Propietario del tenant (el usuario que registró la cuenta). Solo se incluye
+   * en el detalle; permite avisar cuando aún no ha activado su cuenta (email sin
+   * verificar) y ofrecer activarla/reenviar el email desde el panel admin.
+   */
+  owner?: AdminTenantOwnerDto | null;
+}
+
+/** Propietario del tenant, para las acciones de activación desde el admin. */
+export interface AdminTenantOwnerDto {
+  userId: string;
+  email: string;
+  fullName: string;
+  emailVerified: boolean;
 }
 
 /** Página de tenants (cursor pagination). `nextCursor` = id del último item si hay más. */
