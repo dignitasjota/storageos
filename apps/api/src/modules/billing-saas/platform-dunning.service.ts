@@ -63,6 +63,36 @@ export class PlatformDunningService {
     };
   }
 
+  /**
+   * Enforcement de pagos MANUALES (sin Stripe): marca `past_due` las suscripciones
+   * de un plan de pago cuyo periodo ya venció y siguen `active`. Con Stripe el
+   * `past_due` lo pone el webhook; los manuales no tienen webhook, así que sin
+   * esto un moroso manual seguiría operando indefinidamente. Se ejecuta SIEMPRE
+   * (aunque el dunning escalado esté desactivado) para que al tenant le aparezca
+   * el banner de impago desde el primer día. Excluye exentos, `free` y bajas.
+   *
+   * `updateMany` no filtra por relaciones → resolvemos ids con `findMany` primero.
+   */
+  async markLapsedManualPastDue(now = new Date()): Promise<number> {
+    const lapsed = await this.admin.tenantSubscription.findMany({
+      where: {
+        status: 'active',
+        stripeSubscriptionId: null, // pago manual (transferencia/efectivo)
+        currentPeriodEnd: { lt: now },
+        plan: { priceMonthly: { gt: 0 } }, // planes de pago (free no se cobra)
+        tenant: { deletedAt: null, billingExempt: false, status: { not: 'suspended' } },
+      },
+      select: { id: true },
+    });
+    if (lapsed.length === 0) return 0;
+    await this.admin.tenantSubscription.updateMany({
+      where: { id: { in: lapsed.map((s) => s.id) } },
+      data: { status: 'past_due' },
+    });
+    this.logger.log(`Enforcement manual: ${lapsed.length} suscripciones a past_due por impago`);
+    return lapsed.length;
+  }
+
   /** Evalúa las suscripciones morosas y ejecuta los pasos que toquen. */
   async run(now = new Date()): Promise<DunningRunResultDto> {
     const settings = await this.getSettings();

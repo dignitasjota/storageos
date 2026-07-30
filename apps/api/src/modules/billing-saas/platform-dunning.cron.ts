@@ -25,6 +25,10 @@ export class PlatformDunningCron {
     try {
       // Con varias réplicas del API, solo una debe ejecutar el dunning del día.
       if (!(await claimDailyCronRun(this.admin, 'platform-dunning.daily'))) return;
+      // 1) Enforcement de impagos manuales → past_due (banner al tenant desde el
+      //    primer día). Se ejecuta SIEMPRE, aunque el dunning escalado esté off.
+      await this.dunning.markLapsedManualPastDue();
+      // 2) Escalado del dunning (recordatorios + suspensión), si está activado.
       await this.dunning.run();
     } catch (err) {
       this.logger.error(`Dunning cron falló: ${(err as Error).message}`);

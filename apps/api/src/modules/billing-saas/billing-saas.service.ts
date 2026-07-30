@@ -889,8 +889,14 @@ export class BillingSaasService {
       return toPaymentDto(payment);
     }
 
-    const base = sub.currentPeriodEnd > now ? sub.currentPeriodEnd : now;
+    // El periodo se extiende SIEMPRE desde `currentPeriodEnd` (la fecha en la que
+    // debía haber pagado), no desde la fecha del pago → un pago tardío no regala
+    // el tiempo impagado ni deja hueco (si pagó 1 mes debiendo 3, sigue en mora).
+    const base = sub.currentPeriodEnd;
     const newEnd = addMonths(base, args.durationMonths);
+    // ¿El nuevo periodo cubre «ahora»? Si no (pago parcial de un moroso), la
+    // suscripción sigue `past_due` y el tenant NO se reactiva.
+    const covered = newEnd > now;
     // Días de crédito que aporta este pago. El acumulador SOLO tiene sentido si
     // el tenant también cobra por Stripe (para que el webhook SUME este tiempo en
     // vez de pisarlo). Para un tenant SIN Stripe, `currentPeriodEnd` es la verdad
@@ -921,16 +927,18 @@ export class BillingSaasService {
         where: { tenantId: args.tenantId },
         data: {
           currentPeriodEnd: newEnd,
-          status: 'active',
+          // Si el pago cubre hasta hoy → activa; si es un pago parcial de un
+          // moroso que aún no alcanza «ahora» → sigue past_due (impago).
+          status: covered ? 'active' : 'past_due',
           manualExtensionDays: { increment: addedDays },
         },
       }),
-      // Un pago de suscripción activa el tenant: sale del periodo de prueba
+      // Un pago que cubre el periodo activa el tenant: sale del periodo de prueba
       // (`trial`, ya está pagando) o del dunning (`suspended`, pago regularizado).
       // El filtro por estado no toca `active` ni `cancelled` (una baja no revive
-      // por un cobro retroactivo).
+      // por un cobro retroactivo). Si el pago NO cubre hasta hoy, no se reactiva.
       this.admin.tenant.updateMany({
-        where: { id: args.tenantId, status: { in: ['suspended', 'trial'] } },
+        where: { id: args.tenantId, status: { in: covered ? ['suspended', 'trial'] : [] } },
         data: { status: 'active' },
       }),
     ]);
