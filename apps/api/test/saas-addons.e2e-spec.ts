@@ -2,6 +2,8 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { SaasAddonsService } from '../src/modules/billing-saas/saas-addons.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -223,6 +225,90 @@ describe('SaaS add-ons (e2e)', () => {
     expect(issue.body.suspendedAddons[0].name).toBe('Asistente IA');
 
     await adminClient.subscriptionAddon.deleteMany({ where: { slug: 'e2e-bs-ai' } });
+  });
+
+  it('el add-on manual de un tenant SIN Stripe aparece en la bandeja «Hoy»', async () => {
+    const owner = await registerVerifiedUser(app, 'addon-manual-today');
+    const tenant = await adminClient.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id; // suscripción manual (sin stripeSubscriptionId)
+
+    const addon = await request(app.getHttpServer()).post('/admin/addons').set(bearer()).send({
+      slug: 'e2e-manual-today',
+      name: 'Seguros extra',
+      priceMonthly: 6,
+    });
+    const assigned = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons`)
+      .set(bearer())
+      .send({ addonId: addon.body.id, quantity: 1 });
+    const assignmentId = assigned.body.addons[0].id as string;
+
+    // Al asignar, nextChargeAt = ahora → ya vence → aparece en «Hoy» (antes solo
+    // salían los add-ons de tenants con Stripe).
+    const today = await request(app.getHttpServer()).get('/admin/today').set(bearer());
+    expect(today.status).toBe(200);
+    const charge = today.body.addonCharges.find(
+      (c: { tenantAddonId: string }) => c.tenantAddonId === assignmentId,
+    );
+    expect(charge).toBeTruthy();
+    expect(charge.amount).toBe(6);
+
+    await adminClient.subscriptionAddon.deleteMany({ where: { slug: 'e2e-manual-today' } });
+  });
+
+  it('auto-suspensión: un add-on manual impagado más de suspendDays se suspende (con dunning activo)', async () => {
+    const owner = await registerVerifiedUser(app, 'addon-autosuspend');
+    const tenant = await adminClient.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id;
+
+    const addon = await request(app.getHttpServer()).post('/admin/addons').set(bearer()).send({
+      slug: 'e2e-autosuspend',
+      name: 'IA',
+      priceMonthly: 12,
+      feature: 'ai_assistant',
+    });
+    const assigned = await request(app.getHttpServer())
+      .post(`/admin/tenants/${tenantId}/addons`)
+      .set(bearer())
+      .send({ addonId: addon.body.id, quantity: 1 });
+    const assignmentId = assigned.body.addons[0].id as string;
+
+    // Activa el dunning con suspendDays=7 y atrasa el cobro 10 días.
+    const existing = await adminClient.platformDunningSettings.findFirst();
+    const prevEnabled = existing?.enabled ?? false;
+    if (existing) {
+      await adminClient.platformDunningSettings.update({
+        where: { id: existing.id },
+        data: { enabled: true, suspendDays: 7 },
+      });
+    } else {
+      await adminClient.platformDunningSettings.create({
+        data: { enabled: true, suspendDays: 7 },
+      });
+    }
+    await adminClient.tenantSubscriptionAddon.update({
+      where: { id: assignmentId },
+      data: { nextChargeAt: new Date(Date.now() - 10 * 24 * 3600 * 1000) },
+    });
+
+    const svc = app.get(SaasAddonsService, { strict: false });
+    const suspended = await svc.suspendLapsedManualAddons();
+    expect(suspended).toBeGreaterThanOrEqual(1);
+
+    const row = await adminClient.tenantSubscriptionAddon.findUnique({
+      where: { id: assignmentId },
+    });
+    expect(row!.suspendedAt).not.toBeNull();
+
+    // Restaura los ajustes de dunning para no afectar a otros specs.
+    const cur = await adminClient.platformDunningSettings.findFirst();
+    if (cur) {
+      await adminClient.platformDunningSettings.update({
+        where: { id: cur.id },
+        data: { enabled: prevEnabled },
+      });
+    }
+    await adminClient.subscriptionAddon.deleteMany({ where: { slug: 'e2e-autosuspend' } });
   });
 
   it('sin token de super admin → 401', async () => {

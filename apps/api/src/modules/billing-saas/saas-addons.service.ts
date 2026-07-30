@@ -545,6 +545,40 @@ export class SaasAddonsService {
     return this.billingSummary(tenantId);
   }
 
+  /**
+   * Enforcement de add-ons de cobro MANUAL: suspende los que llevan impagos más
+   * de `suspendDays` desde su `next_charge_at` (mismo umbral que la suspensión
+   * del plan). Solo actúa si el dunning del SaaS está activado (igual que la
+   * suspensión del plan; sin dunning, el operador gestiona a mano desde «Hoy»).
+   * Excluye exentos y los de Stripe (esos los cobra Stripe). Best-effort por
+   * add-on. Devuelve cuántos suspendió.
+   */
+  async suspendLapsedManualAddons(now = new Date()): Promise<number> {
+    const settings = await this.admin.platformDunningSettings.findFirst();
+    if (!settings?.enabled) return 0;
+    const cutoff = new Date(now.getTime() - settings.suspendDays * 24 * 60 * 60 * 1000);
+    const lapsed = await this.admin.tenantSubscriptionAddon.findMany({
+      where: {
+        billingMode: { not: 'stripe' }, // manual (o legacy null); los de Stripe no
+        suspendedAt: null,
+        nextChargeAt: { lt: cutoff },
+        tenant: { deletedAt: null, billingExempt: false },
+      },
+      select: { id: true, tenantId: true },
+    });
+    let suspended = 0;
+    for (const a of lapsed) {
+      try {
+        await this.suspend(a.tenantId, a.id);
+        suspended += 1;
+      } catch (err) {
+        this.logger.warn(`No se pudo auto-suspender el add-on ${a.id}: ${String(err)}`);
+      }
+    }
+    if (suspended) this.logger.log(`Auto-suspensión: ${suspended} add-ons manuales impagados`);
+    return suspended;
+  }
+
   /** Reactiva un add-on suspendido: re-activa su feature y su cobro. */
   async reactivate(tenantId: string, tenantAddonId: string): Promise<TenantBillingSummaryDto> {
     const row = await this.admin.tenantSubscriptionAddon.findFirst({

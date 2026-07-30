@@ -202,16 +202,18 @@ export class AdminTodayService {
   }
 
   /**
-   * Add-ons con `next_charge_at <= ahora` de tenants que pagan el plan por
-   * Stripe (los de pago 100% manual cobran el add-on junto con el plan, así que
-   * no necesitan recordatorio separado).
+   * Add-ons en modo MANUAL con `next_charge_at <= ahora` (los de Stripe los cobra
+   * Stripe y tienen `next_charge_at` nulo → quedan fuera por el filtro de fecha).
+   * Incluye tanto tenants de plan Stripe con add-on manual como tenants 100%
+   * manuales: en ambos casos el add-on se cobra a mano desde aquí.
    */
   private async addonChargesDue(now: Date): Promise<AdminAddonChargeDueDto[]> {
     const rows = await this.admin.tenantSubscriptionAddon.findMany({
       where: {
         nextChargeAt: { lte: now },
         suspendedAt: null, // los suspendidos por impago no se cobran
-        tenant: { subscription: { stripeSubscriptionId: { not: null } } },
+        billingMode: { not: 'stripe' }, // manual (o legacy null); los de Stripe no
+        tenant: { deletedAt: null, billingExempt: false },
       },
       include: {
         addon: { select: { name: true } },

@@ -289,10 +289,11 @@ function AddManualPaymentDialog({
     if (!extendsTouched) setExtendsPeriod(!hasStripe);
   }, [hasStripe, extendsTouched]);
 
-  // Propone la duración (importe ÷ importe mensual EFECTIVO = plan + add-ons)
-  // mientras el admin no la haya editado. Usar el efectivo evita sobrestimar los
-  // meses cuando hay add-ons (dividir por el plan a secas inflaba la duración).
-  const monthlyRef = effectiveMonthly ?? planPriceMonthly;
+  // Propone la duración (importe ÷ precio del PLAN) mientras el admin no la haya
+  // editado. Se usa el precio del plan —no el efectivo con add-ons— porque los
+  // add-ons manuales se cobran por separado desde la bandeja «Hoy» (cada uno con
+  // su propio vencimiento), así que este pago cubre solo la suscripción.
+  const monthlyRef = planPriceMonthly ?? effectiveMonthly;
   const suggested = useMemo(() => {
     if (!monthlyRef || amountNum <= 0) return null;
     return Math.max(1, Math.round(amountNum / monthlyRef));
