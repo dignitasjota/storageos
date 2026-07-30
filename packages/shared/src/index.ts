@@ -30,6 +30,7 @@ export * from './imports';
 export * from './move-in';
 export * from './landing';
 export * from './web';
+export * from './web/calculator';
 export * from './accounting';
 export * from './notifications';
 export * from './reviews';

@@ -2,6 +2,7 @@ import { MapPin, Phone, Mail, Star, Quote } from 'lucide-react';
 import Link from 'next/link';
 
 import { ContactForm } from './contact-form';
+import { StorageCalculator } from './storage-calculator';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
@@ -356,10 +357,14 @@ export function ContactSection({ data }: TplProps) {
   );
 }
 
-/** Bloque con las tres secciones opcionales, en orden. */
+/**
+ * Bloque con la calculadora de espacio (gratis, siempre visible) + las tres
+ * secciones opcionales de Web Premium (testimonios · FAQ · contacto).
+ */
 export function ExtraSections({ data }: TplProps) {
   return (
     <>
+      <StorageCalculator data={data} brand={brandOf(data)} />
       <TestimonialsSection data={data} />
       <FaqSection data={data} />
       <ContactSection data={data} />

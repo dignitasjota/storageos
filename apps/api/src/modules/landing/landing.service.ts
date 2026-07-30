@@ -72,12 +72,19 @@ export class LandingService {
         by: ['facilityId', 'unitTypeId'],
         where: { tenantId: tenant.id, status: 'available' },
         _count: { _all: true },
+        _avg: { areaM2: true },
       }),
     ]);
 
     const availByFacilityType = new Map<string, number>();
+    const areaByFacilityType = new Map<string, number | null>();
     for (const g of grouped) {
       availByFacilityType.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
+      const avg = g._avg.areaM2;
+      areaByFacilityType.set(
+        `${g.facilityId}:${g.unitTypeId}`,
+        avg != null ? Math.round(Number(avg) * 10) / 10 : null,
+      );
     }
 
     // Web Premium: solo si el tenant tiene la feature se aplica la plantilla y los
@@ -122,6 +129,7 @@ export class LandingService {
             name: t.name,
             available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
             priceMonthly: Number(t.defaultPriceMonthly),
+            areaM2: areaByFacilityType.get(`${f.id}:${t.id}`) ?? null,
           }))
           .filter((t) => t.available > 0),
       })),

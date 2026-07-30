@@ -38,6 +38,8 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(fac.unitTypes.length).toBeGreaterThanOrEqual(1);
     expect(fac.unitTypes[0].available).toBeGreaterThan(0);
     expect(fac.unitTypes[0].priceMonthly).toBe(65);
+    // Área representativa para la calculadora de espacio (widthM 2 × depthM 3 = 6 m²).
+    expect(fac.unitTypes[0].areaM2).toBe(6);
   });
 
   it('slug desconocido devuelve 404', async () => {
