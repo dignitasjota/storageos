@@ -248,9 +248,13 @@ export default function AdminTenantDetailPage() {
                     <Row
                       label="Fin periodo"
                       value={
-                        t.subscription.currentPeriodEnd
-                          ? new Date(t.subscription.currentPeriodEnd).toLocaleDateString('es-ES')
-                          : '—'
+                        // Una cuenta exenta no se cobra nunca → su fin de periodo
+                        // es irrelevante (no expira ni entra en dunning).
+                        t.billingExempt
+                          ? 'Sin vencimiento (exenta)'
+                          : t.subscription.currentPeriodEnd
+                            ? new Date(t.subscription.currentPeriodEnd).toLocaleDateString('es-ES')
+                            : '—'
                       }
                     />
                     <Row

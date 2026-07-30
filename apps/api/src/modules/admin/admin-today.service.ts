@@ -162,7 +162,9 @@ export class AdminTodayService {
         stripeSubscriptionId: null,
         status: 'active',
         currentPeriodEnd: { lte: cutoff },
-        tenant: { deletedAt: null },
+        // Las cuentas exentas no se cobran nunca → no deben aparecer como
+        // «renovación manual pendiente» (su fecha de fin es irrelevante).
+        tenant: { deletedAt: null, billingExempt: false },
       },
       select: { tenantId: true, currentPeriodEnd: true, tenant: { select: { name: true } } },
       orderBy: { currentPeriodEnd: 'asc' },
