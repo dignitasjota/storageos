@@ -7,6 +7,8 @@ export interface PublicLandingUnitTypeDto {
   name: string;
   available: number;
   priceMonthly: number;
+  /** Área representativa del tipo (m²), media de los trasteros disponibles. */
+  areaM2: number | null;
 }
 
 export interface PublicLandingFacilityDto {
