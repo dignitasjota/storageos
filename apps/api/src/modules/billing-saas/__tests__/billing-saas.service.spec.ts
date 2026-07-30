@@ -167,7 +167,7 @@ describe('BillingSaasService', () => {
     expect(updateData.manualExtensionDays).toEqual({ increment: 0 });
   });
 
-  it('recordManualPayment con la suscripción vencida parte de AHORA, no del pasado', async () => {
+  it('recordManualPayment con la suscripción vencida cuenta desde la fecha DEBIDA (no desde hoy); si no cubre hoy sigue past_due', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-02T10:00:00Z'));
     const admin = buildAdmin();
     admin.tenantSubscription.findUnique.mockResolvedValue({
@@ -185,9 +185,13 @@ describe('BillingSaasService', () => {
     });
 
     const createData = admin.tenantSubscriptionPayment.create.mock.calls[0]![0].data;
-    // base = now (no regala el mes de junio ya vencido).
-    expect(createData.periodStart).toEqual(new Date('2026-07-02T10:00:00Z'));
-    expect(createData.periodEnd).toEqual(new Date('2026-08-02T10:00:00Z'));
+    // base = currentPeriodEnd (1 jun): el pago cubre el mes debido [1 jun, 1 jul),
+    // NO se cuenta desde hoy (no regala el mes impagado ni deja hueco).
+    expect(createData.periodStart).toEqual(new Date('2026-06-01T00:00:00Z'));
+    expect(createData.periodEnd).toEqual(new Date('2026-07-01T00:00:00Z'));
+    // El nuevo fin (1 jul) es anterior a hoy (2 jul) → sigue past_due (pago parcial).
+    const updateData = admin.tenantSubscription.update.mock.calls[0]![0].data;
+    expect(updateData.status).toBe('past_due');
   });
 
   it('recordManualPayment ajusta el desbordamiento de fin de mes (31 ene + 1 mes → 28 feb)', async () => {
