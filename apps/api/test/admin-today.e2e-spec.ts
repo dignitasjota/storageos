@@ -146,6 +146,15 @@ describe('Admin «Hoy» (e2e)', () => {
     // Triaje añadido: tickets sin responder + jobs de colas fallidos.
     expect(Array.isArray(today.body.openTickets)).toBe(true);
     expect(typeof today.body.failedJobs).toBe('number');
+
+    // Una cuenta EXENTA no debe salir como renovación manual pendiente aunque su
+    // periodo venza (no se cobra nunca).
+    await admin.tenant.update({ where: { id: tenantId }, data: { billingExempt: true } });
+    const afterExempt = await request(app.getHttpServer()).get('/admin/today').set(auth);
+    const stillThere = afterExempt.body.manualRenewalsDue.find(
+      (r: { tenantId: string }) => r.tenantId === tenantId,
+    );
+    expect(stillThere).toBeUndefined();
   });
 
   it('sin token → 401', async () => {
