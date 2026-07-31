@@ -254,6 +254,11 @@ export class BillingSaasService {
     try {
       session = await this.stripe.checkout.sessions.create({
         mode: 'subscription',
+        // Tarjeta + domiciliación SEPA: la domiciliación es el medio recurrente
+        // B2B dominante en España y más barata que la tarjeta. Stripe recoge el
+        // mandato en el Checkout y cobra la suscripción por SEPA cada periodo.
+        // (Requiere activar SEPA Direct Debit en el dashboard de Stripe.)
+        payment_method_types: ['card', 'sepa_debit'],
         customer: stripeCustomerId,
         line_items: [{ price: priceId, quantity: 1 }],
         success_url: args.successUrl,

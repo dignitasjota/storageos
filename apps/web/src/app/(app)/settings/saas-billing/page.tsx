@@ -197,6 +197,11 @@ export default function SaasBillingPage() {
           </button>
         </div>
 
+        <p className="text-xs text-muted-foreground">
+          Puedes pagar por <strong>tarjeta</strong> o por <strong>domiciliación SEPA</strong>
+          {' '}(elige el método al suscribirte).
+        </p>
+
         {plans.isLoading ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
