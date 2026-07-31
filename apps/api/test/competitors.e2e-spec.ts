@@ -84,6 +84,32 @@ describe('Competencia + precio por competencia (e2e)', () => {
     expect(item2.changePct).toBe(-8); // sin referencias disponibles → vuelve al base
   });
 
+  it('editar un competidor existente (nombre, zona, flag de IVA)', async () => {
+    const owner = await registerVerifiedUser(app, 'comp-edit');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const comp = await request(app.getHttpServer())
+      .post('/competitors')
+      .set(auth)
+      .send({ name: 'Antiguo', zone: 'Norte', priceIncludesVat: true });
+    expect(comp.status).toBe(201);
+
+    const upd = await request(app.getHttpServer())
+      .patch(`/competitors/${comp.body.id}`)
+      .set(auth)
+      .send({ name: 'Nuevo Nombre', zone: 'Sur', priceIncludesVat: false });
+    expect(upd.status).toBe(200);
+    expect(upd.body.name).toBe('Nuevo Nombre');
+    expect(upd.body.zone).toBe('Sur');
+    expect(upd.body.priceIncludesVat).toBe(false);
+
+    // Persiste en el listado.
+    const list = await request(app.getHttpServer()).get('/competitors').set(auth);
+    const found = list.body.find((f: { id: string }) => f.id === comp.body.id);
+    expect(found.name).toBe('Nuevo Nombre');
+    expect(found.priceIncludesVat).toBe(false);
+  });
+
   it('medidas → área calculada + flag de IVA por competidor', async () => {
     const owner = await registerVerifiedUser(app, 'comp-dims');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
