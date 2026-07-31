@@ -84,6 +84,55 @@ describe('Competencia + precio por competencia (e2e)', () => {
     expect(item2.changePct).toBe(-8); // sin referencias disponibles → vuelve al base
   });
 
+  it('medidas → área calculada + flag de IVA por competidor', async () => {
+    const owner = await registerVerifiedUser(app, 'comp-dims');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // Competidor con precios SIN IVA.
+    const comp = await request(app.getHttpServer())
+      .post('/competitors')
+      .set(auth)
+      .send({ name: 'Rival Medidas', priceIncludesVat: false });
+    expect(comp.status).toBe(201);
+    expect(comp.body.priceIncludesVat).toBe(false);
+
+    // Trastero por MEDIDAS (sin área): 2 × 3 → área calculada = 6.
+    const u = await request(app.getHttpServer())
+      .post(`/competitors/${comp.body.id}/units`)
+      .set(auth)
+      .send({ widthM: 2, depthM: 3, heightM: 2.5, priceMonthly: 80, status: 'available' });
+    expect(u.status).toBe(201);
+    expect(u.body.areaM2).toBe(6);
+    expect(u.body.widthM).toBe(2);
+    expect(u.body.depthM).toBe(3);
+    expect(u.body.heightM).toBe(2.5);
+
+    // Cambiar el fondo a 4 → área recalculada = 8.
+    const upd = await request(app.getHttpServer())
+      .patch(`/competitors/units/${u.body.id}`)
+      .set(auth)
+      .send({ depthM: 4 });
+    expect(upd.status).toBe(200);
+    expect(upd.body.areaM2).toBe(8);
+    expect(upd.body.depthM).toBe(4);
+
+    // Trastero sin medidas: se acepta el área directa (retrocompatible).
+    const u2 = await request(app.getHttpServer())
+      .post(`/competitors/${comp.body.id}/units`)
+      .set(auth)
+      .send({ areaM2: 10, priceMonthly: 120, status: 'available' });
+    expect(u2.status).toBe(201);
+    expect(u2.body.areaM2).toBe(10);
+    expect(u2.body.widthM).toBeNull();
+
+    // Ni área ni medidas → 400.
+    await request(app.getHttpServer())
+      .post(`/competitors/${comp.body.id}/units`)
+      .set(auth)
+      .send({ priceMonthly: 50, status: 'available' })
+      .expect(400);
+  });
+
   it('ocupación de mercado: la mía (0%) vs la de la competencia (inferida)', async () => {
     const owner = await registerVerifiedUser(app, 'market-occ');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

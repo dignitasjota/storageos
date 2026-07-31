@@ -57,7 +57,7 @@ export default function CompetitorsPage() {
   const deleteFacility = useDeleteCompetitorFacility();
   const [selected, setSelected] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', zone: '', facilityId: '' });
+  const [form, setForm] = useState({ name: '', zone: '', facilityId: '', priceIncludesVat: true });
 
   async function onCreateFacility() {
     if (form.name.trim().length === 0) return;
@@ -65,11 +65,12 @@ export default function CompetitorsPage() {
       const created = await createFacility.mutateAsync({
         name: form.name.trim(),
         zone: form.zone.trim() || '',
+        priceIncludesVat: form.priceIncludesVat,
         ...(form.facilityId ? { facilityId: form.facilityId } : {}),
       });
       setSelected(created.id);
       setNewOpen(false);
-      setForm({ name: '', zone: '', facilityId: '' });
+      setForm({ name: '', zone: '', facilityId: '', priceIncludesVat: true });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -143,6 +144,26 @@ export default function CompetitorsPage() {
               />
             </div>
             <div className="space-y-1">
+              <Label>Sus precios</Label>
+              <Select
+                value={form.priceIncludesVat ? 'incl' : 'excl'}
+                onValueChange={(v) =>
+                  setForm((s) => ({ ...s, priceIncludesVat: v === 'incl' }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="incl">Incluyen IVA</SelectItem>
+                  <SelectItem value="excl">Sin IVA</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Para comparar en igualdad con tus precios (que son sin IVA).
+              </p>
+            </div>
+            <div className="space-y-1">
               <Label>Compite con mi local (opcional)</Label>
               <Select
                 value={form.facilityId || 'none'}
@@ -191,7 +212,11 @@ function CompetitorCard({
           <div>
             <p className="font-medium">{facility.name}</p>
             <p className="text-xs text-muted-foreground">
-              {[facility.zone, facility.facilityName ? `vs ${facility.facilityName}` : null]
+              {[
+                facility.zone,
+                facility.facilityName ? `vs ${facility.facilityName}` : null,
+                facility.priceIncludesVat ? 'precios con IVA' : 'precios sin IVA',
+              ]
                 .filter(Boolean)
                 .join(' · ') || '—'}
             </p>
@@ -241,17 +266,31 @@ function CompetitorUnits({
   const del = useDeleteCompetitorUnit(facility.id);
   const [edit, setEdit] = useState<CompetitorUnitDto | null>(null);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ areaM2: 0, priceMonthly: 0, status: 'available', notes: '' });
+  const emptyForm = {
+    areaM2: 0,
+    widthM: 0,
+    depthM: 0,
+    heightM: 0,
+    priceMonthly: 0,
+    status: 'available',
+    notes: '',
+  };
+  const [form, setForm] = useState(emptyForm);
+  const hasDims = form.widthM > 0 && form.depthM > 0;
+  const computedArea = hasDims ? Math.round(form.widthM * form.depthM * 100) / 100 : null;
 
   function openNew() {
     setEdit(null);
-    setForm({ areaM2: 0, priceMonthly: 0, status: 'available', notes: '' });
+    setForm(emptyForm);
     setOpen(true);
   }
   function openEdit(u: CompetitorUnitDto) {
     setEdit(u);
     setForm({
       areaM2: u.areaM2,
+      widthM: u.widthM ?? 0,
+      depthM: u.depthM ?? 0,
+      heightM: u.heightM ?? 0,
       priceMonthly: u.priceMonthly,
       status: u.status,
       notes: u.notes ?? '',
@@ -260,12 +299,17 @@ function CompetitorUnits({
   }
 
   async function onSubmit() {
-    if (form.areaM2 <= 0) {
-      toast.error('Indica los metros cuadrados.');
+    // El área se puede dar directa o vía medidas (ancho + fondo). Con medidas, el
+    // servidor calcula el m² exacto.
+    if (!hasDims && form.areaM2 <= 0) {
+      toast.error('Indica el área (m²) o bien el ancho y el fondo.');
       return;
     }
     const input = {
-      areaM2: form.areaM2,
+      ...(hasDims ? {} : { areaM2: form.areaM2 }),
+      ...(form.widthM > 0 ? { widthM: form.widthM } : {}),
+      ...(form.depthM > 0 ? { depthM: form.depthM } : {}),
+      ...(form.heightM > 0 ? { heightM: form.heightM } : {}),
       priceMonthly: form.priceMonthly,
       status: form.status as 'available' | 'occupied',
       notes: form.notes.trim() || '',
@@ -305,6 +349,7 @@ function CompetitorUnits({
           <TableHeader>
             <TableRow>
               <TableHead>m²</TableHead>
+              <TableHead>Medidas</TableHead>
               <TableHead>Precio/mes</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Comprobado</TableHead>
@@ -314,7 +359,7 @@ function CompetitorUnits({
           <TableBody>
             {(units ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                   Sin trasteros fichados todavía.
                 </TableCell>
               </TableRow>
@@ -322,6 +367,11 @@ function CompetitorUnits({
               (units ?? []).map((u) => (
                 <TableRow key={u.id}>
                   <TableCell>{u.areaM2} m²</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {u.widthM && u.depthM
+                      ? `${u.widthM}×${u.depthM}${u.heightM ? `×${u.heightM}` : ''} m`
+                      : '—'}
+                  </TableCell>
                   <TableCell>{eur(u.priceMonthly)}</TableCell>
                   <TableCell>
                     <button
@@ -373,14 +423,53 @@ function CompetitorUnits({
             <DialogTitle>{edit ? 'Editar trastero' : 'Nuevo trastero'}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Ancho (m)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={form.widthM || ''}
+                  placeholder="—"
+                  onChange={(e) => setForm((s) => ({ ...s, widthM: e.target.valueAsNumber || 0 }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Fondo (m)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={form.depthM || ''}
+                  placeholder="—"
+                  onChange={(e) => setForm((s) => ({ ...s, depthM: e.target.valueAsNumber || 0 }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Alto (m)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={form.heightM || ''}
+                  placeholder="—"
+                  onChange={(e) => setForm((s) => ({ ...s, heightM: e.target.valueAsNumber || 0 }))}
+                />
+              </div>
+              <p className="col-span-3 text-xs text-muted-foreground">
+                Opcional: si indicas ancho y fondo, el m² se calcula solo (más exacto).
+              </p>
+            </div>
             <div className="space-y-1">
               <Label>Metros cuadrados</Label>
               <Input
                 type="number"
                 step="0.5"
-                value={form.areaM2}
+                value={hasDims ? (computedArea ?? 0) : form.areaM2}
+                disabled={hasDims}
                 onChange={(e) => setForm((s) => ({ ...s, areaM2: e.target.valueAsNumber || 0 }))}
               />
+              {hasDims && (
+                <p className="text-xs text-muted-foreground">Calculado del ancho × fondo.</p>
+              )}
             </div>
             <div className="space-y-1">
               <Label>Precio mensual (€)</Label>

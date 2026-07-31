@@ -14,6 +14,7 @@ import type {
 } from '@storageos/shared';
 
 const num = (d: { toString(): string }): number => Number(d.toString());
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 const cleanText = (v: string | null | undefined): string | null =>
   v && v.trim() ? v.trim() : null;
 
@@ -42,6 +43,7 @@ export class CompetitorsService {
       zone: r.zone,
       facilityId: r.facilityId,
       facilityName: r.facility?.name ?? null,
+      priceIncludesVat: r.priceIncludesVat,
       notes: r.notes,
       unitCount: r._count.units,
       availableCount: r.units.filter((u) => u.status === 'available').length,
@@ -106,6 +108,7 @@ export class CompetitorsService {
             name: input.name.trim(),
             zone: cleanText(input.zone),
             facilityId: input.facilityId ?? null,
+            priceIncludesVat: input.priceIncludesVat,
             notes: cleanText(input.notes),
           },
         }),
@@ -128,6 +131,9 @@ export class CompetitorsService {
             ...(input.name !== undefined ? { name: input.name.trim() } : {}),
             ...(input.zone !== undefined ? { zone: cleanText(input.zone) } : {}),
             ...(input.facilityId !== undefined ? { facilityId: input.facilityId ?? null } : {}),
+            ...(input.priceIncludesVat !== undefined
+              ? { priceIncludesVat: input.priceIncludesVat }
+              : {}),
             ...(input.notes !== undefined ? { notes: cleanText(input.notes) } : {}),
           },
         }),
@@ -162,13 +168,22 @@ export class CompetitorsService {
     input: CreateCompetitorUnitInput,
   ): Promise<CompetitorUnitDto> {
     await this.findFacilityOrThrow(tenantId, competitorFacilityId);
+    // Si hay ancho y fondo, el área se calcula; si no, se usa la indicada (el
+    // refine del schema garantiza que llega una de las dos).
+    const areaM2 =
+      input.widthM != null && input.depthM != null
+        ? round2(input.widthM * input.depthM)
+        : (input.areaM2 as number);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.competitorUnit.create({
           data: {
             tenantId,
             competitorFacilityId,
-            areaM2: input.areaM2,
+            areaM2,
+            widthM: input.widthM ?? null,
+            depthM: input.depthM ?? null,
+            heightM: input.heightM ?? null,
             priceMonthly: input.priceMonthly,
             status: input.status,
             notes: cleanText(input.notes),
@@ -186,12 +201,29 @@ export class CompetitorsService {
     input: UpdateCompetitorUnitInput,
   ): Promise<CompetitorUnitDto> {
     const existing = await this.prisma.withTenant(
-      (tx) => tx.competitorUnit.findFirst({ where: { id, tenantId }, select: { id: true } }),
+      (tx) =>
+        tx.competitorUnit.findFirst({
+          where: { id, tenantId },
+          select: { id: true, widthM: true, depthM: true },
+        }),
       tenantId,
     );
     if (!existing) {
       throw new NotFoundException({ code: 'competitor_unit_not_found', message: 'No encontrado' });
     }
+    // Recalcula el área si el resultado de las medidas (nuevas o conservadas) da
+    // ancho y fondo; si no hay medidas, usa el área indicada.
+    const nextWidth =
+      input.widthM !== undefined ? input.widthM : existing.widthM != null ? num(existing.widthM) : null;
+    const nextDepth =
+      input.depthM !== undefined ? input.depthM : existing.depthM != null ? num(existing.depthM) : null;
+    const dimsTouched = input.widthM !== undefined || input.depthM !== undefined;
+    const areaUpdate: { areaM2?: number } =
+      dimsTouched && nextWidth != null && nextDepth != null
+        ? { areaM2: round2(nextWidth * nextDepth) }
+        : input.areaM2 !== undefined
+          ? { areaM2: input.areaM2 }
+          : {};
     // Si cambia el precio, actualizamos la fecha de comprobación (nueva verificación).
     const touchesPrice = input.priceMonthly !== undefined;
     const updated = await this.prisma.withTenant(
@@ -199,7 +231,10 @@ export class CompetitorsService {
         tx.competitorUnit.update({
           where: { id },
           data: {
-            ...(input.areaM2 !== undefined ? { areaM2: input.areaM2 } : {}),
+            ...areaUpdate,
+            ...(input.widthM !== undefined ? { widthM: input.widthM } : {}),
+            ...(input.depthM !== undefined ? { depthM: input.depthM } : {}),
+            ...(input.heightM !== undefined ? { heightM: input.heightM } : {}),
             ...(input.priceMonthly !== undefined ? { priceMonthly: input.priceMonthly } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
             ...(input.notes !== undefined ? { notes: cleanText(input.notes) } : {}),
@@ -242,6 +277,7 @@ export class CompetitorsService {
     name: string;
     zone: string | null;
     facilityId: string | null;
+    priceIncludesVat: boolean;
     notes: string | null;
     createdAt: Date;
   }): CompetitorFacilityDto {
@@ -251,6 +287,7 @@ export class CompetitorsService {
       zone: r.zone,
       facilityId: r.facilityId,
       facilityName: null,
+      priceIncludesVat: r.priceIncludesVat,
       notes: r.notes,
       unitCount: 0,
       availableCount: 0,
@@ -262,6 +299,9 @@ export class CompetitorsService {
     id: string;
     competitorFacilityId: string;
     areaM2: { toString(): string };
+    widthM: { toString(): string } | null;
+    depthM: { toString(): string } | null;
+    heightM: { toString(): string } | null;
     priceMonthly: { toString(): string };
     status: string;
     lastCheckedAt: Date;
@@ -271,6 +311,9 @@ export class CompetitorsService {
       id: r.id,
       competitorFacilityId: r.competitorFacilityId,
       areaM2: num(r.areaM2),
+      widthM: r.widthM != null ? num(r.widthM) : null,
+      depthM: r.depthM != null ? num(r.depthM) : null,
+      heightM: r.heightM != null ? num(r.heightM) : null,
       priceMonthly: num(r.priceMonthly),
       status: r.status as CompetitorUnitStatus,
       lastCheckedAt: r.lastCheckedAt.toISOString(),

@@ -2088,6 +2088,10 @@ model CompetitorFacility {
   name       String
   zone       String?
   facilityId String?  @map("facility_id") @db.Uuid
+  /// ¿Los precios que se registran en sus trasteros incluyen IVA? (algunos
+  /// competidores lo muestran con IVA y otros sin él). Se usa para normalizar el
+  /// precio a NETO al comparar con el nuestro (que es sin IVA).
+  priceIncludesVat Boolean @default(true) @map("price_includes_vat")
   notes      String?
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2107,6 +2111,11 @@ model CompetitorUnit {
   tenantId             String   @map("tenant_id") @db.Uuid
   competitorFacilityId String   @map("competitor_facility_id") @db.Uuid
   areaM2               Decimal  @map("area_m2") @db.Decimal(10, 2)
+  /// Medidas opcionales (cuando se conocen). Si hay ancho y fondo, area_m2 se
+  /// calcula en el servicio; la altura es informativa (volumen).
+  widthM               Decimal? @map("width_m") @db.Decimal(10, 2)
+  depthM               Decimal? @map("depth_m") @db.Decimal(10, 2)
+  heightM              Decimal? @map("height_m") @db.Decimal(10, 2)
   priceMonthly         Decimal  @map("price_monthly") @db.Decimal(10, 2)
   /// available | occupied
   status               String   @default("available")
