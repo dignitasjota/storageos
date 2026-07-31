@@ -1,7 +1,8 @@
 'use client';
 
 import { type LeadDto, type LeadStatusValue, leadSourceLabel } from '@storageos/shared';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Pencil, Plus, UserPlus } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -27,7 +28,14 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useCreateLead, useLeads, useLeadSources, useTransitionLead } from '@/lib/communications/hooks';
+import {
+  useConvertLead,
+  useCreateLead,
+  useLeads,
+  useLeadSources,
+  useTransitionLead,
+  useUpdateLead,
+} from '@/lib/communications/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
@@ -41,9 +49,29 @@ const COLUMNS: { status: LeadStatusValue; label: string }[] = [
 export default function LeadsPage() {
   const leads = useLeads();
   const transition = useTransitionLead();
+  const convert = useConvertLead();
+  const router = useRouter();
   const canWrite = useHasPermission('leads:write');
   const [dragging, setDragging] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [editing, setEditing] = useState<LeadDto | null>(null);
+
+  async function onConvert(lead: LeadDto) {
+    if (
+      !window.confirm(
+        `¿Convertir a «${lead.displayName}» en cliente? Se creará una ficha de inquilino con sus datos y el lead pasará a «Ganados».`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await convert.mutateAsync({ id: lead.id, input: {} });
+      toast.success('Lead convertido en cliente.');
+      if (result.convertedCustomerId) router.push(`/customers/${result.convertedCustomerId}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo convertir el lead');
+    }
+  }
 
   if (leads.isLoading) {
     return (
@@ -72,7 +100,8 @@ export default function LeadsPage() {
         )}
       </div>
 
-      {newOpen && <NewLeadDialog onClose={() => setNewOpen(false)} />}
+      {newOpen && <LeadFormDialog onClose={() => setNewOpen(false)} />}
+      {editing && <LeadFormDialog lead={editing} onClose={() => setEditing(null)} />}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         {COLUMNS.map((col) => {
@@ -103,8 +132,11 @@ export default function LeadsPage() {
                   <LeadCard
                     key={lead.id}
                     lead={lead}
+                    canWrite={canWrite}
                     onDragStart={() => setDragging(lead.id)}
                     onMove={(status) => transition.mutate({ id: lead.id, input: { status } })}
+                    onEdit={() => setEditing(lead)}
+                    onConvert={() => onConvert(lead)}
                   />
                 ))}
                 {items.length === 0 && (
@@ -121,12 +153,18 @@ export default function LeadsPage() {
 
 function LeadCard({
   lead,
+  canWrite,
   onDragStart,
   onMove,
+  onEdit,
+  onConvert,
 }: {
   lead: LeadDto;
+  canWrite: boolean;
   onDragStart: () => void;
   onMove: (status: LeadStatusValue) => void;
+  onEdit: () => void;
+  onConvert: () => void;
 }) {
   return (
     <div
@@ -153,6 +191,11 @@ function LeadCard({
           /mes
         </div>
       )}
+      {lead.convertedCustomerId && (
+        <div className="mt-1 text-[10px] font-medium uppercase tracking-wide text-green-600 dark:text-green-400">
+          Convertido en cliente
+        </div>
+      )}
       {/* Mover de fase: funciona en táctil (el drag&drop nativo no). */}
       <Select value={lead.status} onValueChange={(v) => onMove(v as LeadStatusValue)}>
         <SelectTrigger className="mt-2 h-8" aria-label="Cambiar fase">
@@ -166,6 +209,23 @@ function LeadCard({
           ))}
         </SelectContent>
       </Select>
+      {canWrite && (
+        <div className="mt-2 flex gap-1">
+          <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={onEdit}>
+            <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+          </Button>
+          {!lead.convertedCustomerId && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 flex-1 text-xs"
+              onClick={onConvert}
+            >
+              <UserPlus className="mr-1 h-3.5 w-3.5" /> A cliente
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -176,45 +236,54 @@ function LeadCard({
 
 const CUSTOM_SOURCE = '__custom__';
 
-function NewLeadDialog({ onClose }: { onClose: () => void }) {
+function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void }) {
+  const isEdit = Boolean(lead);
   const create = useCreateLead();
+  const update = useUpdateLead(lead?.id ?? '');
   const sources = useLeadSources();
   const facilities = useFacilities();
 
-  const [source, setSource] = useState('portal_inmobiliario');
+  const [source, setSource] = useState(lead?.source ?? 'portal_inmobiliario');
   const [customSource, setCustomSource] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [message, setMessage] = useState('');
-  const [facilityId, setFacilityId] = useState<string>('');
-  const [budget, setBudget] = useState('');
+  const [firstName, setFirstName] = useState(lead?.firstName ?? '');
+  const [lastName, setLastName] = useState(lead?.lastName ?? '');
+  const [companyName, setCompanyName] = useState(lead?.companyName ?? '');
+  const [email, setEmail] = useState(lead?.email ?? '');
+  const [phone, setPhone] = useState(lead?.phone ?? '');
+  const [message, setMessage] = useState(lead?.message ?? '');
+  const [facilityId, setFacilityId] = useState<string>(lead?.preferredFacilityId ?? '');
+  const [budget, setBudget] = useState(lead?.budgetMonthly != null ? String(lead.budgetMonthly) : '');
 
   const resolvedSource = source === CUSTOM_SOURCE ? customSource.trim() : source;
   const hasName = Boolean(firstName.trim() || lastName.trim() || companyName.trim());
-  const canSubmit = Boolean(resolvedSource) && hasName && !create.isPending;
+  const pending = create.isPending || update.isPending;
+  const canSubmit = Boolean(resolvedSource) && hasName && !pending;
 
   async function submit() {
     if (!canSubmit) return;
+    const input = {
+      source: resolvedSource,
+      metadata: {},
+      ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
+      ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+      ...(companyName.trim() ? { companyName: companyName.trim() } : {}),
+      ...(email.trim() ? { email: email.trim() } : {}),
+      ...(phone.trim() ? { phone: phone.trim() } : {}),
+      ...(message.trim() ? { message: message.trim() } : {}),
+      ...(facilityId ? { preferredFacilityId: facilityId } : {}),
+      ...(budget && Number(budget) > 0 ? { budgetMonthly: Number(budget) } : {}),
+    };
     try {
-      await create.mutateAsync({
-        source: resolvedSource,
-        metadata: {},
-        ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
-        ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
-        ...(companyName.trim() ? { companyName: companyName.trim() } : {}),
-        ...(email.trim() ? { email: email.trim() } : {}),
-        ...(phone.trim() ? { phone: phone.trim() } : {}),
-        ...(message.trim() ? { message: message.trim() } : {}),
-        ...(facilityId ? { preferredFacilityId: facilityId } : {}),
-        ...(budget && Number(budget) > 0 ? { budgetMonthly: Number(budget) } : {}),
-      });
-      toast.success('Lead creado. Está en «Nuevos» para hacerle seguimiento.');
+      if (isEdit) {
+        await update.mutateAsync(input);
+        toast.success('Lead actualizado.');
+      } else {
+        await create.mutateAsync(input);
+        toast.success('Lead creado. Está en «Nuevos» para hacerle seguimiento.');
+      }
       onClose();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el lead');
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar el lead');
     }
   }
 
@@ -222,7 +291,7 @@ function NewLeadDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nuevo lead</DialogTitle>
+          <DialogTitle>{isEdit ? 'Editar lead' : 'Nuevo lead'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -342,7 +411,7 @@ function NewLeadDialog({ onClose }: { onClose: () => void }) {
             Cancelar
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={!canSubmit}>
-            {create.isPending ? 'Creando…' : 'Crear lead'}
+            {pending ? 'Guardando…' : isEdit ? 'Guardar' : 'Crear lead'}
           </Button>
         </DialogFooter>
       </DialogContent>
