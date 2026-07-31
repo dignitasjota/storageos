@@ -5,6 +5,7 @@ import { type CreateUnitInput, CreateUnitSchema, type UnitDto } from '@storageos
 import { type ColumnDef } from '@tanstack/react-table';
 import { MoreHorizontal, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -52,6 +53,8 @@ interface Props {
 export function FacilityUnitsTab({ facilityId }: Props) {
   const units = useUnits({ facilityId });
   const types = useUnitTypes();
+  const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const create = useCreateUnit();
   const remove = useDeleteUnit();
@@ -180,18 +183,33 @@ export function FacilityUnitsTab({ facilityId }: Props) {
       isLoading={units.isLoading}
       searchPlaceholder="Buscar por código..."
       toolbarRight={
-        <Dialog
-          open={open}
-          onOpenChange={(o) => {
-            setOpen(o);
-            if (!o) form.reset({ facilityId, code: '', widthM: 2, depthM: 2, heightM: 2.5 });
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button disabled={activeTypes.length === 0}>
-              <Plus className="mr-1 h-4 w-4" /> Nuevo trastero
+        activeTypes.length === 0 ? (
+          // No se puede crear un trastero sin un tipo: en vez de un botón gris
+          // sin explicación, guiamos al usuario a crear un tipo primero.
+          <div className="flex items-center gap-2">
+            <span className="hidden text-sm text-muted-foreground sm:inline">
+              Crea primero un tipo de trastero.
+            </span>
+            <Button
+              variant="outline"
+              onClick={() => router.replace(`${pathname}?tab=unit-types`, { scroll: false })}
+            >
+              <Plus className="mr-1 h-4 w-4" /> Crear tipo de trastero
             </Button>
-          </DialogTrigger>
+          </div>
+        ) : (
+          <Dialog
+            open={open}
+            onOpenChange={(o) => {
+              setOpen(o);
+              if (!o) form.reset({ facilityId, code: '', widthM: 2, depthM: 2, heightM: 2.5 });
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-1 h-4 w-4" /> Nuevo trastero
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Nuevo trastero</DialogTitle>
@@ -275,7 +293,8 @@ export function FacilityUnitsTab({ facilityId }: Props) {
               </form>
             </Form>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        )
       }
       emptyText={
         activeTypes.length === 0

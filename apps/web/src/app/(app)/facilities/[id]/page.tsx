@@ -2,7 +2,7 @@
 
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { FacilityCamerasTab } from './cameras-tab';
 import { FacilityFloorsTab } from './floors-tab';
@@ -20,6 +20,10 @@ export default function FacilityDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const facility = useFacility(id);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tab = searchParams.get('tab') ?? 'units';
   const canManage = useHasPermission('facilities:manage');
   const canAccessRead = useHasPermission('access:read');
   const hasCamerasFeature = useHasFeature('cameras');
@@ -66,7 +70,10 @@ export default function FacilityDetailPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="units">
+      <Tabs
+        value={tab}
+        onValueChange={(v) => router.replace(`${pathname}?tab=${v}`, { scroll: false })}
+      >
         <TabsList>
           <TabsTrigger value="units">Trasteros</TabsTrigger>
           <TabsTrigger value="floors">Plantas y plano</TabsTrigger>

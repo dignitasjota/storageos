@@ -40,6 +40,7 @@ import {
   useMarketOccupancy,
   useCompetitorUnits,
   useCreateCompetitorFacility,
+  useUpdateCompetitorFacility,
   useCreateCompetitorUnit,
   useDeleteCompetitorFacility,
   useDeleteCompetitorUnit,
@@ -54,23 +55,48 @@ export default function CompetitorsPage() {
   const { data: facilities } = useCompetitorFacilities();
   const myFacilities = useFacilities();
   const createFacility = useCreateCompetitorFacility();
+  const updateFacility = useUpdateCompetitorFacility();
   const deleteFacility = useDeleteCompetitorFacility();
   const [selected, setSelected] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', zone: '', facilityId: '', priceIncludesVat: true });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const emptyFacilityForm = { name: '', zone: '', facilityId: '', priceIncludesVat: true };
+  const [form, setForm] = useState(emptyFacilityForm);
 
-  async function onCreateFacility() {
+  function openNewFacility() {
+    setEditingId(null);
+    setForm(emptyFacilityForm);
+    setNewOpen(true);
+  }
+  function openEditFacility(f: CompetitorFacilityDto) {
+    setEditingId(f.id);
+    setForm({
+      name: f.name,
+      zone: f.zone ?? '',
+      facilityId: f.facilityId ?? '',
+      priceIncludesVat: f.priceIncludesVat,
+    });
+    setNewOpen(true);
+  }
+
+  async function onSubmitFacility() {
     if (form.name.trim().length === 0) return;
+    const input = {
+      name: form.name.trim(),
+      zone: form.zone.trim() || '',
+      priceIncludesVat: form.priceIncludesVat,
+      facilityId: form.facilityId || null,
+    };
     try {
-      const created = await createFacility.mutateAsync({
-        name: form.name.trim(),
-        zone: form.zone.trim() || '',
-        priceIncludesVat: form.priceIncludesVat,
-        ...(form.facilityId ? { facilityId: form.facilityId } : {}),
-      });
-      setSelected(created.id);
+      if (editingId) {
+        await updateFacility.mutateAsync({ id: editingId, input });
+      } else {
+        const created = await createFacility.mutateAsync(input);
+        setSelected(created.id);
+      }
       setNewOpen(false);
-      setForm({ name: '', zone: '', facilityId: '', priceIncludesVat: true });
+      setForm(emptyFacilityForm);
+      setEditingId(null);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -99,7 +125,7 @@ export default function CompetitorsPage() {
             competencia» en Analítica → Precio por trastero).
           </p>
         </div>
-        {canManage && <Button onClick={() => setNewOpen(true)}>Añadir competidor</Button>}
+        {canManage && <Button onClick={openNewFacility}>Añadir competidor</Button>}
       </div>
 
       <MarketOccupancyCard />
@@ -111,6 +137,7 @@ export default function CompetitorsPage() {
             facility={f}
             active={selected === f.id}
             onSelect={() => setSelected(f.id)}
+            onEdit={canManage ? () => openEditFacility(f) : undefined}
             onDelete={canManage ? () => onDeleteFacility(f.id, f.name) : undefined}
           />
         ))}
@@ -124,7 +151,7 @@ export default function CompetitorsPage() {
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Nuevo competidor</DialogTitle>
+            <DialogTitle>{editingId ? 'Editar competidor' : 'Nuevo competidor'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -184,8 +211,11 @@ export default function CompetitorsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={onCreateFacility} disabled={createFacility.isPending}>
-              Crear
+            <Button
+              onClick={onSubmitFacility}
+              disabled={createFacility.isPending || updateFacility.isPending}
+            >
+              {editingId ? 'Guardar' : 'Crear'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -198,11 +228,13 @@ function CompetitorCard({
   facility,
   active,
   onSelect,
+  onEdit,
   onDelete,
 }: {
   facility: CompetitorFacilityDto;
   active: boolean;
   onSelect: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
 }) {
   return (
@@ -221,20 +253,36 @@ function CompetitorCard({
                 .join(' · ') || '—'}
             </p>
           </div>
-          {onDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              aria-label="Eliminar"
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          )}
+          <div className="flex shrink-0 gap-1">
+            {onEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                aria-label="Editar competidor"
+              >
+                <Pencil className="size-4" />
+              </Button>
+            )}
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                aria-label="Eliminar"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
           <Badge variant="outline">{facility.unitCount} trasteros</Badge>
