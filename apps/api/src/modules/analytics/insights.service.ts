@@ -439,12 +439,19 @@ export class InsightsService {
       if (includeCompetition) {
         const comp = await tx.competitorUnit.findMany({
           where: { status: 'available' },
-          select: { areaM2: true, priceMonthly: true },
+          select: {
+            areaM2: true,
+            priceMonthly: true,
+            // Para comparar con NUESTRO precio (sin IVA), normalizamos el del
+            // competidor a neto cuando su precio incluye IVA.
+            competitorFacility: { select: { priceIncludesVat: true } },
+          },
         });
-        competitorPrices = comp.map((c) => ({
-          areaM2: Number(c.areaM2),
-          price: Number(c.priceMonthly),
-        }));
+        competitorPrices = comp.map((c) => {
+          const gross = Number(c.priceMonthly);
+          const net = c.competitorFacility.priceIncludesVat ? gross / 1.21 : gross;
+          return { areaM2: Number(c.areaM2), price: net };
+        });
       }
 
       // Ocupación por dimensión = (tipo, local). No filtramos por facilityId aquí
