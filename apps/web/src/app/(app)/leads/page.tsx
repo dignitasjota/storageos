@@ -134,7 +134,6 @@ export default function LeadsPage() {
                     lead={lead}
                     canWrite={canWrite}
                     onDragStart={() => setDragging(lead.id)}
-                    onMove={(status) => transition.mutate({ id: lead.id, input: { status } })}
                     onEdit={() => setEditing(lead)}
                     onConvert={() => onConvert(lead)}
                   />
@@ -155,14 +154,12 @@ function LeadCard({
   lead,
   canWrite,
   onDragStart,
-  onMove,
   onEdit,
   onConvert,
 }: {
   lead: LeadDto;
   canWrite: boolean;
   onDragStart: () => void;
-  onMove: (status: LeadStatusValue) => void;
   onEdit: () => void;
   onConvert: () => void;
 }) {
@@ -173,16 +170,17 @@ function LeadCard({
       className="rounded-md border bg-card p-3 text-sm shadow-sm hover:shadow-md md:cursor-grab"
     >
       <div className="font-medium">{lead.displayName}</div>
-      {lead.email && <div className="text-xs text-muted-foreground">{lead.email}</div>}
-      {lead.phone && <div className="text-xs text-muted-foreground">{lead.phone}</div>}
-      {lead.preferredFacilityName && (
-        <div className="mt-1 text-xs">
-          <Badge variant="outline">{lead.preferredFacilityName}</Badge>
-        </div>
-      )}
-      {lead.source && (
-        <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {leadSourceLabel(lead.source)}
+      {lead.email && <div className="truncate text-xs text-muted-foreground">{lead.email}</div>}
+      {/* Contacto + origen en una sola línea para ocupar menos. El local asignado
+          no se muestra aquí (se ve/edita en «Editar»). */}
+      {(lead.phone || lead.source) && (
+        <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {lead.phone && <span>{lead.phone}</span>}
+          {lead.source && (
+            <span className="text-[10px] uppercase tracking-wide">
+              {leadSourceLabel(lead.source)}
+            </span>
+          )}
         </div>
       )}
       {lead.budgetMonthly !== null && (
@@ -196,19 +194,8 @@ function LeadCard({
           Convertido en cliente
         </div>
       )}
-      {/* Mover de fase: funciona en táctil (el drag&drop nativo no). */}
-      <Select value={lead.status} onValueChange={(v) => onMove(v as LeadStatusValue)}>
-        <SelectTrigger className="mt-2 h-8" aria-label="Cambiar fase">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {COLUMNS.map((c) => (
-            <SelectItem key={c.status} value={c.status}>
-              {c.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* La fase se cambia arrastrando (escritorio) o desde «Editar» (también en
+          móvil), así que no hace falta el desplegable en la tarjeta. */}
       {canWrite && (
         <div className="mt-2 flex gap-1">
           <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={onEdit}>
@@ -240,9 +227,11 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
   const isEdit = Boolean(lead);
   const create = useCreateLead();
   const update = useUpdateLead(lead?.id ?? '');
+  const transition = useTransitionLead();
   const sources = useLeadSources();
   const facilities = useFacilities();
 
+  const [status, setStatus] = useState<LeadStatusValue>(lead?.status ?? 'new');
   const [source, setSource] = useState(lead?.source ?? 'portal_inmobiliario');
   const [customSource, setCustomSource] = useState('');
   const [firstName, setFirstName] = useState(lead?.firstName ?? '');
@@ -256,7 +245,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
 
   const resolvedSource = source === CUSTOM_SOURCE ? customSource.trim() : source;
   const hasName = Boolean(firstName.trim() || lastName.trim() || companyName.trim());
-  const pending = create.isPending || update.isPending;
+  const pending = create.isPending || update.isPending || transition.isPending;
   const canSubmit = Boolean(resolvedSource) && hasName && !pending;
 
   async function submit() {
@@ -274,8 +263,12 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
       ...(budget && Number(budget) > 0 ? { budgetMonthly: Number(budget) } : {}),
     };
     try {
-      if (isEdit) {
+      if (isEdit && lead) {
         await update.mutateAsync(input);
+        // La fase se cambia por su propio endpoint (transition), no por el update.
+        if (status !== lead.status) {
+          await transition.mutateAsync({ id: lead.id, input: { status } });
+        }
         toast.success('Lead actualizado.');
       } else {
         await create.mutateAsync(input);
@@ -319,6 +312,24 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
               />
             )}
           </div>
+
+          {isEdit && (
+            <div className="space-y-1.5">
+              <Label>Fase</Label>
+              <Select value={status} onValueChange={(v) => setStatus(v as LeadStatusValue)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {COLUMNS.map((c) => (
+                    <SelectItem key={c.status} value={c.status}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
