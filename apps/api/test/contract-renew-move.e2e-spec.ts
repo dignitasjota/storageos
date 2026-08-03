@@ -37,25 +37,28 @@ describe('Contrato: renovar + trasladar (e2e)', () => {
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
     const customerId = await createCustomer(app, owner.accessToken);
 
-    // Contrato firmado (activo) en la unidad 0, con fin a 3 meses.
+    // Contrato firmado (activo) en la unidad 0. Usamos un endDate MUY futuro para
+    // que el test sea determinista: `renew` extiende desde `max(endDate, hoy)`, así
+    // que con un endDate siempre futuro el resultado no depende de la fecha actual
+    // (con una fecha ya vencida el base sería «hoy» y el test fallaría según el día).
     const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
       customerId,
       unitId: unitIds[0],
       startDate: '2026-05-01',
-      endDate: '2026-08-01',
+      endDate: '2099-08-01',
       priceMonthly: 60,
       depositAmount: 0,
     });
     const contractId = create.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
 
-    // Renovar +12 meses → endDate pasa a 2027-08-01.
+    // Renovar +12 meses → endDate pasa de 2099-08-01 a 2100-08-01.
     const renewed = await request(app.getHttpServer())
       .post(`/contracts/${contractId}/renew`)
       .set(auth)
       .send({ months: 12 });
     expect(renewed.status).toBe(200);
-    expect(renewed.body.endDate).toBe('2027-08-01');
+    expect(renewed.body.endDate).toBe('2100-08-01');
 
     // Estados de las unidades antes del traslado: 0 ocupada, 1 disponible.
     const u0Before = await adminClient.unit.findUnique({ where: { id: unitIds[0] } });
