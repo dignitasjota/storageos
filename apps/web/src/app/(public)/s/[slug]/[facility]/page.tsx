@@ -14,7 +14,7 @@ async function getFacility(
   try {
     const res = await fetch(
       `${API_URL}/public/landing/${encodeURIComponent(slug)}/${encodeURIComponent(facility)}`,
-      { next: { revalidate: 300 } },
+      { next: { revalidate: 60 } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicFacilityLandingDto;
