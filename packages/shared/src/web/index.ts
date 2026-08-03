@@ -24,6 +24,12 @@ export const WEB_TEMPLATES = [
     label: 'Industrial',
     description: 'Estética sobria en tonos oscuros, tipografía marcada.',
   },
+  {
+    value: 'onepage',
+    label: 'Una página (menú deslizante)',
+    description:
+      'Web de una sola página con menú superior (Trasteros, Espacios, Servicios, FAQ, Contacto) que se desliza a cada sección + acceso de clientes.',
+  },
 ] as const;
 
 export type WebTemplateValue = (typeof WEB_TEMPLATES)[number]['value'];
@@ -54,7 +60,7 @@ export function parseWebSections(raw: unknown): WebSections {
 
 export const UpdateWebSettingsSchema = z
   .object({
-    template: z.enum(['default', 'modern', 'industrial']).optional(),
+    template: z.enum(['default', 'modern', 'industrial', 'onepage']).optional(),
     headline: optionalWebText(160),
     about: optionalWebText(2000),
     sections: WebSectionsSchema.partial().optional(),
