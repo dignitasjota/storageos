@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 
 import { LandingTemplate } from './templates';
+import { TenantWebChrome } from './tenant-web-chrome';
 
 import type { PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
@@ -82,7 +83,9 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <LandingTemplate data={data} />
+      <TenantWebChrome data={data}>
+        <LandingTemplate data={data} />
+      </TenantWebChrome>
     </>
   );
 }

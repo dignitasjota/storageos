@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { PortalSessionDto } from '@storageos/shared';
@@ -35,6 +35,14 @@ export default function PortalLoginPage() {
   const [password, setPassword] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Precarga el slug del tenant si viene en la URL (?slug=), p. ej. desde el
+  // botón «Acceso clientes» de la web pública del operador → el inquilino solo
+  // teclea su email.
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get('slug');
+    if (s) setTenantSlug(s);
+  }, []);
 
   async function submitLink(e: React.FormEvent) {
     e.preventDefault();

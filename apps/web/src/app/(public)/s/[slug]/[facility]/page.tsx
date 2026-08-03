@@ -2,6 +2,8 @@ import { MapPin, Phone, Mail } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { TenantWebChrome } from '../tenant-web-chrome';
+
 import type { PublicFacilityLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
@@ -88,11 +90,12 @@ export default async function FacilityLandingPage({
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+    <TenantWebChrome data={data}>
+      <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
 
       {data.logoUrl && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -185,6 +188,7 @@ export default async function FacilityLandingPage({
           Sin disponibilidad ahora mismo. Contáctanos y te avisamos.
         </p>
       )}
-    </div>
+      </div>
+    </TenantWebChrome>
   );
 }
