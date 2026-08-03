@@ -2,8 +2,10 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import {
   effectiveFeaturesFromList,
@@ -15,6 +17,7 @@ import {
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   ContractTemplateDto,
@@ -38,10 +41,35 @@ import type {
 
 @Injectable()
 export class TenantSettingsService {
+  private readonly logger = new Logger(TenantSettingsService.name);
+
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Purga al instante la caché ISR de la web pública del tenant (best-effort).
+   * Llama al route handler del web con el secreto compartido. Si no hay secreto
+   * o el web no responde, no rompe el guardado (la web se refresca sola en la
+   * ventana ISR).
+   */
+  private async revalidateLanding(slug: string): Promise<void> {
+    const secret = this.config.get('REVALIDATE_SECRET', { infer: true });
+    if (!secret) return;
+    const base = this.config.get('WEB_BASE_URL', { infer: true });
+    try {
+      await fetch(`${base}/api/revalidate-web`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slug, secret }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (err) {
+      this.logger.warn(`Revalidación de la web del tenant ${slug} falló: ${String(err)}`);
+    }
+  }
 
   async getSecurity(tenantId: string): Promise<TenantSecuritySettingsResponse> {
     const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
@@ -414,6 +442,8 @@ export class TenantSettingsService {
         ipAddress: args.meta.ipAddress ?? null,
         userAgent: args.meta.userAgent ?? null,
       });
+      // Purga la caché de la web pública para que el cambio se vea al instante.
+      await this.revalidateLanding(tenant.slug);
     }
     return this.getWebSettings(args.tenantId);
   }

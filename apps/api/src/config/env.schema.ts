@@ -167,6 +167,13 @@ export const envSchema = z.object({
 
   /** URL publica del frontend, usada para construir enlaces de los emails. */
   WEB_BASE_URL: z.string().url().default('http://localhost:3000'),
+  /**
+   * Secreto compartido con el web para revalidar (purgar la caché ISR) la web
+   * pública del tenant al vuelo cuando cambia su plantilla/textos. Debe coincidir
+   * con `REVALIDATE_SECRET` del web. Vacío = no se revalida al instante (la web
+   * se refresca sola en la ventana ISR).
+   */
+  REVALIDATE_SECRET: z.string().default(''),
   /** URL pública del API (para callbacks server-a-servidor, p. ej. notificación Redsys). */
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
 

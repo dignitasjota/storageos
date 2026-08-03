@@ -9,16 +9,21 @@ import { PublicFooter } from '@/components/public/public-footer';
 import { PublicHeader } from '@/components/public/public-header';
 
 /**
- * Marco de las páginas públicas (landing, booking, firma…). El **portal del
- * inquilino** (`/portal/*`) queda FUERA de este marco: tiene su propia
- * cabecera y su barra de navegación inferior fija, así que el header/footer de
- * marketing y el banner de cookies solo estorbaban (colisión con la bottom-nav
- * y ruptura de la sensación de "app"). Es un panel de sesión de primera parte,
- * sin cookies de terceros, por lo que tampoco necesita el banner.
+ * Marco de las páginas públicas de MARKETING de la plataforma (landing raíz,
+ * legales…). Se EXCLUYEN del marco de plataforma:
+ * - `/portal/*` (portal del inquilino): tiene su propia cabecera + bottom-nav.
+ * - `/s/*` (web pública white-label del tenant) y `/book/*` (reserva del tenant):
+ *   NO deben mostrar el header/footer ni el login/registro de la plataforma —
+ *   son la web del operador para sus inquilinos. La web del tenant pinta su
+ *   propio marco (`TenantWebChrome`) con acceso al portal del inquilino.
  */
 export function PublicChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  if (pathname?.startsWith('/portal')) {
+  const bare =
+    pathname?.startsWith('/portal') ||
+    pathname?.startsWith('/s/') ||
+    pathname?.startsWith('/book/');
+  if (bare) {
     return <main className="flex min-h-screen flex-col">{children}</main>;
   }
   return (

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 
 import { LandingTemplate } from './templates';
+import { TenantWebChrome } from './tenant-web-chrome';
 
 import type { PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
@@ -11,7 +12,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 async function getLanding(slug: string): Promise<PublicLandingDto | null> {
   try {
     const res = await fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}`, {
-      next: { revalidate: 300 },
+      next: { revalidate: 60 },
     });
     if (!res.ok) return null;
     return (await res.json()) as PublicLandingDto;
@@ -82,7 +83,9 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <LandingTemplate data={data} />
+      <TenantWebChrome data={data}>
+        <LandingTemplate data={data} />
+      </TenantWebChrome>
     </>
   );
 }
