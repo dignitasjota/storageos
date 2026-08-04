@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { EscaparateTemplate } from './escaparate-template';
 import { OnePageTemplate } from './onepage-template';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
@@ -87,6 +88,9 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
       {data.webTemplate === 'onepage' ? (
         // Plantilla «una página»: autocontenida (trae su propio menú + pie).
         <OnePageTemplate data={data} />
+      ) : data.webTemplate === 'escaparate' ? (
+        // Plantilla «escaparate» multisección: también autocontenida.
+        <EscaparateTemplate data={data} />
       ) : (
         <TenantWebChrome data={data}>
           <LandingTemplate data={data} />
