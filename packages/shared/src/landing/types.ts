@@ -95,3 +95,14 @@ export interface PublicSitemapDto {
 export interface ResolveDomainDto {
   tenantSlug: string;
 }
+
+/**
+ * Marca del operador por slug (ligero). La usa el login del inquilino
+ * (`/portal/login?slug=`) para verse con el aspecto white-label del tenant.
+ */
+export interface PublicTenantBrandDto {
+  tenantName: string;
+  tenantSlug: string;
+  brandColor: string | null;
+  logoUrl: string | null;
+}

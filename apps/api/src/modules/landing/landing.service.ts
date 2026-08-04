@@ -25,6 +25,7 @@ import type {
   PublicLandingDto,
   PublicLandingFacilityDto,
   PublicSitemapDto,
+  PublicTenantBrandDto,
   ResolveDomainDto,
 } from '@storageos/shared';
 
@@ -229,6 +230,33 @@ export class LandingService {
       },
       meta,
     });
+  }
+
+  /**
+   * Marca del operador por slug (ligero): nombre + color + logo. La usa el login
+   * del inquilino para verse con el aspecto white-label del tenant. El color y el
+   * logo NO se gatean por `web_premium` (son parte del white-label base).
+   */
+  async getBrand(slug: string): Promise<PublicTenantBrandDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: {
+        name: true,
+        slug: true,
+        portalBrandColor: true,
+        portalLogoUrl: true,
+        deletedAt: true,
+      },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    return {
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
+    };
   }
 
   /** Landing de un único local por su `publicSlug`. */

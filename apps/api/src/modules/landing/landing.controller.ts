@@ -22,6 +22,7 @@ import type {
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicSitemapDto,
+  PublicTenantBrandDto,
   ResolveDomainDto,
 } from '@storageos/shared';
 import type { Request } from 'express';
@@ -59,6 +60,13 @@ export class LandingController {
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   resolveDomain(@Query('host') host: string): Promise<ResolveDomainDto> {
     return this.landing.resolveDomain(host ?? '');
+  }
+
+  /** Marca del operador por slug (login del inquilino white-label). */
+  @Get('brand/:slug')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  brand(@Param('slug') slug: string): Promise<PublicTenantBrandDto> {
+    return this.landing.getBrand(slug);
   }
 
   @Get(':slug')

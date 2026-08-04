@@ -1,9 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { PortalSessionDto } from '@storageos/shared';
+import type { PortalSessionDto, PublicTenantBrandDto } from '@storageos/shared';
 
 import { IosInstallHint } from '@/components/pwa/ios-install-hint';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
+const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
 
 /** Persiste la sesión igual que `/portal/consume` para que ésta la recupere. */
 function storePortalSession(s: PortalSessionDto): void {
@@ -35,14 +37,25 @@ export default function PortalLoginPage() {
   const [password, setPassword] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [brand, setBrand] = useState<PublicTenantBrandDto | null>(null);
 
   // Precarga el slug del tenant si viene en la URL (?slug=), p. ej. desde el
   // botón «Acceso clientes» de la web pública del operador → el inquilino solo
-  // teclea su email.
+  // teclea su email. Además carga la marca (logo/color) para que este login se
+  // vea con el aspecto white-label del tenant, no el genérico de la plataforma.
   useEffect(() => {
     const s = new URLSearchParams(window.location.search).get('slug');
-    if (s) setTenantSlug(s);
+    if (!s) return;
+    setTenantSlug(s);
+    apiFetch<PublicTenantBrandDto>(`/public/landing/brand/${encodeURIComponent(s)}`, {
+      requiresAuth: false,
+    })
+      .then(setBrand)
+      .catch(() => setBrand(null));
   }, []);
+
+  const brandColor = brand?.brandColor ?? undefined;
+  const brandBtn = brandColor ? 'w-full text-white' : 'w-full';
 
   async function submitLink(e: React.FormEvent) {
     e.preventDefault();
@@ -97,10 +110,35 @@ export default function PortalLoginPage() {
   }
 
   return (
-    <div className="container flex flex-col items-center gap-4 py-12">
+    <div className="flex min-h-screen flex-col">
+      {brand && (
+        <header className="border-b border-border/60">
+          <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-3">
+            <Link
+              href={`/s/${brand.tenantSlug}`}
+              className="flex items-center gap-2 font-semibold"
+              aria-label={brand.tenantName}
+            >
+              {brand.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={brand.logoUrl}
+                  alt={brand.tenantName}
+                  className="h-7 w-auto object-contain"
+                />
+              ) : (
+                <span>{brand.tenantName}</span>
+              )}
+            </Link>
+          </div>
+        </header>
+      )}
+      <div className="container flex flex-1 flex-col items-center gap-4 py-12">
       <Card className="w-full max-w-md border-border/60">
         <CardHeader className="space-y-2 text-center">
-          <CardTitle className="text-2xl">Portal del inquilino</CardTitle>
+          <CardTitle className="text-2xl">
+            {brand ? `Acceso de clientes · ${brand.tenantName}` : 'Portal del inquilino'}
+          </CardTitle>
           <CardDescription>
             Consulta tus facturas, paga online y gestiona tu cuenta.
           </CardDescription>
@@ -145,17 +183,19 @@ export default function PortalLoginPage() {
                 onSubmit={mode === 'link' ? submitLink : submitPassword}
                 noValidate
               >
-                <div>
-                  <Label>Empresa (slug del tenant)</Label>
-                  <Input
-                    value={tenantSlug}
-                    onChange={(e) => setTenantSlug(e.target.value)}
-                    autoComplete="organization"
-                    autoCapitalize="off"
-                    placeholder="acme"
-                    className="text-base sm:text-sm"
-                  />
-                </div>
+                {!brand && (
+                  <div>
+                    <Label>Empresa (slug del tenant)</Label>
+                    <Input
+                      value={tenantSlug}
+                      onChange={(e) => setTenantSlug(e.target.value)}
+                      autoComplete="organization"
+                      autoCapitalize="off"
+                      placeholder="acme"
+                      className="text-base sm:text-sm"
+                    />
+                  </div>
+                )}
                 <div>
                   <Label>Email</Label>
                   <Input
@@ -180,7 +220,8 @@ export default function PortalLoginPage() {
                 )}
                 <Button
                   type="submit"
-                  className="w-full"
+                  className={brandBtn}
+                  style={brandColor ? { backgroundColor: brandColor } : undefined}
                   disabled={
                     loading || !tenantSlug || !email || (mode === 'password' && !password)
                   }
@@ -219,6 +260,24 @@ export default function PortalLoginPage() {
       <div className="w-full max-w-md">
         <IosInstallHint />
       </div>
+      </div>
+      {brand && (
+        <footer className="border-t border-border/60">
+          <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              © {new Date().getUTCFullYear()} {brand.tenantName}
+            </p>
+            <a
+              href={SAAS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition hover:text-foreground"
+            >
+              Creado con TrasterOS
+            </a>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
