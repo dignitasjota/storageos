@@ -11,6 +11,7 @@ import type {
   PublicWaitlistOptionsDto,
 } from '@storageos/shared';
 
+import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -121,9 +122,18 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
     form.lastName.trim() &&
     /.+@.+\..+/.test(form.email);
 
+  const brand = data.brandColor ?? '#2563EB';
+
   return (
-    <Centered>
-      <div className="w-full max-w-lg space-y-4">
+    <TenantWebChrome
+      data={{
+        tenantName: data.tenantName,
+        tenantSlug: data.tenantSlug,
+        brandColor: data.brandColor,
+        logoUrl: data.logoUrl,
+      }}
+    >
+      <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-10">
         <Card className="w-full">
           <CardHeader>
             <CardTitle>Alquila tu trastero en {data.tenantName}</CardTitle>
@@ -261,7 +271,12 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
                   aria-hidden="true"
                 />
 
-                <Button onClick={submit} disabled={!canSubmit || submitting} className="w-full">
+                <Button
+                  onClick={submit}
+                  disabled={!canSubmit || submitting}
+                  className="w-full text-white"
+                  style={{ backgroundColor: brand }}
+                >
                   {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                   Continuar a la firma
                 </Button>
@@ -275,7 +290,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
 
         <WaitlistSection slug={slug} />
       </div>
-    </Centered>
+    </TenantWebChrome>
   );
 }
 

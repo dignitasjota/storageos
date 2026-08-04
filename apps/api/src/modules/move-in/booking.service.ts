@@ -126,6 +126,9 @@ export class BookingService {
 
     return {
       tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
       facilities: facilities
         .map((f) => ({
           id: f.id,

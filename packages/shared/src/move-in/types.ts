@@ -43,6 +43,11 @@ export interface RequestSignatureResultDto {
 /** Disponibilidad pública por local/tipo para el move-in. */
 export interface BookingAvailabilityDto {
   tenantName: string;
+  /** Slug del tenant (para el enlace de portal del marco white-label). */
+  tenantSlug: string;
+  /** Marca del operador (white-label): color hex y logo, o null. */
+  brandColor: string | null;
+  logoUrl: string | null;
   facilities: {
     id: string;
     name: string;
