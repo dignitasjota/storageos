@@ -6,6 +6,7 @@ import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
 
 import type { PublicLandingDto, PublicLandingFacilityDto } from '@storageos/shared';
+import type { LucideIcon } from 'lucide-react';
 
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
 
@@ -48,14 +49,19 @@ function distinctUnitTypes(data: PublicLandingDto) {
   return [...map.values()].sort((a, b) => (a.areaM2 ?? 0) - (b.areaM2 ?? 0));
 }
 
-const SERVICES = [
+type ServiceItem = { icon: LucideIcon; title: string; text: string };
+
+/** Iconos fijos por posición (el tenant edita el texto, no el icono). */
+const SERVICE_ICONS: LucideIcon[] = [Clock, ShieldCheck, KeyRound, Ruler, CreditCard, Headset];
+
+const SERVICES: ServiceItem[] = [
   { icon: Clock, title: 'Acceso amplio', text: 'Entra a tu trastero en un horario cómodo, tú decides cuándo.' },
   { icon: ShieldCheck, title: 'Seguridad', text: 'Instalaciones protegidas para que tus cosas estén a salvo.' },
   { icon: KeyRound, title: 'Tu acceso, fácil', text: 'Gestiona tu acceso desde el móvil, sin llaves que perder.' },
   { icon: Ruler, title: 'Tamaños a medida', text: 'Desde un armario hasta una mudanza completa: paga solo lo que usas.' },
   { icon: CreditCard, title: 'Sin permanencia', text: 'Contrata por los meses que necesites, sin ataduras.' },
   { icon: Headset, title: 'Atención cercana', text: 'Te ayudamos a elegir el trastero ideal y con lo que necesites.' },
-] as const;
+];
 
 const DEFAULT_FAQS = [
   {
@@ -124,6 +130,19 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
   const types = distinctUnitTypes(data);
   const faqs = data.faqs.length > 0 ? data.faqs : DEFAULT_FAQS;
 
+  // Copy editable por el tenant (Ajustes → Web). Vacío → textos por defecto.
+  const content = data.webContent;
+  const heroSubtitle =
+    content?.heroSubtitle?.trim() || `${data.tenantName} · reserva tu trastero online en minutos.`;
+  const svcCustom = (content?.services ?? [])
+    .filter((s) => s.title.trim())
+    .map((s, i) => ({
+      icon: SERVICE_ICONS[i % SERVICE_ICONS.length]!,
+      title: s.title,
+      text: s.text ?? '',
+    }));
+  const services: ServiceItem[] = svcCustom.length > 0 ? svcCustom : SERVICES;
+
   const navItems: OnePageNavItem[] = [
     { id: 'trasteros', label: trasterosLabel },
     { id: 'espacios', label: 'Espacios' },
@@ -158,9 +177,7 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
         <h1 className="mx-auto max-w-2xl text-4xl font-extrabold tracking-tight sm:text-5xl">
           {data.webHeadline || trasterosLabel}
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-lg opacity-90">
-          {data.tenantName} · reserva tu trastero online en minutos.
-        </p>
+        <p className="mx-auto mt-4 max-w-xl text-lg opacity-90">{heroSubtitle}</p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href={bookHref}
@@ -238,7 +255,7 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
         <section id="servicios" className="scroll-mt-20 border-t py-14">
           <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">Servicios</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {SERVICES.map((s) => (
+            {services.map((s) => (
               <div key={s.title} className="rounded-lg border bg-card p-5 shadow-sm">
                 <s.icon className="h-6 w-6" style={{ color: brand }} />
                 <h3 className="mt-3 font-semibold">{s.title}</h3>

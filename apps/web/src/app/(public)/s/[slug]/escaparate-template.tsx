@@ -17,6 +17,7 @@ import { ContactForm } from './contact-form';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 
 import type { PublicLandingDto } from '@storageos/shared';
+import type { LucideIcon } from 'lucide-react';
 
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
 
@@ -33,29 +34,37 @@ function citiesOf(data: PublicLandingDto): string {
   return set.join(', ');
 }
 
+type ServiceItem = { icon: LucideIcon; title: string; text: string };
+type AdvantageItem = { icon: LucideIcon; label: string };
+type StepItem = { n: number; title: string; text: string };
+
+/** Iconos fijos por posición (el tenant edita el texto, no el icono). */
+const SERVICE_ICONS: LucideIcon[] = [Home, Building2, Archive, Package];
+const ADVANTAGE_ICONS: LucideIcon[] = [Ruler, Clock, ShieldCheck, KeyRound, CreditCard, Headset];
+
 /** Servicios / usos (contenido genérico; el tenant lo afina con su copy). */
-const SERVICES = [
+const SERVICES: ServiceItem[] = [
   { icon: Home, title: 'Particulares', text: 'Mudanzas, reformas, cosas de temporada o simplemente hacer sitio en casa.' },
   { icon: Building2, title: 'Empresas', text: 'Stock, mobiliario o material de trabajo con acceso cómodo.' },
   { icon: Archive, title: 'Documentación', text: 'Guarda tu archivo de forma ordenada y segura.' },
   { icon: Package, title: 'Guardamuebles', text: 'Espacio para tus muebles el tiempo que necesites.' },
-] as const;
+];
 
-/** Ventajas (iconos). Genéricas y editables por el tenant en el futuro. */
-const ADVANTAGES = [
+/** Ventajas (iconos). Genéricas; el tenant las edita en Ajustes → Web. */
+const ADVANTAGES: AdvantageItem[] = [
   { icon: Ruler, label: 'Tamaños a medida' },
   { icon: Clock, label: 'Acceso amplio' },
   { icon: ShieldCheck, label: 'Instalaciones seguras' },
   { icon: KeyRound, label: 'Acceso desde el móvil' },
   { icon: CreditCard, label: 'Sin permanencia' },
   { icon: Headset, label: 'Atención cercana' },
-] as const;
+];
 
-const STEPS = [
+const STEPS: StepItem[] = [
   { n: 1, title: 'Elige tu trastero', text: 'Mira los tamaños y precios y quédate con el que encaje.' },
   { n: 2, title: 'Reserva online', text: 'Contrata en minutos desde la web, sin papeleo.' },
   { n: 3, title: 'Accede cuando quieras', text: 'Recibe tu acceso y empieza a usar tu trastero.' },
-] as const;
+];
 
 /**
  * Plantilla premium «Escaparate»: web multisección (hero + servicios + centros +
@@ -72,6 +81,28 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
   const bookHref = `/book/${data.tenantSlug}`;
   const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
   const hasReviews = data.testimonials.length > 0;
+
+  // Copy editable por el tenant (Ajustes → Web). Vacío → textos por defecto.
+  const content = data.webContent;
+  const heroSubtitle =
+    content?.heroSubtitle?.trim() ||
+    `${data.tenantName} · tu espacio extra, fácil y sin complicaciones.`;
+  const svcCustom = (content?.services ?? [])
+    .filter((s) => s.title.trim())
+    .map((s, i) => ({
+      icon: SERVICE_ICONS[i % SERVICE_ICONS.length]!,
+      title: s.title,
+      text: s.text ?? '',
+    }));
+  const services: ServiceItem[] = svcCustom.length > 0 ? svcCustom : SERVICES;
+  const advCustom = (content?.advantages ?? [])
+    .filter((a) => a.trim())
+    .map((label, i) => ({ icon: ADVANTAGE_ICONS[i % ADVANTAGE_ICONS.length]!, label }));
+  const advantages: AdvantageItem[] = advCustom.length > 0 ? advCustom : ADVANTAGES;
+  const stepCustom = (content?.steps ?? [])
+    .filter((s) => s.title.trim())
+    .map((s, i) => ({ n: i + 1, title: s.title, text: s.text ?? '' }));
+  const steps: StepItem[] = stepCustom.length > 0 ? stepCustom : STEPS;
 
   const navItems: OnePageNavItem[] = [
     { id: 'servicios', label: 'Servicios' },
@@ -113,9 +144,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         <h1 className="mx-auto max-w-2xl text-4xl font-extrabold tracking-tight sm:text-5xl">
           {data.webHeadline || trasterosLabel}
         </h1>
-        <p className="mx-auto mt-4 max-w-xl text-lg opacity-95">
-          {data.tenantName} · tu espacio extra, fácil y sin complicaciones.
-        </p>
+        <p className="mx-auto mt-4 max-w-xl text-lg opacity-95">{heroSubtitle}</p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href={bookHref}
@@ -139,7 +168,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
           <div className="mx-auto max-w-6xl px-4">
             <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">Nuestros servicios</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {SERVICES.map((s) => (
+              {services.map((s) => (
                 <div key={s.title} className="rounded-lg border bg-card p-6 text-center shadow-sm">
                   <div
                     className="mx-auto flex h-12 w-12 items-center justify-center rounded-full"
@@ -219,7 +248,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
           <div className="mx-auto max-w-6xl px-4">
             <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">Por qué elegirnos</h2>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              {ADVANTAGES.map((a) => (
+              {advantages.map((a) => (
                 <div key={a.label} className="flex flex-col items-center gap-2 text-center">
                   <div
                     className="flex h-12 w-12 items-center justify-center rounded-full"
@@ -285,7 +314,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
               Contratar es muy fácil
             </h2>
             <div className="grid gap-6 sm:grid-cols-3">
-              {STEPS.map((s) => (
+              {steps.map((s) => (
                 <div key={s.n} className="text-center">
                   <div
                     className="mx-auto flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold text-white"

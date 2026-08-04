@@ -64,12 +64,42 @@ export function parseWebSections(raw: unknown): WebSections {
   return parsed.success ? parsed.data : { testimonials: false, faq: false, contact: false };
 }
 
+/**
+ * Contenido editable de las secciones de las plantillas premium multisección
+ * (`onepage`/`escaparate`). Cada campo es opcional: si el tenant no lo define, la
+ * plantilla usa sus textos por defecto. Un item con `title` vacío se omite.
+ */
+export const WebContentItemSchema = z.object({
+  title: z.string().trim().max(80),
+  text: z.string().trim().max(240).optional().or(z.literal('')),
+});
+export type WebContentItem = z.infer<typeof WebContentItemSchema>;
+
+export const WebContentSchema = z.object({
+  /** Subtítulo bajo el titular del hero. */
+  heroSubtitle: optionalWebText(200),
+  /** Tarjetas de «Servicios» (título + descripción). */
+  services: z.array(WebContentItemSchema).max(6).optional(),
+  /** Etiquetas de «Ventajas» (solo texto). */
+  advantages: z.array(z.string().trim().max(48)).max(8).optional(),
+  /** Pasos de «Cómo contratar» (título + descripción). */
+  steps: z.array(WebContentItemSchema).max(4).optional(),
+});
+export type WebContent = z.infer<typeof WebContentSchema>;
+
+/** Parseo defensivo del jsonb `web_content` (tolera `{}`/null). */
+export function parseWebContent(raw: unknown): WebContent {
+  const parsed = WebContentSchema.safeParse(raw ?? {});
+  return parsed.success ? parsed.data : {};
+}
+
 export const UpdateWebSettingsSchema = z
   .object({
     template: z.enum(['default', 'modern', 'industrial', 'onepage', 'escaparate']).optional(),
     headline: optionalWebText(160),
     about: optionalWebText(2000),
     sections: WebSectionsSchema.partial().optional(),
+    content: WebContentSchema.partial().optional(),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -83,6 +113,8 @@ export interface WebSettingsResponse {
   /** Sección «quiénes somos» (null = oculta). */
   about: string | null;
   sections: WebSections;
+  /** Copy editable de las secciones (vacío = textos por defecto de la plantilla). */
+  content: WebContent;
 }
 
 /** Envío del formulario de contacto de la web pública → crea un lead. */

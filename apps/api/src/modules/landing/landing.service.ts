@@ -3,6 +3,7 @@ import {
   effectiveFeaturesFromList,
   isValidCustomDomain,
   isWebTemplate,
+  parseWebContent,
   parseWebSections,
   resolvePlanFeatures,
 } from '@storageos/shared';
@@ -109,6 +110,7 @@ export class LandingService {
       webTemplate,
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
       webAbout: hasWebPremium ? tenant.webAbout : null,
+      webContent: hasWebPremium ? parseWebContent(tenant.webContent) : null,
       testimonials,
       faqs,
       contactEnabled: sections.contact,

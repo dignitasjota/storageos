@@ -2,6 +2,7 @@
  * DTOs de la landing pública por tenant (`/s/[slug]`). Datos públicos del
  * negocio y de cada local + disponibilidad, para una página SEO indexable.
  */
+import type { WebContent } from '../web';
 export interface PublicLandingUnitTypeDto {
   id: string;
   name: string;
@@ -43,6 +44,12 @@ export interface PublicLandingDto {
   webTemplate: string;
   webHeadline: string | null;
   webAbout: string | null;
+  /**
+   * Copy editable de las secciones de las plantillas multisección
+   * (`onepage`/`escaparate`). Vacío → cada plantilla usa sus textos por defecto.
+   * `null` sin la feature `web_premium`.
+   */
+  webContent: WebContent | null;
   /** Testimonios (reseñas NPS ≥ 9). Vacío si la sección está desactivada. */
   testimonials: PublicTestimonialDto[];
   /** Preguntas frecuentes publicadas. Vacío si la sección está desactivada. */

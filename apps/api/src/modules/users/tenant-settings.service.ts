@@ -10,6 +10,7 @@ import { Prisma } from '@storageos/database';
 import {
   effectiveFeaturesFromList,
   isWebTemplate,
+  parseWebContent,
   parseWebSections,
   resolvePlanFeatures,
 } from '@storageos/shared';
@@ -399,6 +400,7 @@ export class TenantSettingsService {
         webHeadline: true,
         webAbout: true,
         webSections: true,
+        webContent: true,
         deletedAt: true,
       },
     });
@@ -408,6 +410,7 @@ export class TenantSettingsService {
       headline: tenant.webHeadline,
       about: tenant.webAbout,
       sections: parseWebSections(tenant.webSections),
+      content: parseWebContent(tenant.webContent),
     };
   }
 
@@ -429,6 +432,11 @@ export class TenantSettingsService {
       // Merge parcial sobre las secciones actuales.
       const current = parseWebSections(tenant.webSections);
       data.webSections = { ...current, ...input.sections } as unknown as Prisma.InputJsonValue;
+    }
+    if (input.content !== undefined) {
+      // Merge parcial sobre el copy actual (cada sección se sobrescribe entera).
+      const current = parseWebContent(tenant.webContent);
+      data.webContent = { ...current, ...input.content } as unknown as Prisma.InputJsonValue;
     }
     if (Object.keys(data).length > 0) {
       await this.admin.tenant.update({ where: { id: args.tenantId }, data });

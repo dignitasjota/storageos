@@ -1,7 +1,7 @@
 'use client';
 
 import { WEB_TEMPLATES, type WebSections, type WebTemplateValue } from '@storageos/shared';
-import { ExternalLink, Globe, Loader2, TrendingUp } from 'lucide-react';
+import { ExternalLink, Globe, Loader2, Plus, Trash2, TrendingUp, Type } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -17,6 +17,13 @@ import { useUpdateWebSettings, useWebPerformance, useWebSettings } from '@/lib/w
 
 const DEFAULT_SECTIONS: WebSections = { testimonials: false, faq: false, contact: false };
 
+type Item = { title: string; text: string };
+
+/** Plantillas multisección que usan el copy editable de secciones. */
+function usesContent(template: WebTemplateValue): boolean {
+  return template === 'onepage' || template === 'escaparate';
+}
+
 export default function WebSettingsPage() {
   const settings = useWebSettings();
   const update = useUpdateWebSettings();
@@ -27,6 +34,11 @@ export default function WebSettingsPage() {
   const [headline, setHeadline] = useState('');
   const [about, setAbout] = useState('');
   const [sections, setSections] = useState<WebSections>(DEFAULT_SECTIONS);
+  // Copy editable de las secciones (plantillas onepage/escaparate).
+  const [heroSubtitle, setHeroSubtitle] = useState('');
+  const [services, setServices] = useState<Item[]>([]);
+  const [advantages, setAdvantages] = useState<string[]>([]);
+  const [steps, setSteps] = useState<Item[]>([]);
 
   useEffect(() => {
     if (!settings.data) return;
@@ -34,11 +46,31 @@ export default function WebSettingsPage() {
     setHeadline(settings.data.headline ?? '');
     setAbout(settings.data.about ?? '');
     setSections(settings.data.sections ?? DEFAULT_SECTIONS);
+    const c = settings.data.content ?? {};
+    setHeroSubtitle(c.heroSubtitle ?? '');
+    setServices((c.services ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
+    setAdvantages(c.advantages ?? []);
+    setSteps((c.steps ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
   }, [settings.data]);
 
   async function save() {
     try {
-      await update.mutateAsync({ template, headline, about, sections });
+      const cleanItems = (items: Item[]) =>
+        items
+          .map((i) => ({ title: i.title.trim(), text: i.text.trim() }))
+          .filter((i) => i.title.length > 0);
+      await update.mutateAsync({
+        template,
+        headline,
+        about,
+        sections,
+        content: {
+          heroSubtitle: heroSubtitle.trim(),
+          services: cleanItems(services),
+          advantages: advantages.map((a) => a.trim()).filter((a) => a.length > 0),
+          steps: cleanItems(steps),
+        },
+      });
       toast.success('Web actualizada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -136,6 +168,73 @@ export default function WebSettingsPage() {
         </CardContent>
       </Card>
 
+      {usesContent(template) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Type className="h-5 w-5 text-muted-foreground" /> Contenido de las secciones
+            </CardTitle>
+            <CardDescription>
+              Personaliza el copy de tu plantilla{' '}
+              {template === 'onepage' ? '«Una página»' : '«Escaparate»'}. Deja una sección vacía para
+              usar los textos por defecto.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-1.5">
+              <Label>Subtítulo del hero</Label>
+              <Input
+                value={heroSubtitle}
+                onChange={(e) => setHeroSubtitle(e.target.value)}
+                maxLength={200}
+                placeholder="Ej.: Tu espacio extra, fácil y sin complicaciones."
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Se muestra bajo el título principal. Vacío = texto por defecto.
+              </p>
+            </div>
+
+            <ItemsEditor
+              label="Servicios"
+              hint="Tarjetas de servicios/usos (título + descripción)."
+              items={services}
+              onChange={setServices}
+              max={6}
+              titlePlaceholder="Ej.: Particulares"
+              textPlaceholder="Ej.: Mudanzas, reformas, cosas de temporada…"
+            />
+
+            {template === 'escaparate' && (
+              <>
+                <LabelsEditor
+                  label="Ventajas"
+                  hint="Etiquetas cortas de «Por qué elegirnos» (con icono)."
+                  items={advantages}
+                  onChange={setAdvantages}
+                  max={8}
+                  placeholder="Ej.: Sin permanencia"
+                />
+                <ItemsEditor
+                  label="Pasos para contratar"
+                  hint="Los pasos de «Contratar es muy fácil» (título + descripción)."
+                  items={steps}
+                  onChange={setSteps}
+                  max={4}
+                  titlePlaceholder="Ej.: Elige tu trastero"
+                  textPlaceholder="Ej.: Mira tamaños y precios y quédate con el que encaje."
+                />
+              </>
+            )}
+
+            <Button onClick={save} disabled={update.isPending}>
+              {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Guardar cambios
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Textos</CardTitle>
@@ -172,6 +271,139 @@ export default function WebSettingsPage() {
           </Button>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/** Editor de una lista de items con título + descripción (servicios/pasos). */
+function ItemsEditor({
+  label,
+  hint,
+  items,
+  onChange,
+  max,
+  titlePlaceholder,
+  textPlaceholder,
+}: {
+  label: string;
+  hint: string;
+  items: Item[];
+  onChange: (items: Item[]) => void;
+  max: number;
+  titlePlaceholder: string;
+  textPlaceholder: string;
+}) {
+  function setAt(i: number, patch: Partial<Item>) {
+    onChange(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  }
+  function remove(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+  return (
+    <div className="space-y-2">
+      <div>
+        <Label>{label}</Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <div className="space-y-3">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-start gap-2 rounded-md border p-3">
+            <div className="flex-1 space-y-2">
+              <Input
+                value={it.title}
+                onChange={(e) => setAt(i, { title: e.target.value })}
+                maxLength={80}
+                placeholder={titlePlaceholder}
+                className="text-base sm:text-sm"
+              />
+              <Textarea
+                value={it.text}
+                onChange={(e) => setAt(i, { text: e.target.value })}
+                rows={2}
+                maxLength={240}
+                placeholder={textPlaceholder}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => remove(i)}
+              aria-label="Quitar"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      {items.length < max && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onChange([...items, { title: '', text: '' }])}
+        >
+          <Plus className="mr-1 h-4 w-4" /> Añadir
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Editor de una lista de etiquetas cortas (ventajas). */
+function LabelsEditor({
+  label,
+  hint,
+  items,
+  onChange,
+  max,
+  placeholder,
+}: {
+  label: string;
+  hint: string;
+  items: string[];
+  onChange: (items: string[]) => void;
+  max: number;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <Label>{label}</Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <div className="space-y-2">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Input
+              value={it}
+              onChange={(e) => onChange(items.map((v, idx) => (idx === i ? e.target.value : v)))}
+              maxLength={48}
+              placeholder={placeholder}
+              className="text-base sm:text-sm"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+              aria-label="Quitar"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      {items.length < max && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onChange([...items, ''])}
+        >
+          <Plus className="mr-1 h-4 w-4" /> Añadir
+        </Button>
+      )}
     </div>
   );
 }
