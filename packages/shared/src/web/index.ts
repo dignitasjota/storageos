@@ -30,6 +30,12 @@ export const WEB_TEMPLATES = [
     description:
       'Web de una sola página con menú superior (Trasteros, Espacios, Servicios, FAQ, Contacto) que se desliza a cada sección + acceso de clientes.',
   },
+  {
+    value: 'escaparate',
+    label: 'Escaparate (multisección)',
+    description:
+      'Web corporativa multisección: hero, servicios, tus centros con foto, ventajas, opiniones, pasos y contacto. Con tu color, tus imágenes y tus textos.',
+  },
 ] as const;
 
 export type WebTemplateValue = (typeof WEB_TEMPLATES)[number]['value'];
@@ -60,7 +66,7 @@ export function parseWebSections(raw: unknown): WebSections {
 
 export const UpdateWebSettingsSchema = z
   .object({
-    template: z.enum(['default', 'modern', 'industrial', 'onepage']).optional(),
+    template: z.enum(['default', 'modern', 'industrial', 'onepage', 'escaparate']).optional(),
     headline: optionalWebText(160),
     about: optionalWebText(2000),
     sections: WebSectionsSchema.partial().optional(),
