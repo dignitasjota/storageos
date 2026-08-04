@@ -12,6 +12,7 @@ import type {
   SignResultDto,
 } from '@storageos/shared';
 
+import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Button } from '@/components/ui/button';
@@ -101,10 +102,13 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
     );
   }
 
+  const brand = brandOf(view);
+  const brandColor = view.brandColor ?? undefined;
+
   if (result || view.alreadySigned) {
     return (
-      <Centered>
-        <Card className="w-full max-w-md">
+      <BrandShell brand={brand}>
+        <Card className="w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="size-5 text-green-600" /> Contrato firmado
@@ -125,7 +129,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
             )}
           </CardContent>
         </Card>
-      </Centered>
+      </BrandShell>
     );
   }
 
@@ -135,8 +139,8 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
     (method === 'drawn' ? !!drawn : typed.trim().length >= 2);
 
   return (
-    <Centered>
-      <Card className="w-full max-w-lg">
+    <BrandShell brand={brand}>
+      <Card className="w-full">
         <CardHeader>
           <CardTitle>Firma de contrato</CardTitle>
         </CardHeader>
@@ -215,13 +219,43 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
             </span>
           </label>
 
-          <Button onClick={submit} disabled={!canSubmit || submitting} className="w-full">
+          <Button
+            onClick={submit}
+            disabled={!canSubmit || submitting}
+            className={brandColor ? 'w-full text-white' : 'w-full'}
+            style={brandColor ? { backgroundColor: brandColor } : undefined}
+          >
             {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Firmar contrato
           </Button>
         </CardContent>
       </Card>
-    </Centered>
+    </BrandShell>
+  );
+}
+
+/** Marca del operador extraída del DTO de firma (white-label del embudo). */
+function brandOf(view: ContractSignViewDto) {
+  return {
+    tenantName: view.tenantName,
+    tenantSlug: view.tenantSlug,
+    brandColor: view.brandColor,
+    logoUrl: view.logoUrl,
+  };
+}
+
+/** Marco white-label del tenant con el contenido centrado (páginas de firma). */
+function BrandShell({
+  brand,
+  children,
+}: {
+  brand: ReturnType<typeof brandOf>;
+  children: React.ReactNode;
+}) {
+  return (
+    <TenantWebChrome data={brand}>
+      <div className="mx-auto w-full max-w-lg px-4 py-10">{children}</div>
+    </TenantWebChrome>
   );
 }
 

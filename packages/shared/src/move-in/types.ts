@@ -12,6 +12,11 @@ export interface ContractSignViewDto {
   termsText: string;
   /** true si ya está firmado (la página muestra estado, no formulario). */
   alreadySigned: boolean;
+  /** Marca del operador (white-label) para el marco de la página de firma. */
+  tenantName: string;
+  tenantSlug: string;
+  brandColor: string | null;
+  logoUrl: string | null;
 }
 
 /** Resultado de firmar: estado + token de portal para pagar la 1ª factura. */
