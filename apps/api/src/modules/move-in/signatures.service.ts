@@ -135,7 +135,13 @@ export class SignaturesService {
     // hay snapshot, se usa el texto congelado.
     const tenant = await this.admin.tenant.findUnique({
       where: { id: contract.tenantId },
-      select: { name: true, contractClauses: true },
+      select: {
+        name: true,
+        slug: true,
+        contractClauses: true,
+        portalBrandColor: true,
+        portalLogoUrl: true,
+      },
     });
     const renderedClauses = tenant?.contractClauses
       ? renderContractClauses(tenant.contractClauses, {
@@ -174,6 +180,10 @@ export class SignaturesService {
       startDate: contract.startDate.toISOString().slice(0, 10),
       termsText,
       alreadySigned: contract.status !== 'draft',
+      tenantName: tenant?.name ?? '',
+      tenantSlug: tenant?.slug ?? '',
+      brandColor: tenant?.portalBrandColor ?? null,
+      logoUrl: tenant?.portalLogoUrl ?? null,
     };
   }
 
