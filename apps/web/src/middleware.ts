@@ -97,7 +97,13 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
       if (route.action === 'rewrite') {
         const url = req.nextUrl.clone();
         url.pathname = route.path;
-        return NextResponse.rewrite(url);
+        // El rewrite es invisible para el navegador (la URL sigue siendo `/` o
+        // `/reservar`): `usePathname()` en el cliente vería la ruta original,
+        // no `route.path` — por eso se marca con una cabecera para que el
+        // layout público (server) fuerce el marco "sin plataforma".
+        const headers = new Headers(req.headers);
+        headers.set('x-storageos-tenant-public', '1');
+        return NextResponse.rewrite(url, { request: { headers } });
       }
       if (route.action === 'redirectToPlatform' && PLATFORM_HOST) {
         return NextResponse.redirect(
