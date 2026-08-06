@@ -44,10 +44,22 @@ const ADVANTAGE_ICONS: LucideIcon[] = [Ruler, Clock, ShieldCheck, KeyRound, Cred
 
 /** Servicios / usos (contenido genérico; el tenant lo afina con su copy). */
 const SERVICES: ServiceItem[] = [
-  { icon: Home, title: 'Particulares', text: 'Mudanzas, reformas, cosas de temporada o simplemente hacer sitio en casa.' },
-  { icon: Building2, title: 'Empresas', text: 'Stock, mobiliario o material de trabajo con acceso cómodo.' },
+  {
+    icon: Home,
+    title: 'Particulares',
+    text: 'Mudanzas, reformas, cosas de temporada o simplemente hacer sitio en casa.',
+  },
+  {
+    icon: Building2,
+    title: 'Empresas',
+    text: 'Stock, mobiliario o material de trabajo con acceso cómodo.',
+  },
   { icon: Archive, title: 'Documentación', text: 'Guarda tu archivo de forma ordenada y segura.' },
-  { icon: Package, title: 'Guardamuebles', text: 'Espacio para tus muebles el tiempo que necesites.' },
+  {
+    icon: Package,
+    title: 'Guardamuebles',
+    text: 'Espacio para tus muebles el tiempo que necesites.',
+  },
 ];
 
 /** Ventajas (iconos). Genéricas; el tenant las edita en Ajustes → Web. */
@@ -61,7 +73,11 @@ const ADVANTAGES: AdvantageItem[] = [
 ];
 
 const STEPS: StepItem[] = [
-  { n: 1, title: 'Elige tu trastero', text: 'Mira los tamaños y precios y quédate con el que encaje.' },
+  {
+    n: 1,
+    title: 'Elige tu trastero',
+    text: 'Mira los tamaños y precios y quédate con el que encaje.',
+  },
   { n: 2, title: 'Reserva online', text: 'Contrata en minutos desde la web, sin papeleo.' },
   { n: 3, title: 'Accede cuando quieras', text: 'Recibe tu acceso y empieza a usar tu trastero.' },
 ];
@@ -74,7 +90,7 @@ const STEPS: StepItem[] = [
  * propios); la página no la envuelve en `TenantWebChrome`.
  */
 export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
-  const brand = data.brandColor ?? '#2BA84A';
+  const brand = data.brandColor ?? '#2563EB';
   const where = citiesOf(data);
   const trasterosLabel = `Trasteros${where ? ` en ${where}` : ''}`;
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
@@ -166,7 +182,9 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         {/* Servicios */}
         <section id="servicios" className="scroll-mt-20 py-16">
           <div className="mx-auto max-w-6xl px-4">
-            <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">Nuestros servicios</h2>
+            <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
+              Nuestros servicios
+            </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {services.map((s) => (
                 <div key={s.title} className="rounded-lg border bg-card p-6 text-center shadow-sm">
@@ -216,7 +234,9 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
                         ) : (
                           <div
                             className="h-full w-full"
-                            style={{ background: `linear-gradient(135deg, ${brand}22, ${brand}66)` }}
+                            style={{
+                              background: `linear-gradient(135deg, ${brand}22, ${brand}66)`,
+                            }}
                           />
                         )}
                       </div>
@@ -246,7 +266,9 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         {/* Ventajas */}
         <section id="ventajas" className="scroll-mt-20 py-16">
           <div className="mx-auto max-w-6xl px-4">
-            <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">Por qué elegirnos</h2>
+            <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
+              Por qué elegirnos
+            </h2>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
               {advantages.map((a) => (
                 <div key={a.label} className="flex flex-col items-center gap-2 text-center">
