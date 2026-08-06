@@ -16,10 +16,23 @@ import { PublicHeader } from '@/components/public/public-header';
  *   (firma del contrato): NO deben mostrar el header/footer ni el login/registro
  *   de la plataforma — son el embudo del operador para sus inquilinos. Cada una
  *   pinta su propio marco (`TenantWebChrome`) con acceso al portal del inquilino.
+ *
+ * `forcedBare` lo fija el layout (server) cuando el middleware reescribió la
+ * petición desde un dominio propio (la raíz `/` → `/s/<slug>`, `/reservar` →
+ * `/book/<slug>`…): el rewrite es invisible para el navegador, así que
+ * `usePathname()` seguiría viendo `/`/`/reservar` y NO detectaría el caso solo
+ * con el prefijo de ruta.
  */
-export function PublicChrome({ children }: { children: ReactNode }) {
+export function PublicChrome({
+  children,
+  forcedBare = false,
+}: {
+  children: ReactNode;
+  forcedBare?: boolean;
+}) {
   const pathname = usePathname();
   const bare =
+    forcedBare ||
     pathname?.startsWith('/portal') ||
     pathname?.startsWith('/s/') ||
     pathname?.startsWith('/book/') ||
