@@ -10,6 +10,12 @@
  *    la marca del cliente → 308 al dominio de la plataforma (el middleware
  *    antepone `https://<plataforma>`).
  *  - `next`: pasa tal cual (assets, portal, firma, pago, la propia landing).
+ *
+ * `opts.externalSite`: el tenant sirve su web PROPIA (alojada fuera de la
+ * plataforma) vía proxy inverso en `/tenant-site/<slug>/<path>` — ver
+ * `apps/web/src/app/(public)/tenant-site`. En ese modo, cualquier ruta no
+ * reservada (incluidos ficheros y rutas anidadas) se reescribe hacia ahí en
+ * vez de hacia la landing/facility de nuestras plantillas.
  */
 export type CustomDomainRoute =
   | { action: 'next' }
@@ -49,9 +55,23 @@ function looksLikeFile(pathname: string): boolean {
   return last.includes('.');
 }
 
-export function resolveCustomDomainRoute(pathname: string, slug: string): CustomDomainRoute {
-  // Assets y ficheros estáticos (sw.js, manifests, iconos, robots, sitemap…).
-  if (pathname.startsWith('/_next') || pathname.startsWith('/api') || looksLikeFile(pathname)) {
+export function resolveCustomDomainRoute(
+  pathname: string,
+  slug: string,
+  opts?: { externalSite?: boolean },
+): CustomDomainRoute {
+  const externalSite = opts?.externalSite ?? false;
+
+  // Internals de Next (chunks, HMR…) siempre pasan tal cual.
+  if (pathname.startsWith('/_next') || pathname.startsWith('/api')) {
+    return { action: 'next' };
+  }
+
+  // Ficheros estáticos de la PLATAFORMA (sw.js, manifests, iconos, robots,
+  // sitemap…) pasan tal cual — salvo en modo `externalSite`, donde cualquier
+  // fichero (style.css, script.js, img/logo.png…) pertenece a la web propia
+  // del tenant, no a la nuestra, y debe proxearse (más abajo).
+  if (!externalSite && looksLikeFile(pathname)) {
     return { action: 'next' };
   }
 
@@ -65,14 +85,23 @@ export function resolveCustomDomainRoute(pathname: string, slug: string): Custom
     return { action: 'redirectToPlatform', path: pathname };
   }
 
+  // Alias de reserva → booking del tenant. Es una función de la PLATAFORMA
+  // (crea un contrato), no de la web propia del tenant → aplica también con
+  // `externalSite` (antes del proxy catch-all, para no perderlo ahí).
+  if (matchesPrefix(pathname, BOOK_ALIAS)) {
+    return { action: 'rewrite', path: `/book/${slug}` };
+  }
+
+  if (externalSite) {
+    // Cualquier otra ruta (raíz, ficheros, rutas anidadas) → proxy hacia la
+    // web externa del tenant.
+    const rest = pathname === '/' ? '' : pathname;
+    return { action: 'rewrite', path: `/tenant-site/${slug}${rest}` };
+  }
+
   // Raíz → landing del tenant.
   if (pathname === '/') {
     return { action: 'rewrite', path: `/s/${slug}` };
-  }
-
-  // Alias de reserva → booking del tenant.
-  if (matchesPrefix(pathname, BOOK_ALIAS)) {
-    return { action: 'rewrite', path: `/book/${slug}` };
   }
 
   // Un único segmento (p. ej. `/local-norte`) → página del local del tenant.

@@ -1,4 +1,7 @@
+import { promises as dns } from 'node:dns';
+
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -9,7 +12,10 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import {
   effectiveFeaturesFromList,
+  isDisallowedIp,
+  isIpLiteralHostname,
   isWebTemplate,
+  parseExternalSiteUrl,
   parseWebContent,
   parseWebSections,
   resolvePlanFeatures,
@@ -401,6 +407,7 @@ export class TenantSettingsService {
         webAbout: true,
         webSections: true,
         webContent: true,
+        externalSiteUrl: true,
         deletedAt: true,
       },
     });
@@ -411,7 +418,78 @@ export class TenantSettingsService {
       about: tenant.webAbout,
       sections: parseWebSections(tenant.webSections),
       content: parseWebContent(tenant.webContent),
+      externalSiteUrl: tenant.externalSiteUrl,
     };
+  }
+
+  /** Hosts de la propia plataforma (no se puede apuntar una web externa a ellos). */
+  private platformHosts(): string[] {
+    const hosts = new Set<string>();
+    for (const raw of [
+      this.config.get('WEB_BASE_URL', { infer: true }),
+      this.config.get('API_BASE_URL', { infer: true }),
+    ]) {
+      try {
+        hosts.add(new URL(raw).hostname.toLowerCase());
+      } catch {
+        // env inválida — se ignora, no bloquea el resto de la validación.
+      }
+    }
+    return [...hosts];
+  }
+
+  private externalUrlErrorMessage(reason: string): string {
+    switch (reason) {
+      case 'must_be_https':
+        return 'La URL debe empezar por https://';
+      case 'platform_host':
+        return 'No puedes apuntar a un dominio de la propia plataforma';
+      case 'private_ip':
+      case 'dns_error':
+        return 'Esa dirección no es accesible públicamente';
+      default:
+        return 'La URL no es válida';
+    }
+  }
+
+  /**
+   * Valida una URL de «web externa»: formato (https, no IP-literal privada, no
+   * nuestro propio dominio) vía `parseExternalSiteUrl` (shared, sin I/O) +
+   * resolución DNS del hostname re-chequeada contra los mismos rangos
+   * prohibidos (el hostname puede ser un dominio, no un literal de IP — la
+   * ruta de proxy del web hace la MISMA doble comprobación en cada request,
+   * como defensa contra DNS rebinding).
+   */
+  private async assertSafeExternalUrl(url: string): Promise<void> {
+    const check = parseExternalSiteUrl(url, this.platformHosts());
+    if (!check.ok) {
+      throw new BadRequestException({
+        code: 'external_site_url_invalid',
+        message: this.externalUrlErrorMessage(check.reason),
+        details: { reason: check.reason },
+      });
+    }
+    // Si el hostname YA es un literal de IP, `parseExternalSiteUrl` lo validó
+    // por completo — resolverlo por DNS no aporta nada (y `dns.lookup` con
+    // corchetes de IPv6 puede fallar). La resolución solo aplica a dominios.
+    if (isIpLiteralHostname(check.hostname)) return;
+    let resolvedIp: string;
+    try {
+      resolvedIp = (await dns.lookup(check.hostname)).address;
+    } catch {
+      throw new BadRequestException({
+        code: 'external_site_url_invalid',
+        message: this.externalUrlErrorMessage('dns_error'),
+        details: { reason: 'dns_error' },
+      });
+    }
+    if (isDisallowedIp(resolvedIp)) {
+      throw new BadRequestException({
+        code: 'external_site_url_invalid',
+        message: this.externalUrlErrorMessage('private_ip'),
+        details: { reason: 'private_ip' },
+      });
+    }
   }
 
   async updateWebSettings(args: {
@@ -424,7 +502,40 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
     const { input } = args;
     const data: Prisma.TenantUpdateInput = {};
-    if (input.template !== undefined) data.webTemplate = input.template;
+
+    // URL de la web externa: '' = borrarla; undefined = no tocarla.
+    let externalSiteUrlToSave: string | null | undefined;
+    if (input.externalSiteUrl !== undefined) {
+      const raw = input.externalSiteUrl.trim();
+      if (raw === '') {
+        externalSiteUrlToSave = null;
+      } else {
+        await this.assertSafeExternalUrl(raw);
+        externalSiteUrlToSave = raw;
+      }
+      data.externalSiteUrl = externalSiteUrlToSave;
+    }
+
+    if (input.template !== undefined) {
+      if (input.template === 'external') {
+        if (!tenant.customDomainVerifiedAt) {
+          throw new BadRequestException({
+            code: 'custom_domain_required',
+            message: 'Configura y verifica tu dominio propio antes de usar una web externa',
+          });
+        }
+        const effectiveUrl =
+          externalSiteUrlToSave !== undefined ? externalSiteUrlToSave : tenant.externalSiteUrl;
+        if (!effectiveUrl) {
+          throw new BadRequestException({
+            code: 'external_site_url_required',
+            message: 'Indica la URL de tu web externa',
+          });
+        }
+      }
+      data.webTemplate = input.template;
+    }
+
     // '' = borrar (null); undefined = no tocar.
     if (input.headline !== undefined) data.webHeadline = input.headline || null;
     if (input.about !== undefined) data.webAbout = input.about || null;

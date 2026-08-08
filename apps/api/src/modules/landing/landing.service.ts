@@ -21,6 +21,7 @@ import type {
   TenantFeature,
 } from '@storageos/shared';
 import type {
+  ExternalSiteDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicLandingFacilityDto,
@@ -92,8 +93,14 @@ export class LandingService {
     // Web Premium: solo si el tenant tiene la feature se aplica la plantilla y los
     // textos personalizados; si no, se sirve `default` sin headline/about custom.
     const hasWebPremium = await this.hasWebPremium(tenant.id);
-    const webTemplate =
+    let webTemplate =
       hasWebPremium && isWebTemplate(tenant.webTemplate) ? tenant.webTemplate : 'default';
+    // `external` (proxy hacia la web propia del tenant) exige dominio propio
+    // VERIFICADO — si se desverificó tras configurarla, cae a `default` en vez
+    // de dejar una página rota (mismo criterio que el gating de `web_premium`).
+    if (webTemplate === 'external' && !tenant.customDomainVerifiedAt) {
+      webTemplate = 'default';
+    }
     const sections = hasWebPremium
       ? parseWebSections(tenant.webSections)
       : { testimonials: false, faq: false, contact: false };
@@ -205,7 +212,11 @@ export class LandingService {
    * Formulario de contacto de la web pública → crea un lead (source `web`). Solo
    * si el tenant tiene la feature `web_premium` y la sección de contacto activa.
    */
-  async submitContact(slug: string, input: PublicContactInput, meta: RequestMeta): Promise<LeadDto> {
+  async submitContact(
+    slug: string,
+    input: PublicContactInput,
+    meta: RequestMeta,
+  ): Promise<LeadDto> {
     if (input.hp) {
       throw new NotFoundException({ code: 'invalid_payload', message: 'Solicitud invalida' });
     }
@@ -293,12 +304,37 @@ export class LandingService {
     }
     const tenant = await this.admin.tenant.findFirst({
       where: { customDomain: domain, customDomainVerifiedAt: { not: null }, deletedAt: null },
-      select: { slug: true },
+      select: { slug: true, webTemplate: true, externalSiteUrl: true },
     });
     if (!tenant) {
       throw new NotFoundException({ code: 'domain_not_found', message: 'No encontrado' });
     }
-    return { tenantSlug: tenant.slug };
+    return {
+      tenantSlug: tenant.slug,
+      hasExternalSite: tenant.webTemplate === 'external' && tenant.externalSiteUrl != null,
+    };
+  }
+
+  /**
+   * URL base de la web externa del tenant (ligero, solo para la ruta de proxy
+   * `/tenant-site/<slug>` del web) — SIN las consultas de `getBySlug`
+   * (facilities/testimonios/FAQ), que no hacen falta para cada asset. 404 si
+   * el tenant no existe, no usa la plantilla `external`, o no tiene URL.
+   */
+  async getExternalSite(slug: string): Promise<ExternalSiteDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: { webTemplate: true, externalSiteUrl: true, deletedAt: true },
+    });
+    if (
+      !tenant ||
+      tenant.deletedAt ||
+      tenant.webTemplate !== 'external' ||
+      !tenant.externalSiteUrl
+    ) {
+      throw new NotFoundException({ code: 'external_site_not_found', message: 'No encontrado' });
+    }
+    return { baseUrl: tenant.externalSiteUrl };
   }
 
   /**

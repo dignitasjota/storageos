@@ -125,10 +125,12 @@ const nextConfig = {
         headers: [{ key: 'X-Frame-Options', value: 'ALLOWALL' }],
       },
       {
-        // Todo el resto del panel. Excluimos /widget y /api/csp-report
+        // Todo el resto del panel. Excluimos /widget, /api/csp-report
         // (este ultimo no necesita las cabeceras y evitamos posibles
-        // bucles si el report-uri redirige).
-        source: '/((?!widget|api/csp-report).*)',
+        // bucles si el report-uri redirige) y /tenant-site (proxy de la
+        // web EXTERNA del tenant — es contenido suyo, no de la plataforma;
+        // nuestro CSP no debe restringir lo que su web referencia).
+        source: '/((?!widget|api/csp-report|tenant-site).*)',
         headers: [
           // Fase 13A.4: enforcement activo (`Content-Security-Policy`).
           // El endpoint `/api/csp-report` sigue recibiendo violaciones

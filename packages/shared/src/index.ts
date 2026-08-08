@@ -57,3 +57,4 @@ export const SHARED_PACKAGE_VERSION = '0.0.0' as const;
 export * from './legal';
 export * from './routing';
 export * from './collections';
+export * from './security';
