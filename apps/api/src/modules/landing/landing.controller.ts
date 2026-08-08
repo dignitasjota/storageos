@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-  Req,
-  VERSION_NEUTRAL,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, VERSION_NEUTRAL } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { PublicContactSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -18,6 +9,7 @@ import { LandingService } from './landing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  ExternalSiteDto,
   LeadDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
@@ -84,6 +76,17 @@ export class LandingController {
     @Req() req: Request,
   ): Promise<LeadDto> {
     return this.landing.submitContact(slug, body, extractMeta(req));
+  }
+
+  /**
+   * URL base de la web externa del tenant (proxy inverso). Ligero, alto
+   * volumen (una llamada por asset de la web del tenant) — declarado antes de
+   * `:slug/:facilitySlug` para que ese param dinámico no lo capture.
+   */
+  @Get(':slug/external-site')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  externalSite(@Param('slug') slug: string): Promise<ExternalSiteDto> {
+    return this.landing.getExternalSite(slug);
   }
 
   @Get(':slug/:facilitySlug')

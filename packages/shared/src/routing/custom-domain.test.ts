@@ -69,3 +69,74 @@ describe('resolveCustomDomainRoute', () => {
     expect(resolveCustomDomainRoute('/algo/profundo/aqui', SLUG)).toEqual({ action: 'next' });
   });
 });
+
+describe('resolveCustomDomainRoute — modo web externa (opts.externalSite)', () => {
+  const opts = { externalSite: true };
+
+  it('raíz → reescribe al proxy sin ruta extra', () => {
+    expect(resolveCustomDomainRoute('/', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia',
+    });
+  });
+
+  it('ficheros (style.css, imágenes en subcarpetas…) → reescriben al proxy con la ruta completa', () => {
+    expect(resolveCustomDomainRoute('/style.css', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia/style.css',
+    });
+    expect(resolveCustomDomainRoute('/img/logo.png', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia/img/logo.png',
+    });
+  });
+
+  it('rutas anidadas arbitrarias (subpáginas de su web) → reescriben al proxy', () => {
+    expect(resolveCustomDomainRoute('/sobre-nosotros', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia/sobre-nosotros',
+    });
+    expect(resolveCustomDomainRoute('/blog/2026/post', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia/blog/2026/post',
+    });
+  });
+
+  it('el alias /reservar sigue siendo del booking de la plataforma, no del proxy', () => {
+    expect(resolveCustomDomainRoute('/reservar', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/book/garcia',
+    });
+  });
+
+  it('portal/firma/pago/reseña siguen intactos', () => {
+    for (const p of ['/portal', '/portal/consume', '/sign/abc', '/pay/redsys/ok', '/review/tok']) {
+      expect(resolveCustomDomainRoute(p, SLUG, opts)).toEqual({ action: 'next' });
+    }
+  });
+
+  it('panel/auth/admin siguen redirigiendo a la plataforma', () => {
+    expect(resolveCustomDomainRoute('/dashboard', SLUG, opts)).toEqual({
+      action: 'redirectToPlatform',
+      path: '/dashboard',
+    });
+  });
+
+  it('_next y /api siempre pasan tal cual (incluso con externalSite)', () => {
+    expect(resolveCustomDomainRoute('/_next/static/chunk.js', SLUG, opts)).toEqual({
+      action: 'next',
+    });
+    expect(resolveCustomDomainRoute('/api/csp-report', SLUG, opts)).toEqual({ action: 'next' });
+  });
+
+  it('sin opts (o externalSite:false), el comportamiento no cambia', () => {
+    expect(resolveCustomDomainRoute('/style.css', SLUG)).toEqual({ action: 'next' });
+    expect(resolveCustomDomainRoute('/style.css', SLUG, { externalSite: false })).toEqual({
+      action: 'next',
+    });
+    expect(resolveCustomDomainRoute('/local-norte', SLUG, { externalSite: false })).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/local-norte',
+    });
+  });
+});

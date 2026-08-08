@@ -1,7 +1,16 @@
 'use client';
 
 import { WEB_TEMPLATES, type WebSections, type WebTemplateValue } from '@storageos/shared';
-import { ExternalLink, Globe, Loader2, Plus, Trash2, TrendingUp, Type } from 'lucide-react';
+import {
+  ExternalLink,
+  Globe,
+  Link as LinkIcon,
+  Loader2,
+  Plus,
+  Trash2,
+  TrendingUp,
+  Type,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -13,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
+import { useTenantBranding } from '@/lib/branding/hooks';
 import { useUpdateWebSettings, useWebPerformance, useWebSettings } from '@/lib/web-settings/hooks';
 
 const DEFAULT_SECTIONS: WebSections = { testimonials: false, faq: false, contact: false };
@@ -27,8 +37,10 @@ function usesContent(template: WebTemplateValue): boolean {
 export default function WebSettingsPage() {
   const settings = useWebSettings();
   const update = useUpdateWebSettings();
+  const branding = useTenantBranding();
   const me = useMe();
   const slug = me.data?.tenant.slug;
+  const domainVerified = branding.data?.customDomainVerifiedAt != null;
 
   const [template, setTemplate] = useState<WebTemplateValue>('default');
   const [headline, setHeadline] = useState('');
@@ -39,6 +51,8 @@ export default function WebSettingsPage() {
   const [services, setServices] = useState<Item[]>([]);
   const [advantages, setAdvantages] = useState<string[]>([]);
   const [steps, setSteps] = useState<Item[]>([]);
+  // Web externa (proxy hacia una URL que el tenant ya aloja fuera).
+  const [externalSiteUrl, setExternalSiteUrl] = useState('');
 
   useEffect(() => {
     if (!settings.data) return;
@@ -51,7 +65,17 @@ export default function WebSettingsPage() {
     setServices((c.services ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
     setAdvantages(c.advantages ?? []);
     setSteps((c.steps ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
+    setExternalSiteUrl(settings.data.externalSiteUrl ?? '');
   }, [settings.data]);
+
+  async function saveExternalSite() {
+    try {
+      await update.mutateAsync({ template: 'external', externalSiteUrl });
+      toast.success('Web externa activada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
 
   async function save() {
     try {
@@ -141,32 +165,78 @@ export default function WebSettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Secciones</CardTitle>
-          <CardDescription>Elige qué mostrar en tu web pública.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <SectionToggle
-            checked={sections.testimonials}
-            onToggle={() => toggle('testimonials')}
-            label="Testimonios"
-            hint="Muestra reseñas positivas de tus clientes (valoraciones NPS ≥ 9 con comentario)."
-          />
-          <SectionToggle
-            checked={sections.faq}
-            onToggle={() => toggle('faq')}
-            label="Preguntas frecuentes"
-            hint="Muestra las FAQ publicadas en tu centro de ayuda."
-          />
-          <SectionToggle
-            checked={sections.contact}
-            onToggle={() => toggle('contact')}
-            label="Formulario de contacto"
-            hint="Un formulario en tu web; cada envío entra como lead en tu panel."
-          />
-        </CardContent>
-      </Card>
+      {template === 'external' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <LinkIcon className="h-5 w-5 text-muted-foreground" /> Web externa
+            </CardTitle>
+            <CardDescription>
+              Indica la URL donde ya tienes tu web alojada. La serviremos bajo tu dominio propio —
+              no almacenamos tu contenido, solo lo enrutamos.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!domainVerified ? (
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                Necesitas un dominio propio verificado para usar una web externa.{' '}
+                <a href="/settings/branding" className="underline">
+                  Configúralo en Marca del portal →
+                </a>
+              </p>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label>URL de tu web</Label>
+                  <Input
+                    value={externalSiteUrl}
+                    onChange={(e) => setExternalSiteUrl(e.target.value)}
+                    placeholder="https://tu-web-ya-alojada.com"
+                    className="text-base sm:text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Debe empezar por <code>https://</code>. Se sirve en{' '}
+                    <strong>{branding.data?.customDomain}</strong>.
+                  </p>
+                </div>
+                <Button onClick={saveExternalSite} disabled={update.isPending}>
+                  {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                  Guardar web externa
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {template !== 'external' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Secciones</CardTitle>
+            <CardDescription>Elige qué mostrar en tu web pública.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SectionToggle
+              checked={sections.testimonials}
+              onToggle={() => toggle('testimonials')}
+              label="Testimonios"
+              hint="Muestra reseñas positivas de tus clientes (valoraciones NPS ≥ 9 con comentario)."
+            />
+            <SectionToggle
+              checked={sections.faq}
+              onToggle={() => toggle('faq')}
+              label="Preguntas frecuentes"
+              hint="Muestra las FAQ publicadas en tu centro de ayuda."
+            />
+            <SectionToggle
+              checked={sections.contact}
+              onToggle={() => toggle('contact')}
+              label="Formulario de contacto"
+              hint="Un formulario en tu web; cada envío entra como lead en tu panel."
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {usesContent(template) && (
         <Card>
@@ -176,8 +246,8 @@ export default function WebSettingsPage() {
             </CardTitle>
             <CardDescription>
               Personaliza el copy de tu plantilla{' '}
-              {template === 'onepage' ? '«Una página»' : '«Escaparate»'}. Deja una sección vacía para
-              usar los textos por defecto.
+              {template === 'onepage' ? '«Una página»' : '«Escaparate»'}. Deja una sección vacía
+              para usar los textos por defecto.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -235,42 +305,44 @@ export default function WebSettingsPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Textos</CardTitle>
-          <CardDescription>Personaliza el mensaje principal y tu presentación.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>Título / claim (opcional)</Label>
-            <Input
-              value={headline}
-              onChange={(e) => setHeadline(e.target.value)}
-              maxLength={160}
-              placeholder="Ej.: Guarda tus cosas con total seguridad en el centro"
-              className="text-base sm:text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              Vacío = «Trasteros en {'{ciudad}'}» por defecto.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Sobre tu empresa (opcional)</Label>
-            <Textarea
-              value={about}
-              onChange={(e) => setAbout(e.target.value)}
-              rows={5}
-              maxLength={2000}
-              placeholder="Cuenta quién eres, tus ventajas, horarios, cómo llegar… Se muestra bajo el título."
-            />
-            <p className="text-xs text-muted-foreground">Vacío = no se muestra esta sección.</p>
-          </div>
-          <Button onClick={save} disabled={update.isPending}>
-            {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            Guardar cambios
-          </Button>
-        </CardContent>
-      </Card>
+      {template !== 'external' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Textos</CardTitle>
+            <CardDescription>Personaliza el mensaje principal y tu presentación.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Título / claim (opcional)</Label>
+              <Input
+                value={headline}
+                onChange={(e) => setHeadline(e.target.value)}
+                maxLength={160}
+                placeholder="Ej.: Guarda tus cosas con total seguridad en el centro"
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Vacío = «Trasteros en {'{ciudad}'}» por defecto.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Sobre tu empresa (opcional)</Label>
+              <Textarea
+                value={about}
+                onChange={(e) => setAbout(e.target.value)}
+                rows={5}
+                maxLength={2000}
+                placeholder="Cuenta quién eres, tus ventajas, horarios, cómo llegar… Se muestra bajo el título."
+              />
+              <p className="text-xs text-muted-foreground">Vacío = no se muestra esta sección.</p>
+            </div>
+            <Button onClick={save} disabled={update.isPending}>
+              {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Guardar cambios
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -395,12 +467,7 @@ function LabelsEditor({
         ))}
       </div>
       {items.length < max && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onChange([...items, ''])}
-        >
+        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, ''])}>
           <Plus className="mr-1 h-4 w-4" /> Añadir
         </Button>
       )}
@@ -431,7 +498,11 @@ function SectionToggle({
 }
 
 function eur(n: number): string {
-  return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+  return n.toLocaleString('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
+  });
 }
 
 /** «Cuánto te genera tu web»: leads → contrato → MRR (últimos 90 días). */
@@ -478,8 +549,8 @@ function WebPerformanceCard() {
           </div>
         ) : (
           <p className="py-2 text-sm text-muted-foreground">
-            Aún no hay contactos desde tu web. Activa el formulario de contacto y comparte tu
-            enlace para empezar a captar clientes.
+            Aún no hay contactos desde tu web. Activa el formulario de contacto y comparte tu enlace
+            para empezar a captar clientes.
           </p>
         )}
       </CardContent>

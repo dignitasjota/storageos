@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 
 import { EscaparateTemplate } from './escaparate-template';
 import { OnePageTemplate } from './onepage-template';
@@ -59,6 +59,16 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
   const { slug } = await params;
   const data = await getLanding(slug);
   if (!data) notFound();
+
+  // Web «externa»: quien llegue por `/s/<slug>` en el dominio de la
+  // plataforma (enlace viejo, o el dominio propio se desverificó tras
+  // configurarla) va a la web real del tenant en vez de nuestras plantillas.
+  // El backend ya fuerza `webTemplate` a `default` si no hay dominio propio
+  // verificado (ver `landing.service.ts`), así que `customDomain` debería
+  // venir siempre — si no, cae al `else` de abajo (plantilla por defecto).
+  if (data.webTemplate === 'external' && data.customDomain) {
+    redirect(`https://${data.customDomain}`);
+  }
 
   // Datos estructurados para SEO local (un SelfStorage por local con plazas).
   const jsonLd = data.facilities.map((f) => ({

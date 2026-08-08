@@ -35,29 +35,34 @@ function isPlatformHost(host: string): boolean {
   return name === 'localhost' || name === '127.0.0.1' || /^[0-9.]+$/.test(name);
 }
 
-// Caché host → slug (o null) con TTL corto. En self-hosted (proceso node) el
+interface DomainResolution {
+  slug: string | null;
+  hasExternalSite: boolean;
+}
+
+// Caché host → resolución con TTL corto. En self-hosted (proceso node) el
 // estado del módulo persiste entre requests; si se recicla, se re-resuelve.
-const domainCache = new Map<string, { slug: string | null; exp: number }>();
+const domainCache = new Map<string, { value: DomainResolution; exp: number }>();
 const DOMAIN_TTL_MS = 60_000;
 
-async function resolveSlug(host: string): Promise<string | null> {
+async function resolveSlug(host: string): Promise<DomainResolution> {
   const now = Date.now();
   const cached = domainCache.get(host);
-  if (cached && cached.exp > now) return cached.slug;
-  let slug: string | null = null;
+  if (cached && cached.exp > now) return cached.value;
+  let value: DomainResolution = { slug: null, hasExternalSite: false };
   try {
     const res = await fetch(
       `${API_URL}/public/landing/resolve-domain?host=${encodeURIComponent(host)}`,
     );
     if (res.ok) {
-      const data = (await res.json()) as { tenantSlug?: string };
-      slug = data.tenantSlug ?? null;
+      const data = (await res.json()) as { tenantSlug?: string; hasExternalSite?: boolean };
+      value = { slug: data.tenantSlug ?? null, hasExternalSite: data.hasExternalSite ?? false };
     }
   } catch {
-    slug = null;
+    value = { slug: null, hasExternalSite: false };
   }
-  domainCache.set(host, { slug, exp: now + DOMAIN_TTL_MS });
-  return slug;
+  domainCache.set(host, { value, exp: now + DOMAIN_TTL_MS });
+  return value;
 }
 
 function platformProtection(req: NextRequest): NextResponse {
@@ -91,9 +96,9 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
 
   // --- Dominio propio de tenant (white-label) ---
   if (host && !isPlatformHost(host)) {
-    const slug = await resolveSlug(host);
+    const { slug, hasExternalSite } = await resolveSlug(host);
     if (slug) {
-      const route = resolveCustomDomainRoute(pathname, slug);
+      const route = resolveCustomDomainRoute(pathname, slug, { externalSite: hasExternalSite });
       if (route.action === 'rewrite') {
         const url = req.nextUrl.clone();
         url.pathname = route.path;

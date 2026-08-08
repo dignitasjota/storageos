@@ -36,6 +36,12 @@ export const WEB_TEMPLATES = [
     description:
       'Web corporativa multisección: hero, servicios, tus centros con foto, ventajas, opiniones, pasos y contacto. Con tu color, tus imágenes y tus textos.',
   },
+  {
+    value: 'external',
+    label: 'Web externa (ya tienes tu propia web)',
+    description:
+      'Sirve la web que ya tienes alojada en otro sitio, bajo tu dominio propio (requiere dominio propio verificado). No almacenamos tu contenido: solo la enrutamos.',
+  },
 ] as const;
 
 export type WebTemplateValue = (typeof WEB_TEMPLATES)[number]['value'];
@@ -95,11 +101,20 @@ export function parseWebContent(raw: unknown): WebContent {
 
 export const UpdateWebSettingsSchema = z
   .object({
-    template: z.enum(['default', 'modern', 'industrial', 'onepage', 'escaparate']).optional(),
+    template: z
+      .enum(['default', 'modern', 'industrial', 'onepage', 'escaparate', 'external'])
+      .optional(),
     headline: optionalWebText(160),
     about: optionalWebText(2000),
     sections: WebSectionsSchema.partial().optional(),
     content: WebContentSchema.partial().optional(),
+    /**
+     * URL donde el tenant ya aloja su propia web (plantilla `external`). Validación
+     * de formato básica aquí; la validación fuerte (https, no IP privada/loopback,
+     * no nuestro propio dominio) va en el backend (`parseExternalSiteUrl` +
+     * resolución DNS). `''` = borrarla.
+     */
+    externalSiteUrl: z.string().trim().max(2000).url().optional().or(z.literal('')),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -115,6 +130,8 @@ export interface WebSettingsResponse {
   sections: WebSections;
   /** Copy editable de las secciones (vacío = textos por defecto de la plantilla). */
   content: WebContent;
+  /** URL de la web externa del tenant (plantilla `external`), o null. */
+  externalSiteUrl: string | null;
 }
 
 /** Envío del formulario de contacto de la web pública → crea un lead. */

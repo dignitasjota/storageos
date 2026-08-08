@@ -299,90 +299,94 @@ enum DataSubjectRequestStatus {
 
 /// Empresas clientes del SaaS.
 model Tenant {
-  id                          String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  name                        String
-  slug                        String                @unique
-  status                      TenantStatus          @default(trial)
-  billingExempt               Boolean               @default(false) @map("billing_exempt")
-  trialEndsAt                 DateTime?             @map("trial_ends_at") @db.Timestamptz(6)
-  billingEmail                String?               @map("billing_email")
-  country                     String                @default("ES") @db.Char(2)
-  locale                      String                @default("es-ES")
-  currency                    String                @default("EUR") @db.Char(3)
-  timezone                    String                @default("Europe/Madrid")
-  taxId                       String?               @map("tax_id")
-  ltvTier                     String?               @map("ltv_tier")
-  strategicNotes              String?               @map("strategic_notes")
-  tags                        String[]              @default([])
-  churnReason                 String?               @map("churn_reason")
-  canceledAt                  DateTime?             @map("canceled_at") @db.Timestamptz(6)
-  requireTwoFactorForManagers Boolean               @default(false) @map("require_two_factor_for_managers")
+  id                           String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name                         String
+  slug                         String                @unique
+  status                       TenantStatus          @default(trial)
+  billingExempt                Boolean               @default(false) @map("billing_exempt")
+  trialEndsAt                  DateTime?             @map("trial_ends_at") @db.Timestamptz(6)
+  billingEmail                 String?               @map("billing_email")
+  country                      String                @default("ES") @db.Char(2)
+  locale                       String                @default("es-ES")
+  currency                     String                @default("EUR") @db.Char(3)
+  timezone                     String                @default("Europe/Madrid")
+  taxId                        String?               @map("tax_id")
+  ltvTier                      String?               @map("ltv_tier")
+  strategicNotes               String?               @map("strategic_notes")
+  tags                         String[]              @default([])
+  churnReason                  String?               @map("churn_reason")
+  canceledAt                   DateTime?             @map("canceled_at") @db.Timestamptz(6)
+  requireTwoFactorForManagers  Boolean               @default(false) @map("require_two_factor_for_managers")
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
-  autoChargeOnIssue           Boolean               @default(false) @map("auto_charge_on_issue")
-  autoChargeRetryEnabled      Boolean               @default(false) @map("auto_charge_retry_enabled")
-  autoChargeRetryMax          Int                   @default(3) @map("auto_charge_retry_max")
-  autoChargeRetryIntervalDays Int                   @default(3) @map("auto_charge_retry_interval_days")
+  autoChargeOnIssue            Boolean               @default(false) @map("auto_charge_on_issue")
+  autoChargeRetryEnabled       Boolean               @default(false) @map("auto_charge_retry_enabled")
+  autoChargeRetryMax           Int                   @default(3) @map("auto_charge_retry_max")
+  autoChargeRetryIntervalDays  Int                   @default(3) @map("auto_charge_retry_interval_days")
   /// Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas
   /// en borrador para revisión manual.
-  autoIssueRecurring          Boolean               @default(false) @map("auto_issue_recurring")
+  autoIssueRecurring           Boolean               @default(false) @map("auto_issue_recurring")
   /// Informe mensual por email al operador (ocupación/ingresos/morosidad/altas/leads). Opt-in.
-  monthlyDigestEnabled        Boolean               @default(false) @map("monthly_digest_enabled")
+  monthlyDigestEnabled         Boolean               @default(false) @map("monthly_digest_enabled")
   /// Recargo por mora (opt-in): a los `lateFeeGraceDays` de vencimiento se
   /// emite una factura de recargo (% del vencido o € fijo) vía el dunning.
-  lateFeeEnabled              Boolean               @default(false) @map("late_fee_enabled")
+  lateFeeEnabled               Boolean               @default(false) @map("late_fee_enabled")
   /// percentage | fixed
-  lateFeeType                 String                @default("percentage") @map("late_fee_type")
-  lateFeeValue                Decimal               @default(5) @map("late_fee_value") @db.Decimal(10, 2)
-  lateFeeGraceDays            Int                   @default(7) @map("late_fee_grace_days")
+  lateFeeType                  String                @default("percentage") @map("late_fee_type")
+  lateFeeValue                 Decimal               @default(5) @map("late_fee_value") @db.Decimal(10, 2)
+  lateFeeGraceDays             Int                   @default(7) @map("late_fee_grace_days")
   /// Si true, un cron pide la valoracion (NPS) automaticamente N dias tras
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
-  reviewsAutoRequest          Boolean               @default(false) @map("reviews_auto_request")
-  rentIncreaseMaxAnnualPct    Decimal               @default(0) @map("rent_increase_max_annual_pct") @db.Decimal(5, 2)
-  rentIncreaseMinMonthsBetween Int                  @default(12) @map("rent_increase_min_months_between")
-  reviewRequestDelayDays      Int                   @default(14) @map("review_request_delay_days")
+  reviewsAutoRequest           Boolean               @default(false) @map("reviews_auto_request")
+  rentIncreaseMaxAnnualPct     Decimal               @default(0) @map("rent_increase_max_annual_pct") @db.Decimal(5, 2)
+  rentIncreaseMinMonthsBetween Int                   @default(12) @map("rent_increase_min_months_between")
+  reviewRequestDelayDays       Int                   @default(14) @map("review_request_delay_days")
   /// Link de "deja tu reseña" en Google Business Profile; se ofrece al promotor
   /// (NPS >= 9) tras valorar, para mejorar el ranking local.
-  googleReviewUrl             String?               @map("google_review_url")
+  googleReviewUrl              String?               @map("google_review_url")
   /// Programa de referidos (opt-in): al convertir un referido se genera una
   /// promocion de un solo uso para el referidor con esta recompensa.
-  referralEnabled             Boolean               @default(false) @map("referral_enabled")
-  referralRewardType          PromotionDiscountType @default(fixed) @map("referral_reward_type")
-  referralRewardValue         Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
-  extraAccessLimit            Int                   @default(2) @map("extra_access_limit")
+  referralEnabled              Boolean               @default(false) @map("referral_enabled")
+  referralRewardType           PromotionDiscountType @default(fixed) @map("referral_reward_type")
+  referralRewardValue          Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
+  extraAccessLimit             Int                   @default(2) @map("extra_access_limit")
   /// White-label del portal del inquilino: color de marca (hex) y URL del logo.
-  portalBrandColor            String?               @map("portal_brand_color")
-  portalLogoUrl               String?               @map("portal_logo_url")
+  portalBrandColor             String?               @map("portal_brand_color")
+  portalLogoUrl                String?               @map("portal_logo_url")
   /// Web «Premium» (feature `web_premium`): plantilla de diseño de la web pública
   /// (`/s/<slug>`) + claim del hero + sección «quiénes somos». Sin la feature se
   /// usa la plantilla `default` y estos textos se ignoran.
-  webTemplate                 String                @default("default") @map("web_template")
-  webHeadline                 String?               @map("web_headline")
-  webAbout                    String?               @map("web_about")
+  webTemplate                  String                @default("default") @map("web_template")
+  webHeadline                  String?               @map("web_headline")
+  webAbout                     String?               @map("web_about")
   /// Secciones activables de la web pública (testimonios/FAQ/contacto). Flags jsonb.
-  webSections                 Json                  @default("{}") @map("web_sections")
+  webSections                  Json                  @default("{}") @map("web_sections")
   /// Copy editable de las secciones de las plantillas premium multisección
   /// (`onepage`/`escaparate`): heroSubtitle, services[], advantages[], steps[]. jsonb.
-  webContent                  Json                  @default("{}") @map("web_content")
+  webContent                   Json                  @default("{}") @map("web_content")
+  /// Web «externa»: URL donde el tenant ya aloja su propia web (fuera de
+  /// TrasterOS). Con `webTemplate='external'` y dominio propio verificado, se
+  /// sirve vía proxy inverso bajo `customDomain` (nunca almacenamos su contenido).
+  externalSiteUrl              String?               @map("external_site_url")
   /// Cláusulas particulares editables por el tenant para el contrato (con
   /// variables {{...}}). Null = plantilla por defecto. Se renderizan al firmar y
   /// en el PDF; el texto firmado se congela en `contracts.signedTermsText`.
-  contractClauses             String?               @map("contract_clauses")
-  customDomain                String?               @unique @map("custom_domain")
-  customDomainVerifiedAt      DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
-  nightPassEnabled            Boolean               @default(false) @map("night_pass_enabled")
-  nightPassPrice              Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
-  collectionsEnabled          Boolean               @default(false) @map("collections_enabled")
-  collectionsOpenAfterDays    Int                   @default(30) @map("collections_open_after_days")
-  collectionsNoticeDays       Int                   @default(15) @map("collections_notice_days")
-  collectionsClauseRef        String?               @map("collections_clause_ref")
-  winbackEnabled              Boolean               @default(false) @map("winback_enabled")
-  winbackDelayDays            Int                   @default(90) @map("winback_delay_days")
-  winbackSubject              String?               @map("winback_subject")
-  winbackBodyText             String?               @map("winback_body_text")
-  deletedAt                   DateTime?             @map("deleted_at") @db.Timestamptz(6)
-  createdAt                   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                   DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  contractClauses              String?               @map("contract_clauses")
+  customDomain                 String?               @unique @map("custom_domain")
+  customDomainVerifiedAt       DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
+  nightPassEnabled             Boolean               @default(false) @map("night_pass_enabled")
+  nightPassPrice               Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
+  collectionsEnabled           Boolean               @default(false) @map("collections_enabled")
+  collectionsOpenAfterDays     Int                   @default(30) @map("collections_open_after_days")
+  collectionsNoticeDays        Int                   @default(15) @map("collections_notice_days")
+  collectionsClauseRef         String?               @map("collections_clause_ref")
+  winbackEnabled               Boolean               @default(false) @map("winback_enabled")
+  winbackDelayDays             Int                   @default(90) @map("winback_delay_days")
+  winbackSubject               String?               @map("winback_subject")
+  winbackBodyText              String?               @map("winback_body_text")
+  deletedAt                    DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   users                   User[]
   tenantRoles             TenantRole[]
@@ -481,7 +485,7 @@ model Tenant {
   delinquencyCases        DelinquencyCase[]
   retentionOffers         RetentionOffer[]
   expenses                Expense[]
-  recurringExpenses RecurringExpense[]
+  recurringExpenses       RecurringExpense[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
@@ -555,7 +559,7 @@ model User {
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
   retentionOffers          RetentionOffer[]
   expenses                 Expense[]
-  recurringExpenses RecurringExpense[]
+  recurringExpenses        RecurringExpense[]
   delinquencyCaseEvents    DelinquencyCaseEvent[]    @relation("DelinquencyCaseEventCreatedBy")
   delinquencyCaseFiles     DelinquencyCaseFile[]     @relation("DelinquencyCaseFileCreatedBy")
 
@@ -626,24 +630,24 @@ model RecoveryCode {
 
 /// Planes comerciales del SaaS (globales, sin tenant).
 model SubscriptionPlan {
-  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  name           String
-  slug           String   @unique
-  priceMonthly   Decimal  @map("price_monthly") @db.Decimal(10, 2)
-  priceYearly    Decimal  @map("price_yearly") @db.Decimal(10, 2)
-  maxUnits       Int?     @map("max_units")
-  maxFacilities  Int?     @map("max_facilities")
-  maxUsers       Int?     @map("max_users")
-  features       Json     @default("{}")
+  id                  String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name                String
+  slug                String   @unique
+  priceMonthly        Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly         Decimal  @map("price_yearly") @db.Decimal(10, 2)
+  maxUnits            Int?     @map("max_units")
+  maxFacilities       Int?     @map("max_facilities")
+  maxUsers            Int?     @map("max_users")
+  features            Json     @default("{}")
   /// Features premium gateadas por este plan (editable desde /admin/plans).
-  tenantFeatures String[] @map("tenant_features")
-  stripePriceId  String?  @map("stripe_price_id")
+  tenantFeatures      String[] @map("tenant_features")
+  stripePriceId       String?  @map("stripe_price_id")
   /// Stripe Price anual (opcional): el checkout/cambio de plan lo usa cuando
   /// el tenant elige facturación anual.
-  stripePriceIdYearly String? @map("stripe_price_id_yearly")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  stripePriceIdYearly String?  @map("stripe_price_id_yearly")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   subscriptions TenantSubscription[]
 
@@ -864,7 +868,7 @@ model Facility {
   userFacilities       UserFacility[]
   cashClosures         CashClosure[]
   expenses             Expense[]
-  recurringExpenses RecurringExpense[]
+  recurringExpenses    RecurringExpense[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -2086,18 +2090,18 @@ model WaitlistEntry {
 /// Local de la competencia fichado manualmente por el operador (para anclar el
 /// precio). Opcionalmente vinculado a uno de mis locales (con quién compito).
 model CompetitorFacility {
-  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  name       String
-  zone       String?
-  facilityId String?  @map("facility_id") @db.Uuid
+  id               String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  name             String
+  zone             String?
+  facilityId       String?  @map("facility_id") @db.Uuid
   /// ¿Los precios que se registran en sus trasteros incluyen IVA? (algunos
   /// competidores lo muestran con IVA y otros sin él). Se usa para normalizar el
   /// precio a NETO al comparar con el nuestro (que es sin IVA).
-  priceIncludesVat Boolean @default(true) @map("price_includes_vat")
-  notes      String?
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  priceIncludesVat Boolean  @default(true) @map("price_includes_vat")
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility Facility?        @relation(fields: [facilityId], references: [id], onDelete: SetNull)
@@ -2197,7 +2201,6 @@ enum LeadStatus {
 
   @@map("lead_status")
 }
-
 
 enum CommunicationChannel {
   email
@@ -2669,13 +2672,13 @@ model Incident {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  facility   Facility?         @relation("IncidentFacility", fields: [facilityId], references: [id], onDelete: SetNull)
-  unit       Unit?             @relation("IncidentUnit", fields: [unitId], references: [id], onDelete: SetNull)
-  customer   Customer?         @relation("IncidentCustomer", fields: [customerId], references: [id], onDelete: SetNull)
-  contract   Contract?         @relation("IncidentContract", fields: [contractId], references: [id], onDelete: SetNull)
-  assignedTo User?             @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  reportedBy User?             @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: SetNull)
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  facility     Facility?         @relation("IncidentFacility", fields: [facilityId], references: [id], onDelete: SetNull)
+  unit         Unit?             @relation("IncidentUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  customer     Customer?         @relation("IncidentCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  contract     Contract?         @relation("IncidentContract", fields: [contractId], references: [id], onDelete: SetNull)
+  assignedTo   User?             @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  reportedBy   User?             @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: SetNull)
   comments     IncidentComment[]
   cameraEvents CameraEvent[]
 
@@ -2915,10 +2918,10 @@ model AccessCredential {
   createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  customer Customer    @relation("CredentialCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  contract Contract?   @relation("CredentialContract", fields: [contractId], references: [id], onDelete: SetNull)
-  logs     AccessLog[]
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer    Customer               @relation("CredentialCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  contract    Contract?              @relation("CredentialContract", fields: [contractId], references: [id], onDelete: SetNull)
+  logs        AccessLog[]
   syncEntries AccessCredentialSync[]
 
   @@index([tenantId])
@@ -2959,10 +2962,10 @@ model AccessDevice {
   createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  facility Facility    @relation("DeviceFacility", fields: [facilityId], references: [id], onDelete: Cascade)
-  unit     Unit?       @relation("DeviceUnit", fields: [unitId], references: [id], onDelete: SetNull)
-  logs     AccessLog[]
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  facility    Facility               @relation("DeviceFacility", fields: [facilityId], references: [id], onDelete: Cascade)
+  unit        Unit?                  @relation("DeviceUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  logs        AccessLog[]
   syncEntries AccessCredentialSync[]
 
   @@unique([tenantId, hardwareId])
@@ -3023,28 +3026,28 @@ model AccessLog {
 /// Cámara/alarma registrada por el operador. La ingesta de eventos+snapshots es
 /// agnóstica del origen (push del equipo, agente on-site o puente DSS).
 model CameraDevice {
-  id                 String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId           String        @map("tenant_id") @db.Uuid
-  facilityId         String        @map("facility_id") @db.Uuid
-  name               String
-  channel            Int           @default(1)
+  id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  facilityId             String    @map("facility_id") @db.Uuid
+  name                   String
+  channel                Int       @default(1)
   /// Marca/fabricante del equipo, resuelto POR DEVICE (como access_devices.provider).
   /// Hoy la ingesta es agnóstica (webhook); este campo prepara las acciones
   /// salientes futuras (snapshot on-demand, armar/desarmar) que sí hablan la API
   /// del fabricante. `generic` = solo ingesta, sin acciones salientes.
-  provider           String        @default("dahua")
-  serialNumber       String?       @map("serial_number")
+  provider               String    @default("dahua")
+  serialNumber           String?   @map("serial_number")
   /// Base del equipo/NVR (http://<ip>) para acciones salientes (snapshot/armar).
   controlUrl             String?   @map("control_url")
   /// user:pass del equipo, cifrado AES-256-GCM (como access_devices).
   controlSecretEncrypted String?   @map("control_secret_encrypted")
-  ingestTokenHash    String        @map("ingest_token_hash")
-  ingestTokenPreview String        @map("ingest_token_preview")
-  isActive           Boolean       @default(true) @map("is_active")
-  lastEventAt        DateTime?     @map("last_event_at") @db.Timestamptz(6)
-  metadata           Json          @default("{}")
-  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  ingestTokenHash        String    @map("ingest_token_hash")
+  ingestTokenPreview     String    @map("ingest_token_preview")
+  isActive               Boolean   @default(true) @map("is_active")
+  lastEventAt            DateTime? @map("last_event_at") @db.Timestamptz(6)
+  metadata               Json      @default("{}")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility Facility      @relation(fields: [facilityId], references: [id], onDelete: Cascade)
@@ -4159,19 +4162,19 @@ model SubscriptionAddon {
 
 /// Add-on contratado por un tenant (precio congelado al asignar).
 model TenantSubscriptionAddon {
-  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
-  addonId      String    @map("addon_id") @db.Uuid
-  priceMonthly Decimal   @map("price_monthly") @db.Decimal(12, 2)
-  quantity     Int       @default(1)
-  notes        String?
-  nextChargeAt DateTime? @map("next_charge_at") @db.Timestamptz(6)
-  suspendedAt  DateTime? @map("suspended_at") @db.Timestamptz(6)
+  id                       String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                 String    @map("tenant_id") @db.Uuid
+  addonId                  String    @map("addon_id") @db.Uuid
+  priceMonthly             Decimal   @map("price_monthly") @db.Decimal(12, 2)
+  quantity                 Int       @default(1)
+  notes                    String?
+  nextChargeAt             DateTime? @map("next_charge_at") @db.Timestamptz(6)
+  suspendedAt              DateTime? @map("suspended_at") @db.Timestamptz(6)
   /// Modo de cobro: 'manual' (bandeja «Hoy») | 'stripe' (subscription item).
-  billingMode  String    @default("manual") @map("billing_mode")
+  billingMode              String    @default("manual") @map("billing_mode")
   /// Id del subscription item de Stripe si billingMode='stripe'.
-  stripeSubscriptionItemId String? @map("stripe_subscription_item_id")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  stripeSubscriptionItemId String?   @map("stripe_subscription_item_id")
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   addon  SubscriptionAddon @relation(fields: [addonId], references: [id], onDelete: Cascade)

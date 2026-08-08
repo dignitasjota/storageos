@@ -91,9 +91,24 @@ export interface PublicSitemapDto {
   entries: PublicSitemapEntryDto[];
 }
 
+/**
+ * URL base de la web externa del tenant (plantilla `external`). La consume la
+ * ruta de proxy `/tenant-site/<slug>` del web — endpoint ligero, sin datos de
+ * facilities/testimonios.
+ */
+export interface ExternalSiteDto {
+  baseUrl: string;
+}
+
 /** Resolución dominio propio → tenant (la usa el middleware del web). */
 export interface ResolveDomainDto {
   tenantSlug: string;
+  /**
+   * ¿Sirve una web externa (proxy inverso hacia una URL que el tenant aloja
+   * fuera de la plataforma)? El middleware lo usa para enrutar TODO el
+   * dominio propio hacia `/tenant-site/<slug>` en vez de nuestras plantillas.
+   */
+  hasExternalSite: boolean;
 }
 
 /**
