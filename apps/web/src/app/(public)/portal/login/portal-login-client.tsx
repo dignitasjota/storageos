@@ -1,0 +1,284 @@
+'use client';
+
+import Link from 'next/link';
+import { useState } from 'react';
+import { toast } from 'sonner';
+
+import type { PortalSessionDto, PublicTenantBrandDto } from '@storageos/shared';
+
+import { IosInstallHint } from '@/components/pwa/ios-install-hint';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ApiError, apiFetch } from '@/lib/auth/api';
+
+const PORTAL_SESSION_KEY = 'storageos.portal.session';
+const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
+
+/** Persiste la sesión igual que `/portal/consume` para que ésta la recupere. */
+function storePortalSession(s: PortalSessionDto): void {
+  try {
+    localStorage.setItem(
+      PORTAL_SESSION_KEY,
+      JSON.stringify({ ...s, expiresAtMs: Date.now() + s.expiresIn * 1000 }),
+    );
+  } catch {
+    /* localStorage no disponible */
+  }
+}
+
+type Mode = 'link' | 'password';
+
+/**
+ * El slug del tenant y su marca (logo/color) llegan resueltos por el server
+ * component (`page.tsx`): desde `?slug=` (enlace «Acceso clientes» de
+ * nuestras plantillas) o, si se accede por el dominio propio del tenant,
+ * desde la cabecera que fija el middleware — así el login se ve con su
+ * aspecto white-label también cuando el inquilino teclea la URL a mano o
+ * llega desde una web externa que el tenant aloja fuera de la plataforma.
+ */
+export function PortalLoginClient({
+  initialSlug,
+  initialBrand,
+}: {
+  initialSlug: string | null;
+  initialBrand: PublicTenantBrandDto | null;
+}) {
+  const [mode, setMode] = useState<Mode>('link');
+  const [tenantSlug, setTenantSlug] = useState(initialSlug ?? '');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const brand = initialBrand;
+
+  const brandColor = brand?.brandColor ?? undefined;
+  const brandBtn = brandColor ? 'w-full text-white' : 'w-full';
+
+  async function submitLink(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await apiFetch<void>('/portal/login/request', {
+        method: 'POST',
+        json: { tenantSlug, email },
+        requiresAuth: false,
+      });
+      setSent(true);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const session = await apiFetch<PortalSessionDto>('/portal/login/password', {
+        method: 'POST',
+        json: { tenantSlug, email, password },
+        requiresAuth: false,
+      });
+      storePortalSession(session);
+      // La página de consumo recupera la sesión de localStorage al montar.
+      window.location.href = '/portal/consume';
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Email o contraseña incorrectos');
+      setLoading(false);
+    }
+  }
+
+  async function forgot() {
+    if (!tenantSlug || !email) {
+      toast.error('Indica la empresa y el email.');
+      return;
+    }
+    try {
+      await apiFetch<void>('/portal/login/forgot', {
+        method: 'POST',
+        json: { tenantSlug, email },
+        requiresAuth: false,
+      });
+      toast.success(
+        'Si el email pertenece a algún cliente, te enviamos un enlace para tu contraseña.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      {brand && (
+        <header className="border-b border-border/60">
+          <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-3">
+            <Link
+              href={`/s/${brand.tenantSlug}`}
+              className="flex items-center gap-2 font-semibold"
+              aria-label={brand.tenantName}
+            >
+              {brand.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={brand.logoUrl}
+                  alt={brand.tenantName}
+                  className="h-7 w-auto object-contain"
+                />
+              ) : (
+                <span>{brand.tenantName}</span>
+              )}
+            </Link>
+          </div>
+        </header>
+      )}
+      <div className="container flex flex-1 flex-col items-center gap-4 py-12">
+        <Card className="w-full max-w-md border-border/60">
+          <CardHeader className="space-y-2 text-center">
+            <CardTitle className="text-2xl">
+              {brand ? `Acceso de clientes · ${brand.tenantName}` : 'Portal del inquilino'}
+            </CardTitle>
+            <CardDescription>
+              Consulta tus facturas, paga online y gestiona tu cuenta.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {sent ? (
+              <div className="space-y-3 text-center text-sm">
+                <p>
+                  Hemos enviado un enlace a <strong>{email}</strong> (si pertenece a algún tenant).
+                </p>
+                <p className="text-muted-foreground">El enlace caduca en 30 minutos.</p>
+                <Button variant="outline" onClick={() => setSent(false)}>
+                  Probar con otro email
+                </Button>
+              </div>
+            ) : (
+              <>
+                {/* Selector de método */}
+                <div className="mb-4 grid grid-cols-2 gap-1 rounded-md bg-muted p-1 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setMode('link')}
+                    className={`rounded px-3 py-1.5 font-medium transition ${
+                      mode === 'link' ? 'bg-background shadow-sm' : 'text-muted-foreground'
+                    }`}
+                  >
+                    Enlace por email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('password')}
+                    className={`rounded px-3 py-1.5 font-medium transition ${
+                      mode === 'password' ? 'bg-background shadow-sm' : 'text-muted-foreground'
+                    }`}
+                  >
+                    Contraseña
+                  </button>
+                </div>
+
+                <form
+                  className="space-y-4"
+                  onSubmit={mode === 'link' ? submitLink : submitPassword}
+                  noValidate
+                >
+                  {!brand && (
+                    <div>
+                      <Label>Empresa (slug del tenant)</Label>
+                      <Input
+                        value={tenantSlug}
+                        onChange={(e) => setTenantSlug(e.target.value)}
+                        autoComplete="organization"
+                        autoCapitalize="off"
+                        placeholder="acme"
+                        className="text-base sm:text-sm"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                      className="text-base sm:text-sm"
+                    />
+                  </div>
+                  {mode === 'password' && (
+                    <div>
+                      <Label>Contraseña</Label>
+                      <Input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        className="text-base sm:text-sm"
+                      />
+                    </div>
+                  )}
+                  <Button
+                    type="submit"
+                    className={brandBtn}
+                    style={brandColor ? { backgroundColor: brandColor } : undefined}
+                    disabled={
+                      loading || !tenantSlug || !email || (mode === 'password' && !password)
+                    }
+                  >
+                    {loading
+                      ? mode === 'link'
+                        ? 'Enviando...'
+                        : 'Entrando...'
+                      : mode === 'link'
+                        ? 'Enviar enlace'
+                        : 'Entrar'}
+                  </Button>
+                </form>
+
+                {mode === 'password' ? (
+                  <p className="mt-4 text-center text-xs text-muted-foreground">
+                    ¿Olvidaste la contraseña o aún no la tienes?{' '}
+                    <button
+                      type="button"
+                      className="underline hover:text-foreground"
+                      onClick={() => void forgot()}
+                    >
+                      Te enviamos un enlace para establecerla
+                    </button>
+                    .
+                  </p>
+                ) : (
+                  <p className="mt-4 text-center text-xs text-muted-foreground">
+                    Sin contraseña: te enviamos un enlace de acceso de un solo uso.
+                  </p>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+        <div className="w-full max-w-md">
+          <IosInstallHint />
+        </div>
+      </div>
+      {brand && (
+        <footer className="border-t border-border/60">
+          <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              © {new Date().getUTCFullYear()} {brand.tenantName}
+            </p>
+            <a
+              href={SAAS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition hover:text-foreground"
+            >
+              Creado con TrasterOS
+            </a>
+          </div>
+        </footer>
+      )}
+    </div>
+  );
+}
