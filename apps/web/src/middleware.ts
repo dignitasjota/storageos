@@ -99,6 +99,12 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     const { slug, hasExternalSite } = await resolveSlug(host);
     if (slug) {
       const route = resolveCustomDomainRoute(pathname, slug, { externalSite: hasExternalSite });
+      // El tenant se identifica SIEMPRE por esta cabecera cuando se accede vía
+      // su dominio propio (portal, login, cualquier página pública) — no
+      // depende de que la URL lleve `?slug=` (que nuestras plantillas añaden,
+      // pero una web externa del tenant o un enlace tecleado a mano no).
+      const headers = new Headers(req.headers);
+      headers.set('x-storageos-tenant-slug', slug);
       if (route.action === 'rewrite') {
         const url = req.nextUrl.clone();
         url.pathname = route.path;
@@ -106,7 +112,6 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
         // `/reservar`): `usePathname()` en el cliente vería la ruta original,
         // no `route.path` — por eso se marca con una cabecera para que el
         // layout público (server) fuerce el marco "sin plataforma".
-        const headers = new Headers(req.headers);
         headers.set('x-storageos-tenant-public', '1');
         return NextResponse.rewrite(url, { request: { headers } });
       }
@@ -116,7 +121,7 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
           308,
         );
       }
-      return NextResponse.next();
+      return NextResponse.next({ request: { headers } });
     }
     // Host no resoluble (dominio no registrado/verificado): pasa tal cual.
   }

@@ -131,6 +131,22 @@ export class PortalService {
     );
   }
 
+  /**
+   * URL base del portal para un tenant: su dominio propio si está
+   * VERIFICADO (los enlaces por email —login/reset— apuntan a
+   * `midominio.com`, no a `trasteros.pro`, para que el inquilino nunca vea
+   * la plataforma) o, si no, la de la plataforma (`WEB_BASE_URL`).
+   */
+  private portalBaseUrl(tenant: {
+    customDomain: string | null;
+    customDomainVerifiedAt: Date | null;
+  }): string {
+    if (tenant.customDomain && tenant.customDomainVerifiedAt) {
+      return `https://${tenant.customDomain}`;
+    }
+    return this.config.get('WEB_BASE_URL', { infer: true });
+  }
+
   /** Portal: inicia el mandato GoCardless del propio inquilino. */
   async startMyGoCardlessMandate(
     tenantId: string,
@@ -187,10 +203,16 @@ export class PortalService {
     userId: string,
     meta: { ipAddress: string | null; userAgent: string | null },
   ): Promise<PortalMagicLinkDto> {
-    const customer = await this.admin.customer.findFirst({
-      where: { id: customerId, tenantId, deletedAt: null },
-      select: { id: true },
-    });
+    const [customer, tenant] = await Promise.all([
+      this.admin.customer.findFirst({
+        where: { id: customerId, tenantId, deletedAt: null },
+        select: { id: true },
+      }),
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { customDomain: true, customDomainVerifiedAt: true },
+      }),
+    ]);
     if (!customer) {
       throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
     }
@@ -202,8 +224,8 @@ export class PortalService {
       { secretHash, customerId, tenantId },
       STAFF_MAGIC_LINK_TTL_SECONDS,
     );
-    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
-    const url = `${webBase}/portal/consume?token=${tokenId}.${secret}`;
+    const base = this.portalBaseUrl(tenant ?? { customDomain: null, customDomainVerifiedAt: null });
+    const url = `${base}/portal/consume?token=${tokenId}.${secret}`;
     const expiresAt = new Date(Date.now() + STAFF_MAGIC_LINK_TTL_SECONDS * 1000).toISOString();
     // Trazabilidad: quién generó un acceso al portal de este inquilino (no se
     // registra el token/secreto, solo el hecho y su caducidad).
@@ -254,8 +276,7 @@ export class PortalService {
       tenantId: tenant.id,
     });
 
-    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
-    const link = `${webBase}/portal/consume?token=${tokenId}.${secret}`;
+    const link = `${this.portalBaseUrl(tenant)}/portal/consume?token=${tokenId}.${secret}`;
     await this.email.send({
       to: input.email,
       subject: `Accede a tu cuenta de ${tenant.name}`,
@@ -327,7 +348,12 @@ export class PortalService {
       });
     };
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
-    if (!tenant || tenant.deletedAt || tenant.status === 'suspended' || tenant.status === 'cancelled') {
+    if (
+      !tenant ||
+      tenant.deletedAt ||
+      tenant.status === 'suspended' ||
+      tenant.status === 'cancelled'
+    ) {
       return fail();
     }
     // Debe resolver a EXACTAMENTE un cliente con contraseña (el email no es único
@@ -384,8 +410,7 @@ export class PortalService {
       RESET_TOKEN_TTL_SECONDS,
       RESET_KEY_PREFIX,
     );
-    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
-    const link = `${webBase}/portal/reset?token=${tokenId}.${secret}`;
+    const link = `${this.portalBaseUrl(tenant)}/portal/reset?token=${tokenId}.${secret}`;
     await this.email.send({
       to: input.email,
       subject: `Restablece tu contraseña de ${tenant.name}`,
@@ -445,10 +470,16 @@ export class PortalService {
     userId: string,
     meta: { ipAddress: string | null; userAgent: string | null },
   ): Promise<PortalMagicLinkDto> {
-    const customer = await this.admin.customer.findFirst({
-      where: { id: customerId, tenantId, deletedAt: null },
-      select: { id: true },
-    });
+    const [customer, tenant] = await Promise.all([
+      this.admin.customer.findFirst({
+        where: { id: customerId, tenantId, deletedAt: null },
+        select: { id: true },
+      }),
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { customDomain: true, customDomainVerifiedAt: true },
+      }),
+    ]);
     if (!customer) {
       throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
     }
@@ -461,8 +492,8 @@ export class PortalService {
       STAFF_RESET_TTL_SECONDS,
       RESET_KEY_PREFIX,
     );
-    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
-    const url = `${webBase}/portal/reset?token=${tokenId}.${secret}`;
+    const base = this.portalBaseUrl(tenant ?? { customDomain: null, customDomainVerifiedAt: null });
+    const url = `${base}/portal/reset?token=${tokenId}.${secret}`;
     const expiresAt = new Date(Date.now() + STAFF_RESET_TTL_SECONDS * 1000).toISOString();
     await this.audit.write({
       tenantId,
