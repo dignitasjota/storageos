@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { utmFields } from '../communications/schemas';
+
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 
 /** Firma pública (remota o self-service) enviada por el inquilino. */
@@ -34,6 +36,7 @@ export const PublicBookingSchema = z.object({
   referralCode: z.string().trim().toUpperCase().max(32).optional().or(z.literal('')),
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
+  ...utmFields,
 });
 export type PublicBookingInput = z.infer<typeof PublicBookingSchema>;
 
@@ -49,5 +52,6 @@ export const CaptureBookingLeadSchema = z.object({
   unitTypeId: z.string().uuid().optional(),
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
+  ...utmFields,
 });
 export type CaptureBookingLeadInput = z.infer<typeof CaptureBookingLeadSchema>;

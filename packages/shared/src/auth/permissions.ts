@@ -65,6 +65,8 @@ export const Permissions = [
   'collections:manage', // gestionar expedientes de impago (owner+manager)
   'expenses:read',
   'expenses:manage', // registrar/editar gastos (owner+manager, contabilidad)
+  'marketing:read',
+  'marketing:manage', // canales/campañas de captación (owner+manager)
   'referrals:read',
   'access:read',
   'access:manage',

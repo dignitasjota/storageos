@@ -30,7 +30,14 @@ type ExpenseRow = {
   notes: string | null;
   createdAt: Date;
   facility: { name: string } | null;
+  marketingChannelId: string | null;
+  marketingChannel: { name: string } | null;
 };
+
+const EXPENSE_INCLUDE = {
+  facility: { select: { name: true } },
+  marketingChannel: { select: { name: true } },
+} satisfies Prisma.ExpenseInclude;
 
 type RecurringRow = {
   id: string;
@@ -43,7 +50,14 @@ type RecurringRow = {
   lastGeneratedMonth: Date | null;
   createdAt: Date;
   facility: { name: string } | null;
+  marketingChannelId: string | null;
+  marketingChannel: { name: string } | null;
 };
+
+const RECURRING_INCLUDE = {
+  facility: { select: { name: true } },
+  marketingChannel: { select: { name: true } },
+} satisfies Prisma.RecurringExpenseInclude;
 
 @Injectable()
 export class ExpensesService {
@@ -69,7 +83,7 @@ export class ExpensesService {
       }
       const rows = await tx.expense.findMany({
         where,
-        include: { facility: { select: { name: true } } },
+        include: EXPENSE_INCLUDE,
         orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
         take: 500,
       });
@@ -94,8 +108,9 @@ export class ExpensesService {
           vendor: input.vendor?.trim() || null,
           notes: input.notes?.trim() || null,
           createdByUserId: userId,
+          marketingChannelId: input.marketingChannelId ?? null,
         },
-        include: { facility: { select: { name: true } } },
+        include: EXPENSE_INCLUDE,
       });
       return this.toDto(row);
     }, tenantId);
@@ -119,10 +134,15 @@ export class ExpensesService {
         data.expenseDate = new Date(`${input.expenseDate}T00:00:00.000Z`);
       if (input.vendor !== undefined) data.vendor = input.vendor?.trim() || null;
       if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
+      if (input.marketingChannelId !== undefined) {
+        data.marketingChannel = input.marketingChannelId
+          ? { connect: { id: input.marketingChannelId } }
+          : { disconnect: true };
+      }
       const row = await tx.expense.update({
         where: { id },
         data,
-        include: { facility: { select: { name: true } } },
+        include: EXPENSE_INCLUDE,
       });
       return this.toDto(row);
     }, tenantId);
@@ -225,7 +245,7 @@ export class ExpensesService {
   async listRecurring(tenantId: string): Promise<RecurringExpenseDto[]> {
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.recurringExpense.findMany({
-        include: { facility: { select: { name: true } } },
+        include: RECURRING_INCLUDE,
         orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
       });
       return rows.map((r) => this.toRecurringDto(r));
@@ -248,8 +268,9 @@ export class ExpensesService {
           dayOfMonth: input.dayOfMonth,
           active: input.active,
           createdByUserId: userId,
+          marketingChannelId: input.marketingChannelId ?? null,
         },
-        include: { facility: { select: { name: true } } },
+        include: RECURRING_INCLUDE,
       });
       return this.toRecurringDto(row);
     }, tenantId);
@@ -274,10 +295,15 @@ export class ExpensesService {
       if (input.amount !== undefined) data.amount = input.amount;
       if (input.dayOfMonth !== undefined) data.dayOfMonth = input.dayOfMonth;
       if (input.active !== undefined) data.active = input.active;
+      if (input.marketingChannelId !== undefined) {
+        data.marketingChannel = input.marketingChannelId
+          ? { connect: { id: input.marketingChannelId } }
+          : { disconnect: true };
+      }
       const row = await tx.recurringExpense.update({
         where: { id },
         data,
-        include: { facility: { select: { name: true } } },
+        include: RECURRING_INCLUDE,
       });
       return this.toRecurringDto(row);
     }, tenantId);
@@ -323,6 +349,7 @@ export class ExpensesService {
             amount: r.amount,
             expenseDate,
             notes: 'Generado automáticamente (gasto recurrente)',
+            marketingChannelId: r.marketingChannelId,
           },
         });
         await tx.recurringExpense.update({
@@ -371,6 +398,8 @@ export class ExpensesService {
       lastGeneratedMonth: r.lastGeneratedMonth
         ? r.lastGeneratedMonth.toISOString().slice(0, 10)
         : null,
+      marketingChannelId: r.marketingChannelId,
+      marketingChannelName: r.marketingChannel?.name ?? null,
       createdAt: r.createdAt.toISOString(),
     };
   }
@@ -386,6 +415,8 @@ export class ExpensesService {
       expenseDate: r.expenseDate.toISOString().slice(0, 10),
       vendor: r.vendor,
       notes: r.notes,
+      marketingChannelId: r.marketingChannelId,
+      marketingChannelName: r.marketingChannel?.name ?? null,
       createdAt: r.createdAt.toISOString(),
     };
   }

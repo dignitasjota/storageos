@@ -49,6 +49,8 @@ export interface TodayDto {
   unitChangesPending: number;
   /** Mensajes de inquilinos sin leer. */
   unreadMessages: number;
+  /** Canales de marketing activos que renuevan (suscripción/anuncio) en ≤7 días. */
+  marketingRenewalsDue: { count: number; items: TodayItemDto[] };
 }
 
 /** Un paso del onboarding del operador (primeros pasos guiados). */

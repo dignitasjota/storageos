@@ -81,6 +81,9 @@ export class BookingService {
             firstName: input.firstName?.trim() || null,
             preferredFacilityId: input.facilityId ?? null,
             preferredUnitTypeId: input.unitTypeId ?? null,
+            utmSource: input.utmSource ?? null,
+            utmMedium: input.utmMedium ?? null,
+            utmCampaign: input.utmCampaign ?? null,
             metadata: {
               origin: 'booking',
               userAgent: meta.userAgent ?? null,
@@ -262,6 +265,55 @@ export class BookingService {
         cancellationNoticeDays: 15,
       },
     });
+
+    // Marketing: si había un lead sin convertir para este email (captureLead
+    // email-first, u otro origen), se marca `won` con la conversión — así el
+    // informe de rendimiento de marketing cuenta esta reserva. Si no había
+    // ninguno (el visitante saltó el paso email-first), se crea ya `won` para
+    // no perder la atribución UTM del enlace por el que llegó. Best-effort en
+    // su propia transacción: nunca debe bloquear ni revertir la reserva.
+    try {
+      await this.prisma.withTenant(async (tx) => {
+        const existingLead = await tx.lead.findFirst({
+          where: {
+            email: input.customer.email,
+            status: { in: ['new', 'contacted', 'qualified'] },
+            deletedAt: null,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (existingLead) {
+          await tx.lead.update({
+            where: { id: existingLead.id },
+            data: {
+              status: 'won',
+              wonAt: new Date(),
+              convertedCustomerId: customerId,
+              convertedContractId: contract.id,
+            },
+          });
+        } else {
+          await tx.lead.create({
+            data: {
+              tenantId,
+              source: 'widget',
+              email: input.customer.email,
+              firstName: input.customer.firstName.trim(),
+              lastName: input.customer.lastName.trim(),
+              status: 'won',
+              wonAt: new Date(),
+              convertedCustomerId: customerId,
+              convertedContractId: contract.id,
+              utmSource: input.utmSource ?? null,
+              utmMedium: input.utmMedium ?? null,
+              utmCampaign: input.utmCampaign ?? null,
+            },
+          });
+        }
+      }, tenantId);
+    } catch (err) {
+      this.logger.warn(`[booking] tracking de lead best-effort falló: ${(err as Error).message}`);
+    }
 
     // Plazo del hold: si el inquilino no firma+paga en 72 h, el BookingExpiryCron
     // cancela el contrato (→ libera la unidad reservada). Sin este deadline, un

@@ -23,6 +23,8 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
  *   - `/public/widget/...` — embeds ya desplegados en sitios externos del
  *     cliente final; no podemos forzar un redirect que reescribiria URLs
  *     en `<iframe>` o `<script>` instalados fuera de nuestro control.
+ *   - `/public/marketing/go/...` — enlace corto de campaña impreso en
+ *     carteles/flyers/QR; la URL debe ser estable una vez impresa.
  *
  * Usamos **308** (no 301/302) porque preserva el metodo HTTP y el body
  * del request original. Esto es crítico para POST/PUT/PATCH/DELETE.
@@ -53,7 +55,8 @@ export const legacyRedirectHandler: RequestHandler = (req, res, next) => {
     url.startsWith('/api/docs') ||
     url.startsWith('/webhooks/') ||
     url.startsWith('/public/widget/') ||
-    url.startsWith('/public/landing/')
+    url.startsWith('/public/landing/') ||
+    url.startsWith('/public/marketing/go/')
   ) {
     return next();
   }

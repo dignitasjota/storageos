@@ -36,6 +36,8 @@ export const CreateExpenseSchema = z.object({
   expenseDate: dateOnly,
   vendor: z.string().trim().max(200).optional().or(z.literal('')),
   notes: z.string().trim().max(2000).optional().or(z.literal('')),
+  /** Canal de marketing al que se imputa (solo aplica con category='marketing'). */
+  marketingChannelId: z.string().uuid().nullish(),
 });
 export type CreateExpenseInput = z.infer<typeof CreateExpenseSchema>;
 
@@ -52,6 +54,8 @@ export interface ExpenseDto {
   expenseDate: string;
   vendor: string | null;
   notes: string | null;
+  marketingChannelId: string | null;
+  marketingChannelName: string | null;
   createdAt: string;
 }
 
@@ -64,6 +68,8 @@ export const CreateRecurringExpenseSchema = z.object({
   /** Día del mes (1-28) en que se imputa el gasto generado. */
   dayOfMonth: z.number().int().min(1).max(28).default(1),
   active: z.boolean().default(true),
+  /** Canal de marketing al que se imputa (se propaga a cada gasto generado). */
+  marketingChannelId: z.string().uuid().nullish(),
 });
 export type CreateRecurringExpenseInput = z.infer<typeof CreateRecurringExpenseSchema>;
 
@@ -80,6 +86,8 @@ export interface RecurringExpenseDto {
   dayOfMonth: number;
   active: boolean;
   lastGeneratedMonth: string | null;
+  marketingChannelId: string | null;
+  marketingChannelName: string | null;
   createdAt: string;
 }
 
