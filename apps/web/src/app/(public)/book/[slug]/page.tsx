@@ -36,6 +36,12 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
   const [website, setWebsite] = useState(''); // honeypot
   const [referralCode, setReferralCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // UTM de la URL (p. ej. desde el enlace corto /g/<code> de una campaña
+  // física): se capturan una vez al montar y se reenvían en el lead y en la
+  // reserva para que el rendimiento de marketing pueda atribuir la conversión.
+  const [utm, setUtm] = useState<{ utmSource?: string; utmMedium?: string; utmCampaign?: string }>(
+    {},
+  );
 
   useEffect(() => {
     apiFetch<BookingAvailabilityDto>(`/public/move-in/book/${slug}/availability`, {
@@ -44,6 +50,18 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
       .then(setData)
       .catch((err) => setLoadError(err instanceof ApiError ? err.body.message : 'No disponible'));
   }, [slug]);
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const next: typeof utm = {};
+    const source = sp.get('utm_source');
+    const medium = sp.get('utm_medium');
+    const campaign = sp.get('utm_campaign');
+    if (source) next.utmSource = source;
+    if (medium) next.utmMedium = medium;
+    if (campaign) next.utmCampaign = campaign;
+    if (Object.keys(next).length > 0) setUtm(next);
+  }, []);
 
   const facility = data?.facilities.find((f) => f.id === facilityId);
   const selectedType = facility?.unitTypes.find((t) => t.id === unitTypeId);
@@ -64,6 +82,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
           ...(facilityId ? { facilityId } : {}),
           ...(unitTypeId ? { unitTypeId } : {}),
           website,
+          ...utm,
         },
       });
     } catch {
@@ -85,6 +104,7 @@ export default function BookPage({ params }: { params: Promise<{ slug: string }>
           customer: form,
           ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
           website,
+          ...utm,
         },
       });
       router.push(`/sign/${res.signingToken}`);

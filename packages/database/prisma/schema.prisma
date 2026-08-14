@@ -486,6 +486,7 @@ model Tenant {
   retentionOffers         RetentionOffer[]
   expenses                Expense[]
   recurringExpenses       RecurringExpense[]
+  marketingChannels       MarketingChannel[]
   delinquencyCaseEvents   DelinquencyCaseEvent[]
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
@@ -869,6 +870,7 @@ model Facility {
   cashClosures         CashClosure[]
   expenses             Expense[]
   recurringExpenses    RecurringExpense[]
+  marketingChannels    MarketingChannel[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -1219,27 +1221,69 @@ model RetentionOffer {
 /// Gasto del operador (para la cuenta de resultados / P&L por local). Anclado a
 /// un local (`facilityId`) o general de la empresa (null).
 model Expense {
-  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  facilityId      String?  @map("facility_id") @db.Uuid
+  id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  facilityId         String?  @map("facility_id") @db.Uuid
   /// rent | utilities | staff | maintenance | marketing | insurance | supplies | taxes | other
-  category        String   @default("other")
-  description     String
-  amount          Decimal  @db.Decimal(12, 2)
-  expenseDate     DateTime @map("expense_date") @db.Date
-  vendor          String?
-  notes           String?
-  createdByUserId String?  @map("created_by_user_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  category           String   @default("other")
+  description        String
+  amount             Decimal  @db.Decimal(12, 2)
+  expenseDate        DateTime @map("expense_date") @db.Date
+  vendor             String?
+  notes              String?
+  createdByUserId    String?  @map("created_by_user_id") @db.Uuid
+  /// Canal de marketing al que se imputa este gasto (categoría `marketing`),
+  /// para calcular coste-por-lead/CAC por canal. Opcional.
+  marketingChannelId String?  @map("marketing_channel_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
-  createdBy User?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility         Facility?         @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  createdBy        User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, expenseDate(sort: Desc)])
   @@index([tenantId, facilityId])
+  @@index([tenantId, marketingChannelId])
   @@map("expenses")
+}
+
+/// Control de marketing: catálogo de canales/campañas de captación (portales
+/// inmobiliarios, Google/Meta Ads, publicidad física...). El coste real se
+/// imputa vinculando `Expense` (categoría `marketing`) a este canal; los leads
+/// se atribuyen comparando `leads.source`/`utmSource` contra `utmSourceMatch`.
+/// `shortCode` + `clickCount` sirven para un enlace corto/QR de campañas
+/// físicas (carteles, flyers) servido en `/g/<shortCode>`.
+model MarketingChannel {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  facilityId     String?   @map("facility_id") @db.Uuid
+  promotionId    String?   @map("promotion_id") @db.Uuid
+  /// real_estate_portal | google_ads | meta_ads | physical | referral_program | other
+  type           String    @default("other")
+  name           String
+  /// active | paused | ended
+  status         String    @default("active")
+  externalUrl    String?   @map("external_url")
+  monthlyCost    Decimal?  @map("monthly_cost") @db.Decimal(10, 2)
+  renewsOn       DateTime? @map("renews_on") @db.Date
+  utmSourceMatch String?   @map("utm_source_match")
+  shortCode      String?   @unique @map("short_code")
+  clickCount     Int       @default(0) @map("click_count")
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility          Facility?          @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  promotion         Promotion?         @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+
+  @@index([tenantId, status])
+  @@map("marketing_channels")
 }
 
 /// Plantilla de gasto recurrente: define un gasto fijo mensual; un cron genera
@@ -1257,12 +1301,16 @@ model RecurringExpense {
   /// Primer día del mes del último gasto generado (dedup: 1 por mes).
   lastGeneratedMonth DateTime? @map("last_generated_month") @db.Date
   createdByUserId    String?   @map("created_by_user_id") @db.Uuid
+  /// Canal de marketing al que se imputa (p. ej. la cuota mensual de un
+  /// portal inmobiliario) — se propaga a cada `Expense` generado.
+  marketingChannelId String?   @map("marketing_channel_id") @db.Uuid
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
-  createdBy User?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility         Facility?         @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  createdBy        User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  marketingChannel MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, active])
   @@map("recurring_expenses")
@@ -1659,9 +1707,10 @@ model Promotion {
   createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  referrals Referral[]
-  contracts Contract[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  referrals         Referral[]
+  contracts         Contract[]
+  marketingChannels MarketingChannel[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])

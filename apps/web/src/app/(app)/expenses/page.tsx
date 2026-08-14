@@ -44,6 +44,7 @@ import {
   useUpdateRecurringExpense,
 } from '@/lib/expenses/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useMarketingChannels } from '@/lib/marketing/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const CATEGORIES = ExpenseCategoryEnum.options;
@@ -57,6 +58,39 @@ function monthRange(): { from: string; to: string } {
     .slice(0, 10);
   const to = now.toISOString().slice(0, 10);
   return { from, to };
+}
+
+/** Selector de canal de marketing — solo aporta valor con categoría `marketing`. */
+function MarketingChannelField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const channels = useMarketingChannels();
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">Canal de marketing (opcional)</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>Sin canal</SelectItem>
+          {(channels.data ?? []).map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Vincula el gasto a un canal para ver su rendimiento (coste por lead, CAC…) en Marketing →
+        Rendimiento.
+      </p>
+    </div>
+  );
 }
 
 export default function ExpensesPage() {
@@ -352,6 +386,7 @@ function ExpenseDialog({
     expense?.expenseDate ?? new Date().toISOString().slice(0, 10),
   );
   const [vendor, setVendor] = useState(expense?.vendor ?? '');
+  const [marketingChannelId, setMarketingChannelId] = useState(expense?.marketingChannelId ?? NONE);
   const busy = create.isPending || update.isPending;
 
   const payload = useMemo(
@@ -362,8 +397,9 @@ function ExpenseDialog({
       amount: Number(amount) || 0,
       expenseDate,
       vendor: vendor.trim(),
+      marketingChannelId: marketingChannelId === NONE ? null : marketingChannelId,
     }),
-    [facilityId, category, description, amount, expenseDate, vendor],
+    [facilityId, category, description, amount, expenseDate, vendor, marketingChannelId],
   );
 
   async function save() {
@@ -448,6 +484,9 @@ function ExpenseDialog({
             <Label className="text-xs">Proveedor (opcional)</Label>
             <Input value={vendor} onChange={(e) => setVendor(e.target.value)} />
           </div>
+          {category === 'marketing' && (
+            <MarketingChannelField value={marketingChannelId} onChange={setMarketingChannelId} />
+          )}
         </div>
         <DialogFooter>
           <Button onClick={save} disabled={busy}>
@@ -588,6 +627,9 @@ function RecurringDialog({
   const [amount, setAmount] = useState(String(recurring?.amount ?? ''));
   const [dayOfMonth, setDayOfMonth] = useState(String(recurring?.dayOfMonth ?? 1));
   const [active, setActive] = useState(recurring?.active ?? true);
+  const [marketingChannelId, setMarketingChannelId] = useState(
+    recurring?.marketingChannelId ?? NONE,
+  );
   const busy = create.isPending || update.isPending;
 
   async function save() {
@@ -596,6 +638,7 @@ function RecurringDialog({
       category,
       description: description.trim(),
       amount: Number(amount) || 0,
+      marketingChannelId: marketingChannelId === NONE ? null : marketingChannelId,
       dayOfMonth: Math.min(28, Math.max(1, Number(dayOfMonth) || 1)),
       active,
     };
@@ -678,6 +721,9 @@ function RecurringDialog({
             <Label className="text-xs">Concepto</Label>
             <Input value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
+          {category === 'marketing' && (
+            <MarketingChannelField value={marketingChannelId} onChange={setMarketingChannelId} />
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Activo (se genera cada mes)

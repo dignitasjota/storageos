@@ -6,6 +6,7 @@ import type { TodayDto, TodayItemDto } from '@storageos/shared';
 
 const SOON_DAYS = 30; // contratos que vencen pronto
 const RESERVATION_SOON_DAYS = 7;
+const MARKETING_RENEWAL_SOON_DAYS = 7;
 const TAKE = 8;
 
 function customerName(c: {
@@ -35,6 +36,9 @@ export class TodayService {
     endOfToday.setHours(23, 59, 59, 999);
     const contractsLimit = new Date(now.getTime() + SOON_DAYS * 86_400_000);
     const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
+    const marketingRenewalsLimit = new Date(
+      now.getTime() + MARKETING_RENEWAL_SOON_DAYS * 86_400_000,
+    );
     const today = { gte: startOfToday, lte: endOfToday };
     const customerSelect = {
       select: { customerType: true, firstName: true, lastName: true, companyName: true },
@@ -79,6 +83,8 @@ export class TodayService {
         collectionsDeadlinesCount,
         depositsToSettle,
         depositsToSettleCount,
+        marketingRenewals,
+        marketingRenewalsCount,
       ] = await Promise.all([
         tx.task.findMany({
           where: {
@@ -252,6 +258,26 @@ export class TodayService {
             ...facContract,
           },
         }),
+        // Canales de marketing activos que renuevan (suscripción/anuncio) pronto.
+        tx.marketingChannel.findMany({
+          where: {
+            deletedAt: null,
+            status: 'active',
+            renewsOn: { not: null, gte: startOfToday, lte: marketingRenewalsLimit },
+            ...facTaskIncident,
+          },
+          orderBy: [{ renewsOn: 'asc' }],
+          take: TAKE,
+          select: { id: true, name: true, renewsOn: true, monthlyCost: true },
+        }),
+        tx.marketingChannel.count({
+          where: {
+            deletedAt: null,
+            status: 'active',
+            renewsOn: { not: null, gte: startOfToday, lte: marketingRenewalsLimit },
+            ...facTaskIncident,
+          },
+        }),
       ]);
 
       const totalPending =
@@ -359,6 +385,15 @@ export class TodayService {
         incidentsOpen,
         unitChangesPending,
         unreadMessages,
+        marketingRenewalsDue: {
+          count: marketingRenewalsCount,
+          items: marketingRenewals.map((c) => ({
+            id: c.id,
+            label: c.name,
+            detail: c.monthlyCost !== null ? `${Number(c.monthlyCost)}€/mes` : null,
+            date: c.renewsOn ? c.renewsOn.toISOString() : null,
+          })),
+        },
       };
     }, tenantId);
   }
