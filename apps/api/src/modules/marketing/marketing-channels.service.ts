@@ -68,6 +68,7 @@ export class MarketingChannelsService {
           monthlyCost: input.monthlyCost ?? null,
           renewsOn: input.renewsOn ? new Date(`${input.renewsOn}T00:00:00.000Z`) : null,
           utmSourceMatch,
+          externalCampaignId: input.externalCampaignId?.trim() || null,
           shortCode,
           notes: input.notes?.trim() || null,
         },
@@ -114,6 +115,9 @@ export class MarketingChannelsService {
       }
       if (input.utmSourceMatch !== undefined) {
         data.utmSourceMatch = input.utmSourceMatch?.trim() || null;
+      }
+      if (input.externalCampaignId !== undefined) {
+        data.externalCampaignId = input.externalCampaignId?.trim() || null;
       }
       if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
       const row = await tx.marketingChannel.update({
@@ -329,6 +333,7 @@ export class MarketingChannelsService {
       monthlyCost: r.monthlyCost !== null ? num(r.monthlyCost) : null,
       renewsOn: r.renewsOn ? r.renewsOn.toISOString().slice(0, 10) : null,
       utmSourceMatch: r.utmSourceMatch,
+      externalCampaignId: r.externalCampaignId,
       shortCode: r.shortCode,
       shortUrl: r.shortCode ? `${base.replace(/\/$/, '')}/g/${r.shortCode}` : null,
       clickCount: r.clickCount,

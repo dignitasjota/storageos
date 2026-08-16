@@ -11,23 +11,36 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { CreateMarketingChannelSchema, UpdateMarketingChannelSchema } from '@storageos/shared';
+import {
+  CreateMarketingChannelSchema,
+  SyncAdSpendSchema,
+  UpdateMarketingChannelSchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { AdSpendSyncService } from './ad-platforms/ad-spend-sync.service';
 import { MarketingChannelsService } from './marketing-channels.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import type { MarketingChannelDto, MarketingPerformanceDto } from '@storageos/shared';
+import type {
+  MarketingChannelDto,
+  MarketingPerformanceDto,
+  SyncAdSpendResultDto,
+} from '@storageos/shared';
 
 class CreateMarketingChannelDto extends createZodDto(CreateMarketingChannelSchema) {}
 class UpdateMarketingChannelDto extends createZodDto(UpdateMarketingChannelSchema) {}
+class SyncAdSpendDto extends createZodDto(SyncAdSpendSchema) {}
 
 @Controller('marketing/channels')
 export class MarketingController {
-  constructor(private readonly channels: MarketingChannelsService) {}
+  constructor(
+    private readonly channels: MarketingChannelsService,
+    private readonly adSpendSync: AdSpendSyncService,
+  ) {}
 
   @RequirePermission('marketing:read')
   @Get()
@@ -82,5 +95,17 @@ export class MarketingController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
     await this.channels.remove(user.tenantId, id);
+  }
+
+  /** Sincroniza a mano el gasto (Google Ads/Meta Ads) de un canal vinculado a una campaña externa. */
+  @RequirePermission('marketing:manage')
+  @Post(':id/sync-ad-spend')
+  @HttpCode(HttpStatus.OK)
+  syncAdSpend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SyncAdSpendDto,
+  ): Promise<SyncAdSpendResultDto> {
+    return this.adSpendSync.syncChannel(user.tenantId, id, body.from, body.to);
   }
 }

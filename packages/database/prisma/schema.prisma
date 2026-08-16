@@ -451,6 +451,8 @@ model Tenant {
   redsysSettings          RedsysSettings?
   redsysOrders            RedsysOrder[]
   goCardlessSettings      GoCardlessSettings?
+  googleAdsSettings       GoogleAdsSettings?
+  metaAdsSettings         MetaAdsSettings?
   notifications           Notification[]
   apiKeys                 ApiKey[]
   webhooks                Webhook[]
@@ -1235,6 +1237,10 @@ model Expense {
   /// Canal de marketing al que se imputa este gasto (categoría `marketing`),
   /// para calcular coste-por-lead/CAC por canal. Opcional.
   marketingChannelId String?  @map("marketing_channel_id") @db.Uuid
+  /// Idempotencia del gasto sincronizado automáticamente desde una plataforma
+  /// de anuncios: `<google_ads|meta_ads>:<id de campaña>:<fecha>`. Null en
+  /// los gastos introducidos a mano.
+  externalRef        String?  @unique @map("external_ref")
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1269,6 +1275,9 @@ model MarketingChannel {
   monthlyCost    Decimal?  @map("monthly_cost") @db.Decimal(10, 2)
   renewsOn       DateTime? @map("renews_on") @db.Date
   utmSourceMatch String?   @map("utm_source_match")
+  /// ID de campaña en Google Ads / Meta Ads (según `type`), para
+  /// sincronizar su gasto automáticamente. Ver `AdSpendSyncService`.
+  externalCampaignId String? @map("external_campaign_id")
   shortCode      String?   @unique @map("short_code")
   clickCount     Int       @default(0) @map("click_count")
   notes          String?
@@ -3346,6 +3355,52 @@ model HoldedSettings {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("holded_settings")
+}
+
+/// Credenciales de Google Ads pegadas a mano por el tenant (Client ID/Secret
+/// del OAuth app + refresh token generado por el propio tenant, p. ej. vía el
+/// OAuth Playground de Google + su developer token). Sin flujo OAuth propio
+/// gestionado por la plataforma (evita depender de la aprobación de Google).
+model GoogleAdsSettings {
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String    @unique @map("tenant_id") @db.Uuid
+  clientId                String?   @map("client_id")
+  clientSecretEncrypted   String?   @map("client_secret_encrypted")
+  developerTokenEncrypted String?   @map("developer_token_encrypted")
+  refreshTokenEncrypted   String?   @map("refresh_token_encrypted")
+  /// ID de la cuenta de Google Ads (p. ej. "1234567890", sin guiones).
+  customerId              String?   @map("customer_id")
+  /// ID de la cuenta gestora (MCC), si la cuenta está gestionada bajo una.
+  loginCustomerId         String?   @map("login_customer_id")
+  enabled                 Boolean   @default(false)
+  lastSyncAt              DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastError               String?   @map("last_error")
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("google_ads_settings")
+}
+
+/// Credenciales de Meta Ads (Facebook/Instagram): token de acceso de larga
+/// duración generado por el tenant desde su Business Manager + ID de la
+/// cuenta publicitaria.
+model MetaAdsSettings {
+  id                   String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @unique @map("tenant_id") @db.Uuid
+  accessTokenEncrypted String?   @map("access_token_encrypted")
+  /// ID de la cuenta publicitaria (p. ej. "act_1234567890").
+  adAccountId          String?   @map("ad_account_id")
+  enabled              Boolean   @default(false)
+  lastSyncAt           DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastError            String?   @map("last_error")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("meta_ads_settings")
 }
 
 /// Notificación in-app del panel (feed de actividad del tenant). Bandeja
