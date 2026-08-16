@@ -3,7 +3,14 @@ import { MODEL_347_THRESHOLD } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 
-import type { Model303Dto, Model347Dto, Model347Row, VatBookDto } from '@storageos/shared';
+import type {
+  AccountingExportDto,
+  AccountingExportRow,
+  Model303Dto,
+  Model347Dto,
+  Model347Row,
+  VatBookDto,
+} from '@storageos/shared';
 
 /** Estados que cuentan a efectos fiscales (devengo): todo salvo borrador/anulada. */
 const FISCAL_STATUSES = ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] as const;
@@ -23,6 +30,30 @@ function customerName(
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+const STATUS_LABELS: Record<string, string> = {
+  issued: 'Pendiente',
+  paid: 'Pagada',
+  overdue: 'Vencida',
+  refunded: 'Reembolsada',
+  partially_refunded: 'Reembolsada (parcial)',
+};
+
+function parseRange(from: string, to: string): { fromD: Date; toD: Date } {
+  const fromD = new Date(`${from}T00:00:00Z`);
+  const toD = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(fromD.getTime()) || Number.isNaN(toD.getTime()) || fromD > toD) {
+    throw new BadRequestException({ code: 'invalid_range', message: 'Rango de fechas no válido' });
+  }
+  return { fromD, toD };
+}
+
+/** `DD/MM/AAAA` — formato de fecha habitual en la importación de software contable español. */
+function ddmmyyyy(d: Date): string {
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getUTCFullYear()}`;
+}
+
 function quarterRange(year: number, quarter: number): { from: Date; to: Date } {
   const startMonth = (quarter - 1) * 3;
   return {
@@ -37,14 +68,7 @@ export class FiscalService {
 
   /** Libro registro de facturas expedidas (IVA emitido) en un rango de fechas. */
   async vatBook(tenantId: string, from: string, to: string): Promise<VatBookDto> {
-    const fromD = new Date(`${from}T00:00:00Z`);
-    const toD = new Date(`${to}T00:00:00Z`);
-    if (Number.isNaN(fromD.getTime()) || Number.isNaN(toD.getTime()) || fromD > toD) {
-      throw new BadRequestException({
-        code: 'invalid_range',
-        message: 'Rango de fechas no válido',
-      });
-    }
+    const { fromD, toD } = parseRange(from, to);
     const invoices = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findMany({
@@ -240,5 +264,77 @@ export class FiscalService {
       .sort((a, b) => b.total - a.total);
 
     return { year, threshold: MODEL_347_THRESHOLD, rows };
+  }
+
+  /**
+   * Exportación contable genérica (A3/Sage y similares): una fila por
+   * (factura × tipo de IVA presente en ella), para que el asesor la importe
+   * en su software y mapee las columnas la primera vez (plantilla
+   * reutilizable después — ni A3 ni Sage exigen un layout fijo).
+   */
+  async accountingExport(tenantId: string, from: string, to: string): Promise<AccountingExportDto> {
+    const { fromD, toD } = parseRange(from, to);
+    const invoices = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: { in: [...FISCAL_STATUSES] },
+            issueDate: { gte: fromD, lte: toD },
+          },
+          select: {
+            invoiceNumber: true,
+            issueDate: true,
+            invoiceType: true,
+            status: true,
+            total: true,
+            customer: {
+              select: {
+                customerType: true,
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                documentNumber: true,
+              },
+            },
+            items: { select: { taxRate: true, taxAmount: true, total: true } },
+          },
+          orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
+        }),
+      tenantId,
+    );
+
+    const rows: AccountingExportRow[] = [];
+    for (const inv of invoices) {
+      const byRate = new Map<number, { base: number; vat: number }>();
+      for (const item of inv.items) {
+        const rate = Number(item.taxRate);
+        const lineBase = Number(item.total) - Number(item.taxAmount);
+        const prev = byRate.get(rate) ?? { base: 0, vat: 0 };
+        byRate.set(rate, { base: prev.base + lineBase, vat: prev.vat + Number(item.taxAmount) });
+      }
+      const issueDate = inv.issueDate ? ddmmyyyy(inv.issueDate) : null;
+      const name = customerName(inv.customer);
+      const nif = inv.customer?.documentNumber ?? null;
+      const invoiceTotal = round2(Number(inv.total));
+      for (const [rate, v] of [...byRate.entries()].sort((a, b) => b[0] - a[0])) {
+        rows.push({
+          invoiceNumber: inv.invoiceNumber,
+          issueDate,
+          invoiceType: inv.invoiceType,
+          customerName: name,
+          customerNif: nif,
+          taxRate: rate,
+          base: round2(v.base),
+          vat: round2(v.vat),
+          lineTotal: round2(v.base + v.vat),
+          invoiceTotal,
+          status: STATUS_LABELS[inv.status] ?? inv.status,
+        });
+      }
+    }
+
+    return { from, to, rows };
   }
 }

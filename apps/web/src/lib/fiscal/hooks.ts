@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
-import type { Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
+import type { AccountingExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
 
 export function useVatBook(from: string, to: string, enabled = true) {
   return useQuery({
@@ -23,6 +23,14 @@ export function useModel347(year: number) {
   return useQuery({
     queryKey: ['fiscal', 'model-347', year] as const,
     queryFn: () => apiFetch<Model347Dto>(`/fiscal/model-347?year=${year}`),
+  });
+}
+
+export function useAccountingExport(from: string, to: string, enabled = true) {
+  return useQuery({
+    queryKey: ['fiscal', 'accounting-export', from, to] as const,
+    queryFn: () => apiFetch<AccountingExportDto>(`/fiscal/accounting-export?from=${from}&to=${to}`),
+    enabled: enabled && !!from && !!to,
   });
 }
 

@@ -16,7 +16,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { downloadCsv, useModel303, useModel347, useVatBook } from '@/lib/fiscal/hooks';
+import {
+  downloadCsv,
+  useAccountingExport,
+  useModel303,
+  useModel347,
+  useVatBook,
+} from '@/lib/fiscal/hooks';
 
 const eur = (n: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
@@ -40,6 +46,7 @@ export default function FiscalPage() {
           <TabsTrigger value="vat-book">Libro de IVA</TabsTrigger>
           <TabsTrigger value="m303">Modelo 303</TabsTrigger>
           <TabsTrigger value="m347">Modelo 347</TabsTrigger>
+          <TabsTrigger value="accounting-export">Exportación A3/Sage</TabsTrigger>
         </TabsList>
         <TabsContent value="vat-book">
           <VatBookTab />
@@ -49,6 +56,9 @@ export default function FiscalPage() {
         </TabsContent>
         <TabsContent value="m347">
           <Model347Tab />
+        </TabsContent>
+        <TabsContent value="accounting-export">
+          <AccountingExportTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -316,6 +326,126 @@ function Model347Tab() {
             )}
           </TableBody>
         </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AccountingExportTab() {
+  const [from, setFrom] = useState(`${YEAR}-01-01`);
+  const [to, setTo] = useState(`${YEAR}-12-31`);
+  const data = useAccountingExport(from, to);
+
+  function exportCsv() {
+    if (!data.data) return;
+    const rows: (string | number)[][] = [
+      [
+        'Fecha',
+        'Nº factura',
+        'Tipo',
+        'Cliente',
+        'NIF',
+        '% IVA',
+        'Base',
+        'Cuota IVA',
+        'Total línea',
+        'Total factura',
+        'Estado',
+      ],
+      ...data.data.rows.map((r) => [
+        r.issueDate ?? '',
+        r.invoiceNumber,
+        r.invoiceType,
+        r.customerName,
+        r.customerNif ?? '',
+        r.taxRate,
+        r.base,
+        r.vat,
+        r.lineTotal,
+        r.invoiceTotal,
+        r.status,
+      ]),
+    ];
+    downloadCsv(`exportacion-contable-${from}_${to}.csv`, rows);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Exportación contable (A3/Sage y similares)</CardTitle>
+            <CardDescription>
+              Una fila por factura y tipo de IVA, lista para importar en tu software de
+              contabilidad. Ni A3 ni Sage exigen un formato fijo: la primera vez mapeas las columnas
+              en su asistente de importación y guardas la plantilla para reutilizarla.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Desde</Label>
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Hasta</Label>
+              <Input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <Button variant="outline" onClick={exportCsv} disabled={!data.data?.rows.length}>
+              <Download className="mr-1 h-4 w-4" /> CSV
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-[60vh] overflow-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fecha</TableHead>
+                <TableHead>Nº</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>NIF</TableHead>
+                <TableHead className="text-right">% IVA</TableHead>
+                <TableHead className="text-right">Base</TableHead>
+                <TableHead className="text-right">Cuota</TableHead>
+                <TableHead className="text-right">Total línea</TableHead>
+                <TableHead>Estado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data.data?.rows ?? []).map((r, i) => (
+                <TableRow key={`${r.invoiceNumber}-${r.taxRate}-${i}`}>
+                  <TableCell className="text-xs">{r.issueDate}</TableCell>
+                  <TableCell className="text-xs font-mono">{r.invoiceNumber}</TableCell>
+                  <TableCell className="text-xs">{r.customerName}</TableCell>
+                  <TableCell className="text-xs">{r.customerNif ?? '—'}</TableCell>
+                  <TableCell className="text-right text-xs">{r.taxRate}%</TableCell>
+                  <TableCell className="text-right text-xs">{eur(r.base)}</TableCell>
+                  <TableCell className="text-right text-xs">{eur(r.vat)}</TableCell>
+                  <TableCell className="text-right text-xs">{eur(r.lineTotal)}</TableCell>
+                  <TableCell className="text-xs">{r.status}</TableCell>
+                </TableRow>
+              ))}
+              {data.data && data.data.rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
+                    Sin facturas en el periodo.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );
