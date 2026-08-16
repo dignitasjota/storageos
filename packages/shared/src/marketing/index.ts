@@ -54,6 +54,12 @@ export const CreateMarketingChannelSchema = z.object({
    * vacío). Vacío = el canal no se cruza con leads (solo tracking de coste).
    */
   utmSourceMatch: z.string().trim().max(120).optional().or(z.literal('')),
+  /**
+   * ID de campaña en Google Ads / Meta Ads (según `type`) para sincronizar
+   * su gasto automáticamente — requiere haber configurado las credenciales
+   * de esa plataforma. Vacío = coste manual (vinculando un gasto), como hoy.
+   */
+  externalCampaignId: z.string().trim().max(120).optional().or(z.literal('')),
   notes: z.string().trim().max(2000).optional().or(z.literal('')),
 });
 export type CreateMarketingChannelInput = z.infer<typeof CreateMarketingChannelSchema>;
@@ -74,6 +80,7 @@ export interface MarketingChannelDto {
   monthlyCost: number | null;
   renewsOn: string | null;
   utmSourceMatch: string | null;
+  externalCampaignId: string | null;
   /** `<slug>` de `/g/<shortCode>` — null si el canal no tiene enlace corto (solo canales físicos lo usan). */
   shortCode: string | null;
   /** URL completa lista para imprimir en un QR/cartel, o null. */
@@ -116,3 +123,5 @@ export interface MarketingShortLinkResolveDto {
   /** URL destino a la que redirigir (booking del tenant con UTM ya incluidos). */
   targetUrl: string;
 }
+
+export * from './ad-platforms';

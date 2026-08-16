@@ -14,6 +14,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { GoogleAdsCard, MetaAdsCard } from './ad-platform-cards';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,11 +43,13 @@ import {
   useCreateMarketingChannel,
   useDeleteMarketingChannel,
   useMarketingChannels,
+  useSyncAdSpend,
   useUpdateMarketingChannel,
 } from '@/lib/marketing/hooks';
 import { usePromotions } from '@/lib/promotions/hooks';
 
 const NONE = '__none__';
+const AD_PLATFORM_TYPES = new Set(['google_ads', 'meta_ads']);
 const TYPES = MarketingChannelTypeEnum.options;
 const STATUSES = MarketingChannelStatusEnum.options;
 
@@ -106,6 +110,18 @@ export default function MarketingChannelsPage() {
         )}
       </div>
 
+      {canManage && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Conexiones con plataformas de anuncios
+          </h2>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <GoogleAdsCard />
+            <MetaAdsCard />
+          </div>
+        </div>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Canales</CardTitle>
@@ -138,7 +154,14 @@ export default function MarketingChannelsPage() {
                   {rows.map((c) => (
                     <tr key={c.id} className="border-t">
                       <td className="p-2">
-                        <div className="font-medium">{c.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">{c.name}</span>
+                          {c.externalCampaignId && (
+                            <Badge variant="outline" className="text-[10px]">
+                              Gasto sincronizado
+                            </Badge>
+                          )}
+                        </div>
                         {c.externalUrl && (
                           <a
                             href={c.externalUrl}
@@ -274,6 +297,7 @@ function ChannelDialog({
 }) {
   const create = useCreateMarketingChannel();
   const update = useUpdateMarketingChannel();
+  const sync = useSyncAdSpend();
   const [type, setType] = useState<MarketingChannelType>(channel?.type ?? 'other');
   const [name, setName] = useState(channel?.name ?? '');
   const [status, setStatus] = useState<MarketingChannelStatus>(channel?.status ?? 'active');
@@ -287,8 +311,23 @@ function ChannelDialog({
   );
   const [renewsOn, setRenewsOn] = useState(channel?.renewsOn ?? '');
   const [utmSourceMatch, setUtmSourceMatch] = useState(channel?.utmSourceMatch ?? '');
+  const [externalCampaignId, setExternalCampaignId] = useState(channel?.externalCampaignId ?? '');
   const [notes, setNotes] = useState(channel?.notes ?? '');
   const busy = create.isPending || update.isPending;
+
+  async function syncNow() {
+    if (!channel) return;
+    try {
+      const res = await sync.mutateAsync({ channelId: channel.id });
+      toast.success(
+        res.synced > 0
+          ? `Gasto sincronizado: ${res.synced} día(s), ${res.totalCost.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}.`
+          : 'Sincronizado: sin gasto en el periodo.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo sincronizar.');
+    }
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -305,6 +344,7 @@ function ChannelDialog({
       ...(monthlyCost.trim() ? { monthlyCost: Number(monthlyCost) } : { monthlyCost: undefined }),
       renewsOn,
       utmSourceMatch: utmSourceMatch.trim(),
+      externalCampaignId: externalCampaignId.trim(),
       notes: notes.trim(),
     };
     try {
@@ -433,6 +473,36 @@ function ChannelDialog({
               rendimiento.
             </p>
           </div>
+          {AD_PLATFORM_TYPES.has(type) && (
+            <div className="space-y-1">
+              <Label className="text-xs">ID de campaña externa (opcional)</Label>
+              <Input
+                value={externalCampaignId}
+                onChange={(e) => setExternalCampaignId(e.target.value)}
+                placeholder={
+                  type === 'google_ads'
+                    ? 'ID de campaña de Google Ads'
+                    : 'ID de campaña de Meta Ads'
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Vincúlala a una campaña para sincronizar su gasto automáticamente (requiere activar
+                la conexión con {MARKETING_CHANNEL_TYPE_LABELS[type]} arriba).
+              </p>
+              {channel && externalCampaignId.trim() && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={syncNow}
+                  disabled={sync.isPending}
+                >
+                  {sync.isPending && <Loader2 className="mr-1 size-3.5 animate-spin" />}
+                  Sincronizar gasto ahora
+                </Button>
+              )}
+            </div>
+          )}
           <div className="space-y-1">
             <Label className="text-xs">Notas (opcional)</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />

@@ -21,6 +21,7 @@ import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
 import { InventoryModule } from '../../api/src/modules/inventory/inventory.module';
 import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance.module';
+import { MarketingModule } from '../../api/src/modules/marketing/marketing.module';
 import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
@@ -138,6 +139,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     MaintenanceModule,
     NotificationsModule,
     ReviewsModule,
+    // MarketingModule: cron diario de sincronización de gasto (Google Ads/Meta Ads).
+    MarketingModule,
     RentIncreasesModule,
     // MrrModule: cron mensual de snapshot de MRR (para los MRR movements).
     MrrModule,
