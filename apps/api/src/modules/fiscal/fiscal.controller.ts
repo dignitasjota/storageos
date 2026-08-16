@@ -8,7 +8,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 
 import { FiscalService } from './fiscal.service';
 
-import type { Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
+import type { AccountingExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
 
 function parseYear(raw: string | undefined): number {
   const y = Number(raw);
@@ -50,5 +50,18 @@ export class FiscalController {
     @Query('year') year: string,
   ): Promise<Model347Dto> {
     return this.fiscal.model347(user.tenantId, parseYear(year));
+  }
+
+  /** Exportación contable genérica (A3/Sage y similares): una fila por factura×tipo de IVA. */
+  @Get('accounting-export')
+  accountingExport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ): Promise<AccountingExportDto> {
+    if (!from || !to) {
+      throw new BadRequestException({ code: 'range_required', message: 'Indica from y to' });
+    }
+    return this.fiscal.accountingExport(user.tenantId, from, to);
   }
 }

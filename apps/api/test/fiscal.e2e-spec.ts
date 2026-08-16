@@ -75,4 +75,55 @@ describe('Informes fiscales (libro IVA + 303 + 347) (e2e)', () => {
     // Año inválido → 400.
     await request(app.getHttpServer()).get('/fiscal/model-347?year=abc').set(auth).expect(400);
   });
+
+  it('exportación contable (A3/Sage): una fila por factura×tipo de IVA', async () => {
+    const owner = await registerVerifiedUser(app, 'fiscal-acc');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken);
+
+    // Factura con dos tipos de IVA en la misma factura: alquiler 100€ (21%) +
+    // fianza 50€ (0%, indemnizatoria) — debe desglosarse en 2 filas.
+    const created = await request(app.getHttpServer())
+      .post('/invoices')
+      .set(auth)
+      .send({
+        customerId,
+        items: [
+          { description: 'Alquiler', quantity: 1, unitPrice: 100, taxRate: 21 },
+          { description: 'Fianza', quantity: 1, unitPrice: 50, taxRate: 0 },
+        ],
+      });
+    expect(created.status).toBe(201);
+    const invoiceId = created.body.id as string;
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+
+    const now = new Date();
+    const year = now.getUTCFullYear();
+
+    const res = await request(app.getHttpServer())
+      .get(`/fiscal/accounting-export?from=${year}-01-01&to=${year}-12-31`)
+      .set(auth);
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(2);
+
+    const row21 = res.body.rows.find((r: { taxRate: number }) => r.taxRate === 21);
+    const row0 = res.body.rows.find((r: { taxRate: number }) => r.taxRate === 0);
+    expect(row21).toMatchObject({ base: 100, vat: 21, lineTotal: 121, invoiceTotal: 171 });
+    expect(row0).toMatchObject({ base: 50, vat: 0, lineTotal: 50, invoiceTotal: 171 });
+    expect(row21.status).toBe('Pendiente');
+    expect(row21.issueDate).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+
+    // Sin rango → 400.
+    await request(app.getHttpServer()).get('/fiscal/accounting-export').set(auth).expect(400);
+    // Rango inválido → 400.
+    await request(app.getHttpServer())
+      .get('/fiscal/accounting-export?from=abc&to=def')
+      .set(auth)
+      .expect(400);
+    // Sin autenticación → 401.
+    await request(app.getHttpServer())
+      .get(`/fiscal/accounting-export?from=${year}-01-01&to=${year}-12-31`)
+      .expect(401);
+  });
 });
