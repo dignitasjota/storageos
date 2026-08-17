@@ -16,23 +16,31 @@ facial, agente Bridge) antes de equipar el local completo.
 ## ⚠️ Verificar ANTES de pedir
 
 - [ ] **Controladora ASC4201C-D — integración por HTTP CGI de terceros**
-  (`recordUpdater.cgi` / `accessControl.cgi` / `recordFinder.cgi` /
-  `eventManager.cgi`), no solo NetSDK/DSS. Es lo que usa nuestro adapter Dahua.
-  «API disponible» es buena señal; se confirma en el smoke con el kit. Si fuera
-  **solo NetSDK** → hay que escribir un adapter nuevo (más trabajo).
-- [ ] **Lector ASR2201A con teclado (PIN)** además de tarjeta (confirmado) →
-  el inquilino abre con tarjeta **o** con su PIN del portal. (Estos lectores **no
-  leen QR**; el facial necesitaría un terminal ASI, no este lector.)
+      (`recordUpdater.cgi` / `accessControl.cgi` / `recordFinder.cgi` /
+      `eventManager.cgi`), no solo NetSDK/DSS. Es lo que usa nuestro adapter Dahua.
+      «API disponible» es buena señal; se confirma en el smoke con el kit. Si fuera
+      **solo NetSDK** → hay que escribir un adapter nuevo (más trabajo).
+- [ ] **Lector ASR2101A con teclado (PIN)** además de tarjeta (confirmado por
+      manual oficial, `docs/HARDWARE_DAHUA.md` §A.12) → el inquilino abre con
+      tarjeta **o** con su PIN del portal. (Estos lectores **no leen QR**; el
+      facial necesitaría un terminal ASI, no este lector.)
+- [ ] **Cifrado por sectores de las tarjetas Mifare** — de fábrica las tarjetas
+      IC **no van cifradas y se clonan con cualquier móvil con NFC** (confirmado
+      por el manual oficial del lector). Exigir al instalador/proveedor de
+      tarjetas que active el cifrado por sectores (tarjeta + lector programados a
+      juego) **antes** de emitir credenciales RFID a inquilinos reales — no es
+      algo que se pueda arreglar después desde el software.
 - [ ] **NVR compatible con AirShield**: que el modelo de NVR lleve **menú IoT** y
-  admita enlazar el **Alarm Hub AirShield** (para el timeline unificado
-  alarma+vídeo). Si no, la alarma va por su cuenta.
+      admita enlazar el **Alarm Hub AirShield** (para el timeline unificado
+      alarma+vídeo). Si no, la alarma va por su cuenta.
 
 ---
 
 ## 🧪 KIT PILOTO (primera compra, ~700–1.000 € + IVA)
 
 Objetivo: 1 puerta peatonal con accesos + facial + 2 cámaras + alarma de 1–2 zonas
-+ el agente on-site. Suficiente para cerrar todos los `VERIFY` del software.
+
+- el agente on-site. Suficiente para cerrar todos los `VERIFY` del software.
 
 ### Accesos (1 puerta) — **configuración elegida: controladora + lector (Patrón B, anti-vandálico)**
 
@@ -42,8 +50,8 @@ Objetivo: 1 puerta peatonal con accesos + facial + 2 cámaras + alarma de 1–2 
 > «tu móvil es la llave» (el portal se lo muestra al inquilino). **QR y facial NO**
 > con este lector — para facial haría falta un terminal ASI6214S/7214 en esa puerta.
 
-- [ ] **1× Controladora de accesos Dahua ASC4201C-D** (1 puerta, red, Patrón B; **confirmar API HTTP CGI de terceros** en el smoke) — *va en armario protegido* · 100–180 €
-- [ ] **1× Lector Dahua ASR2201A** (tarjeta + **teclado/PIN**, metálico anti-vandálico, Wiegand/RS-485) · 60–120 €
+- [ ] **1× Controladora de accesos Dahua ASC4201C-D** (1 puerta, red, Patrón B; **confirmar API HTTP CGI de terceros** en el smoke) — _va en armario protegido_ · 100–180 €
+- [ ] **1× Lector Dahua ASR2101A** (tarjeta + **teclado/PIN**, metálico anti-vandálico, Wiegand/RS-485) · 60–120 €
 - [ ] 1× Abrepuertas eléctrico **fail-secure** 12 V (Dorcas/CDVI) · 30–60 €
 - [ ] 1× Cerradura mecánica + **bombín amaestrado** (llave maestra del staff, último recurso) · 40–80 €
 - [ ] 1× Fuente 12 V 3–5 A con hueco de batería + **1× batería 12 V 7 Ah AGM** («SAI de la puerta») · 55–95 €
@@ -58,17 +66,20 @@ Objetivo: 1 puerta peatonal con accesos + facial + 2 cámaras + alarma de 1–2 
 > prueba el add-on `facial_access`.
 
 ### Cámaras (mínimo para probar la ingesta)
-- [ ] **1× NVR Dahua PoE 4 canales** (serie NVR4x04-P, *con menú IoT — ver arriba*) · 120–200 €
+
+- [ ] **1× NVR Dahua PoE 4 canales** (serie NVR4x04-P, _con menú IoT — ver arriba_) · 120–200 €
 - [ ] 1× Disco WD Purple 2 TB · 60–90 €
 - [ ] **2× Cámara IP PoE 4 MP con IA** (IPC-HDW2441 domo / IPC-HFW2441 bullet): 1 entrada + 1 recepción · 60–120 €/ud
 
 ### Alarma (mínima)
+
 - [ ] **1× Alarm Hub AirShield ARC3800H** (batería integrada) · 150–250 €
 - [ ] 1–2× Detector PIR inalámbrico (o **PIR-Cam** con foto de verificación) · 30–120 €/ud
 - [ ] 1× Sirena interior inalámbrica AirShield · 50–90 €
 
 ### Infraestructura on-site (el «cerebro» del local)
-- [ ] **1× Agente on-site**: Raspberry Pi 5 (o mini-PC) + SSD + fuente — *aquí corre el agente Bridge (`apps/bridge`)* · 80–150 €
+
+- [ ] **1× Agente on-site**: Raspberry Pi 5 (o mini-PC) + SSD + fuente — _aquí corre el agente Bridge (`apps/bridge`)_ · 80–150 €
 - [ ] 1× Switch PoE 8 puertos (terminal ASI + cámaras) · 60–100 €
 - [ ] 1× SAI/UPS 600–1000 VA (router + switch + NVR + agente) · 80–150 €
 
@@ -80,22 +91,26 @@ Local mediano de referencia: 1 puerta + pasillos + (opcional) cancela, ~6 cámar
 alarma de 4 zonas. Suma sobre el piloto.
 
 ### Accesos
+
 - [ ] Terminal adicional por cada **puerta peatonal** extra (repetir el bloque de accesos del piloto)
 - [ ] **Cancela de vehículos** (opcional): motor con **desbloqueo manual por llave** + relé accionado por el terminal o 2º lector — ver `HARDWARE_CANCELA.md`
 
 ### Cámaras (hasta 6–8)
+
 - [ ] Ampliar a **NVR 8 canales** si superas 4 cámaras (serie NVR4x08-P) · 200–300 €
 - [ ] Disco WD Purple 4 TB (si grabas 24/7) · +30–60 €
 - [ ] **+4 cámaras IP PoE 4 MP con IA** (1/pasillo · muelle · cancela) · 60–120 €/ud
 - [ ] Cable UTP Cat6 por cámara · 50–100 €
 
 ### Alarma (4 zonas)
+
 - [ ] Ampliar a **1 PIR por zona** (recepción, pasillos, muelle) · 30–120 €/ud
 - [ ] Contactos magnéticos inalámbricos en puertas de acceso/emergencia · 25–40 €/ud
 - [ ] **Sirena exterior** inalámbrica · 50–90 €
 - [ ] Teclado/mando de armado (opcional; normalmente se arma por app/horario) · 30–60 €
 
 ### Red / rack
+
 - [ ] **Router con failover 4G/LTE** (Teltonika RUT241/RUT906): si cae la fibra, el push y el sync siguen por 4G · 150–250 €
 - [ ] Armario/caja rack **con llave** · 60–120 €
 - [ ] Config: **VLAN de dispositivos** (cámaras/terminal sin salida a internet salvo el push)
@@ -104,12 +119,12 @@ alarma de 4 zonas. Suma sobre el piloto.
 
 ## 💶 Presupuesto orientativo
 
-| Configuración | Rango (hardware, IVA aparte) |
-|---|---|
-| **Kit piloto** (1 puerta + 2 cámaras + alarma mínima + agente) | **~700–1.000 €** |
-| **Local completo** (1 puerta + 6–8 cámaras + alarma 4 zonas + red) | **~2.200–3.700 €** |
-| + puerta peatonal adicional | +500–800 €/ud |
-| + cancela de vehículos | según motor (ver `HARDWARE_CANCELA.md`) |
+| Configuración                                                      | Rango (hardware, IVA aparte)            |
+| ------------------------------------------------------------------ | --------------------------------------- |
+| **Kit piloto** (1 puerta + 2 cámaras + alarma mínima + agente)     | **~700–1.000 €**                        |
+| **Local completo** (1 puerta + 6–8 cámaras + alarma 4 zonas + red) | **~2.200–3.700 €**                      |
+| + puerta peatonal adicional                                        | +500–800 €/ud                           |
+| + cancela de vehículos                                             | según motor (ver `HARDWARE_CANCELA.md`) |
 
 Instalación (electricista/instalador de seguridad) aparte.
 
