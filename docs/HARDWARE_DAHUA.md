@@ -613,6 +613,33 @@ Authentication` el lector deja entrar tecleando **solo el `Password`**, sin
    `1970-01-01`..`2037-12-31`). De paso corrige el mismo problema latente en el
    **pase nocturno** (que solo enviaba `ValidDateEnd`, dejando `ValidDateStart`
    vacío).
+4. 🐛 **`CardStatus`/`CardType`/`ValidDateEnd` (caducidad) NO bloquean el
+   desbloqueo por solo-PIN en este firmware** — probado exhaustivamente y de
+   forma limpia (aislando confusiones anteriores): `CardStatus=8` (Arrearage/
+   impago), `CardStatus=2` (Canceled), `CardType=4` (Blocklist card) y
+   `ValidDateEnd` en el pasado (`2020-01-01`) **siguen dejando entrar** con el
+   PIN. Esto rompía por completo el **corte de acceso por impago**
+   (`applyState` → `setState(..., 'suspended')` solo cambiaba `CardStatus`,
+   sin efecto real). También se probó (y se descartó) editar el **plan
+   horario compartido** (`General Plan`/`Holiday Plan` de la web, índices
+   0-127): funciona a nivel de bloque completo, pero un mismo plan lo
+   comparten varias credenciales — bloquear vía plan afectaría a todos los
+   que lo usen, no solo al moroso. **Lo único que corta el acceso de verdad**
+   (confirmado repetidas veces, de forma limpia): que `Doors[]` de la
+   credencial **no incluya el canal real** de la puerta. `action=remove`
+   (borrar el registro) lo consigue siempre, pero además — idea de Jota — se
+   puede lograr con un simple `action=update` **"aparcando" el permiso en
+   OTRO canal válido** del equipo (p. ej. `Doors[0]=1` cuando la puerta real
+   es la `0`), sin borrar nada: mucho menos código, y confirmado end-to-end
+   con el código real (`DahuaSyncProvider.setState`, rama
+   `fix/dahua-credential-suspend-door-swap`). ⚠️ **Limitación**: asume que el
+   controlador tiene **al menos 2 puertas válidas** para poder "aparcar" el
+   permiso en la otra — en un controlador de **1 sola puerta** (como el
+   ASC4201C-D que se asumía al principio) no habría dónde aparcarlo y habría
+   que usar `remove`+re-`insert` en su lugar (mandar un canal inventado tipo
+   `9` se comporta de forma **impredecible**: el firmware lo "corrige" a otro
+   valor sin avisar, probado y descartado). Con la **ASC4202C-D del piloto (2
+   puertas confirmadas)** el swap funciona sin problema.
 
 ---
 

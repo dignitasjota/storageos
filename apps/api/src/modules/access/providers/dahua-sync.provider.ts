@@ -234,6 +234,27 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
     return { ref: cardNo };
   }
 
+  /**
+   * Puerta a la que se asigna la credencial según su estado — CONFIRMADO con
+   * el kit físico (smoke 2026-08-17): `CardStatus` (Arrearage=8, Canceled=2)
+   * NO bloquea el desbloqueo por solo-PIN en este firmware, probado varias
+   * veces de forma limpia. Lo único que corta el acceso de verdad es que el
+   * canal de la credencial (`Doors[]`) **no incluya la puerta real** — así
+   * que suspender/revocar "aparca" el permiso en el OTRO canal válido del
+   * equipo (`1 - realDoorIndex`, alternando 0/1) en vez de dejarlo sin
+   * ninguno (mandar un canal inventado, p. ej. `9`, se comporta de forma
+   * IMPREDECIBLE — el firmware lo "corrige" a algún valor sin avisar).
+   * ⚠️ Asume que el controlador tiene **al menos 2 puertas válidas** (es el
+   * caso de la ASC4202C-D del piloto, ver `docs/HARDWARE_DAHUA.md §A.11`) —
+   * en un controlador de 1 sola puerta este mecanismo no tendría a dónde
+   * "aparcar" el permiso y necesitaría revisarse (candidato: `remove`+re-`insert`).
+   */
+  private doorIndexFor(device: SyncDevice, state: SyncState): number {
+    const realDoorIndex = Math.max(0, device.channel - 1);
+    if (state === 'active') return realDoorIndex;
+    return realDoorIndex === 0 ? 1 : 0;
+  }
+
   async setState(device: SyncDevice, ref: string, state: SyncState): Promise<void> {
     const c = this.creds(device);
     if (!c || !device.controlUrl) return;
@@ -246,8 +267,11 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       ...(recno ? { recno } : { CardNo: ref }),
       CardStatus: String(this.cardStatus(state)),
     });
+    // `Doors[0]` a mano (no vía URLSearchParams), mismo motivo que en el
+    // insert: no arriesgar el encoding de `[]` sin validar con el firmware.
+    const doorIndex = this.doorIndexFor(device, state);
     const res = await digestRequest({
-      url: `${this.base(device)}/cgi-bin/recordUpdater.cgi?${params}`,
+      url: `${this.base(device)}/cgi-bin/recordUpdater.cgi?${params}&Doors[0]=${doorIndex}`,
       username: c.user,
       password: c.pass,
     });

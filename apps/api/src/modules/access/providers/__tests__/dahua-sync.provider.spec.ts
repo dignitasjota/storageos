@@ -208,6 +208,28 @@ describe('DahuaSyncProvider', () => {
       expect(update).toContain('CardStatus=8'); // Arrearage
     });
 
+    it('suspender aparca Doors[0] en el otro canal — CardStatus solo no bloquea en este firmware', async () => {
+      urls.length = 0;
+      await provider.setState(device, '12001', 'suspended'); // device.channel=1 → real=0
+      const update = urls.find((u) => u.includes('action=update'));
+      expect(update).toContain('Doors[0]=1'); // el otro canal válido (no el 0 real)
+    });
+
+    it('reactivar devuelve Doors[0] al canal real', async () => {
+      urls.length = 0;
+      await provider.setState(device, '12001', 'active');
+      const update = urls.find((u) => u.includes('action=update'));
+      expect(update).toContain('Doors[0]=0'); // channel=1 → real=0
+      expect(update).toContain('CardStatus=0');
+    });
+
+    it('con channel=2, suspender aparca en el canal 0', async () => {
+      urls.length = 0;
+      await provider.setState({ ...device, channel: 2 }, '12001', 'suspended');
+      const update = urls.find((u) => u.includes('action=update'));
+      expect(update).toContain('Doors[0]=0'); // real=1 → aparca en 0
+    });
+
     it('remove borra por recno', async () => {
       urls.length = 0;
       await provider.remove(device, '12001');
