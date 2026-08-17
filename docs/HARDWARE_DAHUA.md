@@ -641,6 +641,29 @@ Authentication` el lector deja entrar tecleando **solo el `Password`**, sin
    valor sin avisar, probado y descartado). Con la **ASC4202C-D del piloto (2
    puertas confirmadas)** el swap funciona sin problema.
 
+### Pendiente (no crítico)
+
+- ⏳ **Auto Upload (push de eventos, §2.8.7) — sin confirmar.** Configurado
+  contra un endpoint de prueba (`webhook.site`): DNS correcto (`8.8.8.8`), el
+  botón **"Test" de la propia web da "successfully"** (conectividad OK) y
+  `Event Type=Unlock Records` seleccionado — pero al generar un acceso real
+  (PIN válido) **no llega ninguna petición** al endpoint. No se ha
+  investigado más a fondo (no es crítico: **el polling por `recordFinder`
+  —`AccessControlCardRec`— ya está confirmado y es fiable**, es lo que usa
+  `pullEvents` hoy). Si en el futuro se quiere evitar el agente Bridge
+  on-site para accesos (ver §A.11.3), retomar aquí: revisar si hace falta
+  algún interruptor "Enable" adicional no localizado, o si el firmware
+  requiere un formato de URL/servidor distinto al usado en el test manual.
+- ⏳ **Duress (PIN+1) — no concluyente.** Probado tecleando `PIN+1` de una
+  credencial activa: rechazado con `ErrorCode=18` en el log de eventos
+  (`recordFinder` → `AccessControlCardRec`), pero ese código no está
+  documentado en ninguno de los 3 PDFs disponibles, y como el `PIN+1` nunca
+  se dio de alta como credencial propia, un PIN cualquiera inexistente
+  produce el mismo resultado — no se puede distinguir "coacción detectada"
+  de "PIN erróneo normal" solo con esta prueba. Para confirmarlo de verdad
+  haría falta vigilar la salida `AUX OUT`/alarma del equipo durante la
+  prueba, o encontrar la tabla de códigos de error del fabricante.
+
 ---
 
 ## A.11 Manuales de la controladora comprada — ASC4202C-D (2026-07-30)
