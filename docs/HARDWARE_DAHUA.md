@@ -596,10 +596,10 @@ V2 en ASC2XXX, ONVIF Profile A/C y SDK completo).
 
 ---
 
-## A.11 Manuales de la controladora comprada — ASC4201C-D (2026-07-30)
+## A.11 Manuales de la controladora comprada — ASC4202C-D (2026-07-30)
 
 Fuente: los 4 PDFs oficiales del modelo elegido (**controladora Dahua
-ASC4201C-D** + lector **ASR2101A** tarjeta+teclado — ⚠️ **corrección
+ASC4202C-D** + lector **ASR2101A** tarjeta+teclado — ⚠️ **corrección
 2026-08-17**: el nombre exacto del lector es **ASR2101A**, no ASR2201A como se
 escribió aquí originalmente; sigue siendo **tarjeta + teclado**, confirmado por
 Jota — ver §A.12), guardados en [`docs/dahua/`](dahua/): _User's Manual V1.0.0_
@@ -609,6 +609,20 @@ de la familia ASI); estos son los del equipo real y **confirman la vía de
 integración de punta a punta**. Todo lo de abajo es de la **web/UI del equipo**
 (lo que expone la CGI por debajo); el smoke con el kit sigue siendo lo único
 pendiente para fijar nombres exactos.
+
+⚠️ **2ª corrección de modelo (2026-08-17, confirmada por el propio equipo)**:
+la controladora real es la **ASC4202C-D** (no ASC4201C-D, como se escribió
+aquí y en `COMPRA_LOCAL.md` originalmente) — confirmado con
+`curl --digest -u admin:*** "http://<ip>/cgi-bin/magicBox.cgi?action=getSystemInfo"`,
+que devuelve `deviceType=DHI-ASC4202C-D`. Por la convención de nombres de la
+familia (Quick Start §Table 2-1 distingue explícitamente comportamiento para
+"single door / two doors / four doors"), el `02` indica que es la **variante
+de 2 puertas**, no de 1 — este mismo equipo podría gestionar una segunda
+puerta (`Door2` + su propio canal de lector/cerradura) sin comprar otra
+controladora; **pendiente de confirmar en la web del equipo** si los
+controles de `Door2` aparecen activos. Los 4 PDFs analizados son genéricos a
+toda la familia ASC42xxC-D (cubren las 3 variantes en el mismo documento),
+así que el contenido de §A.11 sigue siendo válido tal cual.
 
 ### A.11.1 Red y activación de la CGI (Communication Matrix + §2.8)
 
@@ -686,7 +700,7 @@ open/closed» para modo evento/lockdown prolongado.
 ### A.11.4-bis Puerto de lector: RS-485 por defecto (DIP switch)
 
 Confirmado en el _Quick Start Guide_ (§2.2.5/§2.3.5): el **puerto de lector**
-de la ASC4201C-D acepta **RS-485 o Wiegand, nunca los dos a la vez en el mismo
+de la ASC4202C-D acepta **RS-485 o Wiegand, nunca los dos a la vez en el mismo
 puerto** («_One access reader port can only connect to the access readers of
 the same type_»). La elección se hace con un **DIP switch físico** en la
 controladora — posición **«485»** (viene así **de fábrica, por defecto**) o
@@ -729,7 +743,7 @@ DIP switch esté efectivamente en «485» (por si el instalador lo tocó).
   exactos del **Auto Upload** (formato del push de unlock records → parser del
   webhook) y del **CGI Auto Registration**; (b) que **Back-end Comparison**
   responde con el contrato que espera `/access/verify`; (c) activación por CGI de
-  **PIN Code Authentication**; (d) que la ASC4201C-D expone la CGI de terceros
+  **PIN Code Authentication**; (d) que la ASC4202C-D expone la CGI de terceros
   del mismo modo que la familia ASI (los manuales lo sugieren, pero la spec CGI
   detallada de §A.10 es de los ASI).
 

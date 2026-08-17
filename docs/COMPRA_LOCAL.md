@@ -15,11 +15,15 @@ facial, agente Bridge) antes de equipar el local completo.
 
 ## ⚠️ Verificar ANTES de pedir
 
-- [ ] **Controladora ASC4201C-D — integración por HTTP CGI de terceros**
+- [x] **Controladora ASC4202C-D — integración por HTTP CGI de terceros**
       (`recordUpdater.cgi` / `accessControl.cgi` / `recordFinder.cgi` /
       `eventManager.cgi`), no solo NetSDK/DSS. Es lo que usa nuestro adapter Dahua.
-      «API disponible» es buena señal; se confirma en el smoke con el kit. Si fuera
-      **solo NetSDK** → hay que escribir un adapter nuevo (más trabajo).
+      **Confirmado con el kit (2026-08-17)**: `curl --digest` a
+      `magicBox.cgi?action=getSystemInfo` responde correctamente — CGI operativa
+      con Digest, tal y como usa el adapter. ⚠️ **Corrección de modelo**: el
+      equipo real es el **ASC4202C-D** (no ASC4201C-D como se escribió al
+      comprar), confirmado por el propio `deviceType` que devuelve la CGI — por
+      la convención de nombres, probablemente la **variante de 2 puertas**.
 - [ ] **Lector ASR2101A con teclado (PIN)** además de tarjeta (confirmado por
       manual oficial, `docs/HARDWARE_DAHUA.md` §A.12) → el inquilino abre con
       tarjeta **o** con su PIN del portal. (Estos lectores **no leen QR**; el
@@ -50,12 +54,12 @@ Objetivo: 1 puerta peatonal con accesos + facial + 2 cámaras + alarma de 1–2 
 > «tu móvil es la llave» (el portal se lo muestra al inquilino). **QR y facial NO**
 > con este lector — para facial haría falta un terminal ASI6214S/7214 en esa puerta.
 
-- [ ] **1× Controladora de accesos Dahua ASC4201C-D** (1 puerta, red, Patrón B; **confirmar API HTTP CGI de terceros** en el smoke) — _va en armario protegido_ · 100–180 €
+- [x] **1× Controladora de accesos Dahua ASC4202C-D** (variante de **2 puertas** — el modelo real comprado, no ASC4201C-D como se anotó originalmente; ver nota arriba —, red, Patrón B; **API HTTP CGI de terceros confirmada con el kit**) — _va en armario protegido_ · 100–180 €
 - [ ] **1× Lector Dahua ASR2101A** (tarjeta + **teclado/PIN**, metálico anti-vandálico, Wiegand/RS-485) · 60–120 €
 - [ ] 1× Abrepuertas eléctrico **fail-secure** 12 V (Dorcas/CDVI) · 30–60 €
 - [ ] 1× Cerradura mecánica + **bombín amaestrado** (llave maestra del staff, último recurso) · 40–80 €
 - [ ] 1× Fuente 12 V 3–5 A con hueco de batería + **1× batería 12 V 7 Ah AGM** («SAI de la puerta») · 55–95 €
-- [ ] 1× **Botón de salida (REX)** o barra antipánico con contacto (la controladora necesita petición de salida) · 10–30 € — va probablemente a **`PH1` + `GND`** del bloque «Exit Button or Door Detector» (por puerta) de la ASC4201C-D — **verificar con multímetro/estado en la web antes de dar el cableado por bueno** (⚠️ ver nota abajo)
+- [ ] 1× **Botón de salida (REX)** o barra antipánico con contacto (la controladora necesita petición de salida) · 10–30 € — va probablemente a **`PH1` + `GND`** del bloque «Exit Button or Door Detector» (por puerta) de la ASC4202C-D — **verificar con multímetro/estado en la web antes de dar el cableado por bueno** (⚠️ ver nota abajo)
 - [ ] 1× Contacto magnético de puerta (ACK abierta/cerrada, 2 hilos — p. ej. OEM MC-RMMC) · 5–15 € — **sensor de estado, no cierra nada** (no confundir con el abrepuertas); va probablemente a **`SR1` + `GND`** del **mismo bloque «Exit Button or Door Detector»** que el REX (3 pines por puerta: `SR1`/`PH1`/`GND`, `GND` común a los dos circuitos), **distinto** del puerto **«Lock Power»** que alimenta el abrepuertas — ⚠️ el diagrama del manual (Fig. 2-7) no deja 100% claro si el detector va a `SR1`+`GND` o `SR1`+`PH1`; confirmar en la instalación probando el estado en tiempo real desde la web de la controladora al abrir/cerrar la puerta
 - [ ] 1× Manilla/barra **antipánico mecánica** interior (evacuación sin corriente) · 60–150 €
 - [ ] 1× Tarjetas/llaveros RFID Mifare (pack para repartir a inquilinos) · 1–2 €/ud
