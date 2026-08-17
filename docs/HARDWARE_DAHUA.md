@@ -17,7 +17,7 @@
 >   (push del equipo / agente on-site / puente DSS). La alarma reutiliza el webhook
 >   (`kind:'alarm'`).
 > - **Fase 2A (#362)** — sync **Patrón B**: `CredentialSyncProvider` + `StubSyncProvider`
->   + `DahuaSyncProvider` + `DahuaSyncService` + cron de reconciliación.
+>   - `DahuaSyncProvider` + `DahuaSyncService` + cron de reconciliación.
 > - **Cámaras en la ficha del local (#363)** — pestaña «Cámaras».
 > - **API verificada (2026-07-17)** — `DahuaSyncProvider` actualizado con los campos
 >   confirmados de la doc: el PIN viaja en `Password` del `AccessControlCard`; el
@@ -99,8 +99,9 @@ interfaz (el "puerto"), no un límite de proceso**. TrasterOS ya usa este patró
 integraciones externas: `PaymentGateway` (Stripe), `EmailProvider` (smtp/resend),
 `WhatsAppProvider` (stub/meta_waba), `AiProvider` (stub/anthropic) y, para
 hardware, **`LockProvider`** (stub/mqtt/http) — clase abstracta + DI por `Symbol`
-+ factory por env. **Dahua se añade igual: una implementación más detrás del
-puerto**; el core no se entera.
+
+- factory por env. **Dahua se añade igual: una implementación más detrás del
+  puerto**; el core no se entera.
 
 **Un microservicio separado NO es necesario para desacoplarse del proveedor** y
 añade coste (despliegue, red, latencia, otro punto de fallo) sin más
@@ -128,7 +129,10 @@ interface AccessHardwareProvider {
 
   // Patrón B — sincronización de credenciales al terminal.
   upsertCredential(device: DeviceRef, cred: CredentialSpec): Promise<HardwareCredRef>;
-  setCredentialState(ref: HardwareCredRef, state: 'active' | 'suspended' | 'revoked'): Promise<void>;
+  setCredentialState(
+    ref: HardwareCredRef,
+    state: 'active' | 'suspended' | 'revoked',
+  ): Promise<void>;
   removeCredential(ref: HardwareCredRef): Promise<void>;
 
   // Reconciliación de logs del hardware → nuestra tabla access_logs.
@@ -148,14 +152,14 @@ interface AccessHardwareProvider {
 `DahuaProvider implements AccessHardwareProvider` traduce el puerto a Dahua y
 **nada de esto sale del adapter**:
 
-| Verbo del puerto | Traducción Dahua (encapsulada) |
-|---|---|
-| `openDoor` | `GET accessControl.cgi?action=openDoor` + **Digest** |
-| `upsertCredential` | `recordUpdater.cgi?action=insert&name=AccessControlCard...` |
-| `setCredentialState('suspended')` | `recordUpdater update CardStatus=8` (impago) / `=4` (staff) |
-| `setCredentialState('active')` | `recordUpdater update CardStatus=0` |
-| `removeCredential` | `recordUpdater action=remove` |
-| `pullEvents` | `recordFinder.cgi ... AccessControlCardRec` → map a `AccessEvent` |
+| Verbo del puerto                  | Traducción Dahua (encapsulada)                                    |
+| --------------------------------- | ----------------------------------------------------------------- |
+| `openDoor`                        | `GET accessControl.cgi?action=openDoor` + **Digest**              |
+| `upsertCredential`                | `recordUpdater.cgi?action=insert&name=AccessControlCard...`       |
+| `setCredentialState('suspended')` | `recordUpdater update CardStatus=8` (impago) / `=4` (staff)       |
+| `setCredentialState('active')`    | `recordUpdater update CardStatus=0`                               |
+| `removeCredential`                | `recordUpdater action=remove`                                     |
+| `pullEvents`                      | `recordFinder.cgi ... AccessControlCardRec` → map a `AccessEvent` |
 
 Cambiar a otro fabricante mañana = escribir `AcmeProvider implements
 AccessHardwareProvider` con **su** mapeo; el core no cambia una línea.
@@ -177,8 +181,8 @@ No por defecto; solo ante una presión concreta. Y como la **interfaz ya existe*
 extraerlo entonces es un refactor **barato y localizado** (no te casas hoy):
 
 1. **Runtime incompatible**: el fabricante solo trae SDK binario/Python (p. ej. el
-   Dahua **NetSDK** C/.NET) que no quieres en tu API Node → sidecar. *(Con Dahua
-   por CGI HTTP NO aplica: se hace en Node.)*
+   Dahua **NetSDK** C/.NET) que no quieres en tu API Node → sidecar. _(Con Dahua
+   por CGI HTTP NO aplica: se hace en Node.)_
 2. **Aislar el radio de fallo**: SDK inestable que no debe tumbar API/worker.
 3. **Despliegue/escalado o equipo independientes.**
 
@@ -241,12 +245,12 @@ Docker es buen empaquetado, pero **desplegado en la caja del local** con su
 
 ## Cuándo hace falta caja on-site (y cuándo NO)
 
-| Caso | ¿Agente/caja on-site? |
-|---|---|
+| Caso                                                                        | ¿Agente/caja on-site?                |
+| --------------------------------------------------------------------------- | ------------------------------------ |
 | Cámara: eventos + snapshot por **push** del equipo (FTP/email/HTTP linkage) | ❌ No (si el equipo sale a Internet) |
-| Cámara: snapshot **on-demand** ("una foto ahora") | ✅ Sí |
-| Accesos **Patrón A** (abrir puerta remoto: tú llamas al terminal) | ✅ Sí |
-| Accesos **Patrón B** (sync de credenciales + leer logs) | ✅ Sí |
+| Cámara: snapshot **on-demand** ("una foto ahora")                           | ✅ Sí                                |
+| Accesos **Patrón A** (abrir puerta remoto: tú llamas al terminal)           | ✅ Sí                                |
+| Accesos **Patrón B** (sync de credenciales + leer logs)                     | ✅ Sí                                |
 
 Para **cámaras con el alcance acotado** (solo eventos + snapshot) puedes empezar
 **sin caja**: el equipo empuja el evento a tu endpoint. Para **accesos** casi
@@ -276,7 +280,7 @@ Ver [`HARDWARE_AKUVOX.md` §1](HARDWARE_AKUVOX.md). Resumen:
   (hash argon2, curfew, ventanas, single-use, rate-limit).
 - **Patrón B (offline/sync):** sincronizamos las credenciales al dispositivo y él
   valida **solo**, sin depender de la red en cada apertura. Los intentos quedan
-  como *offline records* que reconciliamos después.
+  como _offline records_ que reconciliamos después.
 
 **Dahua encaja de forma nativa en el Patrón B** (el terminal es autónomo por
 diseño), con la capa online del Patrón A para la **apertura remota** (botón del
@@ -293,6 +297,7 @@ Todos son **CGI HTTP contra la IP del terminal en la LAN**, auth **Digest**
 ```
 GET http://<ip-terminal>/cgi-bin/accessControl.cgi?action=openDoor&channel=1&UserID=101&Type=Remote
 ```
+
 - `channel` (requerido, nº de puerta desde 1); `UserID`/`Type` opcionales
   (`Type` por defecto `Remote`). Respuesta `OK` en éxito.
 - Ejemplo:
@@ -331,16 +336,20 @@ CardStatus=0`, **sin re-emitir el PIN**. Encaja 1:1 con nuestra lógica de
 ### A.2.3 Logs y eventos de acceso
 
 **Consulta histórica** (registro `AccessControlCardRec`, incluye offline records):
+
 ```
 GET /cgi-bin/recordFinder.cgi?action=find&name=AccessControlCardRec&StartTime=<unix>&EndTime=<unix>&count=100
 ```
+
 Devuelve quién/cuándo/resultado. Filtros por rango y por `CardNo`.
 
 **Tiempo real** (stream HTTP persistente con heartbeat; **no** es un webhook que
 el device postee a una URL nuestra):
+
 ```
 GET /cgi-bin/eventManager.cgi?action=attach&codes=[AccessControl]&heartbeat=5
 ```
+
 Se mantiene la conexión abierta y el terminal empuja los eventos conforme
 ocurren. En nuestra arquitectura, **el worker** mantendría esta conexión viva por
 dispositivo (o, más simple, un poll periódico de `recordFinder`).
@@ -358,15 +367,15 @@ stack Node el **CGI HTTP encaja mucho mejor**.
 El módulo de accesos ya está preparado para meter un provider nuevo sin tocar el
 resto. Puntos de extensión exactos:
 
-| Costura | Fichero | Qué hace hoy | Qué añade Dahua |
-|---|---|---|---|
-| **`LockProvider`** (abstracto: `open(args)` → `{dispatched}`) | `apps/api/src/modules/access/providers/lock-provider.ts` | Interfaz + `OpenLockArgs` (trae `controlUrl`, `controlSecret`, `deviceId`, `tenantId`, `customerId`) | Nuevo `DahuaLockProvider` que hace `openDoor` por HTTP **Digest** |
-| **Factory por env** `LOCK_PROVIDER` | `access.module.ts` (`useFactory`, líneas ~44-56) | `stub`\|`mqtt`\|`http` | Añadir la rama `'dahua'` |
-| **Provider HTTP de referencia** | `providers/http-lock.provider.ts` | POST firmado HMAC + timeout 8 s + no lanza (`dispatched:false`) | El `DahuaLockProvider` copia el patrón pero con **GET + Digest** en vez de POST+HMAC |
-| **Apertura remota** (staff/portal) | `access-devices.service.ts` `remoteOpen()` (~L246) y `access-verify.service.ts` `openForCustomer()` (portal, #351) | Llaman `this.lock.open(...)` y registran en `access_logs` | Sin cambios: al resolver el provider a Dahua, ya abren por `openDoor` |
-| **Suspender/reactivar por impago** | `access-integrations.service.ts` (`@OnEvent invoice.paid` → `resume`; `suspendForDunning` → `suspend`; `contract_ended` → revoke) | Cambia el estado en NUESTRA BD | Un **sync** debe propagar ese cambio al terminal como `CardStatus` |
-| **Modelo del device** | `access_devices` (`controlUrl`, `controlSecretEncrypted` AES-GCM, `hardwareId`, `facilityId`, `mqttTopic`, `metadata`) | Ya guarda URL+secreto del controlador | Reutilizamos `controlUrl`=IP del terminal; credenciales del terminal (user/pass Digest) cifradas en `controlSecretEncrypted` o en `metadata` |
-| **Log de acceso** | `access_logs` (`deviceId`, `credentialId`, `customerId`, `method` pin/qr/rfid, `result` allowed/denied_*, `attemptedValue`, `reason`, `metadata`, `occurredAt`) | Lo escribe nuestro verify/remoteOpen | El reconciliador de eventos Dahua **inserta** aquí los offline records |
+| Costura                                                       | Fichero                                                                                                                                                           | Qué hace hoy                                                                                         | Qué añade Dahua                                                                                                                              |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`LockProvider`** (abstracto: `open(args)` → `{dispatched}`) | `apps/api/src/modules/access/providers/lock-provider.ts`                                                                                                          | Interfaz + `OpenLockArgs` (trae `controlUrl`, `controlSecret`, `deviceId`, `tenantId`, `customerId`) | Nuevo `DahuaLockProvider` que hace `openDoor` por HTTP **Digest**                                                                            |
+| **Factory por env** `LOCK_PROVIDER`                           | `access.module.ts` (`useFactory`, líneas ~44-56)                                                                                                                  | `stub`\|`mqtt`\|`http`                                                                               | Añadir la rama `'dahua'`                                                                                                                     |
+| **Provider HTTP de referencia**                               | `providers/http-lock.provider.ts`                                                                                                                                 | POST firmado HMAC + timeout 8 s + no lanza (`dispatched:false`)                                      | El `DahuaLockProvider` copia el patrón pero con **GET + Digest** en vez de POST+HMAC                                                         |
+| **Apertura remota** (staff/portal)                            | `access-devices.service.ts` `remoteOpen()` (~L246) y `access-verify.service.ts` `openForCustomer()` (portal, #351)                                                | Llaman `this.lock.open(...)` y registran en `access_logs`                                            | Sin cambios: al resolver el provider a Dahua, ya abren por `openDoor`                                                                        |
+| **Suspender/reactivar por impago**                            | `access-integrations.service.ts` (`@OnEvent invoice.paid` → `resume`; `suspendForDunning` → `suspend`; `contract_ended` → revoke)                                 | Cambia el estado en NUESTRA BD                                                                       | Un **sync** debe propagar ese cambio al terminal como `CardStatus`                                                                           |
+| **Modelo del device**                                         | `access_devices` (`controlUrl`, `controlSecretEncrypted` AES-GCM, `hardwareId`, `facilityId`, `mqttTopic`, `metadata`)                                            | Ya guarda URL+secreto del controlador                                                                | Reutilizamos `controlUrl`=IP del terminal; credenciales del terminal (user/pass Digest) cifradas en `controlSecretEncrypted` o en `metadata` |
+| **Log de acceso**                                             | `access_logs` (`deviceId`, `credentialId`, `customerId`, `method` pin/qr/rfid, `result` allowed/denied\_\*, `attemptedValue`, `reason`, `metadata`, `occurredAt`) | Lo escribe nuestro verify/remoteOpen                                                                 | El reconciliador de eventos Dahua **inserta** aquí los offline records                                                                       |
 
 ## A.4 Diseño del `DahuaLockProvider` (Patrón A — apertura remota)
 
@@ -377,7 +386,9 @@ Es el trozo pequeño y de menor riesgo. Un provider nuevo análogo a
 // apps/api/src/modules/access/providers/dahua-lock.provider.ts (propuesta)
 @Injectable()
 export class DahuaLockProvider extends LockProvider {
-  get name() { return 'dahua'; }
+  get name() {
+    return 'dahua';
+  }
 
   async open(args: OpenLockArgs): Promise<OpenLockResult> {
     if (!args.controlUrl) return { dispatched: false, message: 'device_sin_control_url' };
@@ -415,7 +426,7 @@ Es lo que convierte a Dahua en fuente de verdad del hardware. Análogo al
    del inquilino (los locales/trasteros de sus contratos vivos — misma resolución
    que `resolveCustomerScope`).
 2. **Congelar por impago** (`suspendForDunning`) → `recordUpdater update
-   CardStatus=8`; **reactivar** (`invoice.paid → resume`) → `CardStatus=0`;
+CardStatus=8`; **reactivar** (`invoice.paid → resume`) → `CardStatus=0`;
    **baja** (`contract_ended`) → `recordUpdater remove`.
 3. **Reconciliación de logs** (cron en el worker): por cada terminal,
    `recordFinder AccessControlCardRec` desde el último `occurredAt` sincronizado
@@ -430,11 +441,11 @@ Es lo que convierte a Dahua en fuente de verdad del hardware. Análogo al
 **Mapa de estados credencial → CardStatus:**
 
 | Nuestro estado (`access_credentials.status` / motivo) | Dahua `CardStatus` |
-|---|---|
-| `active` | `0` (Normal) |
-| `suspended` por dunning/impago | `8` (Arrearage) |
-| `suspended` por staff (seguridad) | `4` (Frozen) |
-| `revoked` / fin de contrato | `remove` (baja) |
+| ----------------------------------------------------- | ------------------ |
+| `active`                                              | `0` (Normal)       |
+| `suspended` por dunning/impago                        | `8` (Arrearage)    |
+| `suspended` por staff (seguridad)                     | `4` (Frozen)       |
+| `revoked` / fin de contrato                           | `remove` (baja)    |
 
 ## A.5-bis ⚠️ Límites del Patrón B: qué reglas nuestras NO aplican en la puerta
 
@@ -442,13 +453,13 @@ En Patrón B **el terminal valida solo** → las reglas que hoy viven en NUESTRO
 `AccessVerifyService` **no se ejecutan en cada apertura física**. Hay que
 mapearlas al terminal o asumir la degradación de forma consciente:
 
-| Regla nuestra (server-side) | En Patrón B con Dahua | Mitigación |
-|---|---|---|
-| **Toque de queda del local** (`facilities.access_curfew_*`) | El terminal no consulta nuestro curfew | Mapear a los **perfiles horarios del terminal** (time sections/period de la credencial Dahua); el sync los recalcula al cambiar la config del local |
-| **Ventanas horarias por credencial** (`allowedHours.windows`) | Ídem | Ídem (validar en piloto que la granularidad de Dahua — días de semana + franjas — cubre nuestro modelo) |
-| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | ✅ **Implementado en el sync (2026-07-17)**: la credencial viaja con **`ValidDateEnd`** (en hora local del terminal — el pase muere solo a las 08:00 aunque no haya red) + **`UseTimes`** (límite de usos; nombre del campo VERIFY en el smoke — la doc v1.0 confirma la desactivación automática por «maximum number of usage» vía `IsValid`) | Si el firmware ignorase `UseTimes`, queda la cota temporal (`ValidDateEnd`) + borrar tras el primer uso reconciliado |
-| **Anti-fuerza-bruta** (`AccessRateLimitService`, Redis) | No aplica en la puerta | El terminal trae su propio anti-passback/lockout (verificar en piloto); nuestra capa sigue protegiendo `/access/verify` y la apertura remota |
-| **Suspensión por impago** | ✅ Sí aplica | Vía `CardStatus=8` (con la **latencia del sync**, no instantánea si el terminal está offline) |
+| Regla nuestra (server-side)                                        | En Patrón B con Dahua                                                                                                                                                                                                                                                                                                                          | Mitigación                                                                                                                                          |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Toque de queda del local** (`facilities.access_curfew_*`)        | El terminal no consulta nuestro curfew                                                                                                                                                                                                                                                                                                         | Mapear a los **perfiles horarios del terminal** (time sections/period de la credencial Dahua); el sync los recalcula al cambiar la config del local |
+| **Ventanas horarias por credencial** (`allowedHours.windows`)      | Ídem                                                                                                                                                                                                                                                                                                                                           | Ídem (validar en piloto que la granularidad de Dahua — días de semana + franjas — cubre nuestro modelo)                                             |
+| **Pase nocturno single-use** (`maxUses`/`usesCount`, caduca 08:00) | ✅ **Implementado en el sync (2026-07-17)**: la credencial viaja con **`ValidDateEnd`** (en hora local del terminal — el pase muere solo a las 08:00 aunque no haya red) + **`UseTimes`** (límite de usos; nombre del campo VERIFY en el smoke — la doc v1.0 confirma la desactivación automática por «maximum number of usage» vía `IsValid`) | Si el firmware ignorase `UseTimes`, queda la cota temporal (`ValidDateEnd`) + borrar tras el primer uso reconciliado                                |
+| **Anti-fuerza-bruta** (`AccessRateLimitService`, Redis)            | No aplica en la puerta                                                                                                                                                                                                                                                                                                                         | El terminal trae su propio anti-passback/lockout (verificar en piloto); nuestra capa sigue protegiendo `/access/verify` y la apertura remota        |
+| **Suspensión por impago**                                          | ✅ Sí aplica                                                                                                                                                                                                                                                                                                                                   | Vía `CardStatus=8` (con la **latencia del sync**, no instantánea si el terminal está offline)                                                       |
 
 **Regla de oro:** las features "ricas" (pase nocturno, single-use, ventanas
 finas) funcionan al 100% en **Patrón A**; en **Patrón B** se degradan a lo que el
@@ -470,11 +481,11 @@ al operador features que su hardware no puede cumplir.
 
 ## A.7 Modelos recomendados
 
-| Modelo | Métodos | Notas |
-|---|---|---|
-| **ASI6214S** | Cara + huella + tarjeta + **QR** + PIN | "Todo en uno" con QR nativo; RS-485 + Wiegand; 6.000 users / 10.000 tarjetas / 300.000 eventos. **Candidato del piloto.** |
-| **ASI7214Y-V3** | Facial alta capacidad + tarjeta + PIN | 50.000 caras; RS-485/RS-232/Wiegand/USB |
-| **ASR2100A-ME** (lector) | QR + tarjeta | ⚠️ el **QR solo va por RS-485**, no por Wiegand → necesita controladora Dahua; no encaja con nuestro modelo salvo Patrón B con controladora |
+| Modelo                   | Métodos                                | Notas                                                                                                                                       |
+| ------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ASI6214S**             | Cara + huella + tarjeta + **QR** + PIN | "Todo en uno" con QR nativo; RS-485 + Wiegand; 6.000 users / 10.000 tarjetas / 300.000 eventos. **Candidato del piloto.**                   |
+| **ASI7214Y-V3**          | Facial alta capacidad + tarjeta + PIN  | 50.000 caras; RS-485/RS-232/Wiegand/USB                                                                                                     |
+| **ASR2100A-ME** (lector) | QR + tarjeta                           | ⚠️ el **QR solo va por RS-485**, no por Wiegand → necesita controladora Dahua; no encaja con nuestro modelo salvo Patrón B con controladora |
 
 Series con API HTTP de accesos confirmada: **ASI3xxx / ASI6xxx / ASI7xxx**.
 
@@ -497,18 +508,18 @@ Series con API HTTP de accesos confirmada: **ASI3xxx / ASI6xxx / ASI7xxx**.
 
 Es la razón principal de elegir **Patrón B** como modo nativo: las credenciales
 están sincronizadas **dentro del terminal** y él valida **en local, sin red**.
-Las aperturas quedan como *offline records* (el ASI6214S guarda hasta 300.000
+Las aperturas quedan como _offline records_ (el ASI6214S guarda hasta 300.000
 eventos) y se reconcilian a `access_logs` cuando vuelve la conexión.
 
 Qué se degrada durante el corte (aceptable y conocido):
 
-| Función | Sin internet |
-|---|---|
-| Entrar con PIN / tarjeta / QR en el lector | ✅ Funciona |
-| «Tu móvil es la llave» (apertura desde el portal/staff) | ❌ No (nube→terminal) |
-| Alta de PIN nuevo / pase nocturno recién comprado | ⏳ No llega al terminal hasta el sync |
-| **Corte por impago** decidido durante la caída | ⏳ El moroso sigue entrando hasta que el sync propague `CardStatus` |
-| Logs/eventos en la app | ⏳ Llegan al reconciliar, no en vivo |
+| Función                                                 | Sin internet                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------------- |
+| Entrar con PIN / tarjeta / QR en el lector              | ✅ Funciona                                                         |
+| «Tu móvil es la llave» (apertura desde el portal/staff) | ❌ No (nube→terminal)                                               |
+| Alta de PIN nuevo / pase nocturno recién comprado       | ⏳ No llega al terminal hasta el sync                               |
+| **Corte por impago** decidido durante la caída          | ⏳ El moroso sigue entrando hasta que el sync propague `CardStatus` |
+| Logs/eventos en la app                                  | ⏳ Llegan al reconciliar, no en vivo                                |
 
 Contraste: una puerta en **Patrón A puro** (el hardware valida contra nuestro
 `/access/verify`, p. ej. ESP32/Akuvox) **NO abre sin internet**. De ahí el
@@ -525,8 +536,8 @@ sea. Checklist de instalación:
    vatios: un SAI modesto aguanta horas.
 2. **Tipo de cerradura (decisión de seguridad):** **fail-secure** (abrepuertas
    eléctrico: sin luz queda **cerrada**) vs **fail-safe** (ventosa magnética: sin
-   luz queda **abierta**). Para accesos exteriores de un trastero: **fail-secure
-   + SAI**.
+   luz queda **abierta**). Para accesos exteriores de un trastero: \*\*fail-secure
+   - SAI\*\*.
 3. **Evacuación (normativa):** la salida **desde dentro** debe ser siempre posible
    sin corriente (manilla/barra antipánico **mecánica**) — independiente del lector.
 4. La alarma **AirShield** sigue protegiendo: el hub lleva batería de respaldo y
@@ -562,19 +573,19 @@ V2 en ASC2XXX, ONVIF Profile A/C y SDK completo).
 
 ### Lo confirmado (y aplicado en `dahua-sync.provider.ts` / `dahua-lock.provider.ts`)
 
-| Ítem | Confirmado |
-|---|---|
-| **Alta de credencial** | `GET recordUpdater.cgi?action=insert&name=AccessControlCard` con `CardNo` (req, string), `UserID` (req), `CardName` (≤32), `CardStatus`, `CardType`, **`Password`** (el PIN «card + password»), `Doors[]`, `TimeSections[]`, `ValidDateStart/End` (`yyyyMMdd hhmmss`). **Responde `RecNo=<n>`.** |
-| **PIN** | Viaja en el campo **`Password`** del card record (antes NO lo enviábamos → el terminal no habría validado el PIN offline). |
-| **RFID/QR** | El **`CardNo` debe ser el UID/token real** (es lo que el lector compara y lo que reportan los eventos). Antes usábamos un nº derivado → la tarjeta no habría abierto. |
-| **`CardStatus`** (bitmask) | `0` Normal · `1` Loss · `2` **Canceled** · `4` Frozen · `8` **Arrearage (impago)** · `16` Overdue · `32` Pre-arrearage (abre con aviso de voz). Nuestro mapeo (0/2/8) era correcto. |
-| **Update/remove** | El API general opera por **`recno`** → el adapter lo resuelve con `recordFinder.cgi?name=AccessControlCard&condition.CardNo=<n>` y hay fallback por `CardNo` directo (smoke con hardware pendiente). |
-| **Logs offline** | `recordFinder.cgi?action=find&name=AccessControlCardRec&StartTime=<epoch s>&EndTime=<epoch s>&count=1024` → body key=value `records[i].RecNo/CreateTime/CardNo/UserID/Type (Entry\|Exit)/Status (0 fallo·1 ok)/Method/Door/ErrorCode`. **Paginación**: si `totalCount > found`, re-pedir con `StartTime` = `CreateTime` del último registro (puede devolver duplicados en la frontera → dedup del cliente, avisado por la propia doc). |
-| **`Method` del evento** | `0` password · `1` tarjeta · `2/3` tarjeta+password · `6` huella · `15` cara. Mapeo nuestro: `0→pin`, resto→`rfid` (raw en metadata). |
-| **Apertura remota** | `accessControl.cgi?action=openDoor&channel=<n>&Type=Remote` (channel desde 1; `UserID` opcional) → responde `OK`. También `closeDoor`. Tal cual lo teníamos. |
-| **Eventos en TIEMPO REAL (push)** | `snapManager.cgi?action=attachFileProc&Flags[0]=Event&Events=[AccessControl]&heartbeat=5` → stream multipart con los eventos **+ el JPEG del snapshot**. Ideal para el **agente on-site** del futuro (alimenta también la ingesta de cámaras); nuestro polling por `recordFinder` sigue siendo el plan B robusto. |
-| **Caras (si algún día)** | `FaceInfoManager.cgi?action=add` (POST JSON, foto base64 ≤100KB). |
-| **RTSP** | `rtsp://<ip>:554/cam/realmonitor?channel=1&subtype=0` (el vídeo sigue siendo cosa de DMSS). |
+| Ítem                              | Confirmado                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Alta de credencial**            | `GET recordUpdater.cgi?action=insert&name=AccessControlCard` con `CardNo` (req, string), `UserID` (req), `CardName` (≤32), `CardStatus`, `CardType`, **`Password`** (el PIN «card + password»), `Doors[]`, `TimeSections[]`, `ValidDateStart/End` (`yyyyMMdd hhmmss`). **Responde `RecNo=<n>`.**                                                                                                                                       |
+| **PIN**                           | Viaja en el campo **`Password`** del card record (antes NO lo enviábamos → el terminal no habría validado el PIN offline).                                                                                                                                                                                                                                                                                                             |
+| **RFID/QR**                       | El **`CardNo` debe ser el UID/token real** (es lo que el lector compara y lo que reportan los eventos). Antes usábamos un nº derivado → la tarjeta no habría abierto.                                                                                                                                                                                                                                                                  |
+| **`CardStatus`** (bitmask)        | `0` Normal · `1` Loss · `2` **Canceled** · `4` Frozen · `8` **Arrearage (impago)** · `16` Overdue · `32` Pre-arrearage (abre con aviso de voz). Nuestro mapeo (0/2/8) era correcto.                                                                                                                                                                                                                                                    |
+| **Update/remove**                 | El API general opera por **`recno`** → el adapter lo resuelve con `recordFinder.cgi?name=AccessControlCard&condition.CardNo=<n>` y hay fallback por `CardNo` directo (smoke con hardware pendiente).                                                                                                                                                                                                                                   |
+| **Logs offline**                  | `recordFinder.cgi?action=find&name=AccessControlCardRec&StartTime=<epoch s>&EndTime=<epoch s>&count=1024` → body key=value `records[i].RecNo/CreateTime/CardNo/UserID/Type (Entry\|Exit)/Status (0 fallo·1 ok)/Method/Door/ErrorCode`. **Paginación**: si `totalCount > found`, re-pedir con `StartTime` = `CreateTime` del último registro (puede devolver duplicados en la frontera → dedup del cliente, avisado por la propia doc). |
+| **`Method` del evento**           | `0` password · `1` tarjeta · `2/3` tarjeta+password · `6` huella · `15` cara. Mapeo nuestro: `0→pin`, resto→`rfid` (raw en metadata).                                                                                                                                                                                                                                                                                                  |
+| **Apertura remota**               | `accessControl.cgi?action=openDoor&channel=<n>&Type=Remote` (channel desde 1; `UserID` opcional) → responde `OK`. También `closeDoor`. Tal cual lo teníamos.                                                                                                                                                                                                                                                                           |
+| **Eventos en TIEMPO REAL (push)** | `snapManager.cgi?action=attachFileProc&Flags[0]=Event&Events=[AccessControl]&heartbeat=5` → stream multipart con los eventos **+ el JPEG del snapshot**. Ideal para el **agente on-site** del futuro (alimenta también la ingesta de cámaras); nuestro polling por `recordFinder` sigue siendo el plan B robusto.                                                                                                                      |
+| **Caras (si algún día)**          | `FaceInfoManager.cgi?action=add` (POST JSON, foto base64 ≤100KB).                                                                                                                                                                                                                                                                                                                                                                      |
+| **RTSP**                          | `rtsp://<ip>:554/cam/realmonitor?channel=1&subtype=0` (el vídeo sigue siendo cosa de DMSS).                                                                                                                                                                                                                                                                                                                                            |
 
 ### Único VERIFY restante (smoke con el terminal físico)
 
@@ -588,13 +599,16 @@ V2 en ASC2XXX, ONVIF Profile A/C y SDK completo).
 ## A.11 Manuales de la controladora comprada — ASC4201C-D (2026-07-30)
 
 Fuente: los 4 PDFs oficiales del modelo elegido (**controladora Dahua
-ASC4201C-D** + lector **ASR2201A** tarjeta+teclado), guardados en
-[`docs/dahua/`](dahua/): *User's Manual V1.0.0* (68 pág), *Quick Start Guide
-V1.0.0* (32 pág), *Communication Matrix V1.0.0* (oct-2025), *Installation
-Method*. Complementan la spec CGI de §A.10 (que es la de la familia ASI); estos
-son los del equipo real y **confirman la vía de integración de punta a punta**.
-Todo lo de abajo es de la **web/UI del equipo** (lo que expone la CGI por debajo);
-el smoke con el kit sigue siendo lo único pendiente para fijar nombres exactos.
+ASC4201C-D** + lector **ASR2101A** tarjeta+teclado — ⚠️ **corrección
+2026-08-17**: el nombre exacto del lector es **ASR2101A**, no ASR2201A como se
+escribió aquí originalmente; sigue siendo **tarjeta + teclado**, confirmado por
+Jota — ver §A.12), guardados en [`docs/dahua/`](dahua/): _User's Manual V1.0.0_
+(68 pág), _Quick Start Guide V1.0.0_ (32 pág), _Communication Matrix V1.0.0_
+(oct-2025), _Installation Method_. Complementan la spec CGI de §A.10 (que es la
+de la familia ASI); estos son los del equipo real y **confirman la vía de
+integración de punta a punta**. Todo lo de abajo es de la **web/UI del equipo**
+(lo que expone la CGI por debajo); el smoke con el kit sigue siendo lo único
+pendiente para fijar nombres exactos.
 
 ### A.11.1 Red y activación de la CGI (Communication Matrix + §2.8)
 
@@ -605,8 +619,8 @@ el smoke con el kit sigue siendo lo único pendiente para fijar nombres exactos.
   (donde vive la CGI, auth Password/Digest, **habilitado por defecto**), HTTPS
   443, **TCP 37777** (NetSDK / protocolo privado), RTSP 554, ONVIF discovery
   3702/UDP, P2P (DMSS) por rango alto UDP.
-- **Gotcha de auth**: en `Basic Services` hay *Private Protocol Authentication
-  Mode* con **Security Mode** (bloquea Digest/DES/plaintext) vs **Compatible
+- **Gotcha de auth**: en `Basic Services` hay _Private Protocol Authentication
+  Mode_ con **Security Mode** (bloquea Digest/DES/plaintext) vs **Compatible
   Mode**. Afecta al **protocolo privado (NetSDK 37777)**, no a la CGI de puerto
   80 — pero si algún día usamos NetSDK, hará falta Compatible Mode. Nuestra vía
   (CGI HTTP + `digest-fetch`) no depende de esto.
@@ -614,7 +628,7 @@ el smoke con el kit sigue siendo lo único pendiente para fijar nombres exactos.
 ### A.11.2 Los dos patrones, confirmados por el propio equipo
 
 - **Patrón B (offline, lo que ya tenemos)** — se cargan las personas al terminal
-  y valida él. El modelo *Person* (`Person Management > Add`, §2.5) mapea 1:1 con
+  y valida él. El modelo _Person_ (`Person Management > Add`, §2.5) mapea 1:1 con
   nuestra sincronización:
   - **No.** = User ID (≤30, letras/números) · **Password** = PIN (**máx 8
     dígitos**) · **Card** (manual o leído por enrollment reader) · **Fingerprint**
@@ -631,22 +645,22 @@ el smoke con el kit sigue siendo lo único pendiente para fijar nombres exactos.
       Arrearage sigue siendo el preferido porque «abre con aviso» en pre-arrearage).
   - Import por plantilla hasta 10.000 usuarios (equivale al alta masiva por CGI).
 - **Patrón A (online) = §2.6.7 «Back-end Comparison»** — `Access Control >
-  Back-end Comparison`: **QR Code Pass-through** y **Card No. Pass-through**. Con
+Back-end Comparison`: **QR Code Pass-through** y **Card No. Pass-through**. Con
   ellos, el terminal **manda el QR/tarjeta presentado a NUESTRA plataforma** para
   validar en vez de decidir en local → es exactamente nuestro `/access/verify`.
-  **Corrección a lo que asumíamos**: el *controlador* SÍ soporta QR/tarjeta
-  pass-through; lo que no tiene escáner QR es el **lector ASR2201A** (tarjeta +
-  teclado). Con ese lector seguimos con **tarjeta + PIN**, pero el controlador no
-  nos limita si algún día se añade un lector con QR/cámara.
+  **Corrección a lo que asumíamos**: el _controlador_ SÍ soporta QR/tarjeta
+  pass-through; lo que no tiene escáner QR es el **lector ASR2101A** (tarjeta +
+  teclado). Con ese lector seguimos con **tarjeta + PIN**, pero el controlador
+  no nos limita si algún día se añade un lector con QR/cámara.
 
 ### A.11.3 Cómo recibir los eventos de acceso — PUSH, mejor que el polling
 
 Tres funciones nativas que cambian (a mejor) lo que teníamos planeado:
 
 - **§2.8.7 Auto Upload** — `Communication Settings > Auto Upload`: el terminal
-  **empuja** *person info* + **unlock records** por HTTP a la plataforma
+  **empuja** _person info_ + **unlock records** por HTTP a la plataforma
   («unlock records can be pushed to **multiple** management platforms»; hay
-  *Push Person Info*, *Event Type* seleccionable, auth con user/pass, HTTPS). →
+  _Push Person Info_, _Event Type_ seleccionable, auth con user/pass, HTTPS). →
   **Sustituye el polling de `recordFinder.cgi`** por un push a un webhook nuestro
   para la reconciliación de `access_logs`. (El polling de §A.10 queda como plan B.)
 - **§2.8.6 CGI Auto Registration** — el terminal **se registra solo** contra
@@ -669,16 +683,33 @@ Por puerta: **Open** / **Close** / **Always Open** / **Always Closed**
 `DahuaLockProvider.open`/`close` (ya implementados) + un futuro «always
 open/closed» para modo evento/lockdown prolongado.
 
+### A.11.4-bis Puerto de lector: RS-485 por defecto (DIP switch)
+
+Confirmado en el _Quick Start Guide_ (§2.2.5/§2.3.5): el **puerto de lector**
+de la ASC4201C-D acepta **RS-485 o Wiegand, nunca los dos a la vez en el mismo
+puerto** («_One access reader port can only connect to the access readers of
+the same type_»). La elección se hace con un **DIP switch físico** en la
+controladora — posición **«485»** (viene así **de fábrica, por defecto**) o
+posición **«WG»** para un lector Wiegand. Como el ASR2101A soporta RS-485,
+**se recomienda cablearlo por RS-485** (coherente con §A.12.1: nunca los dos
+modos a la vez, o la controladora duplica el evento / da el PIN por
+incorrecto pese a ser válido): más alcance que Wiegand (con cable RVV0.5,
+**200 m** en RS-485 vs 120 m en Wiegand; con RVV1.5, 120 m vs 50 m) y feedback
+bidireccional real hacia el lector. **A confirmar en la instalación**: que el
+DIP switch esté efectivamente en «485» (por si el instalador lo tocó).
+
 ### A.11.5 Gotchas nuevos del modelo real
 
 - **Solo-PIN**: por defecto el desbloqueo por PIN pide **User No. + password**;
   para «el móvil es la llave» (PIN a secas) hay que activar
-  **§2.6.5 *PIN Code Authentication*** («open the door with just the password»).
+  **§2.6.5 _PIN Code Authentication_** («open the door with just the password»).
   Requisito de setup + a confirmar por CGI en el smoke.
 - **Duress password = password + 1** (§2.5.2): un PIN `+1` dispara **alarma de
   coacción**. → al **auto-generar PINs** conviene evitar que `PIN_a + 1 == PIN_b`
   de otro inquilino (colisionaría con la coacción). Reforzar `resolveUniquePin`
-  para excluir también los adyacentes ±1.
+  para excluir también los adyacentes ±1. El lector ASR2101A también admite
+  coacción **por tarjeta** (marcar el tipo de credencial como «duress card» al
+  darla de alta) — ver §A.12, es un mecanismo aparte del PIN+1.
 - **Card No.**: decimal/hex + Wiegand (5 formatos por defecto + custom, HID26
   solo Wiegand 26) con **padding de ceros** (p. ej. `56 → 000056`). → fijar el
   formato exacto del UID al casar tarjetas (coherente con «CardNo = UID real» de
@@ -687,7 +718,7 @@ open/closed» para modo evento/lockdown prolongado.
   Plan** (128 periodos No.0–127), **Holiday Plan** (4), first-card unlock,
   anti-passback, multi-door interlock.
 - El equipo soporta **cara y huella** (hay `FaceInfoManager.cgi` y un anexo de
-  registro de huella), pero el lector ASR2201A comprado es **tarjeta+teclado** →
+  registro de huella), pero el lector ASR2101A comprado es **tarjeta+teclado** →
   facial/huella quedan fuera con este lector (encajan con un ASI6214S, §A.10).
 
 ### A.11.6 Qué NO cambia y qué queda por confirmar en el smoke
@@ -701,6 +732,75 @@ open/closed» para modo evento/lockdown prolongado.
   **PIN Code Authentication**; (d) que la ASC4201C-D expone la CGI de terceros
   del mismo modo que la familia ASI (los manuales lo sugieren, pero la spec CGI
   detallada de §A.10 es de los ASI).
+
+## A.12 Manuales oficiales del lector ASR2101A (2026-08-17)
+
+Fuente: los 5 PDFs oficiales del lector comprado, subidos por Jota a
+[`docs/dahua/lector/`](dahua/lector/): _Access Reader User's Manual V1.0.4_
+(24 pág, genérico de la familia — cubre 3 variantes de carcasa: **86 Box**,
+**Slim** y **Fingerprint**; el 86 Box admite además la sub-variante **QR code
+card reader**), _Dahua Access Control FAQ Manual V1.0.0_ (26 pág, genérica de
+toda la familia de controladoras/lectores, no específica del ASR2101A),
+_Communication Matrix_ (genérica de cualquier equipo Dahua en red — **no
+aplica al lector**, ver más abajo), _Dimensions_ y _Open Source Software
+Notice_. El manual del lector **no imprime el nombre de modelo en ningún
+sitio** (es un documento compartido por toda la serie ASR11xxA/ASR21xxA); el
+nombre exacto **ASR2101A** lo confirmó Jota.
+
+### A.12.1 El lector es un periférico "tonto" — confirma nuestro diseño
+
+- **Sin IP ni CGI propios**: se conecta a la controladora **solo por RS-485 o
+  Wiegand** (nunca los dos a la vez — cablear ambos simultáneamente hace que la
+  controladora reporte el evento **duplicado**, o el ID+password como
+  incorrecto pese a ser válido — gotcha de instalación, no de software).
+  Confirma que nuestro adapter **nunca habla con el lector directamente**, solo
+  con la CGI de la controladora — sin cambios de diseño.
+- **Firmware/versión del lector**: solo se actualiza y se consulta **a través
+  de la controladora** (SmartPSS Lite o ConfigTool, «Device upgrade» sobre el
+  device de tipo Access Controller). No hay gestión directa del lector — tarea
+  100% del instalador, no del software.
+- La _Communication Matrix_ que acompaña al lector es genérica de **cualquier**
+  equipo Dahua en red (puertos ONVIF/RTSP/SDK/P2P) — **no aplica al lector en
+  sí** (que no tiene esos puertos, al no tener IP), solo sería relevante si se
+  documentase la propia controladora.
+
+### A.12.2 🔴 Riesgo de seguridad a exigir en la instalación
+
+FAQ §4.11-4.12: el sufijo del modelo indica el tipo de tarjeta soportada — **sin
+sufijo** = tarjeta IC (Mifare) · **`-D`** = también tarjeta ID · **`-C`** =
+también tarjeta CPU. Y el hallazgo importante:
+
+> _"Currently, the IC cards are not encrypted for factory status and can be
+> copied using the NFC feature on the phone."_
+
+Las tarjetas Mifare de fábrica **se pueden clonar con cualquier móvil con NFC**
+(apps tipo "MIFARE Classic Tool") salvo que el instalador **active el cifrado
+por sectores** (hay que programar tarjeta y lector para que casen sus sectores
+— requiere herramienta/servicio del integrador, no es un toggle de software).
+**Esto no se puede arreglar desde nuestro backend** — es un requisito a exigir
+por contrato al instalador/proveedor de tarjetas antes de emitir credenciales
+RFID a inquilinos reales. Añadido como pendiente operativo en el checklist de
+puesta en marcha del hardware (`docs/COMPRA_LOCAL.md`).
+
+### A.12.3 Coacción por tarjeta (mecanismo aparte del PIN+1)
+
+FAQ §1.12-§1.13: además del _duress password_ (PIN+1, ya documentado en
+§A.11.5), existe una **duress card**: al dar de alta la credencial en el
+software de gestión se marca su tipo como «duress card»; al pasar esa tarjeta
+por el lector, si **«Enable Alarm» → «Duress Alarm»** está activado en la
+config de la puerta, dispara la alarma de coacción sin bloquear la apertura
+(igual que el PIN+1: abre y avisa). Dos vías de coacción independientes según
+el tipo de credencial que use el inquilino (tarjeta vs. PIN) — a contemplar
+ambas si algún día se construye detección de coacción en nuestro lado.
+
+### A.12.4 Confirma: PIN máx. 8 dígitos, formato de tarjeta
+
+- El **PIN del lector es de hasta 8 dígitos** (coherente con el límite de
+  `Password` del _Person_ de §A.11.2, que ya decía «máx 8 dígitos» — doble
+  confirmación desde el lado del lector).
+- El **desbloqueo por tarjeta + password combinados** también es un modo
+  soportado por el lector (§5: «Unlock the door through card + password») —
+  no solo tarjeta sola o PIN solo.
 
 ---
 
@@ -718,14 +818,15 @@ open/closed» para modo evento/lockdown prolongado.
 
 ## B.1 Qué usamos y qué NO
 
-| | Integramos en la app | Cómo |
-|---|---|---|
-| **Log de eventos** (movimiento, IVS/línea cruzada, detección de persona, sabotaje…) | ✅ Sí | Con su **snapshot del momento** |
-| **Snapshot / imagen** | ✅ Sí | JPEG del evento (y opcionalmente on-demand) |
-| **Vídeo en vivo** | ❌ No — app de Dahua (DMSS) | — |
-| **Reproducción de grabaciones** | ❌ No — app de Dahua (DMSS/SmartPSS) | — |
+|                                                                                     | Integramos en la app                 | Cómo                                        |
+| ----------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------- |
+| **Log de eventos** (movimiento, IVS/línea cruzada, detección de persona, sabotaje…) | ✅ Sí                                | Con su **snapshot del momento**             |
+| **Snapshot / imagen**                                                               | ✅ Sí                                | JPEG del evento (y opcionalmente on-demand) |
+| **Vídeo en vivo**                                                                   | ❌ No — app de Dahua (DMSS)          | —                                           |
+| **Reproducción de grabaciones**                                                     | ❌ No — app de Dahua (DMSS/SmartPSS) | —                                           |
 
 Endpoints device-direct (auth **Digest**) que sí usamos:
+
 - **Snapshot JPEG:** `GET /cgi-bin/snapshot.cgi?channel=N`.
 - **Eventos con snapshot:** `eventManager.cgi?action=attach&codes=[All]` (stream) o
   `snapManager.cgi?action=attachFileProc` (el evento trae la imagen). También por
@@ -739,10 +840,12 @@ endpoint de ingesta nuestro**, y hay dos formas de conseguirlo **sin abrir
 puertos ni túnel** si el equipo tiene salida a Internet.
 
 **Opción 1 (recomendada, casi sin infra) — push del propio equipo:**
+
 ```
 [ Cámara/NVR Dahua ]  --evento + snapshot (salida a Internet)-->  [ POST /webhooks/camera-events (TrasterOS) ]
    alarm linkage: HTTP upload / FTP / email
 ```
+
 Los equipos Dahua permiten **subir la captura del evento** por **FTP**, **email**
 o (según modelo/firmware) **HTTP upload** como "linkage" de la alarma. Montamos un
 **endpoint de ingesta** (webhook HTTP; si el equipo solo habla FTP, un pequeño
@@ -752,8 +855,8 @@ del evento**, no "una foto ahora mismo" arbitraria.
 
 > **Nota de despliegue:** este ingest (webhook y/o contenedor FTP) es
 > **centralizado** y SÍ vive en **nuestro compose de la nube** — no confundir con
-> la regla "el agente on-site no va en la nube": el agente resuelve *salida hacia
-> la LAN*; el ingest recibe *entradas desde los equipos*. Preferir **HTTP upload**
+> la regla "el agente on-site no va en la nube": el agente resuelve _salida hacia
+> la LAN_; el ingest recibe _entradas desde los equipos_. Preferir **HTTP upload**
 > si el firmware lo trae; FTP como fallback (ojo a los puertos pasivos del FTP en
 > el VPS/NPM). Autenticación realista: **credenciales/token por device** (el
 > equipo no sabe firmar HMAC nuestro).
@@ -791,7 +894,7 @@ credenciales de cada cámara se guardan **cifradas** (patrón `controlSecretEncr
 ## B.5 Reparto de esfuerzo (con el alcance acotado)
 
 - **Fase 1 (bajo esfuerzo):** ingesta de eventos + snapshot por **push** (Opción 1)
-  + modelo de datos + las dos vistas de arriba. Es el grueso del valor.
+  - modelo de datos + las dos vistas de arriba. Es el grueso del valor.
 - **Fase 2 (opcional):** agente on-site para **snapshot on-demand** (Opción 2).
 - **Fuera de alcance:** vídeo en vivo y grabaciones → app de Dahua.
 
@@ -806,14 +909,14 @@ credenciales de cada cámara se guardan **cifradas** (patrón `controlSecretEncr
 
 ## C.1 Por qué AirShield y no Ajax (comparativa)
 
-| Criterio | **Ajax Systems** | **Dahua AirShield** |
-|---|---|---|
-| **Calidad como alarma** | ⭐ Referencia del mercado (Jeweller, retrofit impecable, catálogo enorme) | Más reciente/menos rodada; correcta |
-| **Grados EN 50131** | Grade 2 estándar; **Grade 3** disponible (Superior MotionCam G3 / Hub Hybrid) | Grade 2 + PD6662 (sin Grade 3 público) |
-| **Verificación** | Foto (MotionCam, líder) | Foto (PIR-Cam) + **vídeo nativo con las cámaras Dahua** (alarma + persona detectada) |
-| **API para nuestra app** | **Enterprise API**: existe pero **muy gated** (literal: para empresas "que ya sirven miles de sistemas Ajax", aprobación previa) y **cloud-only** (Ajax Cloud; sin API local/LAN ni MQTT oficial). Push real → vía **CMS/SIA DC-09** (posicionarse como CRA) | **Enlazado al NVR por red** → los eventos de intrusión entran por el **mismo `eventManager.cgi` device-direct** que cámaras/accesos. Alternativa **Open IoT API** (cloud DoLynk) |
-| **Coste de integración para nosotros** | **Un adapter nuevo entero**, cloud, con gate de acceso incierto | **≈ 0 marginal**: un tipo de evento más en el adapter Dahua |
-| **Timeline unificado** (alarma+vídeo+acceso) | No (dos ecosistemas a correlacionar) | ✅ Nativo (NVR/DMSS agregan todo) |
+| Criterio                                     | **Ajax Systems**                                                                                                                                                                                                                                             | **Dahua AirShield**                                                                                                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Calidad como alarma**                      | ⭐ Referencia del mercado (Jeweller, retrofit impecable, catálogo enorme)                                                                                                                                                                                    | Más reciente/menos rodada; correcta                                                                                                                                              |
+| **Grados EN 50131**                          | Grade 2 estándar; **Grade 3** disponible (Superior MotionCam G3 / Hub Hybrid)                                                                                                                                                                                | Grade 2 + PD6662 (sin Grade 3 público)                                                                                                                                           |
+| **Verificación**                             | Foto (MotionCam, líder)                                                                                                                                                                                                                                      | Foto (PIR-Cam) + **vídeo nativo con las cámaras Dahua** (alarma + persona detectada)                                                                                             |
+| **API para nuestra app**                     | **Enterprise API**: existe pero **muy gated** (literal: para empresas "que ya sirven miles de sistemas Ajax", aprobación previa) y **cloud-only** (Ajax Cloud; sin API local/LAN ni MQTT oficial). Push real → vía **CMS/SIA DC-09** (posicionarse como CRA) | **Enlazado al NVR por red** → los eventos de intrusión entran por el **mismo `eventManager.cgi` device-direct** que cámaras/accesos. Alternativa **Open IoT API** (cloud DoLynk) |
+| **Coste de integración para nosotros**       | **Un adapter nuevo entero**, cloud, con gate de acceso incierto                                                                                                                                                                                              | **≈ 0 marginal**: un tipo de evento más en el adapter Dahua                                                                                                                      |
+| **Timeline unificado** (alarma+vídeo+acceso) | No (dos ecosistemas a correlacionar)                                                                                                                                                                                                                         | ✅ Nativo (NVR/DMSS agregan todo)                                                                                                                                                |
 
 **Cuándo compensaría Ajax:** cliente que lo exija por marca/seguro/CRA, o que
 necesite Grade 3 con verificación fotográfica premium. Gracias a ports &
@@ -869,16 +972,16 @@ adapters, añadirlo después es un adapter más — no bloquear el diseño por A
 
 ## A. Control de accesos (por puerta peatonal)
 
-| Componente | Modelo/tipo | Aprox. |
-|---|---|---|
-| Terminal de acceso (PIN+tarjeta+QR+cara) | **Dahua ASI6214S** (valida en local = Patrón B) | 250–400 € |
-| Abrepuertas eléctrico **fail-secure** 12 V | Dorcas/CDVI estándar | 30–60 € |
-| Cerradura mecánica + **bombín amaestrado** | Llave maestra del staff (último recurso) | 40–80 € |
-| Fuente 12 V con batería ("SAI de la puerta") | Caja 12 V 3–5 A con hueco de batería | 40–70 € |
-| Batería 12 V 7 Ah | Plomo AGM | 15–25 € |
-| Manilla/barra **antipánico mecánica** interior | Obligatoria (evacuación sin corriente) | 60–150 € |
-| Contacto magnético de puerta | Estado abierta/cerrada (ACK + alarma) | 5–15 € |
-| Cableado (Cat6 al terminal + 2×1 mm² a cerradura + canaleta) | — | 30–60 € |
+| Componente                                                   | Modelo/tipo                                     | Aprox.    |
+| ------------------------------------------------------------ | ----------------------------------------------- | --------- |
+| Terminal de acceso (PIN+tarjeta+QR+cara)                     | **Dahua ASI6214S** (valida en local = Patrón B) | 250–400 € |
+| Abrepuertas eléctrico **fail-secure** 12 V                   | Dorcas/CDVI estándar                            | 30–60 €   |
+| Cerradura mecánica + **bombín amaestrado**                   | Llave maestra del staff (último recurso)        | 40–80 €   |
+| Fuente 12 V con batería ("SAI de la puerta")                 | Caja 12 V 3–5 A con hueco de batería            | 40–70 €   |
+| Batería 12 V 7 Ah                                            | Plomo AGM                                       | 15–25 €   |
+| Manilla/barra **antipánico mecánica** interior               | Obligatoria (evacuación sin corriente)          | 60–150 €  |
+| Contacto magnético de puerta                                 | Estado abierta/cerrada (ACK + alarma)           | 5–15 €    |
+| Cableado (Cat6 al terminal + 2×1 mm² a cerradura + canaleta) | —                                               | 30–60 €   |
 
 Cancela de vehículos: motor con desbloqueo manual por llave (de serie) + relé
 accionado por el terminal o segundo lector — ver `HARDWARE_CANCELA.md`.
@@ -886,24 +989,24 @@ accionado por el terminal o segundo lector — ver `HARDWARE_CANCELA.md`.
 
 ## B. Cámaras (alcance acotado: eventos + snapshots)
 
-| Componente | Modelo/tipo | Aprox. |
-|---|---|---|
-| **NVR Dahua PoE** 4–8 canales | Serie NVR4x04/4x08-P — ⚠️ **modelo con menú IoT compatible AirShield, confirmar ANTES de comprar** | 120–300 € |
-| Disco de videovigilancia | WD Purple 2–4 TB | 60–120 € |
-| Cámaras IP PoE **con IA** (detección de persona/IVS — evita falsos positivos en el push) | Domo/bullet 4 MP (IPC-HDW2441 / HFW2441) × 4–8: entrada ext. · recepción · 1/pasillo · cancela | 60–120 €/ud |
-| Cable UTP Cat6 por cámara (el NVR PoE alimenta) | — | 50–100 € |
+| Componente                                                                               | Modelo/tipo                                                                                        | Aprox.      |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------- |
+| **NVR Dahua PoE** 4–8 canales                                                            | Serie NVR4x04/4x08-P — ⚠️ **modelo con menú IoT compatible AirShield, confirmar ANTES de comprar** | 120–300 €   |
+| Disco de videovigilancia                                                                 | WD Purple 2–4 TB                                                                                   | 60–120 €    |
+| Cámaras IP PoE **con IA** (detección de persona/IVS — evita falsos positivos en el push) | Domo/bullet 4 MP (IPC-HDW2441 / HFW2441) × 4–8: entrada ext. · recepción · 1/pasillo · cancela     | 60–120 €/ud |
+| Cable UTP Cat6 por cámara (el NVR PoE alimenta)                                          | —                                                                                                  | 50–100 €    |
 
 **Subtotal (6 cámaras): ~700–1.200 €.**
 
 ## C. Alarma (AirShield, enlazada al NVR)
 
-| Componente | Modelo/tipo | Aprox. |
-|---|---|---|
-| **Alarm Hub** | ARC3800H (batería integrada, 150 periféricos) | 150–250 € |
-| Detectores PIR (1/zona: recepción, pasillos, muelle) | PIR estándar o **PIR-Cam** (foto de verificación) | 30–60 € / 80–120 € |
-| Contactos magnéticos inalámbricos (puertas acceso/emergencia) | — | 25–40 €/ud |
-| Sirena interior + exterior | Inalámbricas AirShield | 50–90 €/ud |
-| Teclado/mando de armado (opcional; se arma por app/horario) | — | 30–60 € |
+| Componente                                                    | Modelo/tipo                                       | Aprox.             |
+| ------------------------------------------------------------- | ------------------------------------------------- | ------------------ |
+| **Alarm Hub**                                                 | ARC3800H (batería integrada, 150 periféricos)     | 150–250 €          |
+| Detectores PIR (1/zona: recepción, pasillos, muelle)          | PIR estándar o **PIR-Cam** (foto de verificación) | 30–60 € / 80–120 € |
+| Contactos magnéticos inalámbricos (puertas acceso/emergencia) | —                                                 | 25–40 €/ud         |
+| Sirena interior + exterior                                    | Inalámbricas AirShield                            | 50–90 €/ud         |
+| Teclado/mando de armado (opcional; se arma por app/horario)   | —                                                 | 30–60 €            |
 
 Detectores a pilas. **Subtotal (4 zonas): ~500–900 €.**
 ⚠️ **CRA**: despacho a policía = contrato con CRA homologada + instalación por
@@ -911,25 +1014,25 @@ empresa autorizada (RD 2364/1994); sin CRA, la alarma avisa a app/DMSS y suena.
 
 ## D. Red e infraestructura común (el "rack" del local)
 
-| Componente | Modelo/tipo | Aprox. |
-|---|---|---|
-| **Router con failover 4G/LTE** | Teltonika RUT241/RUT906 — si cae la fibra, el push y el sync siguen por 4G | 150–250 € |
-| Switch PoE 8 puertos | Para el terminal ASI / cámaras extra | 60–100 € |
-| **SAI/UPS 600–1000 VA** | Rack: router + switch + NVR + agente | 80–150 € |
-| **Agente on-site** (sync Patrón B + reconciliación por túnel saliente) | Raspberry Pi 5 / mini-PC + SSD + Docker | 80–150 € |
-| Armario/caja rack **con llave** | — | 60–120 € |
-| VLAN de dispositivos (cámaras/terminal sin salida a Internet salvo push) | Config del router | — |
+| Componente                                                               | Modelo/tipo                                                                | Aprox.    |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------- | --------- |
+| **Router con failover 4G/LTE**                                           | Teltonika RUT241/RUT906 — si cae la fibra, el push y el sync siguen por 4G | 150–250 € |
+| Switch PoE 8 puertos                                                     | Para el terminal ASI / cámaras extra                                       | 60–100 €  |
+| **SAI/UPS 600–1000 VA**                                                  | Rack: router + switch + NVR + agente                                       | 80–150 €  |
+| **Agente on-site** (sync Patrón B + reconciliación por túnel saliente)   | Raspberry Pi 5 / mini-PC + SSD + Docker                                    | 80–150 €  |
+| Armario/caja rack **con llave**                                          | —                                                                          | 60–120 €  |
+| VLAN de dispositivos (cámaras/terminal sin salida a Internet salvo push) | Config del router                                                          | —         |
 
 **Subtotal: ~450–800 €.**
 
 ## Total orientativo del local tipo
 
-| Bloque | Rango |
-|---|---|
-| Accesos (1 puerta) | 500–800 € |
-| Cámaras (6) | 700–1.200 € |
-| Alarma (4 zonas) | 500–900 € |
-| Red/infra | 450–800 € |
+| Bloque             | Rango                            |
+| ------------------ | -------------------------------- |
+| Accesos (1 puerta) | 500–800 €                        |
+| Cámaras (6)        | 700–1.200 €                      |
+| Alarma (4 zonas)   | 500–900 €                        |
+| Red/infra          | 450–800 €                        |
 | **Total hardware** | **~2.200–3.700 €** + instalación |
 
 ---
