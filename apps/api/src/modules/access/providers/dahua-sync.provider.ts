@@ -31,9 +31,15 @@ import { digestRequest } from './digest-fetch';
  *   - Apertura remota: `accessControl.cgi?action=openDoor&channel=N&Type=Remote`
  *              (en `DahuaLockProvider`).
  *
- * Lo único pendiente de validar con el terminal FÍSICO (smoke): que update/
- * remove de `AccessControlCard` operen por `recno` en el firmware concreto
- * (aquí se resuelve el recno vía recordFinder y hay fallback por CardNo).
+ * **CONFIRMADO con el kit físico (ASC4202C-D + ASR2101A, smoke 2026-08-17)**:
+ * `update`/`remove` de `AccessControlCard` SÍ operan por `recno` (resuelto vía
+ * `recordFinder`, con fallback por CardNo). Y un hallazgo NO documentado en la
+ * doc oficial (que marca estos campos como opcionales, pero en la práctica
+ * hacen falta los tres o el terminal RECHAZA la credencial con LED rojo pese
+ * a que el insert responda `RecNo=<n>` con éxito): `Doors[N]` (permiso de
+ * puerta, índice base 0) + `TimeSections[N]` (franja horaria del permiso, `255`
+ * = sin restricción) + `ValidDateStart`/`ValidDateEnd` SIEMPRE los dos (un
+ * rango vacío se trata como «nunca válido», no como «sin restricción»).
  */
 @Injectable()
 export class DahuaSyncProvider extends CredentialSyncProvider {
@@ -188,18 +194,37 @@ export class DahuaSyncProvider extends CredentialSyncProvider {
       ...(cred.method === 'pin' ? { Password: cred.secret } : {}),
       // Caducidad (pases nocturnos, accesos temporales): el terminal desactiva
       // la card al expirar (`IsValid` → false, doc v1.0). En hora local del local.
-      ...(cred.validUntil
-        ? { ValidDateEnd: DahuaSyncProvider.formatDahuaDate(cred.validUntil, device.timezone) }
-        : {}),
+      // CONFIRMADO con el kit físico (smoke 2026-08-17): un rango vacío
+      // (sin ValidDateStart/End) hace que el terminal RECHACE la credencial
+      // como si no existiera (LED rojo) — la doc v1.0 los marca "No" requeridos
+      // pero en la práctica hacen falta los DOS siempre. Sin caducidad se usa
+      // el mismo rango "sin restricción" que trae de fábrica la cuenta admin
+      // (`1970-01-01` .. `2037-12-31`, visto en un `recordFinder` real).
+      ValidDateStart: '19700101 000000',
+      ValidDateEnd: cred.validUntil
+        ? DahuaSyncProvider.formatDahuaDate(cred.validUntil, device.timezone)
+        : '20371231 235959',
       // Límite de usos (pase single-use). La doc v1.0 confirma la desactivación
       // por «maximum number of usage» pero no nombra el campo del insert →
       // `UseTimes` (API general de Dahua), VERIFY con el firmware en el smoke.
       ...(cred.maxUses != null ? { UseTimes: String(cred.maxUses) } : {}),
     });
+    // Permiso de puerta — CONFIRMADO con el kit físico (smoke 2026-08-17):
+    // sin `Doors[]`/`TimeSections[]` el alta se guarda (responde RecNo) pero
+    // el terminal la rechaza igualmente (sin permiso de ninguna puerta). El
+    // índice de `Doors[]` es de BASE 0 (`device.channel` es base 1, como
+    // `DahuaLockProvider`/`accessControl.cgi?channel=`) — se resta 1. El valor
+    // de `TimeSections[0]` es `255` = «sin restricción horaria» (visto en la
+    // cuenta admin de fábrica; `0` es solo el índice de una franja concreta
+    // que puede no estar configurada como «siempre»). Se construyen a mano
+    // (no vía `URLSearchParams`) para no arriesgar el encoding de `[]` que
+    // no hemos validado con el firmware real.
+    const doorIndex = Math.max(0, device.channel - 1);
+    const doorParams = `Doors[0]=${doorIndex}&TimeSections[0]=255`;
     const res = await digestRequest({
       // `URLSearchParams` codifica el espacio como '+'; Dahua espera '%20'
       // (ejemplo literal de la doc: `ValidDateEnd=20151222%20093811`).
-      url: `${this.base(device)}/cgi-bin/recordUpdater.cgi?${params.toString().replace(/\+/g, '%20')}`,
+      url: `${this.base(device)}/cgi-bin/recordUpdater.cgi?${params.toString().replace(/\+/g, '%20')}&${doorParams}`,
       username: c.user,
       password: c.pass,
     });

@@ -587,12 +587,32 @@ V2 en ASC2XXX, ONVIF Profile A/C y SDK completo).
 | **Caras (si algún día)**          | `FaceInfoManager.cgi?action=add` (POST JSON, foto base64 ≤100KB).                                                                                                                                                                                                                                                                                                                                                                      |
 | **RTSP**                          | `rtsp://<ip>:554/cam/realmonitor?channel=1&subtype=0` (el vídeo sigue siendo cosa de DMSS).                                                                                                                                                                                                                                                                                                                                            |
 
-### Único VERIFY restante (smoke con el terminal físico)
+### VERIFY cerrados con el kit físico (2026-08-17)
 
-1. Confirmar que el firmware del modelo comprado acepta `action=update/remove`
-   por `recno` (el adapter ya trae el fallback por `CardNo`).
-2. Validar el **modo de desbloqueo solo-PIN** del teclado (el `Password` del card
-   record) y el flujo **QR** en campo.
+1. ✅ **`action=update/remove` por `recno`** — confirmado con el firmware real
+   (ASC4202C-D): `recordFinder` resuelve el `recno` y `update`/`remove` operan
+   sobre él sin problemas.
+2. ✅ **Modo de desbloqueo solo-PIN** — activando `§2.6.5 PIN Code
+Authentication` el lector deja entrar tecleando **solo el `Password`**, sin
+   el `UserID`. El flujo **QR** sigue sin poder probarse (el ASR2101A comprado
+   no lee QR).
+3. 🐛 **`Doors[]`/`TimeSections[]`/`ValidDateStart` NO son realmente opcionales**
+   (la doc oficial los marca `Required: No`, pero en la práctica el terminal
+   **rechaza la credencial (LED rojo)** si faltan, aunque el `insert` responda
+   `RecNo=<n>` con éxito — el registro se guarda "huérfano", sin permiso de
+   ninguna puerta ni rango de validez). Esto era un **bug real** en
+   `DahuaSyncProvider.pushCredential`: ninguna credencial emitida por el
+   software habría abierto la puerta de verdad. Corregido (rama
+   `fix/dahua-credential-door-permission`): se envían siempre
+   `Doors[0]=<channel-1>` (índice base 0, `channel` del device es base 1),
+   `TimeSections[0]=255` (sin restricción horaria — visto en la cuenta `admin`
+   de fábrica, el índice `0` es solo una franja concreta que puede no estar
+   configurada) y `ValidDateStart`/`ValidDateEnd` siempre los dos (un rango
+   vacío se trata como "nunca válido", no como "sin restricción"; sin
+   caducidad se usa el mismo rango que trae la cuenta admin de fábrica,
+   `1970-01-01`..`2037-12-31`). De paso corrige el mismo problema latente en el
+   **pase nocturno** (que solo enviaba `ValidDateEnd`, dejando `ValidDateStart`
+   vacío).
 
 ---
 

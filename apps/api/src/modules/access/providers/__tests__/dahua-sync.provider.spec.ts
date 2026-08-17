@@ -45,7 +45,11 @@ describe('DahuaSyncProvider', () => {
       secret: 'A1B2C3D4',
     });
     expect(rfid.ref).toBe('A1B2C3D4');
-    const qr = await provider.pushCredential(noDevice, { ...pinSpec, method: 'qr', secret: 'tok9' });
+    const qr = await provider.pushCredential(noDevice, {
+      ...pinSpec,
+      method: 'qr',
+      secret: 'tok9',
+    });
     expect(qr.ref).toBe('tok9');
   });
 
@@ -154,7 +158,7 @@ describe('DahuaSyncProvider', () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     });
 
-    it('push de un PIN envía Password + CardNo + CardStatus por recordUpdater', async () => {
+    it('push de un PIN envía Password + CardNo + CardStatus + Doors/TimeSections + ValidDate por recordUpdater', async () => {
       urls.length = 0;
       const { ref } = await provider.pushCredential(device, pinSpec);
       expect(ref).toMatch(/^\d+$/);
@@ -164,9 +168,15 @@ describe('DahuaSyncProvider', () => {
       expect(insert).toContain(`CardNo=${ref}`);
       expect(insert).toContain('Password=1234'); // el PIN viaja en Password
       expect(insert).toContain('CardStatus=0');
+      // CONFIRMADO con el kit real: sin esto el terminal rechaza la credencial
+      // (LED rojo) pese a que el insert responda RecNo con éxito.
+      expect(insert).toContain('Doors[0]=0'); // channel=1 (default) → índice base 0
+      expect(insert).toContain('TimeSections[0]=255'); // sin restricción horaria
+      expect(insert).toContain('ValidDateStart=19700101%20000000');
+      expect(insert).toContain('ValidDateEnd=20371231%20235959'); // sin caducidad → "siempre"
     });
 
-    it('un pase nocturno single-use envía ValidDateEnd (hora local) + UseTimes', async () => {
+    it('un pase nocturno single-use envía ValidDateEnd (hora local) + UseTimes + ValidDateStart', async () => {
       urls.length = 0;
       await provider.pushCredential(device, {
         ...pinSpec,
@@ -177,7 +187,15 @@ describe('DahuaSyncProvider', () => {
       });
       const insert = urls.find((u) => u.includes('action=insert'));
       expect(insert).toContain('ValidDateEnd=20260718%20080000'); // %20, no '+'
+      expect(insert).toContain('ValidDateStart=19700101%20000000');
       expect(insert).toContain('UseTimes=1');
+    });
+
+    it('el índice de Doors[] es el channel del device menos 1 (base 0)', async () => {
+      urls.length = 0;
+      await provider.pushCredential({ ...device, channel: 2 }, pinSpec);
+      const insert = urls.find((u) => u.includes('action=insert'));
+      expect(insert).toContain('Doors[0]=1'); // channel=2 → índice base 0 = 1
     });
 
     it('setState resuelve el recno vía recordFinder y actualiza CardStatus=8 (impago)', async () => {
