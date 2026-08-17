@@ -55,8 +55,8 @@ Objetivo: 1 puerta peatonal con accesos + facial + 2 cámaras + alarma de 1–2 
 - [ ] 1× Abrepuertas eléctrico **fail-secure** 12 V (Dorcas/CDVI) · 30–60 €
 - [ ] 1× Cerradura mecánica + **bombín amaestrado** (llave maestra del staff, último recurso) · 40–80 €
 - [ ] 1× Fuente 12 V 3–5 A con hueco de batería + **1× batería 12 V 7 Ah AGM** («SAI de la puerta») · 55–95 €
-- [ ] 1× **Botón de salida (REX)** o barra antipánico con contacto (la controladora necesita petición de salida) · 10–30 €
-- [ ] 1× Contacto magnético de puerta (ACK abierta/cerrada) · 5–15 €
+- [ ] 1× **Botón de salida (REX)** o barra antipánico con contacto (la controladora necesita petición de salida) · 10–30 € — va probablemente a **`PH1` + `GND`** del bloque «Exit Button or Door Detector» (por puerta) de la ASC4201C-D — **verificar con multímetro/estado en la web antes de dar el cableado por bueno** (⚠️ ver nota abajo)
+- [ ] 1× Contacto magnético de puerta (ACK abierta/cerrada, 2 hilos — p. ej. OEM MC-RMMC) · 5–15 € — **sensor de estado, no cierra nada** (no confundir con el abrepuertas); va probablemente a **`SR1` + `GND`** del **mismo bloque «Exit Button or Door Detector»** que el REX (3 pines por puerta: `SR1`/`PH1`/`GND`, `GND` común a los dos circuitos), **distinto** del puerto **«Lock Power»** que alimenta el abrepuertas — ⚠️ el diagrama del manual (Fig. 2-7) no deja 100% claro si el detector va a `SR1`+`GND` o `SR1`+`PH1`; confirmar en la instalación probando el estado en tiempo real desde la web de la controladora al abrir/cerrar la puerta
 - [ ] 1× Manilla/barra **antipánico mecánica** interior (evacuación sin corriente) · 60–150 €
 - [ ] 1× Tarjetas/llaveros RFID Mifare (pack para repartir a inquilinos) · 1–2 €/ud
 - [ ] Cableado: Cat6 a la controladora + RS-485/Wiegand controladora↔lector + 2×1 mm² a la cerradura + canaleta · 40–70 €
