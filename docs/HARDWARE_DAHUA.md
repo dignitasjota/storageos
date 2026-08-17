@@ -683,6 +683,21 @@ Por puerta: **Open** / **Close** / **Always Open** / **Always Closed**
 `DahuaLockProvider.open`/`close` (ya implementados) + un futuro «always
 open/closed» para modo evento/lockdown prolongado.
 
+### A.11.4-bis Puerto de lector: RS-485 por defecto (DIP switch)
+
+Confirmado en el _Quick Start Guide_ (§2.2.5/§2.3.5): el **puerto de lector**
+de la ASC4201C-D acepta **RS-485 o Wiegand, nunca los dos a la vez en el mismo
+puerto** («_One access reader port can only connect to the access readers of
+the same type_»). La elección se hace con un **DIP switch físico** en la
+controladora — posición **«485»** (viene así **de fábrica, por defecto**) o
+posición **«WG»** para un lector Wiegand. Como el ASR2101A soporta RS-485,
+**se recomienda cablearlo por RS-485** (coherente con §A.12.1: nunca los dos
+modos a la vez, o la controladora duplica el evento / da el PIN por
+incorrecto pese a ser válido): más alcance que Wiegand (con cable RVV0.5,
+**200 m** en RS-485 vs 120 m en Wiegand; con RVV1.5, 120 m vs 50 m) y feedback
+bidireccional real hacia el lector. **A confirmar en la instalación**: que el
+DIP switch esté efectivamente en «485» (por si el instalador lo tocó).
+
 ### A.11.5 Gotchas nuevos del modelo real
 
 - **Solo-PIN**: por defecto el desbloqueo por PIN pide **User No. + password**;
