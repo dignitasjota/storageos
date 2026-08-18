@@ -25,6 +25,13 @@ function slugify(s: string): string {
     .slice(0, 60);
 }
 
+/**
+ * Segmentos reservados por el enrutado público bajo `/s/<tenantSlug>/...` —
+ * un `publicSlug` de facility nunca puede coincidir con ellos o colisionaría
+ * con esas rutas. `l` = prefijo del selector de idioma (`/s/<slug>/l/<locale>`).
+ */
+const RESERVED_PUBLIC_SLUGS = new Set(['l']);
+
 interface CreateArgs {
   tenantId: string;
   userId: string;
@@ -100,14 +107,16 @@ export class FacilitiesService {
     let n = 1;
     // En la práctica converge en 1-2 iteraciones (slugs duplicados son raros).
     for (;;) {
-      const clash = await tx.facility.findFirst({
-        where: {
-          tenantId,
-          publicSlug: candidate,
-          ...(excludeId ? { id: { not: excludeId } } : {}),
-        },
-        select: { id: true },
-      });
+      const clash =
+        RESERVED_PUBLIC_SLUGS.has(candidate) ||
+        (await tx.facility.findFirst({
+          where: {
+            tenantId,
+            publicSlug: candidate,
+            ...(excludeId ? { id: { not: excludeId } } : {}),
+          },
+          select: { id: true },
+        })) != null;
       if (!clash) return candidate;
       n += 1;
       candidate = `${base}-${n}`;

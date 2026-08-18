@@ -1,14 +1,16 @@
 import { MapPin, Phone, Mail, Star, Quote } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
+import { intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { StorageCalculator } from './storage-calculator';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
-function formatPrice(n: number): string {
-  return n.toLocaleString('es-ES', {
+function formatPrice(n: number, locale: PublicWebLocale): string {
+  return n.toLocaleString(intlLocaleFor(locale), {
     style: 'currency',
     currency: 'EUR',
     maximumFractionDigits: 0,
@@ -22,21 +24,22 @@ function cities(data: PublicLandingDto): string {
 
 interface TplProps {
   data: PublicLandingDto;
+  locale: PublicWebLocale;
 }
 
 /** Selecciona la plantilla de la web pública según `data.webTemplate`. */
-export function LandingTemplate({ data }: TplProps) {
+export function LandingTemplate({ data, locale }: TplProps) {
   switch (data.webTemplate) {
     case 'modern':
-      return <ModernTemplate data={data} />;
+      return <ModernTemplate data={data} locale={locale} />;
     case 'industrial':
-      return <IndustrialTemplate data={data} />;
+      return <IndustrialTemplate data={data} locale={locale} />;
     default:
-      return <DefaultTemplate data={data} />;
+      return <DefaultTemplate data={data} locale={locale} />;
   }
 }
 
-function FacilityMeta({ f }: { f: PublicLandingDto['facilities'][number] }) {
+export function FacilityMeta({ f }: { f: PublicLandingDto['facilities'][number] }) {
   return (
     <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
       {(f.address || f.city) && (
@@ -65,32 +68,45 @@ function FacilityMeta({ f }: { f: PublicLandingDto['facilities'][number] }) {
   );
 }
 
-function UnitTypeList({ f }: { f: PublicLandingDto['facilities'][number] }) {
+export function UnitTypeList({
+  f,
+  locale,
+}: {
+  f: PublicLandingDto['facilities'][number];
+  locale: PublicWebLocale;
+}) {
+  const t = useTranslations('publicWeb.common');
   if (f.unitTypes.length === 0) {
-    return <p className="mt-4 text-sm text-muted-foreground">Sin disponibilidad ahora mismo.</p>;
+    return <p className="mt-4 text-sm text-muted-foreground">{t('noAvailabilityShort')}</p>;
   }
   return (
     <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-      {f.unitTypes.map((t) => {
-        const soldOut = t.available === 0;
+      {f.unitTypes.map((unitType) => {
+        const soldOut = unitType.available === 0;
         return (
           <li
-            key={t.id}
+            key={unitType.id}
             className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${
               soldOut ? 'opacity-60' : ''
             }`}
           >
             <span>
-              <span className="font-medium">{t.name}</span>
+              <span className="font-medium">{unitType.name}</span>
               <span
                 className={`ml-2 text-xs ${soldOut ? 'font-medium text-destructive' : 'text-muted-foreground'}`}
               >
-                {soldOut ? 'Agotado' : `${t.available} disponible${t.available === 1 ? '' : 's'}`}
+                {soldOut
+                  ? t('soldOut')
+                  : unitType.available === 1
+                    ? t('availableOne')
+                    : t('availableMany', { count: unitType.available })}
               </span>
             </span>
             <span className="font-semibold">
-              desde {formatPrice(t.priceMonthly * 1.21)}
-              <span className="text-xs font-normal text-muted-foreground">/mes · IVA incl.</span>
+              {t('from')} {formatPrice(unitType.priceMonthly * 1.21, locale)}
+              <span className="text-xs font-normal text-muted-foreground">
+                {t('perMonthVatIncl')}
+              </span>
             </span>
           </li>
         );
@@ -103,8 +119,16 @@ function UnitTypeList({ f }: { f: PublicLandingDto['facilities'][number] }) {
 // Estándar (default) — la plantilla original, centrada y limpia
 // ============================================================================
 
-function DefaultTemplate({ data }: TplProps) {
+/** Titular por defecto (sin `webHeadline` propio del tenant) según el idioma. */
+function useHeadlineFallback(where: string): string {
+  const t = useTranslations('publicWeb.common');
+  return where ? t('headlineWithCity', { city: where }) : t('headlineDefault');
+}
+
+function DefaultTemplate({ data, locale }: TplProps) {
   const where = cities(data);
+  const headline = useHeadlineFallback(where);
+  const t = useTranslations('publicWeb.default');
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:py-14">
       <header className="mb-10 text-center">
@@ -118,10 +142,10 @@ function DefaultTemplate({ data }: TplProps) {
           />
         )}
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          {data.webHeadline || `Trasteros${where ? ` en ${where}` : ''}`}
+          {data.webHeadline || headline}
         </h1>
         <p className="mt-3 text-lg text-muted-foreground">
-          {data.tenantName} · consulta disponibilidad y reserva online en minutos.
+          {t('subtitle', { tenantName: data.tenantName })}
         </p>
         <ReserveButton data={data} />
       </header>
@@ -132,8 +156,8 @@ function DefaultTemplate({ data }: TplProps) {
         </section>
       )}
 
-      <FacilitiesGrid data={data} />
-      <ExtraSections data={data} />
+      <FacilitiesGrid data={data} locale={locale} />
+      <ExtraSections data={data} locale={locale} />
     </div>
   );
 }
@@ -142,8 +166,10 @@ function DefaultTemplate({ data }: TplProps) {
 // Moderna — hero a color de marca a pantalla, tarjetas de local
 // ============================================================================
 
-function ModernTemplate({ data }: TplProps) {
+function ModernTemplate({ data, locale }: TplProps) {
   const where = cities(data);
+  const headline = useHeadlineFallback(where);
+  const t = useTranslations('publicWeb');
   const brand = data.brandColor ?? '#2563EB';
   return (
     <div>
@@ -161,17 +187,17 @@ function ModernTemplate({ data }: TplProps) {
           />
         )}
         <h1 className="mx-auto max-w-2xl text-4xl font-extrabold tracking-tight sm:text-5xl">
-          {data.webHeadline || `Trasteros${where ? ` en ${where}` : ''}`}
+          {data.webHeadline || headline}
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-lg opacity-90">
-          {data.tenantName} · reserva tu trastero online en minutos.
+          {t('modern.subtitle', { tenantName: data.tenantName })}
         </p>
         <Link
           href={`/book/${data.tenantSlug}`}
           className="mt-8 inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
           style={{ color: brand }}
         >
-          Reservar ahora
+          {t('common.reserveNow')}
         </Link>
       </header>
 
@@ -181,8 +207,8 @@ function ModernTemplate({ data }: TplProps) {
             {data.webAbout}
           </section>
         )}
-        <FacilitiesGrid data={data} cols />
-        <ExtraSections data={data} />
+        <FacilitiesGrid data={data} locale={locale} cols />
+        <ExtraSections data={data} locale={locale} />
       </div>
     </div>
   );
@@ -192,8 +218,10 @@ function ModernTemplate({ data }: TplProps) {
 // Industrial — tonos oscuros, tipografía marcada
 // ============================================================================
 
-function IndustrialTemplate({ data }: TplProps) {
+function IndustrialTemplate({ data, locale }: TplProps) {
   const where = cities(data);
+  const headline = useHeadlineFallback(where);
+  const t = useTranslations('publicWeb');
   const brand = data.brandColor ?? '#f59e0b';
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -212,17 +240,15 @@ function IndustrialTemplate({ data }: TplProps) {
             {data.tenantName}
           </p>
           <h1 className="mt-3 text-4xl font-black uppercase tracking-tight sm:text-6xl">
-            {data.webHeadline || `Trasteros${where ? ` en ${where}` : ''}`}
+            {data.webHeadline || headline}
           </h1>
-          <p className="mt-4 max-w-xl text-lg text-neutral-400">
-            Espacio de almacenaje seguro. Reserva online en minutos.
-          </p>
+          <p className="mt-4 max-w-xl text-lg text-neutral-400">{t('industrial.subtitle')}</p>
           <Link
             href={`/book/${data.tenantSlug}`}
             className="mt-8 inline-flex h-12 items-center px-8 text-sm font-bold uppercase tracking-wider text-neutral-950 transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
           >
-            Reservar ahora
+            {t('common.reserveNow')}
           </Link>
         </div>
       </header>
@@ -241,7 +267,7 @@ function IndustrialTemplate({ data }: TplProps) {
             <section key={f.id} className="border border-neutral-800 bg-neutral-900 p-6">
               <h2 className="text-xl font-bold uppercase tracking-wide">{f.name}</h2>
               <FacilityMeta f={f} />
-              <UnitTypeList f={f} />
+              <UnitTypeList f={f} locale={locale} />
               <Link
                 href={
                   f.publicSlug
@@ -250,12 +276,14 @@ function IndustrialTemplate({ data }: TplProps) {
                 }
                 className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
               >
-                {f.publicSlug ? `Ver ${f.name}` : `Reservar en ${f.name}`}
+                {f.publicSlug
+                  ? t('common.viewFacility', { name: f.name })
+                  : t('common.reserveAtFacility', { name: f.name })}
               </Link>
             </section>
           ))}
         </div>
-        <ExtraSections data={data} />
+        <ExtraSections data={data} locale={locale} />
       </div>
     </div>
   );
@@ -265,23 +293,25 @@ function IndustrialTemplate({ data }: TplProps) {
 // Piezas compartidas
 // ============================================================================
 
-function ReserveButton({ data }: TplProps) {
+function ReserveButton({ data }: { data: PublicLandingDto }) {
+  const t = useTranslations('publicWeb.common');
   return (
     <Link
       href={`/book/${data.tenantSlug}`}
       className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
       style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
     >
-      Reservar ahora
+      {t('reserveNow')}
     </Link>
   );
 }
 
-function FacilitiesGrid({ data, cols }: TplProps & { cols?: boolean }) {
+function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
+  const t = useTranslations('publicWeb.common');
   if (data.facilities.length === 0) {
     return (
       <p className="rounded-md border bg-card px-4 py-10 text-center text-muted-foreground">
-        Ahora mismo no hay trasteros disponibles. Vuelve pronto o contáctanos.
+        {t('noAvailabilityLong')}
       </p>
     );
   }
@@ -291,14 +321,16 @@ function FacilitiesGrid({ data, cols }: TplProps & { cols?: boolean }) {
         <section key={f.id} className="rounded-lg border bg-card p-6 shadow-sm">
           <h2 className="text-xl font-semibold">{f.name}</h2>
           <FacilityMeta f={f} />
-          <UnitTypeList f={f} />
+          <UnitTypeList f={f} locale={locale} />
           <Link
             href={
               f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : `/book/${data.tenantSlug}`
             }
             className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
           >
-            {f.publicSlug ? `Ver ${f.name}` : `Reservar en ${f.name}`}
+            {f.publicSlug
+              ? t('viewFacility', { name: f.name })
+              : t('reserveAtFacility', { name: f.name })}
           </Link>
         </section>
       ))}
@@ -315,22 +347,21 @@ function brandOf(data: PublicLandingDto): string {
 }
 
 export function TestimonialsSection({ data }: TplProps) {
+  const t = useTranslations('publicWeb.testimonials');
   if (data.testimonials.length === 0) return null;
   return (
     <section className="mt-14">
-      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
-        Lo que dicen nuestros clientes
-      </h2>
+      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{t('title')}</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {data.testimonials.map((t, i) => (
+        {data.testimonials.map((testimonial, i) => (
           <figure key={i} className="rounded-lg border bg-card p-5 shadow-sm">
             <Quote className="h-5 w-5 opacity-40" style={{ color: brandOf(data) }} />
-            <blockquote className="mt-2 text-sm leading-relaxed">{t.comment}</blockquote>
+            <blockquote className="mt-2 text-sm leading-relaxed">{testimonial.comment}</blockquote>
             <figcaption className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">{t.author}</span>
-              {t.rating != null && (
+              <span className="font-medium text-foreground">{testimonial.author}</span>
+              {testimonial.rating != null && (
                 <span className="flex items-center gap-0.5">
-                  {Array.from({ length: t.rating }).map((_, s) => (
+                  {Array.from({ length: testimonial.rating }).map((_, s) => (
                     <Star
                       key={s}
                       className="h-3.5 w-3.5 fill-current"
@@ -348,18 +379,19 @@ export function TestimonialsSection({ data }: TplProps) {
 }
 
 export function FaqSection({ data }: TplProps) {
+  const t = useTranslations('publicWeb.faq');
   if (data.faqs.length === 0) return null;
   return (
     <section className="mt-14">
-      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">Preguntas frecuentes</h2>
+      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{t('title')}</h2>
       <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
-        {data.faqs.map((f, i) => (
+        {data.faqs.map((faq, i) => (
           <details key={i} className="group px-5 py-4">
             <summary className="cursor-pointer list-none font-medium marker:content-none">
-              {f.question}
+              {faq.question}
             </summary>
             <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-              {f.answer}
+              {faq.answer}
             </p>
           </details>
         ))}
@@ -369,13 +401,12 @@ export function FaqSection({ data }: TplProps) {
 }
 
 export function ContactSection({ data }: TplProps) {
+  const t = useTranslations('publicWeb.contact');
   if (!data.contactEnabled) return null;
   return (
     <section className="mt-14">
-      <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">¿Hablamos?</h2>
-      <p className="mb-6 text-center text-sm text-muted-foreground">
-        Déjanos tus datos y te contactamos sin compromiso.
-      </p>
+      <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">{t('title')}</h2>
+      <p className="mb-6 text-center text-sm text-muted-foreground">{t('subtitle')}</p>
       <ContactForm slug={data.tenantSlug} brand={brandOf(data)} />
     </section>
   );
@@ -385,13 +416,13 @@ export function ContactSection({ data }: TplProps) {
  * Bloque con la calculadora de espacio (gratis, siempre visible) + las tres
  * secciones opcionales de Web Premium (testimonios · FAQ · contacto).
  */
-export function ExtraSections({ data }: TplProps) {
+export function ExtraSections({ data, locale }: TplProps) {
   return (
     <>
-      <StorageCalculator data={data} brand={brandOf(data)} />
-      <TestimonialsSection data={data} />
-      <FaqSection data={data} />
-      <ContactSection data={data} />
+      <StorageCalculator data={data} brand={brandOf(data)} locale={locale} />
+      <TestimonialsSection data={data} locale={locale} />
+      <FaqSection data={data} locale={locale} />
+      <ContactSection data={data} locale={locale} />
     </>
   );
 }

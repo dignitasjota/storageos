@@ -1,6 +1,7 @@
 'use client';
 
 import { CheckCircle2, Loader2 } from 'lucide-react';
+import { NextIntlClientProvider } from 'next-intl';
 import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -11,7 +12,9 @@ import type {
   SetupIntentResponseDto,
   SignResultDto,
 } from '@storageos/shared';
+import type { AbstractIntlMessages } from 'next-intl';
 
+import esMessages from '@/app/(public)/s/[slug]/i18n/es.json';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { SignaturePad } from '@/components/move-in/signature-pad';
@@ -244,7 +247,11 @@ function brandOf(view: ContractSignViewDto) {
   };
 }
 
-/** Marco white-label del tenant con el contenido centrado (páginas de firma). */
+/**
+ * Marco white-label del tenant con el contenido centrado (páginas de firma).
+ * En español fijo — el flujo de firma/pago aún no está traducido (fuera del
+ * alcance de la Fase 1 de i18n de la web pública).
+ */
 function BrandShell({
   brand,
   children,
@@ -253,9 +260,11 @@ function BrandShell({
   children: React.ReactNode;
 }) {
   return (
-    <TenantWebChrome data={brand}>
-      <div className="mx-auto w-full max-w-lg px-4 py-10">{children}</div>
-    </TenantWebChrome>
+    <NextIntlClientProvider locale="es-ES" messages={esMessages as unknown as AbstractIntlMessages}>
+      <TenantWebChrome data={brand} locale="es">
+        <div className="mx-auto w-full max-w-lg px-4 py-10">{children}</div>
+      </TenantWebChrome>
+    </NextIntlClientProvider>
   );
 }
 

@@ -1,0 +1,71 @@
+{
+  "publicWeb": {
+    "common": {
+      "reserveNow": "Reservar ahora",
+      "from": "desde",
+      "perMonthVatIncl": "/mes · IVA incl.",
+      "availableOne": "1 disponible",
+      "availableMany": "{count} disponibles",
+      "soldOut": "Agotado",
+      "noAvailabilityShort": "Sin disponibilidad ahora mismo.",
+      "noAvailabilityLong": "Ahora mismo no hay trasteros disponibles. Vuelve pronto o contáctanos.",
+      "viewFacility": "Ver {name}",
+      "reserveAtFacility": "Reservar en {name}",
+      "createdWith": "Creado con {name}",
+      "headlineWithCity": "Trasteros en {city}",
+      "headlineDefault": "Trasteros"
+    },
+    "default": {
+      "subtitle": "{tenantName} · consulta disponibilidad y reserva online en minutos."
+    },
+    "modern": {
+      "subtitle": "{tenantName} · reserva tu trastero online en minutos."
+    },
+    "industrial": {
+      "subtitle": "Espacio de almacenaje seguro. Reserva online en minutos."
+    },
+    "chrome": {
+      "clientAccess": "Acceso clientes"
+    },
+    "facility": {
+      "headingWithCity": "Trasteros en {city} — {name}",
+      "headingDefault": "Trasteros — {name}",
+      "sizesAndPrices": "Tamaños y precios"
+    },
+    "testimonials": {
+      "title": "Lo que dicen nuestros clientes"
+    },
+    "faq": {
+      "title": "Preguntas frecuentes"
+    },
+    "contact": {
+      "title": "¿Hablamos?",
+      "subtitle": "Déjanos tus datos y te contactamos sin compromiso.",
+      "namePlaceholder": "Tu nombre",
+      "emailPlaceholder": "Email",
+      "phonePlaceholder": "Teléfono (opcional)",
+      "messagePlaceholder": "¿En qué podemos ayudarte?",
+      "send": "Enviar mensaje",
+      "sending": "Enviando…",
+      "success": "¡Gracias! Hemos recibido tu mensaje y te contactaremos pronto.",
+      "error": "No se pudo enviar. Inténtalo de nuevo o llámanos."
+    },
+    "calculator": {
+      "title": "¿Qué trastero necesitas?",
+      "subtitle": "Marca lo que vas a guardar y te decimos el tamaño ideal.",
+      "spaceNeeded": "Espacio necesario",
+      "emptyState": "Empieza a añadir objetos para ver tu trastero ideal.",
+      "recommended": "Te recomendamos",
+      "perMonth": "/mes",
+      "removeItem": "Quitar {label}",
+      "addItem": "Añadir {label}",
+      "reserveThis": "Reservar este trastero",
+      "noMatch": "Contáctanos y te asesoramos con el tamaño ideal.",
+      "reset": "Empezar de nuevo",
+      "disclaimer": "Estimación orientativa. El espacio real depende de cómo se coloquen los objetos."
+    },
+    "languageSwitcher": {
+      "label": "Idioma"
+    }
+  }
+}

@@ -10,12 +10,15 @@ import {
 } from '@storageos/shared';
 import { Calculator, Minus, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useMemo, useState } from 'react';
+
+import { intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 
 const CATEGORY_ORDER: StorageItemCategory[] = ['muebles', 'electrodomesticos', 'cajas', 'otros'];
 
-function formatPrice(n: number): string {
-  return n.toLocaleString('es-ES', {
+function formatPrice(n: number, locale: PublicWebLocale): string {
+  return n.toLocaleString(intlLocaleFor(locale), {
     style: 'currency',
     currency: 'EUR',
     maximumFractionDigits: 0,
@@ -27,7 +30,17 @@ function formatPrice(n: number): string {
  * qué va a guardar → m² en vivo → le recomendamos el trastero real que le encaja
  * con su precio + CTA a reservar.
  */
-export function StorageCalculator({ data, brand }: { data: PublicLandingDto; brand: string }) {
+export function StorageCalculator({
+  data,
+  brand,
+  locale,
+}: {
+  data: PublicLandingDto;
+  brand: string;
+  locale: PublicWebLocale;
+}) {
+  const t = useTranslations('publicWeb.calculator');
+  const tCommon = useTranslations('publicWeb.common');
   const [qty, setQty] = useState<Record<string, number>>({});
 
   const m2 = useMemo(() => computeStorageM2(qty), [qty]);
@@ -78,11 +91,9 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
       <div className="mb-6 text-center">
         <h2 className="flex items-center justify-center gap-2 text-2xl font-bold tracking-tight">
           <Calculator className="h-6 w-6" style={{ color: brand }} />
-          ¿Qué trastero necesitas?
+          {t('title')}
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Marca lo que vas a guardar y te decimos el tamaño ideal.
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">{t('subtitle')}</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -107,7 +118,7 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          aria-label={`Quitar ${item.label}`}
+                          aria-label={t('removeItem', { label: item.label })}
                           onClick={() => change(item.key, -1)}
                           disabled={count === 0}
                           className="flex h-7 w-7 items-center justify-center rounded-md border disabled:opacity-40"
@@ -117,7 +128,7 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
                         <span className="w-5 text-center font-medium tabular-nums">{count}</span>
                         <button
                           type="button"
-                          aria-label={`Añadir ${item.label}`}
+                          aria-label={t('addItem', { label: item.label })}
                           onClick={() => change(item.key, 1)}
                           className="flex h-7 w-7 items-center justify-center rounded-md border"
                         >
@@ -135,38 +146,38 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
         {/* Resultado (sticky en escritorio) */}
         <div className="lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-lg border bg-card p-6 text-center shadow-sm">
-            <p className="text-sm text-muted-foreground">Espacio necesario</p>
+            <p className="text-sm text-muted-foreground">{t('spaceNeeded')}</p>
             <p className="mt-1 text-4xl font-bold tabular-nums" style={{ color: brand }}>
-              {m2.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+              {m2.toLocaleString(intlLocaleFor(locale), {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}
               <span className="ml-1 text-lg font-normal text-muted-foreground">m²</span>
             </p>
 
             {!hasItems ? (
-              <p className="mt-4 text-sm text-muted-foreground">
-                Empieza a añadir objetos para ver tu trastero ideal.
-              </p>
+              <p className="mt-4 text-sm text-muted-foreground">{t('emptyState')}</p>
             ) : recommendation ? (
               <div className="mt-4 rounded-md border bg-background p-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Te recomendamos
+                  {t('recommended')}
                 </p>
                 <p className="mt-1 text-lg font-semibold">{recommendation.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {recommendation.areaM2 != null ? `${recommendation.areaM2} m² · ` : ''}
-                  desde {formatPrice(recommendation.priceMonthly * 1.21)}/mes
+                  {tCommon('from')} {formatPrice(recommendation.priceMonthly * 1.21, locale)}
+                  {t('perMonth')}
                 </p>
                 <Link
                   href={`/book/${data.tenantSlug}`}
                   className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
                   style={{ backgroundColor: brand }}
                 >
-                  Reservar este trastero
+                  {t('reserveThis')}
                 </Link>
               </div>
             ) : (
-              <p className="mt-4 text-sm text-muted-foreground">
-                Contáctanos y te asesoramos con el tamaño ideal.
-              </p>
+              <p className="mt-4 text-sm text-muted-foreground">{t('noMatch')}</p>
             )}
 
             {hasItems && (
@@ -175,7 +186,7 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
                 onClick={() => setQty({})}
                 className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               >
-                <RotateCcw className="h-3 w-3" /> Empezar de nuevo
+                <RotateCcw className="h-3 w-3" /> {t('reset')}
               </button>
             )}
             <p className="mt-4 text-[11px] leading-tight text-muted-foreground">

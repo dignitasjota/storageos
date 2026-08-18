@@ -1,6 +1,10 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
+import { LanguageSwitcher } from './i18n/language-switcher';
+
+import type { PublicWebLocale } from './i18n/messages';
 import type { ReactNode } from 'react';
 
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
@@ -21,7 +25,19 @@ interface TenantBrand {
  * nunca al login de la plataforma. La única referencia a la plataforma es un
  * discreto «Creado con TrasterOS» en el pie.
  */
-export function TenantWebChrome({ data, children }: { data: TenantBrand; children: ReactNode }) {
+export function TenantWebChrome({
+  data,
+  locale,
+  facilitySlug,
+  children,
+}: {
+  data: TenantBrand;
+  locale: PublicWebLocale;
+  facilitySlug?: string;
+  children: ReactNode;
+}) {
+  const t = useTranslations('publicWeb.chrome');
+  const tCommon = useTranslations('publicWeb.common');
   const brand = data.brandColor ?? '#2563EB';
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const year = new Date().getUTCFullYear();
@@ -43,13 +59,20 @@ export function TenantWebChrome({ data, children }: { data: TenantBrand; childre
               <span>{data.tenantName}</span>
             )}
           </div>
-          <Link
-            href={portalHref}
-            className="inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-            style={{ backgroundColor: brand }}
-          >
-            Acceso clientes
-          </Link>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher
+              tenantSlug={data.tenantSlug}
+              facilitySlug={facilitySlug}
+              currentLocale={locale}
+            />
+            <Link
+              href={portalHref}
+              className="inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+              style={{ backgroundColor: brand }}
+            >
+              {t('clientAccess')}
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -62,7 +85,7 @@ export function TenantWebChrome({ data, children }: { data: TenantBrand; childre
           </p>
           <div className="flex items-center gap-4">
             <Link href={portalHref} className="transition hover:text-foreground">
-              Acceso clientes
+              {t('clientAccess')}
             </Link>
             <a
               href={SAAS_URL}
@@ -70,7 +93,7 @@ export function TenantWebChrome({ data, children }: { data: TenantBrand; childre
               rel="noopener noreferrer"
               className="transition hover:text-foreground"
             >
-              Creado con {SAAS_NAME}
+              {tCommon('createdWith', { name: SAAS_NAME })}
             </a>
           </div>
         </div>
