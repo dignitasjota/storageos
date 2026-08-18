@@ -110,6 +110,14 @@ const nextConfig = {
   // mas pequenas (solo copiamos esa carpeta + .next/static + public).
   // Ver apps/web/Dockerfile y docs/DEPLOYMENT.md.
   output: 'standalone',
+  // `unoptimized`: las fotos de local/logos vienen de MinIO, cuyo dominio
+  // público (`MINIO_PUBLIC_URL`) varía por despliegue y no se conoce en
+  // build-time del Docker del web (mismo problema que `NEXT_PUBLIC_API_URL`,
+  // ver docs/DEPLOYMENT.md) — sin `remotePatterns` configurado, `next/image`
+  // rechazaría cualquier host externo. En modo `unoptimized` seguimos
+  // ganando `width`/`height` automáticos (sin CLS) y lazy-loading nativo,
+  // solo sin la conversión de formato/tamaño en servidor.
+  images: { unoptimized: true },
   // En el build de Docker el root del monorepo esta dos niveles arriba
   // de apps/web; lo declaramos explicitamente para que el tracer de
   // archivos del standalone funcione correctamente con pnpm workspaces.

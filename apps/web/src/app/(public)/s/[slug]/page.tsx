@@ -28,6 +28,113 @@ function cities(data: PublicLandingDto): string {
   return set.join(', ');
 }
 
+/** URL pública del sitio (para IDs/URLs absolutas en el JSON-LD). */
+function siteUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    process.env.NEXT_PUBLIC_WEB_URL ??
+    'http://localhost:3000'
+  ).replace(/\/$/, '');
+}
+
+/**
+ * Datos estructurados de la landing: `Organization` (con `aggregateRating`/
+ * `review` reales de los testimonios NPS) + `WebSite` + un `SelfStorage` por
+ * local + `FAQPage` si hay preguntas publicadas. Antes solo se emitía un
+ * array suelto de `SelfStorage`; ahora es un `@graph` enlazado por `@id`.
+ */
+function buildJsonLd(data: PublicLandingDto, slug: string) {
+  const base = data.customDomain ? `https://${data.customDomain}` : `${siteUrl()}/s/${slug}`;
+  const orgId = `${base}/#organization`;
+
+  const rated = data.testimonials.filter(
+    (t): t is typeof t & { rating: number } => t.rating != null,
+  );
+  const avgRating =
+    rated.length > 0 ? rated.reduce((sum, t) => sum + t.rating, 0) / rated.length : null;
+
+  const organization = {
+    '@type': 'Organization',
+    '@id': orgId,
+    name: data.tenantName,
+    url: base,
+    ...(data.logoUrl ? { logo: data.logoUrl } : {}),
+    ...(avgRating != null
+      ? {
+          aggregateRating: {
+            '@type': 'AggregateRating',
+            ratingValue: Math.round(avgRating * 10) / 10,
+            reviewCount: rated.length,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
+    ...(rated.length > 0
+      ? {
+          review: rated.map((t) => ({
+            '@type': 'Review',
+            author: { '@type': 'Person', name: t.author },
+            reviewBody: t.comment,
+            reviewRating: {
+              '@type': 'Rating',
+              ratingValue: t.rating,
+              bestRating: 5,
+              worstRating: 1,
+            },
+          })),
+        }
+      : {}),
+  };
+
+  const website = {
+    '@type': 'WebSite',
+    '@id': `${base}/#website`,
+    url: base,
+    name: data.tenantName,
+    publisher: { '@id': orgId },
+    inLanguage: 'es-ES',
+  };
+
+  const selfStorages = data.facilities.map((f) => ({
+    '@type': 'SelfStorage',
+    '@id': `${base}${f.publicSlug ? `/${f.publicSlug}` : ''}#local-${f.id}`,
+    name: `${data.tenantName} — ${f.name}`,
+    parentOrganization: { '@id': orgId },
+    ...(f.imageUrls.length > 0 ? { image: f.imageUrls } : {}),
+    ...(f.address || f.city
+      ? {
+          address: {
+            '@type': 'PostalAddress',
+            ...(f.address ? { streetAddress: f.address } : {}),
+            ...(f.city ? { addressLocality: f.city } : {}),
+            ...(f.postalCode ? { postalCode: f.postalCode } : {}),
+            addressCountry: 'ES',
+          },
+        }
+      : {}),
+    ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
+    ...(f.contactEmail ? { email: f.contactEmail } : {}),
+  }));
+
+  const faqPage =
+    data.faqs.length > 0
+      ? {
+          '@type': 'FAQPage',
+          mainEntity: data.faqs.map((f) => ({
+            '@type': 'Question',
+            name: f.question,
+            acceptedAnswer: { '@type': 'Answer', text: f.answer },
+          })),
+        }
+      : null;
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [organization, website, ...selfStorages, ...(faqPage ? [faqPage] : [])],
+  };
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -51,7 +158,16 @@ export async function generateMetadata({
     description,
     alternates: { canonical },
     robots: { index: true, follow: true },
-    openGraph: { title, description, type: 'website' },
+    // La imagen se inyecta sola desde `opengraph-image.tsx` de este segmento
+    // (convención de Next) — dinámica por tenant (logo/color/nombre propios).
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+      siteName: data.tenantName,
+      locale: 'es_ES',
+    },
+    twitter: { card: 'summary_large_image', title, description },
   };
 }
 
@@ -70,24 +186,9 @@ export default async function LandingPage({ params }: { params: Promise<{ slug: 
     redirect(`https://${data.customDomain}`);
   }
 
-  // Datos estructurados para SEO local (un SelfStorage por local con plazas).
-  const jsonLd = data.facilities.map((f) => ({
-    '@context': 'https://schema.org',
-    '@type': 'SelfStorage',
-    name: `${data.tenantName} — ${f.name}`,
-    ...(f.address || f.city
-      ? {
-          address: {
-            '@type': 'PostalAddress',
-            ...(f.address ? { streetAddress: f.address } : {}),
-            ...(f.city ? { addressLocality: f.city } : {}),
-            ...(f.postalCode ? { postalCode: f.postalCode } : {}),
-            addressCountry: 'ES',
-          },
-        }
-      : {}),
-    ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
-  }));
+  // Datos estructurados: Organization+AggregateRating/Review reales, WebSite,
+  // un SelfStorage por local y FAQPage si hay preguntas publicadas.
+  const jsonLd = buildJsonLd(data, slug);
 
   return (
     <>

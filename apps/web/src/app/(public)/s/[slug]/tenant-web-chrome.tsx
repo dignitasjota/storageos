@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 
 import type { ReactNode } from 'react';
@@ -20,13 +21,7 @@ interface TenantBrand {
  * nunca al login de la plataforma. La única referencia a la plataforma es un
  * discreto «Creado con TrasterOS» en el pie.
  */
-export function TenantWebChrome({
-  data,
-  children,
-}: {
-  data: TenantBrand;
-  children: ReactNode;
-}) {
+export function TenantWebChrome({ data, children }: { data: TenantBrand; children: ReactNode }) {
   const brand = data.brandColor ?? '#2563EB';
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const year = new Date().getUTCFullYear();
@@ -37,10 +32,11 @@ export function TenantWebChrome({
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2 font-semibold">
             {data.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <Image
                 src={data.logoUrl}
                 alt={data.tenantName}
+                width={120}
+                height={28}
                 className="h-7 w-auto object-contain"
               />
             ) : (

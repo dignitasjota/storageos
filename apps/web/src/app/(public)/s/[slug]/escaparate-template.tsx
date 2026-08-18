@@ -11,10 +11,12 @@ import {
   ShieldCheck,
   Star,
 } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 import { ContactForm } from './contact-form';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
+import { StorageCalculator } from './storage-calculator';
 
 import type { PublicLandingDto } from '@storageos/shared';
 import type { LucideIcon } from 'lucide-react';
@@ -123,6 +125,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
   const navItems: OnePageNavItem[] = [
     { id: 'servicios', label: 'Servicios' },
     { id: 'centros', label: 'Centros' },
+    { id: 'calculadora', label: 'Calculadora' },
     { id: 'ventajas', label: 'Ventajas' },
     ...(hasReviews ? [{ id: 'opiniones', label: 'Opiniones' }] : []),
     { id: 'contacto', label: 'Contacto' },
@@ -142,12 +145,14 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
       <section className="relative isolate overflow-hidden px-4 py-24 text-center text-white sm:py-28">
         {heroImage ? (
           <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src={heroImage}
               alt=""
               aria-hidden
-              className="absolute inset-0 -z-10 h-full w-full object-cover"
+              fill
+              priority
+              sizes="100vw"
+              className="-z-10 object-cover"
             />
             <div className="absolute inset-0 -z-10 bg-black/55" />
           </>
@@ -212,10 +217,13 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
               <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 {data.facilities.map((f) => {
                   const img = f.imageUrls[0] ?? null;
-                  const cheapest = f.unitTypes.reduce<number | null>(
-                    (min, t) => (min === null ? t.priceMonthly : Math.min(min, t.priceMonthly)),
-                    null,
-                  );
+                  // Solo tipos con disponibilidad real — si no, se anunciaría
+                  // un precio de un tamaño agotado.
+                  const cheapest = f.unitTypes
+                    .filter((t) => t.available > 0)
+                    .reduce<
+                      number | null
+                    >((min, t) => (min === null ? t.priceMonthly : Math.min(min, t.priceMonthly)), null);
                   const href = f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : bookHref;
                   return (
                     <Link
@@ -223,13 +231,15 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
                       href={href}
                       className="group overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md"
                     >
-                      <div className="aspect-[16/10] w-full overflow-hidden bg-muted">
+                      <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
                         {img ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <Image
                             src={img}
                             alt={f.name}
-                            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                            fill
+                            loading="lazy"
+                            sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                            className="object-cover transition-transform group-hover:scale-105"
                           />
                         ) : (
                           <div
@@ -260,6 +270,13 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
                 Ahora mismo no hay disponibilidad. Contáctanos y te avisamos.
               </p>
             )}
+          </div>
+        </section>
+
+        {/* Calculadora de espacio (gratis en toda web /s/[slug]) */}
+        <section className="py-16">
+          <div className="mx-auto max-w-6xl px-4">
+            <StorageCalculator data={data} brand={brand} />
           </div>
         </section>
 
