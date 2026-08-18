@@ -9,7 +9,7 @@ import { StorageCalculator } from './storage-calculator';
 
 import type { PublicLandingDto } from '@storageos/shared';
 
-function formatPrice(n: number, locale: PublicWebLocale): string {
+export function formatPrice(n: number, locale: PublicWebLocale): string {
   return n.toLocaleString(intlLocaleFor(locale), {
     style: 'currency',
     currency: 'EUR',
@@ -17,7 +17,7 @@ function formatPrice(n: number, locale: PublicWebLocale): string {
   });
 }
 
-function cities(data: PublicLandingDto): string {
+export function cities(data: PublicLandingDto): string {
   const set = [...new Set(data.facilities.map((f) => f.city).filter(Boolean))] as string[];
   return set.join(', ');
 }
@@ -120,7 +120,7 @@ export function UnitTypeList({
 // ============================================================================
 
 /** Titular por defecto (sin `webHeadline` propio del tenant) según el idioma. */
-function useHeadlineFallback(where: string): string {
+export function useHeadlineFallback(where: string): string {
   const t = useTranslations('publicWeb.common');
   return where ? t('headlineWithCity', { city: where }) : t('headlineDefault');
 }

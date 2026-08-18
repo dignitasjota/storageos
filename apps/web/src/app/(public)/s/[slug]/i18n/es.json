@@ -13,7 +13,13 @@
       "reserveAtFacility": "Reservar en {name}",
       "createdWith": "Creado con {name}",
       "headlineWithCity": "Trasteros en {city}",
-      "headlineDefault": "Trasteros"
+      "headlineDefault": "Trasteros",
+      "contactSectionTitle": "Contacto",
+      "contactSectionSubtitle": "¿Dudas? Escríbenos o pásate por el local."
+    },
+    "nav": {
+      "openMenu": "Abrir menú",
+      "closeMenu": "Cerrar menú"
     },
     "default": {
       "subtitle": "{tenantName} · consulta disponibilidad y reserva online en minutos."
@@ -66,6 +72,117 @@
     },
     "languageSwitcher": {
       "label": "Idioma"
+    },
+    "onepage": {
+      "heroSubtitle": "{tenantName} · reserva tu trastero online en minutos.",
+      "noAvailability": "Ahora mismo no hay disponibilidad. Vuelve pronto o contáctanos.",
+      "sizesTitle": "Espacios",
+      "sizesSubtitle": "Elige el tamaño que necesitas. Precios con IVA incluido.",
+      "perMonth": "/mes",
+      "reserve": "Reservar",
+      "servicesTitle": "Servicios",
+      "nav": {
+        "spaces": "Espacios",
+        "services": "Servicios",
+        "faq": "FAQ"
+      },
+      "services": [
+        {
+          "title": "Acceso amplio",
+          "text": "Entra a tu trastero en un horario cómodo, tú decides cuándo."
+        },
+        {
+          "title": "Seguridad",
+          "text": "Instalaciones protegidas para que tus cosas estén a salvo."
+        },
+        {
+          "title": "Tu acceso, fácil",
+          "text": "Gestiona tu acceso desde el móvil, sin llaves que perder."
+        },
+        {
+          "title": "Tamaños a medida",
+          "text": "Desde un armario hasta una mudanza completa: paga solo lo que usas."
+        },
+        {
+          "title": "Sin permanencia",
+          "text": "Contrata por los meses que necesites, sin ataduras."
+        },
+        {
+          "title": "Atención cercana",
+          "text": "Te ayudamos a elegir el trastero ideal y con lo que necesites."
+        }
+      ],
+      "faqs": [
+        {
+          "question": "¿Cuánto cuesta alquilar un trastero?",
+          "answer": "Depende del tamaño que necesites. Puedes ver los precios por tamaño más abajo y usar la calculadora para saber qué trastero te encaja."
+        },
+        {
+          "question": "¿Hay permanencia mínima?",
+          "answer": "No. Alquilas por los meses que necesites y avisas cuando quieras darte de baja."
+        },
+        {
+          "question": "¿Cuándo puedo acceder a mis cosas?",
+          "answer": "Puedes acceder a tu trastero en el horario del local; contáctanos y te contamos los detalles."
+        },
+        {
+          "question": "¿Cómo reservo?",
+          "answer": "Puedes reservar online en minutos desde el botón «Reservar» o escribirnos y te ayudamos."
+        }
+      ]
+    },
+    "escaparate": {
+      "heroSubtitle": "{tenantName} · tu espacio extra, fácil y sin complicaciones.",
+      "noAvailability": "Ahora mismo no hay disponibilidad. Contáctanos y te avisamos.",
+      "servicesTitle": "Nuestros servicios",
+      "centersTitleWithCity": "Centros en {city}",
+      "centersTitleDefault": "Nuestros centros",
+      "perMonth": "/mes",
+      "advantagesTitle": "Por qué elegirnos",
+      "ctaTitle": "¿Listo para tu trastero?",
+      "ctaSubtitle": "Reserva online en minutos y accede a tu espacio cuando lo necesites.",
+      "stepsTitle": "Contratar es muy fácil",
+      "nav": {
+        "services": "Servicios",
+        "centers": "Centros",
+        "calculator": "Calculadora",
+        "advantages": "Ventajas",
+        "reviews": "Opiniones"
+      },
+      "services": [
+        {
+          "title": "Particulares",
+          "text": "Mudanzas, reformas, cosas de temporada o simplemente hacer sitio en casa."
+        },
+        {
+          "title": "Empresas",
+          "text": "Stock, mobiliario o material de trabajo con acceso cómodo."
+        },
+        { "title": "Documentación", "text": "Guarda tu archivo de forma ordenada y segura." },
+        {
+          "title": "Guardamuebles",
+          "text": "Espacio para tus muebles el tiempo que necesites."
+        }
+      ],
+      "advantages": [
+        { "label": "Tamaños a medida" },
+        { "label": "Acceso amplio" },
+        { "label": "Instalaciones seguras" },
+        { "label": "Acceso desde el móvil" },
+        { "label": "Sin permanencia" },
+        { "label": "Atención cercana" }
+      ],
+      "steps": [
+        {
+          "title": "Elige tu trastero",
+          "text": "Mira los tamaños y precios y quédate con el que encaje."
+        },
+        { "title": "Reserva online", "text": "Contrata en minutos desde la web, sin papeleo." },
+        {
+          "title": "Accede cuando quieras",
+          "text": "Recibe tu acceso y empieza a usar tu trastero."
+        }
+      ]
     }
   }
 }

@@ -13,7 +13,13 @@
       "reserveAtFacility": "Book at {name}",
       "createdWith": "Made with {name}",
       "headlineWithCity": "Storage units in {city}",
-      "headlineDefault": "Storage units"
+      "headlineDefault": "Storage units",
+      "contactSectionTitle": "Contact",
+      "contactSectionSubtitle": "Questions? Write to us or stop by the facility."
+    },
+    "nav": {
+      "openMenu": "Open menu",
+      "closeMenu": "Close menu"
     },
     "default": {
       "subtitle": "{tenantName} · check availability and book online in minutes."
@@ -66,6 +72,117 @@
     },
     "languageSwitcher": {
       "label": "Language"
+    },
+    "onepage": {
+      "heroSubtitle": "{tenantName} · book your storage unit online in minutes.",
+      "noAvailability": "No availability right now. Check back soon or contact us.",
+      "sizesTitle": "Spaces",
+      "sizesSubtitle": "Choose the size you need. Prices include VAT.",
+      "perMonth": "/mo",
+      "reserve": "Book",
+      "servicesTitle": "Services",
+      "nav": {
+        "spaces": "Spaces",
+        "services": "Services",
+        "faq": "FAQ"
+      },
+      "services": [
+        {
+          "title": "Extended access",
+          "text": "Get to your unit whenever suits you, you decide."
+        },
+        {
+          "title": "Security",
+          "text": "Protected facilities so your things stay safe."
+        },
+        {
+          "title": "Easy access",
+          "text": "Manage your access from your phone, no keys to lose."
+        },
+        {
+          "title": "Sizes for everyone",
+          "text": "From a closet to a full house move: pay only for what you use."
+        },
+        {
+          "title": "No lock-in",
+          "text": "Rent for as long as you need, no strings attached."
+        },
+        {
+          "title": "Friendly support",
+          "text": "We'll help you pick the right unit and whatever else you need."
+        }
+      ],
+      "faqs": [
+        {
+          "question": "How much does renting a storage unit cost?",
+          "answer": "It depends on the size you need. See prices by size below, or use the calculator to find your ideal unit."
+        },
+        {
+          "question": "Is there a minimum stay?",
+          "answer": "No. Rent for as many months as you need and give notice whenever you want to leave."
+        },
+        {
+          "question": "When can I access my things?",
+          "answer": "You can access your unit during the facility's opening hours; contact us for details."
+        },
+        {
+          "question": "How do I book?",
+          "answer": "You can book online in minutes with the «Book» button, or write to us and we'll help."
+        }
+      ]
+    },
+    "escaparate": {
+      "heroSubtitle": "{tenantName} · your extra space, easy and hassle-free.",
+      "noAvailability": "No availability right now. Contact us and we'll let you know.",
+      "servicesTitle": "Our services",
+      "centersTitleWithCity": "Facilities in {city}",
+      "centersTitleDefault": "Our facilities",
+      "perMonth": "/mo",
+      "advantagesTitle": "Why choose us",
+      "ctaTitle": "Ready for your storage unit?",
+      "ctaSubtitle": "Book online in minutes and access your space whenever you need it.",
+      "stepsTitle": "Getting started is easy",
+      "nav": {
+        "services": "Services",
+        "centers": "Facilities",
+        "calculator": "Calculator",
+        "advantages": "Advantages",
+        "reviews": "Reviews"
+      },
+      "services": [
+        {
+          "title": "Individuals",
+          "text": "Moves, renovations, seasonal items, or just making room at home."
+        },
+        {
+          "title": "Businesses",
+          "text": "Stock, furniture or work equipment with convenient access."
+        },
+        { "title": "Documents", "text": "Keep your files organised and secure." },
+        {
+          "title": "Furniture storage",
+          "text": "Space for your furniture for as long as you need."
+        }
+      ],
+      "advantages": [
+        { "label": "Sizes to fit your needs" },
+        { "label": "Extended access" },
+        { "label": "Secure facilities" },
+        { "label": "Access from your phone" },
+        { "label": "No lock-in" },
+        { "label": "Friendly support" }
+      ],
+      "steps": [
+        {
+          "title": "Choose your unit",
+          "text": "Check sizes and prices and pick the one that fits."
+        },
+        { "title": "Book online", "text": "Sign up in minutes from the website, no paperwork." },
+        {
+          "title": "Access whenever you like",
+          "text": "Get your access details and start using your unit."
+        }
+      ]
     }
   }
 }
