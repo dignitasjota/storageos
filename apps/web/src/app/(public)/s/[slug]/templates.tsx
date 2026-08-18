@@ -1,4 +1,5 @@
 import { MapPin, Phone, Mail, Star, Quote } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 import { ContactForm } from './contact-form';
@@ -70,23 +71,30 @@ function UnitTypeList({ f }: { f: PublicLandingDto['facilities'][number] }) {
   }
   return (
     <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-      {f.unitTypes.map((t) => (
-        <li
-          key={t.id}
-          className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-        >
-          <span>
-            <span className="font-medium">{t.name}</span>
-            <span className="ml-2 text-xs text-muted-foreground">
-              {t.available} disponible{t.available === 1 ? '' : 's'}
+      {f.unitTypes.map((t) => {
+        const soldOut = t.available === 0;
+        return (
+          <li
+            key={t.id}
+            className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${
+              soldOut ? 'opacity-60' : ''
+            }`}
+          >
+            <span>
+              <span className="font-medium">{t.name}</span>
+              <span
+                className={`ml-2 text-xs ${soldOut ? 'font-medium text-destructive' : 'text-muted-foreground'}`}
+              >
+                {soldOut ? 'Agotado' : `${t.available} disponible${t.available === 1 ? '' : 's'}`}
+              </span>
             </span>
-          </span>
-          <span className="font-semibold">
-            desde {formatPrice(t.priceMonthly * 1.21)}
-            <span className="text-xs font-normal text-muted-foreground">/mes · IVA incl.</span>
-          </span>
-        </li>
-      ))}
+            <span className="font-semibold">
+              desde {formatPrice(t.priceMonthly * 1.21)}
+              <span className="text-xs font-normal text-muted-foreground">/mes · IVA incl.</span>
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -101,10 +109,11 @@ function DefaultTemplate({ data }: TplProps) {
     <div className="mx-auto max-w-4xl px-4 py-10 sm:py-14">
       <header className="mb-10 text-center">
         {data.logoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={data.logoUrl}
             alt={data.tenantName}
+            width={200}
+            height={56}
             className="mx-auto mb-6 h-14 w-auto object-contain"
           />
         )}
@@ -143,10 +152,11 @@ function ModernTemplate({ data }: TplProps) {
         style={{ background: `linear-gradient(135deg, ${brand}, ${brand}cc)` }}
       >
         {data.logoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={data.logoUrl}
             alt={data.tenantName}
+            width={220}
+            height={64}
             className="mx-auto mb-6 h-16 w-auto object-contain drop-shadow"
           />
         )}
@@ -190,10 +200,11 @@ function IndustrialTemplate({ data }: TplProps) {
       <header className="border-b border-neutral-800 px-4 py-16 sm:py-20">
         <div className="mx-auto max-w-4xl">
           {data.logoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={data.logoUrl}
               alt={data.tenantName}
+              width={170}
+              height={48}
               className="mb-6 h-12 w-auto object-contain"
             />
           )}
@@ -218,7 +229,8 @@ function IndustrialTemplate({ data }: TplProps) {
 
       <div className="mx-auto max-w-4xl px-4 py-12">
         {data.webAbout && (
-          <section className="mb-12 whitespace-pre-line border-l-2 pl-4 text-base leading-relaxed text-neutral-400"
+          <section
+            className="mb-12 whitespace-pre-line border-l-2 pl-4 text-base leading-relaxed text-neutral-400"
             style={{ borderColor: brand }}
           >
             {data.webAbout}
@@ -231,7 +243,11 @@ function IndustrialTemplate({ data }: TplProps) {
               <FacilityMeta f={f} />
               <UnitTypeList f={f} />
               <Link
-                href={f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : `/book/${data.tenantSlug}`}
+                href={
+                  f.publicSlug
+                    ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                    : `/book/${data.tenantSlug}`
+                }
                 className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
               >
                 {f.publicSlug ? `Ver ${f.name}` : `Reservar en ${f.name}`}
@@ -277,7 +293,9 @@ function FacilitiesGrid({ data, cols }: TplProps & { cols?: boolean }) {
           <FacilityMeta f={f} />
           <UnitTypeList f={f} />
           <Link
-            href={f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : `/book/${data.tenantSlug}`}
+            href={
+              f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : `/book/${data.tenantSlug}`
+            }
             className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
           >
             {f.publicSlug ? `Ver ${f.name}` : `Reservar en ${f.name}`}
@@ -300,7 +318,9 @@ export function TestimonialsSection({ data }: TplProps) {
   if (data.testimonials.length === 0) return null;
   return (
     <section className="mt-14">
-      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">Lo que dicen nuestros clientes</h2>
+      <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
+        Lo que dicen nuestros clientes
+      </h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {data.testimonials.map((t, i) => (
           <figure key={i} className="rounded-lg border bg-card p-5 shadow-sm">
@@ -311,7 +331,11 @@ export function TestimonialsSection({ data }: TplProps) {
               {t.rating != null && (
                 <span className="flex items-center gap-0.5">
                   {Array.from({ length: t.rating }).map((_, s) => (
-                    <Star key={s} className="h-3.5 w-3.5 fill-current" style={{ color: '#f59e0b' }} />
+                    <Star
+                      key={s}
+                      className="h-3.5 w-3.5 fill-current"
+                      style={{ color: '#f59e0b' }}
+                    />
                   ))}
                 </span>
               )}

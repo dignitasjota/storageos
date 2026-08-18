@@ -133,15 +133,16 @@ export class LandingService {
         contactEmail: f.contactEmail,
         openingHours: (f.openingHours as Record<string, unknown>) ?? {},
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
-        unitTypes: unitTypes
-          .map((t) => ({
-            id: t.id,
-            name: t.name,
-            available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
-            priceMonthly: Number(t.defaultPriceMonthly),
-            areaM2: areaByFacilityType.get(`${f.id}:${t.id}`) ?? null,
-          }))
-          .filter((t) => t.available > 0),
+        // Se incluyen también los tipos sin disponibilidad (available:0) —
+        // el frontend los muestra como "Agotado" en vez de ocultarlos, para
+        // no dar la falsa impresión de que ese tamaño no existe.
+        unitTypes: unitTypes.map((t) => ({
+          id: t.id,
+          name: t.name,
+          available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
+          priceMonthly: Number(t.defaultPriceMonthly),
+          areaM2: areaByFacilityType.get(`${f.id}:${t.id}`) ?? null,
+        })),
       })),
     };
   }

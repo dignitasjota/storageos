@@ -34,7 +34,10 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
 
   // Tipos disponibles con área, deduplicados por nombre (el menor precio/área).
   const unitTypes = useMemo(() => {
-    const map = new Map<string, { name: string; areaM2: number | null; priceMonthly: number; available: number }>();
+    const map = new Map<
+      string,
+      { name: string; areaM2: number | null; priceMonthly: number; available: number }
+    >();
     for (const f of data.facilities) {
       for (const t of f.unitTypes) {
         const prev = map.get(t.name);
@@ -71,7 +74,7 @@ export function StorageCalculator({ data, brand }: { data: PublicLandingDto; bra
   const hasItems = m2 > 0;
 
   return (
-    <section id="calculadora" className="mt-14">
+    <section id="calculadora" className="mt-14 scroll-mt-20">
       <div className="mb-6 text-center">
         <h2 className="flex items-center justify-center gap-2 text-2xl font-bold tracking-tight">
           <Calculator className="h-6 w-6" style={{ color: brand }} />

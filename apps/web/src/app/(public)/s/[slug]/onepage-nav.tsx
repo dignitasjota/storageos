@@ -1,6 +1,7 @@
 'use client';
 
 import { Menu, X } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -48,8 +49,13 @@ export function OnePageNav({
           aria-label={tenantName}
         >
           {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={tenantName} className="h-7 w-auto object-contain" />
+            <Image
+              src={logoUrl}
+              alt={tenantName}
+              width={120}
+              height={28}
+              className="h-7 w-auto object-contain"
+            />
           ) : (
             <span>{tenantName}</span>
           )}

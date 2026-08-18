@@ -1,4 +1,5 @@
 import { Clock, CreditCard, Headset, KeyRound, Ruler, ShieldCheck } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 import { ContactForm } from './contact-form';
@@ -55,12 +56,36 @@ type ServiceItem = { icon: LucideIcon; title: string; text: string };
 const SERVICE_ICONS: LucideIcon[] = [Clock, ShieldCheck, KeyRound, Ruler, CreditCard, Headset];
 
 const SERVICES: ServiceItem[] = [
-  { icon: Clock, title: 'Acceso amplio', text: 'Entra a tu trastero en un horario cómodo, tú decides cuándo.' },
-  { icon: ShieldCheck, title: 'Seguridad', text: 'Instalaciones protegidas para que tus cosas estén a salvo.' },
-  { icon: KeyRound, title: 'Tu acceso, fácil', text: 'Gestiona tu acceso desde el móvil, sin llaves que perder.' },
-  { icon: Ruler, title: 'Tamaños a medida', text: 'Desde un armario hasta una mudanza completa: paga solo lo que usas.' },
-  { icon: CreditCard, title: 'Sin permanencia', text: 'Contrata por los meses que necesites, sin ataduras.' },
-  { icon: Headset, title: 'Atención cercana', text: 'Te ayudamos a elegir el trastero ideal y con lo que necesites.' },
+  {
+    icon: Clock,
+    title: 'Acceso amplio',
+    text: 'Entra a tu trastero en un horario cómodo, tú decides cuándo.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Seguridad',
+    text: 'Instalaciones protegidas para que tus cosas estén a salvo.',
+  },
+  {
+    icon: KeyRound,
+    title: 'Tu acceso, fácil',
+    text: 'Gestiona tu acceso desde el móvil, sin llaves que perder.',
+  },
+  {
+    icon: Ruler,
+    title: 'Tamaños a medida',
+    text: 'Desde un armario hasta una mudanza completa: paga solo lo que usas.',
+  },
+  {
+    icon: CreditCard,
+    title: 'Sin permanencia',
+    text: 'Contrata por los meses que necesites, sin ataduras.',
+  },
+  {
+    icon: Headset,
+    title: 'Atención cercana',
+    text: 'Te ayudamos a elegir el trastero ideal y con lo que necesites.',
+  },
 ];
 
 const DEFAULT_FAQS = [
@@ -75,11 +100,13 @@ const DEFAULT_FAQS = [
   },
   {
     question: '¿Cuándo puedo acceder a mis cosas?',
-    answer: 'Puedes acceder a tu trastero en el horario del local; contáctanos y te contamos los detalles.',
+    answer:
+      'Puedes acceder a tu trastero en el horario del local; contáctanos y te contamos los detalles.',
   },
   {
     question: '¿Cómo reservo?',
-    answer: 'Puedes reservar online en minutos desde el botón «Reservar» o escribirnos y te ayudamos.',
+    answer:
+      'Puedes reservar online en minutos desde el botón «Reservar» o escribirnos y te ayudamos.',
   },
 ] as const;
 
@@ -167,10 +194,11 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
         style={{ background: `linear-gradient(135deg, ${brand}, ${brand}cc)` }}
       >
         {data.logoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={data.logoUrl}
             alt={data.tenantName}
+            width={220}
+            height={64}
             className="mx-auto mb-6 h-16 w-auto object-contain drop-shadow"
           />
         )}
@@ -225,25 +253,35 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
           </p>
           {types.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {types.map((t) => (
-                <div key={t.name} className="rounded-lg border bg-card p-5 text-center shadow-sm">
-                  <p className="text-lg font-semibold">{t.name}</p>
-                  {t.areaM2 != null && (
-                    <p className="text-sm text-muted-foreground">{t.areaM2} m²</p>
-                  )}
-                  <p className="mt-2 text-2xl font-bold" style={{ color: brand }}>
-                    {priceWithVat(t.priceMonthly)}
-                    <span className="text-sm font-normal text-muted-foreground">/mes</span>
-                  </p>
-                  <Link
-                    href={bookHref}
-                    className="mt-3 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white"
-                    style={{ backgroundColor: brand }}
+              {types.map((t) => {
+                const soldOut = t.available === 0;
+                return (
+                  <div
+                    key={t.name}
+                    className={`rounded-lg border bg-card p-5 text-center shadow-sm ${soldOut ? 'opacity-60' : ''}`}
                   >
-                    Reservar
-                  </Link>
-                </div>
-              ))}
+                    <p className="text-lg font-semibold">{t.name}</p>
+                    {t.areaM2 != null && (
+                      <p className="text-sm text-muted-foreground">{t.areaM2} m²</p>
+                    )}
+                    <p className="mt-2 text-2xl font-bold" style={{ color: brand }}>
+                      {priceWithVat(t.priceMonthly)}
+                      <span className="text-sm font-normal text-muted-foreground">/mes</span>
+                    </p>
+                    {soldOut ? (
+                      <p className="mt-3 text-sm font-medium text-destructive">Agotado</p>
+                    ) : (
+                      <Link
+                        href={bookHref}
+                        className="mt-3 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white"
+                        style={{ backgroundColor: brand }}
+                      >
+                        Reservar
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="mt-4">
@@ -267,7 +305,9 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
 
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 border-t py-14">
-          <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">Preguntas frecuentes</h2>
+          <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">
+            Preguntas frecuentes
+          </h2>
           <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
             {faqs.map((f, i) => (
               <details key={i} className="group px-5 py-4">
@@ -297,7 +337,10 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
                     {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
                   </p>
                   {f.contactPhone && (
-                    <a href={`tel:${f.contactPhone}`} className="text-muted-foreground hover:text-foreground">
+                    <a
+                      href={`tel:${f.contactPhone}`}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
                       {f.contactPhone}
                     </a>
                   )}
