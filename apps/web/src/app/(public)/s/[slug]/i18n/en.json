@@ -1,0 +1,71 @@
+{
+  "publicWeb": {
+    "common": {
+      "reserveNow": "Book now",
+      "from": "from",
+      "perMonthVatIncl": "/month · VAT incl.",
+      "availableOne": "1 available",
+      "availableMany": "{count} available",
+      "soldOut": "Sold out",
+      "noAvailabilityShort": "No availability right now.",
+      "noAvailabilityLong": "No storage units available right now. Check back soon or contact us.",
+      "viewFacility": "View {name}",
+      "reserveAtFacility": "Book at {name}",
+      "createdWith": "Made with {name}",
+      "headlineWithCity": "Storage units in {city}",
+      "headlineDefault": "Storage units"
+    },
+    "default": {
+      "subtitle": "{tenantName} · check availability and book online in minutes."
+    },
+    "modern": {
+      "subtitle": "{tenantName} · book your storage unit online in minutes."
+    },
+    "industrial": {
+      "subtitle": "Secure storage space. Book online in minutes."
+    },
+    "chrome": {
+      "clientAccess": "Customer login"
+    },
+    "facility": {
+      "headingWithCity": "Storage units in {city} — {name}",
+      "headingDefault": "Storage units — {name}",
+      "sizesAndPrices": "Sizes and pricing"
+    },
+    "testimonials": {
+      "title": "What our customers say"
+    },
+    "faq": {
+      "title": "Frequently asked questions"
+    },
+    "contact": {
+      "title": "Get in touch",
+      "subtitle": "Leave us your details and we'll contact you, no strings attached.",
+      "namePlaceholder": "Your name",
+      "emailPlaceholder": "Email",
+      "phonePlaceholder": "Phone (optional)",
+      "messagePlaceholder": "How can we help?",
+      "send": "Send message",
+      "sending": "Sending…",
+      "success": "Thanks! We've received your message and will get back to you soon.",
+      "error": "Couldn't send your message. Please try again or call us."
+    },
+    "calculator": {
+      "title": "What size do you need?",
+      "subtitle": "Tell us what you're storing and we'll suggest the right size.",
+      "spaceNeeded": "Space needed",
+      "emptyState": "Start adding items to see your ideal storage unit.",
+      "recommended": "We recommend",
+      "perMonth": "/mo",
+      "removeItem": "Remove {label}",
+      "addItem": "Add {label}",
+      "reserveThis": "Book this unit",
+      "noMatch": "Contact us and we'll help you find the right size.",
+      "reset": "Start over",
+      "disclaimer": "Rough estimate. Actual space depends on how items are arranged."
+    },
+    "languageSwitcher": {
+      "label": "Language"
+    }
+  }
+}

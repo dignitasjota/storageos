@@ -276,7 +276,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         {/* Calculadora de espacio (gratis en toda web /s/[slug]) */}
         <section className="py-16">
           <div className="mx-auto max-w-6xl px-4">
-            <StorageCalculator data={data} brand={brand} />
+            <StorageCalculator data={data} brand={brand} locale="es" />
           </div>
         </section>
 

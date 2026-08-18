@@ -1,11 +1,13 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 /** Formulario de contacto de la web pública → crea un lead (Web Premium). */
 export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
+  const t = useTranslations('publicWeb.contact');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
       if (!res.ok) throw new Error('fail');
       setSent(true);
     } catch {
-      setError('No se pudo enviar. Inténtalo de nuevo o llámanos.');
+      setError(t('error'));
     } finally {
       setLoading(false);
     }
@@ -39,7 +41,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
   if (sent) {
     return (
       <p className="rounded-md border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-        ¡Gracias! Hemos recibido tu mensaje y te contactaremos pronto.
+        {t('success')}
       </p>
     );
   }
@@ -58,7 +60,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
       <input
         name="firstName"
         required
-        placeholder="Tu nombre"
+        placeholder={t('namePlaceholder')}
         className="h-11 rounded-md border bg-background px-3 text-base"
       />
       <div className="grid gap-3 sm:grid-cols-2">
@@ -66,20 +68,20 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
           name="email"
           type="email"
           required
-          placeholder="Email"
+          placeholder={t('emailPlaceholder')}
           className="h-11 rounded-md border bg-background px-3 text-base"
         />
         <input
           name="phone"
           type="tel"
-          placeholder="Teléfono (opcional)"
+          placeholder={t('phonePlaceholder')}
           className="h-11 rounded-md border bg-background px-3 text-base"
         />
       </div>
       <textarea
         name="message"
         rows={4}
-        placeholder="¿En qué podemos ayudarte?"
+        placeholder={t('messagePlaceholder')}
         className="rounded-md border bg-background px-3 py-2 text-base"
       />
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -89,7 +91,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
         className="h-11 rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{ backgroundColor: brand }}
       >
-        {loading ? 'Enviando…' : 'Enviar mensaje'}
+        {loading ? t('sending') : t('send')}
       </button>
     </form>
   );

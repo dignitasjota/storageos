@@ -285,7 +285,7 @@ export function OnePageTemplate({ data }: { data: PublicLandingDto }) {
             </div>
           )}
           <div className="mt-4">
-            <StorageCalculator data={data} brand={brand} />
+            <StorageCalculator data={data} brand={brand} locale="es" />
           </div>
         </section>
 
