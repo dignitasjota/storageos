@@ -3,6 +3,7 @@
 import { Menu, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
 export interface OnePageNavItem {
@@ -28,6 +29,7 @@ export function OnePageNav({
   logoUrl: string | null;
   portalHref: string;
 }) {
+  const t = useTranslations('publicWeb');
   const [open, setOpen] = useState(false);
 
   function goTo(id: string) {
@@ -78,7 +80,7 @@ export function OnePageNav({
             className="ml-2 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
           >
-            Área cliente
+            {t('chrome.clientAccess')}
           </Link>
         </nav>
 
@@ -89,11 +91,11 @@ export function OnePageNav({
             className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-white shadow-sm"
             style={{ backgroundColor: brand }}
           >
-            Área cliente
+            {t('chrome.clientAccess')}
           </Link>
           <button
             type="button"
-            aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
+            aria-label={open ? t('nav.closeMenu') : t('nav.openMenu')}
             onClick={() => setOpen((v) => !v)}
             className="flex h-9 w-9 items-center justify-center rounded-md border"
           >

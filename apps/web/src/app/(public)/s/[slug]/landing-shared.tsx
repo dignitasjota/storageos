@@ -230,10 +230,10 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
       />
       {data.webTemplate === 'onepage' ? (
         // Plantilla «una página»: autocontenida (trae su propio menú + pie).
-        <OnePageTemplate data={data} />
+        <OnePageTemplate data={data} locale={locale} />
       ) : data.webTemplate === 'escaparate' ? (
         // Plantilla «escaparate» multisección: también autocontenida.
-        <EscaparateTemplate data={data} />
+        <EscaparateTemplate data={data} locale={locale} />
       ) : (
         <TenantWebChrome data={data} locale={locale}>
           <LandingTemplate data={data} locale={locale} />

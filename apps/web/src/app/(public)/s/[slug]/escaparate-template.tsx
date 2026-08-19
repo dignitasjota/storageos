@@ -13,28 +13,18 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
+import { type PublicWebLocale } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
+import { cities, formatPrice, useHeadlineFallback } from './templates';
 
 import type { PublicLandingDto } from '@storageos/shared';
 import type { LucideIcon } from 'lucide-react';
 
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
-
-function priceWithVat(n: number): string {
-  return (n * 1.21).toLocaleString('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-    maximumFractionDigits: 0,
-  });
-}
-
-function citiesOf(data: PublicLandingDto): string {
-  const set = [...new Set(data.facilities.map((f) => f.city).filter(Boolean))] as string[];
-  return set.join(', ');
-}
 
 type ServiceItem = { icon: LucideIcon; title: string; text: string };
 type AdvantageItem = { icon: LucideIcon; label: string };
@@ -44,46 +34,6 @@ type StepItem = { n: number; title: string; text: string };
 const SERVICE_ICONS: LucideIcon[] = [Home, Building2, Archive, Package];
 const ADVANTAGE_ICONS: LucideIcon[] = [Ruler, Clock, ShieldCheck, KeyRound, CreditCard, Headset];
 
-/** Servicios / usos (contenido genérico; el tenant lo afina con su copy). */
-const SERVICES: ServiceItem[] = [
-  {
-    icon: Home,
-    title: 'Particulares',
-    text: 'Mudanzas, reformas, cosas de temporada o simplemente hacer sitio en casa.',
-  },
-  {
-    icon: Building2,
-    title: 'Empresas',
-    text: 'Stock, mobiliario o material de trabajo con acceso cómodo.',
-  },
-  { icon: Archive, title: 'Documentación', text: 'Guarda tu archivo de forma ordenada y segura.' },
-  {
-    icon: Package,
-    title: 'Guardamuebles',
-    text: 'Espacio para tus muebles el tiempo que necesites.',
-  },
-];
-
-/** Ventajas (iconos). Genéricas; el tenant las edita en Ajustes → Web. */
-const ADVANTAGES: AdvantageItem[] = [
-  { icon: Ruler, label: 'Tamaños a medida' },
-  { icon: Clock, label: 'Acceso amplio' },
-  { icon: ShieldCheck, label: 'Instalaciones seguras' },
-  { icon: KeyRound, label: 'Acceso desde el móvil' },
-  { icon: CreditCard, label: 'Sin permanencia' },
-  { icon: Headset, label: 'Atención cercana' },
-];
-
-const STEPS: StepItem[] = [
-  {
-    n: 1,
-    title: 'Elige tu trastero',
-    text: 'Mira los tamaños y precios y quédate con el que encaje.',
-  },
-  { n: 2, title: 'Reserva online', text: 'Contrata en minutos desde la web, sin papeleo.' },
-  { n: 3, title: 'Accede cuando quieras', text: 'Recibe tu acceso y empieza a usar tu trastero.' },
-];
-
 /**
  * Plantilla premium «Escaparate»: web multisección (hero + servicios + centros +
  * ventajas + opiniones + pasos + contacto), con la MISMA estructura/estilo de una
@@ -91,10 +41,20 @@ const STEPS: StepItem[] = [
  * marca, las imágenes de sus locales y sus textos). Autocontenida (menú + pie
  * propios); la página no la envuelve en `TenantWebChrome`.
  */
-export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
+export function EscaparateTemplate({
+  data,
+  locale,
+}: {
+  data: PublicLandingDto;
+  locale: PublicWebLocale;
+}) {
+  const t = useTranslations('publicWeb.escaparate');
+  const tCommon = useTranslations('publicWeb.common');
+  const tChrome = useTranslations('publicWeb.chrome');
+  const tTestimonials = useTranslations('publicWeb.testimonials');
   const brand = data.brandColor ?? '#2563EB';
-  const where = citiesOf(data);
-  const trasterosLabel = `Trasteros${where ? ` en ${where}` : ''}`;
+  const where = cities(data);
+  const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const bookHref = `/book/${data.tenantSlug}`;
   const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
@@ -103,8 +63,8 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
   // Copy editable por el tenant (Ajustes → Web). Vacío → textos por defecto.
   const content = data.webContent;
   const heroSubtitle =
-    content?.heroSubtitle?.trim() ||
-    `${data.tenantName} · tu espacio extra, fácil y sin complicaciones.`;
+    content?.heroSubtitle?.trim() || t('heroSubtitle', { tenantName: data.tenantName });
+  const defaultServices = t.raw('services') as { title: string; text: string }[];
   const svcCustom = (content?.services ?? [])
     .filter((s) => s.title.trim())
     .map((s, i) => ({
@@ -112,23 +72,35 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
       title: s.title,
       text: s.text ?? '',
     }));
-  const services: ServiceItem[] = svcCustom.length > 0 ? svcCustom : SERVICES;
+  const services: ServiceItem[] =
+    svcCustom.length > 0
+      ? svcCustom
+      : defaultServices.map((s, i) => ({ icon: SERVICE_ICONS[i % SERVICE_ICONS.length]!, ...s }));
+  const defaultAdvantages = t.raw('advantages') as { label: string }[];
   const advCustom = (content?.advantages ?? [])
     .filter((a) => a.trim())
     .map((label, i) => ({ icon: ADVANTAGE_ICONS[i % ADVANTAGE_ICONS.length]!, label }));
-  const advantages: AdvantageItem[] = advCustom.length > 0 ? advCustom : ADVANTAGES;
+  const advantages: AdvantageItem[] =
+    advCustom.length > 0
+      ? advCustom
+      : defaultAdvantages.map((a, i) => ({
+          icon: ADVANTAGE_ICONS[i % ADVANTAGE_ICONS.length]!,
+          ...a,
+        }));
+  const defaultSteps = t.raw('steps') as { title: string; text: string }[];
   const stepCustom = (content?.steps ?? [])
     .filter((s) => s.title.trim())
     .map((s, i) => ({ n: i + 1, title: s.title, text: s.text ?? '' }));
-  const steps: StepItem[] = stepCustom.length > 0 ? stepCustom : STEPS;
+  const steps: StepItem[] =
+    stepCustom.length > 0 ? stepCustom : defaultSteps.map((s, i) => ({ n: i + 1, ...s }));
 
   const navItems: OnePageNavItem[] = [
-    { id: 'servicios', label: 'Servicios' },
-    { id: 'centros', label: 'Centros' },
-    { id: 'calculadora', label: 'Calculadora' },
-    { id: 'ventajas', label: 'Ventajas' },
-    ...(hasReviews ? [{ id: 'opiniones', label: 'Opiniones' }] : []),
-    { id: 'contacto', label: 'Contacto' },
+    { id: 'servicios', label: t('nav.services') },
+    { id: 'centros', label: t('nav.centers') },
+    { id: 'calculadora', label: t('nav.calculator') },
+    { id: 'ventajas', label: t('nav.advantages') },
+    ...(hasReviews ? [{ id: 'opiniones', label: t('nav.reviews') }] : []),
+    { id: 'contacto', label: tCommon('contactSectionTitle') },
   ];
 
   return (
@@ -172,13 +144,13 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
             className="inline-flex h-12 items-center rounded-md px-8 text-sm font-semibold text-white shadow-lg transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
           >
-            Reservar ahora
+            {tCommon('reserveNow')}
           </Link>
           <Link
             href={portalHref}
             className="inline-flex h-12 items-center rounded-md bg-white px-8 text-sm font-semibold text-neutral-900 shadow-lg transition-transform hover:scale-105"
           >
-            Área cliente
+            {tChrome('clientAccess')}
           </Link>
         </div>
       </section>
@@ -188,7 +160,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         <section id="servicios" className="scroll-mt-20 py-16">
           <div className="mx-auto max-w-6xl px-4">
             <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
-              Nuestros servicios
+              {t('servicesTitle')}
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {services.map((s) => (
@@ -211,7 +183,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         <section id="centros" className="scroll-mt-20 bg-muted/40 py-16">
           <div className="mx-auto max-w-6xl px-4">
             <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
-              {where ? `Centros en ${where}` : 'Nuestros centros'}
+              {where ? t('centersTitleWithCity', { city: where }) : t('centersTitleDefault')}
             </h2>
             {data.facilities.length > 0 ? (
               <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -220,10 +192,10 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
                   // Solo tipos con disponibilidad real — si no, se anunciaría
                   // un precio de un tamaño agotado.
                   const cheapest = f.unitTypes
-                    .filter((t) => t.available > 0)
+                    .filter((unitType) => unitType.available > 0)
                     .reduce<
                       number | null
-                    >((min, t) => (min === null ? t.priceMonthly : Math.min(min, t.priceMonthly)), null);
+                    >((min, unitType) => (min === null ? unitType.priceMonthly : Math.min(min, unitType.priceMonthly)), null);
                   const href = f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : bookHref;
                   return (
                     <Link
@@ -257,7 +229,8 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
                         </p>
                         {cheapest !== null && (
                           <p className="mt-2 text-sm font-semibold" style={{ color: brand }}>
-                            desde {priceWithVat(cheapest)}/mes
+                            {tCommon('from')} {formatPrice(cheapest * 1.21, locale)}
+                            {t('perMonth')}
                           </p>
                         )}
                       </div>
@@ -267,7 +240,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
               </div>
             ) : (
               <p className="rounded-md border bg-card px-4 py-10 text-center text-muted-foreground">
-                Ahora mismo no hay disponibilidad. Contáctanos y te avisamos.
+                {t('noAvailability')}
               </p>
             )}
           </div>
@@ -276,7 +249,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         {/* Calculadora de espacio (gratis en toda web /s/[slug]) */}
         <section className="py-16">
           <div className="mx-auto max-w-6xl px-4">
-            <StorageCalculator data={data} brand={brand} locale="es" />
+            <StorageCalculator data={data} brand={brand} locale={locale} />
           </div>
         </section>
 
@@ -284,7 +257,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         <section id="ventajas" className="scroll-mt-20 py-16">
           <div className="mx-auto max-w-6xl px-4">
             <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
-              Por qué elegirnos
+              {t('advantagesTitle')}
             </h2>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
               {advantages.map((a) => (
@@ -307,13 +280,13 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
           <section id="opiniones" className="scroll-mt-20 bg-muted/40 py-16">
             <div className="mx-auto max-w-6xl px-4">
               <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
-                Lo que dicen nuestros clientes
+                {tTestimonials('title')}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {data.testimonials.map((t, i) => (
+                {data.testimonials.map((testimonial, i) => (
                   <figure key={i} className="rounded-lg border bg-card p-5 shadow-sm">
                     <div className="flex items-center gap-0.5">
-                      {Array.from({ length: t.rating ?? 5 }).map((_, s) => (
+                      {Array.from({ length: testimonial.rating ?? 5 }).map((_, s) => (
                         <Star
                           key={s}
                           className="h-4 w-4 fill-current"
@@ -321,9 +294,11 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
                         />
                       ))}
                     </div>
-                    <blockquote className="mt-2 text-sm leading-relaxed">{t.comment}</blockquote>
+                    <blockquote className="mt-2 text-sm leading-relaxed">
+                      {testimonial.comment}
+                    </blockquote>
                     <figcaption className="mt-3 text-xs font-medium text-muted-foreground">
-                      {t.author}
+                      {testimonial.author}
                     </figcaption>
                   </figure>
                 ))}
@@ -334,15 +309,13 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
 
         {/* Banda CTA */}
         <section className="px-4 py-14 text-center text-white" style={{ backgroundColor: brand }}>
-          <h2 className="text-2xl font-bold tracking-tight">¿Listo para tu trastero?</h2>
-          <p className="mx-auto mt-2 max-w-xl opacity-95">
-            Reserva online en minutos y accede a tu espacio cuando lo necesites.
-          </p>
+          <h2 className="text-2xl font-bold tracking-tight">{t('ctaTitle')}</h2>
+          <p className="mx-auto mt-2 max-w-xl opacity-95">{t('ctaSubtitle')}</p>
           <Link
             href={bookHref}
             className="mt-6 inline-flex h-12 items-center rounded-md bg-white px-8 text-sm font-semibold text-neutral-900 shadow-lg transition-transform hover:scale-105"
           >
-            Reservar ahora
+            {tCommon('reserveNow')}
           </Link>
         </section>
 
@@ -350,7 +323,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         <section id="contratar" className="scroll-mt-20 py-16">
           <div className="mx-auto max-w-5xl px-4">
             <h2 className="mb-10 text-center text-2xl font-bold tracking-tight">
-              Contratar es muy fácil
+              {t('stepsTitle')}
             </h2>
             <div className="grid gap-6 sm:grid-cols-3">
               {steps.map((s) => (
@@ -372,9 +345,11 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
         {/* Contacto */}
         <section id="contacto" className="scroll-mt-20 bg-muted/40 py-16">
           <div className="mx-auto max-w-6xl px-4">
-            <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">Contacto</h2>
+            <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
+              {tCommon('contactSectionTitle')}
+            </h2>
             <p className="mb-8 text-center text-sm text-muted-foreground">
-              ¿Dudas? Escríbenos o pásate por el local.
+              {tCommon('contactSectionSubtitle')}
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-3">
@@ -421,7 +396,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
           </p>
           <div className="flex items-center gap-4">
             <Link href={portalHref} className="transition hover:text-foreground">
-              Área cliente
+              {tChrome('clientAccess')}
             </Link>
             <a
               href={SAAS_URL}
@@ -429,7 +404,7 @@ export function EscaparateTemplate({ data }: { data: PublicLandingDto }) {
               rel="noopener noreferrer"
               className="transition hover:text-foreground"
             >
-              Creado con TrasterOS
+              {tCommon('createdWith', { name: 'TrasterOS' })}
             </a>
           </div>
         </div>
