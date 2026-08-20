@@ -29,11 +29,15 @@ export function TenantWebChrome({
   data,
   locale,
   facilitySlug,
+  languageHrefBuilder,
   children,
 }: {
   data: TenantBrand;
   locale: PublicWebLocale;
   facilitySlug?: string;
+  /** Fuera de `/s/[slug]` (reserva, firma) para que el selector de idioma
+   *  se quede en la misma página en vez de saltar a la landing. */
+  languageHrefBuilder?: (locale: PublicWebLocale) => string;
   children: ReactNode;
 }) {
   const t = useTranslations('publicWeb.chrome');
@@ -64,6 +68,7 @@ export function TenantWebChrome({
               tenantSlug={data.tenantSlug}
               facilitySlug={facilitySlug}
               currentLocale={locale}
+              hrefBuilder={languageHrefBuilder}
             />
             <Link
               href={portalHref}

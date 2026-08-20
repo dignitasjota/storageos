@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { type PublicWebLocale } from './i18n/messages';
+import { bookHref as buildBookHref, type PublicWebLocale } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
 import { cities, formatPrice, useHeadlineFallback } from './templates';
@@ -56,7 +56,7 @@ export function EscaparateTemplate({
   const where = cities(data);
   const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
-  const bookHref = `/book/${data.tenantSlug}`;
+  const bookHref = buildBookHref(data.tenantSlug, locale);
   const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
   const hasReviews = data.testimonials.length > 0;
 

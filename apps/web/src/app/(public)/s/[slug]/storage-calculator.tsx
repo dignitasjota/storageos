@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useMemo, useState } from 'react';
 
-import { intlLocaleFor, type PublicWebLocale } from './i18n/messages';
+import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 
 const CATEGORY_ORDER: StorageItemCategory[] = ['muebles', 'electrodomesticos', 'cajas', 'otros'];
 
@@ -169,7 +169,7 @@ export function StorageCalculator({
                   {t('perMonth')}
                 </p>
                 <Link
-                  href={`/book/${data.tenantSlug}`}
+                  href={bookHref(data.tenantSlug, locale)}
                   className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
                   style={{ backgroundColor: brand }}
                 >

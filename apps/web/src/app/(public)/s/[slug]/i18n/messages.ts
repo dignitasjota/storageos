@@ -33,3 +33,27 @@ export async function getPublicWebMessages(locale: PublicWebLocale): Promise<Abs
   const messages = locale === 'en' ? await import('./en.json') : await import('./es.json');
   return messages.default as unknown as AbstractIntlMessages;
 }
+
+/**
+ * URL del flujo de reserva de un tenant, respetando el idioma actual del
+ * visitante — español (por defecto) va a la ruta desnuda `/book/[slug]`, el
+ * resto de idiomas al segmento reservado `/book/[slug]/l/[locale]` (mismo
+ * patrón que `/s/[slug]/l/[locale]`).
+ */
+export function bookHref(tenantSlug: string, locale: PublicWebLocale): string {
+  const encoded = encodeURIComponent(tenantSlug);
+  return locale === DEFAULT_PUBLIC_WEB_LOCALE
+    ? `/book/${encoded}`
+    : `/book/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+}
+
+/**
+ * URL de la página de firma de un contrato, respetando el idioma actual del
+ * visitante — mismo patrón que `bookHref`.
+ */
+export function signHref(token: string, locale: PublicWebLocale): string {
+  const encoded = encodeURIComponent(token);
+  return locale === DEFAULT_PUBLIC_WEB_LOCALE
+    ? `/sign/${encoded}`
+    : `/sign/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+}
