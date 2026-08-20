@@ -3,7 +3,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider, useTranslations } from 'next-intl';
 
-import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i18n/messages';
+import {
+  bookHref,
+  getPublicWebMessages,
+  intlLocaleFor,
+  type PublicWebLocale,
+} from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
 import { FacilityMeta, UnitTypeList } from '../templates';
 import { TenantWebChrome } from '../tenant-web-chrome';
@@ -247,7 +252,7 @@ function FacilityBody({
         )}
 
         <Link
-          href={`/book/${data.tenantSlug}`}
+          href={bookHref(data.tenantSlug, locale)}
           className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
           style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
         >

@@ -19,22 +19,25 @@ function hrefFor(locale: PublicWebLocale, tenantSlug: string, facilitySlug?: str
  * Selector ES/EN de la web pública del tenant. Enlaza a la MISMA página en
  * el otro idioma (no solo a la home), para no perder el contexto del
  * visitante (ficha de local → sigue en la ficha de local, solo cambia el
- * idioma).
+ * idioma). `hrefBuilder` permite reutilizarlo fuera de `/s/[slug]` (reserva,
+ * firma) pasando el generador de URL de esa ruta (`bookHref`/`signHref`).
  */
 export function LanguageSwitcher({
   tenantSlug,
   facilitySlug,
   currentLocale,
+  hrefBuilder,
 }: {
   tenantSlug: string;
   facilitySlug?: string;
   currentLocale: PublicWebLocale;
+  hrefBuilder?: (locale: PublicWebLocale) => string;
 }) {
   const t = useTranslations('publicWeb.languageSwitcher');
   const other: PublicWebLocale = currentLocale === 'es' ? 'en' : 'es';
   return (
     <Link
-      href={hrefFor(other, tenantSlug, facilitySlug)}
+      href={hrefBuilder ? hrefBuilder(other) : hrefFor(other, tenantSlug, facilitySlug)}
       className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       aria-label={t('label')}
     >

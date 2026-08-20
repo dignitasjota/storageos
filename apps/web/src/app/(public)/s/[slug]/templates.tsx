@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { intlLocaleFor, type PublicWebLocale } from './i18n/messages';
+import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { StorageCalculator } from './storage-calculator';
 
 import type { PublicLandingDto } from '@storageos/shared';
@@ -147,7 +147,7 @@ function DefaultTemplate({ data, locale }: TplProps) {
         <p className="mt-3 text-lg text-muted-foreground">
           {t('subtitle', { tenantName: data.tenantName })}
         </p>
-        <ReserveButton data={data} />
+        <ReserveButton data={data} locale={locale} />
       </header>
 
       {data.webAbout && (
@@ -193,7 +193,7 @@ function ModernTemplate({ data, locale }: TplProps) {
           {t('modern.subtitle', { tenantName: data.tenantName })}
         </p>
         <Link
-          href={`/book/${data.tenantSlug}`}
+          href={bookHref(data.tenantSlug, locale)}
           className="mt-8 inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
           style={{ color: brand }}
         >
@@ -244,7 +244,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
           </h1>
           <p className="mt-4 max-w-xl text-lg text-neutral-400">{t('industrial.subtitle')}</p>
           <Link
-            href={`/book/${data.tenantSlug}`}
+            href={bookHref(data.tenantSlug, locale)}
             className="mt-8 inline-flex h-12 items-center px-8 text-sm font-bold uppercase tracking-wider text-neutral-950 transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
           >
@@ -272,7 +272,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
                 href={
                   f.publicSlug
                     ? `/s/${data.tenantSlug}/${f.publicSlug}`
-                    : `/book/${data.tenantSlug}`
+                    : bookHref(data.tenantSlug, locale)
                 }
                 className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
               >
@@ -293,11 +293,11 @@ function IndustrialTemplate({ data, locale }: TplProps) {
 // Piezas compartidas
 // ============================================================================
 
-function ReserveButton({ data }: { data: PublicLandingDto }) {
+function ReserveButton({ data, locale }: { data: PublicLandingDto; locale: PublicWebLocale }) {
   const t = useTranslations('publicWeb.common');
   return (
     <Link
-      href={`/book/${data.tenantSlug}`}
+      href={bookHref(data.tenantSlug, locale)}
       className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
       style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
     >
@@ -324,7 +324,9 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
           <UnitTypeList f={f} locale={locale} />
           <Link
             href={
-              f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : `/book/${data.tenantSlug}`
+              f.publicSlug
+                ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                : bookHref(data.tenantSlug, locale)
             }
             className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
           >
