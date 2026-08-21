@@ -86,6 +86,8 @@ import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/reds
  * la vigencia de la sesión (48 h, fijada por el server vía `expiresIn`).
  */
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
+/** Sincronizada al guardar la sesión para que `PortalI18nProvider` la recupere sin esperar al perfil. */
+const PORTAL_LOCALE_KEY = 'storageos.portal.locale';
 type StoredPortalSession = PortalSessionDto & { expiresAtMs: number };
 
 function loadStoredPortalSession(): PortalSessionDto | null {
@@ -108,6 +110,7 @@ function storePortalSession(s: PortalSessionDto): void {
   try {
     const stored: StoredPortalSession = { ...s, expiresAtMs: Date.now() + s.expiresIn * 1000 };
     localStorage.setItem(PORTAL_SESSION_KEY, JSON.stringify(stored));
+    localStorage.setItem(PORTAL_LOCALE_KEY, s.locale);
   } catch {
     /* localStorage no disponible: seguimos sin persistir */
   }

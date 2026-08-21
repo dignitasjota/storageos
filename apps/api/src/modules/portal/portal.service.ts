@@ -40,6 +40,7 @@ import type {
   PortalFacilityDto,
   PortalInvoiceDto,
   PortalLoginPasswordInput,
+  PortalLocaleValue,
   PortalMagicLinkDto,
   PortalPaymentDto,
   PortalProfileDto,
@@ -70,6 +71,11 @@ const RESET_TOKEN_TTL_SECONDS = 30 * 60;
 /** Enlace de restablecimiento generado por el staff (lo reparte a mano): 7 días. */
 const STAFF_RESET_TTL_SECONDS = 7 * 24 * 60 * 60;
 const RESET_KEY_PREFIX = 'portal:pwreset:';
+
+/** El valor en BD es texto libre; cualquier valor no reconocido cae a 'es'. */
+function normalizePortalLocale(value: string): PortalLocaleValue {
+  return value === 'en' ? 'en' : 'es';
+}
 
 interface MagicLinkEntry {
   secretHash: string;
@@ -550,6 +556,7 @@ export class PortalService {
       lastName: string | null;
       companyName: string | null;
       email: string | null;
+      locale: string;
     },
     tenant: {
       id: string;
@@ -578,6 +585,7 @@ export class PortalService {
       logoUrl: tenant.portalLogoUrl,
       accessToken,
       expiresIn: ttl,
+      locale: normalizePortalLocale(customer.locale),
     };
   }
 
@@ -907,6 +915,7 @@ export class PortalService {
       ...(input.documentType !== undefined && { documentType: input.documentType || null }),
       ...(input.documentNumber !== undefined && { documentNumber: input.documentNumber || null }),
       ...(input.country ? { country: input.country.toUpperCase() } : {}),
+      ...(input.locale ? { locale: input.locale } : {}),
     };
     const updated = await this.admin.customer.update({ where: { id: customerId }, data });
     return this.toProfileDto(updated);
@@ -926,6 +935,7 @@ export class PortalService {
     documentType: string | null;
     documentNumber: string | null;
     portalPasswordHash?: string | null;
+    locale: string;
   }): PortalProfileDto {
     return {
       customerType: c.customerType as PortalProfileDto['customerType'],
@@ -941,6 +951,7 @@ export class PortalService {
       documentType: c.documentType,
       documentNumber: c.documentNumber,
       hasPortalPassword: c.portalPasswordHash != null,
+      locale: normalizePortalLocale(c.locale),
     };
   }
 

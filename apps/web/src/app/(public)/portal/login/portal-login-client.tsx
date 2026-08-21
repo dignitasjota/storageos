@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import { PortalLanguageSwitcher } from '../i18n/language-switcher';
 
 import type { PortalSessionDto, PublicTenantBrandDto } from '@storageos/shared';
 
@@ -14,15 +17,22 @@ import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
 const PORTAL_SESSION_KEY = 'storageos.portal.session';
+const PORTAL_LOCALE_KEY = 'storageos.portal.locale';
 const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
 
-/** Persiste la sesión igual que `/portal/consume` para que ésta la recupere. */
+/**
+ * Persiste la sesión igual que `/portal/consume` para que ésta la recupere,
+ * y sincroniza el idioma preferido del cliente (guardado en su perfil) como
+ * preferencia local, para que el provider lo recupere sin esperar a que se
+ * cargue el perfil.
+ */
 function storePortalSession(s: PortalSessionDto): void {
   try {
     localStorage.setItem(
       PORTAL_SESSION_KEY,
       JSON.stringify({ ...s, expiresAtMs: Date.now() + s.expiresIn * 1000 }),
     );
+    localStorage.setItem(PORTAL_LOCALE_KEY, s.locale);
   } catch {
     /* localStorage no disponible */
   }
@@ -45,6 +55,8 @@ export function PortalLoginClient({
   initialSlug: string | null;
   initialBrand: PublicTenantBrandDto | null;
 }) {
+  const t = useTranslations('portal.login');
+  const tChrome = useTranslations('portal.chrome');
   const [mode, setMode] = useState<Mode>('link');
   const [tenantSlug, setTenantSlug] = useState(initialSlug ?? '');
   const [email, setEmail] = useState('');
@@ -67,7 +79,7 @@ export function PortalLoginClient({
       });
       setSent(true);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      toast.error(err instanceof ApiError ? err.body.message : t('genericError'));
     } finally {
       setLoading(false);
     }
@@ -86,14 +98,14 @@ export function PortalLoginClient({
       // La página de consumo recupera la sesión de localStorage al montar.
       window.location.href = '/portal/consume';
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Email o contraseña incorrectos');
+      toast.error(err instanceof ApiError ? err.body.message : t('wrongCredentials'));
       setLoading(false);
     }
   }
 
   async function forgot() {
     if (!tenantSlug || !email) {
-      toast.error('Indica la empresa y el email.');
+      toast.error(t('missingFields'));
       return;
     }
     try {
@@ -102,19 +114,17 @@ export function PortalLoginClient({
         json: { tenantSlug, email },
         requiresAuth: false,
       });
-      toast.success(
-        'Si el email pertenece a algún cliente, te enviamos un enlace para tu contraseña.',
-      );
+      toast.success(t('forgotSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      toast.error(err instanceof ApiError ? err.body.message : t('genericError'));
     }
   }
 
   return (
     <div className="flex min-h-screen flex-col">
-      {brand && (
-        <header className="border-b border-border/60">
-          <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-3">
+      <header className="border-b border-border/60">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-3">
+          {brand ? (
             <Link
               href={`/s/${brand.tenantSlug}`}
               className="flex items-center gap-2 font-semibold"
@@ -131,28 +141,27 @@ export function PortalLoginClient({
                 <span>{brand.tenantName}</span>
               )}
             </Link>
-          </div>
-        </header>
-      )}
+          ) : (
+            <span />
+          )}
+          <PortalLanguageSwitcher />
+        </div>
+      </header>
       <div className="container flex flex-1 flex-col items-center gap-4 py-12">
         <Card className="w-full max-w-md border-border/60">
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">
-              {brand ? `Acceso de clientes · ${brand.tenantName}` : 'Portal del inquilino'}
+              {brand ? t('titleWithBrand', { tenantName: brand.tenantName }) : t('title')}
             </CardTitle>
-            <CardDescription>
-              Consulta tus facturas, paga online y gestiona tu cuenta.
-            </CardDescription>
+            <CardDescription>{t('subtitle')}</CardDescription>
           </CardHeader>
           <CardContent>
             {sent ? (
               <div className="space-y-3 text-center text-sm">
-                <p>
-                  Hemos enviado un enlace a <strong>{email}</strong> (si pertenece a algún tenant).
-                </p>
-                <p className="text-muted-foreground">El enlace caduca en 30 minutos.</p>
+                <p>{t('sentTo', { email })}</p>
+                <p className="text-muted-foreground">{t('sentExpiry')}</p>
                 <Button variant="outline" onClick={() => setSent(false)}>
-                  Probar con otro email
+                  {t('tryAnotherEmail')}
                 </Button>
               </div>
             ) : (
@@ -166,7 +175,7 @@ export function PortalLoginClient({
                       mode === 'link' ? 'bg-background shadow-sm' : 'text-muted-foreground'
                     }`}
                   >
-                    Enlace por email
+                    {t('modeLink')}
                   </button>
                   <button
                     type="button"
@@ -175,7 +184,7 @@ export function PortalLoginClient({
                       mode === 'password' ? 'bg-background shadow-sm' : 'text-muted-foreground'
                     }`}
                   >
-                    Contraseña
+                    {t('modePassword')}
                   </button>
                 </div>
 
@@ -186,19 +195,19 @@ export function PortalLoginClient({
                 >
                   {!brand && (
                     <div>
-                      <Label>Empresa (slug del tenant)</Label>
+                      <Label>{t('companyLabel')}</Label>
                       <Input
                         value={tenantSlug}
                         onChange={(e) => setTenantSlug(e.target.value)}
                         autoComplete="organization"
                         autoCapitalize="off"
-                        placeholder="acme"
+                        placeholder={t('companyPlaceholder')}
                         className="text-base sm:text-sm"
                       />
                     </div>
                   )}
                   <div>
-                    <Label>Email</Label>
+                    <Label>{t('emailLabel')}</Label>
                     <Input
                       type="email"
                       value={email}
@@ -209,7 +218,7 @@ export function PortalLoginClient({
                   </div>
                   {mode === 'password' && (
                     <div>
-                      <Label>Contraseña</Label>
+                      <Label>{t('passwordLabel')}</Label>
                       <Input
                         type="password"
                         value={password}
@@ -229,29 +238,29 @@ export function PortalLoginClient({
                   >
                     {loading
                       ? mode === 'link'
-                        ? 'Enviando...'
-                        : 'Entrando...'
+                        ? t('submitSending')
+                        : t('submitEntering')
                       : mode === 'link'
-                        ? 'Enviar enlace'
-                        : 'Entrar'}
+                        ? t('submitSendLink')
+                        : t('submitEnter')}
                   </Button>
                 </form>
 
                 {mode === 'password' ? (
                   <p className="mt-4 text-center text-xs text-muted-foreground">
-                    ¿Olvidaste la contraseña o aún no la tienes?{' '}
+                    {t('forgotPrompt')}{' '}
                     <button
                       type="button"
                       className="underline hover:text-foreground"
                       onClick={() => void forgot()}
                     >
-                      Te enviamos un enlace para establecerla
+                      {t('forgotLink')}
                     </button>
                     .
                   </p>
                 ) : (
                   <p className="mt-4 text-center text-xs text-muted-foreground">
-                    Sin contraseña: te enviamos un enlace de acceso de un solo uso.
+                    {t('noPasswordHint')}
                   </p>
                 )}
               </>
@@ -274,7 +283,7 @@ export function PortalLoginClient({
               rel="noopener noreferrer"
               className="transition hover:text-foreground"
             >
-              Creado con TrasterOS
+              {tChrome('createdWith', { name: 'TrasterOS' })}
             </a>
           </div>
         </footer>

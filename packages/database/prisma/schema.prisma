@@ -1023,6 +1023,8 @@ model Customer {
   city                  String?
   postalCode            String?      @map("postal_code")
   country               String       @default("ES") @db.Char(2)
+  /// Idioma preferido del inquilino en el portal ('es'|'en').
+  locale                String       @default("es")
   emergencyContactName  String?      @map("emergency_contact_name")
   emergencyContactPhone String?      @map("emergency_contact_phone")
   notes                 String?
