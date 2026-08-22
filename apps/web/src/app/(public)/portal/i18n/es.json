@@ -299,6 +299,129 @@
           "saved": "Contraseña guardada. Ya puedes entrar con email y contraseña.",
           "saveError": "No se pudo guardar la contraseña."
         }
+      },
+      "accessLogs": {
+        "title": "Historial de accesos",
+        "subtitle": "Tus últimas entradas. Si ves algo que no reconoces, avísanos.",
+        "fallbackDevice": "Acceso",
+        "methodPin": "PIN",
+        "methodQr": "QR",
+        "methodRfid": "Tarjeta",
+        "resultAllowed": "Entrada",
+        "resultDenied": "Denegado"
+      },
+      "additionalUnit": {
+        "title": "Contratar otro trastero",
+        "subtitle": "Elige un trastero disponible en tu local, fírmalo y paga online. El acceso se activa al pagar la primera factura.",
+        "noUnits": "Ahora mismo no hay trasteros disponibles en tu local. Puedes dejar una solicitud y te avisaremos cuando haya hueco.",
+        "areaSuffix": " · {area} m²",
+        "priceSuffix": " · {price} €/mes (IVA incl.)",
+        "bookNow": "Contratar ahora",
+        "noMatchTitle": "¿No ves lo que buscas?",
+        "notePlaceholder": "Cuéntanos qué necesitas (tamaño, planta, fechas…)",
+        "sendRequest": "Enviar solicitud al gestor",
+        "yourRequests": "Tus solicitudes",
+        "fallbackRequest": "Solicitud",
+        "statusPending": "Pendiente",
+        "statusHandled": "Gestionada",
+        "statusRejected": "Rechazada",
+        "bookedSuccess": "¡Trastero contratado! Paga la primera factura para activar tu acceso.",
+        "bookError": "No se pudo contratar el trastero.",
+        "requestSuccess": "Solicitud enviada. Tu gestor te contactará.",
+        "requestError": "No se pudo enviar la solicitud.",
+        "dialogTitle": "Contratar trastero {code}",
+        "bookingGenerates": ". Se generará tu contrato y la primera factura, que podrás pagar a continuación.",
+        "signerNameLabel": "Nombre completo (firma)",
+        "acceptTerms": "He leído y acepto las condiciones del contrato de alquiler de trastero y la política de tratamiento de datos.",
+        "confirmButton": "Firmar y continuar al pago"
+      },
+      "aiChat": {
+        "title": "Asistente",
+        "emptyHint": "Pregúntame sobre tu trastero, tus facturas o cómo funciona el servicio. Si no puedo resolverlo, te diré cómo contactar con tu gestor.",
+        "fallbackAnswer": "No he podido responder ahora. Escríbenos desde la pestaña «Mensajes».",
+        "inputPlaceholder": "Escribe tu pregunta…",
+        "send": "Enviar"
+      },
+      "chat": {
+        "title": "Mensajes con tu gestor",
+        "subtitle": "¿Alguna duda? Escríbenos y te responderemos por aquí.",
+        "empty": "Aún no hay mensajes. Empieza la conversación.",
+        "inputPlaceholder": "Escribe un mensaje…",
+        "send": "Enviar",
+        "sendError": "No se pudo enviar el mensaje."
+      },
+      "documents": {
+        "title": "Mis documentos",
+        "subtitle": "Sube tu documentación (DNI, justificante de domicilio…) para agilizar tu gestión.",
+        "typeIdFront": "DNI / NIE (anverso)",
+        "typeIdBack": "DNI / NIE (reverso)",
+        "typeProofOfAddress": "Justificante de domicilio",
+        "typeOther": "Otro documento",
+        "upload": "Subir documento",
+        "downloadSr": "Descargar {fileName}",
+        "empty": "Aún no has subido documentos.",
+        "invalidFormat": "Formato no válido. Sube una imagen (PNG/JPG/WebP) o un PDF.",
+        "tooLarge": "El archivo supera los 10 MB.",
+        "uploaded": "Documento subido.",
+        "uploadError": "No se pudo subir el documento.",
+        "downloadError": "No se pudo descargar el documento."
+      },
+      "doorOpen": {
+        "title": "Abrir puerta",
+        "subtitle": "Abre la puerta de tu local desde el móvil. Se aplican tu horario de acceso y el estado de tu cuenta.",
+        "openButton": "Abrir",
+        "openError": "No se pudo abrir la puerta."
+      },
+      "helpCenter": {
+        "title": "Centro de ayuda"
+      },
+      "insurance": {
+        "title": "Protección de contenido",
+        "subtitle": "Protege lo que guardas. La prima se añade a tu factura mensual.",
+        "monthlyPrice": "{price} €/mes (IVA incl.)",
+        "coverageUpTo": "Cobertura hasta {amount} €",
+        "protectedWith": "Protegido: {plan}",
+        "notProtected": "Sin protección contratada",
+        "noneOption": "Sin protección",
+        "planOption": "{name} ({price} € IVA incl.)",
+        "protectedSuccess": "Protección contratada.",
+        "cancelledSuccess": "Protección cancelada.",
+        "updateError": "No se pudo actualizar."
+      },
+      "nightAccess": {
+        "scheduleTitle": "Horario de acceso",
+        "freeAccess": "Acceso libre las 24 horas.",
+        "scheduleWindow": "Puedes entrar de {openFrom} a {openTo}. De {openTo} a {openFrom} el local está cerrado: necesitas un pase nocturno.",
+        "noScheduleInfo": "Consulta el horario con tu gestor.",
+        "needPassHint": "¿Necesitas entrar fuera de ese horario? Compra un pase nocturno aquí abajo.",
+        "yourPasses": "Tus pases nocturnos",
+        "statusActive": "Sin usar",
+        "statusUsed": "Utilizado",
+        "statusExpired": "Caducado"
+      },
+      "retention": {
+        "title": "Una oferta para que te quedes",
+        "offerPercentage": "{value}% de descuento",
+        "offerFixed": "{value} € de descuento",
+        "offerLine": "Trastero {unitCode}: {discount} durante {months, plural, one {# mes} other {# meses}}.",
+        "priceChangeIntro": "Tu cuota pasaría de",
+        "priceChangeTo": "a",
+        "accept": "Acepto, me quedo",
+        "decline": "No, gracias",
+        "acceptSuccess": "¡Genial! Mantienes tu trastero.",
+        "declineSuccess": "Oferta rechazada.",
+        "respondError": "No se pudo procesar la oferta."
+      },
+      "shop": {
+        "title": "Tienda",
+        "subtitle": "Candados, cajas y accesorios. Se cobran en el acto a tu método de pago por defecto.",
+        "priceLabel": "{price} € (IVA incl.)",
+        "stockSuffix": " · {count} disponibles",
+        "buy": "Comprar",
+        "purchaseSuccess": "Compra realizada. Se ha cobrado a tu método de pago por defecto.",
+        "noPaymentMethod": "Necesitas un método de pago para comprar. Añade una tarjeta o domiciliación en «Método de pago».",
+        "chargeFailed": "No se pudo cobrar tu método de pago. Revisa tus datos e inténtalo de nuevo.",
+        "purchaseError": "No se pudo completar la compra."
       }
     }
   }

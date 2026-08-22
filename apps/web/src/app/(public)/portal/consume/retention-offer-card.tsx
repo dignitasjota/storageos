@@ -1,6 +1,7 @@
 'use client';
 
 import { Gift } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -22,6 +23,7 @@ export function RetentionOfferCard({
   /** Se llama tras aceptar (para recargar contratos/facturas). */
   onChanged?: () => void;
 }) {
+  const t = useTranslations('portal.consume.retention');
   const [offers, setOffers] = useState<PortalRetentionOfferDto[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -47,11 +49,11 @@ export function RetentionOfferCard({
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });
-      toast.success(action === 'accept' ? '¡Genial! Mantienes tu trastero.' : 'Oferta rechazada.');
+      toast.success(action === 'accept' ? t('acceptSuccess') : t('declineSuccess'));
       load();
       if (action === 'accept') onChanged?.();
     } catch {
-      toast.error('No se pudo procesar la oferta.');
+      toast.error(t('respondError'));
     } finally {
       setBusy(false);
     }
@@ -64,22 +66,26 @@ export function RetentionOfferCard({
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <Gift className="size-4 text-primary" />
-          Una oferta para que te quedes
+          {t('title')}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {offers.map((o) => (
           <div key={o.id} className="space-y-2 rounded-md border p-3">
             <p className="text-sm">
-              Trastero <strong>{o.unitCode}</strong>:{' '}
-              {o.discountType === 'percentage'
-                ? `${o.discountValue}% de descuento`
-                : `${o.discountValue} € de descuento`}{' '}
-              durante {o.months} mes(es).
+              {t('offerLine', {
+                unitCode: o.unitCode,
+                discount:
+                  o.discountType === 'percentage'
+                    ? t('offerPercentage', { value: o.discountValue })
+                    : t('offerFixed', { value: o.discountValue }),
+                months: o.months,
+              })}
             </p>
             <p className="text-sm text-muted-foreground">
-              Tu cuota pasaría de{' '}
-              <span className="line-through">{o.currentPriceMonthly.toFixed(2)} €</span> a{' '}
+              {t('priceChangeIntro')}{' '}
+              <span className="line-through">{o.currentPriceMonthly.toFixed(2)} €</span>{' '}
+              {t('priceChangeTo')}{' '}
               <strong className="text-foreground">
                 {o.discountedPriceMonthly.toFixed(2)} €/mes
               </strong>
@@ -88,7 +94,7 @@ export function RetentionOfferCard({
             {o.message && <p className="text-sm italic text-muted-foreground">«{o.message}»</p>}
             <div className="flex gap-2">
               <Button size="sm" onClick={() => respond(o.id, 'accept')} disabled={busy}>
-                Acepto, me quedo
+                {t('accept')}
               </Button>
               <Button
                 size="sm"
@@ -96,7 +102,7 @@ export function RetentionOfferCard({
                 onClick={() => respond(o.id, 'decline')}
                 disabled={busy}
               >
-                No, gracias
+                {t('decline')}
               </Button>
             </div>
           </div>

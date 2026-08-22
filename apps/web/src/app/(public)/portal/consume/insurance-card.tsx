@@ -1,8 +1,12 @@
 'use client';
 
 import { Loader2, ShieldCheck } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import type { InsurancePlanDto, PortalContractDto, PortalSessionDto } from '@storageos/shared';
 
@@ -32,6 +36,8 @@ export function InsuranceCard({
   contracts: PortalContractDto[];
   onContractsChange: (c: PortalContractDto[]) => void;
 }) {
+  const t = useTranslations('portal.consume.insurance');
+  const { locale } = usePortalLocale();
   const [plans, setPlans] = useState<InsurancePlanDto[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -52,6 +58,13 @@ export function InsuranceCard({
     };
   }, [session.accessToken]);
 
+  function fmt(n: number): string {
+    return n.toLocaleString(intlLocaleForPortal(locale), {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
   async function apply(contractId: string, value: string) {
     const planId = value === NONE ? null : value;
     setBusyId(contractId);
@@ -66,9 +79,9 @@ export function InsuranceCard({
         },
       );
       onContractsChange(updated);
-      toast.success(planId ? 'Protección contratada.' : 'Protección cancelada.');
+      toast.success(planId ? t('protectedSuccess') : t('cancelledSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar.');
+      toast.error(err instanceof ApiError ? err.body.message : t('updateError'));
     } finally {
       setBusyId(null);
     }
@@ -81,11 +94,9 @@ export function InsuranceCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-muted-foreground" /> Protección de contenido
+          <ShieldCheck className="h-5 w-5 text-muted-foreground" /> {t('title')}
         </CardTitle>
-        <CardDescription>
-          Protege lo que guardas. La prima se añade a tu factura mensual.
-        </CardDescription>
+        <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
@@ -94,11 +105,11 @@ export function InsuranceCard({
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{p.name}</span>
                 <span className="tabular-nums">
-                  {monthlyWithTax(p).toFixed(2)} €/mes (IVA incl.)
+                  {t('monthlyPrice', { price: fmt(monthlyWithTax(p)) })}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Cobertura hasta {p.coverageAmount.toFixed(0)} €
+                {t('coverageUpTo', { amount: p.coverageAmount.toFixed(0) })}
                 {p.description ? ` · ${p.description}` : ''}
               </p>
             </div>
@@ -117,8 +128,8 @@ export function InsuranceCard({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {c.insurancePlanName
-                    ? `Protegido: ${c.insurancePlanName}`
-                    : 'Sin protección contratada'}
+                    ? t('protectedWith', { plan: c.insurancePlanName })
+                    : t('notProtected')}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -132,10 +143,10 @@ export function InsuranceCard({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE}>Sin protección</SelectItem>
+                    <SelectItem value={NONE}>{t('noneOption')}</SelectItem>
                     {plans.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name} ({monthlyWithTax(p).toFixed(2)} € IVA incl.)
+                        {t('planOption', { name: p.name, price: fmt(monthlyWithTax(p)) })}
                       </SelectItem>
                     ))}
                   </SelectContent>

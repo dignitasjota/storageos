@@ -299,6 +299,129 @@
           "saved": "Password saved. You can now sign in with email and password.",
           "saveError": "Couldn't save the password."
         }
+      },
+      "accessLogs": {
+        "title": "Access history",
+        "subtitle": "Your latest entries. If you see something you don't recognize, let us know.",
+        "fallbackDevice": "Access",
+        "methodPin": "PIN",
+        "methodQr": "QR",
+        "methodRfid": "Card",
+        "resultAllowed": "Entry",
+        "resultDenied": "Denied"
+      },
+      "additionalUnit": {
+        "title": "Rent another unit",
+        "subtitle": "Pick an available unit at your facility, sign it and pay online. Access is activated once you pay the first invoice.",
+        "noUnits": "There are no units available at your facility right now. You can leave a request and we'll let you know when there's room.",
+        "areaSuffix": " · {area} m²",
+        "priceSuffix": " · €{price}/mo (VAT incl.)",
+        "bookNow": "Rent now",
+        "noMatchTitle": "Not finding what you're looking for?",
+        "notePlaceholder": "Tell us what you need (size, floor, dates…)",
+        "sendRequest": "Send request to your manager",
+        "yourRequests": "Your requests",
+        "fallbackRequest": "Request",
+        "statusPending": "Pending",
+        "statusHandled": "Handled",
+        "statusRejected": "Rejected",
+        "bookedSuccess": "Unit rented! Pay the first invoice to activate your access.",
+        "bookError": "Couldn't rent the unit.",
+        "requestSuccess": "Request sent. Your manager will contact you.",
+        "requestError": "Couldn't send the request.",
+        "dialogTitle": "Rent unit {code}",
+        "bookingGenerates": ". Your contract and first invoice will be generated, which you can then pay.",
+        "signerNameLabel": "Full name (signature)",
+        "acceptTerms": "I have read and accept the storage unit rental terms and the data processing policy.",
+        "confirmButton": "Sign and continue to payment"
+      },
+      "aiChat": {
+        "title": "Assistant",
+        "emptyHint": "Ask me about your unit, your invoices or how the service works. If I can't solve it, I'll tell you how to contact your manager.",
+        "fallbackAnswer": "I couldn't answer right now. Write to us from the «Messages» tab.",
+        "inputPlaceholder": "Type your question…",
+        "send": "Send"
+      },
+      "chat": {
+        "title": "Messages with your manager",
+        "subtitle": "Any questions? Write to us and we'll reply here.",
+        "empty": "No messages yet. Start the conversation.",
+        "inputPlaceholder": "Type a message…",
+        "send": "Send",
+        "sendError": "Couldn't send the message."
+      },
+      "documents": {
+        "title": "My documents",
+        "subtitle": "Upload your documentation (ID, proof of address…) to speed up your process.",
+        "typeIdFront": "ID (front)",
+        "typeIdBack": "ID (back)",
+        "typeProofOfAddress": "Proof of address",
+        "typeOther": "Other document",
+        "upload": "Upload document",
+        "downloadSr": "Download {fileName}",
+        "empty": "You haven't uploaded any documents yet.",
+        "invalidFormat": "Invalid format. Upload an image (PNG/JPG/WebP) or a PDF.",
+        "tooLarge": "The file exceeds 10 MB.",
+        "uploaded": "Document uploaded.",
+        "uploadError": "Couldn't upload the document.",
+        "downloadError": "Couldn't download the document."
+      },
+      "doorOpen": {
+        "title": "Open door",
+        "subtitle": "Open your facility's door from your phone. Your access hours and account status apply.",
+        "openButton": "Open",
+        "openError": "Couldn't open the door."
+      },
+      "helpCenter": {
+        "title": "Help center"
+      },
+      "insurance": {
+        "title": "Content protection",
+        "subtitle": "Protect what you store. The premium is added to your monthly invoice.",
+        "monthlyPrice": "€{price}/mo (VAT incl.)",
+        "coverageUpTo": "Coverage up to €{amount}",
+        "protectedWith": "Protected: {plan}",
+        "notProtected": "No protection hired",
+        "noneOption": "No protection",
+        "planOption": "{name} (€{price} VAT incl.)",
+        "protectedSuccess": "Protection hired.",
+        "cancelledSuccess": "Protection cancelled.",
+        "updateError": "Couldn't update it."
+      },
+      "nightAccess": {
+        "scheduleTitle": "Access hours",
+        "freeAccess": "Free access 24 hours a day.",
+        "scheduleWindow": "You can enter from {openFrom} to {openTo}. From {openTo} to {openFrom} the facility is closed: you need a night pass.",
+        "noScheduleInfo": "Check the hours with your manager.",
+        "needPassHint": "Need to enter outside those hours? Buy a night pass below.",
+        "yourPasses": "Your night passes",
+        "statusActive": "Unused",
+        "statusUsed": "Used",
+        "statusExpired": "Expired"
+      },
+      "retention": {
+        "title": "An offer to keep you",
+        "offerPercentage": "{value}% off",
+        "offerFixed": "€{value} off",
+        "offerLine": "Unit {unitCode}: {discount} for {months, plural, one {# month} other {# months}}.",
+        "priceChangeIntro": "Your rent would go from",
+        "priceChangeTo": "to",
+        "accept": "Yes, I'll stay",
+        "decline": "No, thanks",
+        "acceptSuccess": "Great! You're keeping your unit.",
+        "declineSuccess": "Offer declined.",
+        "respondError": "Couldn't process the offer."
+      },
+      "shop": {
+        "title": "Shop",
+        "subtitle": "Locks, boxes and accessories. Charged immediately to your default payment method.",
+        "priceLabel": "€{price} (VAT incl.)",
+        "stockSuffix": " · {count} available",
+        "buy": "Buy",
+        "purchaseSuccess": "Purchase completed. It's been charged to your default payment method.",
+        "noPaymentMethod": "You need a payment method to buy. Add a card or direct debit under «Payment method».",
+        "chargeFailed": "Couldn't charge your payment method. Check your details and try again.",
+        "purchaseError": "Couldn't complete the purchase."
       }
     }
   }

@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2, Send, Sparkles } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 
 import type { PortalAiChatResultDto, PortalSessionDto } from '@storageos/shared';
@@ -13,6 +14,7 @@ import { apiFetch } from '@/lib/auth/api';
 type Turn = { role: 'user' | 'assistant'; content: string };
 
 export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
+  const t = useTranslations('portal.consume.aiChat');
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState('');
@@ -46,7 +48,7 @@ export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
     const message = text.trim();
     if (!message || busy) return;
     const history = turns.slice(-10);
-    setTurns((t) => [...t, { role: 'user', content: message }]);
+    setTurns((turnList) => [...turnList, { role: 'user', content: message }]);
     setText('');
     setBusy(true);
     try {
@@ -56,13 +58,13 @@ export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
         requiresAuth: false,
         json: { message, history },
       });
-      setTurns((t) => [...t, { role: 'assistant', content: res.answer }]);
+      setTurns((turnList) => [...turnList, { role: 'assistant', content: res.answer }]);
     } catch {
-      setTurns((t) => [
-        ...t,
+      setTurns((turnList) => [
+        ...turnList,
         {
           role: 'assistant',
-          content: 'No he podido responder ahora. Escríbenos desde la pestaña «Mensajes».',
+          content: t('fallbackAnswer'),
         },
       ]);
     } finally {
@@ -76,16 +78,13 @@ export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" /> Asistente
+          <Sparkles className="h-5 w-5 text-primary" /> {t('title')}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border p-3">
           {turns.length === 0 ? (
-            <p className="py-3 text-center text-sm text-muted-foreground">
-              Pregúntame sobre tu trastero, tus facturas o cómo funciona el servicio. Si no puedo
-              resolverlo, te diré cómo contactar con tu gestor.
-            </p>
+            <p className="py-3 text-center text-sm text-muted-foreground">{t('emptyHint')}</p>
           ) : (
             turns.map((m, i) => (
               <div
@@ -121,11 +120,11 @@ export function PortalAiChatCard({ session }: { session: PortalSessionDto }) {
                 void ask();
               }
             }}
-            placeholder="Escribe tu pregunta…"
+            placeholder={t('inputPlaceholder')}
             maxLength={2000}
             disabled={busy}
           />
-          <Button onClick={ask} disabled={busy || !text.trim()} aria-label="Enviar">
+          <Button onClick={ask} disabled={busy || !text.trim()} aria-label={t('send')}>
             <Send className="h-4 w-4" />
           </Button>
         </div>

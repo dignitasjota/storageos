@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2, ShoppingBag } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -22,6 +23,7 @@ export function ShopCard({
   session: PortalSessionDto;
   onPurchased: () => void;
 }) {
+  const t = useTranslations('portal.consume.shop');
   const [products, setProducts] = useState<ProductDto[] | null>(null);
   const [qty, setQty] = useState<Record<string, number>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export function ShopCard({
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });
-      toast.success('Compra realizada. Se ha cobrado a tu método de pago por defecto.');
+      toast.success(t('purchaseSuccess'));
       setQty((q) => ({ ...q, [product.id]: 1 }));
       onPurchased();
       // Refresca el stock visible.
@@ -64,13 +66,11 @@ export function ShopCard({
       setProducts(fresh);
     } catch (err) {
       if (err instanceof ApiError && err.body.code === 'no_payment_method') {
-        toast.error(
-          'Necesitas un método de pago para comprar. Añade una tarjeta o domiciliación en «Método de pago».',
-        );
+        toast.error(t('noPaymentMethod'));
       } else if (err instanceof ApiError && err.body.code === 'payment_failed') {
-        toast.error('No se pudo cobrar tu método de pago. Revisa tus datos e inténtalo de nuevo.');
+        toast.error(t('chargeFailed'));
       } else {
-        toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar la compra.');
+        toast.error(err instanceof ApiError ? err.body.message : t('purchaseError'));
       }
     } finally {
       setBusyId(null);
@@ -83,11 +83,9 @@ export function ShopCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <ShoppingBag className="h-5 w-5 text-muted-foreground" /> Tienda
+          <ShoppingBag className="h-5 w-5 text-muted-foreground" /> {t('title')}
         </CardTitle>
-        <CardDescription>
-          Candados, cajas y accesorios. Se cobran en el acto a tu método de pago por defecto.
-        </CardDescription>
+        <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {products.map((p) => {
@@ -101,8 +99,9 @@ export function ShopCard({
               <div className="text-sm">
                 <p className="font-medium">{p.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {priceWithTax(p).toFixed(2)} € (IVA incl.)
-                  {p.description ? ` · ${p.description}` : ''} · {p.totalStock} disponibles
+                  {t('priceLabel', { price: priceWithTax(p).toFixed(2) })}
+                  {p.description ? ` · ${p.description}` : ''}
+                  {t('stockSuffix', { count: p.totalStock })}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -119,7 +118,7 @@ export function ShopCard({
                 />
                 <Button size="sm" onClick={() => buy(p)} disabled={busyId === p.id}>
                   {busyId === p.id && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                  Comprar
+                  {t('buy')}
                 </Button>
               </div>
             </div>
