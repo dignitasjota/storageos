@@ -1,5 +1,7 @@
 import { ThemeProvider } from 'next-themes';
 
+import { PortalI18nProvider } from './i18n/provider';
+
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
@@ -49,8 +51,10 @@ export default function PortalLayout({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       storageKey="storageos-portal-theme"
     >
-      <PwaRegister />
-      {children}
+      <PortalI18nProvider>
+        <PwaRegister />
+        {children}
+      </PortalI18nProvider>
     </ThemeProvider>
   );
 }

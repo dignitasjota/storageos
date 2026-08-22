@@ -1,3 +1,4 @@
+import type { PortalLocaleValue } from '../portal';
 import type {
   AeatStatusValue,
   CorrectionMethodValue,
@@ -257,6 +258,8 @@ export interface PortalSessionDto {
   /** JWT corto para autenticar requests del portal. */
   accessToken: string;
   expiresIn: number;
+  /** Idioma preferido del inquilino (persistido en su perfil). */
+  locale: PortalLocaleValue;
 }
 
 /** Resultado del cobro lanzado desde el portal (`POST /portal/me/invoices/:id/charge`). */

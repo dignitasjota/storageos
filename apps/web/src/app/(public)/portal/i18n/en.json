@@ -1,0 +1,49 @@
+{
+  "portal": {
+    "languageSwitcher": {
+      "label": "Language"
+    },
+    "login": {
+      "title": "Tenant portal",
+      "titleWithBrand": "Customer login · {tenantName}",
+      "subtitle": "Check your invoices, pay online and manage your account.",
+      "modeLink": "Email link",
+      "modePassword": "Password",
+      "companyLabel": "Company (tenant slug)",
+      "companyPlaceholder": "acme",
+      "emailLabel": "Email",
+      "passwordLabel": "Password",
+      "submitSending": "Sending...",
+      "submitEntering": "Signing in...",
+      "submitSendLink": "Send link",
+      "submitEnter": "Sign in",
+      "sentTo": "We've sent a link to {email} (if it belongs to a tenant).",
+      "sentExpiry": "The link expires in 30 minutes.",
+      "tryAnotherEmail": "Try another email",
+      "forgotPrompt": "Forgot your password or don't have one yet?",
+      "forgotLink": "We'll send you a link to set it",
+      "noPasswordHint": "No password: we'll send you a single-use access link.",
+      "genericError": "Error",
+      "wrongCredentials": "Wrong email or password",
+      "missingFields": "Enter the company and email.",
+      "forgotSuccess": "If the email belongs to a customer, we've sent a link to set your password."
+    },
+    "reset": {
+      "title": "New password",
+      "titleWithBrand": "New password · {tenantName}",
+      "subtitle": "Choose a password to access your portal.",
+      "invalidLink": "Invalid link.",
+      "goToLogin": "Go to login",
+      "newPasswordLabel": "New password (min. 8)",
+      "confirmPasswordLabel": "Repeat the password",
+      "submit": "Save and sign in",
+      "submitting": "Saving...",
+      "passwordTooShort": "The password must be at least 8 characters.",
+      "passwordMismatch": "The passwords don't match.",
+      "invalidOrExpired": "The link is invalid or has expired."
+    },
+    "chrome": {
+      "createdWith": "Made with {name}"
+    }
+  }
+}

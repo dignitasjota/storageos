@@ -1,0 +1,49 @@
+{
+  "portal": {
+    "languageSwitcher": {
+      "label": "Idioma"
+    },
+    "login": {
+      "title": "Portal del inquilino",
+      "titleWithBrand": "Acceso de clientes · {tenantName}",
+      "subtitle": "Consulta tus facturas, paga online y gestiona tu cuenta.",
+      "modeLink": "Enlace por email",
+      "modePassword": "Contraseña",
+      "companyLabel": "Empresa (slug del tenant)",
+      "companyPlaceholder": "acme",
+      "emailLabel": "Email",
+      "passwordLabel": "Contraseña",
+      "submitSending": "Enviando...",
+      "submitEntering": "Entrando...",
+      "submitSendLink": "Enviar enlace",
+      "submitEnter": "Entrar",
+      "sentTo": "Hemos enviado un enlace a {email} (si pertenece a algún tenant).",
+      "sentExpiry": "El enlace caduca en 30 minutos.",
+      "tryAnotherEmail": "Probar con otro email",
+      "forgotPrompt": "¿Olvidaste la contraseña o aún no la tienes?",
+      "forgotLink": "Te enviamos un enlace para establecerla",
+      "noPasswordHint": "Sin contraseña: te enviamos un enlace de acceso de un solo uso.",
+      "genericError": "Error",
+      "wrongCredentials": "Email o contraseña incorrectos",
+      "missingFields": "Indica la empresa y el email.",
+      "forgotSuccess": "Si el email pertenece a algún cliente, te enviamos un enlace para tu contraseña."
+    },
+    "reset": {
+      "title": "Nueva contraseña",
+      "titleWithBrand": "Nueva contraseña · {tenantName}",
+      "subtitle": "Elige una contraseña para acceder a tu portal.",
+      "invalidLink": "Enlace no válido.",
+      "goToLogin": "Ir al acceso",
+      "newPasswordLabel": "Nueva contraseña (mín. 8)",
+      "confirmPasswordLabel": "Repite la contraseña",
+      "submit": "Guardar y entrar",
+      "submitting": "Guardando...",
+      "passwordTooShort": "La contraseña debe tener al menos 8 caracteres.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "invalidOrExpired": "El enlace no es válido o ha caducado."
+    },
+    "chrome": {
+      "createdWith": "Creado con {name}"
+    }
+  }
+}

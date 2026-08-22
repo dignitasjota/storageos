@@ -84,4 +84,36 @@ describe('Portal — editar perfil (e2e)', () => {
     const r = await request(app.getHttpServer()).get('/portal/me/profile');
     expect(r.status).toBe(401);
   });
+
+  it('el idioma preferido (locale) por defecto es "es", se puede cambiar y persiste entre sesiones', async () => {
+    const owner = await registerVerifiedUser(app, 'profile-locale');
+    const email = `profile-locale-${Date.now()}@e2e.local`;
+    await createCustomer(app, owner.accessToken, { email });
+
+    const portalToken = await portalLogin(owner.slug, email);
+    const pAuth = { Authorization: `Bearer ${portalToken}` };
+
+    const get = await request(app.getHttpServer()).get('/portal/me/profile').set(pAuth);
+    expect(get.body.locale).toBe('es');
+
+    const patch = await request(app.getHttpServer())
+      .patch('/portal/me/profile')
+      .set(pAuth)
+      .send({ locale: 'en' });
+    expect(patch.status).toBe(200);
+    expect(patch.body.locale).toBe('en');
+
+    // Una nueva sesión ya devuelve el idioma persistido en la ficha del cliente.
+    await request(app.getHttpServer())
+      .post('/portal/login/request')
+      .send({ tenantSlug: owner.slug, email })
+      .expect(204);
+    const mail = await waitForEmail(email, { subjectIncludes: 'Accede' });
+    const token = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
+    const consume = await request(app.getHttpServer())
+      .post('/portal/login/consume')
+      .send({ token });
+    expect(consume.status).toBe(200);
+    expect(consume.body.locale).toBe('en');
+  });
 });

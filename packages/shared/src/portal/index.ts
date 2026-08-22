@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 import type { ContractDepositStatusValue, ContractStatusValue } from '../customers/schemas';
 
+/** Idiomas soportados por el portal del inquilino. */
+export const PortalLocaleEnum = z.enum(['es', 'en']);
+export type PortalLocaleValue = z.infer<typeof PortalLocaleEnum>;
+
 /** Contrato tal como lo ve el inquilino en su portal. */
 export interface PortalContractDto {
   id: string;
@@ -89,6 +93,8 @@ export interface PortalProfileDto {
   documentNumber: string | null;
   /** true si el inquilino ya tiene una contraseña de portal configurada. */
   hasPortalPassword: boolean;
+  /** Idioma preferido del inquilino en el portal. */
+  locale: PortalLocaleValue;
 }
 
 const optionalProfileText = (max: number) => z.string().trim().max(max).optional();
@@ -109,6 +115,7 @@ export const PortalUpdateProfileSchema = z.object({
   country: z.string().trim().length(2).optional(),
   documentType: optionalProfileText(30),
   documentNumber: optionalProfileText(60),
+  locale: PortalLocaleEnum.optional(),
 });
 export type PortalUpdateProfileInput = z.infer<typeof PortalUpdateProfileSchema>;
 
