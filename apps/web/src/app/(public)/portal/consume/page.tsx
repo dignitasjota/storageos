@@ -40,9 +40,14 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { QRCodeSVG } from 'qrcode.react';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+import { PortalLanguageSwitcher } from '../i18n/language-switcher';
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import { AccessLogsCard } from './access-logs-card';
 import { AdditionalUnitCard } from './additional-unit-card';
@@ -125,39 +130,47 @@ function clearStoredPortalSession(): void {
 }
 
 /** Texto legible del estado de la fianza. */
-function depositLabel(status: string): string {
-  if (status === 'held') return 'retenida';
-  if (status === 'returned') return 'devuelta';
-  if (status === 'partially_returned') return 'devuelta parcialmente';
-  return 'pendiente';
+function depositLabel(
+  status: string,
+  t: ReturnType<typeof useTranslations<'portal.consume.contracts'>>,
+): string {
+  if (status === 'held') return t('depositHeld');
+  if (status === 'returned') return t('depositReturned');
+  if (status === 'partially_returned') return t('depositPartiallyReturned');
+  return t('depositPending');
 }
 
-function paymentMethodLabel(type: string): string {
-  if (type === 'card') return 'Tarjeta';
-  if (type === 'sepa_debit') return 'Domiciliación SEPA';
-  if (type === 'bank_transfer') return 'Transferencia';
-  if (type === 'cash') return 'Efectivo';
-  return 'Otro';
+function paymentMethodLabel(
+  type: string,
+  t: ReturnType<typeof useTranslations<'portal.consume.invoices'>>,
+): string {
+  if (type === 'card') return t('paymentMethodCard');
+  if (type === 'sepa_debit') return t('paymentMethodSepaDebit');
+  if (type === 'bank_transfer') return t('paymentMethodBankTransfer');
+  if (type === 'cash') return t('paymentMethodCash');
+  return t('paymentMethodOther');
 }
 
 type PortalNavDef = { value: string; label: string; icon: typeof Home };
 type NavBadge = { count: number; color: string } | null;
 
 /** Secciones del portal. En móvil, las 4 primeras van a la barra inferior. */
-const PORTAL_NAV: PortalNavDef[] = [
-  { value: 'inicio', label: 'Inicio', icon: Home },
-  { value: 'contratos', label: 'Contratos', icon: Boxes },
-  { value: 'facturas', label: 'Facturas', icon: Receipt },
-  { value: 'accesos', label: 'Accesos', icon: KeyRound },
-  { value: 'mensajes', label: 'Mensajes', icon: MessageSquare },
-  { value: 'incidencias', label: 'Incidencias', icon: AlertTriangle },
-  { value: 'cambio', label: 'Cambio de trastero', icon: Replace },
-  { value: 'nuevo', label: 'Contratar trastero', icon: PackagePlus },
-  { value: 'local', label: 'Tu local', icon: MapPin },
-  { value: 'datos', label: 'Mis datos', icon: User },
-];
-const PORTAL_PRIMARY = PORTAL_NAV.slice(0, 4);
-const PORTAL_MORE = PORTAL_NAV.slice(4);
+function buildPortalNav(
+  t: ReturnType<typeof useTranslations<'portal.consume.nav'>>,
+): PortalNavDef[] {
+  return [
+    { value: 'inicio', label: t('home'), icon: Home },
+    { value: 'contratos', label: t('contracts'), icon: Boxes },
+    { value: 'facturas', label: t('invoices'), icon: Receipt },
+    { value: 'accesos', label: t('access'), icon: KeyRound },
+    { value: 'mensajes', label: t('messages'), icon: MessageSquare },
+    { value: 'incidencias', label: t('incidents'), icon: AlertTriangle },
+    { value: 'cambio', label: t('unitChange'), icon: Replace },
+    { value: 'nuevo', label: t('newUnit'), icon: PackagePlus },
+    { value: 'local', label: t('facility'), icon: MapPin },
+    { value: 'datos', label: t('profile'), icon: User },
+  ];
+}
 
 /** Item del menú lateral (ordenador). */
 function PortalNavItem({
@@ -229,25 +242,31 @@ function PortalBottomItem({
   );
 }
 
-/** Estado de una factura en español legible para el inquilino. */
-function invoiceStatusLabel(status: string): string {
-  if (status === 'draft') return 'Borrador';
-  if (status === 'issued') return 'Emitida';
-  if (status === 'paid') return 'Pagada';
-  if (status === 'overdue') return 'Vencida';
-  if (status === 'cancelled') return 'Anulada';
-  if (status === 'refunded') return 'Reembolsada';
-  if (status === 'partially_refunded') return 'Reemb. parcial';
+/** Estado de una factura legible para el inquilino, en su idioma. */
+function invoiceStatusLabel(
+  status: string,
+  t: ReturnType<typeof useTranslations<'portal.consume.invoices'>>,
+): string {
+  if (status === 'draft') return t('statusDraft');
+  if (status === 'issued') return t('statusIssued');
+  if (status === 'paid') return t('statusPaid');
+  if (status === 'overdue') return t('statusOverdue');
+  if (status === 'cancelled') return t('statusCancelled');
+  if (status === 'refunded') return t('statusRefunded');
+  if (status === 'partially_refunded') return t('statusPartiallyRefunded');
   return status;
 }
 
-function paymentStatusLabel(status: string): string {
-  if (status === 'succeeded') return 'Cobrado';
-  if (status === 'processing') return 'En curso';
-  if (status === 'pending') return 'Pendiente';
-  if (status === 'failed') return 'Fallido';
-  if (status === 'refunded') return 'Reembolsado';
-  if (status === 'partially_refunded') return 'Reemb. parcial';
+function paymentStatusLabel(
+  status: string,
+  t: ReturnType<typeof useTranslations<'portal.consume.invoices'>>,
+): string {
+  if (status === 'succeeded') return t('paymentStatusSucceeded');
+  if (status === 'processing') return t('paymentStatusProcessing');
+  if (status === 'pending') return t('paymentStatusPending');
+  if (status === 'failed') return t('paymentStatusFailed');
+  if (status === 'refunded') return t('paymentStatusRefunded');
+  if (status === 'partially_refunded') return t('paymentStatusPartiallyRefunded');
   return status;
 }
 
@@ -262,6 +281,20 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 function PortalConsumeContent() {
+  const t = useTranslations('portal.consume');
+  const tNav = useTranslations('portal.consume.nav');
+  const tContracts = useTranslations('portal.consume.contracts');
+  const tUnitChange = useTranslations('portal.consume.unitChange');
+  const tInvoices = useTranslations('portal.consume.invoices');
+  const tAccess = useTranslations('portal.consume.access');
+  const tIncidents = useTranslations('portal.consume.incidents');
+  const tFacility = useTranslations('portal.consume.facility');
+  const tReferrals = useTranslations('portal.consume.referrals');
+  const tPush = useTranslations('portal.consume.push');
+  const { locale } = usePortalLocale();
+  const portalNav = useMemo(() => buildPortalNav(tNav), [tNav]);
+  const portalPrimary = portalNav.slice(0, 4);
+  const portalMore = portalNav.slice(4);
   const params = useSearchParams();
   const token = params.get('token');
   const [session, setSession] = useState<PortalSessionDto | null>(null);
@@ -324,7 +357,7 @@ function PortalConsumeContent() {
       if (err instanceof ApiError && err.statusCode === 401) {
         clearStoredPortalSession();
         setSession(null);
-        setError('Tu sesión ha caducado. Pide un enlace nuevo para volver a entrar.');
+        setError(t('sessionExpired'));
       }
       throw err;
     });
@@ -344,7 +377,7 @@ function PortalConsumeContent() {
         //    quitamos de la URL para que las recargas no lo reintenten.
         if (!s) {
           if (!token) {
-            setError('Enlace inválido o caducado. Pide uno nuevo a tu gestor.');
+            setError(t('invalidLinkFallback'));
             setLoading(false);
             return;
           }
@@ -441,11 +474,7 @@ function PortalConsumeContent() {
         if (cancelled) return;
         // La sesión persistida pudo caducar en el server: la descartamos.
         clearStoredPortalSession();
-        setError(
-          err instanceof ApiError
-            ? err.body.message
-            : 'Enlace inválido o caducado. Pide uno nuevo a tu gestor.',
-        );
+        setError(err instanceof ApiError ? err.body.message : t('invalidLinkFallback'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -470,9 +499,9 @@ function PortalConsumeContent() {
         { method: 'POST' },
       );
       setAccess((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
-      toast.success('Código regenerado');
+      toast.success(tAccess('regenerateSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo regenerar.');
+      toast.error(err instanceof ApiError ? err.body.message : tAccess('regenerateError'));
     } finally {
       setRegeneratingId(null);
     }
@@ -492,9 +521,9 @@ function PortalConsumeContent() {
       setAccess((prev) => [created, ...(prev ?? [])]);
       setExtraAccessOpen(false);
       setExtraAccessLabel('');
-      toast.success('Acceso adicional creado');
+      toast.success(tAccess('extraAccessCreated'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el acceso.');
+      toast.error(err instanceof ApiError ? err.body.message : tAccess('extraAccessError'));
     } finally {
       setAddingAccess(false);
     }
@@ -514,18 +543,14 @@ function PortalConsumeContent() {
       const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
       setInvoices(inv);
       setPassRefresh((n) => n + 1);
-      toast.success(
-        'Pase nocturno comprado y cobrado. Tu código es de un solo uso y caduca por la mañana.',
-      );
+      toast.success(tAccess('nightPassPurchased'));
     } catch (err) {
       if (err instanceof ApiError && err.body.code === 'no_payment_method') {
-        toast.error(
-          'Necesitas un método de pago para comprar el pase. Añádelo en «Método de pago».',
-        );
+        toast.error(tAccess('nightPassNoPaymentMethod'));
       } else if (err instanceof ApiError && err.body.code === 'payment_failed') {
-        toast.error('No se pudo cobrar tu método de pago. El pase no se ha emitido.');
+        toast.error(tAccess('nightPassChargeFailed'));
       } else {
-        toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprar el pase.');
+        toast.error(err instanceof ApiError ? err.body.message : tAccess('nightPassError'));
       }
     } finally {
       setBuyingPass(false);
@@ -535,14 +560,14 @@ function PortalConsumeContent() {
   async function enablePush() {
     if (!session || !pushKey) return;
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      toast.error('Tu navegador no soporta notificaciones push.');
+      toast.error(tPush('unsupported'));
       return;
     }
     setPushBusy(true);
     try {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') {
-        toast.error('Permiso de notificaciones denegado.');
+        toast.error(tPush('permissionDenied'));
         return;
       }
       const reg = await navigator.serviceWorker.ready;
@@ -555,9 +580,9 @@ function PortalConsumeContent() {
         json: sub.toJSON(),
       });
       setPushEnabled(true);
-      toast.success('Notificaciones activadas.');
+      toast.success(tPush('success'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron activar.');
+      toast.error(err instanceof ApiError ? err.body.message : tPush('error'));
     } finally {
       setPushBusy(false);
     }
@@ -565,7 +590,7 @@ function PortalConsumeContent() {
 
   async function requestUnitChange() {
     if (!session || ucNote.trim().length < 5) {
-      toast.error('Cuéntanos qué cambio necesitas (mínimo 5 caracteres).');
+      toast.error(tUnitChange('noteTooShort'));
       return;
     }
     setUcBusy(true);
@@ -578,9 +603,9 @@ function PortalConsumeContent() {
       setUnitChanges((prev) => [created, ...(prev ?? [])]);
       setUcNote('');
       setUcContractId('');
-      toast.success('Solicitud enviada. Te contactaremos.');
+      toast.success(tUnitChange('success'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+      toast.error(err instanceof ApiError ? err.body.message : tUnitChange('error'));
     } finally {
       setUcBusy(false);
     }
@@ -588,7 +613,7 @@ function PortalConsumeContent() {
 
   async function reportIncident() {
     if (!session || incidentTitle.trim().length < 3) {
-      toast.error('Describe la incidencia (mínimo 3 caracteres).');
+      toast.error(tIncidents('tooShort'));
       return;
     }
     setReportingIncident(true);
@@ -600,9 +625,9 @@ function PortalConsumeContent() {
       setIncidents((prev) => [created, ...(prev ?? [])]);
       setIncidentTitle('');
       setIncidentDesc('');
-      toast.success('Incidencia enviada. La revisaremos lo antes posible.');
+      toast.success(tIncidents('success'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+      toast.error(err instanceof ApiError ? err.body.message : tIncidents('error'));
     } finally {
       setReportingIncident(false);
     }
@@ -633,7 +658,7 @@ function PortalConsumeContent() {
       );
       window.open(url, '_blank', 'noopener');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo descargar el contrato.');
+      toast.error(err instanceof ApiError ? err.body.message : tContracts('downloadError'));
     }
   }
 
@@ -647,9 +672,9 @@ function PortalConsumeContent() {
       );
       setContracts((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
       setMoveOutId(null);
-      toast.success('Solicitud de baja enviada. Te contactaremos para el cierre.');
+      toast.success(tContracts('moveOutSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo solicitar la baja.');
+      toast.error(err instanceof ApiError ? err.body.message : tContracts('moveOutError'));
     }
   }
 
@@ -663,9 +688,9 @@ function PortalConsumeContent() {
         { method: 'POST' },
       );
       setContracts((prev) => (prev ?? []).map((c) => (c.id === id ? updated : c)));
-      toast.success('Baja cancelada. Tu contrato sigue activo.');
+      toast.success(tContracts('moveOutCancelSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cancelar la baja.');
+      toast.error(err instanceof ApiError ? err.body.message : tContracts('moveOutCancelError'));
     } finally {
       setCancelingMoveOutId(null);
     }
@@ -683,7 +708,7 @@ function PortalConsumeContent() {
       setSetupIntent(intent);
       setAddOpen(true);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo iniciar el alta.');
+      toast.error(err instanceof ApiError ? err.body.message : tInvoices('startAddError'));
     } finally {
       setAddPending(false);
     }
@@ -700,9 +725,9 @@ function PortalConsumeContent() {
       setPaymentMethods(pms);
       setAddOpen(false);
       setSetupIntent(null);
-      toast.success('Método de pago guardado. Ya puedes pagar tus facturas.');
+      toast.success(tInvoices('savedSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+      toast.error(err instanceof ApiError ? err.body.message : tInvoices('saveError'));
     }
   }
 
@@ -720,9 +745,7 @@ function PortalConsumeContent() {
       );
       window.location.href = res.authorisationUrl;
     } catch (err) {
-      toast.error(
-        err instanceof ApiError ? err.body.message : 'No se pudo iniciar la domiciliación.',
-      );
+      toast.error(err instanceof ApiError ? err.body.message : tInvoices('gocardlessStartError'));
       setGcPending(false);
     }
   }
@@ -737,28 +760,28 @@ function PortalConsumeContent() {
         { method: 'POST' },
       );
       if (result.status === 'processing') {
-        toast.info('Pago domiciliado iniciado: tu banco lo confirmará en 2-5 días hábiles.');
+        toast.info(tInvoices('chargeProcessing'));
         // Recargar para mostrar «Pago en curso» y desactivar los botones (evita
         // que el inquilino lance un segundo adeudo sobre la misma factura).
         const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
         setInvoices(inv);
       } else if (result.status === 'succeeded') {
-        toast.success('Pago realizado. ¡Gracias!');
+        toast.success(tInvoices('chargeSuccess'));
         const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
         setInvoices(inv);
       } else {
         toast.error(
           result.failureReason
-            ? `El pago no se completó: ${result.failureReason}`
-            : 'El pago no se completó.',
+            ? tInvoices('chargeFailedWithReason', { reason: result.failureReason })
+            : tInvoices('chargeFailed'),
         );
       }
     } catch (err) {
       if (err instanceof ApiError && err.body.code === 'no_payment_method') {
-        toast.message('Añade primero un IBAN o tarjeta para poder pagar.');
+        toast.message(tInvoices('addPaymentMethodFirst'));
         void openAddDialog();
       } else {
-        toast.error(err instanceof ApiError ? err.body.message : 'No se pudo procesar el pago.');
+        toast.error(err instanceof ApiError ? err.body.message : tInvoices('chargeError'));
       }
     } finally {
       setPayingId(null);
@@ -778,12 +801,12 @@ function PortalConsumeContent() {
       <div className="container max-w-md py-12">
         <Card className="border-border/60 text-center">
           <CardHeader>
-            <CardTitle>No hemos podido abrir tu portal</CardTitle>
-            <CardDescription>{error ?? 'El enlace no es válido o ha caducado.'}</CardDescription>
+            <CardTitle>{t('loadErrorTitle')}</CardTitle>
+            <CardDescription>{error ?? t('loadErrorFallback')}</CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild>
-              <Link href="/portal/login">Pedir un enlace nuevo</Link>
+              <Link href="/portal/login">{t('requestNewLink')}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -811,7 +834,7 @@ function PortalConsumeContent() {
     if (value === 'mensajes') setUnreadMessages(0);
     setMoreOpen(false);
   }
-  const moreBadgeTotal = PORTAL_MORE.reduce((sum, i) => sum + (navBadge(i.value)?.count ?? 0), 0);
+  const moreBadgeTotal = portalMore.reduce((sum, i) => sum + (navBadge(i.value)?.count ?? 0), 0);
 
   return (
     <div className="container max-w-5xl space-y-6 py-10">
@@ -820,7 +843,7 @@ function PortalConsumeContent() {
         <button
           type="button"
           onClick={() => setTab('inicio')}
-          title="Volver al inicio"
+          title={t('backToHome')}
           className="flex items-center gap-3 transition-opacity hover:opacity-80"
         >
           {session.logoUrl ? (
@@ -848,14 +871,17 @@ function PortalConsumeContent() {
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Hola, {session.customerName}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t('greeting', { name: session.customerName })}
+          </h1>
           <p className="text-sm text-muted-foreground">{session.email}</p>
         </div>
         <div className="flex items-center gap-2">
+          <PortalLanguageSwitcher />
           <ThemeToggle />
           <InstallPwaButton />
           <Button variant="outline" size="sm" onClick={logout}>
-            <LogOut className="mr-1 h-4 w-4" /> Cerrar sesión
+            <LogOut className="mr-1 h-4 w-4" /> {t('logout')}
           </Button>
         </div>
       </div>
@@ -863,7 +889,7 @@ function PortalConsumeContent() {
       <div className="flex gap-6">
         {/* Menú lateral (ordenador) */}
         <nav className="hidden w-52 shrink-0 space-y-1 md:block">
-          {PORTAL_NAV.map((item) => (
+          {portalNav.map((item) => (
             <PortalNavItem
               key={item.value}
               item={item}
@@ -909,10 +935,8 @@ function PortalConsumeContent() {
             {contracts && contracts.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Mis contratos</CardTitle>
-                  <CardDescription>
-                    Tus trasteros activos. Puedes solicitar la baja online.
-                  </CardDescription>
+                  <CardTitle>{tContracts('title')}</CardTitle>
+                  <CardDescription>{tContracts('subtitle')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {contracts.map((c) => (
@@ -923,15 +947,16 @@ function PortalConsumeContent() {
                             {c.unitCode} · {c.facilityName}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {c.contractNumber} · {c.effectivePrice.toFixed(2)} €/mes
+                            {c.contractNumber} ·{' '}
+                            {tContracts('pricePerMonth', { price: c.effectivePrice.toFixed(2) })}
                             {c.status === 'ending' && c.endDate
-                              ? ` · baja prevista el ${c.endDate}`
+                              ? tContracts('moveOutPlanned', { date: c.endDate })
                               : ''}
                           </p>
                         </div>
                         {c.status === 'ending' ? (
                           <div className="flex items-center gap-2">
-                            <Badge variant="secondary">Baja solicitada</Badge>
+                            <Badge variant="secondary">{tContracts('moveOutRequested')}</Badge>
                             <Button
                               variant="outline"
                               size="sm"
@@ -943,40 +968,48 @@ function PortalConsumeContent() {
                               ) : (
                                 <RefreshCw className="mr-1 h-4 w-4" />
                               )}
-                              Cancelar baja
+                              {tContracts('cancelMoveOut')}
                             </Button>
                           </div>
                         ) : (
                           <Button variant="outline" size="sm" onClick={() => setMoveOutId(c.id)}>
-                            <LogOut className="mr-1 h-4 w-4" /> Solicitar baja
+                            <LogOut className="mr-1 h-4 w-4" /> {tContracts('requestMoveOut')}
                           </Button>
                         )}
                       </div>
                       {c.overlocked && (
                         <div className="rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-xs text-orange-800 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
-                          🔒 Acceso al trastero restringido por un pago pendiente. Regulariza la
-                          deuda desde «Tus facturas» para reactivarlo.
+                          {tContracts('overlockedWarning')}
                         </div>
                       )}
                       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         {c.depositAmount > 0 && (
                           <span>
-                            Fianza {c.depositAmount.toFixed(2)} € · {depositLabel(c.depositStatus)}
+                            {tContracts('depositLine', {
+                              amount: c.depositAmount.toFixed(2),
+                              status: depositLabel(c.depositStatus, tContracts),
+                            })}
                           </span>
                         )}
                         {c.insurancePlanName && (
                           <span>
-                            Seguro: {c.insurancePlanName}
-                            {c.insurancePrice ? ` (${c.insurancePrice.toFixed(2)} €/mes)` : ''}
+                            {tContracts('insuranceLine', { name: c.insurancePlanName })}
+                            {c.insurancePrice
+                              ? tContracts('insurancePriceSuffix', {
+                                  price: c.insurancePrice.toFixed(2),
+                                })
+                              : ''}
                           </span>
                         )}
                         {c.freeMonthsRemaining > 0 && (
                           <span className="text-green-600">
-                            {c.freeMonthsRemaining} mes(es) gratis pendientes
+                            {tContracts('freeMonthsRemaining', { count: c.freeMonthsRemaining })}
                           </span>
                         )}
                         {c.discountAmount > 0 && (
-                          <span>Descuento {c.discountAmount.toFixed(2)} €/mes</span>
+                          <span>
+                            {tContracts('discountLine', { amount: c.discountAmount.toFixed(2) })}
+                          </span>
                         )}
                       </div>
                       {c.hasSignedPdf && (
@@ -985,7 +1018,7 @@ function PortalConsumeContent() {
                           size="sm"
                           onClick={() => void downloadContract(c.id)}
                         >
-                          <Download className="mr-1 h-4 w-4" /> Descargar contrato firmado
+                          <Download className="mr-1 h-4 w-4" /> {tContracts('downloadContract')}
                         </Button>
                       )}
                     </div>
@@ -1007,11 +1040,9 @@ function PortalConsumeContent() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Boxes className="h-4 w-4" /> Cambiar de trastero
+                  <Boxes className="h-4 w-4" /> {tUnitChange('title')}
                 </CardTitle>
-                <CardDescription>
-                  ¿Necesitas más espacio o un trastero distinto? Pídelo y te ayudamos con el cambio.
-                </CardDescription>
+                <CardDescription>{tUnitChange('subtitle')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {(contracts ?? []).length > 0 && (
@@ -1020,7 +1051,7 @@ function PortalConsumeContent() {
                     onChange={(e) => setUcContractId(e.target.value)}
                     className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
                   >
-                    <option value="">Trastero actual (opcional)</option>
+                    <option value="">{tUnitChange('currentUnitOption')}</option>
                     {(contracts ?? []).map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.unitCode} · {c.facilityName}
@@ -1031,7 +1062,7 @@ function PortalConsumeContent() {
                 <textarea
                   value={ucNote}
                   onChange={(e) => setUcNote(e.target.value)}
-                  placeholder="¿Qué necesitas? (p. ej. uno más grande, planta baja…)"
+                  placeholder={tUnitChange('notePlaceholder')}
                   maxLength={1000}
                   rows={3}
                   className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
@@ -1042,7 +1073,7 @@ function PortalConsumeContent() {
                   ) : (
                     <Plus className="mr-1 h-4 w-4" />
                   )}
-                  Solicitar cambio
+                  {tUnitChange('submit')}
                 </Button>
 
                 {(unitChanges ?? []).length > 0 && (
@@ -1053,10 +1084,10 @@ function PortalConsumeContent() {
                           <span className="line-clamp-1">{r.note}</span>
                           <Badge variant={r.status === 'handled' ? 'default' : 'secondary'}>
                             {r.status === 'pending'
-                              ? 'Pendiente'
+                              ? tUnitChange('statusPending')
                               : r.status === 'handled'
-                                ? 'Gestionada'
-                                : 'Rechazada'}
+                                ? tUnitChange('statusHandled')
+                                : tUnitChange('statusRejected')}
                           </Badge>
                         </div>
                         {r.status !== 'pending' && r.resolutionNote && (
@@ -1085,11 +1116,11 @@ function PortalConsumeContent() {
           <TabsContent value="facturas" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Tus facturas</CardTitle>
+                <CardTitle>{tInvoices('title')}</CardTitle>
               </CardHeader>
               <CardContent>
                 {invoices.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Aún no tienes facturas.</p>
+                  <p className="text-sm text-muted-foreground">{tInvoices('empty')}</p>
                 )}
                 {invoices.length > 0 && (
                   <ul className="divide-y rounded-md border">
@@ -1101,12 +1132,15 @@ function PortalConsumeContent() {
                         <div>
                           <p className="font-mono text-sm font-medium">{i.invoiceNumber}</p>
                           <p className="text-xs text-muted-foreground">
-                            Emitida {i.issueDate ?? '—'} · Vence {i.dueDate ?? '—'}
+                            {tInvoices('issuedDue', {
+                              issueDate: i.issueDate ?? '—',
+                              dueDate: i.dueDate ?? '—',
+                            })}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="text-sm tabular-nums">
-                            {i.total.toLocaleString('es-ES', {
+                            {i.total.toLocaleString(intlLocaleForPortal(locale), {
                               style: 'currency',
                               currency: 'EUR',
                             })}
@@ -1120,11 +1154,12 @@ function PortalConsumeContent() {
                                   : 'secondary'
                             }
                           >
-                            {invoiceStatusLabel(i.status)}
+                            {invoiceStatusLabel(i.status, tInvoices)}
                           </Badge>
                           {i.paymentInProgress && (
                             <Badge variant="outline" className="gap-1">
-                              <Loader2 className="h-3 w-3 animate-spin" /> Pago en curso
+                              <Loader2 className="h-3 w-3 animate-spin" />{' '}
+                              {tInvoices('paymentInProgress')}
                             </Badge>
                           )}
                           {i.amountPending > 0 && !i.paymentInProgress && (
@@ -1132,7 +1167,7 @@ function PortalConsumeContent() {
                               {payingId === i.id && (
                                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                               )}
-                              Pagar
+                              {tInvoices('pay')}
                             </Button>
                           )}
                           {redsysEnabled && i.amountPending > 0 && !i.paymentInProgress && (
@@ -1151,12 +1186,12 @@ function PortalConsumeContent() {
                                   toast.error(
                                     err instanceof ApiError
                                       ? err.body.message
-                                      : 'Redsys no disponible',
+                                      : tInvoices('redsysUnavailable'),
                                   );
                                 }
                               }}
                             >
-                              Pagar con tarjeta
+                              {tInvoices('payWithCard')}
                             </Button>
                           )}
                           {bizumEnabled && i.amountPending > 0 && !i.paymentInProgress && (
@@ -1175,18 +1210,18 @@ function PortalConsumeContent() {
                                   toast.error(
                                     err instanceof ApiError
                                       ? err.body.message
-                                      : 'Bizum no disponible',
+                                      : tInvoices('bizumUnavailable'),
                                   );
                                 }
                               }}
                             >
-                              Pagar con Bizum
+                              {tInvoices('payWithBizum')}
                             </Button>
                           )}
                           {i.pdfUrl && (
                             <Button variant="outline" asChild>
                               <a href={i.pdfUrl} target="_blank" rel="noreferrer">
-                                <Download className="mr-1 h-4 w-4" /> PDF
+                                <Download className="mr-1 h-4 w-4" /> {tInvoices('pdf')}
                               </a>
                             </Button>
                           )}
@@ -1202,7 +1237,8 @@ function PortalConsumeContent() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Receipt className="h-5 w-5 text-muted-foreground" /> Historial de pagos
+                    <Receipt className="h-5 w-5 text-muted-foreground" />{' '}
+                    {tInvoices('paymentHistoryTitle')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -1217,13 +1253,17 @@ function PortalConsumeContent() {
                             {p.amount.toFixed(2)} {p.currency}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {paymentMethodLabel(p.methodType)}
-                            {p.invoiceNumber ? ` · factura ${p.invoiceNumber}` : ''}
-                            {p.paidAt ? ` · ${new Date(p.paidAt).toLocaleDateString('es-ES')}` : ''}
+                            {paymentMethodLabel(p.methodType, tInvoices)}
+                            {p.invoiceNumber
+                              ? tInvoices('paymentInvoiceSuffix', { number: p.invoiceNumber })
+                              : ''}
+                            {p.paidAt
+                              ? ` · ${new Date(p.paidAt).toLocaleDateString(intlLocaleForPortal(locale))}`
+                              : ''}
                           </p>
                         </div>
                         <Badge variant={p.status === 'succeeded' ? 'secondary' : 'outline'}>
-                          {paymentStatusLabel(p.status)}
+                          {paymentStatusLabel(p.status, tInvoices)}
                         </Badge>
                       </li>
                     ))}
@@ -1237,10 +1277,8 @@ function PortalConsumeContent() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle>Método de pago</CardTitle>
-                  <CardDescription>
-                    Domicilia tus recibos con tu IBAN o paga con tarjeta.
-                  </CardDescription>
+                  <CardTitle>{tInvoices('paymentMethodsTitle')}</CardTitle>
+                  <CardDescription>{tInvoices('paymentMethodsSubtitle')}</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {goCardlessEnabled && (
@@ -1254,7 +1292,7 @@ function PortalConsumeContent() {
                       ) : (
                         <Landmark className="mr-1 h-4 w-4" />
                       )}
-                      Domiciliar (GoCardless)
+                      {tInvoices('directDebitGoCardless')}
                     </Button>
                   )}
                   <Button
@@ -1267,15 +1305,13 @@ function PortalConsumeContent() {
                     ) : (
                       <Plus className="mr-1 h-4 w-4" />
                     )}
-                    Añadir IBAN o tarjeta
+                    {tInvoices('addIbanOrCard')}
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {!paymentMethods?.length ? (
-                  <p className="text-sm text-muted-foreground">
-                    Sin método de pago guardado. Añade tu IBAN para domiciliar los recibos.
-                  </p>
+                  <p className="text-sm text-muted-foreground">{tInvoices('noPaymentMethod')}</p>
                 ) : (
                   <ul className="divide-y">
                     {paymentMethods.map((pm) => (
@@ -1288,16 +1324,19 @@ function PortalConsumeContent() {
                         <div>
                           <p className="text-sm font-medium">
                             {pm.type === 'sepa_debit'
-                              ? `IBAN •••• ${pm.last4 ?? '????'}`
-                              : `${pm.brand ?? 'Tarjeta'} •••• ${pm.last4 ?? '????'}`}
+                              ? tInvoices('ibanLast4', { last4: pm.last4 ?? '????' })
+                              : tInvoices('cardLast4', {
+                                  brand: pm.brand ?? tInvoices('defaultCardBrand'),
+                                  last4: pm.last4 ?? '????',
+                                })}
                           </p>
                           {pm.type === 'sepa_debit' && pm.mandateReference && (
                             <p className="text-xs text-muted-foreground">
-                              Mandato {pm.mandateReference}
+                              {tInvoices('mandateReference', { reference: pm.mandateReference })}
                             </p>
                           )}
                         </div>
-                        {pm.isDefault && <Badge variant="secondary">Predeterminado</Badge>}
+                        {pm.isDefault && <Badge variant="secondary">{tInvoices('default')}</Badge>}
                       </li>
                     ))}
                   </ul>
@@ -1311,34 +1350,31 @@ function PortalConsumeContent() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4" /> Tu acceso
+                  <KeyRound className="h-4 w-4" /> {tAccess('title')}
                 </CardTitle>
-                <CardDescription>
-                  Presenta tu código QR o teclea tu PIN en el lector de la puerta.
-                </CardDescription>
+                <CardDescription>{tAccess('subtitle')}</CardDescription>
               </CardHeader>
               <CardContent>
                 {access === null ? (
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 ) : access.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No tienes credenciales de acceso activas. Pídeselas a tu operador.
-                  </p>
+                  <p className="text-sm text-muted-foreground">{tAccess('noCredentials')}</p>
                 ) : (
                   <ul className="grid gap-4 sm:grid-cols-2">
                     {access.map((c) => (
                       <li key={c.id} className="rounded-md border p-4">
                         <div className="mb-2 flex items-center justify-between">
                           <span className="text-sm font-medium">
-                            {c.label ?? (c.method === 'qr' ? 'Código QR' : 'PIN')}
+                            {c.label ??
+                              (c.method === 'qr' ? tAccess('qrLabel') : tAccess('pinLabel'))}
                           </span>
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Regenerar"
+                            title={tAccess('regenerate')}
                             disabled={regeneratingId === c.id}
                             onClick={() => void regenerateAccess(c.id)}
-                            aria-label="Actualizar"
+                            aria-label={tAccess('update')}
                           >
                             <RefreshCw
                               className={`h-4 w-4 ${regeneratingId === c.id ? 'animate-spin' : ''}`}
@@ -1347,8 +1383,7 @@ function PortalConsumeContent() {
                         </div>
                         {c.value === null ? (
                           <p className="text-xs text-muted-foreground">
-                            Esta credencial es antigua y no se puede mostrar. Pulsa regenerar para
-                            obtener un código nuevo.
+                            {tAccess('legacyCredential')}
                           </p>
                         ) : c.method === 'qr' ? (
                           <div className="flex flex-col items-center gap-2">
@@ -1384,7 +1419,7 @@ function PortalConsumeContent() {
                       ) : (
                         <Plus className="mr-1 h-4 w-4" />
                       )}
-                      Añadir acceso (familiar, etc.)
+                      {tAccess('addAccess')}
                     </Button>
                   </div>
                 )}
@@ -1397,10 +1432,9 @@ function PortalConsumeContent() {
                 </div>
                 {nightPass?.enabled && (
                   <div className="mt-3 rounded-md border bg-muted/30 p-3">
-                    <p className="text-sm font-medium">Pase nocturno</p>
+                    <p className="text-sm font-medium">{tAccess('nightPassTitle')}</p>
                     <p className="mb-2 text-xs text-muted-foreground">
-                      Código de un solo uso para entrar fuera de horario (toque de queda). Caduca a
-                      la mañana siguiente. Se cobra en el acto a tu método de pago por defecto.
+                      {tAccess('nightPassDescription')}
                     </p>
                     <Button
                       size="sm"
@@ -1408,12 +1442,12 @@ function PortalConsumeContent() {
                       onClick={() => setNightPassConfirmOpen(true)}
                     >
                       {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                      Comprar pase nocturno (
-                      {nightPass.price.toLocaleString('es-ES', {
-                        style: 'currency',
-                        currency: 'EUR',
-                      })}{' '}
-                      + IVA)
+                      {tAccess('buyNightPass', {
+                        price: nightPass.price.toLocaleString(intlLocaleForPortal(locale), {
+                          style: 'currency',
+                          currency: 'EUR',
+                        }),
+                      })}
                     </Button>
                   </div>
                 )}
@@ -1432,24 +1466,22 @@ function PortalConsumeContent() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Wrench className="h-4 w-4" /> Incidencias
+                  <Wrench className="h-4 w-4" /> {tIncidents('title')}
                 </CardTitle>
-                <CardDescription>
-                  ¿Algún problema con tu trastero o el acceso? Cuéntanoslo y lo revisaremos.
-                </CardDescription>
+                <CardDescription>{tIncidents('subtitle')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <input
                   value={incidentTitle}
                   onChange={(e) => setIncidentTitle(e.target.value)}
-                  placeholder="Asunto (p. ej. la puerta no cierra)"
+                  placeholder={tIncidents('titlePlaceholder')}
                   maxLength={160}
                   className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
                 />
                 <textarea
                   value={incidentDesc}
                   onChange={(e) => setIncidentDesc(e.target.value)}
-                  placeholder="Detalles (opcional)"
+                  placeholder={tIncidents('detailsPlaceholder')}
                   maxLength={2000}
                   rows={3}
                   className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
@@ -1463,7 +1495,7 @@ function PortalConsumeContent() {
                   ) : (
                     <Plus className="mr-1 h-4 w-4" />
                   )}
-                  Reportar incidencia
+                  {tIncidents('submit')}
                 </Button>
 
                 {(incidents ?? []).length > 0 && (
@@ -1473,12 +1505,12 @@ function PortalConsumeContent() {
                         <span className="line-clamp-1">{i.title}</span>
                         <Badge variant={i.status === 'resolved' ? 'default' : 'secondary'}>
                           {i.status === 'reported'
-                            ? 'Recibida'
+                            ? tIncidents('statusReported')
                             : i.status === 'investigating'
-                              ? 'En curso'
+                              ? tIncidents('statusInvestigating')
                               : i.status === 'resolved'
-                                ? 'Resuelta'
-                                : 'Cerrada'}
+                                ? tIncidents('statusResolved')
+                                : tIncidents('statusDismissed')}
                         </Badge>
                       </li>
                     ))}
@@ -1493,9 +1525,9 @@ function PortalConsumeContent() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <MapPin className="h-5 w-5 text-muted-foreground" /> Tu local
+                    <MapPin className="h-5 w-5 text-muted-foreground" /> {tFacility('title')}
                   </CardTitle>
-                  <CardDescription>Dirección, horario de acceso y contacto.</CardDescription>
+                  <CardDescription>{tFacility('subtitle')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {facilities.map((f) => (
@@ -1508,9 +1540,12 @@ function PortalConsumeContent() {
                       )}
                       <p className="text-xs text-muted-foreground">
                         {f.accessCurfewEnabled && f.accessCurfewStart && f.accessCurfewEnd
-                          ? `Acceso cerrado de ${f.accessCurfewStart} a ${f.accessCurfewEnd}`
-                          : 'Acceso 24 h'}
-                        {f.contactPhone ? ` · Tel. ${f.contactPhone}` : ''}
+                          ? tFacility('curfewClosed', {
+                              start: f.accessCurfewStart,
+                              end: f.accessCurfewEnd,
+                            })
+                          : tFacility('curfew24h')}
+                        {f.contactPhone ? tFacility('phoneSuffix', { phone: f.contactPhone }) : ''}
                         {f.contactEmail ? ` · ${f.contactEmail}` : ''}
                       </p>
                     </div>
@@ -1531,12 +1566,9 @@ function PortalConsumeContent() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Gift className="h-4 w-4" /> Recomienda y gana
+                    <Gift className="h-4 w-4" /> {tReferrals('title')}
                   </CardTitle>
-                  <CardDescription>
-                    Comparte tu código. Cuando tu recomendado firme su contrato, recibirás una
-                    recompensa.
-                  </CardDescription>
+                  <CardDescription>{tReferrals('subtitle')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2">
@@ -1548,15 +1580,15 @@ function PortalConsumeContent() {
                       size="sm"
                       onClick={() => {
                         void navigator.clipboard?.writeText(referrals.referralCode ?? '');
-                        toast.success('Código copiado.');
+                        toast.success(tReferrals('copied'));
                       }}
                     >
-                      Copiar
+                      {tReferrals('copy')}
                     </Button>
                   </div>
                   {referrals.rewards.length > 0 && (
                     <p className="text-sm">
-                      Tus recompensas:{' '}
+                      {tReferrals('rewardsLabel')}
                       {referrals.rewards.map((c) => (
                         <span key={c} className="mr-1 font-mono text-xs">
                           {c}
@@ -1569,7 +1601,9 @@ function PortalConsumeContent() {
                       {referrals.referrals.map((r, i) => (
                         <li key={i}>
                           {r.referredName} —{' '}
-                          {r.status === 'converted' ? 'recompensa concedida' : 'pendiente'}
+                          {r.status === 'converted'
+                            ? tReferrals('statusConverted')
+                            : tReferrals('statusPending')}
                         </li>
                       ))}
                     </ul>
@@ -1582,17 +1616,13 @@ function PortalConsumeContent() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Bell className="h-4 w-4" /> Notificaciones
+                    <Bell className="h-4 w-4" /> {tPush('title')}
                   </CardTitle>
-                  <CardDescription>
-                    Recibe avisos de pagos y vencimientos en este dispositivo.
-                  </CardDescription>
+                  <CardDescription>{tPush('subtitle')}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {pushEnabled ? (
-                    <p className="text-sm text-emerald-600">
-                      ✓ Notificaciones activadas en este dispositivo.
-                    </p>
+                    <p className="text-sm text-emerald-600">{tPush('enabled')}</p>
                   ) : (
                     <Button onClick={enablePush} disabled={pushBusy} variant="outline">
                       {pushBusy ? (
@@ -1600,7 +1630,7 @@ function PortalConsumeContent() {
                       ) : (
                         <Bell className="mr-1 h-4 w-4" />
                       )}
-                      Activar notificaciones
+                      {tPush('enable')}
                     </Button>
                   )}
                 </CardContent>
@@ -1612,7 +1642,7 @@ function PortalConsumeContent() {
 
       {/* Barra de navegación inferior (móvil): principales + «Más» */}
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur md:hidden">
-        {PORTAL_PRIMARY.map((item) => (
+        {portalPrimary.map((item) => (
           <PortalBottomItem
             key={item.value}
             item={item}
@@ -1627,7 +1657,7 @@ function PortalConsumeContent() {
           className="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] text-muted-foreground"
         >
           <MoreHorizontal className="size-5" />
-          Más
+          {tNav('more')}
           {moreBadgeTotal > 0 && (
             <span className="absolute right-2 top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-white ring-2 ring-background">
               {moreBadgeTotal}
@@ -1639,9 +1669,9 @@ function PortalConsumeContent() {
       {/* Cajón «Más» (móvil): el resto de secciones */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent side="bottom" className="rounded-t-xl">
-          <SheetTitle className="mb-2">Más opciones</SheetTitle>
+          <SheetTitle className="mb-2">{t('nav.moreOptions')}</SheetTitle>
           <div className="grid grid-cols-3 gap-2 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
-            {PORTAL_MORE.map((item) => {
+            {portalMore.map((item) => {
               const Icon = item.icon;
               const b = navBadge(item.value);
               return (
@@ -1681,20 +1711,18 @@ function PortalConsumeContent() {
       <Dialog open={extraAccessOpen} onOpenChange={(o) => !o && setExtraAccessOpen(false)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nuevo acceso adicional</DialogTitle>
-            <DialogDescription>
-              ¿Para quién es este acceso? (p. ej. «Hijo», «Empleado»). Se generará un código nuevo.
-            </DialogDescription>
+            <DialogTitle>{tAccess('extraAccessDialogTitle')}</DialogTitle>
+            <DialogDescription>{tAccess('extraAccessDialogDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="extra-access-label">
-              Etiqueta
+              {tAccess('labelField')}
             </label>
             <Input
               id="extra-access-label"
               value={extraAccessLabel}
               maxLength={60}
-              placeholder="Hijo, Empleado…"
+              placeholder={tAccess('labelPlaceholder')}
               onChange={(e) => setExtraAccessLabel(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && extraAccessLabel.trim()) void submitExtraAccess();
@@ -1703,14 +1731,14 @@ function PortalConsumeContent() {
           </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setExtraAccessOpen(false)}>
-              Cancelar
+              {tAccess('cancel')}
             </Button>
             <Button
               onClick={() => void submitExtraAccess()}
               disabled={addingAccess || extraAccessLabel.trim().length === 0}
             >
               {addingAccess && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Crear acceso
+              {tAccess('createAccess')}
             </Button>
           </div>
         </DialogContent>
@@ -1723,20 +1751,25 @@ function PortalConsumeContent() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Comprar pase nocturno</DialogTitle>
+            <DialogTitle>{tAccess('nightPassConfirmTitle')}</DialogTitle>
             <DialogDescription>
               {nightPass
-                ? `Se cobrará ${nightPass.price.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (+ IVA) a tu método de pago por defecto. El código es de un solo uso y caduca a la mañana siguiente.`
+                ? tAccess('nightPassConfirmDescription', {
+                    price: nightPass.price.toLocaleString(intlLocaleForPortal(locale), {
+                      style: 'currency',
+                      currency: 'EUR',
+                    }),
+                  })
                 : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setNightPassConfirmOpen(false)}>
-              Cancelar
+              {tAccess('cancel')}
             </Button>
             <Button onClick={() => void buyNightPass()} disabled={buyingPass}>
               {buyingPass && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Comprar y pagar
+              {tAccess('buyAndPay')}
             </Button>
           </div>
         </DialogContent>
@@ -1751,11 +1784,8 @@ function PortalConsumeContent() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Añadir método de pago</DialogTitle>
-            <DialogDescription>
-              Tu IBAN para domiciliación SEPA (aceptarás el mandato en este formulario) o una
-              tarjeta.
-            </DialogDescription>
+            <DialogTitle>{tInvoices('addDialogTitle')}</DialogTitle>
+            <DialogDescription>{tInvoices('addDialogDescription')}</DialogDescription>
           </DialogHeader>
           {setupIntent && (
             <StripeSetupForm
@@ -1787,6 +1817,7 @@ function MoveOutDialog({
   onClose: () => void;
   onConfirm: (endDate: string) => void;
 }) {
+  const t = useTranslations('portal.consume.contracts.moveOutDialog');
   const notice = contract?.cancellationNoticeDays ?? 15;
   const min = new Date();
   min.setDate(min.getDate() + notice);
@@ -1797,15 +1828,15 @@ function MoveOutDialog({
     <Dialog open={!!contract} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Solicitar baja</DialogTitle>
+          <DialogTitle>{t('title')}</DialogTitle>
           <DialogDescription>
             {contract ? `${contract.unitCode} · ${contract.facilityName}. ` : ''}
-            El preaviso es de {notice} días: la fecha de salida más temprana es el {minDate}.
+            {t('description', { days: notice, minDate })}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="moveout-date">
-            Fecha de salida
+            {t('dateLabel')}
           </label>
           <input
             id="moveout-date"
@@ -1818,10 +1849,10 @@ function MoveOutDialog({
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>
-            Cancelar
+            {t('cancel')}
           </Button>
           <Button onClick={() => onConfirm(endDate)} disabled={!endDate || endDate < minDate}>
-            Confirmar baja
+            {t('confirm')}
           </Button>
         </div>
       </DialogContent>

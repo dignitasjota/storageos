@@ -11,19 +11,26 @@ import {
   Plus,
   Wallet,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+
+import { intlLocaleForPortal, type PortalLocale } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import type { PortalContractDto, PortalInvoiceDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-function eur(n: number): string {
-  return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+function eur(n: number, locale: PortalLocale): string {
+  return n.toLocaleString(intlLocaleForPortal(locale), { style: 'currency', currency: 'EUR' });
 }
 
-function fmtDate(iso: string | null): string {
+function fmtDate(iso: string | null, locale: PortalLocale): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+  return new Date(iso).toLocaleDateString(intlLocaleForPortal(locale), {
+    day: 'numeric',
+    month: 'long',
+  });
 }
 
 /**
@@ -46,6 +53,8 @@ export function OverviewCard({
   brandColor: string | null;
   onNavigate: (tab: string) => void;
 }) {
+  const t = useTranslations('portal.consume.overview');
+  const { locale } = usePortalLocale();
   const pending = invoices.filter((i) => i.amountPending > 0);
   const totalPending = pending.reduce((s, i) => s + i.amountPending, 0);
   const overdue = invoices.filter((i) => i.status === 'overdue');
@@ -57,21 +66,21 @@ export function OverviewCard({
   if (overdue.length > 0) {
     alerts.push({
       icon: AlertCircle,
-      text: `Tienes ${overdue.length} factura${overdue.length > 1 ? 's' : ''} vencida${overdue.length > 1 ? 's' : ''}.`,
+      text: t('overdueInvoices', { count: overdue.length }),
       tab: 'facturas',
     });
   }
   if (unreadMessages > 0) {
     alerts.push({
       icon: MessageSquare,
-      text: `Tienes ${unreadMessages} mensaje${unreadMessages > 1 ? 's' : ''} sin leer de tu gestor.`,
+      text: t('unreadMessages', { count: unreadMessages }),
       tab: 'mensajes',
     });
   }
   if (ending.length > 0) {
     alerts.push({
       icon: AlertCircle,
-      text: `Tienes una baja en curso. Revisa los detalles en tus contratos.`,
+      text: t('moveOutInProgress'),
       tab: 'contratos',
     });
   }
@@ -85,19 +94,21 @@ export function OverviewCard({
         <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm text-muted-foreground">
-              Hola {customerName.split(' ')[0]}, esto es lo importante
+              {t('helloFirstName', { name: customerName.split(' ')[0] })}
             </p>
             {totalPending > 0 ? (
               <>
-                <p className="mt-1 text-3xl font-semibold tracking-tight">{eur(totalPending)}</p>
+                <p className="mt-1 text-3xl font-semibold tracking-tight">
+                  {eur(totalPending, locale)}
+                </p>
                 <p className="text-sm text-muted-foreground">
-                  pendiente de pago
-                  {nextDue?.dueDate ? ` · próximo vencimiento ${fmtDate(nextDue.dueDate)}` : ''}
+                  {t('pendingPayment')}
+                  {nextDue?.dueDate ? t('nextDue', { date: fmtDate(nextDue.dueDate, locale) }) : ''}
                 </p>
               </>
             ) : (
               <p className="mt-1 flex items-center gap-2 text-lg font-medium text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="size-5" /> Estás al día con tus pagos
+                <CheckCircle2 className="size-5" /> {t('upToDate')}
               </p>
             )}
           </div>
@@ -106,7 +117,7 @@ export function OverviewCard({
               onClick={() => onNavigate('facturas')}
               style={accent ? { backgroundColor: accent } : undefined}
             >
-              <Wallet className="mr-1 size-4" /> Pagar ahora
+              <Wallet className="mr-1 size-4" /> {t('payNow')}
             </Button>
           )}
         </CardContent>
@@ -116,7 +127,7 @@ export function OverviewCard({
       {alerts.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Avisos</CardTitle>
+            <CardTitle className="text-base">{t('alertsTitle')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {alerts.map((a, idx) => {
@@ -143,44 +154,50 @@ export function OverviewCard({
         <QuickAction
           icon={CreditCard}
           tint="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
-          label={pending.length > 0 ? 'Pagar' : 'Facturas'}
-          hint={pending.length > 0 ? `${pending.length} pend.` : 'Al día'}
+          label={pending.length > 0 ? t('quickPay') : t('quickInvoices')}
+          hint={
+            pending.length > 0
+              ? t('quickPendingCount', { count: pending.length })
+              : t('quickUpToDate')
+          }
           onClick={() => onNavigate('facturas')}
         />
         <QuickAction
           icon={Boxes}
           tint="bg-cyan-100 text-cyan-600 dark:bg-cyan-950 dark:text-cyan-300"
-          label="Mis trasteros"
-          hint={`${activeContracts.length} activo${activeContracts.length === 1 ? '' : 's'}`}
+          label={t('quickMyUnits')}
+          hint={t('quickActiveCount', { count: activeContracts.length })}
           onClick={() => onNavigate('contratos')}
         />
         <QuickAction
           icon={KeyRound}
           tint="bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-          label="Mi acceso"
-          hint="PIN / QR"
+          label={t('quickMyAccess')}
+          hint={t('quickAccessHint')}
           onClick={() => onNavigate('accesos')}
         />
         <QuickAction
           icon={MessageSquare}
           tint="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300"
-          label="Mensajes"
-          hint={unreadMessages > 0 ? `${unreadMessages} sin leer` : 'Chat'}
+          label={t('quickMessages')}
+          hint={
+            unreadMessages > 0 ? t('quickUnreadCount', { count: unreadMessages }) : t('quickChat')
+          }
           badge={unreadMessages}
           onClick={() => onNavigate('mensajes')}
         />
         <QuickAction
           icon={AlertCircle}
           tint="bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300"
-          label="Incidencias"
-          hint="Reportar"
+          label={t('quickIncidents')}
+          hint={t('quickReport')}
           onClick={() => onNavigate('incidencias')}
         />
         <QuickAction
           icon={Plus}
           tint="bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300"
-          label="Contratar"
-          hint="Otro trastero"
+          label={t('quickContract')}
+          hint={t('quickOtherUnit')}
           onClick={() => onNavigate('nuevo')}
         />
       </div>
