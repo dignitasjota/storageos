@@ -1,10 +1,11 @@
 'use client';
 
+import { WEEKDAYS } from '@storageos/shared';
 import { ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { FacilityDto } from '@storageos/shared';
+import type { DayHours, FacilityDto, OpeningHours, Weekday } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,10 +21,105 @@ import {
 export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
   return (
     <div className="space-y-6">
+      <OpeningHoursCard facility={facility} />
       <CurfewCard facility={facility} />
       <SlugCard facility={facility} />
       <ImagesCard facility={facility} />
     </div>
+  );
+}
+
+const DAY_LABELS: Record<Weekday, string> = {
+  mon: 'Lunes',
+  tue: 'Martes',
+  wed: 'Miércoles',
+  thu: 'Jueves',
+  fri: 'Viernes',
+  sat: 'Sábado',
+  sun: 'Domingo',
+};
+
+const DEFAULT_DAY_HOURS: DayHours = { open: '09:00', close: '20:00' };
+
+function OpeningHoursCard({ facility }: { facility: FacilityDto }) {
+  const update = useUpdateFacility();
+  const [hours, setHours] = useState<OpeningHours>(facility.openingHours);
+
+  function toggleDay(day: Weekday, open: boolean) {
+    setHours((prev) => ({ ...prev, [day]: open ? (prev[day] ?? DEFAULT_DAY_HOURS) : null }));
+  }
+
+  function setTime(day: Weekday, field: 'open' | 'close', value: string) {
+    setHours((prev) => ({
+      ...prev,
+      [day]: { ...(prev[day] ?? DEFAULT_DAY_HOURS), [field]: value },
+    }));
+  }
+
+  async function save() {
+    try {
+      await update.mutateAsync({ id: facility.id, input: { openingHours: hours } });
+      toast.success('Horario actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Horario de apertura</CardTitle>
+        <CardDescription>
+          Se muestra en la página pública del local (zona horaria:{' '}
+          <span className="font-mono">{facility.timezone}</span>). Deja un día sin marcar si el
+          local está cerrado.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {WEEKDAYS.map((day) => {
+          const dayHours = hours[day];
+          const open = dayHours != null;
+          return (
+            <div
+              key={day}
+              className="flex flex-wrap items-center gap-3 border-b pb-2 last:border-0"
+            >
+              <label className="flex w-28 shrink-0 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={open}
+                  onChange={(e) => toggleDay(day, e.target.checked)}
+                  className="size-4"
+                />
+                {DAY_LABELS[day]}
+              </label>
+              {open ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="time"
+                    value={dayHours.open}
+                    onChange={(e) => setTime(day, 'open', e.target.value)}
+                    className="h-9 w-28"
+                  />
+                  <span className="text-sm text-muted-foreground">a</span>
+                  <Input
+                    type="time"
+                    value={dayHours.close}
+                    onChange={(e) => setTime(day, 'close', e.target.value)}
+                    className="h-9 w-28"
+                  />
+                </div>
+              ) : (
+                <span className="text-sm text-muted-foreground">Cerrado</span>
+              )}
+            </div>
+          );
+        })}
+        <Button onClick={save} disabled={update.isPending} className="mt-2">
+          {update.isPending ? 'Guardando...' : 'Guardar'}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

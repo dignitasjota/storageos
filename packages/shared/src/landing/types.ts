@@ -2,6 +2,7 @@
  * DTOs de la landing pública por tenant (`/s/[slug]`). Datos públicos del
  * negocio y de cada local + disponibilidad, para una página SEO indexable.
  */
+import type { OpeningHours } from '../facilities';
 import type { WebContent } from '../web';
 export interface PublicLandingUnitTypeDto {
   id: string;
@@ -22,7 +23,9 @@ export interface PublicLandingFacilityDto {
   postalCode: string | null;
   contactPhone: string | null;
   contactEmail: string | null;
-  openingHours: Record<string, unknown>;
+  openingHours: OpeningHours;
+  /** Zona horaria del local (para calcular "abierto ahora" en la web pública). */
+  timezone: string;
   /** URLs públicas de las imágenes del local. */
   imageUrls: string[];
   unitTypes: PublicLandingUnitTypeDto[];

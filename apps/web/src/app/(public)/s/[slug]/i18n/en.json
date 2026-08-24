@@ -15,7 +15,22 @@
       "headlineWithCity": "Storage units in {city}",
       "headlineDefault": "Storage units",
       "contactSectionTitle": "Contact",
-      "contactSectionSubtitle": "Questions? Write to us or stop by the facility."
+      "contactSectionSubtitle": "Questions? Write to us or stop by the facility.",
+      "whatsapp": "WhatsApp",
+      "whatsappPrefill": "Hi {tenantName}, I'd like information about your storage units."
+    },
+    "hours": {
+      "title": "Hours",
+      "mon": "Monday",
+      "tue": "Tuesday",
+      "wed": "Wednesday",
+      "thu": "Thursday",
+      "fri": "Friday",
+      "sat": "Saturday",
+      "sun": "Sunday",
+      "closed": "Closed",
+      "openNow": "Open now",
+      "closedNow": "Closed now"
     },
     "nav": {
       "openMenu": "Open menu",

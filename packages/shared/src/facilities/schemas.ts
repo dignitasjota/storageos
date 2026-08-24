@@ -19,6 +19,30 @@ const facilityName = z.string().trim().min(2, 'Minimo 2 caracteres').max(120);
 const optionalShortText = z.string().trim().max(200).optional().or(z.literal(''));
 
 // ============================================================================
+// Horario de apertura (opcional, se muestra en la web pública del local)
+// ============================================================================
+
+export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM');
+
+export const DayHoursSchema = z.object({ open: hhmm, close: hhmm });
+export type DayHours = z.infer<typeof DayHoursSchema>;
+
+/** `null` = cerrado ese día; ausente = sin configurar (se trata como cerrado). */
+export const OpeningHoursSchema = z.object({
+  mon: DayHoursSchema.nullable().optional(),
+  tue: DayHoursSchema.nullable().optional(),
+  wed: DayHoursSchema.nullable().optional(),
+  thu: DayHoursSchema.nullable().optional(),
+  fri: DayHoursSchema.nullable().optional(),
+  sat: DayHoursSchema.nullable().optional(),
+  sun: DayHoursSchema.nullable().optional(),
+});
+export type OpeningHours = z.infer<typeof OpeningHoursSchema>;
+
+// ============================================================================
 // Facilities
 // ============================================================================
 
@@ -38,6 +62,8 @@ export const CreateFacilitySchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   timezone: z.string().trim().min(1).default('Europe/Madrid'),
+  /** Horario de apertura semanal, para la web pública del local. */
+  openingHours: OpeningHoursSchema.optional(),
   contactPhone: z
     .string()
     .trim()

@@ -1,4 +1,4 @@
-import type { UnitStatusValue } from './schemas';
+import type { OpeningHours, UnitStatusValue } from './schemas';
 
 export interface FacilityDto {
   id: string;
@@ -12,7 +12,8 @@ export interface FacilityDto {
   latitude: number | null;
   longitude: number | null;
   timezone: string;
-  openingHours: Record<string, unknown>;
+  /** Horario de apertura semanal (por día, en `timezone`); se muestra en la web pública. */
+  openingHours: OpeningHours;
   /** Toque de queda de acceso (franja bloqueada, en `timezone`). */
   accessCurfewEnabled: boolean;
   accessCurfewStart: string | null;

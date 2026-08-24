@@ -15,7 +15,22 @@
       "headlineWithCity": "Trasteros en {city}",
       "headlineDefault": "Trasteros",
       "contactSectionTitle": "Contacto",
-      "contactSectionSubtitle": "¿Dudas? Escríbenos o pásate por el local."
+      "contactSectionSubtitle": "¿Dudas? Escríbenos o pásate por el local.",
+      "whatsapp": "WhatsApp",
+      "whatsappPrefill": "Hola {tenantName}, me gustaría información sobre vuestros trasteros."
+    },
+    "hours": {
+      "title": "Horario",
+      "mon": "Lunes",
+      "tue": "Martes",
+      "wed": "Miércoles",
+      "thu": "Jueves",
+      "fri": "Viernes",
+      "sat": "Sábado",
+      "sun": "Domingo",
+      "closed": "Cerrado",
+      "openNow": "Abierto ahora",
+      "closedNow": "Cerrado ahora"
     },
     "nav": {
       "openMenu": "Abrir menú",
