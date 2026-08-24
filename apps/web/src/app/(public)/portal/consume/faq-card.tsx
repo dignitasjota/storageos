@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown, HelpCircle } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 
 import type { FaqEntryDto, PortalSessionDto } from '@storageos/shared';
@@ -9,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/auth/api';
 
 export function FaqCard({ session }: { session: PortalSessionDto }) {
+  const t = useTranslations('portal.consume.helpCenter');
   const [entries, setEntries] = useState<FaqEntryDto[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -35,7 +37,7 @@ export function FaqCard({ session }: { session: PortalSessionDto }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <HelpCircle className="h-5 w-5 text-muted-foreground" /> Centro de ayuda
+          <HelpCircle className="h-5 w-5 text-muted-foreground" /> {t('title')}
         </CardTitle>
       </CardHeader>
       <CardContent>

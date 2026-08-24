@@ -1,6 +1,7 @@
 'use client';
 
 import { Download, FileText, Loader2, Upload } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -22,17 +23,23 @@ import {
 } from '@/components/ui/select';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
-const TYPE_LABELS: Record<CustomerDocumentTypeValue, string> = {
-  id_front: 'DNI / NIE (anverso)',
-  id_back: 'DNI / NIE (reverso)',
-  proof_of_address: 'Justificante de domicilio',
-  other: 'Otro documento',
-};
-
 const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+
+function typeLabels(
+  t: ReturnType<typeof useTranslations<'portal.consume.documents'>>,
+): Record<CustomerDocumentTypeValue, string> {
+  return {
+    id_front: t('typeIdFront'),
+    id_back: t('typeIdBack'),
+    proof_of_address: t('typeProofOfAddress'),
+    other: t('typeOther'),
+  };
+}
 
 /** El inquilino sube y consulta sus documentos (KYC) desde el portal. */
 export function DocumentsCard({ session }: { session: PortalSessionDto }) {
+  const t = useTranslations('portal.consume.documents');
+  const labels = typeLabels(t);
   const headers = { Authorization: `Bearer ${session.accessToken}` };
   const [docs, setDocs] = useState<CustomerDocumentDto[]>([]);
   const [type, setType] = useState<CustomerDocumentTypeValue>('id_front');
@@ -60,9 +67,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
       });
       window.open(url, '_blank', 'noopener');
     } catch (err) {
-      toast.error(
-        err instanceof ApiError ? err.body.message : 'No se pudo descargar el documento.',
-      );
+      toast.error(err instanceof ApiError ? err.body.message : t('downloadError'));
     }
   }
 
@@ -70,11 +75,11 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!ALLOWED_MIME.includes(file.type)) {
-      toast.error('Formato no válido. Sube una imagen (PNG/JPG/WebP) o un PDF.');
+      toast.error(t('invalidFormat'));
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('El archivo supera los 10 MB.');
+      toast.error(t('tooLarge'));
       return;
     }
     setBusy(true);
@@ -104,11 +109,11 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
         },
         headers,
       });
-      toast.success('Documento subido.');
+      toast.success(t('uploaded'));
       if (fileRef.current) fileRef.current.value = '';
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo subir el documento.');
+      toast.error(err instanceof ApiError ? err.body.message : t('uploadError'));
     } finally {
       setBusy(false);
     }
@@ -118,11 +123,9 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <FileText className="h-4 w-4" /> Mis documentos
+          <FileText className="h-4 w-4" /> {t('title')}
         </CardTitle>
-        <CardDescription>
-          Sube tu documentación (DNI, justificante de domicilio…) para agilizar tu gestión.
-        </CardDescription>
+        <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -131,9 +134,9 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(TYPE_LABELS) as CustomerDocumentTypeValue[]).map((k) => (
+              {(Object.keys(labels) as CustomerDocumentTypeValue[]).map((k) => (
                 <SelectItem key={k} value={k}>
-                  {TYPE_LABELS[k]}
+                  {labels[k]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -156,7 +159,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
             ) : (
               <Upload className="mr-1 h-4 w-4" />
             )}
-            Subir documento
+            {t('upload')}
           </Button>
         </div>
 
@@ -170,7 +173,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   <span className="text-xs text-muted-foreground">
-                    {TYPE_LABELS[d.type as CustomerDocumentTypeValue] ?? d.type}
+                    {labels[d.type as CustomerDocumentTypeValue] ?? d.type}
                   </span>
                   <Button
                     type="button"
@@ -180,14 +183,14 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
                     onClick={() => void download(d.id)}
                   >
                     <Download className="h-4 w-4" />
-                    <span className="sr-only">Descargar {d.fileName}</span>
+                    <span className="sr-only">{t('downloadSr', { fileName: d.fileName })}</span>
                   </Button>
                 </span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">Aún no has subido documentos.</p>
+          <p className="text-sm text-muted-foreground">{t('empty')}</p>
         )}
       </CardContent>
     </Card>

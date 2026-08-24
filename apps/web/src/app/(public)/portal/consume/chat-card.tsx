@@ -1,8 +1,12 @@
 'use client';
 
 import { Loader2, MessageCircle, Send } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import type { CustomerMessageDto, PortalSessionDto } from '@storageos/shared';
 
@@ -12,6 +16,8 @@ import { Input } from '@/components/ui/input';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
 export function ChatCard({ session }: { session: PortalSessionDto }) {
+  const t = useTranslations('portal.consume.chat');
+  const { locale } = usePortalLocale();
   const [messages, setMessages] = useState<CustomerMessageDto[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -54,7 +60,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
       setMessages((m) => [...m, created]);
       setText('');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar el mensaje.');
+      toast.error(err instanceof ApiError ? err.body.message : t('sendError'));
     } finally {
       setSending(false);
     }
@@ -64,16 +70,14 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <MessageCircle className="h-5 w-5 text-muted-foreground" /> Mensajes con tu gestor
+          <MessageCircle className="h-5 w-5 text-muted-foreground" /> {t('title')}
         </CardTitle>
-        <CardDescription>¿Alguna duda? Escríbenos y te responderemos por aquí.</CardDescription>
+        <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border p-3">
           {messages.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              Aún no hay mensajes. Empieza la conversación.
-            </p>
+            <p className="py-4 text-center text-sm text-muted-foreground">{t('empty')}</p>
           ) : (
             messages.map((m) => (
               <div
@@ -92,7 +96,7 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
                   )}
                   <p className="whitespace-pre-wrap">{m.body}</p>
                   <p className="mt-0.5 text-[10px] opacity-60">
-                    {new Date(m.createdAt).toLocaleString('es-ES', {
+                    {new Date(m.createdAt).toLocaleString(intlLocaleForPortal(locale), {
                       day: '2-digit',
                       month: '2-digit',
                       hour: '2-digit',
@@ -115,10 +119,10 @@ export function ChatCard({ session }: { session: PortalSessionDto }) {
                 void send();
               }
             }}
-            placeholder="Escribe un mensaje…"
+            placeholder={t('inputPlaceholder')}
             maxLength={5000}
           />
-          <Button onClick={send} disabled={sending || !text.trim()} aria-label="Enviar">
+          <Button onClick={send} disabled={sending || !text.trim()} aria-label={t('send')}>
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>

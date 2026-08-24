@@ -1,6 +1,7 @@
 'use client';
 
 import { DoorOpen, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -11,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { apiFetch } from '@/lib/auth/api';
 
 export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
+  const t = useTranslations('portal.consume.doorOpen');
   const [doors, setDoors] = useState<PortalDoorDto[] | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const authHeaders = { Authorization: `Bearer ${session.accessToken}` };
@@ -41,7 +43,7 @@ export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
       if (res.opened) toast.success(res.message);
       else toast.error(res.message);
     } catch {
-      toast.error('No se pudo abrir la puerta.');
+      toast.error(t('openError'));
     } finally {
       setOpening(null);
     }
@@ -54,12 +56,9 @@ export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <DoorOpen className="h-5 w-5 text-primary" /> Abrir puerta
+          <DoorOpen className="h-5 w-5 text-primary" /> {t('title')}
         </CardTitle>
-        <CardDescription>
-          Abre la puerta de tu local desde el móvil. Se aplican tu horario de acceso y el estado de
-          tu cuenta.
-        </CardDescription>
+        <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {doors.map((d) => (
@@ -74,7 +73,7 @@ export function DoorOpenCard({ session }: { session: PortalSessionDto }) {
               ) : (
                 <DoorOpen className="mr-1 h-4 w-4" />
               )}
-              Abrir
+              {t('openButton')}
             </Button>
           </div>
         ))}

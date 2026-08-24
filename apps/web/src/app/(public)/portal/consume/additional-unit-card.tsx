@@ -1,8 +1,12 @@
 'use client';
 
 import { Loader2, PackagePlus } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+
+import { intlLocaleForPortal } from '../i18n/messages';
+import { usePortalLocale } from '../i18n/provider';
 
 import type {
   AvailableUnitDto,
@@ -28,11 +32,15 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Pendiente',
-  handled: 'Gestionada',
-  rejected: 'Rechazada',
-};
+function statusLabel(
+  status: string,
+  t: ReturnType<typeof useTranslations<'portal.consume.additionalUnit'>>,
+): string {
+  if (status === 'pending') return t('statusPending');
+  if (status === 'handled') return t('statusHandled');
+  if (status === 'rejected') return t('statusRejected');
+  return status;
+}
 
 /**
  * Precio con IVA incluido. `priceMonthly` es el precio de catálogo (sin IVA) y
@@ -50,6 +58,8 @@ export function AdditionalUnitCard({
   /** Tras contratar: refresca facturas y lleva al inquilino a pagar. */
   onBooked?: () => void;
 }) {
+  const t = useTranslations('portal.consume.additionalUnit');
+  const { locale } = usePortalLocale();
   const auth = { Authorization: `Bearer ${session.accessToken}` };
   const [units, setUnits] = useState<AvailableUnitDto[] | null>(null);
   const [requests, setRequests] = useState<PortalUnitRequestDto[]>([]);
@@ -99,14 +109,14 @@ export function AdditionalUnitCard({
         headers: auth,
         requiresAuth: false,
       });
-      toast.success('¡Trastero contratado! Paga la primera factura para activar tu acceso.');
+      toast.success(t('bookedSuccess'));
       setTarget(null);
       setAccepted(false);
       // Quitamos el trastero de la lista de disponibles.
       setUnits((prev) => (prev ?? []).filter((u) => u.id !== target.id));
       onBooked?.();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo contratar el trastero.');
+      toast.error(err instanceof ApiError ? err.body.message : t('bookError'));
     } finally {
       setBooking(false);
     }
@@ -123,9 +133,9 @@ export function AdditionalUnitCard({
       });
       setRequests((prev) => [created, ...prev]);
       setNote('');
-      toast.success('Solicitud enviada. Tu gestor te contactará.');
+      toast.success(t('requestSuccess'));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar la solicitud.');
+      toast.error(err instanceof ApiError ? err.body.message : t('requestError'));
     } finally {
       setGenericBusy(false);
     }
@@ -135,21 +145,15 @@ export function AdditionalUnitCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <PackagePlus className="size-4" /> Contratar otro trastero
+          <PackagePlus className="size-4" /> {t('title')}
         </CardTitle>
-        <CardDescription>
-          Elige un trastero disponible en tu local, fírmalo y paga online. El acceso se activa al
-          pagar la primera factura.
-        </CardDescription>
+        <CardDescription>{t('subtitle')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {units === null ? (
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         ) : units.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Ahora mismo no hay trasteros disponibles en tu local. Puedes dejar una solicitud y te
-            avisaremos cuando haya hueco.
-          </p>
+          <p className="text-sm text-muted-foreground">{t('noUnits')}</p>
         ) : (
           <div className="space-y-2">
             {units.map((u) => (
@@ -163,9 +167,14 @@ export function AdditionalUnitCard({
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {u.facilityName}
-                    {u.areaM2 ? ` · ${u.areaM2} m²` : ''}
+                    {u.areaM2 ? t('areaSuffix', { area: u.areaM2 }) : ''}
                     {u.priceMonthly != null
-                      ? ` · ${priceWithIva(u.priceMonthly).toFixed(2)} €/mes (IVA incl.)`
+                      ? t('priceSuffix', {
+                          price: priceWithIva(u.priceMonthly).toLocaleString(
+                            intlLocaleForPortal(locale),
+                            { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                          ),
+                        })
                       : ''}
                   </div>
                 </div>
@@ -176,7 +185,7 @@ export function AdditionalUnitCard({
                     setAccepted(false);
                   }}
                 >
-                  Contratar ahora
+                  {t('bookNow')}
                 </Button>
               </div>
             ))}
@@ -184,9 +193,9 @@ export function AdditionalUnitCard({
         )}
 
         <div className="space-y-2 border-t pt-3">
-          <p className="text-sm font-medium">¿No ves lo que buscas?</p>
+          <p className="text-sm font-medium">{t('noMatchTitle')}</p>
           <Textarea
-            placeholder="Cuéntanos qué necesitas (tamaño, planta, fechas…)"
+            placeholder={t('notePlaceholder')}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
@@ -197,21 +206,21 @@ export function AdditionalUnitCard({
             disabled={genericBusy || note.trim().length === 0}
             onClick={requestGeneric}
           >
-            Enviar solicitud al gestor
+            {t('sendRequest')}
           </Button>
         </div>
 
         {requests.length > 0 && (
           <div className="space-y-1 border-t pt-3">
-            <p className="text-sm font-medium">Tus solicitudes</p>
+            <p className="text-sm font-medium">{t('yourRequests')}</p>
             {requests.map((r) => (
               <div key={r.id} className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-muted-foreground">
-                  {r.unitCode ?? r.unitTypeName ?? r.note?.slice(0, 40) ?? 'Solicitud'}
+                  {r.unitCode ?? r.unitTypeName ?? r.note?.slice(0, 40) ?? t('fallbackRequest')}
                   {r.resolutionNote ? ` — ${r.resolutionNote}` : ''}
                 </span>
                 <Badge variant={r.status === 'pending' ? 'secondary' : 'outline'}>
-                  {STATUS_LABEL[r.status] ?? r.status}
+                  {statusLabel(r.status, t)}
                 </Badge>
               </div>
             ))}
@@ -222,26 +231,28 @@ export function AdditionalUnitCard({
       <Dialog open={target !== null} onOpenChange={(o) => !o && setTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Contratar trastero {target?.code}</DialogTitle>
+            <DialogTitle>{t('dialogTitle', { code: target?.code ?? '' })}</DialogTitle>
             <DialogDescription>
               {target?.facilityName}
               {target?.priceMonthly != null
-                ? ` · ${priceWithIva(target.priceMonthly).toFixed(2)} €/mes (IVA incl.)`
+                ? t('priceSuffix', {
+                    price: priceWithIva(target.priceMonthly).toLocaleString(
+                      intlLocaleForPortal(locale),
+                      { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                    ),
+                  })
                 : ''}
-              . Se generará tu contrato y la primera factura, que podrás pagar a continuación.
+              {t('bookingGenerates')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label>Nombre completo (firma)</Label>
+              <Label>{t('signerNameLabel')}</Label>
               <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} />
             </div>
             <label className="flex items-start gap-2 text-sm">
               <Checkbox checked={accepted} onCheckedChange={(v) => setAccepted(v === true)} />
-              <span>
-                He leído y acepto las condiciones del contrato de alquiler de trastero y la política
-                de tratamiento de datos.
-              </span>
+              <span>{t('acceptTerms')}</span>
             </label>
           </div>
           <DialogFooter>
@@ -250,7 +261,7 @@ export function AdditionalUnitCard({
               disabled={booking || !accepted || signerName.trim().length < 2}
             >
               {booking ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}
-              Firmar y continuar al pago
+              {t('confirmButton')}
             </Button>
           </DialogFooter>
         </DialogContent>
