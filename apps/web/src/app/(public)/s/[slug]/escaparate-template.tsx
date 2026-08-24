@@ -23,6 +23,7 @@ import {
   cities,
   formatPrice,
   OpeningHoursInfo,
+  PromoBanner,
   useHeadlineFallback,
   WhatsAppButton,
 } from './templates';
@@ -162,6 +163,9 @@ export function EscaparateTemplate({
       </section>
 
       <div className="flex-1">
+        <div className="mx-auto max-w-6xl px-4 pt-8">
+          <PromoBanner data={data} />
+        </div>
         {/* Servicios */}
         <section id="servicios" className="scroll-mt-20 py-16">
           <div className="mx-auto max-w-6xl px-4">
