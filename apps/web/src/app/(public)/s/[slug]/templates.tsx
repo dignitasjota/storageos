@@ -1,4 +1,5 @@
-import { MapPin, Phone, Mail, Star, Quote } from 'lucide-react';
+import { WEEKDAYS } from '@storageos/shared';
+import { Clock, MapPin, MessageCircle, Phone, Mail, Star, Quote } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -7,7 +8,7 @@ import { ContactForm } from './contact-form';
 import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { StorageCalculator } from './storage-calculator';
 
-import type { PublicLandingDto } from '@storageos/shared';
+import type { OpeningHours, PublicLandingDto, Weekday } from '@storageos/shared';
 
 export function formatPrice(n: number, locale: PublicWebLocale): string {
   return n.toLocaleString(intlLocaleFor(locale), {
@@ -39,32 +40,140 @@ export function LandingTemplate({ data, locale }: TplProps) {
   }
 }
 
-export function FacilityMeta({ f }: { f: PublicLandingDto['facilities'][number] }) {
+export function FacilityMeta({
+  f,
+  tenantName,
+}: {
+  f: PublicLandingDto['facilities'][number];
+  tenantName: string;
+}) {
   return (
-    <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-      {(f.address || f.city) && (
-        <span className="inline-flex items-center gap-1.5">
-          <MapPin className="h-4 w-4" />
-          {[f.address, f.postalCode, f.city].filter(Boolean).join(', ')}
-        </span>
-      )}
-      {f.contactPhone && (
-        <a
-          href={`tel:${f.contactPhone}`}
-          className="inline-flex items-center gap-1.5 hover:text-foreground"
-        >
-          <Phone className="h-4 w-4" /> {f.contactPhone}
-        </a>
-      )}
-      {f.contactEmail && (
-        <a
-          href={`mailto:${f.contactEmail}`}
-          className="inline-flex items-center gap-1.5 hover:text-foreground"
-        >
-          <Mail className="h-4 w-4" /> {f.contactEmail}
-        </a>
-      )}
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+        {(f.address || f.city) && (
+          <span className="inline-flex items-center gap-1.5">
+            <MapPin className="h-4 w-4" />
+            {[f.address, f.postalCode, f.city].filter(Boolean).join(', ')}
+          </span>
+        )}
+        {f.contactPhone && (
+          <a
+            href={`tel:${f.contactPhone}`}
+            className="inline-flex items-center gap-1.5 hover:text-foreground"
+          >
+            <Phone className="h-4 w-4" /> {f.contactPhone}
+          </a>
+        )}
+        {f.contactEmail && (
+          <a
+            href={`mailto:${f.contactEmail}`}
+            className="inline-flex items-center gap-1.5 hover:text-foreground"
+          >
+            <Mail className="h-4 w-4" /> {f.contactEmail}
+          </a>
+        )}
+        {f.contactPhone && <WhatsAppButton phone={f.contactPhone} tenantName={tenantName} />}
+      </div>
+      <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
     </div>
+  );
+}
+
+// ============================================================================
+// WhatsApp + horario de apertura
+// ============================================================================
+
+function whatsAppHref(phone: string, message: string): string | null {
+  const digits = phone.replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+export function WhatsAppButton({ phone, tenantName }: { phone: string; tenantName: string }) {
+  const t = useTranslations('publicWeb.common');
+  const href = whatsAppHref(phone, t('whatsappPrefill', { tenantName }));
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+    >
+      <MessageCircle className="h-4 w-4" /> {t('whatsapp')}
+    </a>
+  );
+}
+
+const WEEKDAY_INTL_SHORT: Record<string, Weekday> = {
+  Mon: 'mon',
+  Tue: 'tue',
+  Wed: 'wed',
+  Thu: 'thu',
+  Fri: 'fri',
+  Sat: 'sat',
+  Sun: 'sun',
+};
+
+/** `true`/`false` si se pudo calcular con la `timezone` del local, `null` si no. */
+function isOpenNow(hours: OpeningHours, timezone: string): boolean | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const weekdayShort = parts.find((p) => p.type === 'weekday')?.value;
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value);
+    const day = weekdayShort ? WEEKDAY_INTL_SHORT[weekdayShort] : undefined;
+    if (!day || Number.isNaN(hour) || Number.isNaN(minute)) return null;
+    const today = hours[day];
+    if (!today) return false;
+    const [openH, openM] = today.open.split(':').map(Number);
+    const [closeH, closeM] = today.close.split(':').map(Number);
+    const nowMin = hour * 60 + minute;
+    return nowMin >= openH! * 60 + openM! && nowMin < closeH! * 60 + closeM!;
+  } catch {
+    return null;
+  }
+}
+
+/** Horario semanal desplegable + indicador "abierto ahora" (calculado en la zona horaria del local). */
+export function OpeningHoursInfo({ hours, timezone }: { hours: OpeningHours; timezone: string }) {
+  const t = useTranslations('publicWeb.hours');
+  const hasAny = WEEKDAYS.some((d) => hours[d]);
+  if (!hasAny) return null;
+  const open = isOpenNow(hours, timezone);
+  return (
+    <details className="group w-fit text-sm text-muted-foreground">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 marker:content-none">
+        <Clock className="h-4 w-4" />
+        {t('title')}
+        {open != null && (
+          <span
+            className={
+              open ? 'font-medium text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'
+            }
+          >
+            · {open ? t('openNow') : t('closedNow')}
+          </span>
+        )}
+      </summary>
+      <ul className="mt-1.5 space-y-0.5 pl-6 text-xs">
+        {WEEKDAYS.map((day) => {
+          const dayHours = hours[day];
+          return (
+            <li key={day} className="flex gap-2">
+              <span className="inline-block w-24">{t(day)}</span>
+              <span>{dayHours ? `${dayHours.open}–${dayHours.close}` : t('closed')}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 
@@ -266,7 +375,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
           {data.facilities.map((f) => (
             <section key={f.id} className="border border-neutral-800 bg-neutral-900 p-6">
               <h2 className="text-xl font-bold uppercase tracking-wide">{f.name}</h2>
-              <FacilityMeta f={f} />
+              <FacilityMeta f={f} tenantName={data.tenantName} />
               <UnitTypeList f={f} locale={locale} />
               <Link
                 href={
@@ -320,7 +429,7 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
       {data.facilities.map((f) => (
         <section key={f.id} className="rounded-lg border bg-card p-6 shadow-sm">
           <h2 className="text-xl font-semibold">{f.name}</h2>
-          <FacilityMeta f={f} />
+          <FacilityMeta f={f} tenantName={data.tenantName} />
           <UnitTypeList f={f} locale={locale} />
           <Link
             href={

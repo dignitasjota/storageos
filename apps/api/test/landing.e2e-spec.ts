@@ -42,6 +42,37 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(fac.unitTypes[0].areaM2).toBe(6);
   });
 
+  it('horario de apertura: se expone en la landing pública, con la timezone del local', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-hours');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const created = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Horario',
+      unitsCount: 1,
+    });
+    await request(app.getHttpServer())
+      .patch(`/facilities/${created.facilityId}`)
+      .set(auth)
+      .send({
+        timezone: 'Europe/Madrid',
+        openingHours: { mon: { open: '09:00', close: '20:00' }, sun: null },
+      })
+      .expect(200);
+
+    const res = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(res.status).toBe(200);
+    const fac = res.body.facilities.find((f: { name: string }) => f.name === 'Local Horario');
+    expect(fac.timezone).toBe('Europe/Madrid');
+    expect(fac.openingHours.mon).toEqual({ open: '09:00', close: '20:00' });
+    expect(fac.openingHours.sun).toBeNull();
+
+    // También en la página por local.
+    const facPage = await request(app.getHttpServer()).get(
+      `/public/landing/${owner.slug}/local-horario`,
+    );
+    expect(facPage.body.facility.timezone).toBe('Europe/Madrid');
+    expect(facPage.body.facility.openingHours.mon).toEqual({ open: '09:00', close: '20:00' });
+  });
+
   it('slug desconocido devuelve 404', async () => {
     const res = await request(app.getHttpServer()).get('/public/landing/no-existe-xyz');
     expect(res.status).toBe(404);

@@ -57,6 +57,51 @@ describe('Facilities + UnitTypes (e2e)', () => {
     expect(listAfter.body).toHaveLength(0);
   });
 
+  it('horario de apertura: se guarda por día y se puede vaciar', async () => {
+    const owner = await registerVerifiedUser(app, 'fac-hours');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const create = await request(app.getHttpServer())
+      .post('/facilities')
+      .set(auth)
+      .send({ name: 'Local Horario' });
+    expect(create.status).toBe(201);
+    expect(create.body.openingHours).toEqual({});
+    const id = create.body.id;
+
+    const update = await request(app.getHttpServer())
+      .patch(`/facilities/${id}`)
+      .set(auth)
+      .send({
+        openingHours: {
+          mon: { open: '09:00', close: '20:00' },
+          tue: { open: '09:00', close: '20:00' },
+          wed: { open: '09:00', close: '20:00' },
+          thu: { open: '09:00', close: '20:00' },
+          fri: { open: '09:00', close: '20:00' },
+          sat: { open: '10:00', close: '14:00' },
+          sun: null,
+        },
+      });
+    expect(update.status).toBe(200);
+    expect(update.body.openingHours.mon).toEqual({ open: '09:00', close: '20:00' });
+    expect(update.body.openingHours.sun).toBeNull();
+
+    // Hora inválida -> 400.
+    const invalid = await request(app.getHttpServer())
+      .patch(`/facilities/${id}`)
+      .set(auth)
+      .send({ openingHours: { mon: { open: '9:00', close: '20:00' } } });
+    expect(invalid.status).toBe(400);
+
+    // Vaciar (todos los días a null) se refleja tal cual.
+    const cleared = await request(app.getHttpServer())
+      .patch(`/facilities/${id}`)
+      .set(auth)
+      .send({ openingHours: {} });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.openingHours).toEqual({});
+  });
+
   it('unit_type duplicado por tenant -> 409', async () => {
     const owner = await registerVerifiedUser(app, 'ut-dup');
     const first = await request(app.getHttpServer())

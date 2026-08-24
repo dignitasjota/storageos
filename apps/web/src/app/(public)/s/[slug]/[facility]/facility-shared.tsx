@@ -229,7 +229,7 @@ function FacilityBody({
 
         <FacilityHeading f={f} />
 
-        <FacilityMeta f={f} />
+        <FacilityMeta f={f} tenantName={data.tenantName} />
 
         {f.imageUrls.length > 0 && (
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">

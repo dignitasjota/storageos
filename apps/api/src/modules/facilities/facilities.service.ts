@@ -7,7 +7,12 @@ import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Facility, Prisma } from '@storageos/database';
-import type { CreateFacilityInput, FacilityDto, UpdateFacilityInput } from '@storageos/shared';
+import type {
+  CreateFacilityInput,
+  FacilityDto,
+  OpeningHours,
+  UpdateFacilityInput,
+} from '@storageos/shared';
 
 type FacilityWithStats = Facility & {
   _count?: { units: number };
@@ -146,6 +151,9 @@ export class FacilitiesService {
         ...(args.input.latitude !== undefined ? { latitude: args.input.latitude } : {}),
         ...(args.input.longitude !== undefined ? { longitude: args.input.longitude } : {}),
         timezone: args.input.timezone,
+        ...(args.input.openingHours !== undefined
+          ? { openingHours: args.input.openingHours as Prisma.InputJsonValue }
+          : {}),
         ...(args.input.accessCurfewEnabled !== undefined
           ? { accessCurfewEnabled: args.input.accessCurfewEnabled }
           : {}),
@@ -198,6 +206,7 @@ export class FacilitiesService {
     set('latitude');
     set('longitude');
     set('timezone');
+    set('openingHours');
     set('accessCurfewEnabled');
     set('accessCurfewStart');
     set('accessCurfewEnd');
@@ -351,7 +360,7 @@ export class FacilitiesService {
       latitude: f.latitude !== null && f.latitude !== undefined ? Number(f.latitude) : null,
       longitude: f.longitude !== null && f.longitude !== undefined ? Number(f.longitude) : null,
       timezone: f.timezone,
-      openingHours: (f.openingHours as Record<string, unknown>) ?? {},
+      openingHours: (f.openingHours as OpeningHours) ?? {},
       accessCurfewEnabled: f.accessCurfewEnabled,
       accessCurfewStart: f.accessCurfewStart,
       accessCurfewEnd: f.accessCurfewEnd,

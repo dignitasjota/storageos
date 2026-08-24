@@ -7,7 +7,13 @@ import { ContactForm } from './contact-form';
 import { bookHref as buildBookHref, type PublicWebLocale } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
-import { cities, formatPrice, useHeadlineFallback } from './templates';
+import {
+  cities,
+  formatPrice,
+  OpeningHoursInfo,
+  useHeadlineFallback,
+  WhatsAppButton,
+} from './templates';
 
 import type { PublicLandingDto, PublicLandingFacilityDto } from '@storageos/shared';
 import type { LucideIcon } from 'lucide-react';
@@ -295,7 +301,7 @@ export function OnePageTemplate({
                   {f.contactPhone && (
                     <a
                       href={`tel:${f.contactPhone}`}
-                      className="text-muted-foreground hover:text-foreground"
+                      className="block text-muted-foreground hover:text-foreground"
                     >
                       {f.contactPhone}
                     </a>
@@ -308,6 +314,14 @@ export function OnePageTemplate({
                       {f.contactEmail}
                     </a>
                   )}
+                  {f.contactPhone && (
+                    <div className="mt-1">
+                      <WhatsAppButton phone={f.contactPhone} tenantName={data.tenantName} />
+                    </div>
+                  )}
+                  <div className="mt-1">
+                    <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+                  </div>
                 </div>
               ))}
             </div>

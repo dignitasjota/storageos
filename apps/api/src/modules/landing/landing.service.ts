@@ -15,6 +15,7 @@ import { LeadsService } from '../leads/leads.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   LeadDto,
+  OpeningHours,
   PublicContactInput,
   PublicFaqDto,
   PublicTestimonialDto,
@@ -63,6 +64,7 @@ export class LandingService {
           contactPhone: true,
           contactEmail: true,
           openingHours: true,
+          timezone: true,
           images: true,
         },
         orderBy: { name: 'asc' },
@@ -131,7 +133,8 @@ export class LandingService {
         postalCode: f.postalCode,
         contactPhone: f.contactPhone,
         contactEmail: f.contactEmail,
-        openingHours: (f.openingHours as Record<string, unknown>) ?? {},
+        openingHours: (f.openingHours as OpeningHours) ?? {},
+        timezone: f.timezone,
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
         // Se incluyen también los tipos sin disponibilidad (available:0) —
         // el frontend los muestra como "Agotado" en vez de ocultarlos, para
