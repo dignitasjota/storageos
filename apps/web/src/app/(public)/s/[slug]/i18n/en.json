@@ -20,7 +20,8 @@
       "whatsapp": "WhatsApp",
       "whatsappPrefill": "Hi {tenantName}, I'd like information about your storage units.",
       "mapTitle": "Map of {name}",
-      "watchVideo": "Watch video"
+      "watchVideo": "Watch video",
+      "googleReviews": "Reviews on Google"
     },
     "hours": {
       "title": "Hours",

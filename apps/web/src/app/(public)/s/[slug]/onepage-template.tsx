@@ -11,6 +11,7 @@ import {
   cities,
   FacilityMap,
   formatPrice,
+  GoogleReviewBadge,
   isUrgentStock,
   OpeningHoursInfo,
   PromoBanner,
@@ -301,9 +302,14 @@ export function OnePageTemplate({
           <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">
             {tCommon('contactSectionTitle')}
           </h2>
-          <p className="mb-6 text-center text-sm text-muted-foreground">
+          <p className="mb-2 text-center text-sm text-muted-foreground">
             {tCommon('contactSectionSubtitle')}
           </p>
+          {data.googleReviewUrl && (
+            <div className="mb-6 flex justify-center">
+              <GoogleReviewBadge url={data.googleReviewUrl} />
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-3">
               {data.facilities.map((f) => (

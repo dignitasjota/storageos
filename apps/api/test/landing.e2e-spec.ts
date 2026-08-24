@@ -150,6 +150,25 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(facAfter.videoUrl).toBe('https://vimeo.com/76979871');
   });
 
+  it('insignia de Google: se expone en la landing pública cuando el tenant la configura', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-google');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    const before = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(before.body.googleReviewUrl).toBeNull();
+
+    const GOOGLE_URL = 'https://g.page/r/mock-google-review-link/review';
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/reviews')
+      .set(auth)
+      .send({ googleReviewUrl: GOOGLE_URL })
+      .expect(200);
+
+    const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(after.body.googleReviewUrl).toBe(GOOGLE_URL);
+  });
+
   it('slug desconocido devuelve 404', async () => {
     const res = await request(app.getHttpServer()).get('/public/landing/no-existe-xyz');
     expect(res.status).toBe(404);

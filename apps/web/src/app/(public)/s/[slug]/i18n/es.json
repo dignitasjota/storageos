@@ -20,7 +20,8 @@
       "whatsapp": "WhatsApp",
       "whatsappPrefill": "Hola {tenantName}, me gustaría información sobre vuestros trasteros.",
       "mapTitle": "Mapa de {name}",
-      "watchVideo": "Ver vídeo"
+      "watchVideo": "Ver vídeo",
+      "googleReviews": "Reseñas en Google"
     },
     "hours": {
       "title": "Horario",
