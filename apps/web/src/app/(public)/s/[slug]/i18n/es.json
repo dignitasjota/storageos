@@ -4,8 +4,9 @@
       "reserveNow": "Reservar ahora",
       "from": "desde",
       "perMonthVatIncl": "/mes · IVA incl.",
-      "availableOne": "1 disponible",
       "availableMany": "{count} disponibles",
+      "urgentOne": "¡Solo queda 1!",
+      "urgentFew": "¡Solo quedan {count}!",
       "soldOut": "Agotado",
       "noAvailabilityShort": "Sin disponibilidad ahora mismo.",
       "noAvailabilityLong": "Ahora mismo no hay trasteros disponibles. Vuelve pronto o contáctanos.",
@@ -31,6 +32,12 @@
       "closed": "Cerrado",
       "openNow": "Abierto ahora",
       "closedNow": "Cerrado ahora"
+    },
+    "promo": {
+      "percentageOff": "{value}% de descuento",
+      "fixedOff": "{value} de descuento",
+      "freeMonths": "{count, plural, one {# mes gratis} other {# meses gratis}}",
+      "withCode": "con el código"
     },
     "nav": {
       "openMenu": "Abrir menú",

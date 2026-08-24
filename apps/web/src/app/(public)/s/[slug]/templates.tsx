@@ -177,6 +177,13 @@ export function OpeningHoursInfo({ hours, timezone }: { hours: OpeningHours; tim
   );
 }
 
+/** Umbral de "quedan pocos": ≤N unidades disponibles se destaca como urgencia. */
+const URGENCY_THRESHOLD = 2;
+
+export function isUrgentStock(available: number): boolean {
+  return available > 0 && available <= URGENCY_THRESHOLD;
+}
+
 export function UnitTypeList({
   f,
   locale,
@@ -192,6 +199,7 @@ export function UnitTypeList({
     <ul className="mt-4 grid gap-2 sm:grid-cols-2">
       {f.unitTypes.map((unitType) => {
         const soldOut = unitType.available === 0;
+        const urgent = isUrgentStock(unitType.available);
         return (
           <li
             key={unitType.id}
@@ -202,13 +210,21 @@ export function UnitTypeList({
             <span>
               <span className="font-medium">{unitType.name}</span>
               <span
-                className={`ml-2 text-xs ${soldOut ? 'font-medium text-destructive' : 'text-muted-foreground'}`}
+                className={`ml-2 text-xs ${
+                  soldOut
+                    ? 'font-medium text-destructive'
+                    : urgent
+                      ? 'font-semibold text-amber-600 dark:text-amber-400'
+                      : 'text-muted-foreground'
+                }`}
               >
                 {soldOut
                   ? t('soldOut')
                   : unitType.available === 1
-                    ? t('availableOne')
-                    : t('availableMany', { count: unitType.available })}
+                    ? t('urgentOne')
+                    : urgent
+                      ? t('urgentFew', { count: unitType.available })
+                      : t('availableMany', { count: unitType.available })}
               </span>
             </span>
             <span className="font-semibold">
@@ -258,6 +274,8 @@ function DefaultTemplate({ data, locale }: TplProps) {
         </p>
         <ReserveButton data={data} locale={locale} />
       </header>
+
+      <PromoBanner data={data} />
 
       {data.webAbout && (
         <section className="mb-10 whitespace-pre-line rounded-lg border bg-card p-6 text-center text-sm leading-relaxed text-muted-foreground">
@@ -311,6 +329,7 @@ function ModernTemplate({ data, locale }: TplProps) {
       </header>
 
       <div className="mx-auto max-w-5xl px-4 py-12">
+        <PromoBanner data={data} />
         {data.webAbout && (
           <section className="mb-12 whitespace-pre-line text-center text-base leading-relaxed text-muted-foreground">
             {data.webAbout}
@@ -363,6 +382,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
       </header>
 
       <div className="mx-auto max-w-4xl px-4 py-12">
+        <PromoBanner data={data} />
         {data.webAbout && (
           <section
             className="mb-12 whitespace-pre-line border-l-2 pl-4 text-base leading-relaxed text-neutral-400"
@@ -455,6 +475,33 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
 
 function brandOf(data: PublicLandingDto): string {
   return data.brandColor ?? '#2563EB';
+}
+
+/** Banda con la promoción activa del tenant (si tiene alguna usable ahora mismo). */
+export function PromoBanner({ data }: { data: PublicLandingDto }) {
+  const t = useTranslations('publicWeb.promo');
+  const promo = data.activePromotion;
+  if (!promo) return null;
+  const brand = brandOf(data);
+  const discountText =
+    promo.discountType === 'percentage'
+      ? t('percentageOff', { value: promo.discountValue })
+      : promo.discountType === 'fixed'
+        ? t('fixedOff', { value: `${promo.discountValue} €` })
+        : t('freeMonths', { count: promo.discountValue });
+  return (
+    <div
+      className="mb-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-lg border-2 border-dashed px-4 py-3 text-center text-sm"
+      style={{ borderColor: brand, backgroundColor: `${brand}0d` }}
+    >
+      <span className="font-bold" style={{ color: brand }}>
+        🎉 {discountText}
+      </span>
+      <span className="text-muted-foreground">
+        {t('withCode')} <span className="font-mono font-bold text-foreground">{promo.code}</span>
+      </span>
+    </div>
+  );
 }
 
 export function TestimonialsSection({ data }: TplProps) {

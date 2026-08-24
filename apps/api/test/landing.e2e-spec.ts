@@ -42,6 +42,51 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(fac.unitTypes[0].areaM2).toBe(6);
   });
 
+  it('promoción activa: se destaca en la landing y respeta ventana de fechas/usos', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-promo');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    // Sin promociones -> null.
+    const before = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(before.body.activePromotion).toBeNull();
+
+    // Promoción activa sin fechas -> se destaca.
+    const create = await request(app.getHttpServer()).post('/promotions').set(auth).send({
+      code: 'VERANO20',
+      name: 'Descuento de verano',
+      discountType: 'percentage',
+      discountValue: 20,
+    });
+    expect(create.status).toBe(201);
+    const promotionId = create.body.id;
+    const withPromo = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(withPromo.body.activePromotion).toEqual({
+      code: 'VERANO20',
+      name: 'Descuento de verano',
+      discountType: 'percentage',
+      discountValue: 20,
+    });
+
+    // Inactiva -> ya no se muestra.
+    await request(app.getHttpServer())
+      .patch(`/promotions/${promotionId}`)
+      .set(auth)
+      .send({ isActive: false })
+      .expect(200);
+    const afterOff = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(afterOff.body.activePromotion).toBeNull();
+
+    // Reactivada pero ya caducada (validUntil en el pasado) -> tampoco se muestra.
+    await request(app.getHttpServer())
+      .patch(`/promotions/${promotionId}`)
+      .set(auth)
+      .send({ isActive: true, validUntil: new Date(Date.now() - 60_000).toISOString() })
+      .expect(200);
+    const expired = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(expired.body.activePromotion).toBeNull();
+  });
+
   it('horario de apertura: se expone en la landing pública, con la timezone del local', async () => {
     const owner = await registerVerifiedUser(app, 'landing-hours');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

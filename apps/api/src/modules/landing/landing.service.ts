@@ -23,6 +23,7 @@ import type {
 } from '@storageos/shared';
 import type {
   ExternalSiteDto,
+  PublicActivePromotionDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicLandingFacilityDto,
@@ -106,9 +107,10 @@ export class LandingService {
     const sections = hasWebPremium
       ? parseWebSections(tenant.webSections)
       : { testimonials: false, faq: false, contact: false };
-    const [testimonials, faqs] = await Promise.all([
+    const [testimonials, faqs, activePromotion] = await Promise.all([
       sections.testimonials ? this.loadTestimonials(tenant.id) : Promise.resolve([]),
       sections.faq ? this.loadFaqs(tenant.id) : Promise.resolve([]),
+      this.loadActivePromotion(tenant.id),
     ]);
 
     return {
@@ -124,6 +126,7 @@ export class LandingService {
       testimonials,
       faqs,
       contactEnabled: sections.contact,
+      activePromotion,
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -210,6 +213,45 @@ export class LandingService {
       take: 20,
     });
     return rows.map((r) => ({ question: r.question, answer: r.answer }));
+  }
+
+  /**
+   * Promoción activa y usable AHORA MISMO (dentro de su ventana de fechas y sin
+   * agotar sus usos), para el banner de la web pública. Base para todos los
+   * tenants (no gateada por `web_premium`): es la misma info que cualquier
+   * comercial daría por teléfono, no un extra de marketing. Si hay varias, se
+   * destaca la creada más recientemente.
+   */
+  private async loadActivePromotion(tenantId: string): Promise<PublicActivePromotionDto | null> {
+    const now = new Date();
+    const candidates = await this.admin.promotion.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        AND: [
+          { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+          { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
+        ],
+      },
+      select: {
+        code: true,
+        name: true,
+        discountType: true,
+        discountValue: true,
+        maxUses: true,
+        usedCount: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+    const promo = candidates.find((p) => p.maxUses == null || p.usedCount < p.maxUses);
+    if (!promo) return null;
+    return {
+      code: promo.code,
+      name: promo.name,
+      discountType: promo.discountType,
+      discountValue: Number(promo.discountValue),
+    };
   }
 
   /**

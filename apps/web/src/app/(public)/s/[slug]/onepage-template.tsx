@@ -10,7 +10,9 @@ import { StorageCalculator } from './storage-calculator';
 import {
   cities,
   formatPrice,
+  isUrgentStock,
   OpeningHoursInfo,
+  PromoBanner,
   useHeadlineFallback,
   WhatsAppButton,
 } from './templates';
@@ -182,6 +184,9 @@ export function OnePageTemplate({
       </section>
 
       <div className="mx-auto w-full max-w-6xl flex-1 px-4">
+        <div className="pt-6">
+          <PromoBanner data={data} />
+        </div>
         {/* Trasteros en <ciudad> */}
         <section id="trasteros" className="scroll-mt-20 py-14">
           <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{trasterosLabel}</h2>
@@ -211,6 +216,7 @@ export function OnePageTemplate({
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {types.map((unitType) => {
                 const soldOut = unitType.available === 0;
+                const urgent = isUrgentStock(unitType.available);
                 return (
                   <div
                     key={unitType.name}
@@ -226,6 +232,13 @@ export function OnePageTemplate({
                         {t('perMonth')}
                       </span>
                     </p>
+                    {urgent && (
+                      <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        {unitType.available === 1
+                          ? tCommon('urgentOne')
+                          : tCommon('urgentFew', { count: unitType.available })}
+                      </p>
+                    )}
                     {soldOut ? (
                       <p className="mt-3 text-sm font-medium text-destructive">
                         {tCommon('soldOut')}

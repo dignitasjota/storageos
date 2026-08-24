@@ -2,6 +2,7 @@
  * DTOs de la landing pública por tenant (`/s/[slug]`). Datos públicos del
  * negocio y de cada local + disponibilidad, para una página SEO indexable.
  */
+import type { PromotionDiscountTypeValue } from '../billing';
 import type { OpeningHours } from '../facilities';
 import type { WebContent } from '../web';
 export interface PublicLandingUnitTypeDto {
@@ -60,6 +61,16 @@ export interface PublicLandingDto {
   /** Muestra el formulario de contacto (crea un lead). */
   contactEnabled: boolean;
   facilities: PublicLandingFacilityDto[];
+  /** Promoción activa y usable ahora mismo (la más reciente), o null. */
+  activePromotion: PublicActivePromotionDto | null;
+}
+
+/** Promoción destacable en el banner de la web pública (datos mínimos, no sensibles). */
+export interface PublicActivePromotionDto {
+  code: string;
+  name: string;
+  discountType: PromotionDiscountTypeValue;
+  discountValue: number;
 }
 
 export interface PublicTestimonialDto {

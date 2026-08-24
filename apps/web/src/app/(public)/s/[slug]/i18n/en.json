@@ -4,8 +4,9 @@
       "reserveNow": "Book now",
       "from": "from",
       "perMonthVatIncl": "/month · VAT incl.",
-      "availableOne": "1 available",
       "availableMany": "{count} available",
+      "urgentOne": "Only 1 left!",
+      "urgentFew": "Only {count} left!",
       "soldOut": "Sold out",
       "noAvailabilityShort": "No availability right now.",
       "noAvailabilityLong": "No storage units available right now. Check back soon or contact us.",
@@ -31,6 +32,12 @@
       "closed": "Closed",
       "openNow": "Open now",
       "closedNow": "Closed now"
+    },
+    "promo": {
+      "percentageOff": "{value}% off",
+      "fixedOff": "{value} off",
+      "freeMonths": "{count, plural, one {# free month} other {# free months}}",
+      "withCode": "with code"
     },
     "nav": {
       "openMenu": "Open menu",
