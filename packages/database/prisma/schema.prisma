@@ -849,6 +849,8 @@ model Facility {
   /// Keys de objeto MinIO de las imágenes del local (landing pública). El
   /// servidor construye las URLs con `FilesService.buildPublicUrl`.
   images              String[]  @default([])
+  /// URL de vídeo (YouTube/Vimeo) para la web pública del local.
+  videoUrl            String?   @map("video_url")
   isActive            Boolean   @default(true) @map("is_active")
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

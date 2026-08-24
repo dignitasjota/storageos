@@ -1,4 +1,4 @@
-import { WEEKDAYS } from '@storageos/shared';
+import { mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
 import { Clock, MapPin, MessageCircle, Phone, Mail, Star, Quote } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -75,7 +75,24 @@ export function FacilityMeta({
         {f.contactPhone && <WhatsAppButton phone={f.contactPhone} tenantName={tenantName} />}
       </div>
       <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+      <FacilityMap f={f} />
     </div>
+  );
+}
+
+/** Mapa embebido (sin API key) a partir de coordenadas o, si no hay, de la dirección de texto. */
+export function FacilityMap({ f }: { f: PublicLandingDto['facilities'][number] }) {
+  const t = useTranslations('publicWeb.common');
+  const src = mapEmbedUrl(f);
+  if (!src) return null;
+  return (
+    <iframe
+      src={src}
+      loading="lazy"
+      referrerPolicy="no-referrer-when-downgrade"
+      className="aspect-video w-full rounded-md border"
+      title={t('mapTitle', { name: f.name })}
+    />
   );
 }
 

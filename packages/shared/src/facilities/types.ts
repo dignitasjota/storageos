@@ -22,6 +22,8 @@ export interface FacilityDto {
   contactEmail: string | null;
   /** Imágenes del local (key de objeto + URL pública) para la landing. */
   images: Array<{ key: string; url: string }>;
+  /** Vídeo (YouTube/Vimeo) para la landing pública del local. */
+  videoUrl: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

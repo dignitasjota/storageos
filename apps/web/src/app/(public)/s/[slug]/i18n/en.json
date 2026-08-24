@@ -18,7 +18,9 @@
       "contactSectionTitle": "Contact",
       "contactSectionSubtitle": "Questions? Write to us or stop by the facility.",
       "whatsapp": "WhatsApp",
-      "whatsappPrefill": "Hi {tenantName}, I'd like information about your storage units."
+      "whatsappPrefill": "Hi {tenantName}, I'd like information about your storage units.",
+      "mapTitle": "Map of {name}",
+      "watchVideo": "Watch video"
     },
     "hours": {
       "title": "Hours",
@@ -58,7 +60,8 @@
     "facility": {
       "headingWithCity": "Storage units in {city} — {name}",
       "headingDefault": "Storage units — {name}",
-      "sizesAndPrices": "Sizes and pricing"
+      "sizesAndPrices": "Sizes and pricing",
+      "video": "Video"
     },
     "testimonials": {
       "title": "What our customers say"

@@ -1,3 +1,4 @@
+import { toEmbedVideoUrl } from '@storageos/shared';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -175,6 +176,33 @@ export async function buildFacilityMetadata(
   };
 }
 
+/** Vídeo del local: embebido si es un formato reconocido (YouTube/Vimeo), si no un enlace de respaldo. */
+function FacilityVideo({ url, title }: { url: string; title: string }) {
+  const embed = toEmbedVideoUrl(url);
+  if (embed) {
+    return (
+      <iframe
+        src={embed}
+        loading="lazy"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        className="mt-6 aspect-video w-full rounded-md border"
+        title={title}
+      />
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-6 inline-block text-sm text-primary underline"
+    >
+      {title}
+    </a>
+  );
+}
+
 function FacilityHeading({ f }: { f: PublicFacilityLandingDto['facility'] }) {
   const t = useTranslations('publicWeb.facility');
   return (
@@ -250,6 +278,8 @@ function FacilityBody({
             ))}
           </div>
         )}
+
+        {f.videoUrl && <FacilityVideo url={f.videoUrl} title={t('facility.video')} />}
 
         <Link
           href={bookHref(data.tenantSlug, locale)}

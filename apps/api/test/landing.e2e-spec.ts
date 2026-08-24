@@ -118,6 +118,38 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(facPage.body.facility.openingHours.mon).toEqual({ open: '09:00', close: '20:00' });
   });
 
+  it('mapa + vídeo: coordenadas y videoUrl se exponen en la landing pública', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-map-video');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const created = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local Mapa',
+      unitsCount: 1,
+    });
+
+    // Sin coordenadas ni vídeo -> null.
+    const before = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    const facBefore = before.body.facilities.find((f: { name: string }) => f.name === 'Local Mapa');
+    expect(facBefore.latitude).toBeNull();
+    expect(facBefore.longitude).toBeNull();
+    expect(facBefore.videoUrl).toBeNull();
+
+    await request(app.getHttpServer())
+      .patch(`/facilities/${created.facilityId}`)
+      .set(auth)
+      .send({
+        latitude: 40.4168,
+        longitude: -3.7038,
+        videoUrl: 'https://vimeo.com/76979871',
+      })
+      .expect(200);
+
+    const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    const facAfter = after.body.facilities.find((f: { name: string }) => f.name === 'Local Mapa');
+    expect(facAfter.latitude).toBe(40.4168);
+    expect(facAfter.longitude).toBe(-3.7038);
+    expect(facAfter.videoUrl).toBe('https://vimeo.com/76979871');
+  });
+
   it('slug desconocido devuelve 404', async () => {
     const res = await request(app.getHttpServer()).get('/public/landing/no-existe-xyz');
     expect(res.status).toBe(404);
