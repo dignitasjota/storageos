@@ -122,6 +122,7 @@ export class LandingService {
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
+      googleReviewUrl: tenant.googleReviewUrl,
       webTemplate,
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
       webAbout: hasWebPremium ? tenant.webAbout : null,

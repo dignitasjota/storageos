@@ -553,6 +553,22 @@ export function TestimonialsSection({ data }: TplProps) {
   );
 }
 
+/** Insignia de confianza: enlaza a las reseñas de Google del negocio, si el tenant la configuró. */
+export function GoogleReviewBadge({ url }: { url: string }) {
+  const t = useTranslations('publicWeb.common');
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <Star className="h-4 w-4 fill-current text-amber-500" />
+      {t('googleReviews')}
+    </a>
+  );
+}
+
 export function FaqSection({ data }: TplProps) {
   const t = useTranslations('publicWeb.faq');
   if (data.faqs.length === 0) return null;
@@ -596,6 +612,11 @@ export function ExtraSections({ data, locale }: TplProps) {
     <>
       <StorageCalculator data={data} brand={brandOf(data)} locale={locale} />
       <TestimonialsSection data={data} locale={locale} />
+      {data.googleReviewUrl && (
+        <div className="mt-4 flex justify-center">
+          <GoogleReviewBadge url={data.googleReviewUrl} />
+        </div>
+      )}
       <FaqSection data={data} locale={locale} />
       <ContactSection data={data} locale={locale} />
     </>

@@ -45,6 +45,8 @@ export interface PublicLandingDto {
   logoUrl: string | null;
   /** Dominio propio activo (verificado), o null → canonical al dominio custom. */
   customDomain: string | null;
+  /** Enlace a las reseñas de Google del negocio (insignia de confianza), o null. */
+  googleReviewUrl: string | null;
   /**
    * Web Premium: plantilla de diseño (`default`/`modern`/`industrial`) + textos
    * personalizados. Sin la feature `web_premium`, el backend fuerza `default` y
