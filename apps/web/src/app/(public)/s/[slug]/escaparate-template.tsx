@@ -21,6 +21,7 @@ import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
 import {
   cities,
+  FacilityMap,
   formatPrice,
   OpeningHoursInfo,
   PromoBanner,
@@ -392,6 +393,9 @@ export function EscaparateTemplate({
                     )}
                     <div className="mt-1">
                       <OpeningHoursInfo hours={f.openingHours} timezone={f.timezone} />
+                    </div>
+                    <div className="mt-2">
+                      <FacilityMap f={f} />
                     </div>
                   </div>
                 ))}

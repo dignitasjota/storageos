@@ -163,6 +163,7 @@ export class FacilitiesService {
         ...(args.input.accessCurfewEnd ? { accessCurfewEnd: args.input.accessCurfewEnd } : {}),
         contactPhone: args.input.contactPhone?.trim() || null,
         contactEmail: args.input.contactEmail?.trim() || null,
+        videoUrl: args.input.videoUrl?.trim() || null,
       };
       return tx.facility.create({ data, include: { units: { select: { status: true } } } });
     }, args.tenantId);
@@ -212,6 +213,7 @@ export class FacilitiesService {
     set('accessCurfewEnd');
     set('contactPhone');
     set('contactEmail');
+    set('videoUrl');
     set('isActive');
 
     const facility = await this.prisma.withTenant(async (tx) => {
@@ -370,6 +372,7 @@ export class FacilitiesService {
         key,
         url: this.files.buildPublicUrl('public', key),
       })),
+      videoUrl: f.videoUrl,
       isActive: f.isActive,
       createdAt: f.createdAt.toISOString(),
       updatedAt: f.updatedAt.toISOString(),

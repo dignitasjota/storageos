@@ -64,6 +64,8 @@ export const CreateFacilitySchema = z.object({
   timezone: z.string().trim().min(1).default('Europe/Madrid'),
   /** Horario de apertura semanal, para la web pública del local. */
   openingHours: OpeningHoursSchema.optional(),
+  /** Vídeo (YouTube/Vimeo) para la web pública del local. */
+  videoUrl: z.string().trim().url('URL no válida').max(500).optional().or(z.literal('')),
   contactPhone: z
     .string()
     .trim()

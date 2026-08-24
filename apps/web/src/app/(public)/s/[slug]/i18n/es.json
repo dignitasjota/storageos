@@ -18,7 +18,9 @@
       "contactSectionTitle": "Contacto",
       "contactSectionSubtitle": "¿Dudas? Escríbenos o pásate por el local.",
       "whatsapp": "WhatsApp",
-      "whatsappPrefill": "Hola {tenantName}, me gustaría información sobre vuestros trasteros."
+      "whatsappPrefill": "Hola {tenantName}, me gustaría información sobre vuestros trasteros.",
+      "mapTitle": "Mapa de {name}",
+      "watchVideo": "Ver vídeo"
     },
     "hours": {
       "title": "Horario",
@@ -58,7 +60,8 @@
     "facility": {
       "headingWithCity": "Trasteros en {city} — {name}",
       "headingDefault": "Trasteros — {name}",
-      "sizesAndPrices": "Tamaños y precios"
+      "sizesAndPrices": "Tamaños y precios",
+      "video": "Vídeo"
     },
     "testimonials": {
       "title": "Lo que dicen nuestros clientes"

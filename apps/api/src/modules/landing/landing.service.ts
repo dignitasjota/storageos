@@ -66,7 +66,10 @@ export class LandingService {
           contactEmail: true,
           openingHours: true,
           timezone: true,
+          latitude: true,
+          longitude: true,
           images: true,
+          videoUrl: true,
         },
         orderBy: { name: 'asc' },
       }),
@@ -138,7 +141,10 @@ export class LandingService {
         contactEmail: f.contactEmail,
         openingHours: (f.openingHours as OpeningHours) ?? {},
         timezone: f.timezone,
+        latitude: f.latitude != null ? Number(f.latitude) : null,
+        longitude: f.longitude != null ? Number(f.longitude) : null,
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
+        videoUrl: f.videoUrl,
         // Se incluyen también los tipos sin disponibilidad (available:0) —
         // el frontend los muestra como "Agotado" en vez de ocultarlos, para
         // no dar la falsa impresión de que ese tamaño no existe.

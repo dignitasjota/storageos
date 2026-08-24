@@ -102,6 +102,40 @@ describe('Facilities + UnitTypes (e2e)', () => {
     expect(cleared.body.openingHours).toEqual({});
   });
 
+  it('vídeo del local: se guarda, valida formato de URL y se puede quitar', async () => {
+    const owner = await registerVerifiedUser(app, 'fac-video');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const create = await request(app.getHttpServer())
+      .post('/facilities')
+      .set(auth)
+      .send({ name: 'Local Vídeo' });
+    expect(create.status).toBe(201);
+    expect(create.body.videoUrl).toBeNull();
+    const id = create.body.id;
+
+    const update = await request(app.getHttpServer())
+      .patch(`/facilities/${id}`)
+      .set(auth)
+      .send({ videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+    expect(update.status).toBe(200);
+    expect(update.body.videoUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+    // No es una URL -> 400.
+    const invalid = await request(app.getHttpServer())
+      .patch(`/facilities/${id}`)
+      .set(auth)
+      .send({ videoUrl: 'no es una url' });
+    expect(invalid.status).toBe(400);
+
+    // Vaciar -> null.
+    const cleared = await request(app.getHttpServer())
+      .patch(`/facilities/${id}`)
+      .set(auth)
+      .send({ videoUrl: '' });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.videoUrl).toBeNull();
+  });
+
   it('unit_type duplicado por tenant -> 409', async () => {
     const owner = await registerVerifiedUser(app, 'ut-dup');
     const first = await request(app.getHttpServer())

@@ -27,8 +27,13 @@ export interface PublicLandingFacilityDto {
   openingHours: OpeningHours;
   /** Zona horaria del local (para calcular "abierto ahora" en la web pública). */
   timezone: string;
+  /** Coordenadas (para el mapa embebido); null si no están configuradas. */
+  latitude: number | null;
+  longitude: number | null;
   /** URLs públicas de las imágenes del local. */
   imageUrls: string[];
+  /** Vídeo (YouTube/Vimeo) del local, o null. */
+  videoUrl: string | null;
   unitTypes: PublicLandingUnitTypeDto[];
 }
 

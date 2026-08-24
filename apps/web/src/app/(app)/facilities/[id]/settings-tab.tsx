@@ -1,6 +1,6 @@
 'use client';
 
-import { WEEKDAYS } from '@storageos/shared';
+import { toEmbedVideoUrl, WEEKDAYS } from '@storageos/shared';
 import { ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -25,7 +25,68 @@ export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
       <CurfewCard facility={facility} />
       <SlugCard facility={facility} />
       <ImagesCard facility={facility} />
+      <VideoCard facility={facility} />
     </div>
+  );
+}
+
+function VideoCard({ facility }: { facility: FacilityDto }) {
+  const update = useUpdateFacility();
+  const [videoUrl, setVideoUrl] = useState(facility.videoUrl ?? '');
+  const embed = videoUrl.trim() ? toEmbedVideoUrl(videoUrl.trim()) : null;
+
+  async function save() {
+    try {
+      await update.mutateAsync({ id: facility.id, input: { videoUrl: videoUrl.trim() } });
+      toast.success('Vídeo actualizado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Vídeo del local</CardTitle>
+        <CardDescription>
+          Enlace de YouTube o Vimeo. Se muestra en la página pública del local. Déjalo vacío para
+          quitarlo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-end gap-2">
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="video-url">URL del vídeo</Label>
+            <Input
+              id="video-url"
+              value={videoUrl}
+              placeholder="https://www.youtube.com/watch?v=…"
+              onChange={(e) => setVideoUrl(e.target.value)}
+            />
+          </div>
+          <Button
+            onClick={save}
+            disabled={update.isPending || videoUrl.trim() === (facility.videoUrl ?? '')}
+          >
+            {update.isPending ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </div>
+        {videoUrl.trim() && (
+          <p className="text-xs text-muted-foreground">
+            {embed
+              ? '✓ Se reconoce y se podrá embeber.'
+              : '⚠ No se reconoce el formato: se mostrará como enlace "Ver vídeo" en vez de reproductor.'}
+          </p>
+        )}
+        {embed && (
+          <iframe
+            src={embed}
+            className="aspect-video w-full max-w-md rounded-md border"
+            title="Vista previa del vídeo"
+          />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
