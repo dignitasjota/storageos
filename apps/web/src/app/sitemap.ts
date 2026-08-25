@@ -50,6 +50,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       });
     }
+    if (entry.blogPostSlugs.length > 0) {
+      urls.push({
+        url: `${base}/s/${entry.tenantSlug}/blog`,
+        lastModified,
+        changeFrequency: 'weekly',
+        priority: 0.6,
+      });
+      for (const p of entry.blogPostSlugs) {
+        urls.push({
+          url: `${base}/s/${entry.tenantSlug}/blog/${p}`,
+          lastModified,
+          changeFrequency: 'monthly',
+          priority: 0.5,
+        });
+      }
+    }
   }
   return urls;
 }

@@ -24,6 +24,8 @@ import type {
 import type {
   ExternalSiteDto,
   PublicActivePromotionDto,
+  PublicBlogListDto,
+  PublicBlogPostDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicLandingFacilityDto,
@@ -392,9 +394,13 @@ export class LandingService {
 
   /**
    * URLs indexables para el sitemap: tenants activos (con suscripción no
-   * cancelada) + los slugs de sus locales activos. Nota: expone los slugs
-   * públicos de todos los tenants en el dominio compartido (las landings ya
-   * son públicas); si se quiere por dominio propio, filtrar aquí.
+   * cancelada) + los slugs de sus locales activos + los de sus entradas de
+   * blog publicadas. Nota: expone los slugs públicos de todos los tenants en
+   * el dominio compartido (las landings ya son públicas); si se quiere por
+   * dominio propio, filtrar aquí. Los slugs de blog no se filtran por
+   * `web_premium` (solo puede haber posts publicados si el tenant tiene la
+   * feature al escribirlos; si la pierde después, el edge case de un slug
+   * huérfano en el sitemap es menor — el endpoint público 404 igualmente).
    */
   async sitemap(): Promise<PublicSitemapDto> {
     const tenants = await this.admin.tenant.findMany({
@@ -403,10 +409,16 @@ export class LandingService {
     });
     if (tenants.length === 0) return { entries: [] };
 
-    const facilities = await this.admin.facility.findMany({
-      where: { deletedAt: null, isActive: true, publicSlug: { not: null } },
-      select: { publicSlug: true, tenant: { select: { slug: true } } },
-    });
+    const [facilities, blogPosts] = await Promise.all([
+      this.admin.facility.findMany({
+        where: { deletedAt: null, isActive: true, publicSlug: { not: null } },
+        select: { publicSlug: true, tenant: { select: { slug: true } } },
+      }),
+      this.admin.blogPost.findMany({
+        where: { isPublished: true },
+        select: { slug: true, tenant: { select: { slug: true } } },
+      }),
+    ]);
     const bySlug = new Map<string, string[]>();
     for (const f of facilities) {
       if (!f.publicSlug) continue;
@@ -414,13 +426,123 @@ export class LandingService {
       list.push(f.publicSlug);
       bySlug.set(f.tenant.slug, list);
     }
+    const blogByTenant = new Map<string, string[]>();
+    for (const p of blogPosts) {
+      const list = blogByTenant.get(p.tenant.slug) ?? [];
+      list.push(p.slug);
+      blogByTenant.set(p.tenant.slug, list);
+    }
 
     return {
       entries: tenants.map((t) => ({
         tenantSlug: t.slug,
         updatedAt: t.updatedAt.toISOString(),
         facilitySlugs: bySlug.get(t.slug) ?? [],
+        blogPostSlugs: blogByTenant.get(t.slug) ?? [],
       })),
+    };
+  }
+
+  /** Tenant + marca, exige la feature `web_premium` — usado por el blog público. */
+  private async requireBlogTenant(slug: string): Promise<{
+    id: string;
+    name: string;
+    slug: string;
+    brandColor: string | null;
+    logoUrl: string | null;
+    customDomain: string | null;
+  }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        deletedAt: true,
+        portalBrandColor: true,
+        portalLogoUrl: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+      },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    if (!(await this.hasWebPremium(tenant.id))) {
+      throw new NotFoundException({ code: 'blog_not_available', message: 'No encontrado' });
+    }
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      brandColor: tenant.portalBrandColor,
+      logoUrl: tenant.portalLogoUrl,
+      customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
+    };
+  }
+
+  /** Entradas de blog publicadas del tenant (`/s/<slug>/blog`). */
+  async listBlogPosts(slug: string): Promise<PublicBlogListDto> {
+    const tenant = await this.requireBlogTenant(slug);
+    const rows = await this.admin.blogPost.findMany({
+      where: { tenantId: tenant.id, isPublished: true },
+      select: {
+        slug: true,
+        title: true,
+        excerpt: true,
+        coverImageKey: true,
+        publishedAt: true,
+      },
+      orderBy: { publishedAt: 'desc' },
+      take: 100,
+    });
+    return {
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      brandColor: tenant.brandColor,
+      logoUrl: tenant.logoUrl,
+      customDomain: tenant.customDomain,
+      posts: rows.map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        excerpt: r.excerpt,
+        coverImageUrl: r.coverImageKey
+          ? this.files.buildPublicUrl('public', r.coverImageKey)
+          : null,
+        // `isPublished:true` siempre trae `publishedAt` (se fija al publicar).
+        publishedAt: r.publishedAt!.toISOString(),
+      })),
+    };
+  }
+
+  /** Una entrada de blog publicada por su slug (`/s/<slug>/blog/<postSlug>`). */
+  async getBlogPost(slug: string, postSlug: string): Promise<PublicBlogPostDto> {
+    const tenant = await this.requireBlogTenant(slug);
+    const row = await this.admin.blogPost.findFirst({
+      where: { tenantId: tenant.id, slug: postSlug, isPublished: true },
+    });
+    if (!row) {
+      throw new NotFoundException({ code: 'blog_post_not_found', message: 'No encontrado' });
+    }
+    return {
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      brandColor: tenant.brandColor,
+      logoUrl: tenant.logoUrl,
+      customDomain: tenant.customDomain,
+      post: {
+        slug: row.slug,
+        title: row.title,
+        excerpt: row.excerpt,
+        contentMarkdown: row.contentMarkdown,
+        coverImageUrl: row.coverImageKey
+          ? this.files.buildPublicUrl('public', row.coverImageKey)
+          : null,
+        seoTitle: row.seoTitle,
+        seoDescription: row.seoDescription,
+        publishedAt: row.publishedAt!.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      },
     };
   }
 }
