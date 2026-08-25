@@ -22,12 +22,15 @@ export function OnePageNav({
   tenantName,
   logoUrl,
   portalHref,
+  blogHref,
 }: {
   items: OnePageNavItem[];
   brand: string;
   tenantName: string;
   logoUrl: string | null;
   portalHref: string;
+  /** Enlace real al blog del tenant (no hace scroll), o `undefined` si no tiene. */
+  blogHref?: string;
 }) {
   const t = useTranslations('publicWeb');
   const [open, setOpen] = useState(false);
@@ -75,6 +78,14 @@ export function OnePageNav({
               {it.label}
             </button>
           ))}
+          {blogHref && (
+            <Link
+              href={blogHref}
+              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t('blog.title')}
+            </Link>
+          )}
           <Link
             href={portalHref}
             className="ml-2 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
@@ -118,6 +129,15 @@ export function OnePageNav({
                 {it.label}
               </button>
             ))}
+            {blogHref && (
+              <Link
+                href={blogHref}
+                onClick={() => setOpen(false)}
+                className="rounded-md px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {t('blog.title')}
+              </Link>
+            )}
           </div>
         </nav>
       )}

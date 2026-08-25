@@ -61,12 +61,24 @@ describe('Blog público de la landing (e2e)', () => {
     );
     expect(draftDetail.status).toBe(404);
 
+    // Un borrador no cuenta -> `hasBlog` sigue false en la landing (nav sin enlace).
+    const landingWithDraft = await request(app.getHttpServer()).get(
+      `/public/landing/${owner.slug}`,
+    );
+    expect(landingWithDraft.body.hasBlog).toBe(false);
+
     // Publicar -> aparece en el listado y es servible por detalle.
     await request(app.getHttpServer())
       .patch(`/blog-posts/${draft.body.id}`)
       .set(auth)
       .send({ isPublished: true })
       .expect(200);
+
+    // Con al menos una publicada -> `hasBlog:true` en la landing.
+    const landingPublished = await request(app.getHttpServer()).get(
+      `/public/landing/${owner.slug}`,
+    );
+    expect(landingPublished.body.hasBlog).toBe(true);
 
     const listPublished = await request(app.getHttpServer()).get(
       `/public/landing/${owner.slug}/blog`,

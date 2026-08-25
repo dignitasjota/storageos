@@ -70,6 +70,8 @@ export interface PublicLandingDto {
   facilities: PublicLandingFacilityDto[];
   /** Promoción activa y usable ahora mismo (la más reciente), o null. */
   activePromotion: PublicActivePromotionDto | null;
+  /** ¿Tiene al menos una entrada de blog publicada? Controla el enlace "Blog" del nav. */
+  hasBlog: boolean;
 }
 
 /** Promoción destacable en el banner de la web pública (datos mínimos, no sensibles). */
@@ -99,6 +101,7 @@ export interface PublicFacilityLandingDto {
   brandColor: string | null;
   logoUrl: string | null;
   customDomain: string | null;
+  hasBlog: boolean;
   facility: PublicLandingFacilityDto;
 }
 

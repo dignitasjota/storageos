@@ -112,10 +112,13 @@ export class LandingService {
     const sections = hasWebPremium
       ? parseWebSections(tenant.webSections)
       : { testimonials: false, faq: false, contact: false };
-    const [testimonials, faqs, activePromotion] = await Promise.all([
+    const [testimonials, faqs, activePromotion, blogCount] = await Promise.all([
       sections.testimonials ? this.loadTestimonials(tenant.id) : Promise.resolve([]),
       sections.faq ? this.loadFaqs(tenant.id) : Promise.resolve([]),
       this.loadActivePromotion(tenant.id),
+      hasWebPremium
+        ? this.admin.blogPost.count({ where: { tenantId: tenant.id, isPublished: true } })
+        : Promise.resolve(0),
     ]);
 
     return {
@@ -133,6 +136,7 @@ export class LandingService {
       faqs,
       contactEnabled: sections.contact,
       activePromotion,
+      hasBlog: blogCount > 0,
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
@@ -343,6 +347,7 @@ export class LandingService {
       brandColor: full.brandColor,
       logoUrl: full.logoUrl,
       customDomain: full.customDomain,
+      hasBlog: full.hasBlog,
       facility,
     };
   }

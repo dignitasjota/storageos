@@ -235,7 +235,7 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
         // Plantilla «escaparate» multisección: también autocontenida.
         <EscaparateTemplate data={data} locale={locale} />
       ) : (
-        <TenantWebChrome data={data} locale={locale}>
+        <TenantWebChrome data={data} locale={locale} hasBlog={data.hasBlog}>
           <LandingTemplate data={data} locale={locale} />
         </TenantWebChrome>
       )}
