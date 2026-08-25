@@ -35,7 +35,7 @@ function slugify(s: string): string {
  * un `publicSlug` de facility nunca puede coincidir con ellos o colisionaría
  * con esas rutas. `l` = prefijo del selector de idioma (`/s/<slug>/l/<locale>`).
  */
-const RESERVED_PUBLIC_SLUGS = new Set(['l']);
+const RESERVED_PUBLIC_SLUGS = new Set(['l', 'blog']);
 
 interface CreateArgs {
   tenantId: string;

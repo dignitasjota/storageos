@@ -473,6 +473,7 @@ model Tenant {
   aiMessages              AiMessage[]
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
+  blogPosts               BlogPost[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -3783,6 +3784,35 @@ model FaqEntry {
 
   @@index([tenantId])
   @@map("faq_entries")
+}
+
+/// Entrada de blog del tenant, para SEO de contenido en su web pública
+/// (`/s/<slug>/blog`). Feature `web_premium`. El contenido es Markdown (whitelist
+/// de sintaxis en el render, nunca HTML crudo del tenant).
+model BlogPost {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  /// Slug único por tenant para la URL pública (`/s/<slug>/blog/<postSlug>`).
+  slug             String
+  title            String
+  /// Resumen corto (listado del blog + `description` por defecto si no hay `seoDescription`).
+  excerpt          String?
+  contentMarkdown  String    @map("content_markdown")
+  /// Key de objeto MinIO (bucket público) de la imagen de portada.
+  coverImageKey    String?   @map("cover_image_key")
+  /// Overrides opcionales de `<title>`/meta description; si no, se derivan del título/excerpt.
+  seoTitle         String?   @map("seo_title")
+  seoDescription   String?   @map("seo_description")
+  isPublished      Boolean   @default(false) @map("is_published")
+  publishedAt      DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isPublished, publishedAt])
+  @@map("blog_posts")
 }
 
 /// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la

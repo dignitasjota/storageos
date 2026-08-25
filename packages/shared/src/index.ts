@@ -41,6 +41,7 @@ export * from './rent-increases';
 export * from './insurance';
 export * from './portal';
 export * from './faq';
+export * from './blog';
 export * from './sepa';
 export * from './bank-reconciliation';
 export * from './ai';

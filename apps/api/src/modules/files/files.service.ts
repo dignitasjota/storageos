@@ -195,6 +195,12 @@ export class FilesService implements OnModuleInit {
     return `${tenantId}/${facilityId}/images/${randomUUID()}.${ext}`;
   }
 
+  /** Genera una key única para la portada de una entrada de blog (landing pública). */
+  buildBlogCoverImageKey(tenantId: string, postId: string, mimeType: string): string {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
+    return `${tenantId}/blog/${postId}/${randomUUID()}.${ext}`;
+  }
+
   /** Genera una key para documentos del cliente. */
   buildCustomerDocumentKey(
     tenantId: string,

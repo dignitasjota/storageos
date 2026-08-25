@@ -25,6 +25,7 @@ interface NavTab {
     | 'web'
     | 'contractTemplate'
     | 'faq'
+    | 'blog'
     | 'integrations'
     | 'audit';
   /**
@@ -51,6 +52,7 @@ const TABS: NavTab[] = [
     permission: 'settings:manage',
   },
   { href: '/settings/faq', labelKey: 'faq', permission: 'settings:manage' },
+  { href: '/settings/blog', labelKey: 'blog', permission: 'settings:manage' },
   { href: '/settings/integrations', labelKey: 'integrations', permission: 'integrations:manage' },
   { href: '/settings/audit', labelKey: 'audit', permission: 'settings:manage' },
 ];
