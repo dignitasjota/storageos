@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { LanguageSwitcher } from './i18n/language-switcher';
+import { blogHref } from './i18n/messages';
 
 import type { PublicWebLocale } from './i18n/messages';
 import type { ReactNode } from 'react';
@@ -29,12 +30,15 @@ export function TenantWebChrome({
   data,
   locale,
   facilitySlug,
+  hasBlog,
   languageHrefBuilder,
   children,
 }: {
   data: TenantBrand;
   locale: PublicWebLocale;
   facilitySlug?: string;
+  /** Muestra el enlace "Blog" en la cabecera (el tenant tiene entradas publicadas). */
+  hasBlog?: boolean;
   /** Fuera de `/s/[slug]` (reserva, firma) para que el selector de idioma
    *  se quede en la misma página en vez de saltar a la landing. */
   languageHrefBuilder?: (locale: PublicWebLocale) => string;
@@ -42,6 +46,7 @@ export function TenantWebChrome({
 }) {
   const t = useTranslations('publicWeb.chrome');
   const tCommon = useTranslations('publicWeb.common');
+  const tBlog = useTranslations('publicWeb.blog');
   const brand = data.brandColor ?? '#2563EB';
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const year = new Date().getUTCFullYear();
@@ -64,6 +69,14 @@ export function TenantWebChrome({
             )}
           </div>
           <div className="flex items-center gap-2">
+            {hasBlog && (
+              <Link
+                href={blogHref(data.tenantSlug, locale)}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {tBlog('title')}
+              </Link>
+            )}
             <LanguageSwitcher
               tenantSlug={data.tenantSlug}
               facilitySlug={facilitySlug}

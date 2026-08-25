@@ -30,6 +30,20 @@ describe('resolveCustomDomainRoute', () => {
     });
   });
 
+  it('/blog (un segmento) → reescribe al listado del blog', () => {
+    expect(resolveCustomDomainRoute('/blog', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/blog',
+    });
+  });
+
+  it('/blog/<postSlug> (dos segmentos) → reescribe a la entrada del blog', () => {
+    expect(resolveCustomDomainRoute('/blog/como-organizar-tu-trastero', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/blog/como-organizar-tu-trastero',
+    });
+  });
+
   it('rutas públicas del inquilino pasan tal cual', () => {
     for (const p of ['/portal', '/portal/consume', '/sign/abc', '/pay/redsys/ok', '/review/tok']) {
       expect(resolveCustomDomainRoute(p, SLUG)).toEqual({ action: 'next' });

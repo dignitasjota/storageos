@@ -230,7 +230,7 @@ function FacilityBody({
   const jsonLd = buildFacilityJsonLd(data, slug, facilitySlug, locale);
 
   return (
-    <TenantWebChrome data={data} locale={locale} facilitySlug={facilitySlug}>
+    <TenantWebChrome data={data} locale={locale} facilitySlug={facilitySlug} hasBlog={data.hasBlog}>
       <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
         <script
           type="application/ld+json"

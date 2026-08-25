@@ -219,6 +219,8 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(res.body.facility.name).toBe('Local Norte');
     expect(res.body.facility.publicSlug).toBe('local-norte');
     expect(res.body.facility.unitTypes.length).toBeGreaterThanOrEqual(1);
+    // Sin entradas de blog publicadas -> false (controla el enlace "Blog" del nav).
+    expect(res.body.hasBlog).toBe(false);
 
     const missing = await request(app.getHttpServer()).get(
       `/public/landing/${owner.slug}/no-existe`,

@@ -4,7 +4,11 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { bookHref as buildBookHref, type PublicWebLocale } from './i18n/messages';
+import {
+  blogHref as buildBlogHref,
+  bookHref as buildBookHref,
+  type PublicWebLocale,
+} from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
 import {
@@ -111,6 +115,7 @@ export function OnePageTemplate({
   const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const bookHref = buildBookHref(data.tenantSlug, locale);
+  const blogHref = data.hasBlog ? buildBlogHref(data.tenantSlug, locale) : undefined;
   const types = distinctUnitTypes(data);
   const defaultFaqs = t.raw('faqs') as FaqItem[];
   const faqs = data.faqs.length > 0 ? data.faqs : defaultFaqs;
@@ -148,6 +153,7 @@ export function OnePageTemplate({
         tenantName={data.tenantName}
         logoUrl={data.logoUrl}
         portalHref={portalHref}
+        blogHref={blogHref}
       />
 
       {/* Hero */}

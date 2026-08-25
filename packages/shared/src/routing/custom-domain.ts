@@ -104,10 +104,16 @@ export function resolveCustomDomainRoute(
     return { action: 'rewrite', path: `/s/${slug}` };
   }
 
-  // Un único segmento (p. ej. `/local-norte`) → página del local del tenant.
+  // Un único segmento (p. ej. `/local-norte`, o `/blog`) → página del local
+  // del tenant o el listado del blog.
   const segments = pathname.split('/').filter(Boolean);
   if (segments.length === 1) {
     return { action: 'rewrite', path: `/s/${slug}/${segments[0]}` };
+  }
+
+  // Entrada del blog (`/blog/<postSlug>`, dos segmentos).
+  if (segments.length === 2 && segments[0] === 'blog') {
+    return { action: 'rewrite', path: `/s/${slug}/blog/${segments[1]}` };
   }
 
   // Cualquier otra cosa: pasa tal cual (Next resolverá o dará 404).

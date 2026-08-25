@@ -98,16 +98,22 @@ export async function buildBlogListMetadata(
 }
 
 /**
- * `hreflang` de la entrada — SIEMPRE hacia la ruta de la plataforma
- * (`/s/<slug>/blog/<postSlug>`), nunca al dominio propio: el proxy de
- * dominio propio solo reescribe rutas de un segmento, así que `/blog/<post>`
- * (2 segmentos) todavía no resuelve ahí (pendiente de una regla dedicada).
+ * `hreflang` de la entrada, absolutos si hay dominio propio verificado (el
+ * proxy de dominio propio reescribe `/blog/<postSlug>` — 2 segmentos).
  */
-function postLanguageAlternates(slug: string, postSlug: string): Record<string, string> {
-  const base = `/s/${slug}/blog/${postSlug}`;
+function postLanguageAlternates(
+  data: Pick<PublicBlogPostDto, 'customDomain'>,
+  slug: string,
+  postSlug: string,
+): Record<string, string> {
+  const base = data.customDomain
+    ? `https://${data.customDomain}/blog/${postSlug}`
+    : `/s/${slug}/blog/${postSlug}`;
   return {
     es: base,
-    en: `/s/${slug}/l/en/blog/${postSlug}`,
+    en: data.customDomain
+      ? `https://${data.customDomain}/l/en/blog/${postSlug}`
+      : `/s/${slug}/l/en/blog/${postSlug}`,
     'x-default': base,
   };
 }
@@ -127,12 +133,19 @@ export async function buildBlogPostMetadata(
   const p = data.post;
   const title = p.seoTitle || `${p.title} · ${data.tenantName}`;
   const description = p.seoDescription || p.excerpt || `${p.title} · ${data.tenantName}`;
-  const base = `/s/${slug}/blog/${postSlug}`;
-  const canonical = locale === 'en' ? `/s/${slug}/l/en/blog/${postSlug}` : base;
+  const base = data.customDomain
+    ? `https://${data.customDomain}/blog/${postSlug}`
+    : `/s/${slug}/blog/${postSlug}`;
+  const canonical =
+    locale === 'en'
+      ? data.customDomain
+        ? `https://${data.customDomain}/l/en/blog/${postSlug}`
+        : `/s/${slug}/l/en/blog/${postSlug}`
+      : base;
   return {
     title,
     description,
-    alternates: { canonical, languages: postLanguageAlternates(slug, postSlug) },
+    alternates: { canonical, languages: postLanguageAlternates(data, slug, postSlug) },
     robots: { index: true, follow: true },
     openGraph: {
       title,
@@ -154,7 +167,7 @@ export async function buildBlogPostMetadata(
 
 /** `BlogPosting` + `BreadcrumbList` de la entrada. */
 function buildBlogPostJsonLd(data: PublicBlogPostDto, slug: string, locale: PublicWebLocale) {
-  const tenantBase = `${siteUrl()}/s/${slug}`;
+  const tenantBase = data.customDomain ? `https://${data.customDomain}` : `${siteUrl()}/s/${slug}`;
   const orgId = `${tenantBase}/#organization`;
   const pageUrl = `${tenantBase}/blog/${data.post.slug}`;
 
@@ -198,7 +211,12 @@ function BlogListBody({
   const t = useTranslations('publicWeb.blog');
   const intlLocale = intlLocaleFor(locale);
   return (
-    <TenantWebChrome data={data} locale={locale} languageHrefBuilder={(l) => blogHref(slug, l)}>
+    <TenantWebChrome
+      data={data}
+      locale={locale}
+      hasBlog
+      languageHrefBuilder={(l) => blogHref(slug, l)}
+    >
       <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('title')}</h1>
         <p className="mt-2 text-muted-foreground">
@@ -274,6 +292,7 @@ function BlogPostBody({
     <TenantWebChrome
       data={data}
       locale={locale}
+      hasBlog
       languageHrefBuilder={(l) => blogPostHref(slug, postSlug, l)}
     >
       <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">

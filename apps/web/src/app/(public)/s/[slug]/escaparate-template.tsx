@@ -16,7 +16,11 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { bookHref as buildBookHref, type PublicWebLocale } from './i18n/messages';
+import {
+  blogHref as buildBlogHref,
+  bookHref as buildBookHref,
+  type PublicWebLocale,
+} from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
 import { StorageCalculator } from './storage-calculator';
 import {
@@ -66,6 +70,7 @@ export function EscaparateTemplate({
   const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const bookHref = buildBookHref(data.tenantSlug, locale);
+  const blogHref = data.hasBlog ? buildBlogHref(data.tenantSlug, locale) : undefined;
   const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
   const hasReviews = data.testimonials.length > 0;
 
@@ -120,6 +125,7 @@ export function EscaparateTemplate({
         tenantName={data.tenantName}
         logoUrl={data.logoUrl}
         portalHref={portalHref}
+        blogHref={blogHref}
       />
 
       {/* Hero moderado con imagen de fondo (o gradiente de marca si no hay) */}
