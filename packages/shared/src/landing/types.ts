@@ -102,11 +102,54 @@ export interface PublicFacilityLandingDto {
   facility: PublicLandingFacilityDto;
 }
 
+/** Entrada del blog en el listado público (`/s/<slug>/blog`). */
+export interface PublicBlogPostSummaryDto {
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  coverImageUrl: string | null;
+  publishedAt: string;
+}
+
+/** Listado de entradas publicadas del blog de un tenant (feature `web_premium`). */
+export interface PublicBlogListDto {
+  tenantName: string;
+  tenantSlug: string;
+  brandColor: string | null;
+  logoUrl: string | null;
+  customDomain: string | null;
+  posts: PublicBlogPostSummaryDto[];
+}
+
+/** Contenido completo de una entrada de blog (`/s/<slug>/blog/<postSlug>`). */
+export interface PublicBlogPostContentDto {
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  contentMarkdown: string;
+  coverImageUrl: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  publishedAt: string;
+  updatedAt: string;
+}
+
+export interface PublicBlogPostDto {
+  tenantName: string;
+  tenantSlug: string;
+  brandColor: string | null;
+  logoUrl: string | null;
+  customDomain: string | null;
+  post: PublicBlogPostContentDto;
+}
+
 /** Entradas del sitemap público (para `app/sitemap.ts`). */
 export interface PublicSitemapEntryDto {
   tenantSlug: string;
   updatedAt: string;
   facilitySlugs: string[];
+  /** Slugs de las entradas de blog publicadas (`/s/<slug>/blog/<postSlug>`). */
+  blogPostSlugs: string[];
 }
 export interface PublicSitemapDto {
   entries: PublicSitemapEntryDto[];

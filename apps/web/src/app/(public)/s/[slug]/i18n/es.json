@@ -272,6 +272,14 @@
       "redsysUnavailable": "Redsys no está disponible.",
       "paymentFailed": "El pago no se pudo completar. Inténtalo de nuevo.",
       "paymentSuccessToast": "Pago realizado. ¡Gracias!"
+    },
+    "blog": {
+      "title": "Blog",
+      "subtitle": "Consejos y novedades de {tenantName}.",
+      "empty": "Todavía no hay entradas publicadas.",
+      "readMore": "Leer más",
+      "backToBlog": "Volver al blog",
+      "publishedOn": "Publicado el {date}"
     }
   }
 }

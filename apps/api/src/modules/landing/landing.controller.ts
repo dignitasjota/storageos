@@ -11,6 +11,8 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   ExternalSiteDto,
   LeadDto,
+  PublicBlogListDto,
+  PublicBlogPostDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicSitemapDto,
@@ -87,6 +89,26 @@ export class LandingController {
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   externalSite(@Param('slug') slug: string): Promise<ExternalSiteDto> {
     return this.landing.getExternalSite(slug);
+  }
+
+  /**
+   * Blog del tenant (feature `web_premium`), ligero (lista sin el contenido
+   * completo) — declarado antes de `:slug/:facilitySlug` para que ese param
+   * dinámico no capture el segmento literal `blog`.
+   */
+  @Get(':slug/blog')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  blogList(@Param('slug') slug: string): Promise<PublicBlogListDto> {
+    return this.landing.listBlogPosts(slug);
+  }
+
+  @Get(':slug/blog/:postSlug')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  blogPost(
+    @Param('slug') slug: string,
+    @Param('postSlug') postSlug: string,
+  ): Promise<PublicBlogPostDto> {
+    return this.landing.getBlogPost(slug, postSlug);
   }
 
   @Get(':slug/:facilitySlug')

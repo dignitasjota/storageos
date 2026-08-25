@@ -57,3 +57,24 @@ export function signHref(token: string, locale: PublicWebLocale): string {
     ? `/sign/${encoded}`
     : `/sign/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
 }
+
+/** URL del listado del blog del tenant, respetando el idioma actual. */
+export function blogHref(tenantSlug: string, locale: PublicWebLocale): string {
+  const encoded = encodeURIComponent(tenantSlug);
+  return locale === DEFAULT_PUBLIC_WEB_LOCALE
+    ? `/s/${encoded}/blog`
+    : `/s/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog`;
+}
+
+/** URL de una entrada del blog del tenant, respetando el idioma actual. */
+export function blogPostHref(
+  tenantSlug: string,
+  postSlug: string,
+  locale: PublicWebLocale,
+): string {
+  const encodedTenant = encodeURIComponent(tenantSlug);
+  const encodedPost = encodeURIComponent(postSlug);
+  return locale === DEFAULT_PUBLIC_WEB_LOCALE
+    ? `/s/${encodedTenant}/blog/${encodedPost}`
+    : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog/${encodedPost}`;
+}
