@@ -11,7 +11,7 @@ import {
   type PublicWebLocale,
 } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
-import { FacilityMeta, UnitTypeList } from '../templates';
+import { FacilityMeta, priceRangeString, UnitTypeList } from '../templates';
 import { TenantWebChrome } from '../tenant-web-chrome';
 
 import type { PublicFacilityLandingDto } from '@storageos/shared';
@@ -73,6 +73,7 @@ export function buildFacilityJsonLd(
     inLanguage: intlLocaleFor(locale),
   };
 
+  const priceRange = priceRangeString(f.unitTypes, locale);
   const selfStorage = {
     '@type': 'SelfStorage',
     '@id': `${pageUrl}#local`,
@@ -92,6 +93,7 @@ export function buildFacilityJsonLd(
       : {}),
     ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
     ...(f.contactEmail ? { email: f.contactEmail } : {}),
+    ...(priceRange ? { priceRange } : {}),
   };
 
   const breadcrumb = {
@@ -230,7 +232,13 @@ function FacilityBody({
   const jsonLd = buildFacilityJsonLd(data, slug, facilitySlug, locale);
 
   return (
-    <TenantWebChrome data={data} locale={locale} facilitySlug={facilitySlug} hasBlog={data.hasBlog}>
+    <TenantWebChrome
+      data={data}
+      locale={locale}
+      facilitySlug={facilitySlug}
+      hasBlog={data.hasBlog}
+      googleAnalyticsId={data.googleAnalyticsId}
+    >
       <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
         <script
           type="application/ld+json"

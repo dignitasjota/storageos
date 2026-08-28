@@ -266,12 +266,16 @@ export class TenantSettingsService {
     portalLogoUrl: string | null;
     customDomain: string | null;
     customDomainVerifiedAt: Date | null;
+    googleSiteVerification: string | null;
+    googleAnalyticsId: string | null;
   }): TenantBrandingResponse {
     return {
       portalBrandColor: tenant.portalBrandColor,
       portalLogoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomain,
       customDomainVerifiedAt: tenant.customDomainVerifiedAt?.toISOString() ?? null,
+      googleSiteVerification: tenant.googleSiteVerification,
+      googleAnalyticsId: tenant.googleAnalyticsId,
     };
   }
 
@@ -310,6 +314,10 @@ export class TenantSettingsService {
     if (input.portalBrandColor !== undefined)
       data.portalBrandColor = input.portalBrandColor || null;
     if (input.portalLogoUrl !== undefined) data.portalLogoUrl = input.portalLogoUrl || null;
+    if (input.googleSiteVerification !== undefined)
+      data.googleSiteVerification = input.googleSiteVerification || null;
+    if (input.googleAnalyticsId !== undefined)
+      data.googleAnalyticsId = input.googleAnalyticsId || null;
 
     if (input.customDomain !== undefined) {
       const domain = input.customDomain.trim().toLowerCase();

@@ -257,6 +257,15 @@ export const UpdateTenantBrandingSchema = z.object({
     .regex(HOSTNAME_REGEX, 'Dominio no válido (p. ej. trasteros.com)')
     .optional()
     .or(z.literal('')),
+  /** Contenido de la meta tag de verificación de Google Search Console; '' la quita. */
+  googleSiteVerification: z.string().trim().max(255).optional().or(z.literal('')),
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`); '' lo quita. */
+  googleAnalyticsId: z
+    .string()
+    .trim()
+    .regex(/^G-[A-Za-z0-9]{4,}$/, 'Formato G-XXXXXXXXXX')
+    .optional()
+    .or(z.literal('')),
 });
 export type UpdateTenantBrandingInput = z.infer<typeof UpdateTenantBrandingSchema>;
 

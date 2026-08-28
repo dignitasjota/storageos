@@ -215,6 +215,7 @@ function BlogListBody({
       data={data}
       locale={locale}
       hasBlog
+      googleAnalyticsId={data.googleAnalyticsId}
       languageHrefBuilder={(l) => blogHref(slug, l)}
     >
       <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
@@ -293,6 +294,7 @@ function BlogPostBody({
       data={data}
       locale={locale}
       hasBlog
+      googleAnalyticsId={data.googleAnalyticsId}
       languageHrefBuilder={(l) => blogPostHref(slug, postSlug, l)}
     >
       <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">

@@ -4,7 +4,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { EscaparateTemplate } from './escaparate-template';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { OnePageTemplate } from './onepage-template';
-import { LandingTemplate } from './templates';
+import { LandingTemplate, priceRangeString } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
 
 import type { PublicLandingDto } from '@storageos/shared';
@@ -98,26 +98,30 @@ export function buildLandingJsonLd(data: PublicLandingDto, slug: string, locale:
     inLanguage: intlLocaleFor(locale),
   };
 
-  const selfStorages = data.facilities.map((f) => ({
-    '@type': 'SelfStorage',
-    '@id': `${base}${f.publicSlug ? `/${f.publicSlug}` : ''}#local-${f.id}`,
-    name: `${data.tenantName} — ${f.name}`,
-    parentOrganization: { '@id': orgId },
-    ...(f.imageUrls.length > 0 ? { image: f.imageUrls } : {}),
-    ...(f.address || f.city
-      ? {
-          address: {
-            '@type': 'PostalAddress',
-            ...(f.address ? { streetAddress: f.address } : {}),
-            ...(f.city ? { addressLocality: f.city } : {}),
-            ...(f.postalCode ? { postalCode: f.postalCode } : {}),
-            addressCountry: 'ES',
-          },
-        }
-      : {}),
-    ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
-    ...(f.contactEmail ? { email: f.contactEmail } : {}),
-  }));
+  const selfStorages = data.facilities.map((f) => {
+    const priceRange = priceRangeString(f.unitTypes, locale);
+    return {
+      '@type': 'SelfStorage',
+      '@id': `${base}${f.publicSlug ? `/${f.publicSlug}` : ''}#local-${f.id}`,
+      name: `${data.tenantName} — ${f.name}`,
+      parentOrganization: { '@id': orgId },
+      ...(f.imageUrls.length > 0 ? { image: f.imageUrls } : {}),
+      ...(f.address || f.city
+        ? {
+            address: {
+              '@type': 'PostalAddress',
+              ...(f.address ? { streetAddress: f.address } : {}),
+              ...(f.city ? { addressLocality: f.city } : {}),
+              ...(f.postalCode ? { postalCode: f.postalCode } : {}),
+              addressCountry: 'ES',
+            },
+          }
+        : {}),
+      ...(f.contactPhone ? { telephone: f.contactPhone } : {}),
+      ...(f.contactEmail ? { email: f.contactEmail } : {}),
+      ...(priceRange ? { priceRange } : {}),
+    };
+  });
 
   const faqPage =
     data.faqs.length > 0
@@ -185,6 +189,11 @@ export async function buildLandingMetadata(
     description,
     alternates: { canonical, languages: languageAlternates(data, slug) },
     robots: { index: true, follow: true },
+    // Solo en el homepage de la propiedad (esta ruta) — es lo que exige el
+    // método "Etiqueta HTML" de Google Search Console.
+    ...(data.googleSiteVerification
+      ? { verification: { google: data.googleSiteVerification } }
+      : {}),
     // La imagen se inyecta sola desde `opengraph-image.tsx` de este segmento
     // (convención de Next) — dinámica por tenant (logo/color/nombre propios).
     openGraph: {
@@ -235,7 +244,12 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
         // Plantilla «escaparate» multisección: también autocontenida.
         <EscaparateTemplate data={data} locale={locale} />
       ) : (
-        <TenantWebChrome data={data} locale={locale} hasBlog={data.hasBlog}>
+        <TenantWebChrome
+          data={data}
+          locale={locale}
+          hasBlog={data.hasBlog}
+          googleAnalyticsId={data.googleAnalyticsId}
+        >
           <LandingTemplate data={data} locale={locale} />
         </TenantWebChrome>
       )}

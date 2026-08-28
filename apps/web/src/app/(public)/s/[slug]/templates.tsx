@@ -23,6 +23,24 @@ export function cities(data: PublicLandingDto): string {
   return set.join(', ');
 }
 
+/**
+ * Rango de precio (IVA incl.) para la propiedad `priceRange` del JSON-LD
+ * `LocalBusiness`/`SelfStorage` — ayuda a Google a mostrar el nivel de precio
+ * en resultados/Maps. `null` si no hay tipos de trastero.
+ */
+export function priceRangeString(
+  unitTypes: { priceMonthly: number }[],
+  locale: PublicWebLocale,
+): string | null {
+  if (unitTypes.length === 0) return null;
+  const prices = unitTypes.map((t) => t.priceMonthly * 1.21);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  return min === max
+    ? formatPrice(min, locale)
+    : `${formatPrice(min, locale)}–${formatPrice(max, locale)}`;
+}
+
 interface TplProps {
   data: PublicLandingDto;
   locale: PublicWebLocale;
