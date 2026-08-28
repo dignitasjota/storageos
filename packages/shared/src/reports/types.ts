@@ -322,3 +322,30 @@ export interface WebPerformanceDto {
   /** Desglose por fuente. */
   bySource: WebPerformanceSourceDto[];
 }
+
+/**
+ * Checklist de SEO on-page: agrega señales que ya existen en el producto
+ * (horario, fotos, FAQ, testimonios, blog…) en una vista única accionable.
+ * `base` aplica a cualquier tenant; `premium` solo es alcanzable con la
+ * feature `web_premium` (se muestra igualmente, gated en el frontend).
+ */
+export interface SeoChecklistItemDto {
+  id: string;
+  label: string;
+  /** Por qué importa para el SEO/conversión de la web pública. */
+  description: string;
+  done: boolean;
+  /** Detalle opcional, p. ej. "2 de 3 locales sin horario". */
+  detail: string | null;
+  /** Ruta del panel donde se arregla. */
+  href: string;
+}
+
+export interface SeoChecklistDto {
+  hasWebPremium: boolean;
+  base: SeoChecklistItemDto[];
+  /** Vacío (no null) si el tenant no tiene `web_premium` — el frontend muestra el upsell. */
+  premium: SeoChecklistItemDto[];
+  baseScore: { done: number; total: number };
+  premiumScore: { done: number; total: number };
+}

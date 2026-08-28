@@ -18,6 +18,7 @@ import type {
   ApplyUnitPricingResultDto,
   RevenueForecastDto,
   RevenueKpiDto,
+  SeoChecklistDto,
   SuggestedActionsDto,
 } from '@storageos/shared';
 
@@ -36,7 +37,8 @@ export const analyticsKey = (
     | 'unit-pricing-suggestions'
     | 'suggested-actions'
     | 'forecast'
-    | 'benchmark',
+    | 'benchmark'
+    | 'seo-checklist',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -127,6 +129,14 @@ export function useLeadsUtm(params: { from?: string; to?: string } = {}) {
   return useQuery({
     queryKey: analyticsKey('leads-utm', params as Record<string, string | undefined>),
     queryFn: () => apiFetch<LeadsUtmKpiDto>(`/analytics/leads-utm${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+export function useSeoChecklist() {
+  return useQuery({
+    queryKey: analyticsKey('seo-checklist'),
+    queryFn: () => apiFetch<SeoChecklistDto>('/analytics/seo-checklist'),
+    staleTime: 60_000,
   });
 }
 
