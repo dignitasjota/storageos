@@ -364,6 +364,12 @@ model Tenant {
   /// Copy editable de las secciones de las plantillas premium multisección
   /// (`onepage`/`escaparate`): heroSubtitle, services[], advantages[], steps[]. jsonb.
   webContent                   Json                  @default("{}") @map("web_content")
+  /// SEO técnico de la web pública (`/s/<slug>`), sin gating por `web_premium`
+  /// (es la base de cualquier plan): contenido de la etiqueta HTML de
+  /// verificación de Google Search Console + Measurement ID de Google
+  /// Analytics 4 (`G-XXXXXXX`) para medir tráfico. Ambos opcionales.
+  googleSiteVerification       String?               @map("google_site_verification")
+  googleAnalyticsId            String?               @map("google_analytics_id")
   /// Web «externa»: URL donde el tenant ya aloja su propia web (fuera de
   /// TrasterOS). Con `webTemplate='external'` y dominio propio verificado, se
   /// sirve vía proxy inverso bajo `customDomain` (nunca almacenamos su contenido).
@@ -1267,28 +1273,28 @@ model Expense {
 /// `shortCode` + `clickCount` sirven para un enlace corto/QR de campañas
 /// físicas (carteles, flyers) servido en `/g/<shortCode>`.
 model MarketingChannel {
-  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId       String    @map("tenant_id") @db.Uuid
-  facilityId     String?   @map("facility_id") @db.Uuid
-  promotionId    String?   @map("promotion_id") @db.Uuid
+  id                 String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  facilityId         String?   @map("facility_id") @db.Uuid
+  promotionId        String?   @map("promotion_id") @db.Uuid
   /// real_estate_portal | google_ads | meta_ads | physical | referral_program | other
-  type           String    @default("other")
-  name           String
+  type               String    @default("other")
+  name               String
   /// active | paused | ended
-  status         String    @default("active")
-  externalUrl    String?   @map("external_url")
-  monthlyCost    Decimal?  @map("monthly_cost") @db.Decimal(10, 2)
-  renewsOn       DateTime? @map("renews_on") @db.Date
-  utmSourceMatch String?   @map("utm_source_match")
+  status             String    @default("active")
+  externalUrl        String?   @map("external_url")
+  monthlyCost        Decimal?  @map("monthly_cost") @db.Decimal(10, 2)
+  renewsOn           DateTime? @map("renews_on") @db.Date
+  utmSourceMatch     String?   @map("utm_source_match")
   /// ID de campaña en Google Ads / Meta Ads (según `type`), para
   /// sincronizar su gasto automáticamente. Ver `AdSpendSyncService`.
-  externalCampaignId String? @map("external_campaign_id")
-  shortCode      String?   @unique @map("short_code")
-  clickCount     Int       @default(0) @map("click_count")
-  notes          String?
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  externalCampaignId String?   @map("external_campaign_id")
+  shortCode          String?   @unique @map("short_code")
+  clickCount         Int       @default(0) @map("click_count")
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility          Facility?          @relation(fields: [facilityId], references: [id], onDelete: SetNull)
@@ -3790,23 +3796,23 @@ model FaqEntry {
 /// (`/s/<slug>/blog`). Feature `web_premium`. El contenido es Markdown (whitelist
 /// de sintaxis en el render, nunca HTML crudo del tenant).
 model BlogPost {
-  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId         String    @map("tenant_id") @db.Uuid
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
   /// Slug único por tenant para la URL pública (`/s/<slug>/blog/<postSlug>`).
-  slug             String
-  title            String
+  slug            String
+  title           String
   /// Resumen corto (listado del blog + `description` por defecto si no hay `seoDescription`).
-  excerpt          String?
-  contentMarkdown  String    @map("content_markdown")
+  excerpt         String?
+  contentMarkdown String    @map("content_markdown")
   /// Key de objeto MinIO (bucket público) de la imagen de portada.
-  coverImageKey    String?   @map("cover_image_key")
+  coverImageKey   String?   @map("cover_image_key")
   /// Overrides opcionales de `<title>`/meta description; si no, se derivan del título/excerpt.
-  seoTitle         String?   @map("seo_title")
-  seoDescription   String?   @map("seo_description")
-  isPublished      Boolean   @default(false) @map("is_published")
-  publishedAt      DateTime? @map("published_at") @db.Timestamptz(6)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  seoTitle        String?   @map("seo_title")
+  seoDescription  String?   @map("seo_description")
+  isPublished     Boolean   @default(false) @map("is_published")
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 

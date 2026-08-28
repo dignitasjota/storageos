@@ -128,6 +128,8 @@ export class LandingService {
       logoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
       googleReviewUrl: tenant.googleReviewUrl,
+      googleSiteVerification: tenant.googleSiteVerification,
+      googleAnalyticsId: tenant.googleAnalyticsId,
       webTemplate,
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
       webAbout: hasWebPremium ? tenant.webAbout : null,
@@ -348,6 +350,7 @@ export class LandingService {
       logoUrl: full.logoUrl,
       customDomain: full.customDomain,
       hasBlog: full.hasBlog,
+      googleAnalyticsId: full.googleAnalyticsId,
       facility,
     };
   }
@@ -456,6 +459,7 @@ export class LandingService {
     brandColor: string | null;
     logoUrl: string | null;
     customDomain: string | null;
+    googleAnalyticsId: string | null;
   }> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
@@ -468,6 +472,7 @@ export class LandingService {
         portalLogoUrl: true,
         customDomain: true,
         customDomainVerifiedAt: true,
+        googleAnalyticsId: true,
       },
     });
     if (!tenant || tenant.deletedAt) {
@@ -483,6 +488,7 @@ export class LandingService {
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
       customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
+      googleAnalyticsId: tenant.googleAnalyticsId,
     };
   }
 
@@ -507,6 +513,7 @@ export class LandingService {
       brandColor: tenant.brandColor,
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
+      googleAnalyticsId: tenant.googleAnalyticsId,
       posts: rows.map((r) => ({
         slug: r.slug,
         title: r.title,
@@ -535,6 +542,7 @@ export class LandingService {
       brandColor: tenant.brandColor,
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
+      googleAnalyticsId: tenant.googleAnalyticsId,
       post: {
         slug: row.slug,
         title: row.title,

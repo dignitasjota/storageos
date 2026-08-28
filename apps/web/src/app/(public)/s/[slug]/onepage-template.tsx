@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
+import { GoogleAnalyticsScript } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   bookHref as buildBookHref,
@@ -147,6 +148,7 @@ export function OnePageTemplate({
 
   return (
     <div className="flex min-h-screen flex-col">
+      <GoogleAnalyticsScript measurementId={data.googleAnalyticsId} />
       <OnePageNav
         items={navItems}
         brand={brand}

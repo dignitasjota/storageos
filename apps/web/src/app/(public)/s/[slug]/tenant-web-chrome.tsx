@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
+import { GoogleAnalyticsScript } from './google-analytics';
 import { LanguageSwitcher } from './i18n/language-switcher';
 import { blogHref } from './i18n/messages';
 
@@ -31,6 +32,7 @@ export function TenantWebChrome({
   locale,
   facilitySlug,
   hasBlog,
+  googleAnalyticsId,
   languageHrefBuilder,
   children,
 }: {
@@ -39,6 +41,8 @@ export function TenantWebChrome({
   facilitySlug?: string;
   /** Muestra el enlace "Blog" en la cabecera (el tenant tiene entradas publicadas). */
   hasBlog?: boolean;
+  /** Measurement ID de Google Analytics 4, o null/undefined si no lo configuró. */
+  googleAnalyticsId?: string | null;
   /** Fuera de `/s/[slug]` (reserva, firma) para que el selector de idioma
    *  se quede en la misma página en vez de saltar a la landing. */
   languageHrefBuilder?: (locale: PublicWebLocale) => string;
@@ -53,6 +57,7 @@ export function TenantWebChrome({
 
   return (
     <div className="flex min-h-screen flex-col">
+      <GoogleAnalyticsScript measurementId={googleAnalyticsId ?? null} />
       <header className="border-b border-border/60">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2 font-semibold">

@@ -21,12 +21,16 @@ export default function BrandingSettingsPage() {
   const [color, setColor] = useState('#2563eb');
   const [logoUrl, setLogoUrl] = useState('');
   const [domain, setDomain] = useState('');
+  const [siteVerification, setSiteVerification] = useState('');
+  const [analyticsId, setAnalyticsId] = useState('');
 
   useEffect(() => {
     if (branding.data) {
       setColor(branding.data.portalBrandColor ?? '#2563eb');
       setLogoUrl(branding.data.portalLogoUrl ?? '');
       setDomain(branding.data.customDomain ?? '');
+      setSiteVerification(branding.data.googleSiteVerification ?? '');
+      setAnalyticsId(branding.data.googleAnalyticsId ?? '');
     }
   }, [branding.data]);
 
@@ -34,6 +38,18 @@ export default function BrandingSettingsPage() {
     try {
       await update.mutateAsync({ portalBrandColor: color, portalLogoUrl: logoUrl });
       toast.success('Marca del portal actualizada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  async function saveSeo() {
+    try {
+      await update.mutateAsync({
+        googleSiteVerification: siteVerification.trim(),
+        googleAnalyticsId: analyticsId.trim(),
+      });
+      toast.success('SEO técnico actualizado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
     }
@@ -116,6 +132,47 @@ export default function BrandingSettingsPage() {
           )}
 
           <Button onClick={saveBranding} disabled={update.isPending}>
+            {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            Guardar
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>SEO técnico (Google)</CardTitle>
+          <CardDescription>
+            Conecta tu web pública a las herramientas gratuitas de Google. Disponible en cualquier
+            plan.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1">
+            <Label>Verificación de Google Search Console</Label>
+            <Input
+              value={siteVerification}
+              onChange={(e) => setSiteVerification(e.target.value)}
+              placeholder="Contenido de la etiqueta meta (sin el HTML)"
+              className="font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              En Search Console, elige el método &quot;Etiqueta HTML&quot; y pega aquí solo el valor
+              de <code>content=&quot;...&quot;</code>.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label>ID de medición de Google Analytics 4</Label>
+            <Input
+              value={analyticsId}
+              onChange={(e) => setAnalyticsId(e.target.value)}
+              placeholder="G-XXXXXXXXXX"
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              Lo encuentras en Analytics → Administrador → Flujos de datos → tu web.
+            </p>
+          </div>
+          <Button onClick={saveSeo} disabled={update.isPending}>
             {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Guardar
           </Button>

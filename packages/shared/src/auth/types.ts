@@ -176,6 +176,10 @@ export interface TenantBrandingResponse {
   customDomain: string | null;
   /** null = pendiente de activación por el super admin; ISO = activo. */
   customDomainVerifiedAt: string | null;
+  /** Contenido de la meta tag de verificación de Google Search Console, o null. */
+  googleSiteVerification: string | null;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
 }
 
 export interface TenantAccessSettingsResponse {

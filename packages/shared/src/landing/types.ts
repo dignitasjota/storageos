@@ -47,6 +47,10 @@ export interface PublicLandingDto {
   customDomain: string | null;
   /** Enlace a las reseñas de Google del negocio (insignia de confianza), o null. */
   googleReviewUrl: string | null;
+  /** Contenido de la meta tag de verificación de Google Search Console, o null. */
+  googleSiteVerification: string | null;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
   /**
    * Web Premium: plantilla de diseño (`default`/`modern`/`industrial`) + textos
    * personalizados. Sin la feature `web_premium`, el backend fuerza `default` y
@@ -102,6 +106,8 @@ export interface PublicFacilityLandingDto {
   logoUrl: string | null;
   customDomain: string | null;
   hasBlog: boolean;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
   facility: PublicLandingFacilityDto;
 }
 
@@ -121,6 +127,8 @@ export interface PublicBlogListDto {
   brandColor: string | null;
   logoUrl: string | null;
   customDomain: string | null;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
   posts: PublicBlogPostSummaryDto[];
 }
 
@@ -143,6 +151,8 @@ export interface PublicBlogPostDto {
   brandColor: string | null;
   logoUrl: string | null;
   customDomain: string | null;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
   post: PublicBlogPostContentDto;
 }
 
