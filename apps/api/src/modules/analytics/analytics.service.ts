@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
 
 import { resolveFacilityFilter } from '../../common/facility-scope';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -13,6 +15,9 @@ import type {
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
   RevenueKpiDto,
+  SeoChecklistDto,
+  SeoChecklistItemDto,
+  TenantFeature,
   WebPerformanceDto,
 } from '@storageos/shared';
 
@@ -122,7 +127,10 @@ function bucketForDaysOverdue(days: number): AgingBucketRange {
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // 1. Ocupacion
@@ -691,5 +699,190 @@ export class AnalyticsService {
         avgCustomerLtv: Math.round(avgCustomerLtv * 100) / 100,
       };
     }, tenantId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4d. Checklist de SEO on-page: agrega señales ya existentes en una vista
+  // única accionable. No es gated por `web_premium` — los tenants base ven
+  // sus 5 checks alcanzables + un upsell si aún no tienen la feature.
+  // ---------------------------------------------------------------------------
+
+  private async hasWebPremium(tenantId: string): Promise<boolean> {
+    const [subscription, overrides] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { slug: true, tenantFeatures: true } } },
+      }),
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId },
+        select: { feature: true, enabled: true },
+      }),
+    ]);
+    const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
+    const features = effectiveFeaturesFromList(
+      base,
+      overrides as { feature: TenantFeature; enabled: boolean }[],
+    );
+    return features.includes('web_premium');
+  }
+
+  async getSeoChecklist(tenantId: string): Promise<SeoChecklistDto> {
+    const [hasWebPremium, tenant, facilities, faqCount, testimonialCount, blogCount] =
+      await Promise.all([
+        this.hasWebPremium(tenantId),
+        this.admin.tenant.findUnique({
+          where: { id: tenantId },
+          select: { webHeadline: true, webSections: true, googleReviewUrl: true },
+        }),
+        this.prisma.withTenant(
+          (tx) =>
+            tx.facility.findMany({
+              where: { tenantId, deletedAt: null, isActive: true },
+              select: {
+                openingHours: true,
+                images: true,
+                address: true,
+                latitude: true,
+                contactPhone: true,
+              },
+            }),
+          tenantId,
+        ),
+        this.prisma.withTenant(
+          (tx) => tx.faqEntry.count({ where: { tenantId, isPublished: true } }),
+          tenantId,
+        ),
+        this.prisma.withTenant(
+          (tx) =>
+            tx.review.count({
+              where: {
+                tenantId,
+                status: 'submitted',
+                npsScore: { gte: 9 },
+                comment: { not: null },
+              },
+            }),
+          tenantId,
+        ),
+        this.prisma.withTenant(
+          (tx) => tx.blogPost.count({ where: { tenantId, isPublished: true } }),
+          tenantId,
+        ),
+      ]);
+
+    const facilityCount = facilities.length;
+    const withoutHours = facilities.filter(
+      (f) => !Object.values((f.openingHours as Record<string, unknown>) ?? {}).some(Boolean),
+    ).length;
+    const withoutImages = facilities.filter((f) => f.images.length === 0).length;
+    const withoutAddress = facilities.filter((f) => !f.address && f.latitude == null).length;
+    const withoutPhone = facilities.filter((f) => !f.contactPhone).length;
+
+    const perFacilityDetail = (missing: number): string | null => {
+      if (facilityCount === 0) return 'Añade tu primer local';
+      if (missing === 0) return null;
+      return `${missing} de ${facilityCount} locales sin completar`;
+    };
+
+    const base: SeoChecklistItemDto[] = [
+      {
+        id: 'opening_hours',
+        label: 'Horario de apertura configurado',
+        description: 'Muestra "Abierto ahora" en la web y evita horarios ambiguos en Google.',
+        done: facilityCount > 0 && withoutHours === 0,
+        detail: perFacilityDetail(withoutHours),
+        href: '/facilities',
+      },
+      {
+        id: 'facility_images',
+        label: 'Fotos del local subidas',
+        description:
+          'Las páginas con fotos reales convierten más y refuerzan el SelfStorage schema.',
+        done: facilityCount > 0 && withoutImages === 0,
+        detail: perFacilityDetail(withoutImages),
+        href: '/facilities',
+      },
+      {
+        id: 'facility_address',
+        label: 'Dirección o coordenadas del local',
+        description: 'Necesario para el mapa embebido y para el SEO local (NAP consistency).',
+        done: facilityCount > 0 && withoutAddress === 0,
+        detail: perFacilityDetail(withoutAddress),
+        href: '/facilities',
+      },
+      {
+        id: 'facility_contact',
+        label: 'Teléfono de contacto',
+        description:
+          'Activa el botón de WhatsApp y es obligatorio para un negocio local de confianza.',
+        done: facilityCount > 0 && withoutPhone === 0,
+        detail: perFacilityDetail(withoutPhone),
+        href: '/facilities',
+      },
+      {
+        id: 'google_review_link',
+        label: 'Enlace a reseñas de Google',
+        description: 'Muestra la insignia de reseñas en la web pública (confianza + SEO local).',
+        done: !!tenant?.googleReviewUrl,
+        detail: null,
+        href: '/reviews',
+      },
+    ];
+
+    const premium: SeoChecklistItemDto[] = [
+      {
+        id: 'custom_headline',
+        label: 'Titular propio de la web',
+        description: 'Sustituye el titular genérico por uno que describa tu negocio y tu zona.',
+        done: !!tenant?.webHeadline?.trim(),
+        detail: null,
+        href: '/settings/web',
+      },
+      {
+        id: 'faq_published',
+        label: 'Preguntas frecuentes publicadas',
+        description:
+          'Alimenta el JSON-LD FAQPage: puede generar resultados enriquecidos en Google.',
+        done: faqCount > 0,
+        detail: null,
+        href: '/settings/faq',
+      },
+      {
+        id: 'testimonials_section',
+        label: 'Sección de testimonios activa y con contenido',
+        description:
+          'Reseñas reales (NPS≥9) alimentan el AggregateRating del schema de tu negocio.',
+        done:
+          !!(tenant?.webSections as { testimonials?: boolean } | null)?.testimonials &&
+          testimonialCount > 0,
+        detail: null,
+        href: '/settings/web',
+      },
+      {
+        id: 'contact_form',
+        label: 'Formulario de contacto activo',
+        description: 'Captura leads de quien no reserva a la primera.',
+        done: !!(tenant?.webSections as { contact?: boolean } | null)?.contact,
+        detail: null,
+        href: '/settings/web',
+      },
+      {
+        id: 'blog_active',
+        label: 'Al menos una entrada de blog publicada',
+        description:
+          'Contenido propio indexable — la principal palanca de tráfico orgánico a medio plazo.',
+        done: blogCount > 0,
+        detail: null,
+        href: '/settings/blog',
+      },
+    ];
+
+    return {
+      hasWebPremium,
+      base,
+      premium,
+      baseScore: { done: base.filter((i) => i.done).length, total: base.length },
+      premiumScore: { done: premium.filter((i) => i.done).length, total: premium.length },
+    };
   }
 }

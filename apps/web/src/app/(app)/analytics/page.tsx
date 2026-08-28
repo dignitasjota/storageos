@@ -1,6 +1,7 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { CheckCircle2, CircleDashed, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import {
   Area,
@@ -21,7 +22,12 @@ import { toast } from 'sonner';
 
 import { UnitPricingPanel } from './unit-pricing-panel';
 
-import type { BenchmarkMetricDto, ChurnRiskLevel, PricingAction } from '@storageos/shared';
+import type {
+  BenchmarkMetricDto,
+  ChurnRiskLevel,
+  PricingAction,
+  SeoChecklistItemDto,
+} from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,6 +61,7 @@ import {
   useOccupancy,
   usePricingSuggestions,
   useRevenueForecast,
+  useSeoChecklist,
 } from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
@@ -89,6 +96,7 @@ export default function AnalyticsPage() {
           <TabsTrigger value="pricing">Precios</TabsTrigger>
           <TabsTrigger value="forecast">Previsión</TabsTrigger>
           <TabsTrigger value="market">Mercado</TabsTrigger>
+          <TabsTrigger value="seo">SEO</TabsTrigger>
         </TabsList>
         <TabsContent value="revenue" className="mt-4">
           <MonthlyRevenuePanel />
@@ -127,6 +135,9 @@ export default function AnalyticsPage() {
         </TabsContent>
         <TabsContent value="market" className="mt-4">
           <BenchmarkPanel />
+        </TabsContent>
+        <TabsContent value="seo" className="mt-4">
+          <SeoChecklistPanel />
         </TabsContent>
       </Tabs>
     </div>
@@ -949,6 +960,118 @@ function BenchmarkPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================================
+// Checklist de SEO on-page
+// ============================================================================
+
+function ScoreBadge({ done, total }: { done: number; total: number }) {
+  const pct = total === 0 ? 0 : done / total;
+  const className =
+    pct === 1
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-100'
+      : pct >= 0.5
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 hover:bg-amber-100'
+        : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 hover:bg-red-100';
+  return (
+    <Badge className={className} variant="secondary">
+      {done}/{total}
+    </Badge>
+  );
+}
+
+function ChecklistRow({ item }: { item: SeoChecklistItemDto }) {
+  return (
+    <div className="flex items-start gap-3 border-b py-3 last:border-0">
+      {item.done ? (
+        <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+      ) : (
+        <CircleDashed className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{item.label}</p>
+        <p className="text-xs text-muted-foreground">{item.description}</p>
+        {item.detail && <p className="mt-0.5 text-xs text-amber-600">{item.detail}</p>}
+      </div>
+      {!item.done && (
+        <Button asChild size="sm" variant="outline" className="shrink-0">
+          <Link href={item.href}>Arreglar</Link>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function SeoChecklistPanel() {
+  const checklist = useSeoChecklist();
+
+  if (checklist.isLoading || !checklist.data) {
+    return <PanelLoader />;
+  }
+
+  const d = checklist.data;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-normal text-muted-foreground">
+              Básico (todos los planes)
+            </CardTitle>
+            <ScoreBadge done={d.baseScore.done} total={d.baseScore.total} />
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-normal text-muted-foreground">
+              Web Premium {!d.hasWebPremium && '(no activada)'}
+            </CardTitle>
+            <ScoreBadge done={d.premiumScore.done} total={d.premiumScore.total} />
+          </CardHeader>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Checklist básico</CardTitle>
+          <CardDescription>
+            Aplica a cualquier plan: refuerza el SEO local y la confianza de tu web pública.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {d.base.map((item) => (
+            <ChecklistRow key={item.id} item={item} />
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Checklist Web Premium</CardTitle>
+          <CardDescription>
+            Plantilla personalizada, FAQ, testimonios, formulario de contacto y blog.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!d.hasWebPremium ? (
+            <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              Activa <strong>Web Premium</strong> para desbloquear plantillas de diseño, textos
+              propios, FAQ, testimonios, formulario de contacto y blog — el resto de la palanca de
+              SEO de contenido.{' '}
+              <Link href="/settings/saas-billing" className="text-primary underline">
+                Ver planes
+              </Link>
+              .
+            </div>
+          ) : (
+            d.premium.map((item) => <ChecklistRow key={item.id} item={item} />)
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

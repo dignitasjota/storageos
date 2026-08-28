@@ -29,6 +29,7 @@ import type {
   PricingSuggestionsDto,
   RevenueForecastDto,
   RevenueKpiDto,
+  SeoChecklistDto,
   SuggestedActionsDto,
   UnitPricingSuggestionsDto,
   WebPerformanceDto,
@@ -154,6 +155,16 @@ export class AnalyticsController {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     });
+  }
+
+  /**
+   * Checklist de SEO on-page. Sin `@RequireFeature`: visible a cualquier
+   * tenant (los ítems de `premium` se muestran igualmente, gated en el
+   * frontend como upsell si no tienen `web_premium`).
+   */
+  @Get('seo-checklist')
+  getSeoChecklist(@CurrentUser() user: AuthenticatedUser): Promise<SeoChecklistDto> {
+    return this.service.getSeoChecklist(user.tenantId);
   }
 
   @Get('churn-risk')
