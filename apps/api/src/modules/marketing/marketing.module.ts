@@ -9,6 +9,8 @@ import { GoogleAdsSettingsService } from './ad-platforms/google-ads-settings.ser
 import { GoogleAdsController } from './ad-platforms/google-ads.controller';
 import { MetaAdsSettingsService } from './ad-platforms/meta-ads-settings.service';
 import { MetaAdsController } from './ad-platforms/meta-ads.controller';
+import { CatalogFeedController } from './catalog-feed.controller';
+import { CatalogFeedService } from './catalog-feed.service';
 import { MarketingChannelsService } from './marketing-channels.service';
 import { MarketingPublicController } from './marketing-public.controller';
 import { MarketingRenewalsCron } from './marketing-renewals.cron';
@@ -29,6 +31,7 @@ import { MarketingController } from './marketing.controller';
     MarketingPublicController,
     GoogleAdsController,
     MetaAdsController,
+    CatalogFeedController,
   ],
   providers: [
     MarketingChannelsService,
@@ -36,6 +39,7 @@ import { MarketingController } from './marketing.controller';
     GoogleAdsSettingsService,
     MetaAdsSettingsService,
     AdSpendSyncService,
+    CatalogFeedService,
     ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron] : []),
   ],
   exports: [MarketingChannelsService],

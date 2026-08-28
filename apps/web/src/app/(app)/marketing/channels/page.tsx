@@ -9,7 +9,16 @@ import {
   type MarketingChannelStatus,
   type MarketingChannelType,
 } from '@storageos/shared';
-import { Copy, ExternalLink, Loader2, MousePointerClick, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  Download,
+  ExternalLink,
+  Loader2,
+  MousePointerClick,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -36,7 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiError } from '@/lib/auth/api';
+import { apiFetchBlob, ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
@@ -70,6 +79,7 @@ export default function MarketingChannelsPage() {
   const [editing, setEditing] = useState<MarketingChannelDto | null>(null);
   const [creating, setCreating] = useState(false);
   const [showLink, setShowLink] = useState<MarketingChannelDto | null>(null);
+  const [exportingFeed, setExportingFeed] = useState(false);
 
   const rows = channels.data ?? [];
   const facilityOptions = facilities.data ?? [];
@@ -91,6 +101,24 @@ export default function MarketingChannelsPage() {
       () => toast.success('Enlace copiado.'),
       () => toast.error('No se pudo copiar.'),
     );
+  }
+
+  async function downloadCatalogFeed() {
+    setExportingFeed(true);
+    try {
+      const blob = await apiFetchBlob('/marketing/catalog-feed');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'catalogo-trasteros.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Catálogo exportado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar.');
+    } finally {
+      setExportingFeed(false);
+    }
   }
 
   return (
@@ -121,6 +149,28 @@ export default function MarketingChannelsPage() {
           </div>
         </div>
       )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Feed para portales inmobiliarios</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Ni Idealista ni Fotocasa ofrecen una API de publicación abierta a terceros, así que la
+            publicación del anuncio la sigues haciendo tú en su web — esto exporta un CSV genérico
+            (local, tipo de trastero, precio, superficie, fotos, contacto…) con todos los datos ya
+            listos, para copiar/pegar sin teclear cada campo a mano.
+          </p>
+          <Button onClick={downloadCatalogFeed} disabled={exportingFeed} variant="outline">
+            {exportingFeed ? (
+              <Loader2 className="mr-1 size-4 animate-spin" />
+            ) : (
+              <Download className="mr-1 size-4" />
+            )}
+            Descargar catálogo (CSV)
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">
