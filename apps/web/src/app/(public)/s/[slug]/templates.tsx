@@ -311,6 +311,7 @@ function DefaultTemplate({ data, locale }: TplProps) {
       </header>
 
       <PromoBanner data={data} />
+      <TrustBar data={data} />
 
       {data.webAbout && (
         <section className="mb-10 whitespace-pre-line rounded-lg border bg-card p-6 text-center text-sm leading-relaxed text-muted-foreground">
@@ -365,6 +366,7 @@ function ModernTemplate({ data, locale }: TplProps) {
 
       <div className="mx-auto max-w-5xl px-4 py-12">
         <PromoBanner data={data} />
+        <TrustBar data={data} />
         {data.webAbout && (
           <section className="mb-12 whitespace-pre-line text-center text-base leading-relaxed text-muted-foreground">
             {data.webAbout}
@@ -418,6 +420,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
 
       <div className="mx-auto max-w-4xl px-4 py-12">
         <PromoBanner data={data} />
+        <TrustBar data={data} textClassName="text-neutral-400" />
         {data.webAbout && (
           <section
             className="mb-12 whitespace-pre-line border-l-2 pl-4 text-base leading-relaxed text-neutral-400"
@@ -539,6 +542,30 @@ export function PromoBanner({ data }: { data: PublicLandingDto }) {
   );
 }
 
+/**
+ * Franja de confianza automática (nº de locales + ciudades), sin depender de
+ * que el tenant rellene testimonios/FAQ. Da credibilidad instantánea a
+ * tenants nuevos que aún no han escrito contenido propio.
+ */
+export function TrustBar({
+  data,
+  textClassName = 'text-muted-foreground',
+}: {
+  data: PublicLandingDto;
+  /** Color del texto — la plantilla `industrial` (fondo oscuro fijo) pasa un tono claro propio. */
+  textClassName?: string;
+}) {
+  const t = useTranslations('publicWeb.trust');
+  if (data.facilities.length === 0) return null;
+  const where = cities(data);
+  return (
+    <p className={`mb-6 text-center text-sm ${textClassName}`}>
+      {t('facilitiesCount', { count: data.facilities.length })}
+      {where ? ` ${t('inCities', { cities: where })}` : ''}
+    </p>
+  );
+}
+
 export function TestimonialsSection({ data }: TplProps) {
   const t = useTranslations('publicWeb.testimonials');
   if (data.testimonials.length === 0) return null;
@@ -589,12 +616,17 @@ export function GoogleReviewBadge({ url }: { url: string }) {
 
 export function FaqSection({ data }: TplProps) {
   const t = useTranslations('publicWeb.faq');
-  if (data.faqs.length === 0) return null;
+  // Sin FAQ propia del tenant -> preguntas genéricas por defecto (mismo
+  // patrón ya usado en la plantilla `onepage`), para no dejar sin resolver
+  // objeciones comunes solo porque el tenant no dedicó tiempo a configurarlas.
+  const defaults = t.raw('defaults') as { question: string; answer: string }[];
+  const faqs = data.faqs.length > 0 ? data.faqs : defaults;
+  if (faqs.length === 0) return null;
   return (
     <section className="mt-14">
       <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{t('title')}</h2>
       <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
-        {data.faqs.map((faq, i) => (
+        {faqs.map((faq, i) => (
           <details key={i} className="group px-5 py-4">
             <summary className="cursor-pointer list-none font-medium marker:content-none">
               {faq.question}

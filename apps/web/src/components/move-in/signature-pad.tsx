@@ -7,10 +7,26 @@ import { Button } from '@/components/ui/button';
 interface Props {
   /** Llamado con el data URL PNG cuando hay trazo, o null al limpiar. */
   onChange: (dataUrl: string | null) => void;
+  /**
+   * Textos del pad. Por defecto en español (uso desde el panel staff, que
+   * siempre está en `es-ES`); la web pública del tenant (`/sign/[token]`)
+   * los pasa traducidos vía `next-intl` — el propio componente NO usa
+   * `useTranslations` porque se reutiliza en dos árboles de i18n distintos
+   * (el global del panel y el aislado de la web pública) y podría montarse
+   * sin el namespace `publicWeb` cargado.
+   */
+  emptyLabel?: string;
+  filledLabel?: string;
+  clearLabel?: string;
 }
 
 /** Pad de firma sobre canvas (puntero/táctil), sin dependencias externas. */
-export function SignaturePad({ onChange }: Props) {
+export function SignaturePad({
+  onChange,
+  emptyLabel = 'Dibuja tu firma en el recuadro',
+  filledLabel = 'Firma capturada',
+  clearLabel = 'Limpiar',
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const hasDrawn = useRef(false);
@@ -89,11 +105,9 @@ export function SignaturePad({ onChange }: Props) {
         onPointerLeave={end}
       />
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          {empty ? 'Dibuja tu firma en el recuadro' : 'Firma capturada'}
-        </span>
+        <span className="text-xs text-muted-foreground">{empty ? emptyLabel : filledLabel}</span>
         <Button type="button" variant="ghost" size="sm" onClick={clear}>
-          Limpiar
+          {clearLabel}
         </Button>
       </div>
     </div>

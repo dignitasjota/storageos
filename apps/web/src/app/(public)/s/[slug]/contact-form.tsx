@@ -57,33 +57,60 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
         aria-hidden="true"
         className="absolute left-[-9999px] h-0 w-0"
       />
-      <input
-        name="firstName"
-        required
-        placeholder={t('namePlaceholder')}
-        className="h-11 rounded-md border bg-background px-3 text-base"
-      />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1">
+        <label htmlFor="contact-name" className="text-sm font-medium">
+          {t('nameLabel')}
+        </label>
         <input
-          name="email"
-          type="email"
+          id="contact-name"
+          name="firstName"
           required
-          placeholder={t('emailPlaceholder')}
-          className="h-11 rounded-md border bg-background px-3 text-base"
-        />
-        <input
-          name="phone"
-          type="tel"
-          placeholder={t('phonePlaceholder')}
-          className="h-11 rounded-md border bg-background px-3 text-base"
+          autoComplete="name"
+          placeholder={t('namePlaceholder')}
+          className="h-11 w-full rounded-md border bg-background px-3 text-base"
         />
       </div>
-      <textarea
-        name="message"
-        rows={4}
-        placeholder={t('messagePlaceholder')}
-        className="rounded-md border bg-background px-3 py-2 text-base"
-      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <label htmlFor="contact-email" className="text-sm font-medium">
+            {t('emailLabel')}
+          </label>
+          <input
+            id="contact-email"
+            name="email"
+            type="email"
+            required
+            autoComplete="email"
+            placeholder={t('emailPlaceholder')}
+            className="h-11 w-full rounded-md border bg-background px-3 text-base"
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="contact-phone" className="text-sm font-medium">
+            {t('phoneLabel')}
+          </label>
+          <input
+            id="contact-phone"
+            name="phone"
+            type="tel"
+            autoComplete="tel"
+            placeholder={t('phonePlaceholder')}
+            className="h-11 w-full rounded-md border bg-background px-3 text-base"
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label htmlFor="contact-message" className="text-sm font-medium">
+          {t('messageLabel')}
+        </label>
+        <textarea
+          id="contact-message"
+          name="message"
+          rows={4}
+          placeholder={t('messagePlaceholder')}
+          className="w-full rounded-md border bg-background px-3 py-2 text-base"
+        />
+      </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <button
         type="submit"
@@ -93,6 +120,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
       >
         {loading ? t('sending') : t('send')}
       </button>
+      <p className="text-center text-xs text-muted-foreground">{t('privacyNotice')}</p>
     </form>
   );
 }
