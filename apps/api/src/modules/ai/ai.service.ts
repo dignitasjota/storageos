@@ -18,6 +18,7 @@ import {
 import { AiToolsService } from './ai-tools.service';
 
 import type {
+  AdCampaignDraftDto,
   AiConversationDetailDto,
   AiConversationDto,
   AiMessageDto,
@@ -25,6 +26,7 @@ import type {
   ChatResultDto,
   PortalAiChatInput,
   PortalAiChatResultDto,
+  SuggestAdCampaignInput,
   TenantFeature,
 } from '@storageos/shared';
 
@@ -43,6 +45,45 @@ Reglas:
 - Si el inquilino pregunta algo que no puedes saber con los datos, ofrece ayuda y di que lo revisarás.
 - Tono humano y resolutivo. Sin florituras.
 - Devuelve SOLO el texto del mensaje (sin asunto, sin "Estimado", sin firma).`;
+
+const AD_CAMPAIGN_SYSTEM_PROMPTS: Record<'google_ads' | 'meta_ads', string> = {
+  google_ads: `Eres un experto en Google Ads (Búsqueda) para negocios de self-storage (alquiler de trasteros) en España. A partir de los datos reales del negocio que se te dan, redacta un borrador de campaña EN ESPAÑOL con este formato EXACTO (texto plano, sin markdown):
+
+TITULARES (máx. 30 caracteres cada uno, 8-10 titulares):
+1. ...
+
+DESCRIPCIONES (máx. 90 caracteres cada una, 3-4 descripciones):
+1. ...
+
+PALABRAS CLAVE SUGERIDAS:
+- ...
+
+PÚBLICO / SEGMENTACIÓN:
+...
+
+PRESUPUESTO DIARIO ORIENTATIVO:
+...
+
+Reglas: no inventes precios ni datos que no se te den; usa los reales aportados. No incluyas nada fuera de este formato ni expliques lo que vas a hacer.`,
+  meta_ads: `Eres un experto en Meta Ads (Facebook/Instagram) para negocios de self-storage (alquiler de trasteros) en España. A partir de los datos reales del negocio que se te dan, redacta un borrador de campaña EN ESPAÑOL con este formato EXACTO (texto plano, sin markdown):
+
+TITULARES (máx. 40 caracteres cada uno, 5 titulares):
+1. ...
+
+TEXTOS PRINCIPALES (máx. 125 caracteres cada uno, 3 variantes):
+1. ...
+
+DESCRIPCIÓN DEL ENLACE (máx. 30 caracteres):
+...
+
+PÚBLICO / SEGMENTACIÓN (edad, intereses, radio geográfico):
+...
+
+PRESUPUESTO DIARIO ORIENTATIVO:
+...
+
+Reglas: no inventes precios ni datos que no se te den; usa los reales aportados. No incluyas nada fuera de este formato ni expliques lo que vas a hacer.`,
+};
 
 const PORTAL_ASSISTANT_SYSTEM_PROMPT = `Eres el asistente virtual del portal de un inquilino de un negocio de self-storage (alquiler de trasteros). Ayudas al inquilino a resolver dudas sobre SU cuenta.
 
@@ -242,6 +283,108 @@ Redacta la respuesta al inquilino:`;
       .join('')
       .trim();
     return { suggestion: suggestion || 'No he podido redactar una respuesta. Escríbela a mano.' };
+  }
+
+  /**
+   * Redacta (no publica) un borrador de campaña de Google Ads / Meta Ads a
+   * partir de los datos reales del negocio (local, tipos de trastero,
+   * precios, promoción activa). Ninguna de las dos plataformas se integra
+   * para crear campañas por API — el staff copia el texto en su gestor.
+   * Single-shot, sin herramientas.
+   */
+  async suggestAdCampaign(args: {
+    tenantId: string;
+    input: SuggestAdCampaignInput;
+  }): Promise<AdCampaignDraftDto> {
+    if (!this.provider.available) {
+      throw new ServiceUnavailableException({
+        code: 'ai_not_configured',
+        message: 'El asistente IA no está configurado en este entorno',
+      });
+    }
+    const { tenantId, input } = args;
+    const ctx = await this.prisma.withTenant(async (tx) => {
+      const [tenant, facilities, unitTypes, grouped, promotion] = await Promise.all([
+        tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+        tx.facility.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            isActive: true,
+            ...(input.facilityId ? { id: input.facilityId } : {}),
+          },
+          select: { id: true, name: true, city: true },
+          take: input.facilityId ? 1 : 3,
+        }),
+        tx.unitType.findMany({
+          where: { tenantId, isActive: true },
+          select: { id: true, name: true, defaultPriceMonthly: true },
+        }),
+        tx.unit.groupBy({
+          by: ['facilityId', 'unitTypeId'],
+          where: { tenantId, status: 'available' },
+          _count: { _all: true },
+        }),
+        tx.promotion.findFirst({
+          where: {
+            isActive: true,
+            OR: [{ validUntil: null }, { validUntil: { gte: new Date() } }],
+          },
+          select: { code: true, discountType: true, discountValue: true },
+        }),
+      ]);
+      return { tenant, facilities, unitTypes, grouped, promotion };
+    }, tenantId);
+
+    if (input.facilityId && ctx.facilities.length === 0) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+
+    const unitTypeById = new Map(ctx.unitTypes.map((t) => [t.id, t]));
+    const availableByFacility = new Map<string, string[]>();
+    for (const g of ctx.grouped) {
+      if (g._count._all === 0) continue;
+      const type = unitTypeById.get(g.unitTypeId);
+      if (!type) continue;
+      const price = Math.round(Number(type.defaultPriceMonthly) * 1.21);
+      const entry = `${type.name} desde ${price} €/mes (IVA incl.)`;
+      const list = availableByFacility.get(g.facilityId) ?? [];
+      list.push(entry);
+      availableByFacility.set(g.facilityId, list);
+    }
+    const facilitiesText =
+      ctx.facilities
+        .map((f) => {
+          const prices = (availableByFacility.get(f.id) ?? []).join(', ');
+          return `- ${f.name}${f.city ? ` (${f.city})` : ''}: ${prices || 'sin trasteros disponibles ahora mismo'}`;
+        })
+        .join('\n') || '(sin locales activos configurados)';
+    const promoText = ctx.promotion
+      ? `Promoción activa: código "${ctx.promotion.code}" (${ctx.promotion.discountType === 'percentage' ? `${Number(ctx.promotion.discountValue)}% de descuento` : ctx.promotion.discountType === 'fixed' ? `${Number(ctx.promotion.discountValue)} € de descuento` : `${Number(ctx.promotion.discountValue)} meses gratis`}).`
+      : 'Sin promoción activa ahora mismo.';
+    const contextText = `Negocio: ${ctx.tenant?.name ?? 'Self-storage'}.
+
+Locales y precios:
+${facilitiesText}
+
+${promoText}
+
+Redacta el borrador de campaña:`;
+
+    const completion = await this.provider.createMessage({
+      system: AD_CAMPAIGN_SYSTEM_PROMPTS[input.platform],
+      messages: [{ role: 'user', content: contextText }],
+      tools: [],
+    });
+    const draft = completion.content
+      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    return {
+      platform: input.platform,
+      draft: draft || 'No he podido redactar el borrador. Inténtalo de nuevo.',
+    };
   }
 
   /** ¿El tenant tiene la feature `ai_assistant` (plan + overrides)? */

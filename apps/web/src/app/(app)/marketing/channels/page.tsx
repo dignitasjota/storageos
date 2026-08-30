@@ -17,6 +17,7 @@ import {
   MousePointerClick,
   Pencil,
   Plus,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -46,12 +47,13 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { apiFetchBlob, ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import {
   useCreateMarketingChannel,
   useDeleteMarketingChannel,
   useMarketingChannels,
+  useSuggestAdCampaign,
   useSyncAdSpend,
   useUpdateMarketingChannel,
 } from '@/lib/marketing/hooks';
@@ -70,16 +72,24 @@ const STATUS_VARIANT: Record<MarketingChannelStatus, 'default' | 'secondary' | '
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
+const AD_DRAFT_PLATFORMS = ['google_ads', 'meta_ads'] as const;
+type AdDraftPlatform = (typeof AD_DRAFT_PLATFORMS)[number];
+
 export default function MarketingChannelsPage() {
   const canManage = useHasPermission('marketing:manage');
+  const hasAi = useHasFeature('ai_assistant');
   const channels = useMarketingChannels();
   const facilities = useFacilities();
   const promotions = usePromotions();
   const del = useDeleteMarketingChannel();
+  const suggestAdCampaign = useSuggestAdCampaign();
   const [editing, setEditing] = useState<MarketingChannelDto | null>(null);
   const [creating, setCreating] = useState(false);
   const [showLink, setShowLink] = useState<MarketingChannelDto | null>(null);
   const [exportingFeed, setExportingFeed] = useState(false);
+  const [draftPlatform, setDraftPlatform] = useState<AdDraftPlatform>('google_ads');
+  const [draftFacilityId, setDraftFacilityId] = useState(NONE);
+  const [draft, setDraft] = useState<string | null>(null);
 
   const rows = channels.data ?? [];
   const facilityOptions = facilities.data ?? [];
@@ -101,6 +111,27 @@ export default function MarketingChannelsPage() {
       () => toast.success('Enlace copiado.'),
       () => toast.error('No se pudo copiar.'),
     );
+  }
+
+  function copyDraft() {
+    if (!draft) return;
+    navigator.clipboard.writeText(draft).then(
+      () => toast.success('Borrador copiado.'),
+      () => toast.error('No se pudo copiar.'),
+    );
+  }
+
+  async function generateDraft() {
+    setDraft(null);
+    try {
+      const res = await suggestAdCampaign.mutateAsync({
+        platform: draftPlatform,
+        ...(draftFacilityId !== NONE ? { facilityId: draftFacilityId } : {}),
+      });
+      setDraft(res.draft);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo generar el borrador.');
+    }
   }
 
   async function downloadCatalogFeed() {
@@ -171,6 +202,90 @@ export default function MarketingChannelsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {canManage && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-base">
+              <Sparkles className="size-4" /> Borrador de campaña con IA
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!hasAi ? (
+              <p className="text-sm text-muted-foreground">
+                Redacta titulares, descripciones y palabras clave para Google Ads / Meta Ads con IA,
+                a partir de tus locales y precios reales — no está en tu plan.{' '}
+                <a href="/settings/saas-billing" className="underline">
+                  Ver planes
+                </a>
+                .
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Ni Google ni Meta se integran para publicar campañas por API — esto redacta un
+                  borrador (titulares, descripciones, palabras clave, público, presupuesto
+                  orientativo) que copias en su gestor de campañas.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Plataforma</Label>
+                    <Select
+                      value={draftPlatform}
+                      onValueChange={(v) => setDraftPlatform(v as AdDraftPlatform)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AD_DRAFT_PLATFORMS.map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {MARKETING_CHANNEL_TYPE_LABELS[p]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Local a destacar (opcional)</Label>
+                    <Select value={draftFacilityId} onValueChange={setDraftFacilityId}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Todos los locales</SelectItem>
+                        {facilityOptions.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Button onClick={generateDraft} disabled={suggestAdCampaign.isPending}>
+                  {suggestAdCampaign.isPending ? (
+                    <Loader2 className="mr-1 size-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-1 size-4" />
+                  )}
+                  Generar borrador
+                </Button>
+                {draft && (
+                  <div className="space-y-2 rounded-md border bg-muted/40 p-3">
+                    <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap font-sans text-sm">
+                      {draft}
+                    </pre>
+                    <Button type="button" variant="outline" size="sm" onClick={copyDraft}>
+                      <Copy className="mr-1 size-3.5" /> Copiar
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">

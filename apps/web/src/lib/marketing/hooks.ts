@@ -3,12 +3,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
+  AdCampaignDraftDto,
   AdPlatformTestResultDto,
   CreateMarketingChannelInput,
   GoogleAdsSettingsDto,
   MarketingChannelDto,
   MarketingPerformanceDto,
   MetaAdsSettingsDto,
+  SuggestAdCampaignInput,
   SyncAdSpendInput,
   SyncAdSpendResultDto,
   UpdateGoogleAdsSettingsInput,
@@ -80,6 +82,13 @@ export function useSyncAdSpend() {
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['expenses'] });
     },
+  });
+}
+
+export function useSuggestAdCampaign() {
+  return useMutation({
+    mutationFn: (input: SuggestAdCampaignInput) =>
+      apiFetch<AdCampaignDraftDto>('/marketing/ad-campaign-draft', { method: 'POST', json: input }),
   });
 }
 
