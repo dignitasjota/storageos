@@ -15,9 +15,8 @@ import type {
 
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
-import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
+import { type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
-import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Button } from '@/components/ui/button';
@@ -28,12 +27,27 @@ import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/redsys';
 
-/** Página de firma de contrato (`/sign/[token]` y `/sign/[token]/l/[locale]`). */
-export function SignPageBody({ token, locale }: { token: string; locale: PublicWebLocale }) {
+/**
+ * Página de firma de contrato (`/sign/[token]` y `/sign/[token]/l/[locale]`).
+ * El marco `TenantWebChrome` lo pone el `page.tsx` (Server Component) — este
+ * componente ya no lo envuelve. `initialView`/`initialError` los precarga el
+ * servidor (`get-sign-view.ts`) para no repetir el fetch en cliente al montar.
+ */
+export function SignPageBody({
+  token,
+  locale,
+  initialView = null,
+  initialError = null,
+}: {
+  token: string;
+  locale: PublicWebLocale;
+  initialView?: ContractSignViewDto | null;
+  initialError?: string | null;
+}) {
   const t = useTranslations('publicWeb.sign');
   const tFunnel = useTranslations('publicWeb.funnel');
-  const [view, setView] = useState<ContractSignViewDto | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [view, setView] = useState<ContractSignViewDto | null>(initialView);
+  const [loadError, setLoadError] = useState<string | null>(initialError);
   const [method, setMethod] = useState<'drawn' | 'typed'>('drawn');
   const [drawn, setDrawn] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
@@ -44,6 +58,8 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
   const [pending, setPending] = useState<PortalInvoiceDto[]>([]);
 
   useEffect(() => {
+    // Ya resuelto en servidor (caso normal) — no repetir el fetch en cliente.
+    if (initialView || initialError) return;
     apiFetch<ContractSignViewDto>(`/public/move-in/sign/${token}`, { requiresAuth: false })
       .then((v) => {
         setView(v);
@@ -109,17 +125,11 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
     );
   }
 
-  const brand = brandOf(view);
   const brandColor = view.brandColor ?? undefined;
 
   if (result || view.alreadySigned) {
     return (
-      <BrandShell
-        brand={brand}
-        token={token}
-        locale={locale}
-        googleAnalyticsId={view.googleAnalyticsId}
-      >
+      <ContentShell>
         <Card className="w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -141,7 +151,7 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
             )}
           </CardContent>
         </Card>
-      </BrandShell>
+      </ContentShell>
     );
   }
 
@@ -151,12 +161,7 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
     (method === 'drawn' ? !!drawn : typed.trim().length >= 2);
 
   return (
-    <BrandShell
-      brand={brand}
-      token={token}
-      locale={locale}
-      googleAnalyticsId={view.googleAnalyticsId}
-    >
+    <ContentShell>
       <FunnelSteps
         current={2}
         total={2}
@@ -258,44 +263,18 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
           </Button>
         </CardContent>
       </Card>
-    </BrandShell>
+    </ContentShell>
   );
 }
 
-/** Marca del operador extraída del DTO de firma (white-label del embudo). */
-function brandOf(view: ContractSignViewDto) {
-  return {
-    tenantName: view.tenantName,
-    tenantSlug: view.tenantSlug,
-    brandColor: view.brandColor,
-    logoUrl: view.logoUrl,
-  };
-}
-
-/** Marco white-label del tenant con el contenido centrado (páginas de firma). */
-function BrandShell({
-  brand,
-  token,
-  locale,
-  googleAnalyticsId,
-  children,
-}: {
-  brand: ReturnType<typeof brandOf>;
-  token: string;
-  locale: PublicWebLocale;
-  googleAnalyticsId: string | null;
-  children: React.ReactNode;
-}) {
-  return (
-    <TenantWebChrome
-      data={brand}
-      locale={locale}
-      googleAnalyticsId={googleAnalyticsId}
-      languageHrefBuilder={(l) => signHref(token, l)}
-    >
-      <div className="mx-auto w-full max-w-lg px-4 py-10">{children}</div>
-    </TenantWebChrome>
-  );
+/**
+ * Contenedor centrado del contenido de firma. El marco `TenantWebChrome`
+ * (header/footer con la marca del tenant) lo pone el `page.tsx` (Server
+ * Component) que envuelve a `SignPageBody` — este solo aporta el ancho
+ * máximo y el padding del contenido interno.
+ */
+function ContentShell({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto w-full max-w-lg px-4 py-10">{children}</div>;
 }
 
 /**

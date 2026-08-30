@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i18n/messages';
 import { siteUrl } from '../landing-shared';
 import { priceRangeString } from '../price-format';
+import { TenantWebChrome } from '../tenant-web-chrome';
 
 import { FacilityBody } from './facility-body';
 
@@ -191,7 +192,15 @@ export async function FacilityPageBody({
 
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <FacilityBody data={data} slug={slug} facilitySlug={facilitySlug} locale={locale} />
+      <TenantWebChrome
+        data={data}
+        locale={locale}
+        facilitySlug={facilitySlug}
+        hasBlog={data.hasBlog}
+        googleAnalyticsId={data.googleAnalyticsId}
+      >
+        <FacilityBody data={data} slug={slug} facilitySlug={facilitySlug} locale={locale} />
+      </TenantWebChrome>
     </NextIntlClientProvider>
   );
 }

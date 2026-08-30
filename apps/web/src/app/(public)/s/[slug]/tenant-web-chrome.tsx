@@ -1,12 +1,10 @@
-'use client';
-
 import Image from 'next/image';
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { createTranslator } from 'next-intl';
 
 import { GoogleAnalyticsScript } from './google-analytics';
 import { LanguageSwitcher } from './i18n/language-switcher';
-import { blogHref } from './i18n/messages';
+import { blogHref, getPublicWebMessages, intlLocaleFor } from './i18n/messages';
 
 import type { PublicWebLocale } from './i18n/messages';
 import type { ReactNode } from 'react';
@@ -28,8 +26,17 @@ interface TenantBrand {
  * «Acceso clientes» lleva al **portal del inquilino** (con el slug precargado),
  * nunca al login de la plataforma. La única referencia a la plataforma es un
  * discreto «Creado con TrasterOS» en el pie.
+ *
+ * Server Component (sin `'use client'`): el header/footer en sí no tiene
+ * interactividad — solo `LanguageSwitcher` (cliente, por su `useTranslations`)
+ * y `GoogleAnalyticsScript` (universal) la necesitan, y ambos se renderizan
+ * aquí como islas. Evita enviar el JS de este marco (presente en TODA la web
+ * pública) al navegador. Traducciones resueltas con `createTranslator`
+ * (función pura, no depende de `NextIntlClientProvider`) sobre el catálogo
+ * AISLADO de la web pública — no confundir con `getTranslations()` de
+ * `next-intl/server`, que leería el catálogo GLOBAL equivocado.
  */
-export function TenantWebChrome({
+export async function TenantWebChrome({
   data,
   locale,
   facilitySlug,
@@ -50,10 +57,17 @@ export function TenantWebChrome({
   languageHrefBuilder?: (locale: PublicWebLocale) => string;
   children: ReactNode;
 }) {
-  const t = useTranslations('publicWeb.chrome');
-  const tCommon = useTranslations('publicWeb.common');
-  const tBlog = useTranslations('publicWeb.blog');
+  const messages = await getPublicWebMessages(locale);
+  const intlLocale = intlLocaleFor(locale);
+  const t = createTranslator({ locale: intlLocale, messages, namespace: 'publicWeb.chrome' });
+  const tCommon = createTranslator({ locale: intlLocale, messages, namespace: 'publicWeb.common' });
+  const tBlog = createTranslator({ locale: intlLocale, messages, namespace: 'publicWeb.blog' });
   const brand = data.brandColor ?? '#2563EB';
+  // Resuelto AQUÍ (servidor) en vez de pasar `languageHrefBuilder` tal cual a
+  // `LanguageSwitcher` (cliente) — una función no puede cruzar la frontera
+  // Server → Client.
+  const otherLocale: PublicWebLocale = locale === 'es' ? 'en' : 'es';
+  const otherLocaleHref = languageHrefBuilder?.(otherLocale);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const year = new Date().getUTCFullYear();
 
@@ -88,7 +102,7 @@ export function TenantWebChrome({
               tenantSlug={data.tenantSlug}
               facilitySlug={facilitySlug}
               currentLocale={locale}
-              hrefBuilder={languageHrefBuilder}
+              otherLocaleHref={otherLocaleHref}
             />
             <Link
               href={portalHref}

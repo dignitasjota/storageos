@@ -363,7 +363,8 @@ function ImagesCard({ facility }: { facility: FacilityDto }) {
       <CardHeader>
         <CardTitle className="text-base">Imágenes del local</CardTitle>
         <CardDescription>
-          Se muestran en la página pública del local. Hasta 12 (PNG/JPG/WebP, máx. 5 MB).
+          Se muestran en la página pública del local. Hasta 12 (PNG/JPG/WebP, máx. 2 MB — se
+          comprimen automáticamente al subirlas).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { compressImage } from '../images/compress';
 
 import type {
   ChangeUnitStatusInput,
@@ -93,16 +94,21 @@ export function useSetFacilityImages() {
   });
 }
 
-/** Sube una imagen del local a MinIO vía URL firmada y devuelve su key. */
+/**
+ * Sube una imagen del local a MinIO vía URL firmada y devuelve su key.
+ * Comprime/redimensiona en el navegador antes de subir (ver `compressImage`)
+ * para no servir fotos de cámara de varios MB en una miniatura pequeña.
+ */
 export async function uploadFacilityImage(facilityId: string, file: File): Promise<string> {
+  const compressed = await compressImage(file);
   const presign = await apiFetch<FacilityImageUploadResponseDto>(
     `/facilities/${facilityId}/images/upload-url`,
-    { method: 'POST', json: { mimeType: file.type, sizeBytes: file.size } },
+    { method: 'POST', json: { mimeType: compressed.type, sizeBytes: compressed.size } },
   );
   const put = await fetch(presign.uploadUrl, {
     method: 'PUT',
     headers: presign.requiredHeaders,
-    body: file,
+    body: compressed,
   });
   if (!put.ok) throw new Error('No se pudo subir la imagen');
   return presign.key;
