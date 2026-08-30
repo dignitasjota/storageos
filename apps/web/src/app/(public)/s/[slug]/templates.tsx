@@ -435,22 +435,39 @@ function IndustrialTemplate({ data, locale }: TplProps) {
         )}
         <div className="space-y-6">
           {data.facilities.map((f) => (
-            <section key={f.id} className="border border-neutral-800 bg-neutral-900 p-6">
-              <h2 className="text-xl font-bold uppercase tracking-wide">{f.name}</h2>
-              <FacilityMeta f={f} tenantName={data.tenantName} />
-              <UnitTypeList f={f} locale={locale} />
-              <Link
-                href={
-                  f.publicSlug
-                    ? `/s/${data.tenantSlug}/${f.publicSlug}`
-                    : bookHref(data.tenantSlug, locale, { facilityId: f.id })
-                }
-                className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
-              >
-                {f.publicSlug
-                  ? t('common.viewFacility', { name: f.name })
-                  : t('common.reserveAtFacility', { name: f.name })}
-              </Link>
+            <section
+              key={f.id}
+              className="overflow-hidden border border-neutral-800 bg-neutral-900"
+            >
+              {f.imageUrls[0] && (
+                <div className="relative aspect-[16/9] w-full bg-neutral-800">
+                  <Image
+                    src={f.imageUrls[0]}
+                    alt={f.name}
+                    fill
+                    loading="lazy"
+                    sizes="(min-width: 768px) 50vw, 100vw"
+                    className="object-cover"
+                  />
+                </div>
+              )}
+              <div className="p-6">
+                <h2 className="text-xl font-bold uppercase tracking-wide">{f.name}</h2>
+                <FacilityMeta f={f} tenantName={data.tenantName} />
+                <UnitTypeList f={f} locale={locale} />
+                <Link
+                  href={
+                    f.publicSlug
+                      ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                      : bookHref(data.tenantSlug, locale, { facilityId: f.id })
+                  }
+                  className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
+                >
+                  {f.publicSlug
+                    ? t('common.viewFacility', { name: f.name })
+                    : t('common.reserveAtFacility', { name: f.name })}
+                </Link>
+              </div>
             </section>
           ))}
         </div>
@@ -490,22 +507,36 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
   return (
     <div className={cols ? 'grid gap-6 md:grid-cols-2' : 'space-y-6'}>
       {data.facilities.map((f) => (
-        <section key={f.id} className="rounded-lg border bg-card p-6 shadow-sm">
-          <h2 className="text-xl font-semibold">{f.name}</h2>
-          <FacilityMeta f={f} tenantName={data.tenantName} />
-          <UnitTypeList f={f} locale={locale} />
-          <Link
-            href={
-              f.publicSlug
-                ? `/s/${data.tenantSlug}/${f.publicSlug}`
-                : bookHref(data.tenantSlug, locale, { facilityId: f.id })
-            }
-            className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
-          >
-            {f.publicSlug
-              ? t('viewFacility', { name: f.name })
-              : t('reserveAtFacility', { name: f.name })}
-          </Link>
+        <section key={f.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          {f.imageUrls[0] && (
+            <div className="relative aspect-[16/9] w-full bg-muted">
+              <Image
+                src={f.imageUrls[0]}
+                alt={f.name}
+                fill
+                loading="lazy"
+                sizes="(min-width: 768px) 50vw, 100vw"
+                className="object-cover"
+              />
+            </div>
+          )}
+          <div className="p-6">
+            <h2 className="text-xl font-semibold">{f.name}</h2>
+            <FacilityMeta f={f} tenantName={data.tenantName} />
+            <UnitTypeList f={f} locale={locale} />
+            <Link
+              href={
+                f.publicSlug
+                  ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                  : bookHref(data.tenantSlug, locale, { facilityId: f.id })
+              }
+              className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              {f.publicSlug
+                ? t('viewFacility', { name: f.name })
+                : t('reserveAtFacility', { name: f.name })}
+            </Link>
+          </div>
         </section>
       ))}
     </div>
