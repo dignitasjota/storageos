@@ -33,7 +33,14 @@ const SAAS_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trasteros.pro';
 function distinctUnitTypes(data: PublicLandingDto) {
   const map = new Map<
     string,
-    { name: string; areaM2: number | null; priceMonthly: number; available: number }
+    {
+      name: string;
+      areaM2: number | null;
+      priceMonthly: number;
+      available: number;
+      unitTypeId: string;
+      facilityId: string;
+    }
   >();
   for (const f of data.facilities) {
     for (const t of f.unitTypes) {
@@ -44,10 +51,15 @@ function distinctUnitTypes(data: PublicLandingDto) {
           areaM2: t.areaM2,
           priceMonthly: t.priceMonthly,
           available: t.available,
+          unitTypeId: t.id,
+          facilityId: f.id,
         });
       } else {
         prev.available += t.available;
-        if ((t.areaM2 ?? Infinity) < (prev.areaM2 ?? Infinity)) prev.areaM2 = t.areaM2;
+        if ((t.areaM2 ?? Infinity) < (prev.areaM2 ?? Infinity)) {
+          prev.areaM2 = t.areaM2;
+          prev.facilityId = f.id;
+        }
         if (t.priceMonthly < prev.priceMonthly) prev.priceMonthly = t.priceMonthly;
       }
     }
@@ -256,7 +268,10 @@ export function OnePageTemplate({
                       </p>
                     ) : (
                       <Link
-                        href={bookHref}
+                        href={buildBookHref(data.tenantSlug, locale, {
+                          facilityId: unitType.facilityId,
+                          unitTypeId: unitType.unitTypeId,
+                        })}
                         onClick={() =>
                           trackEvent('cta_reservar_click', { location: 'sizes_onepage' })
                         }

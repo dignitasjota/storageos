@@ -217,7 +217,9 @@ export function EscaparateTemplate({
                     .reduce<
                       number | null
                     >((min, unitType) => (min === null ? unitType.priceMonthly : Math.min(min, unitType.priceMonthly)), null);
-                  const href = f.publicSlug ? `/s/${data.tenantSlug}/${f.publicSlug}` : bookHref;
+                  const href = f.publicSlug
+                    ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                    : buildBookHref(data.tenantSlug, locale, { facilityId: f.id });
                   return (
                     <Link
                       key={f.id}

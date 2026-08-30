@@ -47,10 +47,19 @@ export function StorageCalculator({
   const m2 = useMemo(() => computeStorageM2(qty), [qty]);
 
   // Tipos disponibles con área, deduplicados por nombre (el menor precio/área).
+  // `unitTypeId`/`facilityId` viajan con la recomendación para preseleccionar
+  // la elección en el formulario de reserva (evita que el visitante la repita).
   const unitTypes = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; areaM2: number | null; priceMonthly: number; available: number }
+      {
+        name: string;
+        areaM2: number | null;
+        priceMonthly: number;
+        available: number;
+        unitTypeId: string;
+        facilityId: string;
+      }
     >();
     for (const f of data.facilities) {
       for (const t of f.unitTypes) {
@@ -61,6 +70,8 @@ export function StorageCalculator({
             areaM2: t.areaM2,
             priceMonthly: t.priceMonthly,
             available: (prev?.available ?? 0) + t.available,
+            unitTypeId: t.id,
+            facilityId: f.id,
           });
         } else {
           prev.available += t.available;
@@ -181,7 +192,10 @@ export function StorageCalculator({
                   {t('perMonth')}
                 </p>
                 <Link
-                  href={bookHref(data.tenantSlug, locale)}
+                  href={bookHref(data.tenantSlug, locale, {
+                    facilityId: recommendation.facilityId,
+                    unitTypeId: recommendation.unitTypeId,
+                  })}
                   onClick={() => trackEvent('cta_reservar_click', { location: 'calculator' })}
                   className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
                   style={{ backgroundColor: brand }}

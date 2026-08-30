@@ -39,12 +39,25 @@ export async function getPublicWebMessages(locale: PublicWebLocale): Promise<Abs
  * visitante — español (por defecto) va a la ruta desnuda `/book/[slug]`, el
  * resto de idiomas al segmento reservado `/book/[slug]/l/[locale]` (mismo
  * patrón que `/s/[slug]/l/[locale]`).
+ *
+ * `params.facilityId`/`unitTypeId` (opcionales) preseleccionan la elección
+ * que el visitante ya hizo en la calculadora, la ficha de un local o el
+ * listado — evita que tenga que repetirla en el formulario de reserva.
  */
-export function bookHref(tenantSlug: string, locale: PublicWebLocale): string {
+export function bookHref(
+  tenantSlug: string,
+  locale: PublicWebLocale,
+  params?: { facilityId?: string; unitTypeId?: string },
+): string {
   const encoded = encodeURIComponent(tenantSlug);
-  return locale === DEFAULT_PUBLIC_WEB_LOCALE
-    ? `/book/${encoded}`
-    : `/book/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+  const base =
+    locale === DEFAULT_PUBLIC_WEB_LOCALE
+      ? `/book/${encoded}`
+      : `/book/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+  if (!params?.facilityId) return base;
+  const qs = new URLSearchParams({ facilityId: params.facilityId });
+  if (params.unitTypeId) qs.set('unitTypeId', params.unitTypeId);
+  return `${base}?${qs.toString()}`;
 }
 
 /**
