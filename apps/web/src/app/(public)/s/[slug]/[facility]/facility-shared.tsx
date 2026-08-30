@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider, useTranslations } from 'next-intl';
 
+import { trackEvent } from '../google-analytics';
 import {
   bookHref,
   getPublicWebMessages,
@@ -291,6 +292,7 @@ function FacilityBody({
 
         <Link
           href={bookHref(data.tenantSlug, locale)}
+          onClick={() => trackEvent('cta_reservar_click', { location: 'facility_page' })}
           className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
           style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
         >

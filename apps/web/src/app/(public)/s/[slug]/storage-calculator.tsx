@@ -11,8 +11,9 @@ import {
 import { Calculator, Minus, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { trackEvent } from './google-analytics';
 import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 
 const CATEGORY_ORDER: StorageItemCategory[] = ['muebles', 'electrodomesticos', 'cajas', 'otros'];
@@ -73,6 +74,17 @@ export function StorageCalculator({
     () => (m2 > 0 ? recommendStorageUnit(m2, unitTypes) : null),
     [m2, unitTypes],
   );
+
+  // Evento de conversión: cuando aparece una recomendación nueva (no en cada
+  // render mientras se sigue ajustando el mismo tamaño).
+  const lastTracked = useRef<string | null>(null);
+  useEffect(() => {
+    const name = recommendation?.name ?? null;
+    if (name && name !== lastTracked.current) {
+      lastTracked.current = name;
+      trackEvent('calculator_recommendation_shown', { unitType: name });
+    }
+  }, [recommendation]);
 
   function change(key: string, delta: number) {
     setQty((q) => {
@@ -170,6 +182,7 @@ export function StorageCalculator({
                 </p>
                 <Link
                   href={bookHref(data.tenantSlug, locale)}
+                  onClick={() => trackEvent('cta_reservar_click', { location: 'calculator' })}
                   className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
                   style={{ backgroundColor: brand }}
                 >
@@ -190,7 +203,7 @@ export function StorageCalculator({
               </button>
             )}
             <p className="mt-4 text-[11px] leading-tight text-muted-foreground">
-              Estimación orientativa. El espacio real depende de cómo se coloquen los objetos.
+              {t('disclaimer')}
             </p>
           </div>
         </div>

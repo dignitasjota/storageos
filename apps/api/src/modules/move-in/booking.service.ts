@@ -132,6 +132,7 @@ export class BookingService {
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
+      googleAnalyticsId: tenant.googleAnalyticsId,
       facilities: facilities
         .map((f) => ({
           id: f.id,

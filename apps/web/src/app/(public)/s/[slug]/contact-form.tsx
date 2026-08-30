@@ -3,6 +3,8 @@
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 
+import { trackEvent } from './google-analytics';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 /** Formulario de contacto de la web pública → crea un lead (Web Premium). */
@@ -30,6 +32,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
         }),
       });
       if (!res.ok) throw new Error('fail');
+      trackEvent('contact_submitted');
       setSent(true);
     } catch {
       setError(t('error'));

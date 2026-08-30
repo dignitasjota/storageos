@@ -17,6 +17,8 @@ export interface ContractSignViewDto {
   tenantSlug: string;
   brandColor: string | null;
   logoUrl: string | null;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
 }
 
 /** Resultado de firmar: estado + token de portal para pagar la 1ª factura. */
@@ -53,6 +55,8 @@ export interface BookingAvailabilityDto {
   /** Marca del operador (white-label): color hex y logo, o null. */
   brandColor: string | null;
   logoUrl: string | null;
+  /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
+  googleAnalyticsId: string | null;
   facilities: {
     id: string;
     name: string;

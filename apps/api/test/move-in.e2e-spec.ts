@@ -63,14 +63,12 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     expect(view.body.termsText).toContain(view.body.contractNumber);
 
     // Firma pública.
-    const signed = await request(app.getHttpServer())
-      .post(`/public/move-in/sign/${token}`)
-      .send({
-        signerName: 'Ana García',
-        method: 'typed',
-        typedSignature: 'Ana García',
-        accept: true,
-      });
+    const signed = await request(app.getHttpServer()).post(`/public/move-in/sign/${token}`).send({
+      signerName: 'Ana García',
+      method: 'typed',
+      typedSignature: 'Ana García',
+      accept: true,
+    });
     expect(signed.status).toBe(201);
     expect(signed.body.status).toBe('active');
 
@@ -105,6 +103,8 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
       `/public/move-in/book/${owner.slug}/availability`,
     );
     expect(avail.status).toBe(200);
+    // Sin GA4 configurado -> null (no rompe el embudo aunque el tenant no lo use).
+    expect(avail.body.googleAnalyticsId).toBeNull();
     const facility = avail.body.facilities[0];
     expect(facility.unitTypes[0].available).toBeGreaterThan(0);
 
@@ -118,6 +118,19 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
       });
     expect(booking.status).toBe(201);
     expect(booking.body.signingToken).toContain('.');
+
+    // El paso de firma también expone GA4 (antes ni siquiera cargaba el
+    // script en /book ni /sign, el embudo era invisible en analítica).
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/branding')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ googleAnalyticsId: 'G-ABC1234567' })
+      .expect(200);
+    const signView = await request(app.getHttpServer()).get(
+      `/public/move-in/sign/${booking.body.signingToken}`,
+    );
+    expect(signView.status).toBe(200);
+    expect(signView.body.googleAnalyticsId).toBe('G-ABC1234567');
 
     const signed = await request(app.getHttpServer())
       .post(`/public/move-in/sign/${booking.body.signingToken}`)

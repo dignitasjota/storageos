@@ -141,6 +141,7 @@ export class SignaturesService {
         contractClauses: true,
         portalBrandColor: true,
         portalLogoUrl: true,
+        googleAnalyticsId: true,
       },
     });
     const renderedClauses = tenant?.contractClauses
@@ -184,6 +185,7 @@ export class SignaturesService {
       tenantSlug: tenant?.slug ?? '',
       brandColor: tenant?.portalBrandColor ?? null,
       logoUrl: tenant?.portalLogoUrl ?? null,
+      googleAnalyticsId: tenant?.googleAnalyticsId ?? null,
     };
   }
 
