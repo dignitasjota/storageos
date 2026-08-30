@@ -1,3 +1,5 @@
+'use client';
+
 import { mapEmbedUrl, WEEKDAYS } from '@storageos/shared';
 import { Clock, MapPin, MessageCircle, Phone, Mail, Star, Quote } from 'lucide-react';
 import Image from 'next/image';
@@ -6,40 +8,17 @@ import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
 import { trackEvent } from './google-analytics';
-import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
+import { bookHref, type PublicWebLocale } from './i18n/messages';
+import { formatPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 
 import type { OpeningHours, PublicLandingDto, Weekday } from '@storageos/shared';
 
-export function formatPrice(n: number, locale: PublicWebLocale): string {
-  return n.toLocaleString(intlLocaleFor(locale), {
-    style: 'currency',
-    currency: 'EUR',
-    maximumFractionDigits: 0,
-  });
-}
+export { formatPrice, priceRangeString } from './price-format';
 
 export function cities(data: PublicLandingDto): string {
   const set = [...new Set(data.facilities.map((f) => f.city).filter(Boolean))] as string[];
   return set.join(', ');
-}
-
-/**
- * Rango de precio (IVA incl.) para la propiedad `priceRange` del JSON-LD
- * `LocalBusiness`/`SelfStorage` — ayuda a Google a mostrar el nivel de precio
- * en resultados/Maps. `null` si no hay tipos de trastero.
- */
-export function priceRangeString(
-  unitTypes: { priceMonthly: number }[],
-  locale: PublicWebLocale,
-): string | null {
-  if (unitTypes.length === 0) return null;
-  const prices = unitTypes.map((t) => t.priceMonthly * 1.21);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  return min === max
-    ? formatPrice(min, locale)
-    : `${formatPrice(min, locale)}–${formatPrice(max, locale)}`;
 }
 
 interface TplProps {

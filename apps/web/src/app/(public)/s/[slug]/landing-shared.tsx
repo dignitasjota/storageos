@@ -4,7 +4,8 @@ import { NextIntlClientProvider } from 'next-intl';
 import { EscaparateTemplate } from './escaparate-template';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { OnePageTemplate } from './onepage-template';
-import { LandingTemplate, priceRangeString } from './templates';
+import { priceRangeString } from './price-format';
+import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
 
 import type { PublicLandingDto } from '@storageos/shared';
