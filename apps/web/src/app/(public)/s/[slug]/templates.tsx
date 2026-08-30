@@ -413,7 +413,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
           </section>
         )}
         <div className="space-y-6">
-          {data.facilities.map((f) => (
+          {data.facilities.map((f, index) => (
             <section
               key={f.id}
               className="overflow-hidden border border-neutral-800 bg-neutral-900"
@@ -424,7 +424,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
                     src={f.imageUrls[0]}
                     alt={f.name}
                     fill
-                    loading="lazy"
+                    {...(index === 0 ? { priority: true } : { loading: 'lazy' as const })}
                     sizes="(min-width: 768px) 50vw, 100vw"
                     className="object-cover"
                   />
@@ -485,7 +485,7 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
   }
   return (
     <div className={cols ? 'grid gap-6 md:grid-cols-2' : 'space-y-6'}>
-      {data.facilities.map((f) => (
+      {data.facilities.map((f, index) => (
         <section key={f.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
           {f.imageUrls[0] && (
             <div className="relative aspect-[16/9] w-full bg-muted">
@@ -493,7 +493,7 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
                 src={f.imageUrls[0]}
                 alt={f.name}
                 fill
-                loading="lazy"
+                {...(index === 0 ? { priority: true } : { loading: 'lazy' as const })}
                 sizes="(min-width: 768px) 50vw, 100vw"
                 className="object-cover"
               />

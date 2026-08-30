@@ -1,11 +1,15 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import bundleAnalyzer from '@next/bundle-analyzer';
 import createNextIntlPlugin from 'next-intl/plugin';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const withNextIntl = createNextIntlPlugin('./src/lib/i18n/request.ts');
+// `ANALYZE=true pnpm --filter web analyze` genera un reporte HTML del tamaño
+// de cada chunk/ruta (abre solo en local, no afecta al build normal).
+const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === 'true' });
 
 /**
  * Content Security Policy.
@@ -154,4 +158,4 @@ const nextConfig = {
   },
 };
 
-export default withNextIntl(nextConfig);
+export default withBundleAnalyzer(withNextIntl(nextConfig));

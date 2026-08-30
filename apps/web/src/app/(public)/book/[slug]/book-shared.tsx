@@ -14,22 +14,37 @@ import type {
 
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
-import { bookHref, signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
+import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
-import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
-/** Formulario de reserva self-service (`/book/[slug]` y `/book/[slug]/l/[locale]`). */
-export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWebLocale }) {
+/**
+ * Formulario de reserva self-service (`/book/[slug]` y `/book/[slug]/l/[locale]`).
+ * El marco `TenantWebChrome` lo pone el `page.tsx` (Server Component) — este
+ * componente ya no lo envuelve, solo el contenido interno del formulario.
+ * `initialData`/`initialError` los precarga el servidor (`get-availability.ts`)
+ * para no repetir el fetch en cliente al montar.
+ */
+export function BookPageBody({
+  slug,
+  locale,
+  initialData = null,
+  initialError = null,
+}: {
+  slug: string;
+  locale: PublicWebLocale;
+  initialData?: BookingAvailabilityDto | null;
+  initialError?: string | null;
+}) {
   const t = useTranslations('publicWeb.book');
   const tFunnel = useTranslations('publicWeb.funnel');
   const router = useRouter();
-  const [data, setData] = useState<BookingAvailabilityDto | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [data, setData] = useState<BookingAvailabilityDto | null>(initialData);
+  const [loadError, setLoadError] = useState<string | null>(initialError);
   const [facilityId, setFacilityId] = useState('');
   const [unitTypeId, setUnitTypeId] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -51,6 +66,8 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
   );
 
   useEffect(() => {
+    // Ya resuelto en servidor (caso normal) — no repetir el fetch en cliente.
+    if (initialData || initialError) return;
     apiFetch<BookingAvailabilityDto>(`/public/move-in/book/${slug}/availability`, {
       requiresAuth: false,
     })
@@ -172,188 +189,176 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
   const brand = data.brandColor ?? '#2563EB';
 
   return (
-    <TenantWebChrome
-      locale={locale}
-      languageHrefBuilder={(l) => bookHref(slug, l)}
-      googleAnalyticsId={data.googleAnalyticsId}
-      data={{
-        tenantName: data.tenantName,
-        tenantSlug: data.tenantSlug,
-        brandColor: data.brandColor,
-        logoUrl: data.logoUrl,
-      }}
-    >
-      <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-10">
-        <FunnelSteps
-          current={1}
-          total={2}
-          label={tFunnel('stepDetails')}
-          stepOfLabel={tFunnel('stepOf', { current: 1, total: 2 })}
-        />
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>{t('title', { tenantName: data.tenantName })}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {data.facilities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('noAvailability')}</p>
-            ) : (
-              <>
+    <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-10">
+      <FunnelSteps
+        current={1}
+        total={2}
+        label={tFunnel('stepDetails')}
+        stepOfLabel={tFunnel('stepOf', { current: 1, total: 2 })}
+      />
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>{t('title', { tenantName: data.tenantName })}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {data.facilities.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('noAvailability')}</p>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label htmlFor="book-facility">{t('facilityLabel')}</Label>
+                <select
+                  id="book-facility"
+                  className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
+                  value={facilityId}
+                  onChange={(e) => {
+                    setFacilityId(e.target.value);
+                    setUnitTypeId('');
+                  }}
+                >
+                  <option value="">{t('facilityPlaceholder')}</option>
+                  {data.facilities.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {facility && (
                 <div className="space-y-1">
-                  <Label htmlFor="book-facility">{t('facilityLabel')}</Label>
+                  <Label htmlFor="book-unit-type">{t('unitTypeLabel')}</Label>
                   <select
-                    id="book-facility"
+                    id="book-unit-type"
                     className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
-                    value={facilityId}
-                    onChange={(e) => {
-                      setFacilityId(e.target.value);
-                      setUnitTypeId('');
-                    }}
+                    value={unitTypeId}
+                    onChange={(e) => setUnitTypeId(e.target.value)}
                   >
-                    <option value="">{t('facilityPlaceholder')}</option>
-                    {data.facilities.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
+                    <option value="">{t('unitTypePlaceholder')}</option>
+                    {facility.unitTypes.map((ut) => (
+                      <option key={ut.id} value={ut.id}>
+                        {t('unitTypeOption', {
+                          name: ut.name,
+                          price: formatPrice(ut.priceMonthly * 1.21, locale),
+                          count: ut.available,
+                        })}
                       </option>
                     ))}
                   </select>
+                  {selectedType && (
+                    <p className="text-sm text-muted-foreground">
+                      {t('quoteLabel')}{' '}
+                      <span className="font-semibold text-foreground">
+                        {formatPrice(selectedType.priceMonthly * 1.21, locale)}
+                        {t('quotePerMonth')}
+                      </span>{' '}
+                      {t('quoteNote')}
+                    </p>
+                  )}
                 </div>
+              )}
 
-                {facility && (
-                  <div className="space-y-1">
-                    <Label htmlFor="book-unit-type">{t('unitTypeLabel')}</Label>
-                    <select
-                      id="book-unit-type"
-                      className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
-                      value={unitTypeId}
-                      onChange={(e) => setUnitTypeId(e.target.value)}
-                    >
-                      <option value="">{t('unitTypePlaceholder')}</option>
-                      {facility.unitTypes.map((ut) => (
-                        <option key={ut.id} value={ut.id}>
-                          {t('unitTypeOption', {
-                            name: ut.name,
-                            price: formatPrice(ut.priceMonthly * 1.21, locale),
-                            count: ut.available,
-                          })}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedType && (
-                      <p className="text-sm text-muted-foreground">
-                        {t('quoteLabel')}{' '}
-                        <span className="font-semibold text-foreground">
-                          {formatPrice(selectedType.priceMonthly * 1.21, locale)}
-                          {t('quotePerMonth')}
-                        </span>{' '}
-                        {t('quoteNote')}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div className="space-y-1">
-                  <Label htmlFor="book-start-date">{t('startDateLabel')}</Label>
-                  <Input
-                    id="book-start-date"
-                    type="date"
-                    min={new Date().toISOString().slice(0, 10)}
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="book-first-name">{t('firstNameLabel')}</Label>
-                    <Input
-                      id="book-first-name"
-                      autoComplete="given-name"
-                      value={form.firstName}
-                      onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="book-last-name">{t('lastNameLabel')}</Label>
-                    <Input
-                      id="book-last-name"
-                      autoComplete="family-name"
-                      value={form.lastName}
-                      onChange={(e) => setForm({ ...form, lastName: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="book-email">{t('emailLabel')}</Label>
-                  <Input
-                    id="book-email"
-                    type="email"
-                    autoComplete="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    onBlur={() => void captureLead()}
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="book-phone">{t('phoneLabel')}</Label>
-                    <Input
-                      id="book-phone"
-                      type="tel"
-                      autoComplete="tel"
-                      value={form.phone}
-                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="book-document">{t('documentLabel')}</Label>
-                    <Input
-                      id="book-document"
-                      value={form.documentNumber}
-                      onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="book-referral">{t('referralLabel')}</Label>
-                    <Input
-                      id="book-referral"
-                      value={referralCode}
-                      onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                      placeholder={t('referralPlaceholder')}
-                    />
-                  </div>
-                </div>
-
-                {/* Honeypot anti-bot: oculto para humanos. */}
-                <input
-                  type="text"
-                  tabIndex={-1}
-                  autoComplete="off"
-                  value={website}
-                  onChange={(e) => setWebsite(e.target.value)}
-                  className="hidden"
-                  aria-hidden="true"
+              <div className="space-y-1">
+                <Label htmlFor="book-start-date">{t('startDateLabel')}</Label>
+                <Input
+                  id="book-start-date"
+                  type="date"
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
                 />
+              </div>
 
-                <Button
-                  onClick={submit}
-                  disabled={!canSubmit || submitting}
-                  className="w-full text-white"
-                  style={{ backgroundColor: brand }}
-                >
-                  {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                  {t('submit')}
-                </Button>
-                <p className="text-center text-xs text-muted-foreground">{t('submitNote')}</p>
-                <p className="text-center text-xs text-muted-foreground">{t('privacyNotice')}</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="book-first-name">{t('firstNameLabel')}</Label>
+                  <Input
+                    id="book-first-name"
+                    autoComplete="given-name"
+                    value={form.firstName}
+                    onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="book-last-name">{t('lastNameLabel')}</Label>
+                  <Input
+                    id="book-last-name"
+                    autoComplete="family-name"
+                    value={form.lastName}
+                    onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="book-email">{t('emailLabel')}</Label>
+                <Input
+                  id="book-email"
+                  type="email"
+                  autoComplete="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  onBlur={() => void captureLead()}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="book-phone">{t('phoneLabel')}</Label>
+                  <Input
+                    id="book-phone"
+                    type="tel"
+                    autoComplete="tel"
+                    value={form.phone}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="book-document">{t('documentLabel')}</Label>
+                  <Input
+                    id="book-document"
+                    value={form.documentNumber}
+                    onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="book-referral">{t('referralLabel')}</Label>
+                  <Input
+                    id="book-referral"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                    placeholder={t('referralPlaceholder')}
+                  />
+                </div>
+              </div>
 
-        <WaitlistSection slug={slug} />
-      </div>
-    </TenantWebChrome>
+              {/* Honeypot anti-bot: oculto para humanos. */}
+              <input
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                className="hidden"
+                aria-hidden="true"
+              />
+
+              <Button
+                onClick={submit}
+                disabled={!canSubmit || submitting}
+                className="w-full text-white"
+                style={{ backgroundColor: brand }}
+              >
+                {submitting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                {t('submit')}
+              </Button>
+              <p className="text-center text-xs text-muted-foreground">{t('submitNote')}</p>
+              <p className="text-center text-xs text-muted-foreground">{t('privacyNotice')}</p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <WaitlistSection slug={slug} />
+    </div>
   );
 }
 

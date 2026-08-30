@@ -224,14 +224,21 @@ export const RequestPlanUploadSchema = z.object({
 });
 export type RequestPlanUploadInput = z.infer<typeof RequestPlanUploadSchema>;
 
-/** Solicitud de URL firmada para subir una imagen del local. */
+/**
+ * Solicitud de URL firmada para subir una imagen del local. Límite bajado de
+ * 5 MB a 2 MB (rendimiento: son fotos de marketing que se muestran en
+ * miniatura en el listado/ficha pública, no planos técnicos — con
+ * `images.unoptimized:true` en Next no se recomprimen en servidor, así que
+ * el límite de subida es la única palanca; el frontend además comprime/
+ * redimensiona en el navegador antes de subir, ver `compressImage`).
+ */
 export const RequestFacilityImageUploadSchema = z.object({
   mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
   sizeBytes: z
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024, 'Máximo 5 MB'),
+    .max(2 * 1024 * 1024, 'Máximo 2 MB'),
 });
 export type RequestFacilityImageUploadInput = z.infer<typeof RequestFacilityImageUploadSchema>;
 

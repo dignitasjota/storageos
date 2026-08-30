@@ -19,25 +19,28 @@ function hrefFor(locale: PublicWebLocale, tenantSlug: string, facilitySlug?: str
  * Selector ES/EN de la web pública del tenant. Enlaza a la MISMA página en
  * el otro idioma (no solo a la home), para no perder el contexto del
  * visitante (ficha de local → sigue en la ficha de local, solo cambia el
- * idioma). `hrefBuilder` permite reutilizarlo fuera de `/s/[slug]` (reserva,
- * firma) pasando el generador de URL de esa ruta (`bookHref`/`signHref`).
+ * idioma). `otherLocaleHref` permite reutilizarlo fuera de `/s/[slug]`
+ * (reserva, firma) con la URL YA RESUELTA de esa ruta (`bookHref`/`signHref`)
+ * — recibe el string, no la función que lo genera: este componente es
+ * cliente y `TenantWebChrome` (su padre) es Server Component, así que una
+ * función no podría cruzar esa frontera (no es serializable).
  */
 export function LanguageSwitcher({
   tenantSlug,
   facilitySlug,
   currentLocale,
-  hrefBuilder,
+  otherLocaleHref,
 }: {
   tenantSlug: string;
   facilitySlug?: string;
   currentLocale: PublicWebLocale;
-  hrefBuilder?: (locale: PublicWebLocale) => string;
+  otherLocaleHref?: string;
 }) {
   const t = useTranslations('publicWeb.languageSwitcher');
   const other: PublicWebLocale = currentLocale === 'es' ? 'en' : 'es';
   return (
     <Link
-      href={hrefBuilder ? hrefBuilder(other) : hrefFor(other, tenantSlug, facilitySlug)}
+      href={otherLocaleHref ?? hrefFor(other, tenantSlug, facilitySlug)}
       className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       aria-label={t('label')}
     >

@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
+import { brandOf, getContractSignView } from '../../get-sign-view';
 import { SignPageBody } from '../../sign-shared';
 
 import {
@@ -8,7 +9,9 @@ import {
   getPublicWebMessages,
   intlLocaleFor,
   isPublicWebLocale,
+  signHref,
 } from '@/app/(public)/s/[slug]/i18n/messages';
+import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
 
 export default async function SignLocalePage({
   params,
@@ -21,9 +24,21 @@ export default async function SignLocalePage({
   // contenido duplicado indexable en `/l/es`.
   if (locale === DEFAULT_PUBLIC_WEB_LOCALE) redirect(`/sign/${token}`);
   const messages = await getPublicWebMessages(locale);
+  const { data, error } = await getContractSignView(token, locale);
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <SignPageBody token={token} locale={locale} />
+      {data ? (
+        <TenantWebChrome
+          data={brandOf(data)}
+          locale={locale}
+          googleAnalyticsId={data.googleAnalyticsId}
+          languageHrefBuilder={(l) => signHref(token, l)}
+        >
+          <SignPageBody token={token} locale={locale} initialView={data} />
+        </TenantWebChrome>
+      ) : (
+        <SignPageBody token={token} locale={locale} initialError={error} />
+      )}
     </NextIntlClientProvider>
   );
 }

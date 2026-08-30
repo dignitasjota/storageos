@@ -1,7 +1,14 @@
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
-import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i18n/messages';
+import {
+  blogHref,
+  blogPostHref,
+  getPublicWebMessages,
+  intlLocaleFor,
+  type PublicWebLocale,
+} from '../i18n/messages';
+import { TenantWebChrome } from '../tenant-web-chrome';
 
 import { BlogListBody, BlogPostBody } from './blog-body';
 
@@ -167,7 +174,15 @@ export async function BlogListPageBody({
   const messages = await getPublicWebMessages(locale);
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <BlogListBody data={data} slug={slug} locale={locale} />
+      <TenantWebChrome
+        data={data}
+        locale={locale}
+        hasBlog
+        googleAnalyticsId={data.googleAnalyticsId}
+        languageHrefBuilder={(l) => blogHref(slug, l)}
+      >
+        <BlogListBody data={data} slug={slug} locale={locale} />
+      </TenantWebChrome>
     </NextIntlClientProvider>
   );
 }
@@ -186,7 +201,15 @@ export async function BlogPostPageBody({
   const messages = await getPublicWebMessages(locale);
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <BlogPostBody data={data} slug={slug} postSlug={postSlug} locale={locale} />
+      <TenantWebChrome
+        data={data}
+        locale={locale}
+        hasBlog
+        googleAnalyticsId={data.googleAnalyticsId}
+        languageHrefBuilder={(l) => blogPostHref(slug, postSlug, l)}
+      >
+        <BlogPostBody data={data} slug={slug} locale={locale} />
+      </TenantWebChrome>
     </NextIntlClientProvider>
   );
 }
