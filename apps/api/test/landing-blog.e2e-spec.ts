@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -40,6 +41,26 @@ describe('Blog público de la landing (e2e)', () => {
     expect(empty.status).toBe(200);
     expect(empty.body.posts).toEqual([]);
     expect(empty.body.tenantName).toBeTruthy();
+    // Sin locales todavía -> enlazado interno vacío.
+    expect(empty.body.facilities).toEqual([]);
+
+    // Enlazado interno del blog: local con trasteros disponibles -> aparece
+    // con su precio más bajo (IVA incl.) en `facilities`.
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local del blog',
+      unitsCount: 1,
+      pricePerUnit: 50,
+    });
+    await request(app.getHttpServer())
+      .patch(`/facilities/${facilityId}`)
+      .set(auth)
+      .send({ city: 'Sevilla' })
+      .expect(200);
+    const facilityRes = await request(app.getHttpServer())
+      .get(`/facilities/${facilityId}`)
+      .set(auth);
+    const facilitySlug = facilityRes.body.publicSlug as string;
+    expect(facilitySlug).toBeTruthy();
 
     // Borrador -> no aparece en el listado ni es servible por detalle.
     const draft = await request(app.getHttpServer()).post('/blog-posts').set(auth).send({
@@ -91,6 +112,13 @@ describe('Blog público de la landing (e2e)', () => {
     expect(summary.excerpt).toBe('Aprovecha cada rincón.');
     expect(summary.publishedAt).toBeTruthy();
     expect(summary.coverImageUrl).toBeNull();
+    expect(listPublished.body.facilities).toHaveLength(1);
+    expect(listPublished.body.facilities[0]).toMatchObject({
+      publicSlug: facilitySlug,
+      name: 'Local del blog',
+      city: 'Sevilla',
+      fromPriceMonthly: 60.5, // 50 * 1.21 IVA incl.
+    });
 
     const detail = await request(app.getHttpServer()).get(
       `/public/landing/${owner.slug}/blog/${draftSlug}`,
@@ -101,6 +129,8 @@ describe('Blog público de la landing (e2e)', () => {
     expect(detail.body.post.contentMarkdown).toContain('Organiza por categorías');
     expect(detail.body.post.seoTitle).toBe('Trucos de organización — SEO');
     expect(detail.body.post.seoDescription).toBe('Consejos para organizar tu trastero.');
+    expect(detail.body.facilities).toHaveLength(1);
+    expect(detail.body.facilities[0].publicSlug).toBe(facilitySlug);
 
     // Slug inexistente -> 404.
     const ghost = await request(app.getHttpServer()).get(

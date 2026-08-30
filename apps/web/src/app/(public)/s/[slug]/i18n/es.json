@@ -279,7 +279,8 @@
       "empty": "Todavía no hay entradas publicadas.",
       "readMore": "Leer más",
       "backToBlog": "Volver al blog",
-      "publishedOn": "Publicado el {date}"
+      "publishedOn": "Publicado el {date}",
+      "relatedFacilitiesTitle": "Nuestros locales"
     }
   }
 }
