@@ -269,14 +269,14 @@ function FacilityBody({
 
         {f.imageUrls.length > 0 && (
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {f.imageUrls.map((url) => (
+            {f.imageUrls.map((url, index) => (
               <div
                 key={url}
                 className="relative aspect-video w-full overflow-hidden rounded-md border"
               >
                 <Image
                   src={url}
-                  alt={`${f.name}`}
+                  alt={t('facility.photoAlt', { index: index + 1, name: f.name })}
                   fill
                   loading="lazy"
                   sizes="(min-width: 640px) 33vw, 50vw"

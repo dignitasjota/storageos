@@ -13,6 +13,7 @@ import type {
   SignResultDto,
 } from '@storageos/shared';
 
+import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
@@ -29,6 +30,7 @@ import { fetchPortalRedsysRedirect, submitRedsysForm } from '@/lib/payments/reds
 /** Página de firma de contrato (`/sign/[token]` y `/sign/[token]/l/[locale]`). */
 export function SignPageBody({ token, locale }: { token: string; locale: PublicWebLocale }) {
   const t = useTranslations('publicWeb.sign');
+  const tFunnel = useTranslations('publicWeb.funnel');
   const [view, setView] = useState<ContractSignViewDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [method, setMethod] = useState<'drawn' | 'typed'>('drawn');
@@ -143,6 +145,12 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
 
   return (
     <BrandShell brand={brand} token={token} locale={locale}>
+      <FunnelSteps
+        current={2}
+        total={2}
+        label={tFunnel('stepSign')}
+        stepOfLabel={tFunnel('stepOf', { current: 2, total: 2 })}
+      />
       <Card className="w-full">
         <CardHeader>
           <CardTitle>{t('title')}</CardTitle>
@@ -180,8 +188,13 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
           </pre>
 
           <div className="space-y-1">
-            <Label>{t('signerNameLabel')}</Label>
-            <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} />
+            <Label htmlFor="sign-signer-name">{t('signerNameLabel')}</Label>
+            <Input
+              id="sign-signer-name"
+              autoComplete="name"
+              value={signerName}
+              onChange={(e) => setSignerName(e.target.value)}
+            />
           </div>
 
           <div className="flex gap-2 text-sm">
@@ -204,11 +217,16 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
           </div>
 
           {method === 'drawn' ? (
-            <SignaturePad onChange={setDrawn} />
+            <SignaturePad
+              onChange={setDrawn}
+              emptyLabel={t('signatureEmpty')}
+              filledLabel={t('signatureFilled')}
+              clearLabel={t('signatureClear')}
+            />
           ) : (
             <div className="space-y-1">
-              <Label>{t('typeSignatureLabel')}</Label>
-              <Input value={typed} onChange={(e) => setTyped(e.target.value)} />
+              <Label htmlFor="sign-typed">{t('typeSignatureLabel')}</Label>
+              <Input id="sign-typed" value={typed} onChange={(e) => setTyped(e.target.value)} />
             </div>
           )}
 

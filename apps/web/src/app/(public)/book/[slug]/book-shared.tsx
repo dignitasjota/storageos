@@ -12,6 +12,7 @@ import type {
   PublicWaitlistOptionsDto,
 } from '@storageos/shared';
 
+import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { bookHref, signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
@@ -24,6 +25,7 @@ import { ApiError, apiFetch } from '@/lib/auth/api';
 /** Formulario de reserva self-service (`/book/[slug]` y `/book/[slug]/l/[locale]`). */
 export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWebLocale }) {
   const t = useTranslations('publicWeb.book');
+  const tFunnel = useTranslations('publicWeb.funnel');
   const router = useRouter();
   const [data, setData] = useState<BookingAvailabilityDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -163,6 +165,12 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
       }}
     >
       <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-10">
+        <FunnelSteps
+          current={1}
+          total={2}
+          label={tFunnel('stepDetails')}
+          stepOfLabel={tFunnel('stepOf', { current: 1, total: 2 })}
+        />
         <Card className="w-full">
           <CardHeader>
             <CardTitle>{t('title', { tenantName: data.tenantName })}</CardTitle>
@@ -173,8 +181,9 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
             ) : (
               <>
                 <div className="space-y-1">
-                  <Label>{t('facilityLabel')}</Label>
+                  <Label htmlFor="book-facility">{t('facilityLabel')}</Label>
                   <select
+                    id="book-facility"
                     className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                     value={facilityId}
                     onChange={(e) => {
@@ -193,8 +202,9 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
 
                 {facility && (
                   <div className="space-y-1">
-                    <Label>{t('unitTypeLabel')}</Label>
+                    <Label htmlFor="book-unit-type">{t('unitTypeLabel')}</Label>
                     <select
+                      id="book-unit-type"
                       className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                       value={unitTypeId}
                       onChange={(e) => setUnitTypeId(e.target.value)}
@@ -224,8 +234,9 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
                 )}
 
                 <div className="space-y-1">
-                  <Label>{t('startDateLabel')}</Label>
+                  <Label htmlFor="book-start-date">{t('startDateLabel')}</Label>
                   <Input
+                    id="book-start-date"
                     type="date"
                     min={new Date().toISOString().slice(0, 10)}
                     value={startDate}
@@ -235,24 +246,30 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>{t('firstNameLabel')}</Label>
+                    <Label htmlFor="book-first-name">{t('firstNameLabel')}</Label>
                     <Input
+                      id="book-first-name"
+                      autoComplete="given-name"
                       value={form.firstName}
                       onChange={(e) => setForm({ ...form, firstName: e.target.value })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>{t('lastNameLabel')}</Label>
+                    <Label htmlFor="book-last-name">{t('lastNameLabel')}</Label>
                     <Input
+                      id="book-last-name"
+                      autoComplete="family-name"
                       value={form.lastName}
                       onChange={(e) => setForm({ ...form, lastName: e.target.value })}
                     />
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <Label>{t('emailLabel')}</Label>
+                  <Label htmlFor="book-email">{t('emailLabel')}</Label>
                   <Input
+                    id="book-email"
                     type="email"
+                    autoComplete="email"
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                     onBlur={() => void captureLead()}
@@ -260,22 +277,27 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>{t('phoneLabel')}</Label>
+                    <Label htmlFor="book-phone">{t('phoneLabel')}</Label>
                     <Input
+                      id="book-phone"
+                      type="tel"
+                      autoComplete="tel"
                       value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>{t('documentLabel')}</Label>
+                    <Label htmlFor="book-document">{t('documentLabel')}</Label>
                     <Input
+                      id="book-document"
                       value={form.documentNumber}
                       onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>{t('referralLabel')}</Label>
+                    <Label htmlFor="book-referral">{t('referralLabel')}</Label>
                     <Input
+                      id="book-referral"
                       value={referralCode}
                       onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
                       placeholder={t('referralPlaceholder')}
@@ -304,6 +326,7 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
                   {t('submit')}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">{t('submitNote')}</p>
+                <p className="text-center text-xs text-muted-foreground">{t('privacyNotice')}</p>
               </>
             )}
           </CardContent>
@@ -379,8 +402,9 @@ function WaitlistSection({ slug }: { slug: string }) {
           <>
             <p className="text-sm text-muted-foreground">{t('waitlistIntro')}</p>
             <div className="space-y-1">
-              <Label>{t('facilityLabel')}</Label>
+              <Label htmlFor="waitlist-facility">{t('facilityLabel')}</Label>
               <select
+                id="waitlist-facility"
                 className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                 value={facilityId}
                 onChange={(e) => {
@@ -398,8 +422,9 @@ function WaitlistSection({ slug }: { slug: string }) {
             </div>
             {facility && (
               <div className="space-y-1">
-                <Label>{t('unitTypeLabel')}</Label>
+                <Label htmlFor="waitlist-unit-type">{t('unitTypeLabel')}</Label>
                 <select
+                  id="waitlist-unit-type"
                   className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
                   value={unitTypeId}
                   onChange={(e) => setUnitTypeId(e.target.value)}
@@ -417,24 +442,31 @@ function WaitlistSection({ slug }: { slug: string }) {
               </div>
             )}
             <div className="space-y-1">
-              <Label>{t('firstNameLabel')}</Label>
+              <Label htmlFor="waitlist-first-name">{t('firstNameLabel')}</Label>
               <Input
+                id="waitlist-first-name"
+                autoComplete="given-name"
                 value={form.contactName}
                 onChange={(e) => setForm({ ...form, contactName: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>{t('emailLabel')}</Label>
+                <Label htmlFor="waitlist-email">{t('emailLabel')}</Label>
                 <Input
+                  id="waitlist-email"
                   type="email"
+                  autoComplete="email"
                   value={form.contactEmail}
                   onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
                 />
               </div>
               <div className="space-y-1">
-                <Label>{t('phoneLabel')}</Label>
+                <Label htmlFor="waitlist-phone">{t('phoneLabel')}</Label>
                 <Input
+                  id="waitlist-phone"
+                  type="tel"
+                  autoComplete="tel"
                   value={form.contactPhone}
                   onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
                 />

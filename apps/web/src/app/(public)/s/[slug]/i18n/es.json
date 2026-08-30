@@ -62,13 +62,32 @@
       "headingWithCity": "Trasteros en {city} — {name}",
       "headingDefault": "Trasteros — {name}",
       "sizesAndPrices": "Tamaños y precios",
-      "video": "Vídeo"
+      "video": "Vídeo",
+      "photoAlt": "Foto {index} de {name}"
     },
     "testimonials": {
       "title": "Lo que dicen nuestros clientes"
     },
     "faq": {
-      "title": "Preguntas frecuentes"
+      "title": "Preguntas frecuentes",
+      "defaults": [
+        {
+          "question": "¿Cuánto cuesta alquilar un trastero?",
+          "answer": "Depende del tamaño que necesites. Puedes ver los precios por tamaño más abajo y usar la calculadora para saber qué trastero te encaja."
+        },
+        {
+          "question": "¿Hay permanencia mínima?",
+          "answer": "No. Alquilas por los meses que necesites y avisas cuando quieras darte de baja."
+        },
+        {
+          "question": "¿Cuándo puedo acceder a mis cosas?",
+          "answer": "Puedes acceder a tu trastero en el horario del local; contáctanos y te contamos los detalles."
+        },
+        {
+          "question": "¿Cómo reservo?",
+          "answer": "Puedes reservar online en minutos desde el botón «Reservar» o escribirnos y te ayudamos."
+        }
+      ]
     },
     "contact": {
       "title": "¿Hablamos?",
@@ -80,7 +99,12 @@
       "send": "Enviar mensaje",
       "sending": "Enviando…",
       "success": "¡Gracias! Hemos recibido tu mensaje y te contactaremos pronto.",
-      "error": "No se pudo enviar. Inténtalo de nuevo o llámanos."
+      "error": "No se pudo enviar. Inténtalo de nuevo o llámanos.",
+      "nameLabel": "Nombre",
+      "emailLabel": "Email",
+      "phoneLabel": "Teléfono (opcional)",
+      "messageLabel": "Mensaje",
+      "privacyNotice": "Tus datos se usan solo para responder a tu consulta."
     },
     "calculator": {
       "title": "¿Qué trastero necesitas?",
@@ -184,26 +208,44 @@
           "title": "Empresas",
           "text": "Stock, mobiliario o material de trabajo con acceso cómodo."
         },
-        { "title": "Documentación", "text": "Guarda tu archivo de forma ordenada y segura." },
+        {
+          "title": "Documentación",
+          "text": "Guarda tu archivo de forma ordenada y segura."
+        },
         {
           "title": "Guardamuebles",
           "text": "Espacio para tus muebles el tiempo que necesites."
         }
       ],
       "advantages": [
-        { "label": "Tamaños a medida" },
-        { "label": "Acceso amplio" },
-        { "label": "Instalaciones seguras" },
-        { "label": "Acceso desde el móvil" },
-        { "label": "Sin permanencia" },
-        { "label": "Atención cercana" }
+        {
+          "label": "Tamaños a medida"
+        },
+        {
+          "label": "Acceso amplio"
+        },
+        {
+          "label": "Instalaciones seguras"
+        },
+        {
+          "label": "Acceso desde el móvil"
+        },
+        {
+          "label": "Sin permanencia"
+        },
+        {
+          "label": "Atención cercana"
+        }
       ],
       "steps": [
         {
           "title": "Elige tu trastero",
           "text": "Mira los tamaños y precios y quédate con el que encaje."
         },
-        { "title": "Reserva online", "text": "Contrata en minutos desde la web, sin papeleo." },
+        {
+          "title": "Reserva online",
+          "text": "Contrata en minutos desde la web, sin papeleo."
+        },
         {
           "title": "Accede cuando quieras",
           "text": "Recibe tu acceso y empieza a usar tu trastero."
@@ -241,7 +283,8 @@
       "waitlistNoAvailability": "sin disponibilidad",
       "waitlistSubmit": "Apuntarme a la lista de espera",
       "waitlistSuccessToast": "Te avisaremos cuando se libere un trastero de ese tipo.",
-      "waitlistError": "No se pudo apuntar."
+      "waitlistError": "No se pudo apuntar.",
+      "privacyNotice": "Tus datos se usan solo para gestionar tu reserva y contactarte."
     },
     "sign": {
       "invalidTitle": "Enlace no válido",
@@ -271,7 +314,10 @@
       "paymentStartError": "No se pudo iniciar el pago.",
       "redsysUnavailable": "Redsys no está disponible.",
       "paymentFailed": "El pago no se pudo completar. Inténtalo de nuevo.",
-      "paymentSuccessToast": "Pago realizado. ¡Gracias!"
+      "paymentSuccessToast": "Pago realizado. ¡Gracias!",
+      "signatureEmpty": "Dibuja tu firma en el recuadro",
+      "signatureFilled": "Firma capturada",
+      "signatureClear": "Limpiar"
     },
     "blog": {
       "title": "Blog",
@@ -281,6 +327,15 @@
       "backToBlog": "Volver al blog",
       "publishedOn": "Publicado el {date}",
       "relatedFacilitiesTitle": "Nuestros locales"
+    },
+    "funnel": {
+      "stepOf": "Paso {current} de {total}",
+      "stepDetails": "Tus datos",
+      "stepSign": "Firma"
+    },
+    "trust": {
+      "facilitiesCount": "{count, plural, one {# local} other {# locales}}",
+      "inCities": "en {cities}"
     }
   }
 }
