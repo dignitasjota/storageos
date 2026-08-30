@@ -1,3 +1,5 @@
+'use client';
+
 import { Clock, CreditCard, Headset, KeyRound, Ruler, ShieldCheck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
