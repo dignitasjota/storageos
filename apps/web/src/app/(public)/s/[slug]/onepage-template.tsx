@@ -76,32 +76,46 @@ const SERVICE_ICONS: LucideIcon[] = [Clock, ShieldCheck, KeyRound, Ruler, Credit
 function FacilityBlock({ f, locale }: { f: PublicLandingFacilityDto; locale: PublicWebLocale }) {
   const t = useTranslations('publicWeb.onepage');
   return (
-    <div className="rounded-lg border bg-card p-5 shadow-sm">
-      <h3 className="text-lg font-semibold">{f.name}</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
-      </p>
-      {(f.contactPhone || f.contactEmail) && (
+    <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+      {f.imageUrls[0] && (
+        <div className="relative aspect-[16/9] w-full bg-muted">
+          <Image
+            src={f.imageUrls[0]}
+            alt={f.name}
+            fill
+            loading="lazy"
+            sizes="(min-width: 768px) 50vw, 100vw"
+            className="object-cover"
+          />
+        </div>
+      )}
+      <div className="p-5">
+        <h3 className="text-lg font-semibold">{f.name}</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {[f.contactPhone, f.contactEmail].filter(Boolean).join(' · ')}
+          {[f.address, f.postalCode, f.city].filter(Boolean).join(', ') || '—'}
         </p>
-      )}
-      {f.unitTypes.length > 0 && (
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {f.unitTypes.map((unitType) => (
-            <li
-              key={unitType.id}
-              className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-            >
-              <span className="font-medium">{unitType.name}</span>
-              <span className="font-semibold">
-                {formatPrice(unitType.priceMonthly * 1.21, locale)}
-                <span className="text-xs font-normal text-muted-foreground">{t('perMonth')}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+        {(f.contactPhone || f.contactEmail) && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            {[f.contactPhone, f.contactEmail].filter(Boolean).join(' · ')}
+          </p>
+        )}
+        {f.unitTypes.length > 0 && (
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {f.unitTypes.map((unitType) => (
+              <li
+                key={unitType.id}
+                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+              >
+                <span className="font-medium">{unitType.name}</span>
+                <span className="font-semibold">
+                  {formatPrice(unitType.priceMonthly * 1.21, locale)}
+                  <span className="text-xs font-normal text-muted-foreground">{t('perMonth')}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
