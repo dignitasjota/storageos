@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { GoogleAnalyticsScript } from './google-analytics';
+import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   bookHref as buildBookHref,
@@ -179,6 +179,7 @@ export function OnePageTemplate({
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href={bookHref}
+            onClick={() => trackEvent('cta_reservar_click', { location: 'hero_onepage' })}
             className="inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
             style={{ color: brand }}
           >
@@ -256,6 +257,9 @@ export function OnePageTemplate({
                     ) : (
                       <Link
                         href={bookHref}
+                        onClick={() =>
+                          trackEvent('cta_reservar_click', { location: 'sizes_onepage' })
+                        }
                         className="mt-3 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white"
                         style={{ backgroundColor: brand }}
                       >

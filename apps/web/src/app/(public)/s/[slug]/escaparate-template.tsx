@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
-import { GoogleAnalyticsScript } from './google-analytics';
+import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   bookHref as buildBookHref,
@@ -158,6 +158,7 @@ export function EscaparateTemplate({
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href={bookHref}
+            onClick={() => trackEvent('cta_reservar_click', { location: 'hero_escaparate' })}
             className="inline-flex h-12 items-center rounded-md px-8 text-sm font-semibold text-white shadow-lg transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
           >
@@ -333,6 +334,7 @@ export function EscaparateTemplate({
           <p className="mx-auto mt-2 max-w-xl opacity-95">{t('ctaSubtitle')}</p>
           <Link
             href={bookHref}
+            onClick={() => trackEvent('cta_reservar_click', { location: 'cta_band_escaparate' })}
             className="mt-6 inline-flex h-12 items-center rounded-md bg-white px-8 text-sm font-semibold text-neutral-900 shadow-lg transition-transform hover:scale-105"
           >
             {tCommon('reserveNow')}

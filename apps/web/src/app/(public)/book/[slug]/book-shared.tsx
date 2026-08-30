@@ -13,6 +13,7 @@ import type {
 } from '@storageos/shared';
 
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
+import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
 import { bookHref, signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
@@ -94,6 +95,7 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
           ...utm,
         },
       });
+      trackEvent('book_lead_captured');
     } catch {
       // best-effort: si falla, no molestamos al visitante.
       setLeadCaptured(false);
@@ -116,6 +118,7 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
           ...utm,
         },
       });
+      trackEvent('book_submitted');
       router.push(signHref(res.signingToken, locale));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('submitError'));
@@ -157,6 +160,7 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
     <TenantWebChrome
       locale={locale}
       languageHrefBuilder={(l) => bookHref(slug, l)}
+      googleAnalyticsId={data.googleAnalyticsId}
       data={{
         tenantName: data.tenantName,
         tenantSlug: data.tenantSlug,

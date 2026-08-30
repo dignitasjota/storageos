@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
+import { trackEvent } from './google-analytics';
 import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { StorageCalculator } from './storage-calculator';
 
@@ -133,6 +134,7 @@ export function WhatsAppButton({ phone, tenantName }: { phone: string; tenantNam
       href={href}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={() => trackEvent('whatsapp_click')}
       className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
     >
       <MessageCircle className="h-4 w-4" /> {t('whatsapp')}
@@ -357,6 +359,7 @@ function ModernTemplate({ data, locale }: TplProps) {
         </p>
         <Link
           href={bookHref(data.tenantSlug, locale)}
+          onClick={() => trackEvent('cta_reservar_click', { location: 'hero_modern' })}
           className="mt-8 inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
           style={{ color: brand }}
         >
@@ -410,6 +413,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
           <p className="mt-4 max-w-xl text-lg text-neutral-400">{t('industrial.subtitle')}</p>
           <Link
             href={bookHref(data.tenantSlug, locale)}
+            onClick={() => trackEvent('cta_reservar_click', { location: 'hero_industrial' })}
             className="mt-8 inline-flex h-12 items-center px-8 text-sm font-bold uppercase tracking-wider text-neutral-950 transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
           >
@@ -465,6 +469,7 @@ function ReserveButton({ data, locale }: { data: PublicLandingDto; locale: Publi
   return (
     <Link
       href={bookHref(data.tenantSlug, locale)}
+      onClick={() => trackEvent('cta_reservar_click', { location: 'hero_default' })}
       className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
       style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
     >

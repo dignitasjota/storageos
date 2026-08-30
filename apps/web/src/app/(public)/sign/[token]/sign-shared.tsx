@@ -14,6 +14,7 @@ import type {
 } from '@storageos/shared';
 
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
+import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
 import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
@@ -67,6 +68,7 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
           ...(method === 'drawn' ? { signatureImage: drawn } : { typedSignature: typed }),
         },
       });
+      trackEvent('sign_completed');
       setResult(res);
       if (res.portalToken) {
         try {
@@ -112,7 +114,12 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
 
   if (result || view.alreadySigned) {
     return (
-      <BrandShell brand={brand} token={token} locale={locale}>
+      <BrandShell
+        brand={brand}
+        token={token}
+        locale={locale}
+        googleAnalyticsId={view.googleAnalyticsId}
+      >
         <Card className="w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -144,7 +151,12 @@ export function SignPageBody({ token, locale }: { token: string; locale: PublicW
     (method === 'drawn' ? !!drawn : typed.trim().length >= 2);
 
   return (
-    <BrandShell brand={brand} token={token} locale={locale}>
+    <BrandShell
+      brand={brand}
+      token={token}
+      locale={locale}
+      googleAnalyticsId={view.googleAnalyticsId}
+    >
       <FunnelSteps
         current={2}
         total={2}
@@ -265,15 +277,22 @@ function BrandShell({
   brand,
   token,
   locale,
+  googleAnalyticsId,
   children,
 }: {
   brand: ReturnType<typeof brandOf>;
   token: string;
   locale: PublicWebLocale;
+  googleAnalyticsId: string | null;
   children: React.ReactNode;
 }) {
   return (
-    <TenantWebChrome data={brand} locale={locale} languageHrefBuilder={(l) => signHref(token, l)}>
+    <TenantWebChrome
+      data={brand}
+      locale={locale}
+      googleAnalyticsId={googleAnalyticsId}
+      languageHrefBuilder={(l) => signHref(token, l)}
+    >
       <div className="mx-auto w-full max-w-lg px-4 py-10">{children}</div>
     </TenantWebChrome>
   );
@@ -342,6 +361,7 @@ function BookingPayment({
       { method: 'POST', requiresAuth: false, headers: auth },
     );
     if (result.status === 'succeeded') {
+      trackEvent('payment_completed');
       setPaid(true);
       toast.success(t('paymentSuccessToast'));
     } else if (result.status === 'processing') {
