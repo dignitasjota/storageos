@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+import { AiModule } from '../ai/ai.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { AdCampaignDraftController } from './ad-campaign-draft.controller';
 import { AdSpendSyncCron } from './ad-platforms/ad-spend-sync.cron';
 import { AdSpendSyncService } from './ad-platforms/ad-spend-sync.service';
 import { GoogleAdsSettingsService } from './ad-platforms/google-ads-settings.service';
@@ -25,13 +27,14 @@ import { MarketingController } from './marketing.controller';
  * credenciales pegadas a mano por el tenant).
  */
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, AiModule],
   controllers: [
     MarketingController,
     MarketingPublicController,
     GoogleAdsController,
     MetaAdsController,
     CatalogFeedController,
+    AdCampaignDraftController,
   ],
   providers: [
     MarketingChannelsService,
