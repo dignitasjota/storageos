@@ -6,6 +6,7 @@ import { NextIntlClientProvider, useTranslations } from 'next-intl';
 import {
   blogHref,
   blogPostHref,
+  facilityHref,
   getPublicWebMessages,
   intlLocaleFor,
   type PublicWebLocale,
@@ -13,7 +14,11 @@ import {
 import { siteUrl } from '../landing-shared';
 import { TenantWebChrome } from '../tenant-web-chrome';
 
-import type { PublicBlogListDto, PublicBlogPostDto } from '@storageos/shared';
+import type {
+  PublicBlogFacilityLinkDto,
+  PublicBlogListDto,
+  PublicBlogPostDto,
+} from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { MarkdownView } from '@/components/public/markdown-view';
@@ -199,6 +204,49 @@ function buildBlogPostJsonLd(data: PublicBlogPostDto, slug: string, locale: Publ
   };
 }
 
+/**
+ * Enlazado interno del blog → páginas de local (SEO: pasa autoridad de las
+ * entradas, que suelen atraer tráfico long-tail, a las páginas que
+ * convierten). Se omite si el tenant no tiene locales enlazables.
+ */
+function RelatedFacilities({
+  facilities,
+  slug,
+  locale,
+}: {
+  facilities: PublicBlogFacilityLinkDto[];
+  slug: string;
+  locale: PublicWebLocale;
+}) {
+  const t = useTranslations('publicWeb.blog');
+  const tCommon = useTranslations('publicWeb.common');
+  if (facilities.length === 0) return null;
+  return (
+    <div className="mt-12 border-t pt-8">
+      <h2 className="text-lg font-semibold tracking-tight">{t('relatedFacilitiesTitle')}</h2>
+      <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+        {facilities.map((f) => (
+          <li key={f.publicSlug}>
+            <Link
+              href={facilityHref(slug, f.publicSlug, locale)}
+              className="block rounded-md border p-3 hover:border-primary hover:bg-muted/40"
+            >
+              <span className="font-medium">{f.name}</span>
+              {f.city && <span className="text-muted-foreground"> · {f.city}</span>}
+              {f.fromPriceMonthly != null && (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {tCommon('from')} {f.fromPriceMonthly.toLocaleString(intlLocaleFor(locale))}{' '}
+                  {tCommon('perMonthVatIncl')}
+                </p>
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function BlogListBody({
   data,
   slug,
@@ -269,6 +317,8 @@ function BlogListBody({
             ))}
           </ul>
         )}
+
+        <RelatedFacilities facilities={data.facilities} slug={slug} locale={locale} />
       </div>
     </TenantWebChrome>
   );
@@ -328,6 +378,8 @@ function BlogPostBody({
         <div className="mt-8">
           <MarkdownView content={p.contentMarkdown} />
         </div>
+
+        <RelatedFacilities facilities={data.facilities} slug={slug} locale={locale} />
       </article>
     </TenantWebChrome>
   );

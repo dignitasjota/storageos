@@ -78,3 +78,16 @@ export function blogPostHref(
     ? `/s/${encodedTenant}/blog/${encodedPost}`
     : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog/${encodedPost}`;
 }
+
+/** URL de la ficha pública de un local del tenant, respetando el idioma actual. */
+export function facilityHref(
+  tenantSlug: string,
+  facilitySlug: string,
+  locale: PublicWebLocale,
+): string {
+  const encodedTenant = encodeURIComponent(tenantSlug);
+  const encodedFacility = encodeURIComponent(facilitySlug);
+  return locale === DEFAULT_PUBLIC_WEB_LOCALE
+    ? `/s/${encodedTenant}/${encodedFacility}`
+    : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/${encodedFacility}`;
+}

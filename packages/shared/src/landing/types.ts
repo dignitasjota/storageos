@@ -120,6 +120,19 @@ export interface PublicBlogPostSummaryDto {
   publishedAt: string;
 }
 
+/**
+ * Enlazado interno del blog hacia las páginas de local (SEO: pasa autoridad
+ * de las entradas — que suelen atraer tráfico de búsquedas long-tail — a las
+ * páginas que convierten). Solo locales con `publicSlug` (enlazables).
+ */
+export interface PublicBlogFacilityLinkDto {
+  publicSlug: string;
+  name: string;
+  city: string | null;
+  /** Precio más bajo disponible ahora mismo (IVA incl.), o null si no hay stock. */
+  fromPriceMonthly: number | null;
+}
+
 /** Listado de entradas publicadas del blog de un tenant (feature `web_premium`). */
 export interface PublicBlogListDto {
   tenantName: string;
@@ -130,6 +143,7 @@ export interface PublicBlogListDto {
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   posts: PublicBlogPostSummaryDto[];
+  facilities: PublicBlogFacilityLinkDto[];
 }
 
 /** Contenido completo de una entrada de blog (`/s/<slug>/blog/<postSlug>`). */
@@ -154,6 +168,7 @@ export interface PublicBlogPostDto {
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   post: PublicBlogPostContentDto;
+  facilities: PublicBlogFacilityLinkDto[];
 }
 
 /** Entradas del sitemap público (para `app/sitemap.ts`). */

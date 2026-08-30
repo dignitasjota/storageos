@@ -24,6 +24,7 @@ import type {
 import type {
   ExternalSiteDto,
   PublicActivePromotionDto,
+  PublicBlogFacilityLinkDto,
   PublicBlogListDto,
   PublicBlogPostDto,
   PublicFacilityLandingDto,
@@ -492,21 +493,66 @@ export class LandingService {
     };
   }
 
+  /**
+   * Locales enlazables del tenant (con `publicSlug`) + su precio más bajo
+   * disponible — enlazado interno del blog hacia las páginas que convierten.
+   */
+  private async loadFacilityLinks(tenantId: string): Promise<PublicBlogFacilityLinkDto[]> {
+    const [facilities, unitTypes, grouped] = await Promise.all([
+      this.admin.facility.findMany({
+        where: { tenantId, deletedAt: null, isActive: true, publicSlug: { not: null } },
+        select: { id: true, publicSlug: true, name: true, city: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.unitType.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, defaultPriceMonthly: true },
+      }),
+      this.admin.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { tenantId, status: 'available' },
+        _count: { _all: true },
+      }),
+    ]);
+    const availByPair = new Map<string, number>();
+    for (const g of grouped) {
+      availByPair.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
+    }
+    const priceById = new Map(unitTypes.map((t) => [t.id, Number(t.defaultPriceMonthly)]));
+    return facilities.map((f) => {
+      let min: number | null = null;
+      for (const t of unitTypes) {
+        if ((availByPair.get(`${f.id}:${t.id}`) ?? 0) === 0) continue;
+        const price = priceById.get(t.id)!;
+        if (min === null || price < min) min = price;
+      }
+      return {
+        publicSlug: f.publicSlug!,
+        name: f.name,
+        city: f.city,
+        fromPriceMonthly: min !== null ? Math.round(min * 1.21 * 100) / 100 : null,
+      };
+    });
+  }
+
   /** Entradas de blog publicadas del tenant (`/s/<slug>/blog`). */
   async listBlogPosts(slug: string): Promise<PublicBlogListDto> {
     const tenant = await this.requireBlogTenant(slug);
-    const rows = await this.admin.blogPost.findMany({
-      where: { tenantId: tenant.id, isPublished: true },
-      select: {
-        slug: true,
-        title: true,
-        excerpt: true,
-        coverImageKey: true,
-        publishedAt: true,
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: 100,
-    });
+    const [rows, facilities] = await Promise.all([
+      this.admin.blogPost.findMany({
+        where: { tenantId: tenant.id, isPublished: true },
+        select: {
+          slug: true,
+          title: true,
+          excerpt: true,
+          coverImageKey: true,
+          publishedAt: true,
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: 100,
+      }),
+      this.loadFacilityLinks(tenant.id),
+    ]);
     return {
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
@@ -514,6 +560,7 @@ export class LandingService {
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      facilities,
       posts: rows.map((r) => ({
         slug: r.slug,
         title: r.title,
@@ -530,9 +577,12 @@ export class LandingService {
   /** Una entrada de blog publicada por su slug (`/s/<slug>/blog/<postSlug>`). */
   async getBlogPost(slug: string, postSlug: string): Promise<PublicBlogPostDto> {
     const tenant = await this.requireBlogTenant(slug);
-    const row = await this.admin.blogPost.findFirst({
-      where: { tenantId: tenant.id, slug: postSlug, isPublished: true },
-    });
+    const [row, facilities] = await Promise.all([
+      this.admin.blogPost.findFirst({
+        where: { tenantId: tenant.id, slug: postSlug, isPublished: true },
+      }),
+      this.loadFacilityLinks(tenant.id),
+    ]);
     if (!row) {
       throw new NotFoundException({ code: 'blog_post_not_found', message: 'No encontrado' });
     }
@@ -543,6 +593,7 @@ export class LandingService {
       logoUrl: tenant.logoUrl,
       customDomain: tenant.customDomain,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      facilities,
       post: {
         slug: row.slug,
         title: row.title,

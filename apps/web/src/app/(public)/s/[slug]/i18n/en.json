@@ -279,7 +279,8 @@
       "empty": "No posts published yet.",
       "readMore": "Read more",
       "backToBlog": "Back to blog",
-      "publishedOn": "Published on {date}"
+      "publishedOn": "Published on {date}",
+      "relatedFacilitiesTitle": "Our locations"
     }
   }
 }
