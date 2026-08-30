@@ -54,7 +54,22 @@ export function BookPageBody({ slug, locale }: { slug: string; locale: PublicWeb
     apiFetch<BookingAvailabilityDto>(`/public/move-in/book/${slug}/availability`, {
       requiresAuth: false,
     })
-      .then(setData)
+      .then((res) => {
+        setData(res);
+        // Preselecciona el local/tipo que el visitante ya eligió en la
+        // calculadora, la ficha de un local o el listado (evita que lo
+        // repita aquí) — solo si sigue siendo una elección válida.
+        const sp = new URLSearchParams(window.location.search);
+        const fid = sp.get('facilityId');
+        const facility = fid ? res.facilities.find((f) => f.id === fid) : undefined;
+        if (facility) {
+          setFacilityId(facility.id);
+          const utid = sp.get('unitTypeId');
+          if (utid && facility.unitTypes.some((t) => t.id === utid)) {
+            setUnitTypeId(utid);
+          }
+        }
+      })
       .catch((err) =>
         setLoadError(err instanceof ApiError ? err.body.message : t('notAvailableFallback')),
       );

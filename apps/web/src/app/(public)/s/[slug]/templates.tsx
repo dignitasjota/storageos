@@ -443,7 +443,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
                 href={
                   f.publicSlug
                     ? `/s/${data.tenantSlug}/${f.publicSlug}`
-                    : bookHref(data.tenantSlug, locale)
+                    : bookHref(data.tenantSlug, locale, { facilityId: f.id })
                 }
                 className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
               >
@@ -498,7 +498,7 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
             href={
               f.publicSlug
                 ? `/s/${data.tenantSlug}/${f.publicSlug}`
-                : bookHref(data.tenantSlug, locale)
+                : bookHref(data.tenantSlug, locale, { facilityId: f.id })
             }
             className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
           >

@@ -291,7 +291,7 @@ function FacilityBody({
         {f.videoUrl && <FacilityVideo url={f.videoUrl} title={t('facility.video')} />}
 
         <Link
-          href={bookHref(data.tenantSlug, locale)}
+          href={bookHref(data.tenantSlug, locale, { facilityId: f.id })}
           onClick={() => trackEvent('cta_reservar_click', { location: 'facility_page' })}
           className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
           style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
