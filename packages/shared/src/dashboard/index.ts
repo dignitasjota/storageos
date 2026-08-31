@@ -51,6 +51,8 @@ export interface TodayDto {
   unreadMessages: number;
   /** Canales de marketing activos que renuevan (suscripción/anuncio) en ≤7 días. */
   marketingRenewalsDue: { count: number; items: TodayItemDto[] };
+  /** Ofertas de retención (contraoferta de baja) pendientes de respuesta del inquilino. */
+  retentionOffersPending: { count: number; items: TodayItemDto[] };
 }
 
 /** Un paso del onboarding del operador (primeros pasos guiados). */

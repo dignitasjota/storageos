@@ -111,4 +111,49 @@ describe('Retención de bajas (e2e)', () => {
     expect(reverted.discountReason).toBeNull();
     expect(reverted.discountExpiresAt).toBeNull();
   });
+
+  it('una oferta pendiente aparece en la bandeja «Hoy» hasta que se responde', async () => {
+    const owner = await registerVerifiedUser(app, 'retention-today');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const customerId = await createCustomer(app, owner.accessToken, {
+      email: `ret-today-${Date.now().toString(36)}@e2e.local`,
+    });
+
+    const contractRes = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-01-01',
+      priceMonthly: 60,
+    });
+    const contractId = contractRes.body.id as string;
+    const admin = app.get(PrismaAdminService);
+    await admin.contract.update({
+      where: { id: contractId },
+      data: { status: 'ending', endDate: new Date() },
+    });
+
+    const before = await request(app.getHttpServer()).get('/dashboard/today').set(auth);
+    expect(before.body.retentionOffersPending).toEqual({ count: 0, items: [] });
+
+    const offerRes = await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/retention-offers`)
+      .set(auth)
+      .send({ discountType: 'fixed', discountValue: 10 });
+    expect(offerRes.status).toBe(201);
+
+    const after = await request(app.getHttpServer()).get('/dashboard/today').set(auth);
+    expect(after.body.retentionOffersPending.count).toBe(1);
+    expect(after.body.retentionOffersPending.items[0].id).toBe(contractId);
+    expect(after.body.urgentCount).toBeGreaterThanOrEqual(1);
+
+    // Al declinarla desde el portal, deja de contar como pendiente.
+    const decline = await admin.retentionOffer.update({
+      where: { id: offerRes.body.id },
+      data: { status: 'declined', respondedAt: new Date() },
+    });
+    expect(decline.status).toBe('declined');
+    const afterDecline = await request(app.getHttpServer()).get('/dashboard/today').set(auth);
+    expect(afterDecline.body.retentionOffersPending).toEqual({ count: 0, items: [] });
+  });
 });

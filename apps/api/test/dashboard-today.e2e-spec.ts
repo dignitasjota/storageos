@@ -47,6 +47,7 @@ describe('Dashboard: bandeja «Hoy» (e2e)', () => {
     expect(res.body.newLeads).toEqual({ count: 0, items: [] });
     expect(res.body.signaturesPending).toEqual({ count: 0, items: [] });
     expect(res.body.invoicesDueToday).toEqual({ count: 0, totalDue: 0 });
+    expect(res.body.retentionOffersPending).toEqual({ count: 0, items: [] });
   });
 
   it('cuenta un lead nuevo y un seguimiento para hoy', async () => {
