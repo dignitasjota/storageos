@@ -10,9 +10,11 @@ import {
   CreditCard,
   DoorOpen,
   FileSignature,
+  HeartHandshake,
   LogOut,
   MessageSquare,
   PiggyBank,
+  Radio,
   Replace,
   Sparkles,
   UserPlus,
@@ -393,6 +395,24 @@ export default function TodayPage() {
               href="/contracts"
               itemHref={(it) => `/contracts/${it.id}`}
               empty="Ninguna fianza pendiente de liquidar."
+            />
+            <SectionCard
+              title="Renovaciones de marketing"
+              icon={Radio}
+              count={data.marketingRenewalsDue.count}
+              items={data.marketingRenewalsDue.items}
+              href="/marketing/channels"
+              itemHref={() => '/marketing/channels'}
+              empty="Ningún canal renueva en 7 días."
+            />
+            <SectionCard
+              title="Ofertas de retención sin responder"
+              icon={HeartHandshake}
+              count={data.retentionOffersPending.count}
+              items={data.retentionOffersPending.items}
+              href="/contracts"
+              itemHref={(it) => `/contracts/${it.id}`}
+              empty="Ninguna oferta de retención esperando respuesta."
             />
           </div>
         </>

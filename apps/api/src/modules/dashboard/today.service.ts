@@ -85,6 +85,8 @@ export class TodayService {
         depositsToSettleCount,
         marketingRenewals,
         marketingRenewalsCount,
+        retentionOffers,
+        retentionOffersCount,
       ] = await Promise.all([
         tx.task.findMany({
           where: {
@@ -278,6 +280,27 @@ export class TodayService {
             ...facTaskIncident,
           },
         }),
+        // Ofertas de retención (contraoferta de baja) esperando respuesta del inquilino.
+        tx.retentionOffer.findMany({
+          where: {
+            status: 'pending',
+            OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+            ...(facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {}),
+          },
+          orderBy: [{ validUntil: 'asc' }],
+          take: TAKE,
+          include: {
+            customer: customerSelect,
+            contract: { select: { unit: { select: { code: true } } } },
+          },
+        }),
+        tx.retentionOffer.count({
+          where: {
+            status: 'pending',
+            OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+            ...(facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {}),
+          },
+        }),
       ]);
 
       const totalPending =
@@ -334,7 +357,9 @@ export class TodayService {
         dueTodayCount +
         invoicesCount +
         collectionsDeadlinesCount +
-        depositsToSettleCount;
+        depositsToSettleCount +
+        marketingRenewalsCount +
+        retentionOffersCount;
 
       return {
         date: startOfToday.toISOString(),
@@ -392,6 +417,17 @@ export class TodayService {
             label: c.name,
             detail: c.monthlyCost !== null ? `${Number(c.monthlyCost)}€/mes` : null,
             date: c.renewsOn ? c.renewsOn.toISOString() : null,
+          })),
+        },
+        retentionOffersPending: {
+          count: retentionOffersCount,
+          // `id` = el contrato (no hay página propia de la oferta; vive como
+          // card dentro de la ficha del contrato), mismo patrón que `depositsToSettle`.
+          items: retentionOffers.map((r) => ({
+            id: r.contractId,
+            label: customerName(r.customer),
+            detail: r.contract.unit?.code ?? null,
+            date: r.validUntil ? r.validUntil.toISOString() : null,
           })),
         },
       };
