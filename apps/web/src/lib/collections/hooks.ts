@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   CancelCaseInput,
   CollectionsSettingsResponse,
+  CollectionsSummaryDto,
   CompleteDisposalInput,
   DelinquencyCaseDetailDto,
   DelinquencyCaseDto,
@@ -26,6 +27,15 @@ export function useCollectionsCases(status?: DelinquencyCaseStatus) {
     queryKey: [...key, 'list', status ?? 'all'] as const,
     queryFn: () =>
       apiFetch<DelinquencyCaseDto[]>(`/collections${status ? `?status=${status}` : ''}`),
+  });
+}
+
+/** Vista rápida de expedientes abiertos (card del Resumen). */
+export function useCollectionsSummary(enabled: boolean) {
+  return useQuery({
+    queryKey: [...key, 'summary'] as const,
+    queryFn: () => apiFetch<CollectionsSummaryDto>('/collections/summary'),
+    enabled,
   });
 }
 

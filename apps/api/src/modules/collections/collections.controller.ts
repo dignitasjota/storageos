@@ -22,6 +22,7 @@ import {
   StartDisposalSchema,
   UpdateCollectionsSettingsSchema,
   type CollectionsSettingsResponse,
+  type CollectionsSummaryDto,
   type DelinquencyCaseDetailDto,
   type DelinquencyCaseDto,
   type DelinquencyCaseStatus,
@@ -88,6 +89,13 @@ export class CollectionsController {
       ...(status ? { status } : {}),
       facilityScope: user.facilityScope ?? null,
     });
+  }
+
+  /** Vista rápida de expedientes abiertos (Resumen del panel). Antes de `:id`. */
+  @RequirePermission('collections:read')
+  @Get('summary')
+  summary(@CurrentUser() user: AuthenticatedUser): Promise<CollectionsSummaryDto> {
+    return this.service.getSummary(user.tenantId, user.facilityScope ?? null);
   }
 
   /** Expediente abierto de un contrato (para el badge de overlock). Antes de `:id`. */

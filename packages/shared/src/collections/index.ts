@@ -226,3 +226,13 @@ export interface DelinquencyRequirementPdfDto {
   /** URL GET firmada (5 min) del PDF generado. */
   url: string;
 }
+
+/** Vista rápida de los expedientes de impago ABIERTOS (para el Resumen del panel). */
+export interface CollectionsSummaryDto {
+  /** Nº de expedientes en cualquier estado no cerrado. */
+  openCount: number;
+  /** Deuda viva total de esos expedientes (euros, recalculada de las facturas). */
+  totalDebt: number;
+  /** Nº de expedientes por estado (solo estados abiertos, ausentes = 0). */
+  byStatus: Partial<Record<DelinquencyCaseStatus, number>>;
+}

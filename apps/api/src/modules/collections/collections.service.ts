@@ -22,6 +22,7 @@ import type {
   CancelCaseInput,
   CaseEventType,
   CollectionsSettingsResponse,
+  CollectionsSummaryDto,
   CompleteDisposalInput,
   DelinquencyCaseDetailDto,
   DelinquencyCaseDto,
@@ -195,6 +196,30 @@ export class CollectionsService {
         orderBy: { openedAt: 'desc' },
       });
       return Promise.all(rows.map((r) => this.toDto(tx, r)));
+    }, tenantId);
+  }
+
+  /** Vista rápida de expedientes ABIERTOS (cualquier estado no cerrado) para el Resumen del panel. */
+  async getSummary(
+    tenantId: string,
+    facilityScope: string[] | null,
+  ): Promise<CollectionsSummaryDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.delinquencyCase.findMany({
+        where: {
+          tenantId,
+          status: { notIn: CLOSED_CASE_STATUSES },
+          ...(facilityScope ? { facilityId: { in: facilityScope } } : {}),
+        },
+        select: { contractId: true, status: true },
+      });
+      const debts = await Promise.all(
+        rows.map((r) => this.computeDebtCents(tx, tenantId, r.contractId)),
+      );
+      const totalDebtCents = debts.reduce((sum, d) => sum + d, 0);
+      const byStatus: Partial<Record<DelinquencyCaseStatus, number>> = {};
+      for (const r of rows) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+      return { openCount: rows.length, totalDebt: totalDebtCents / 100, byStatus };
     }, tenantId);
   }
 
@@ -650,7 +675,8 @@ export class CollectionsService {
     );
     const debtBeforeCents = invoices.reduce(
       (sum, inv) =>
-        sum + Math.max(0, toCents(inv.total) - toCents(inv.amountPaid) - toCents(inv.amountRefunded)),
+        sum +
+        Math.max(0, toCents(inv.total) - toCents(inv.amountPaid) - toCents(inv.amountRefunded)),
       0,
     );
 

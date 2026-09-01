@@ -5,6 +5,7 @@ import { useFormatter, useTranslations } from 'next-intl';
 
 import { AgingCard } from './aging-card';
 import { ChurnRiskCard } from './churn-risk-card';
+import { CollectionsSummaryCard } from './collections-summary-card';
 import { FacilityOccupancyCard } from './facility-occupancy-card';
 import { ForecastCard } from './forecast-card';
 import { KpiTiles } from './kpi-tiles';
@@ -113,6 +114,8 @@ export function DashboardContent() {
             <ChurnRiskCard />
             <LeadsCard />
           </div>
+
+          <CollectionsSummaryCard />
 
           <FacilityOccupancyCard />
         </>

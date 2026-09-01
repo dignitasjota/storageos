@@ -160,6 +160,45 @@ describe('Collections / expedientes de impago (e2e)', () => {
     );
   });
 
+  it('resumen (Resumen del panel): cuenta abiertos + deuda, ignora cerrados', async () => {
+    const owner = await registerVerifiedUser(app, 'coll-summary');
+    await setTenantPlan(owner.slug, 'starter');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { customerId, contractId, invoiceId } = await seedContractWithDebt(owner.accessToken);
+    const me = await request(app.getHttpServer()).get('/auth/me').set(auth);
+    const tenantId = me.body.tenant.id as string;
+
+    const before = await request(app.getHttpServer()).get('/collections/summary').set(auth);
+    expect(before.status).toBe(200);
+    expect(before.body).toEqual({ openCount: 0, totalDebt: 0, byStatus: {} });
+
+    const open = await request(app.getHttpServer())
+      .post('/collections')
+      .set(auth)
+      .send({ contractId });
+    const caseId = open.body.id as string;
+
+    const afterOpen = await request(app.getHttpServer()).get('/collections/summary').set(auth);
+    expect(afterOpen.body.openCount).toBe(1);
+    expect(afterOpen.body.totalDebt).toBe(121); // 100 + 21% IVA
+    expect(afterOpen.body.byStatus).toEqual({ open: 1 });
+
+    await request(app.getHttpServer()).post(`/collections/${caseId}/overlock`).set(auth).send({});
+    const afterOverlock = await request(app.getHttpServer()).get('/collections/summary').set(auth);
+    expect(afterOverlock.body.byStatus).toEqual({ overlocked: 1 });
+
+    // Al pagar la factura, el caso se cierra solo (closed_paid) → deja de contar.
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/mark-paid`)
+      .set(auth)
+      .send({ amount: 121, methodType: 'cash' })
+      .expect(200);
+    await app.get(CollectionsService).onInvoicePaid(tenantId, customerId);
+
+    const afterClose = await request(app.getHttpServer()).get('/collections/summary').set(auth);
+    expect(afterClose.body).toEqual({ openCount: 0, totalDebt: 0, byStatus: {} });
+  });
+
   it('cierre automático al pagar la deuda', async () => {
     const owner = await registerVerifiedUser(app, 'coll-paid');
     await setTenantPlan(owner.slug, 'starter');
@@ -242,7 +281,10 @@ describe('Collections / expedientes de impago (e2e)', () => {
     for (const step of ['overlock', 'notice', 'resolution-pending', 'disposal'] as const) {
       const body =
         step === 'disposal' ? { disposalType: 'auction_notarial' } : step === 'notice' ? {} : {};
-      await request(app.getHttpServer()).post(`/collections/${caseId}/${step}`).set(auth).send(body);
+      await request(app.getHttpServer())
+        .post(`/collections/${caseId}/${step}`)
+        .set(auth)
+        .send(body);
     }
 
     // Cierre con 30€ de producto de la disposición + aplicar fianza (50€).
