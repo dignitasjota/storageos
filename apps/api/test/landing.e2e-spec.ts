@@ -299,6 +299,27 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(after.body.webTemplate).toBe('modern'); // se conserva
   });
 
+  it('web premium: la plantilla «corporate» se guarda y la landing la aplica', async () => {
+    // Regresión: `UpdateWebSettingsSchema.template` vivía como enum duplicado
+    // a mano en vez de derivarse de `WEB_TEMPLATES` — una plantilla nueva
+    // pasaba el selector data-driven del frontend pero el backend la
+    // rechazaba con 400 al guardar.
+    const owner = await registerVerifiedUser(app, 'web-corp');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    const save = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ template: 'corporate' });
+    expect(save.status).toBe(200);
+    expect(save.body.template).toBe('corporate');
+
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.webTemplate).toBe('corporate');
+  });
+
   it('secciones: testimonios (reseña NPS≥9), FAQ y contacto→lead', async () => {
     const owner = await registerVerifiedUser(app, 'web-sec');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

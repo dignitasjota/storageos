@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
+import { CorporateTemplate } from './corporate-template';
 import { EscaparateTemplate } from './escaparate-template';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { OnePageTemplate } from './onepage-template';
@@ -244,6 +245,9 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
       ) : data.webTemplate === 'escaparate' ? (
         // Plantilla «escaparate» multisección: también autocontenida.
         <EscaparateTemplate data={data} locale={locale} />
+      ) : data.webTemplate === 'corporate' ? (
+        // Plantilla «corporativa» (quiénes somos + soluciones): también autocontenida.
+        <CorporateTemplate data={data} locale={locale} />
       ) : (
         <TenantWebChrome
           data={data}

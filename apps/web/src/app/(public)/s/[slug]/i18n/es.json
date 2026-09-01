@@ -252,6 +252,75 @@
         }
       ]
     },
+    "corporate": {
+      "heroSubtitle": "{tenantName} · tu espacio extra, seguro y disponible cuando lo necesites.",
+      "noAvailability": "Ahora mismo no hay disponibilidad. Contáctanos y te avisamos.",
+      "quienesSomosTitle": "Quiénes somos",
+      "quienesSomosDefault": "Ofrecemos trasteros seguros y flexibles, pensados para que guardes lo que necesites sin complicaciones: acceso sencillo, contratación online y sin permanencia mínima.",
+      "servicesTitle": "Soluciones de almacenamiento seguras y flexibles",
+      "solutionsTitle": "Busques lo que busques, seguro que tenemos una solución",
+      "solutionsSubtitle": "Trasteros con propósito: soluciones a tu medida.",
+      "centersTitleWithCity": "Nuestros centros en {city}",
+      "centersTitleDefault": "Nuestros centros",
+      "perMonth": "/mes",
+      "advantagesTitle": "Trasteros seguros y flexibles, pensados para ti",
+      "ctaTitle": "¿Listo para tu trastero?",
+      "ctaSubtitle": "Reserva online en minutos y accede a tu espacio cuando lo necesites.",
+      "nav": {
+        "about": "Quiénes somos",
+        "services": "Servicios",
+        "solutions": "Soluciones",
+        "centers": "Centros",
+        "advantages": "Ventajas",
+        "reviews": "Opiniones"
+      },
+      "services": [
+        {
+          "title": "Alquiler de trasteros seguros",
+          "text": "Instalaciones vigiladas y accesibles para guardar tus cosas con tranquilidad."
+        },
+        {
+          "title": "Flexibilidad y ahorro",
+          "text": "Sin permanencia mínima: paga solo por el tiempo y el tamaño que necesites."
+        },
+        {
+          "title": "Para particulares y negocios",
+          "text": "Desde una mudanza puntual hasta el almacén de tu empresa."
+        }
+      ],
+      "solutions": [
+        {
+          "title": "Particulares",
+          "text": "Espacio extra para lo que no cabe en casa: mudanzas, reformas o trastos de temporada."
+        },
+        {
+          "title": "Empresas",
+          "text": "Almacena stock, mobiliario o material de trabajo con acceso cómodo y flexible."
+        },
+        {
+          "title": "Autónomos",
+          "text": "Soluciones rápidas y económicas para guardar herramientas o mercancía cerca de tu zona de trabajo."
+        },
+        {
+          "title": "Comercio y ecommerce",
+          "text": "Almacenaje flexible para tu stock, con espacio que crece o se reduce según tu negocio."
+        }
+      ],
+      "advantages": [
+        {
+          "label": "Accesibilidad 24/7"
+        },
+        {
+          "label": "Seguridad robusta"
+        },
+        {
+          "label": "Eficiencia y transparencia"
+        },
+        {
+          "label": "Sin permanencia"
+        }
+      ]
+    },
     "book": {
       "title": "Alquila tu trastero en {tenantName}",
       "noAvailability": "Ahora mismo no hay trasteros disponibles. Vuelve a intentarlo más tarde.",
