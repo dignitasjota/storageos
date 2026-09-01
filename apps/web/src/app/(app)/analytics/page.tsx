@@ -2,7 +2,7 @@
 
 import { CheckCircle2, CircleDashed, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -74,7 +74,38 @@ function formatCurrency(value: number): string {
   return value.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 }
 
+const ANALYTICS_TABS = [
+  'revenue',
+  'occupancy',
+  'churn',
+  'aging',
+  'leads',
+  'churn-risk',
+  'pricing',
+  'forecast',
+  'market',
+  'seo',
+] as const;
+type AnalyticsTab = (typeof ANALYTICS_TABS)[number];
+
 export default function AnalyticsPage() {
+  // Pestaña inicial desde `?tab=` (p. ej. el nudge de SEO del Resumen enlaza
+  // directo a `/analytics?tab=seo`) — se lee de `window.location` en un
+  // efecto, no con `useSearchParams` (evita el requisito de Suspense de Next
+  // para un caso tan simple; mismo patrón ya usado en book-shared.tsx).
+  const [tab, setTab] = useState<AnalyticsTab>('revenue');
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    if (requested && (ANALYTICS_TABS as readonly string[]).includes(requested)) {
+      setTab(requested as AnalyticsTab);
+    }
+  }, []);
+
+  function handleTabChange(value: string) {
+    setTab(value as AnalyticsTab);
+    window.history.replaceState(null, '', `/analytics?tab=${value}`);
+  }
+
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
@@ -85,7 +116,7 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="revenue" className="w-full">
+      <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="flex-wrap">
           <TabsTrigger value="revenue">Ingresos</TabsTrigger>
           <TabsTrigger value="occupancy">Ocupación</TabsTrigger>

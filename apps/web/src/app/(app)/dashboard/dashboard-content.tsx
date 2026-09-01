@@ -15,6 +15,7 @@ import { OccupancyCard } from './occupancy-card';
 import { OnboardingCard } from './onboarding-card';
 import { QuickActions } from './quick-actions';
 import { RevenueTrendCard } from './revenue-trend-card';
+import { SeoNudgeCard } from './seo-nudge-card';
 import { SuggestedActionsCard } from './suggested-actions-card';
 
 import { Badge } from '@/components/ui/badge';
@@ -97,6 +98,8 @@ export function DashboardContent() {
       {canSeeAnalytics ? (
         <>
           <SuggestedActionsCard />
+
+          <SeoNudgeCard />
 
           <KpiTiles />
 
