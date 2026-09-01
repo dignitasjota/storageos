@@ -37,6 +37,12 @@ export const WEB_TEMPLATES = [
       'Web corporativa multisección: hero, servicios, tus centros con foto, ventajas, opiniones, pasos y contacto. Con tu color, tus imágenes y tus textos.',
   },
   {
+    value: 'corporate',
+    label: 'Corporativa (quiénes somos + soluciones)',
+    description:
+      'Web corporativa completa al estilo de las grandes cadenas de self-storage: quiénes somos, servicios, soluciones por tipo de cliente (particulares, empresas, autónomos, ecommerce), tus centros, ventajas y opiniones.',
+  },
+  {
     value: 'external',
     label: 'Web externa (ya tienes tu propia web)',
     description:
@@ -101,8 +107,11 @@ export function parseWebContent(raw: unknown): WebContent {
 
 export const UpdateWebSettingsSchema = z
   .object({
+    // Derivado de `WEB_TEMPLATES` (no duplicar la lista a mano aquí: ya causó
+    // un bug real — una plantilla nueva pasaba el guard del frontend pero el
+    // backend la rechazaba con 400 por no estar en este enum).
     template: z
-      .enum(['default', 'modern', 'industrial', 'onepage', 'escaparate', 'external'])
+      .enum(WEB_TEMPLATES.map((t) => t.value) as [WebTemplateValue, ...WebTemplateValue[]])
       .optional(),
     headline: optionalWebText(160),
     about: optionalWebText(2000),

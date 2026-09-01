@@ -252,6 +252,75 @@
         }
       ]
     },
+    "corporate": {
+      "heroSubtitle": "{tenantName} · your extra space, secure and available whenever you need it.",
+      "noAvailability": "No availability right now. Contact us and we'll let you know.",
+      "quienesSomosTitle": "About us",
+      "quienesSomosDefault": "We offer secure, flexible storage units so you can store what you need without hassle: easy access, online booking and no minimum stay.",
+      "servicesTitle": "Secure and flexible storage solutions",
+      "solutionsTitle": "Whatever you're looking for, we have a solution",
+      "solutionsSubtitle": "Storage with a purpose: solutions tailored to you.",
+      "centersTitleWithCity": "Our facilities in {city}",
+      "centersTitleDefault": "Our facilities",
+      "perMonth": "/mo",
+      "advantagesTitle": "Secure, flexible storage, designed for you",
+      "ctaTitle": "Ready for your storage unit?",
+      "ctaSubtitle": "Book online in minutes and access your space whenever you need it.",
+      "nav": {
+        "about": "About us",
+        "services": "Services",
+        "solutions": "Solutions",
+        "centers": "Facilities",
+        "advantages": "Advantages",
+        "reviews": "Reviews"
+      },
+      "services": [
+        {
+          "title": "Secure storage rental",
+          "text": "Monitored, accessible facilities to store your things with peace of mind."
+        },
+        {
+          "title": "Flexibility and savings",
+          "text": "No minimum stay: pay only for the time and size you need."
+        },
+        {
+          "title": "For individuals and businesses",
+          "text": "From a one-off move to your company's warehouse."
+        }
+      ],
+      "solutions": [
+        {
+          "title": "Individuals",
+          "text": "Extra space for what doesn't fit at home: moves, renovations or seasonal items."
+        },
+        {
+          "title": "Businesses",
+          "text": "Store stock, furniture or work equipment with convenient, flexible access."
+        },
+        {
+          "title": "Freelancers",
+          "text": "Quick, affordable solutions to store tools or goods close to where you work."
+        },
+        {
+          "title": "Retail and ecommerce",
+          "text": "Flexible storage for your stock, with space that grows or shrinks with your business."
+        }
+      ],
+      "advantages": [
+        {
+          "label": "24/7 access"
+        },
+        {
+          "label": "Robust security"
+        },
+        {
+          "label": "Efficient and transparent"
+        },
+        {
+          "label": "No lock-in"
+        }
+      ]
+    },
     "book": {
       "title": "Rent your storage unit at {tenantName}",
       "noAvailability": "No storage units available right now. Please try again later.",

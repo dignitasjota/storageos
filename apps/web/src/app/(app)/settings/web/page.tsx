@@ -31,7 +31,12 @@ type Item = { title: string; text: string };
 
 /** Plantillas multisección que usan el copy editable de secciones. */
 function usesContent(template: WebTemplateValue): boolean {
-  return template === 'onepage' || template === 'escaparate';
+  return template === 'onepage' || template === 'escaparate' || template === 'corporate';
+}
+
+/** Plantillas que además de servicios usan «Ventajas» (con icono). */
+function usesAdvantages(template: WebTemplateValue): boolean {
+  return template === 'escaparate' || template === 'corporate';
 }
 
 export default function WebSettingsPage() {
@@ -246,8 +251,12 @@ export default function WebSettingsPage() {
             </CardTitle>
             <CardDescription>
               Personaliza el copy de tu plantilla{' '}
-              {template === 'onepage' ? '«Una página»' : '«Escaparate»'}. Deja una sección vacía
-              para usar los textos por defecto.
+              {template === 'onepage'
+                ? '«Una página»'
+                : template === 'corporate'
+                  ? '«Corporativa»'
+                  : '«Escaparate»'}
+              . Deja una sección vacía para usar los textos por defecto.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -275,26 +284,27 @@ export default function WebSettingsPage() {
               textPlaceholder="Ej.: Mudanzas, reformas, cosas de temporada…"
             />
 
+            {usesAdvantages(template) && (
+              <LabelsEditor
+                label="Ventajas"
+                hint="Etiquetas cortas de «Por qué elegirnos» (con icono)."
+                items={advantages}
+                onChange={setAdvantages}
+                max={8}
+                placeholder="Ej.: Sin permanencia"
+              />
+            )}
+
             {template === 'escaparate' && (
-              <>
-                <LabelsEditor
-                  label="Ventajas"
-                  hint="Etiquetas cortas de «Por qué elegirnos» (con icono)."
-                  items={advantages}
-                  onChange={setAdvantages}
-                  max={8}
-                  placeholder="Ej.: Sin permanencia"
-                />
-                <ItemsEditor
-                  label="Pasos para contratar"
-                  hint="Los pasos de «Contratar es muy fácil» (título + descripción)."
-                  items={steps}
-                  onChange={setSteps}
-                  max={4}
-                  titlePlaceholder="Ej.: Elige tu trastero"
-                  textPlaceholder="Ej.: Mira tamaños y precios y quédate con el que encaje."
-                />
-              </>
+              <ItemsEditor
+                label="Pasos para contratar"
+                hint="Los pasos de «Contratar es muy fácil» (título + descripción)."
+                items={steps}
+                onChange={setSteps}
+                max={4}
+                titlePlaceholder="Ej.: Elige tu trastero"
+                textPlaceholder="Ej.: Mira tamaños y precios y quédate con el que encaje."
+              />
             )}
 
             <Button onClick={save} disabled={update.isPending}>
