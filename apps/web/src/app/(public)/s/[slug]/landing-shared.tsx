@@ -12,6 +12,8 @@ import { TenantWebChrome } from './tenant-web-chrome';
 import type { PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
+import { safeJsonLd } from '@/lib/json-ld';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 /** Carga la landing del tenant. `null` si no existe (404). Cacheada 5 min (ISR). */
@@ -235,10 +237,7 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
 
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       {data.webTemplate === 'onepage' ? (
         // Plantilla «una página»: autocontenida (trae su propio menú + pie).
         <OnePageTemplate data={data} locale={locale} />

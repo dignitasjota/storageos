@@ -20,6 +20,7 @@ import type {
 } from '@storageos/shared';
 
 import { MarkdownView } from '@/components/public/markdown-view';
+import { safeJsonLd } from '@/lib/json-ld';
 
 /** `BlogPosting` + `BreadcrumbList` de la entrada. */
 function buildBlogPostJsonLd(data: PublicBlogPostDto, slug: string, locale: PublicWebLocale) {
@@ -180,10 +181,7 @@ export function BlogPostBody({
 
   return (
     <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
 
       <Link href={blogHref(slug, locale)} className="text-sm text-muted-foreground hover:underline">
         ← {t('backToBlog')}

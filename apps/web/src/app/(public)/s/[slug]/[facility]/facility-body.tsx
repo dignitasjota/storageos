@@ -13,6 +13,8 @@ import { buildFacilityJsonLd } from './facility-shared';
 
 import type { PublicFacilityLandingDto } from '@storageos/shared';
 
+import { safeJsonLd } from '@/lib/json-ld';
+
 /** Vídeo del local: embebido si es un formato reconocido (YouTube/Vimeo), si no un enlace de respaldo. */
 function FacilityVideo({ url, title }: { url: string; title: string }) {
   const embed = toEmbedVideoUrl(url);
@@ -68,10 +70,7 @@ export function FacilityBody({
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
 
       {data.logoUrl && (
         <Image

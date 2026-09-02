@@ -21,7 +21,7 @@ import type { Metadata } from 'next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
+import { safeJsonLd } from '@/lib/json-ld';
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ??
@@ -157,10 +157,7 @@ export default function LandingPage() {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
 
       {/* Hero */}
       <section className="container flex flex-col items-center gap-6 py-20 text-center md:py-28">
@@ -260,7 +257,9 @@ export default function LandingPage() {
           <h2 id="seo-title" className="text-xl font-semibold tracking-tight md:text-2xl">
             {t('seoLocal.title')}
           </h2>
-          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{t('seoLocal.description')}</p>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+            {t('seoLocal.description')}
+          </p>
           <ul className="mt-6 grid gap-3 sm:grid-cols-2">
             {seoPoints.map((point) => (
               <li key={point} className="flex items-start gap-2 text-sm">
@@ -344,11 +343,7 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <Button
-                  asChild
-                  className="w-full"
-                  variant={plan.highlight ? 'default' : 'outline'}
-                >
+                <Button asChild className="w-full" variant={plan.highlight ? 'default' : 'outline'}>
                   <Link href="/register">{plan.cta}</Link>
                 </Button>
               </CardContent>
