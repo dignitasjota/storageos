@@ -127,11 +127,11 @@ describe('SessionsService', () => {
   });
 
   describe('rotate', () => {
-    it('rota correctamente: revoca la actual y crea otra con rotatedFromId', async () => {
+    it('rota correctamente: la revocación CAS (updateMany where revokedAt:null) gana y crea otra con rotatedFromId', async () => {
       const { secret, secretHash } = await tokens.generateRefreshSecret();
       const session = buildSession({ refreshTokenHash: secretHash });
       tx.session.findUnique.mockResolvedValue(session);
-      tx.session.update.mockResolvedValue({ ...session, revokedAt: new Date() });
+      tx.session.updateMany.mockResolvedValue({ count: 1 });
       tx.session.create.mockImplementation(async ({ data }) =>
         buildSession({
           id: '019e3d20-eeee-7c2f-bf37-6511065b9fc5',
@@ -143,9 +143,9 @@ describe('SessionsService', () => {
       const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
       const result = await svc.rotate({ refreshToken });
 
-      expect(tx.session.update).toHaveBeenCalledWith(
+      expect(tx.session.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: SESSION_ID },
+          where: { id: SESSION_ID, revokedAt: null },
           data: expect.objectContaining({ revokedReason: 'rotated' }),
         }),
       );
@@ -157,6 +157,41 @@ describe('SessionsService', () => {
       expect(result.userId).toBe(USER_ID);
       expect(result.tenantId).toBe(TENANT_A);
       expect(result.refreshToken.split('.')).toHaveLength(3);
+    });
+
+    it('condición de carrera: si el CAS pierde (count:0, otra request ya rotó/revocó la sesión), dispara el revoke-all paranoid en vez de crear una segunda sesión', async () => {
+      const { secret, secretHash } = await tokens.generateRefreshSecret();
+      // La lectura ve la sesión TODAVÍA activa (revokedAt: null) — simula la
+      // ventana de la carrera: el reuso ya ocurrió en BD para cuando este
+      // request llega al UPDATE, pero su propia lectura fue anterior a eso.
+      const session = buildSession({ refreshTokenHash: secretHash });
+      tx.session.findUnique.mockResolvedValue(session);
+      // 1ª llamada a updateMany = el intento de CAS de la rotación -> pierde.
+      // 2ª llamada = el revoke-all paranoid subsiguiente.
+      tx.session.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 2 });
+
+      const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
+      await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
+
+      expect(tx.session.updateMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: { id: SESSION_ID, revokedAt: null },
+          data: expect.objectContaining({ revokedReason: 'rotated' }),
+        }),
+      );
+      expect(tx.session.updateMany).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          where: { userId: USER_ID, revokedAt: null },
+          data: expect.objectContaining({ revokedReason: 'refresh_reuse' }),
+        }),
+      );
+      // Nunca se crea una segunda sesión a partir del mismo uso del token.
+      expect(tx.session.create).not.toHaveBeenCalled();
+      expect(securityEvents.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'refresh_token_reuse', reason: 'revoked_session' }),
+      );
     });
 
     it('rechaza un refresh con secret incorrecto sin revocar nada', async () => {
@@ -179,11 +214,15 @@ describe('SessionsService', () => {
         revokedReason: 'rotated',
       });
       tx.session.findUnique.mockResolvedValue(session);
-      tx.session.updateMany.mockResolvedValue({ count: 3 });
+      // El CAS de rotación (`WHERE revokedAt IS NULL`) pierde de entrada
+      // porque la sesión YA está revocada en BD -> count 0. Solo entonces
+      // se dispara el revoke-all paranoid (2ª llamada), que sí afecta filas.
+      tx.session.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 3 });
 
       const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
       await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(tx.session.updateMany).toHaveBeenCalledWith(
+      expect(tx.session.updateMany).toHaveBeenNthCalledWith(
+        2,
         expect.objectContaining({
           where: { userId: USER_ID, revokedAt: null },
           data: expect.objectContaining({ revokedReason: 'refresh_reuse' }),

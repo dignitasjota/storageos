@@ -81,6 +81,51 @@ describe('POST /auth/refresh (e2e)', () => {
     expect(reasons).toContain('refresh_reuse');
   });
 
+  it('condición de carrera: N refresh CONCURRENTES con el MISMO cookie — solo UNO rota con éxito, sin sesiones huérfanas', async () => {
+    const { cookie, tenantId, userId } = await registerNewTenant();
+
+    // 5 requests en paralelo con el mismo refresh token todavía válido (aún
+    // no rotado por ninguno). Antes del fix, el `update` sin condición de
+    // `rotate()` dejaba que TODOS pasaran la lectura+verificación y cada uno
+    // generase su propia sesión nueva a partir de un solo uso del token —
+    // sin disparar nunca la detección de reuso. El compare-and-swap
+    // (`updateMany` con `WHERE revokedAt IS NULL`) debe dejar pasar
+    // exactamente una.
+    const attempts = 5;
+    const responses = await Promise.all(
+      Array.from({ length: attempts }, () =>
+        request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie),
+      ),
+    );
+
+    const succeeded = responses.filter((r) => r.status === 200);
+    const failed = responses.filter((r) => r.status === 401);
+    expect(succeeded).toHaveLength(1);
+    expect(failed).toHaveLength(attempts - 1);
+
+    // Solo el ganador de la carrera llega a crear una sesión nueva (los
+    // perdedores nunca llaman `create`): sesión original + exactamente 1.
+    // Si el fix no estuviera, aquí veríamos varias sesiones nuevas
+    // (una por cada request que "ganaba" su propia lectura+escritura).
+    const sessions = await admin.session.findMany({ where: { tenantId, userId } });
+    expect(sessions).toHaveLength(2);
+
+    // Nunca puede haber MÁS de una sesión activa a la vez a partir de un
+    // solo uso del token (la garantía que cierra la carrera). Puede haber 0
+    // si algún perdedor, al detectar el reuso, dispara el revoke-all
+    // paranoid DESPUÉS de que el ganador ya hubiera creado la suya (el
+    // revoke-all barre TODAS las sesiones activas del usuario, sin
+    // distinguir cuál es "la buena") — es una consecuencia esperada de la
+    // política paranoid, no un fallo del fix.
+    const active = sessions.filter((s) => s.revokedAt === null);
+    expect(active.length).toBeLessThanOrEqual(1);
+
+    // La sesión ORIGINAL (la que todos leyeron) siempre queda marcada
+    // 'rotated' por el ganador, sin importar qué pase después con la nueva.
+    const original = sessions.find((s) => s.rotatedFromId === null);
+    expect(original?.revokedReason).toBe('rotated');
+  });
+
   it('responde 401 cuando no hay cookie', async () => {
     const res = await request(app.getHttpServer()).post('/auth/refresh');
     expect(res.status).toBe(401);
