@@ -104,6 +104,22 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
     expect(revoke.status).toBe(403);
     expect(revoke.body.code).toBe('insufficient_super_admin_role');
 
+    // support → activar manualmente el email de un usuario (bypass de
+    // verificación de propiedad del correo) = 403.
+    const verifyEmail = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${owner.userId}/verify-email`)
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(verifyEmail.status).toBe(403);
+    expect(verifyEmail.body.code).toBe('insufficient_super_admin_role');
+
+    // support → reactivar un usuario (deshacer una desactivación de
+    // seguridad, simétrico a deactivate que ya era superadmin-only) = 403.
+    const reactivateUser = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/users/${owner.userId}/reactivate`)
+      .set('Authorization', `Bearer ${supportToken}`);
+    expect(reactivateUser.status).toBe(403);
+    expect(reactivateUser.body.code).toBe('insufficient_super_admin_role');
+
     // support → extender el trial (single) = 403.
     const ext = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/extend-trial`)

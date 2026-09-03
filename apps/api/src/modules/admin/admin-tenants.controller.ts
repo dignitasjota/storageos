@@ -137,7 +137,13 @@ export class AdminTenantsController {
     return { ok: true };
   }
 
-  /** Verifica manualmente el email de un usuario (activa la cuenta desde soporte). */
+  /**
+   * Verifica manualmente el email de un usuario (activa la cuenta desde
+   * soporte, saltándose la demostración de propiedad del correo).
+   * Superadmin-only, como el resto de acciones de seguridad de esta sección
+   * (revoke-sessions/disable-2fa/deactivate).
+   */
+  @RequireSuperadmin()
   @Post(':id/users/:userId/verify-email')
   @HttpCode(HttpStatus.OK)
   async verifyEmail(
@@ -220,7 +226,12 @@ export class AdminTenantsController {
     return { ok: true };
   }
 
-  /** Reactiva un usuario del tenant. */
+  /**
+   * Reactiva un usuario del tenant. Superadmin-only: es la acción simétrica
+   * de `deactivate` (que sí lo exige) — deshacer una desactivación de
+   * seguridad no debe quedar al alcance del rol `support`.
+   */
+  @RequireSuperadmin()
   @Post(':id/users/:userId/reactivate')
   @HttpCode(HttpStatus.OK)
   async reactivateUser(
