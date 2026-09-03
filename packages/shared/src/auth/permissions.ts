@@ -74,6 +74,7 @@ export const Permissions = [
   'reports:read',
   'reports:run',
   'ai:use', // asistente IA para staff (owner/manager/staff)
+  'notifications:read', // bandeja de notificaciones in-app del tenant (todos los roles)
   // --- Administración del tenant (típicamente owner) ---
   'users:read',
   'users:manage', // invitar / desactivar / transferir propiedad

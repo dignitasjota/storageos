@@ -4,11 +4,19 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { NotificationsService } from './notifications.service';
 
 import type { NotificationListDto } from '@storageos/shared';
 
+// Ningún método tenía `@RequirePermission` (ni de clase): cualquier usuario
+// autenticado del tenant podía leer/marcar la bandeja sin que el guard
+// exigiera nada más que la sesión. `notifications:read` va en TODOS los
+// roles base (no cambia el acceso de nadie hoy), pero hace el permiso
+// exigible para un rol personalizado que no lo incluya — mismo criterio ya
+// aplicado a `AnalyticsController`.
+@RequirePermission('notifications:read')
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
