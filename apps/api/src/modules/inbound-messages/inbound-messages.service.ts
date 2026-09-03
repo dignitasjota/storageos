@@ -29,10 +29,34 @@ export class InboundMessagesService {
   }
 
   /**
-   * Resuelve el customer por teléfono. El WABA es global → puede haber el mismo
-   * teléfono en varios tenants; prioriza el que tiene una comunicación WhatsApp
-   * saliente más reciente (conversación activa) y, si no, el más reciente.
+   * Resuelve un remitente ambiguo (mismo teléfono/email en varios tenants —
+   * el canal WABA/email es compartido por toda la plataforma, así que esto
+   * pasa de verdad) por la comunicación SALIENTE más reciente de ese canal a
+   * alguno de los candidatos: una respuesta entrante casi siempre pertenece a
+   * la conversación que un tenant inició de verdad. Si ningún candidato tiene
+   * ese rastro, NO hay señal fiable para elegir uno — devolver `null` en vez
+   * de adivinar (p.ej. el primero que devuelva la BD, orden no garantizado)
+   * evita filtrar el mensaje de un inquilino al panel de un tenant ajeno.
    */
+  private async disambiguate(
+    channel: InboundChannel,
+    candidates: { id: string; tenantId: string }[],
+  ): Promise<{ tenantId: string; customerId: string } | null> {
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1)
+      return { tenantId: candidates[0]!.tenantId, customerId: candidates[0]!.id };
+    const recent = await this.admin.communication.findFirst({
+      where: { channel, customerId: { in: candidates.map((c) => c.id) } },
+      orderBy: { createdAt: 'desc' },
+      select: { customerId: true, tenantId: true },
+    });
+    if (recent?.customerId) return { tenantId: recent.tenantId, customerId: recent.customerId };
+    this.logger.warn(
+      `inbound ${channel}: remitente ambiguo entre ${candidates.length} tenants sin conversación previa — descartado`,
+    );
+    return null;
+  }
+
   private async resolveByPhone(
     from: string,
   ): Promise<{ tenantId: string; customerId: string } | null> {
@@ -43,29 +67,19 @@ export class InboundMessagesService {
       select: { id: true, tenantId: true },
       take: 25,
     });
-    if (candidates.length === 0) return null;
-    if (candidates.length === 1)
-      return { tenantId: candidates[0]!.tenantId, customerId: candidates[0]!.id };
-    // Desempate: comunicación WhatsApp saliente más reciente a alguno de ellos.
-    const recent = await this.admin.communication.findFirst({
-      where: { channel: 'whatsapp', customerId: { in: candidates.map((c) => c.id) } },
-      orderBy: { createdAt: 'desc' },
-      select: { customerId: true, tenantId: true },
-    });
-    if (recent?.customerId) return { tenantId: recent.tenantId, customerId: recent.customerId };
-    return { tenantId: candidates[0]!.tenantId, customerId: candidates[0]!.id };
+    return this.disambiguate('whatsapp', candidates);
   }
 
   private async resolveByEmail(
     from: string,
   ): Promise<{ tenantId: string; customerId: string } | null> {
     const email = from.trim().toLowerCase();
-    const customer = await this.admin.customer.findFirst({
+    const candidates = await this.admin.customer.findMany({
       where: { email: { equals: email, mode: 'insensitive' }, deletedAt: null },
-      orderBy: { updatedAt: 'desc' },
       select: { id: true, tenantId: true },
+      take: 25,
     });
-    return customer ? { tenantId: customer.tenantId, customerId: customer.id } : null;
+    return this.disambiguate('email', candidates);
   }
 
   /**

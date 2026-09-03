@@ -125,4 +125,130 @@ describe('Inbound de mensajes (e2e)', () => {
     expect(thread.body).toHaveLength(1);
     expect(thread.body[0]).toMatchObject({ senderType: 'customer', channel: 'email' });
   });
+
+  it('teléfono ambiguo entre 2 tenants sin conversación previa → se descarta (no adivina)', async () => {
+    const tenantA = await registerVerifiedUser(app, 'inbound-amb-a');
+    const tenantB = await registerVerifiedUser(app, 'inbound-amb-b');
+    const phone = '+34611222333';
+
+    const custA = await request(app.getHttpServer())
+      .post('/customers')
+      .set({ Authorization: `Bearer ${tenantA.accessToken}` })
+      .send({
+        customerType: 'individual',
+        firstName: 'A',
+        lastName: 'Cliente',
+        phone,
+        country: 'ES',
+      });
+    const custB = await request(app.getHttpServer())
+      .post('/customers')
+      .set({ Authorization: `Bearer ${tenantB.accessToken}` })
+      .send({
+        customerType: 'individual',
+        firstName: 'B',
+        lastName: 'Cliente',
+        phone,
+        country: 'ES',
+      });
+
+    const webhook = await request(app.getHttpServer())
+      .post('/webhooks/whatsapp')
+      .send({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [{ from: '34611222333', type: 'text', text: { body: 'Ambiguo' } }],
+                },
+              },
+            ],
+          },
+        ],
+      });
+    expect(webhook.status).toBe(200);
+
+    // Ninguno de los dos tenants debe ver el mensaje (sin señal fiable para elegir).
+    const threadA = await request(app.getHttpServer())
+      .get(`/customers/${custA.body.id}/messages`)
+      .set({ Authorization: `Bearer ${tenantA.accessToken}` });
+    const threadB = await request(app.getHttpServer())
+      .get(`/customers/${custB.body.id}/messages`)
+      .set({ Authorization: `Bearer ${tenantB.accessToken}` });
+    expect(threadA.body).toHaveLength(0);
+    expect(threadB.body).toHaveLength(0);
+  });
+
+  it('teléfono ambiguo entre 2 tenants CON conversación previa → resuelve al tenant correcto', async () => {
+    const tenantA = await registerVerifiedUser(app, 'inbound-tie-a');
+    const tenantB = await registerVerifiedUser(app, 'inbound-tie-b');
+    const phone = '+34622333444';
+
+    const custA = await request(app.getHttpServer())
+      .post('/customers')
+      .set({ Authorization: `Bearer ${tenantA.accessToken}` })
+      .send({
+        customerType: 'individual',
+        firstName: 'A',
+        lastName: 'Cliente',
+        phone,
+        country: 'ES',
+      });
+    const custB = await request(app.getHttpServer())
+      .post('/customers')
+      .set({ Authorization: `Bearer ${tenantB.accessToken}` })
+      .send({
+        customerType: 'individual',
+        firstName: 'B',
+        lastName: 'Cliente',
+        phone,
+        country: 'ES',
+      });
+
+    // Solo el tenant B le ha escrito antes por WhatsApp → tiene una conversación activa.
+    await request(app.getHttpServer())
+      .post('/communications')
+      .set({ Authorization: `Bearer ${tenantB.accessToken}` })
+      .send({
+        channel: 'whatsapp',
+        recipient: phone,
+        customerId: custB.body.id,
+        bodyText: 'Hola, tu trastero está listo',
+      })
+      .expect(201);
+
+    const webhook = await request(app.getHttpServer())
+      .post('/webhooks/whatsapp')
+      .send({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [{ from: '34622333444', type: 'text', text: { body: 'Gracias!' } }],
+                },
+              },
+            ],
+          },
+        ],
+      });
+    expect(webhook.status).toBe(200);
+
+    const threadA = await request(app.getHttpServer())
+      .get(`/customers/${custA.body.id}/messages`)
+      .set({ Authorization: `Bearer ${tenantA.accessToken}` });
+    const threadB = await request(app.getHttpServer())
+      .get(`/customers/${custB.body.id}/messages`)
+      .set({ Authorization: `Bearer ${tenantB.accessToken}` });
+    expect(threadA.body).toHaveLength(0);
+    expect(threadB.body).toHaveLength(1);
+    expect(threadB.body[0]).toMatchObject({
+      senderType: 'customer',
+      channel: 'whatsapp',
+      body: 'Gracias!',
+    });
+  });
 });
