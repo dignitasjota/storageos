@@ -126,4 +126,47 @@ describe('Row-Level Security', () => {
     expect(slugs).toContain('starter');
     expect(slugs).toContain('pro');
   });
+
+  // gocardless_settings se creó sin RLS (a diferencia de sus hermanas
+  // redsys_settings/holded_settings, que sí lo tienen) — regresión concreta
+  // de la migración `20260903200000_gocardless_settings_rls`.
+  it('gocardless_settings aísla el secreto de cada tenant (regresión del hueco de RLS)', async () => {
+    await admin.goCardlessSettings.upsert({
+      where: { tenantId: tenantAId },
+      update: { accessTokenEncrypted: 'secret-a', webhookSecretEncrypted: 'whsec-a' },
+      create: {
+        tenantId: tenantAId,
+        accessTokenEncrypted: 'secret-a',
+        webhookSecretEncrypted: 'whsec-a',
+      },
+    });
+    await admin.goCardlessSettings.upsert({
+      where: { tenantId: tenantBId },
+      update: { accessTokenEncrypted: 'secret-b', webhookSecretEncrypted: 'whsec-b' },
+      create: {
+        tenantId: tenantBId,
+        accessTokenEncrypted: 'secret-b',
+        webhookSecretEncrypted: 'whsec-b',
+      },
+    });
+
+    // El caso "sin contexto = 0 filas" ya lo cubre el primer test del
+    // archivo para cualquier tabla con esta misma policy; aquí importa la
+    // aislación real entre A y B (lo que faltaba sin RLS en esta tabla).
+    const visibleToA = await withTenantContext(app, tenantAId, (tx) =>
+      tx.goCardlessSettings.findMany({ where: { tenantId: { in: [tenantAId, tenantBId] } } }),
+    );
+    expect(visibleToA).toHaveLength(1);
+    expect(visibleToA[0]!.accessTokenEncrypted).toBe('secret-a');
+
+    const visibleToB = await withTenantContext(app, tenantBId, (tx) =>
+      tx.goCardlessSettings.findMany({ where: { tenantId: { in: [tenantAId, tenantBId] } } }),
+    );
+    expect(visibleToB).toHaveLength(1);
+    expect(visibleToB[0]!.accessTokenEncrypted).toBe('secret-b');
+
+    await admin.goCardlessSettings.deleteMany({
+      where: { tenantId: { in: [tenantAId, tenantBId] } },
+    });
+  });
 });
