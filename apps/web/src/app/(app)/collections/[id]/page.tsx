@@ -75,8 +75,12 @@ export default function CollectionsDetailPage() {
     try {
       await upload.mutateAsync({ file, kind: fileKind });
       toast.success('Evidencia subida.');
-    } catch {
-      toast.error('No se pudo subir.');
+    } catch (err) {
+      if (err instanceof Error && err.message === 'unsupported_file_type') {
+        toast.error('Formato no admitido. Solo imágenes (JPG/PNG/WebP) o PDF.');
+      } else {
+        toast.error('No se pudo subir.');
+      }
     }
   }
 

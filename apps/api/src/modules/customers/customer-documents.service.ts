@@ -87,6 +87,15 @@ export class CustomerDocumentsService {
         message: 'La URL del documento no es válida',
       });
     }
+    // Bytes reales, no solo el Content-Type declarado al pedir la URL.
+    const bucketBase = this.files.buildPublicUrl('uploads', '');
+    const key = args.input.fileUrl.slice(bucketBase.length);
+    await this.files.assertObjectMimeType('uploads', key, [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/pdf',
+    ]);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.customerDocument.create({

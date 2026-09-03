@@ -7,7 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { CLOSED_CASE_STATUSES } from '@storageos/shared';
+import { CASE_FILE_MIME_TYPES, CLOSED_CASE_STATUSES } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
@@ -848,6 +848,11 @@ export class CollectionsService {
       if (!input.objectKey.startsWith(prefix)) {
         throw new BadRequestException({ code: 'invalid_file_key', message: 'Key inválida' });
       }
+      // Bytes reales, no solo el Content-Type declarado al pedir la URL. El
+      // requerimiento en PDF lo genera el propio sistema (Puppeteer, subida
+      // server-side) — comprobar sus bytes también es correcto (SIEMPRE es un
+      // PDF real), no un caso especial a excluir.
+      await this.files.assertObjectMimeType('uploads', input.objectKey, CASE_FILE_MIME_TYPES);
       await tx.delinquencyCaseFile.create({
         data: {
           tenantId,

@@ -91,6 +91,12 @@ export class InspectionPhotosService {
     if (!args.input.key.startsWith(prefix)) {
       throw new BadRequestException({ code: 'invalid_photo_key', message: 'Key no válida' });
     }
+    // Bytes reales, no solo el Content-Type declarado al pedir la URL.
+    await this.files.assertObjectMimeType('uploads', args.input.key, [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+    ]);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.contractInspectionPhoto.create({

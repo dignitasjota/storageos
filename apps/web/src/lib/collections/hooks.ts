@@ -1,24 +1,24 @@
+import {
+  CASE_FILE_MIME_TYPES,
+  type CancelCaseInput,
+  type CollectionsSettingsResponse,
+  type CollectionsSummaryDto,
+  type CompleteDisposalInput,
+  type DelinquencyCaseDetailDto,
+  type DelinquencyCaseDto,
+  type DelinquencyCaseStatus,
+  type DelinquencyRequirementPdfDto,
+  type OpenCaseInput,
+  type OverlockCaseInput,
+  type RegisterCaseFileInput,
+  type RequestCaseFileUploadInput,
+  type SendNoticeInput,
+  type StartDisposalInput,
+  type UpdateCollectionsSettingsInput,
+} from '@storageos/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
-
-import type {
-  CancelCaseInput,
-  CollectionsSettingsResponse,
-  CollectionsSummaryDto,
-  CompleteDisposalInput,
-  DelinquencyCaseDetailDto,
-  DelinquencyCaseDto,
-  DelinquencyCaseStatus,
-  DelinquencyRequirementPdfDto,
-  OpenCaseInput,
-  OverlockCaseInput,
-  RegisterCaseFileInput,
-  RequestCaseFileUploadInput,
-  SendNoticeInput,
-  StartDisposalInput,
-  UpdateCollectionsSettingsInput,
-} from '@storageos/shared';
 
 const key = ['collections'] as const;
 
@@ -133,17 +133,21 @@ export function useUploadCaseFile(caseId: string) {
       file: File;
       kind: RequestCaseFileUploadInput['kind'];
     }) => {
+      const contentType = CASE_FILE_MIME_TYPES.find((mime) => mime === file.type);
+      if (!contentType) {
+        throw new Error('unsupported_file_type');
+      }
       const { uploadUrl, objectKey } = await apiFetch<{ uploadUrl: string; objectKey: string }>(
         `/collections/${caseId}/files/upload-url`,
-        { method: 'POST', json: { kind, contentType: file.type || 'application/octet-stream' } },
+        { method: 'POST', json: { kind, contentType } },
       );
       const put = await fetch(uploadUrl, {
         method: 'PUT',
         body: file,
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        headers: { 'Content-Type': contentType },
       });
       if (!put.ok) throw new Error('upload_failed');
-      const body: RegisterCaseFileInput = { kind, objectKey, contentType: file.type };
+      const body: RegisterCaseFileInput = { kind, objectKey, contentType };
       await apiFetch(`/collections/${caseId}/files`, { method: 'POST', json: body });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [...key, 'detail', caseId] }),

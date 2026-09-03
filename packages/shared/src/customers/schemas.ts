@@ -102,7 +102,10 @@ export const RegisterCustomerDocumentSchema = z.object({
   type: CustomerDocumentTypeEnum,
   fileUrl: z.string().url(),
   fileName: z.string().trim().min(1).max(200),
-  mimeType: z.string(),
+  // Mismo whitelist que `RequestCustomerDocumentUploadSchema` — antes era
+  // `z.string()` libre, sin relación con lo que de verdad se validaba al
+  // pedir la URL de subida.
+  mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'application/pdf']),
   fileSize: z.number().int().positive(),
   expiresAt: z.string().datetime().optional(),
 });

@@ -8,10 +8,32 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { Env } from '../../config/env.schema';
+
+/**
+ * Firmas de "magic bytes" de los tipos MIME que aceptan las subidas
+ * presignadas de este proyecto. Las URLs PUT firmadas NO protegen el
+ * `Content-Type` (solo firman `host`; verificado empíricamente contra el SDK
+ * de S3/MinIO — es una limitación conocida de `@aws-sdk/s3-request-presigner`,
+ * no un descuido nuestro) — cualquiera con la URL puede subir bytes con un
+ * `Content-Type` distinto al declarado al pedirla. `assertObjectMimeType`
+ * comprueba los bytes REALES tras la subida, antes de que el "register"
+ * correspondiente persista la key en BD.
+ */
+const MAGIC_BYTE_CHECKS: Record<string, (buf: Buffer) => boolean> = {
+  'image/jpeg': (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': (b) =>
+    b.length >= 8 &&
+    b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  'image/webp': (b) =>
+    b.length >= 12 &&
+    b.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    b.subarray(8, 12).toString('ascii') === 'WEBP',
+  'application/pdf': (b) => b.length >= 4 && b.subarray(0, 4).toString('ascii') === '%PDF',
+};
 
 interface PresignArgs {
   bucket: 'plans' | 'uploads' | 'invoices' | 'reports' | 'public';
@@ -170,6 +192,50 @@ export class FilesService implements OnModuleInit {
     );
     const bytes = await res.Body!.transformToByteArray();
     return Buffer.from(bytes);
+  }
+
+  /**
+   * Comprueba que el objeto YA SUBIDO (vía URL presignada) tiene bytes reales
+   * de alguno de los `allowedMimeTypes` — defensa contra un `Content-Type`
+   * declarado falso al pedir la URL (ver comentario de `MAGIC_BYTE_CHECKS`).
+   * Se llama en cada endpoint "register" (el que persiste la key en BD),
+   * DESPUÉS de la comprobación de prefijo y ANTES de guardar nada — así un
+   * upload con contenido falseado nunca llega a activarse en la app, aunque
+   * exista un instante como objeto huérfano en el bucket. Descarga solo los
+   * primeros bytes (suficientes para cualquier firma soportada), no el
+   * fichero completo. Lanza 400 `invalid_file_content` si no coincide con
+   * ninguno.
+   *
+   * Si el objeto directamente NO EXISTE en el bucket (nunca se llegó a subir
+   * nada a esa key — p. ej. el cliente pidió la URL pero abandonó antes de
+   * subir), no es el escenario que esto defiende (no hay contenido falseado
+   * que validar: sin bytes, no hay nada que servir tampoco) — se deja pasar
+   * en vez de reventar con un error de S3 sin relación. El caso real que
+   * cierra este check es "hay bytes, y no son del tipo que dicen ser".
+   */
+  async assertObjectMimeType(
+    bucket: PresignArgs['bucket'],
+    key: string,
+    allowedMimeTypes: readonly string[],
+  ): Promise<void> {
+    let bytes: Buffer;
+    try {
+      const res = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucketMap[bucket], Key: key, Range: 'bytes=0-31' }),
+      );
+      bytes = Buffer.from(await res.Body!.transformToByteArray());
+    } catch (err) {
+      const code = (err as { name?: string })?.name;
+      if (code === 'NoSuchKey' || code === 'NotFound') return;
+      throw err;
+    }
+    const matches = allowedMimeTypes.some((mime) => MAGIC_BYTE_CHECKS[mime]?.(bytes));
+    if (!matches) {
+      throw new BadRequestException({
+        code: 'invalid_file_content',
+        message: 'El contenido del fichero no coincide con un tipo permitido',
+      });
+    }
   }
 
   /** Key para el snapshot de un evento de cámara (bucket privado `uploads`). */
