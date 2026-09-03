@@ -57,19 +57,99 @@ function isDisallowedIpv4(ip: string): boolean {
 }
 
 /**
- * ¿Es una IPv6 (o IPv4-mapeada en IPv6) en un rango loopback/privado/
- * link-local/no-especificado? Chequeo por prefijo de string (no parseo
- * completo de IPv6) — suficiente para bloquear los rangos peligrosos.
+ * Parsea un literal IPv6 a sus 8 hextets (0-65535 cada uno), aceptando
+ * cualquier representación textual válida: comprimida (`::1`), expandida
+ * (`0:0:0:0:0:0:0:1`), con ceros a la izquierda dentro de un hextet
+ * (`0000:0000:...`), y con cola IPv4 embebida en forma decimal (`::ffff:
+ * 127.0.0.1`) O en forma hexadecimal pura (`::ffff:7f00:1`, el mismo valor).
+ * `null` si no es un literal IPv6 válido.
+ *
+ * Por qué hace falta esto y no vale una regex por prefijo: un mismo host
+ * (p.ej. loopback) tiene MUCHAS representaciones textuales válidas y un
+ * chequeo que solo reconoce una de ellas (`'::1'` exacto, o un prefijo de
+ * string) deja pasar las demás — el hallazgo concreto que esto cierra.
+ */
+function parseIPv6(value: string): number[] | null {
+  const v = value.toLowerCase();
+  if (v === '') return null;
+  const doubleColonCount = (v.match(/::/g) ?? []).length;
+  if (doubleColonCount > 1) return null; // `::` como mucho una vez
+  if (v.includes(':::')) return null;
+
+  const [leftRaw, rightRaw] = doubleColonCount === 1 ? v.split('::') : [v, undefined];
+  const leftParts = leftRaw ? leftRaw.split(':') : [];
+  const rightParts = rightRaw ? rightRaw.split(':') : [];
+
+  // Cola IPv4 embebida: el último grupo del lado derecho (o del único lado,
+  // en forma completa sin `::`) puede ser un literal `a.b.c.d`.
+  function expandIPv4Tail(parts: string[]): string[] | null {
+    const last = parts.at(-1);
+    if (last === undefined || !last.includes('.')) return parts;
+    if (!isIPv4Literal(last)) return null;
+    const int = ipv4ToInt(last);
+    const high = (int >>> 16).toString(16);
+    const low = (int & 0xffff).toString(16);
+    return [...parts.slice(0, -1), high, low];
+  }
+
+  const left = expandIPv4Tail(leftParts);
+  const right = expandIPv4Tail(rightParts);
+  if (left === null || right === null) return null;
+
+  const HEXTET_REGEX = /^[0-9a-f]{1,4}$/;
+  if (![...left, ...right].every((g) => HEXTET_REGEX.test(g))) return null;
+
+  const totalGroups = left.length + right.length;
+  if (doubleColonCount === 0) {
+    if (totalGroups !== 8) return null;
+  } else {
+    if (totalGroups >= 8) return null; // `::` debe rellenar >=1 grupo
+  }
+  const zerosToFill = 8 - totalGroups;
+  const hextets = [
+    ...left,
+    ...Array<string>(doubleColonCount === 1 ? zerosToFill : 0).fill('0'),
+    ...right,
+  ];
+  if (hextets.length !== 8) return null;
+  return hextets.map((h) => parseInt(h, 16));
+}
+
+/**
+ * ¿Es una IPv6 (o IPv4-mapeada/compatible en IPv6) en un rango loopback/
+ * privado/link-local/no-especificado? Parseo numérico completo (no por
+ * prefijo de string) para no depender de UNA representación textual
+ * concreta — ver `parseIPv6`.
  */
 function isDisallowedIpv6(ip: string): boolean {
-  const v = ip.toLowerCase();
-  if (v === '::1' || v === '::') return true;
-  // IPv4-mapeada (`::ffff:a.b.c.d`) → valida la parte IPv4.
-  const mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(v);
-  if (mapped) return isIPv4Literal(mapped[1]!) && isDisallowedIpv4(mapped[1]!);
-  // Unique local (fc00::/7) y link-local (fe80::/10).
-  if (/^f[cd][0-9a-f]{0,2}:/.test(v)) return true;
-  if (/^fe[89ab][0-9a-f]?:/.test(v)) return true;
+  const hextets = parseIPv6(ip);
+  if (!hextets) return false;
+  const [h0, h1, h2, h3, h4, h5, h6, h7] = hextets as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+
+  // IPv4 embebida: 5 primeros hextets a 0 y el 6º es 0 (compatible-deprecada
+  // `::a.b.c.d`) o 0xffff (mapeada `::ffff:a.b.c.d`) → los dos últimos
+  // hextets SON la IPv4 (en hex o en decimal-con-puntos, `parseIPv6` ya
+  // normalizó ambas formas a los mismos hextets numéricos). Esto cubre
+  // TAMBIÉN `::` (embebe 0.0.0.0) y `::1` (embebe 0.0.0.1) sin caso aparte:
+  // ambas caen dentro de `0.0.0.0/8`, ya bloqueada por `isDisallowedIpv4`.
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && (h5 === 0 || h5 === 0xffff)) {
+    const ipv4Int = ((h6 << 16) | h7) >>> 0;
+    const ipv4 = [24, 16, 8, 0].map((shift) => (ipv4Int >>> shift) & 0xff).join('.');
+    return isDisallowedIpv4(ipv4);
+  }
+  // Unique local fc00::/7 → los 7 bits altos de h0 son 1111110.
+  if ((h0 & 0xfe00) === 0xfc00) return true;
+  // Link-local fe80::/10 → los 10 bits altos de h0 son 1111111010.
+  if ((h0 & 0xffc0) === 0xfe80) return true;
   return false;
 }
 
