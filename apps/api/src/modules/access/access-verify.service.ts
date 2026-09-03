@@ -171,11 +171,13 @@ export class AccessVerifyService {
         where: { id: args.deviceRef, isActive: true },
       });
     }
-    // 2) fallback por hardwareId (puede haber varios tenants distintos)
+    // 2) fallback por hardwareId (puede haber varios tenants distintos). El
+    // `take` acota el peor caso de verificaciones argon2 en cadena si muchos
+    // devices (de varios tenants) llegaran a compartir el mismo hardwareId.
     if (!device) {
       const candidates = await this.admin.accessDevice.findMany({
         where: { hardwareId: args.deviceRef, isActive: true },
-        take: 50,
+        take: 20,
       });
       for (const candidate of candidates) {
         if (!candidate.apiKeyHash) continue;
@@ -649,7 +651,12 @@ export class AccessVerifyService {
       return row as CredentialWithCustomer | null;
     }
 
-    // pin/qr: prefiltrar por secretPreview
+    // pin/qr: prefiltrar por secretPreview. `AccessCredentialsService` limita
+    // a `MAX_CREDENTIALS_PER_PREVIEW` (20) las credenciales vivas que pueden
+    // compartir un mismo preview dentro de un tenant+método — el `take` de
+    // aquí abajo es solo una defensa adicional (nunca debería alcanzarse en
+    // condiciones normales), no la protección principal contra el coste de
+    // este bucle de verificaciones argon2 por request.
     const preview = method === 'pin' ? credential.slice(-4) : credential.slice(0, 4);
     const candidates = await this.admin.accessCredential.findMany({
       where: {
@@ -658,7 +665,7 @@ export class AccessVerifyService {
         secretPreview: preview,
       },
       include,
-      take: 200,
+      take: 25,
     });
     for (const candidate of candidates) {
       if (!candidate.secretHash) continue;

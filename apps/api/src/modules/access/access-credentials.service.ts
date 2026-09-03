@@ -64,6 +64,19 @@ function customerDisplay(
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Sin nombre';
 }
 
+/**
+ * Tope de credenciales VIVAS que pueden compartir el mismo `secretPreview`
+ * dentro de un tenant+método. `/access/verify` prefiltra por `secretPreview`
+ * (4 caracteres) y verifica argon2 contra cada candidato hasta encontrar el
+ * que casa — sin este tope, un tenant podía crear cientos de PIN/QR elegidos
+ * para compartir preview y convertir una request HTTP de verificación en
+ * cientos de verificaciones argon2 (amplificación de coste en un proceso
+ * compartido por todos los tenants). Con el tope, el peor caso de ese bucle
+ * queda acotado aquí mismo, en el momento de CREAR la credencial, en vez de
+ * depender solo de reducir el límite de lectura en el propio verify.
+ */
+const MAX_CREDENTIALS_PER_PREVIEW = 20;
+
 function generateRandomPin(): string {
   // 6 digitos: [100000, 999999]
   return randomInt(100000, 1000000).toString();
@@ -128,10 +141,35 @@ export class AccessCredentialsService {
     return false;
   }
 
+  /** Cuántas credenciales vivas del tenant comparten ya este `secretPreview`. */
+  private async countActiveByPreview(
+    tenantId: string,
+    method: 'pin' | 'qr',
+    preview: string,
+  ): Promise<number> {
+    return this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.count({
+          where: {
+            tenantId,
+            method: method as AccessMethod,
+            secretPreview: preview,
+            status: {
+              in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[],
+            },
+          },
+        }),
+      tenantId,
+    );
+  }
+
   /**
    * Resuelve el PIN a usar garantizando que NO colisione con otra credencial
-   * viva del tenant. Si el staff pasa un PIN concreto y ya está en uso → 409;
-   * si no, genera uno aleatorio único (reintenta ante la rara colisión).
+   * viva del tenant, y que su `secretPreview` no esté ya saturado (ver
+   * `MAX_CREDENTIALS_PER_PREVIEW`). Si el staff pasa un PIN concreto: 409 si
+   * colisiona exactamente, 409 si el preview está saturado (caso extremo,
+   * astronómicamente improbable con PINs elegidos de forma independiente).
+   * Si no, genera uno aleatorio único (reintenta ante colisión o saturación).
    */
   private async resolveUniquePin(
     tenantId: string,
@@ -144,13 +182,33 @@ export class AccessCredentialsService {
           message: 'Ese PIN ya está en uso por otra credencial',
         });
       }
+      const count = await this.countActiveByPreview(tenantId, 'pin', providedPin.slice(-4));
+      if (count >= MAX_CREDENTIALS_PER_PREVIEW) {
+        throw new ConflictException({
+          code: 'pin_preview_saturated',
+          message: 'Hay demasiadas credenciales con esos últimos dígitos; elige otro PIN',
+        });
+      }
       return providedPin;
     }
     for (let i = 0; i < 8; i++) {
       const pin = generateRandomPin();
-      if (!(await this.pinCollides(tenantId, pin))) return pin;
+      if (await this.pinCollides(tenantId, pin)) continue;
+      const count = await this.countActiveByPreview(tenantId, 'pin', pin.slice(-4));
+      if (count >= MAX_CREDENTIALS_PER_PREVIEW) continue;
+      return pin;
     }
     return generateRandomPin(); // improbable tras 8 intentos; no bloquear el alta
+  }
+
+  /** Igual que `resolveUniquePin` pero para el token de QR (siempre auto-generado). */
+  private async resolveUniqueQrToken(tenantId: string): Promise<string> {
+    for (let i = 0; i < 8; i++) {
+      const token = generateQrToken();
+      const count = await this.countActiveByPreview(tenantId, 'qr', token.slice(0, 4));
+      if (count < MAX_CREDENTIALS_PER_PREVIEW) return token;
+    }
+    return generateQrToken(); // improbable tras 8 intentos; no bloquear el alta
   }
 
   async list(tenantId: string, filters: ListFilters): Promise<AccessCredentialDto[]> {
@@ -246,7 +304,7 @@ export class AccessCredentialsService {
       secretEncrypted = this.crypto.encryptString(pin);
       revealedSecret = pin;
     } else if (input.method === 'qr') {
-      const token = generateQrToken();
+      const token = await this.resolveUniqueQrToken(args.tenantId);
       secretHash = await argonHash(token);
       secretPreview = token.slice(0, 4);
       secretEncrypted = this.crypto.encryptString(token);
@@ -401,7 +459,7 @@ export class AccessCredentialsService {
       data.secretEncrypted = this.crypto.encryptString(pin);
       revealedSecret = pin;
     } else if (existing.method === ('qr' as AccessMethod)) {
-      const token = generateQrToken();
+      const token = await this.resolveUniqueQrToken(args.tenantId);
       data.secretHash = await argonHash(token);
       data.secretPreview = token.slice(0, 4);
       data.secretEncrypted = this.crypto.encryptString(token);
@@ -683,7 +741,7 @@ export class AccessCredentialsService {
       data.secretPreview = pin.slice(-4);
       data.secretEncrypted = this.crypto.encryptString(pin);
     } else {
-      const token = generateQrToken();
+      const token = await this.resolveUniqueQrToken(tenantId);
       data.secretHash = await argonHash(token);
       data.secretPreview = token.slice(0, 4);
       data.secretEncrypted = this.crypto.encryptString(token);
