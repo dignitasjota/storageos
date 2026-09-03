@@ -1,7 +1,13 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { FacilityFloor, Prisma } from '@storageos/database';
@@ -20,6 +26,7 @@ export class FacilityFloorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly files: FilesService,
   ) {}
 
   async findOrThrow(tenantId: string, floorId: string): Promise<FacilityFloor> {
@@ -200,6 +207,23 @@ export class FacilityFloorsService {
     if (!existing) {
       throw new NotFoundException({ code: 'floor_not_found', message: 'Planta no encontrada' });
     }
+    // Seguridad: `planImageUrl` llegaba SIN validar en absoluto (a diferencia
+    // de `setImages`/`setCover`, que sí comprueban el prefijo) — cualquier
+    // URL era aceptada, incluida una externa ajena al bucket `plans` del
+    // tenant. Se exige que apunte a la key que generó `requestPlanUploadUrl`
+    // para ESTA planta + que los bytes reales sean uno de los tipos
+    // permitidos (el `Content-Type` declarado al pedir la URL no está
+    // protegido por la firma, ver `FilesService.assertObjectMimeType`).
+    const bucketBase = this.files.buildPublicUrl('plans', '');
+    const expectedPrefix = `${bucketBase}${tenantId}/${existing.facilityId}/floors/${floorId}-`;
+    if (!input.planImageUrl.startsWith(expectedPrefix)) {
+      throw new BadRequestException({
+        code: 'invalid_plan_url',
+        message: 'La URL del plano no es válida',
+      });
+    }
+    const key = input.planImageUrl.slice(bucketBase.length);
+    await this.files.assertObjectMimeType('plans', key, ['image/jpeg', 'image/png', 'image/webp']);
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.facilityFloor.update({

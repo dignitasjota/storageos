@@ -66,6 +66,65 @@ describe('Facility images + slug (e2e)', () => {
     expect(cleared.body.images).toHaveLength(0);
   });
 
+  it('setImages rechaza una key cuyos bytes reales no coinciden con ningún tipo permitido (Content-Type falseado)', async () => {
+    const owner = await registerVerifiedUser(app, 'fac-img-mime');
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    // Pide la URL declarando image/jpeg (la firma NO protege el Content-Type,
+    // ver auditoría de seguridad) pero sube bytes de HTML/script real.
+    const presign = await request(app.getHttpServer())
+      .post(`/facilities/${facilityId}/images/upload-url`)
+      .set(auth)
+      .send({ mimeType: 'image/jpeg', sizeBytes: 100 });
+    expect(presign.status).toBe(200);
+    const key = presign.body.key as string;
+
+    const putRes = await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/jpeg' }, // el cliente miente sobre el Content-Type
+      body: '<script>alert(document.cookie)</script>',
+    });
+    expect(putRes.status).toBe(200); // MinIO acepta el PUT (no protege el Content-Type)
+
+    // El registro SÍ debe rechazarlo — los bytes reales no son un JPEG.
+    const set = await request(app.getHttpServer())
+      .put(`/facilities/${facilityId}/images`)
+      .set(auth)
+      .send({ images: [key] });
+    expect(set.status).toBe(400);
+    expect(set.body.code).toBe('invalid_file_content');
+  });
+
+  it('setImages acepta una key con bytes JPEG reales', async () => {
+    const owner = await registerVerifiedUser(app, 'fac-img-real');
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const presign = await request(app.getHttpServer())
+      .post(`/facilities/${facilityId}/images/upload-url`)
+      .set(auth)
+      .send({ mimeType: 'image/jpeg', sizeBytes: 100 });
+    const key = presign.body.key as string;
+
+    // Cabecera mínima de un JPEG real (FF D8 FF ...) — suficiente para la
+    // comprobación de magic bytes (no hace falta un JPEG válido completo).
+    const jpegHeader = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    const putRes = await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/jpeg' },
+      body: jpegHeader,
+    });
+    expect(putRes.status).toBe(200);
+
+    const set = await request(app.getHttpServer())
+      .put(`/facilities/${facilityId}/images`)
+      .set(auth)
+      .send({ images: [key] });
+    expect(set.status).toBe(200);
+    expect(set.body.images).toHaveLength(1);
+  });
+
   it('el slug público se edita vía PATCH /facilities/:id', async () => {
     const owner = await registerVerifiedUser(app, 'fac-slug');
     const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });

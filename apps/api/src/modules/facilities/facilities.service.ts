@@ -316,6 +316,15 @@ export class FacilitiesService {
         message: 'Una de las imágenes no pertenece a este local',
       });
     }
+    // Bytes reales, no solo el Content-Type declarado al pedir la URL (que la
+    // firma no protege, ver `FilesService.assertObjectMimeType`).
+    for (const key of args.images) {
+      await this.files.assertObjectMimeType('public', key, [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+      ]);
+    }
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.facility.update({

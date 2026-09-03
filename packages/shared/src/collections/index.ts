@@ -152,16 +152,26 @@ export type UpdateCollectionsSettingsInput = z.infer<typeof UpdateCollectionsSet
 
 // --- File uploads (patrón inspection photos) -------------------------------
 
+// Evidencia de expedientes de impago: fotos del candado/inventario/burofax o
+// el requerimiento en PDF. Mismo whitelist que el resto de subidas de
+// documentos (antes era `z.string()` libre, sin restricción de tipo).
+export const CASE_FILE_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'application/pdf',
+] as const;
+
 export const RequestCaseFileUploadSchema = z.object({
   kind: z.enum(CASE_FILE_KINDS),
-  contentType: z.string().trim().min(1).max(120),
+  contentType: z.enum(CASE_FILE_MIME_TYPES),
 });
 export type RequestCaseFileUploadInput = z.infer<typeof RequestCaseFileUploadSchema>;
 
 export const RegisterCaseFileSchema = z.object({
   kind: z.enum(CASE_FILE_KINDS),
   objectKey: z.string().trim().min(1).max(500),
-  contentType: z.string().trim().max(120).optional(),
+  contentType: z.enum(CASE_FILE_MIME_TYPES).optional(),
 });
 export type RegisterCaseFileInput = z.infer<typeof RegisterCaseFileSchema>;
 

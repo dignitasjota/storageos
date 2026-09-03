@@ -143,6 +143,12 @@ export class BlogService {
           message: 'La imagen no pertenece a este post',
         });
       }
+      // Bytes reales, no solo el Content-Type declarado al pedir la URL.
+      await this.files.assertObjectMimeType('public', coverImageKey, [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+      ]);
     }
     const updated = await this.prisma.withTenant(
       (tx) => tx.blogPost.update({ where: { id }, data: { coverImageKey } }),

@@ -181,4 +181,71 @@ describe('Units + dashboard (e2e)', () => {
     expect(res.body.publicUrl).toMatch(/^https?:\/\//);
     expect(res.body.requiredHeaders['Content-Type']).toBe('image/png');
   });
+
+  it('PATCH floors/:id/plan rechaza una URL ajena al bucket/local (antes se aceptaba CUALQUIER URL sin validar)', async () => {
+    const owner = await registerVerifiedUser(app, 'units-plan-foreign');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { floorId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    const foreign = await request(app.getHttpServer())
+      .patch(`/floors/${floorId}/plan`)
+      .set(auth)
+      .send({
+        planImageUrl: 'https://evil.example.com/plano-falso.png',
+        planWidthPx: 800,
+        planHeightPx: 600,
+      });
+    expect(foreign.status).toBe(400);
+    expect(foreign.body.code).toBe('invalid_plan_url');
+  });
+
+  it('PATCH floors/:id/plan rechaza una key propia con bytes reales que no son un tipo permitido', async () => {
+    const owner = await registerVerifiedUser(app, 'units-plan-mime');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { floorId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    const presign = await request(app.getHttpServer())
+      .post(`/floors/${floorId}/plan-upload-url`)
+      .set(auth)
+      .send({ mimeType: 'image/png', sizeBytes: 1024 });
+    expect(presign.status).toBe(200);
+
+    await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/png' },
+      body: '<script>alert(1)</script>',
+    }).then((r) => expect(r.status).toBe(200));
+
+    const set = await request(app.getHttpServer())
+      .patch(`/floors/${floorId}/plan`)
+      .set(auth)
+      .send({ planImageUrl: presign.body.publicUrl, planWidthPx: 800, planHeightPx: 600 });
+    expect(set.status).toBe(400);
+    expect(set.body.code).toBe('invalid_file_content');
+  });
+
+  it('PATCH floors/:id/plan acepta una key propia con bytes PNG reales', async () => {
+    const owner = await registerVerifiedUser(app, 'units-plan-real');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { floorId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    const presign = await request(app.getHttpServer())
+      .post(`/floors/${floorId}/plan-upload-url`)
+      .set(auth)
+      .send({ mimeType: 'image/png', sizeBytes: 1024 });
+
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/png' },
+      body: pngHeader,
+    }).then((r) => expect(r.status).toBe(200));
+
+    const set = await request(app.getHttpServer())
+      .patch(`/floors/${floorId}/plan`)
+      .set(auth)
+      .send({ planImageUrl: presign.body.publicUrl, planWidthPx: 800, planHeightPx: 600 });
+    expect(set.status).toBe(200);
+    expect(set.body.planImageUrl).toBe(presign.body.publicUrl);
+  });
 });
