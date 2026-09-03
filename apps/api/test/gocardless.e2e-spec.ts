@@ -138,6 +138,58 @@ describe('GoCardless settings + webhook (e2e)', () => {
     expect(pms.body.some((pm: { gateway: string }) => pm.gateway === 'gocardless')).toBe(true);
   });
 
+  it(
+    'un billingRequestId iniciado para el cliente A no se puede completar sobre el cliente B ' +
+      '(IDOR: el identificador viaja por sessionStorage del frontend, no está protegido de otro modo)',
+    async () => {
+      const owner = await registerVerifiedUser(app, 'gocardless-idor');
+      const auth = { Authorization: `Bearer ${owner.accessToken}` };
+      const customerA = await createCustomer(app, owner.accessToken, {
+        email: 'gc-idor-a@e2e.local',
+      });
+      const customerB = await createCustomer(app, owner.accessToken, {
+        email: 'gc-idor-b@e2e.local',
+      });
+
+      await request(app.getHttpServer()).put('/settings/gocardless').set(auth).send({
+        accessToken: 'sandbox_token_idor_123456',
+        webhookSecret: 'whsec_idor_123456',
+        environment: 'sandbox',
+        enabled: true,
+      });
+
+      // A inicia su propio flujo.
+      const start = await request(app.getHttpServer())
+        .post('/settings/gocardless/mandate/start')
+        .set(auth)
+        .send({ customerId: customerA });
+      expect(start.status).toBe(200);
+      const billingRequestId = start.body.billingRequestId as string;
+
+      // Intentar completarlo "para B" (mismo billingRequestId, otro customerId) → 404.
+      const crossComplete = await request(app.getHttpServer())
+        .post('/settings/gocardless/mandate/complete')
+        .set(auth)
+        .send({ customerId: customerB, billingRequestId });
+      expect(crossComplete.status).toBe(404);
+      expect(crossComplete.body.code).toBe('billing_request_not_found');
+
+      // B no tiene ningún método de pago registrado.
+      const pmsB = await request(app.getHttpServer())
+        .get(`/customers/${customerB}/payment-methods`)
+        .set(auth);
+      expect(pmsB.body).toHaveLength(0);
+
+      // El propio A sí puede completarlo con normalidad.
+      const ownComplete = await request(app.getHttpServer())
+        .post('/settings/gocardless/mandate/complete')
+        .set(auth)
+        .send({ customerId: customerA, billingRequestId });
+      expect(ownComplete.status).toBe(200);
+      expect(ownComplete.body.customerId).toBe(customerA);
+    },
+  );
+
   it('cobro: charge → payment processing → webhook confirmed marca la factura pagada', async () => {
     const owner = await registerVerifiedUser(app, 'gocardless-charge');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
