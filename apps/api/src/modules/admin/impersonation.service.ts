@@ -65,7 +65,7 @@ export class ImpersonationService {
     const ttl = this.config.get('IMPERSONATION_TTL_SECONDS', { infer: true });
     const expiresAt = new Date(Date.now() + ttl * 1000);
 
-    await this.admin.impersonationLog.create({
+    const log = await this.admin.impersonationLog.create({
       data: {
         superAdminId: args.superAdminId,
         tenantId: args.tenantId,
@@ -99,6 +99,10 @@ export class ImpersonationService {
         role: 'owner',
         purpose: 'impersonation',
         superAdminId: args.superAdminId,
+        // Ata el JWT a su fila de `ImpersonationLog`: `JwtStrategy` la
+        // consulta en cada request para poder cortar la sesión antes de que
+        // expire sola (ver `AdminImpersonationAuditService.revoke`).
+        impersonationId: log.id,
       },
       {
         subject,

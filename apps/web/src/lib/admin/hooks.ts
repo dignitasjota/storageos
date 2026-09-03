@@ -1365,6 +1365,20 @@ export function useAdminImpersonationActivity(id: string | null) {
   });
 }
 
+/** Kill switch: corta una sesión de impersonación en curso (invalida el JWT ya emitido). */
+export function useRevokeImpersonation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<AdminImpersonationSessionDto>(`/admin/impersonation-logs/${id}/revoke`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'impersonation-logs'] });
+    },
+  });
+}
+
 // ============================================================================
 // Gestión de planes (CRUD)
 // ============================================================================
