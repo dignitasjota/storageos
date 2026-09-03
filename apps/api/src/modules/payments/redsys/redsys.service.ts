@@ -13,6 +13,7 @@ import { toCents } from '../../../common/money';
 import { InvoicesService } from '../../billing/invoices.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 import { RedsysSettingsService } from './redsys-settings.service';
 import {
@@ -44,6 +45,7 @@ export class RedsysService {
     private readonly settings: RedsysSettingsService,
     private readonly invoices: InvoicesService,
     private readonly config: ConfigService<Env, true>,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -104,19 +106,39 @@ export class RedsysService {
       });
     }
 
-    const order = generateOrder();
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.redsysOrder.create({
-          data: { order, tenantId, invoiceId, amountCents, status: 'pending' },
-        }),
-      tenantId,
-    );
+    // Una orden Redsys `pending` NO crea fila en `payments` hasta que el
+    // webhook la confirma (a diferencia de Stripe/GoCardless, que reservan un
+    // `payment` `processing` antes de cobrar) → sin este candado, el check de
+    // arriba no ve nada y dos requests casi simultáneos (doble clic, dos
+    // pestañas) generarían dos órdenes `pending` distintas para la misma
+    // factura; si el cliente llegara a pagar ambas, la segunda confirmación
+    // se perdería silenciosamente (ver `handleNotification`). El advisory
+    // lock serializa los intentos concurrentes; dentro de él, si YA hay una
+    // orden `pending` para esta factura se REUTILIZA (mismo `order`, misma
+    // firma recalculada) en vez de crear otra — el índice único parcial
+    // `redsys_orders_one_pending_per_invoice` es el backstop a nivel BD por
+    // si algún otro camino se saltara este lock.
+    const orderRow = await this.prisma.withTenant(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}::text), hashtext(${invoiceId}::text))`;
+      const existing = await tx.redsysOrder.findFirst({
+        where: { tenantId, invoiceId, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) return existing;
+      return tx.redsysOrder.create({
+        data: { order: generateOrder(), tenantId, invoiceId, amountCents, status: 'pending' },
+      });
+    }, tenantId);
+    const order = orderRow.order;
 
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     const apiBase = this.config.get('API_BASE_URL', { infer: true });
     const merchantParams: Record<string, string> = {
-      DS_MERCHANT_AMOUNT: String(amountCents),
+      // El importe SIEMPRE es el de `orderRow` (no el `amountCents` recién
+      // calculado arriba): si se reutiliza una orden ya existente, el
+      // formulario debe coincidir con lo que quedó grabado para ese `order`
+      // — es lo que `handleNotification` usará para cobrar al confirmar.
+      DS_MERCHANT_AMOUNT: String(orderRow.amountCents),
       DS_MERCHANT_ORDER: order,
       DS_MERCHANT_MERCHANTCODE: cfg.merchantCode,
       DS_MERCHANT_CURRENCY: '978',
@@ -232,12 +254,28 @@ export class RedsysService {
           meta: {},
         });
       } catch (err) {
-        // La factura podría estar ya pagada (doble notificación): no es fatal.
-        this.logger.warn(
-          `[redsys] order ${order} aprobada pero markPaid falló: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
+        // La factura podría estar ya pagada por otra vía (transferencia, otra
+        // orden Redsys legítima, etc.): no es fatal para el webhook (Redsys
+        // espera un ACK), pero el dinero de este cobro real NO puede quedar
+        // solo en un log que nadie revisa — se deja constancia accionable
+        // para el staff del tenant (reconciliar manualmente / reembolsar
+        // desde el panel de Redsys si procede).
+        const reason = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`[redsys] order ${order} aprobada pero markPaid falló: ${reason}`);
+        await this.notifications
+          .create(orderRow.tenantId, {
+            type: 'redsys.overpayment_needs_review',
+            title: 'Cobro de Redsys sin aplicar — requiere revisión',
+            body: `Se confirmó un pago de Redsys (${(orderRow.amountCents / 100).toFixed(2)} €, orden ${order}) para la factura, pero no se pudo aplicar automáticamente: ${reason}. Revisa si hay que reembolsarlo o aplicarlo a otra factura.`,
+            link: `/invoices/${orderRow.invoiceId}`,
+          })
+          .catch((notifyErr: unknown) => {
+            this.logger.error(
+              `[redsys] no se pudo registrar la notificación de revisión para order ${order}: ${
+                notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+              }`,
+            );
+          });
       }
     }
   }
