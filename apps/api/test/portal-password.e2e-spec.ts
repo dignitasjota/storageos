@@ -35,7 +35,9 @@ describe('Portal — login por contraseña (e2e)', () => {
       .expect(204);
     const mail = await waitForEmail(email, { subjectIncludes: 'Accede' });
     const token = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
-    const consume = await request(app.getHttpServer()).post('/portal/login/consume').send({ token });
+    const consume = await request(app.getHttpServer())
+      .post('/portal/login/consume')
+      .send({ token });
     return consume.body.accessToken as string;
   }
 
@@ -89,6 +91,15 @@ describe('Portal — login por contraseña (e2e)', () => {
       .send({ tenantSlug: owner.slug, email, password: 'otra-mala' });
     expect(wrong.status).toBe(401);
     expect(wrong.body.code).toBe('portal_login_failed');
+
+    // Tenant inexistente → mismo error genérico (regresión de la
+    // normalización de timing: sigue rechazando, con el mismo código, sin
+    // depender de si el tenant o el email existen).
+    const noTenant = await request(app.getHttpServer())
+      .post('/portal/login/password')
+      .send({ tenantSlug: 'tenant-que-no-existe-nunca', email, password: 'Secreto123' });
+    expect(noTenant.status).toBe(401);
+    expect(noTenant.body.code).toBe('portal_login_failed');
   });
 
   it('set-password exige sesión de portal; contraseña corta → 400', async () => {

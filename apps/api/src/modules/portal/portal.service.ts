@@ -339,6 +339,17 @@ export class PortalService {
     return this.buildSession(customer, tenant);
   }
 
+  private dummyPasswordHashPromise: Promise<string> | null = null;
+  /**
+   * Hash argon2 de un valor aleatorio, calculado una sola vez (lazy) y
+   * reutilizado como objetivo de verificación cuando el login no resuelve a
+   * una cuenta real — ver el comentario de `loginWithPassword`.
+   */
+  private getDummyPasswordHash(): Promise<string> {
+    this.dummyPasswordHashPromise ??= argonHash(randomBytes(24).toString('base64url'));
+    return this.dummyPasswordHashPromise;
+  }
+
   /**
    * Login del inquilino por email + contraseña (opt-in; alternativa al magic
    * link). Resuelve `(tenantSlug, email)` a UN cliente con acceso por contraseña
@@ -347,37 +358,45 @@ export class PortalService {
    * Recuperación: el inquilino usa el magic link para entrar y re-fija la clave.
    */
   async loginWithPassword(input: PortalLoginPasswordInput): Promise<PortalSessionDto> {
-    const fail = (): never => {
-      throw new UnauthorizedException({
-        code: 'portal_login_failed',
-        message: 'Email o contraseña incorrectos',
-      });
-    };
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
-    if (
-      !tenant ||
-      tenant.deletedAt ||
-      tenant.status === 'suspended' ||
-      tenant.status === 'cancelled'
-    ) {
-      return fail();
-    }
+    const tenantUsable =
+      !!tenant &&
+      !tenant.deletedAt &&
+      tenant.status !== 'suspended' &&
+      tenant.status !== 'cancelled';
+
     // Debe resolver a EXACTAMENTE un cliente con contraseña (el email no es único
     // por tenant): si hay 0 o varios candidatos con acceso por contraseña, falla.
+    // La query se ejecuta SIEMPRE (incluso con tenant inválido, usando un uuid
+    // que nunca casa) para que la forma del trabajo hecho no varíe por rama.
     const candidates = await this.admin.customer.findMany({
       where: {
-        tenantId: tenant.id,
+        tenantId: tenant?.id ?? '00000000-0000-0000-0000-000000000000',
         email: input.email,
         deletedAt: null,
         portalAccessEnabled: true,
         portalPasswordHash: { not: null },
       },
     });
-    if (candidates.length !== 1) return fail();
-    const customer = candidates[0]!;
-    const ok = await argonVerify(customer.portalPasswordHash!, input.password).catch(() => false);
-    if (!ok) return fail();
-    return this.buildSession(customer, tenant);
+    const customer = tenantUsable && candidates.length === 1 ? candidates[0]! : null;
+
+    // `argonVerify` SIEMPRE se ejecuta —contra el hash real o uno dummy— para
+    // que el tiempo de respuesta no delate si el email resuelve a una cuenta
+    // con contraseña activada: sin esto, esa comprobación (la operación cara
+    // de la función) solo corría en la rama "cuenta existe", y la diferencia
+    // de tiempo es medible por un atacante remoto para enumerar emails de
+    // clientes. Mismo principio que la comparación de firmas en tiempo
+    // constante ya usada en el resto del proyecto, aplicado a un login.
+    const hashToVerify = customer?.portalPasswordHash ?? (await this.getDummyPasswordHash());
+    const passwordOk = await argonVerify(hashToVerify, input.password).catch(() => false);
+
+    if (!customer || !passwordOk) {
+      throw new UnauthorizedException({
+        code: 'portal_login_failed',
+        message: 'Email o contraseña incorrectos',
+      });
+    }
+    return this.buildSession(customer, tenant!);
   }
 
   /**
