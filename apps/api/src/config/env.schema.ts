@@ -6,7 +6,7 @@ import { z } from 'zod';
  * aplicacion no arranca: preferimos romper en boot que descubrir el error
  * en runtime.
  */
-export const envSchema = z.object({
+const envSchemaBase = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
 
@@ -267,6 +267,21 @@ export const envSchema = z.object({
     .union([z.literal('true'), z.literal('false')])
     .default('true')
     .transform((v) => v === 'true'),
+});
+
+export const envSchema = envSchemaBase.superRefine((data, ctx) => {
+  // Con la integración real de WhatsApp activada, el webhook entrante SOLO
+  // es seguro si puede verificar la firma de Meta. Sin el secret, el
+  // controller cae a modo dev/stub (acepta mensajes sin firmar) — tolerable
+  // sin integración real conectada, pero no con `meta_waba` activo: cualquiera
+  // podría inyectar mensajes de WhatsApp falsos atribuidos a un cliente real.
+  if (data.WHATSAPP_PROVIDER === 'meta_waba' && !data.WHATSAPP_APP_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WHATSAPP_APP_SECRET'],
+      message: 'WHATSAPP_APP_SECRET es obligatorio cuando WHATSAPP_PROVIDER=meta_waba',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
