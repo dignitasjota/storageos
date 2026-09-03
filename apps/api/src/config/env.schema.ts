@@ -178,10 +178,14 @@ export const envSchema = z.object({
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
 
   // --- Super admin (Fase 8) ---
+  // SIN default (a proposito, como JWT_ACCESS_SECRET/MASTER_ENCRYPTION_KEY):
+  // firma los JWT que dan control total de la plataforma. Un default hardcodeado
+  // aqui es un secreto de facto publico en el repo -> si se olvida configurar en
+  // un despliegue, cualquiera que lo conozca puede forjar un token de super admin.
+  // Falla el arranque en vez de arrancar inseguro en silencio.
   SUPER_ADMIN_JWT_SECRET: z
     .string()
-    .min(32, 'SUPER_ADMIN_JWT_SECRET debe tener al menos 32 caracteres')
-    .default('dev-super-admin-secret-change-me-please-32chars'),
+    .min(32, 'SUPER_ADMIN_JWT_SECRET debe tener al menos 32 caracteres'),
   SUPER_ADMIN_JWT_TTL_SECONDS: z.coerce.number().int().positive().default(28_800), // 8h
   /** TTL del refresh token de super admin (cookie httpOnly). Default 7d. */
   SUPER_ADMIN_REFRESH_TTL_SECONDS: z.coerce.number().int().positive().default(604_800), // 7d
