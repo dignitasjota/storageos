@@ -56,10 +56,42 @@ describe('isDisallowedIp', () => {
 
   it('acepta IPv6 pública', () => {
     expect(isDisallowedIp('2606:4700:4700::1111')).toBe(false); // Cloudflare DNS
+    // Misma dirección pública, forma completamente expandida (sin `::`).
+    expect(isDisallowedIp('2001:4860:4860:0:0:0:0:8888')).toBe(false); // Google DNS
   });
 
   it('tolera el hostname entre corchetes (como viene de una URL)', () => {
     expect(isDisallowedIp('[::1]')).toBe(true);
+  });
+
+  it(
+    'rechaza loopback/no-especificada/mapeada en representaciones "exóticas" ' +
+      '(expandida, mayúsculas, cola IPv4 en hex, forma compatible-deprecada) — ' +
+      'un chequeo que solo reconoce UNA forma textual deja pasar las demás',
+    () => {
+      // Loopback ::1, expandida sin abreviar y con ceros a la izquierda.
+      expect(isDisallowedIp('0:0:0:0:0:0:0:1')).toBe(true);
+      expect(isDisallowedIp('0000:0000:0000:0000:0000:0000:0000:0001')).toBe(true);
+      // No especificada ::, expandida.
+      expect(isDisallowedIp('0:0:0:0:0:0:0:0')).toBe(true);
+      // Mapeada, cola en HEX puro en vez de decimal-con-puntos (mismo valor
+      // que ::ffff:127.0.0.1: 0x7f000001).
+      expect(isDisallowedIp('::ffff:7f00:1')).toBe(true);
+      expect(isDisallowedIp('0000:0000:0000:0000:0000:ffff:7f00:0001')).toBe(true);
+      // Forma "compatible" IPv4 deprecada (sin `ffff`), sigue siendo loopback.
+      expect(isDisallowedIp('::127.0.0.1')).toBe(true);
+      // Mayúsculas / mixtas.
+      expect(isDisallowedIp('::FFFF:127.0.0.1')).toBe(true);
+      expect(isDisallowedIp('FE80::1')).toBe(true);
+      expect(isDisallowedIp('Fc00::1')).toBe(true);
+    },
+  );
+
+  it('IPv6 malformada (sintaxis inválida) no se trata como bloqueada ni rompe', () => {
+    expect(isDisallowedIp('1:2:3:4:5:6:7:8:9')).toBe(false); // demasiados grupos
+    expect(isDisallowedIp('1::2::3')).toBe(false); // doble "::"
+    expect(isDisallowedIp('gggg::1')).toBe(false); // hextet no hexadecimal
+    expect(isDisallowedIp('not:a:real:address')).toBe(false);
   });
 });
 
