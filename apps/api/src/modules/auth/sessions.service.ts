@@ -107,48 +107,33 @@ export class SessionsService {
 
     const now = new Date();
     const isExpired = session.expiresAt.getTime() <= now.getTime();
-    const isRevoked = session.revokedAt !== null;
 
-    if (isExpired || isRevoked) {
-      // 3a) Paranoid revoke-all en una transaccion DEDICADA: si la pusieramos
-      //     dentro de la transaccion que luego lanza, Prisma haria rollback
-      //     y se perderia la revocacion.
-      const revokedCount = await this.prisma.withTenant(
-        (tx) =>
-          tx.session.updateMany({
-            where: { userId: session.userId, revokedAt: null },
-            data: { revokedAt: now, revokedReason: 'refresh_reuse' },
-          }),
-        tenantId,
-      );
-      this.logger.warn(
-        `Reuso de refresh detectado en sesion ${sessionId} (user ${session.userId}); revocadas ${revokedCount.count} sesiones`,
-      );
-      await this.securityEvents.record({
-        eventType: 'refresh_token_reuse',
-        ipAddress: args.ipAddress,
-        userAgent: args.userAgent,
-        reason: isExpired ? 'expired_session' : 'revoked_session',
-        rawMetadata: {
-          tenantId,
-          sessionId,
-          userId: session.userId,
-          revokedSessionsCount: revokedCount.count,
-        },
-      });
+    if (isExpired) {
+      await this.revokeAllAndFlagReuse(session, tenantId, args, 'expired_session');
       throw new UnauthorizedException('Refresh invalido');
     }
 
-    // 3b) Rotacion atomica: marca la actual como rotated y crea la nueva
-    //     con `rotatedFromId`. Una sola transaccion para ambos pasos.
+    // 3) Rotacion atomica con compare-and-swap: el `updateMany` solo tiene
+    //    efecto si la sesion SIGUE `revokedAt: null` en el instante exacto
+    //    del UPDATE (no en el instante de la lectura del paso 1). Cierra la
+    //    condicion de carrera TOCTOU entre la lectura y la escritura: dos
+    //    requests concurrentes con el MISMO refresh token válido hacían cada
+    //    una su propia lectura+escritura en transacciones separadas, y un
+    //    `update` sin condicion (no `updateMany` filtrado) tenia exito para
+    //    AMBAS, generando dos sesiones nuevas a partir de un solo uso del
+    //    token sin disparar nunca la deteccion de reuso. El `WHERE
+    //    revokedAt IS NULL` hace que Postgres serialice las dos escrituras a
+    //    nivel de fila: la que llega segunda ve `revokedAt` ya puesto por la
+    //    primera y su `count` sale en 0 -> mismo camino que "ya revocada".
     const { secret: newSecret, secretHash: newHash } = await this.tokens.generateRefreshSecret();
     const newExpiresAt = this.computeExpiresAt();
 
     const newSession = await this.prisma.withTenant(async (tx) => {
-      await tx.session.update({
-        where: { id: session.id },
+      const claimed = await tx.session.updateMany({
+        where: { id: session.id, revokedAt: null },
         data: { revokedAt: now, revokedReason: 'rotated' },
       });
+      if (claimed.count === 0) return null;
       return tx.session.create({
         data: {
           tenantId,
@@ -162,12 +147,52 @@ export class SessionsService {
       });
     }, tenantId);
 
+    if (!newSession) {
+      // Perdió la carrera (o ya estaba revocada por otra vía): mismo
+      // tratamiento paranoid que un reuso franco.
+      await this.revokeAllAndFlagReuse(session, tenantId, args, 'revoked_session');
+      throw new UnauthorizedException('Refresh invalido');
+    }
+
     return {
       session: newSession,
       refreshToken: this.tokens.formatRefreshToken(tenantId, newSession.id, newSecret),
       tenantId,
       userId: session.userId,
     };
+  }
+
+  /** Revoca TODAS las sesiones del usuario (política paranoid) + registra el evento de seguridad. */
+  private async revokeAllAndFlagReuse(
+    session: Session,
+    tenantId: string,
+    args: RotateSessionArgs,
+    reason: 'expired_session' | 'revoked_session',
+  ): Promise<void> {
+    const now = new Date();
+    const revokedCount = await this.prisma.withTenant(
+      (tx) =>
+        tx.session.updateMany({
+          where: { userId: session.userId, revokedAt: null },
+          data: { revokedAt: now, revokedReason: 'refresh_reuse' },
+        }),
+      tenantId,
+    );
+    this.logger.warn(
+      `Reuso de refresh detectado en sesion ${session.id} (user ${session.userId}); revocadas ${revokedCount.count} sesiones`,
+    );
+    await this.securityEvents.record({
+      eventType: 'refresh_token_reuse',
+      ipAddress: args.ipAddress,
+      userAgent: args.userAgent,
+      reason,
+      rawMetadata: {
+        tenantId,
+        sessionId: session.id,
+        userId: session.userId,
+        revokedSessionsCount: revokedCount.count,
+      },
+    });
   }
 
   async revoke(args: {
