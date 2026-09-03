@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import {
@@ -13,6 +14,10 @@ import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
+
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
 
 const TEST_KEY = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 
@@ -45,15 +50,18 @@ async function issuedInvoice(app: INestApplication, token: string): Promise<stri
 
 describe('Redsys (e2e)', () => {
   let app: INestApplication;
+  let admin: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     await deleteAllMessages();
     app = await createTestApp();
+    admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
   });
 
   afterAll(async () => {
     await app.close();
+    await admin.$disconnect();
     await cleanupTestTenants();
     await deleteAllMessages();
   });
@@ -206,5 +214,121 @@ describe('Redsys (e2e)', () => {
       Buffer.from(card.body.merchantParameters, 'base64').toString('utf8'),
     );
     expect(cardParams.DS_MERCHANT_PAYMETHODS).toBe('C');
+  });
+
+  it('doble clic (2 redirects seguidos, sin pagar) reutiliza la MISMA orden pendiente — no crea dos', async () => {
+    const owner = await registerVerifiedUser(app, 'redsys-doubleclick');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await configureRedsys(app, owner.accessToken);
+    const invoiceId = await issuedInvoice(app, owner.accessToken);
+
+    const first = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({});
+    const second = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({});
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const paramsA = JSON.parse(
+      Buffer.from(first.body.merchantParameters, 'base64').toString('utf8'),
+    );
+    const paramsB = JSON.parse(
+      Buffer.from(second.body.merchantParameters, 'base64').toString('utf8'),
+    );
+    expect(paramsB.DS_MERCHANT_ORDER).toBe(paramsA.DS_MERCHANT_ORDER);
+
+    const orders = await admin.redsysOrder.findMany({ where: { invoiceId } });
+    expect(orders).toHaveLength(1);
+    expect(orders[0]?.status).toBe('pending');
+  });
+
+  it('condición de carrera: N redirects CONCURRENTES para la misma factura generan UNA sola orden pendiente', async () => {
+    const owner = await registerVerifiedUser(app, 'redsys-race');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await configureRedsys(app, owner.accessToken);
+    const invoiceId = await issuedInvoice(app, owner.accessToken);
+
+    const attempts = 6;
+    const responses = await Promise.all(
+      Array.from({ length: attempts }, () =>
+        request(app.getHttpServer())
+          .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+          .set(auth)
+          .send({}),
+      ),
+    );
+    expect(responses.every((r) => r.status === 200)).toBe(true);
+
+    const orderIds = new Set(
+      responses.map((r) => {
+        const params = JSON.parse(
+          Buffer.from(r.body.merchantParameters, 'base64').toString('utf8'),
+        );
+        return params.DS_MERCHANT_ORDER as string;
+      }),
+    );
+    // Todos los requests concurrentes deben resolver a la MISMA orden — antes
+    // del fix, cada uno habría generado la suya (N filas `pending` distintas).
+    expect(orderIds.size).toBe(1);
+
+    const orders = await admin.redsysOrder.findMany({ where: { invoiceId } });
+    expect(orders).toHaveLength(1);
+  });
+
+  it('un pago Redsys confirmado sobre una factura ya saldada por otra vía no se pierde: 200 + notificación al staff', async () => {
+    const owner = await registerVerifiedUser(app, 'redsys-overpaid');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await configureRedsys(app, owner.accessToken);
+    const invoiceId = await issuedInvoice(app, owner.accessToken);
+
+    // El cliente abre el pago de Redsys (orden A, queda pending sin confirmar)...
+    const redirect = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({});
+    const params = JSON.parse(
+      Buffer.from(redirect.body.merchantParameters, 'base64').toString('utf8'),
+    );
+    const order = params.DS_MERCHANT_ORDER as string;
+
+    // ...pero mientras tanto, el staff cobra la factura por OTRA vía (efectivo).
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/mark-paid`)
+      .set(auth)
+      .send({ amount: 121, methodType: 'cash' })
+      .expect(200);
+
+    // Ahora el cliente termina de pagar la vieja pestaña de Redsys → notificación aprobada.
+    const notif = encodeMerchantParameters({
+      Ds_Order: order,
+      Ds_Response: '0000',
+      Ds_Amount: '12100',
+    });
+    const signature = signRequest(notif, order, TEST_KEY);
+    const webhook = await request(app.getHttpServer()).post('/webhooks/redsys').send({
+      Ds_SignatureVersion: 'HMAC_SHA256_V1',
+      Ds_MerchantParameters: notif,
+      Ds_Signature: signature,
+    });
+    // Redsys espera un ACK 200 pase lo que pase (si no, reintenta en bucle).
+    expect(webhook.status).toBe(200);
+
+    // La factura sigue pagada (el segundo cobro no se aplicó dos veces)...
+    const detail = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(detail.body.status).toBe('paid');
+
+    // ...pero el dinero de más NO se pierde en silencio: queda una notificación
+    // accionable para que el staff lo reconcilie manualmente.
+    const notifications = await request(app.getHttpServer()).get('/notifications').set(auth);
+    expect(notifications.status).toBe(200);
+    const found = notifications.body.items.find(
+      (n: { type: string; link: string | null }) =>
+        n.type === 'redsys.overpayment_needs_review' && n.link === `/invoices/${invoiceId}`,
+    );
+    expect(found).toBeTruthy();
   });
 });

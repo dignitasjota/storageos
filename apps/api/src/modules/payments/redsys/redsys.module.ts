@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { BillingModule } from '../../billing/billing.module';
+import { NotificationsModule } from '../../notifications/notifications.module';
 
 import { RedsysSettingsService } from './redsys-settings.service';
 import { RedsysWebhookController } from './redsys-webhook.controller';
@@ -14,7 +15,7 @@ import { RedsysService } from './redsys.service';
  * redirect de pago.
  */
 @Module({
-  imports: [BillingModule],
+  imports: [BillingModule, NotificationsModule],
   controllers: [RedsysController, RedsysWebhookController],
   providers: [RedsysService, RedsysSettingsService],
   exports: [RedsysService],
