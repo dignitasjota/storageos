@@ -313,7 +313,23 @@ export class TenantSettingsService {
     const data: Prisma.TenantUpdateInput = {};
     if (input.portalBrandColor !== undefined)
       data.portalBrandColor = input.portalBrandColor || null;
-    if (input.portalLogoUrl !== undefined) data.portalLogoUrl = input.portalLogoUrl || null;
+    if (input.portalLogoUrl !== undefined) {
+      const raw = input.portalLogoUrl.trim();
+      if (raw === '') {
+        data.portalLogoUrl = null;
+      } else {
+        // El logo se sirve al navegador del visitante (sin riesgo), pero
+        // TAMBIÉN se usa server-side: `next/og` (Satori) hace un fetch desde
+        // el proceso del `web` para generar la imagen Open Graph del
+        // tenant — sin esta validación, un tenant podía apuntar su logo a
+        // una IP privada/servicio interno (SSRF ciego, disparado por
+        // cualquiera que visite la página o por el crawler de una red
+        // social al generar la vista previa del enlace). Misma guarda que
+        // ya protege `externalSiteUrl`.
+        await this.assertSafeExternalUrl(raw, 'portal_logo_url_invalid');
+        data.portalLogoUrl = raw;
+      }
+    }
     if (input.googleSiteVerification !== undefined)
       data.googleSiteVerification = input.googleSiteVerification || null;
     if (input.googleAnalyticsId !== undefined)
@@ -461,18 +477,20 @@ export class TenantSettingsService {
   }
 
   /**
-   * Valida una URL de «web externa»: formato (https, no IP-literal privada, no
-   * nuestro propio dominio) vía `parseExternalSiteUrl` (shared, sin I/O) +
-   * resolución DNS del hostname re-chequeada contra los mismos rangos
-   * prohibidos (el hostname puede ser un dominio, no un literal de IP — la
-   * ruta de proxy del web hace la MISMA doble comprobación en cada request,
-   * como defensa contra DNS rebinding).
+   * Valida una URL EXTERNA que el backend vaya a usar de alguna forma
+   * (proxy de la web externa del tenant, o cualquier otra URL que acabe
+   * disparando una petición saliente nuestra): formato (https, no
+   * IP-literal privada, no nuestro propio dominio) vía `parseExternalSiteUrl`
+   * (shared, sin I/O) + resolución DNS del hostname re-chequeada contra los
+   * mismos rangos prohibidos (el hostname puede ser un dominio, no un literal
+   * de IP — quien luego use la URL debe hacer la MISMA doble comprobación en
+   * cada request, como defensa contra DNS rebinding).
    */
-  private async assertSafeExternalUrl(url: string): Promise<void> {
+  private async assertSafeExternalUrl(url: string, errorCode: string): Promise<void> {
     const check = parseExternalSiteUrl(url, this.platformHosts());
     if (!check.ok) {
       throw new BadRequestException({
-        code: 'external_site_url_invalid',
+        code: errorCode,
         message: this.externalUrlErrorMessage(check.reason),
         details: { reason: check.reason },
       });
@@ -486,14 +504,14 @@ export class TenantSettingsService {
       resolvedIp = (await dns.lookup(check.hostname)).address;
     } catch {
       throw new BadRequestException({
-        code: 'external_site_url_invalid',
+        code: errorCode,
         message: this.externalUrlErrorMessage('dns_error'),
         details: { reason: 'dns_error' },
       });
     }
     if (isDisallowedIp(resolvedIp)) {
       throw new BadRequestException({
-        code: 'external_site_url_invalid',
+        code: errorCode,
         message: this.externalUrlErrorMessage('private_ip'),
         details: { reason: 'private_ip' },
       });
@@ -518,7 +536,7 @@ export class TenantSettingsService {
       if (raw === '') {
         externalSiteUrlToSave = null;
       } else {
-        await this.assertSafeExternalUrl(raw);
+        await this.assertSafeExternalUrl(raw, 'external_site_url_invalid');
         externalSiteUrlToSave = raw;
       }
       data.externalSiteUrl = externalSiteUrlToSave;
