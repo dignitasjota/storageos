@@ -53,6 +53,21 @@ describe('Redsys signature', () => {
     expect(res.valid).toBe(false);
   });
 
+  it('rechaza una firma de la MISMA longitud pero contenido distinto (comparación en tiempo constante)', () => {
+    // Caso relevante para `timingSafeEqual`: con `===` este también se
+    // rechaza, pero el objetivo es que la comparación byte a byte no acabe
+    // en cuanto difiere el primer carácter (fuga de tiempo explotable en un
+    // webhook público). Se altera solo el último carácter para maximizar el
+    // solapamiento con la firma real.
+    const notifParams = { Ds_Order: '000012345678', Ds_Response: '0000' };
+    const mp = encodeMerchantParameters(notifParams);
+    const signature = signRequest(mp, notifParams.Ds_Order, TEST_KEY);
+    const flipped = signature.slice(0, -1) + (signature.at(-1) === 'A' ? 'B' : 'A');
+    expect(flipped).toHaveLength(signature.length);
+    const res = verifyNotification(mp, flipped, TEST_KEY);
+    expect(res.valid).toBe(false);
+  });
+
   it('acepta firma en base64url (como envía Redsys)', () => {
     const notifParams = { Ds_Order: '000099887766', Ds_Response: '0099' };
     const mp = encodeMerchantParameters(notifParams);

@@ -1,4 +1,4 @@
-import { createCipheriv, createHmac } from 'node:crypto';
+import { createCipheriv, createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Firma Redsys `HMAC_SHA256_V1`:
@@ -77,6 +77,14 @@ export function verifyNotification(
   const params = JSON.parse(decoded) as Record<string, string>;
   const order = params.Ds_Order ?? params.DS_ORDER ?? '';
   const computed = hmacBase64(dsMerchantParameters, deriveKey(order, secretKeyBase64));
-  const valid = normalizeBase64(computed) === normalizeBase64(dsSignature);
+  // Comparación en tiempo constante: `===` sobre strings permite a un
+  // atacante remoto (el endpoint es un webhook público) reconstruir la firma
+  // válida byte a byte midiendo el tiempo de respuesta (timing attack clásico
+  // sobre HMAC), forjando una notificación de "pago confirmado" sin conocer
+  // la clave secreta del comercio. Mismo patrón que `verifyGoCardlessSignature`
+  // / la verificación de firma de Meta en este proyecto.
+  const a = Buffer.from(normalizeBase64(computed));
+  const b = Buffer.from(normalizeBase64(dsSignature));
+  const valid = a.length === b.length && timingSafeEqual(a, b);
   return { valid, params };
 }
