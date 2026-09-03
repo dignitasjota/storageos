@@ -22,9 +22,9 @@ import { InboundMessagesService } from './inbound-messages.service';
 import type { Env } from '../../config/env.schema';
 import type { Request } from 'express';
 
-/** Verifica la firma `X-Hub-Signature-256` de Meta sobre el raw body. */
+/** Verifica la firma `X-Hub-Signature-256` de Meta sobre el raw body. Se
+ *  llama solo cuando hay `appSecret` configurado (ver `receive`). */
 function verifyMetaSignature(raw: Buffer, header: string | undefined, appSecret: string): boolean {
-  if (!appSecret) return true; // sin app secret configurado no exigimos firma (dev)
   if (!header?.startsWith('sha256=')) return false;
   const expected = createHmac('sha256', appSecret).update(raw).digest('hex');
   const received = header.slice('sha256='.length);
@@ -73,9 +73,24 @@ export class WhatsAppInboundController {
     const raw = req.body as Buffer | Record<string, unknown>;
     const rawBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(JSON.stringify(raw ?? {}));
     const appSecret = this.config.get('WHATSAPP_APP_SECRET', { infer: true });
-    const sig = req.headers['x-hub-signature-256'];
-    if (!verifyMetaSignature(rawBuf, typeof sig === 'string' ? sig : undefined, appSecret)) {
-      throw new BadRequestException({ code: 'invalid_signature' });
+
+    if (!appSecret) {
+      // Sin secret configurado, el bypass SOLO se tolera en dev/test con el
+      // provider `stub` (sin integración real de WhatsApp conectada). Con
+      // `meta_waba` el arranque ya exige el secret (env.schema.ts) — llegar
+      // aquí sin él en cualquier otro caso es una config rota: fallamos
+      // cerrado en vez de aceptar mensajes sin firmar (evita que cualquiera
+      // pueda inyectar un WhatsApp falso atribuido a un cliente real).
+      const provider = this.config.get('WHATSAPP_PROVIDER', { infer: true });
+      const nodeEnv = this.config.get('NODE_ENV', { infer: true });
+      if (provider !== 'stub' || nodeEnv === 'production') {
+        throw new ForbiddenException({ code: 'whatsapp_app_secret_not_configured' });
+      }
+    } else {
+      const sig = req.headers['x-hub-signature-256'];
+      if (!verifyMetaSignature(rawBuf, typeof sig === 'string' ? sig : undefined, appSecret)) {
+        throw new BadRequestException({ code: 'invalid_signature' });
+      }
     }
 
     let payload: unknown;
