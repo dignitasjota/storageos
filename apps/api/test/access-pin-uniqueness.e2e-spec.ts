@@ -52,4 +52,42 @@ describe('Unicidad de PIN de credenciales (e2e)', () => {
       .send({ customerId: c2, method: 'pin', pin: '445566', allowedHours: {} });
     expect(ok.status).toBe(201);
   });
+
+  it(
+    'tope de credenciales que comparten el mismo secretPreview (cierra la ' +
+      'amplificación de argon2 en /access/verify: sin tope, un tenant podía ' +
+      'crear cientos de PIN con la misma cola para que cada request de ' +
+      'verificación disparase cientos de verificaciones argon2)',
+    async () => {
+      const owner = await registerVerifiedUser(app, 'pinsaturation');
+      const auth = { Authorization: `Bearer ${owner.accessToken}` };
+      const customerId = await createCustomer(app, owner.accessToken);
+
+      // 20 PIN distintos que comparten la cola "9999" (mismo secretPreview).
+      for (let i = 0; i < 20; i++) {
+        const pin = `${String(i).padStart(2, '0')}9999`;
+        const res = await request(app.getHttpServer())
+          .post('/access/credentials')
+          .set(auth)
+          .send({ customerId, method: 'pin', pin, allowedHours: {} });
+        expect(res.status).toBe(201);
+      }
+
+      // El 21º, con un PIN DISTINTO (no colisiona con ninguno exacto) pero que
+      // comparte la misma cola saturada → rechazado, no un 200 silencioso.
+      const overflow = await request(app.getHttpServer())
+        .post('/access/credentials')
+        .set(auth)
+        .send({ customerId, method: 'pin', pin: '209999', allowedHours: {} });
+      expect(overflow.status).toBe(409);
+      expect(overflow.body.code).toBe('pin_preview_saturated');
+
+      // Un PIN con una cola distinta (sin saturar) sigue funcionando con normalidad.
+      const other = await request(app.getHttpServer())
+        .post('/access/credentials')
+        .set(auth)
+        .send({ customerId, method: 'pin', pin: '778888', allowedHours: {} });
+      expect(other.status).toBe(201);
+    },
+  );
 });
