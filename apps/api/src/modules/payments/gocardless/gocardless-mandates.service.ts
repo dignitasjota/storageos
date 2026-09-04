@@ -11,6 +11,9 @@ import type { Env } from '../../../config/env.schema';
 import type { RequestMeta } from '../../auth/auth.service';
 import type { GoCardlessMandateStartDto, PaymentMethodDto } from '@storageos/shared';
 
+/** Clave de metadata del billing request que lo ata a quien lo inició. */
+const METADATA_CUSTOMER_KEY = 'storageos_customer_id';
+
 /**
  * Orquesta el mandato SEPA de GoCardless vía Billing Request Flow:
  *  - `startFlow`: crea el billing request + su flow → URL de autorización.
@@ -18,8 +21,14 @@ import type { GoCardlessMandateStartDto, PaymentMethodDto } from '@storageos/sha
  *    `PaymentMethod` (gateway `gocardless`, type `sepa_debit`).
  *
  * El estado del flujo lo lleva el frontend (billingRequestId); no hace falta
- * tabla. El billing request queda implícitamente acotado al tenant porque se
- * consulta con SU access token (otro tenant → 404 de GoCardless).
+ * tabla. El billing request queda implícitamente acotado al TENANT porque se
+ * consulta con SU access token (otro tenant → 404 de GoCardless) — pero eso
+ * NO acota al CLIENTE concreto: `billingRequestId` es un identificador que el
+ * frontend guarda en `sessionStorage` y manda de vuelta en `completeFlow`, y
+ * nada comprobaba que perteneciera al `customerId` de la sesión que lo
+ * completa. Como GoCardless persiste la `metadata` que le pasamos al crear el
+ * recurso, se usa ESO para atarlo al cliente que lo inició (ver `startFlow`/
+ * `completeFlow`) sin necesitar una tabla propia.
  */
 @Injectable()
 export class GoCardlessMandatesService {
@@ -43,6 +52,7 @@ export class GoCardlessMandatesService {
     const { id: billingRequestId } = await this.client.createBillingRequest(
       resolved.accessToken,
       resolved.environment,
+      { [METADATA_CUSTOMER_KEY]: args.customerId },
     );
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     const { authorisationUrl } = await this.client.createBillingRequestFlow(
@@ -73,6 +83,17 @@ export class GoCardlessMandatesService {
       resolved.environment,
       args.billingRequestId,
     );
+    // El billingRequestId es un identificador opaco que el frontend guarda en
+    // sessionStorage y manda de vuelta aquí — sin esta comprobación, el
+    // Cliente B del mismo tenant podría completar (y quedarse como método de
+    // pago propio) un mandato que en realidad inició el Cliente A, si llega a
+    // conocer su billingRequestId.
+    if (br.metadata[METADATA_CUSTOMER_KEY] !== args.customerId) {
+      throw new NotFoundException({
+        code: 'billing_request_not_found',
+        message: 'Solicitud de domiciliación no encontrada',
+      });
+    }
     if (br.status !== 'fulfilled' || !br.mandateId) {
       throw new BadRequestException({
         code: 'mandate_not_authorised',

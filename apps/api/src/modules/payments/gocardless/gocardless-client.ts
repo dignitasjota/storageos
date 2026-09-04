@@ -37,6 +37,8 @@ export interface GoCardlessBillingRequest {
   mandateId: string | null;
   customerId: string | null;
   bankAccountId: string | null;
+  /** Metadata que le pusimos nosotros al crearlo (ver `createBillingRequest`). */
+  metadata: Record<string, string>;
 }
 
 /** Mandato SEPA resuelto. */
@@ -69,6 +71,15 @@ export class GoCardlessClient {
   private get stub(): boolean {
     return process.env.GOCARDLESS_MODE === 'stub' || process.env.NODE_ENV === 'test';
   }
+
+  /**
+   * Solo para el modo stub: GoCardless (real) persiste la `metadata` que le
+   * pasamos al crear el billing request y la devuelve tal cual en
+   * `getBillingRequest`; el stub no tiene servidor propio detrás, así que
+   * simula ese mismo comportamiento en memoria para que los tests puedan
+   * ejercitar el flujo completo (crear con metadata → leer con esa metadata).
+   */
+  private readonly stubBillingRequestMetadata = new Map<string, Record<string, string>>();
 
   /** Llamada genérica autenticada a la API de GoCardless. */
   async request<T = unknown>(args: {
@@ -123,13 +134,23 @@ export class GoCardlessClient {
 
   // --- Billing Request Flow (mandato SEPA) --------------------------------
 
-  /** Crea un billing request para un mandato SEPA CORE. Devuelve su id. */
+  /**
+   * Crea un billing request para un mandato SEPA CORE. Devuelve su id.
+   * `metadata` (si se pasa) queda adjunta al recurso en GoCardless y se
+   * puede releer luego con `getBillingRequest` — se usa para atar el
+   * billing request al `customerId` que lo inició (ver
+   * `GoCardlessMandatesService`), evitando que otro cliente del mismo
+   * tenant complete un flujo que no empezó él con solo conocer el id.
+   */
   async createBillingRequest(
     accessToken: string,
     environment: GoCardlessEnvironment,
+    metadata?: Record<string, string>,
   ): Promise<{ id: string }> {
     if (this.stub) {
-      return { id: `BR-stub-${stubSuffix()}` };
+      const id = `BR-stub-${stubSuffix()}`;
+      if (metadata) this.stubBillingRequestMetadata.set(id, metadata);
+      return { id };
     }
     const { status, data } = await this.request<{
       billing_requests?: { id: string };
@@ -139,7 +160,12 @@ export class GoCardlessClient {
       environment,
       method: 'POST',
       path: '/billing_requests',
-      body: { billing_requests: { mandate_request: { scheme: 'sepa_core' } } },
+      body: {
+        billing_requests: {
+          mandate_request: { scheme: 'sepa_core' },
+          ...(metadata ? { metadata } : {}),
+        },
+      },
       idempotencyKey: `br-${stubSuffix()}`,
     });
     const id = data.billing_requests?.id;
@@ -199,12 +225,14 @@ export class GoCardlessClient {
         mandateId: `MD-${billingRequestId}`,
         customerId: `CU-${billingRequestId}`,
         bankAccountId: `BA-${billingRequestId}`,
+        metadata: this.stubBillingRequestMetadata.get(billingRequestId) ?? {},
       };
     }
     const { status, data } = await this.request<{
       billing_requests?: {
         id: string;
         status: string;
+        metadata?: Record<string, string>;
         links?: {
           mandate_request_mandate?: string;
           customer?: string;
@@ -228,6 +256,7 @@ export class GoCardlessClient {
       mandateId: br.links?.mandate_request_mandate ?? null,
       customerId: br.links?.customer ?? null,
       bankAccountId: br.links?.customer_bank_account ?? null,
+      metadata: br.metadata ?? {},
     };
   }
 
