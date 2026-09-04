@@ -74,7 +74,7 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
-import { ThrottleLogin } from '../../common/decorators/throttle-presets';
+import { ThrottleLogin, ThrottleRegister } from '../../common/decorators/throttle-presets';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AccessVerifyService } from '../access/access-verify.service';
 import { AiService } from '../ai/ai.service';
@@ -144,8 +144,11 @@ export class PortalController {
     private readonly accessVerify: AccessVerifyService,
   ) {}
 
+  // Envía un email (magic link) — mismo preset que el homólogo de staff
+  // (`resend-verification`/`password/forgot` en AuthController): 3/hora, no
+  // 5/min, para no dejar un vector de email-bombing dirigido a un inquilino.
   @Public()
-  @ThrottleLogin()
+  @ThrottleRegister()
   @Post('login/request')
   @HttpCode(HttpStatus.NO_CONTENT)
   async requestLink(@Body() input: PortalRequestMagicLinkDto): Promise<void> {
@@ -183,8 +186,10 @@ export class PortalController {
   }
 
   /** Solicitar un enlace de restablecimiento de contraseña por email (204 silencioso). */
+  // Mismo motivo que `login/request`: envía email, se alinea al preset de
+  // recuperación de cuenta del staff (3/hora) en vez del de login (5/min).
   @Public()
-  @ThrottleLogin()
+  @ThrottleRegister()
   @Post('login/forgot')
   @HttpCode(HttpStatus.NO_CONTENT)
   async forgotPassword(@Body() input: PortalRequestMagicLinkDto): Promise<void> {
