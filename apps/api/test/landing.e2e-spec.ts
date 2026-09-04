@@ -188,21 +188,24 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(before.body.brandColor).toBeNull();
     expect(before.body.logoUrl).toBeNull();
 
-    // Configura marca (reutiliza el white-label del portal).
+    // Configura marca (reutiliza el white-label del portal). IP pública
+    // literal (93.184.216.34 = example.com) para no depender de resolución
+    // DNS real en el test — `portalLogoUrl` se valida server-side (SSRF,
+    // ver `portal-branding.e2e-spec.ts`), mismo patrón que `external-site`.
     await request(app.getHttpServer())
       .patch('/settings/tenant/branding')
       .set(auth)
-      .send({ portalBrandColor: '#ff6600', portalLogoUrl: 'https://cdn.example.com/logo.png' })
+      .send({ portalBrandColor: '#ff6600', portalLogoUrl: 'https://93.184.216.34/logo.png' })
       .expect(200);
 
     const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(after.body.brandColor).toBe('#ff6600');
-    expect(after.body.logoUrl).toBe('https://cdn.example.com/logo.png');
+    expect(after.body.logoUrl).toBe('https://93.184.216.34/logo.png');
 
     // También en la página por local.
     const fac = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/local-marca`);
     expect(fac.body.brandColor).toBe('#ff6600');
-    expect(fac.body.logoUrl).toBe('https://cdn.example.com/logo.png');
+    expect(fac.body.logoUrl).toBe('https://93.184.216.34/logo.png');
   });
 
   it('página por local: GET /public/landing/:slug/:facilitySlug devuelve el local', async () => {
