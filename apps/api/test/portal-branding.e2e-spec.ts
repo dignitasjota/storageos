@@ -34,15 +34,17 @@ describe('Portal — white-label / marca (e2e)', () => {
     expect(initial.status).toBe(200);
     expect(initial.body).toMatchObject({ portalBrandColor: null, portalLogoUrl: null });
 
-    // Configurar.
+    // Configurar. IP pública literal (93.184.216.34 = example.com) para no
+    // depender de resolución DNS real en el test — mismo patrón que
+    // `external-site.e2e-spec.ts` para la misma guarda SSRF compartida.
     const patch = await request(app.getHttpServer())
       .patch('/settings/tenant/branding')
       .set(auth)
-      .send({ portalBrandColor: '#ff6600', portalLogoUrl: 'https://cdn.example.com/logo.png' });
+      .send({ portalBrandColor: '#ff6600', portalLogoUrl: 'https://93.184.216.34/logo.png' });
     expect(patch.status).toBe(200);
     expect(patch.body).toMatchObject({
       portalBrandColor: '#ff6600',
-      portalLogoUrl: 'https://cdn.example.com/logo.png',
+      portalLogoUrl: 'https://93.184.216.34/logo.png',
     });
 
     // El portal del inquilino lo recibe en la sesión.
@@ -56,7 +58,7 @@ describe('Portal — white-label / marca (e2e)', () => {
       .post('/portal/login/consume')
       .send({ token });
     expect(consume.body.brandColor).toBe('#ff6600');
-    expect(consume.body.logoUrl).toBe('https://cdn.example.com/logo.png');
+    expect(consume.body.logoUrl).toBe('https://93.184.216.34/logo.png');
 
     // '' borra el color.
     const clear = await request(app.getHttpServer())
@@ -64,7 +66,7 @@ describe('Portal — white-label / marca (e2e)', () => {
       .set(auth)
       .send({ portalBrandColor: '' });
     expect(clear.body.portalBrandColor).toBeNull();
-    expect(clear.body.portalLogoUrl).toBe('https://cdn.example.com/logo.png'); // no tocado
+    expect(clear.body.portalLogoUrl).toBe('https://93.184.216.34/logo.png'); // no tocado
   });
 
   it('rechaza un color no hexadecimal', async () => {
@@ -75,4 +77,34 @@ describe('Portal — white-label / marca (e2e)', () => {
       .send({ portalBrandColor: 'rojo' });
     expect(res.status).toBe(400);
   });
+
+  it(
+    'rechaza portalLogoUrl apuntando a una IP privada/loopback (SSRF: el logo lo ' +
+      'fetchea el servidor al generar la imagen Open Graph del tenant, no solo el navegador)',
+    async () => {
+      const owner = await registerVerifiedUser(app, 'brandingssrf');
+      const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+      for (const bad of ['https://127.0.0.1/logo.png', 'https://10.0.0.5/logo.png']) {
+        const res = await request(app.getHttpServer())
+          .patch('/settings/tenant/branding')
+          .set(auth)
+          .send({ portalLogoUrl: bad });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('portal_logo_url_invalid');
+      }
+
+      // http:// (sin TLS) tampoco se acepta.
+      const notHttps = await request(app.getHttpServer())
+        .patch('/settings/tenant/branding')
+        .set(auth)
+        .send({ portalLogoUrl: 'http://93.184.216.34/logo.png' });
+      expect(notHttps.status).toBe(400);
+      expect(notHttps.body.code).toBe('portal_logo_url_invalid');
+
+      // El branding no quedó modificado por ninguno de los intentos fallidos.
+      const after = await request(app.getHttpServer()).get('/settings/tenant/branding').set(auth);
+      expect(after.body.portalLogoUrl).toBeNull();
+    },
+  );
 });

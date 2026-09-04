@@ -1,6 +1,14 @@
+import { promises as dns } from 'node:dns';
+
+import { isDisallowedIp, isIpLiteralHostname, parseExternalSiteUrl } from '@storageos/shared';
 import { ImageResponse } from 'next/og';
 
 import type { PublicLandingDto } from '@storageos/shared';
+
+// `next/og` (Satori) hace un fetch SERVER-SIDE del `<img src>` de abajo para
+// poder embeberlo como píxeles en el PNG — necesita el runtime Node para
+// poder validar por DNS antes (ver `isSafeImageUrl`).
+export const runtime = 'nodejs';
 
 export const alt = 'Trasteros — reserva tu espacio online';
 export const size = { width: 1200, height: 630 };
@@ -24,6 +32,29 @@ async function getLanding(slug: string): Promise<PublicLandingDto | null> {
   }
 }
 
+/**
+ * El logo (`tenants.portal_logo_url`) ya se valida al guardarlo (SSRF:
+ * `TenantSettingsService.updateBranding` en el backend), pero esta ruta
+ * pública la ejercita cualquiera que visite `/s/[slug]` o cuyo crawler de
+ * red social genere la vista previa del enlace — y Satori hace el fetch de
+ * `src` server-side, no el navegador del visitante. Se re-valida aquí por
+ * DNS (defensa contra rebinding: el dominio pudo resolver a una IP pública
+ * al guardarse y a una privada ahora) antes de dejar que Satori lo toque; si
+ * no es seguro, se degrada al placeholder en vez de bloquear la imagen
+ * entera.
+ */
+async function isSafeImageUrl(url: string): Promise<boolean> {
+  const check = parseExternalSiteUrl(url);
+  if (!check.ok) return false;
+  if (isIpLiteralHostname(check.hostname)) return !isDisallowedIp(check.hostname);
+  try {
+    const { address } = await dns.lookup(check.hostname);
+    return !isDisallowedIp(address);
+  } catch {
+    return false;
+  }
+}
+
 function cities(data: PublicLandingDto): string {
   const set = [...new Set(data.facilities.map((f) => f.city).filter(Boolean))] as string[];
   return set.join(', ');
@@ -39,6 +70,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ slu
   const name = data?.tenantName ?? 'Trasteros';
   const where = data ? cities(data) : '';
   const headline = data?.webHeadline ?? `Trasteros${where ? ` en ${where}` : ''}`;
+  const logoUrl = data?.logoUrl && (await isSafeImageUrl(data.logoUrl)) ? data.logoUrl : null;
 
   return new ImageResponse(
     <div
@@ -55,9 +87,9 @@ export default async function OpengraphImage({ params }: { params: Promise<{ slu
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-        {data?.logoUrl ? (
+        {logoUrl ? (
           <img
-            src={data.logoUrl}
+            src={logoUrl}
             alt=""
             width={90}
             height={90}
