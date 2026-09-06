@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
@@ -81,4 +83,50 @@ describe('Portal: notificaciones push (e2e)', () => {
       .send({ endpoint: 'not-a-url', keys: { p256dh: 'x', auth: 'y' } })
       .expect(400);
   });
+
+  it(
+    'reasignar un endpoint ya suscrito por OTRO customer del mismo tenant se permite ' +
+      '(equipo compartido) pero la fila pasa a pertenecer solo al nuevo customer',
+    async () => {
+      const owner = await registerVerifiedUser(app, 'ppushreassign');
+      const emailA = `ppush-a-${Date.now()}@e2e.local`;
+      const emailB = `ppush-b-${Date.now()}@e2e.local`;
+      await createCustomer(app, owner.accessToken, { email: emailA });
+      await createCustomer(app, owner.accessToken, { email: emailB });
+      const tokenA = await portalLogin(owner.slug, emailA);
+      const tokenB = await portalLogin(owner.slug, emailB);
+
+      const sharedEndpoint = `https://push.example.com/sub/shared-${Date.now()}`;
+      const sub = { endpoint: sharedEndpoint, keys: { p256dh: 'BPp256dhKEY', auth: 'AUTHKEY' } };
+
+      // A se suscribe primero desde este "dispositivo".
+      await request(app.getHttpServer())
+        .post('/portal/me/push/subscribe')
+        .set({ Authorization: `Bearer ${tokenA}` })
+        .send(sub)
+        .expect(204);
+
+      const admin = app.get(PrismaAdminService);
+      const afterA = await admin.pushSubscription.findUnique({
+        where: { endpoint: sharedEndpoint },
+      });
+      expect(afterA?.customerId).toBeDefined();
+
+      // B usa el MISMO dispositivo/endpoint más tarde → reasigna la fila.
+      await request(app.getHttpServer())
+        .post('/portal/me/push/subscribe')
+        .set({ Authorization: `Bearer ${tokenB}` })
+        .send(sub)
+        .expect(204);
+
+      const afterB = await admin.pushSubscription.findUnique({
+        where: { endpoint: sharedEndpoint },
+      });
+      expect(afterB?.customerId).not.toBe(afterA?.customerId);
+
+      // No queda una fila huérfana para A con el mismo endpoint — solo hay una.
+      const count = await admin.pushSubscription.count({ where: { endpoint: sharedEndpoint } });
+      expect(count).toBe(1);
+    },
+  );
 });
