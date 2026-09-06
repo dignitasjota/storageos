@@ -604,41 +604,79 @@ export class CollectionsService {
     input: CompleteDisposalInput,
     facilityScope: string[] | null,
   ): Promise<DelinquencyCaseDto> {
-    // Liquidación fina: aplica la fianza retenida + lo obtenido de la disposición
-    // a las facturas pendientes por antigüedad (más antigua primero) ANTES de
-    // cerrar el expediente. Solo se ejecuta si el expediente está en `disposal`
-    // (si no, `transition` lanzará invalid_transition sin haber tocado dinero).
     const caseRow = await this.prisma.withTenant(
       (tx) => this.findOrThrow(tx, tenantId, caseId, facilityScope),
       tenantId,
     );
-    let settlement: DelinquencySettlementDto | null = null;
-    if (caseRow.status === 'disposal') {
-      settlement = await this.applyFineSettlement(
+
+    // Reclama la transición ATÓMICAMENTE antes de liquidar (fianza +
+    // producto de la disposición): antes se leía `status==='disposal'` y,
+    // solo si pasaba el check, se aplicaba la liquidación — dos llamadas
+    // concurrentes a "Completar disposición" podían leer AMBAS
+    // `status==='disposal'` (ninguna lo había cambiado todavía) y aplicar
+    // la fianza/producto DOS VECES sobre las mismas facturas (TOCTOU). El
+    // `updateMany` condicionado a `status:'disposal'` es la única forma de
+    // que SOLO una de las dos llamadas "gane" el derecho a liquidar.
+    const claim =
+      caseRow.status === 'disposal'
+        ? await this.prisma.withTenant(
+            (tx) =>
+              tx.delinquencyCase.updateMany({
+                where: { id: caseId, status: 'disposal' },
+                data: { status: 'closed_disposed', disposedAt: new Date(), closedAt: new Date() },
+              }),
+            tenantId,
+          )
+        : { count: 0 };
+
+    if (claim.count === 0) {
+      // No estaba en `disposal` (nunca llegó a esa fase, o alguien más ya
+      // lo completó entre la lectura de arriba y este punto) — `transition`
+      // vuelve a leer el estado real y lanza `invalid_transition` con el
+      // `from` correcto, sin haber tocado ningún dinero.
+      return this.transition(
         tenantId,
-        userId,
-        caseRow.contractId,
-        input.proceedsCents,
-        input.applyDeposit,
         caseId,
+        userId,
         facilityScope,
+        'closed_disposed',
+        { disposedAt: new Date(), closedAt: new Date() },
+        'disposal_done',
+        { proceedsCents: input.proceedsCents, notes: input.notes ?? null },
       );
     }
 
-    return this.transition(
+    const settlement = await this.applyFineSettlement(
       tenantId,
-      caseId,
       userId,
+      caseRow.contractId,
+      input.proceedsCents,
+      input.applyDeposit,
+      caseId,
       facilityScope,
-      'closed_disposed',
-      { disposedAt: new Date(), closedAt: new Date() },
-      'disposal_done',
-      {
-        proceedsCents: input.proceedsCents,
-        notes: input.notes ?? null,
-        ...(settlement ? { settlement } : {}),
-      },
     );
+    const eventPayload = {
+      proceedsCents: input.proceedsCents,
+      notes: input.notes ?? null,
+      settlement,
+    };
+
+    return this.prisma.withTenant(async (tx) => {
+      const updated = await tx.delinquencyCase.findUniqueOrThrow({
+        where: { id: caseId },
+        include: caseInclude,
+      });
+      await this.recordEvent(tx, tenantId, caseId, 'disposal_done', eventPayload, userId);
+      await this.audit.write({
+        tenantId,
+        userId,
+        action: 'collections.closed_disposed',
+        entityType: 'DelinquencyCase',
+        entityId: caseId,
+        changes: eventPayload as unknown as Prisma.InputJsonValue,
+      });
+      return this.toDto(tx, updated);
+    }, tenantId);
   }
 
   /**

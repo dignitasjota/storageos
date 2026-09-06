@@ -319,6 +319,66 @@ describe('Collections / expedientes de impago (e2e)', () => {
     expect(contract?.depositSettledAt).not.toBeNull();
   });
 
+  it(
+    'completar disposición dos veces en carrera solo liquida una vez ' +
+      '(TOCTOU: la 2ª pierde la reclamación atómica)',
+    async () => {
+      const owner = await registerVerifiedUser(app, 'coll-race');
+      await setTenantPlan(owner.slug, 'starter');
+      const auth = { Authorization: `Bearer ${owner.accessToken}` };
+      const { contractId, invoiceId } = await seedContractWithDebt(owner.accessToken); // deuda 121€
+
+      await admin.contract.update({
+        where: { id: contractId },
+        data: { depositAmount: 50, depositStatus: 'held' },
+      });
+
+      const open = await request(app.getHttpServer())
+        .post('/collections')
+        .set(auth)
+        .send({ contractId });
+      const caseId = open.body.id as string;
+      for (const step of ['overlock', 'notice', 'resolution-pending', 'disposal'] as const) {
+        const body =
+          step === 'disposal' ? { disposalType: 'auction_notarial' } : step === 'notice' ? {} : {};
+        await request(app.getHttpServer())
+          .post(`/collections/${caseId}/${step}`)
+          .set(auth)
+          .send(body);
+      }
+
+      // Dos "Completar disposición" simultáneas sobre el MISMO expediente.
+      const [first, second] = await Promise.all([
+        request(app.getHttpServer())
+          .post(`/collections/${caseId}/complete-disposal`)
+          .set(auth)
+          .send({ proceedsCents: 3000, applyDeposit: true }),
+        request(app.getHttpServer())
+          .post(`/collections/${caseId}/complete-disposal`)
+          .set(auth)
+          .send({ proceedsCents: 3000, applyDeposit: true }),
+      ]);
+      // Exactamente una gana (200/201, closed_disposed) y la otra pierde la
+      // reclamación atómica (400 invalid_transition — ya no está en disposal).
+      const winner = first.status !== 400 ? first : second;
+      const loser = first.status === 400 ? first : second;
+      expect([200, 201]).toContain(winner.status);
+      expect(winner.body.status).toBe('closed_disposed');
+      expect(loser.status).toBe(400);
+      expect(loser.body.code).toBe('invalid_transition');
+
+      // La factura solo se liquidó UNA vez (50 fianza + 30 producto = 80),
+      // no el doble (160, que excedería incluso el total de la factura).
+      const inv = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+      expect(inv.body.amountPaid).toBe(80);
+
+      // La fianza se liquidó una sola vez (no quedó re-aplicada ni negativa).
+      const contract = await admin.contract.findUnique({ where: { id: contractId } });
+      expect(contract?.depositStatus).toBe('returned');
+      expect(Number(contract?.depositReturnedAmount)).toBe(0);
+    },
+  );
+
   // Nota: la generación REAL del PDF usa Puppeteer (`await import('puppeteer')`),
   // que no funciona bajo ts-jest (CommonJS) — como el resto de PDFs del proyecto,
   // no se ejercita en e2e. El render (HTML) se cubre en el unit
