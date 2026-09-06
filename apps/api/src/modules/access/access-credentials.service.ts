@@ -301,13 +301,13 @@ export class AccessCredentialsService {
       const pin = await this.resolveUniquePin(args.tenantId, input.pin);
       secretHash = await argonHash(pin);
       secretPreview = pin.slice(-4);
-      secretEncrypted = this.crypto.encryptString(pin);
+      secretEncrypted = this.crypto.encryptString(pin, args.tenantId);
       revealedSecret = pin;
     } else if (input.method === 'qr') {
       const token = await this.resolveUniqueQrToken(args.tenantId);
       secretHash = await argonHash(token);
       secretPreview = token.slice(0, 4);
-      secretEncrypted = this.crypto.encryptString(token);
+      secretEncrypted = this.crypto.encryptString(token, args.tenantId);
       revealedSecret = token;
     } else {
       // rfid (schema garantiza rfidUid presente)
@@ -456,13 +456,13 @@ export class AccessCredentialsService {
       const pin = await this.resolveUniquePin(args.tenantId, args.input.pin);
       data.secretHash = await argonHash(pin);
       data.secretPreview = pin.slice(-4);
-      data.secretEncrypted = this.crypto.encryptString(pin);
+      data.secretEncrypted = this.crypto.encryptString(pin, args.tenantId);
       revealedSecret = pin;
     } else if (existing.method === ('qr' as AccessMethod)) {
       const token = await this.resolveUniqueQrToken(args.tenantId);
       data.secretHash = await argonHash(token);
       data.secretPreview = token.slice(0, 4);
-      data.secretEncrypted = this.crypto.encryptString(token);
+      data.secretEncrypted = this.crypto.encryptString(token, args.tenantId);
       revealedSecret = token;
     } else {
       // rfid
@@ -671,7 +671,7 @@ export class AccessCredentialsService {
       method: r.method as 'pin' | 'qr',
       label: r.label,
       status: r.status,
-      value: r.secretEncrypted ? this.crypto.decryptString(r.secretEncrypted) : null,
+      value: r.secretEncrypted ? this.crypto.decryptString(r.secretEncrypted, tenantId) : null,
       expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
       lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
     }));
@@ -739,12 +739,12 @@ export class AccessCredentialsService {
       const pin = await this.resolveUniquePin(tenantId, undefined);
       data.secretHash = await argonHash(pin);
       data.secretPreview = pin.slice(-4);
-      data.secretEncrypted = this.crypto.encryptString(pin);
+      data.secretEncrypted = this.crypto.encryptString(pin, tenantId);
     } else {
       const token = await this.resolveUniqueQrToken(tenantId);
       data.secretHash = await argonHash(token);
       data.secretPreview = token.slice(0, 4);
-      data.secretEncrypted = this.crypto.encryptString(token);
+      data.secretEncrypted = this.crypto.encryptString(token, tenantId);
     }
     const updated = await this.prisma.withTenant(
       (tx) => tx.accessCredential.update({ where: { id: credentialId }, data }),
@@ -755,7 +755,9 @@ export class AccessCredentialsService {
       method: updated.method as 'pin' | 'qr',
       label: updated.label,
       status: updated.status,
-      value: updated.secretEncrypted ? this.crypto.decryptString(updated.secretEncrypted) : null,
+      value: updated.secretEncrypted
+        ? this.crypto.decryptString(updated.secretEncrypted, tenantId)
+        : null,
       expiresAt: updated.expiresAt ? updated.expiresAt.toISOString() : null,
       lastUsedAt: updated.lastUsedAt ? updated.lastUsedAt.toISOString() : null,
     };

@@ -79,7 +79,7 @@ export class CameraDevicesService {
             serialNumber: args.input.serialNumber?.trim() || null,
             controlUrl: args.input.controlUrl?.trim() || null,
             controlSecretEncrypted: args.input.controlSecret?.trim()
-              ? this.crypto.encryptString(args.input.controlSecret.trim())
+              ? this.crypto.encryptString(args.input.controlSecret.trim(), args.tenantId)
               : null,
             ingestTokenHash: hashIngestToken(token),
             ingestTokenPreview: token.slice(0, 8),
@@ -111,7 +111,7 @@ export class CameraDevicesService {
     if (i.controlUrl !== undefined) data.controlUrl = i.controlUrl?.trim() || null;
     if (i.controlSecret !== undefined) {
       data.controlSecretEncrypted = i.controlSecret?.trim()
-        ? this.crypto.encryptString(i.controlSecret.trim())
+        ? this.crypto.encryptString(i.controlSecret.trim(), args.tenantId)
         : null;
     }
     if (i.facilityId !== undefined) {
@@ -174,7 +174,8 @@ export class CameraDevicesService {
       (tx) => tx.cameraDevice.findFirst({ where: { id }, include: INCLUDE }),
       tenantId,
     );
-    if (!row) throw new NotFoundException({ code: 'camera_not_found', message: 'Cámara no encontrada' });
+    if (!row)
+      throw new NotFoundException({ code: 'camera_not_found', message: 'Cámara no encontrada' });
     assertFacilityAllowed(facilityScope, row.facilityId);
     return row;
   }

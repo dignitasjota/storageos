@@ -33,7 +33,7 @@ export class CameraControlService {
     const { device, control } = await this.resolve(tenantId, deviceId, facilityScope);
     if (!control) return { dispatched: false, message: 'provider_sin_acciones', snapshotUrl: null };
 
-    const res = await control.snapshot(this.toControlDevice(device));
+    const res = await control.snapshot(this.toControlDevice(device, tenantId));
     if (!res.dispatched || !res.jpegBase64) {
       return { dispatched: res.dispatched, message: res.message ?? null, snapshotUrl: null };
     }
@@ -91,7 +91,7 @@ export class CameraControlService {
   ): Promise<CameraControlResultDto> {
     const { device, control } = await this.resolve(tenantId, deviceId, facilityScope);
     if (!control) return { dispatched: false, message: 'provider_sin_acciones', snapshotUrl: null };
-    const res = await control[action](this.toControlDevice(device));
+    const res = await control[action](this.toControlDevice(device, tenantId));
     return { dispatched: res.dispatched, message: res.message ?? null, snapshotUrl: null };
   }
 
@@ -134,20 +134,23 @@ export class CameraControlService {
     return { device, control: this.registry.resolve(device.provider) };
   }
 
-  private toControlDevice(device: {
-    id: string;
-    provider: string;
-    channel: number;
-    controlUrl: string | null;
-    controlSecretEncrypted: string | null;
-    metadata: unknown;
-  }): CameraControlDevice {
+  private toControlDevice(
+    device: {
+      id: string;
+      provider: string;
+      channel: number;
+      controlUrl: string | null;
+      controlSecretEncrypted: string | null;
+      metadata: unknown;
+    },
+    tenantId: string,
+  ): CameraControlDevice {
     return {
       id: device.id,
       channel: device.channel,
       controlUrl: device.controlUrl,
       controlSecret: device.controlSecretEncrypted
-        ? this.crypto.decryptString(device.controlSecretEncrypted)
+        ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
         : null,
     };
   }

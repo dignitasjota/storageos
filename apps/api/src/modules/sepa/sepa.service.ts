@@ -64,7 +64,7 @@ export class SepaService {
         enabled: false,
       };
     }
-    const iban = this.crypto.decryptString(s.creditorIbanEncrypted);
+    const iban = this.crypto.decryptString(s.creditorIbanEncrypted, tenantId);
     return {
       configured: true,
       creditorName: s.creditorName,
@@ -88,7 +88,7 @@ export class SepaService {
       });
     }
     const creditorIbanEncrypted = input.creditorIban
-      ? this.crypto.encryptString(input.creditorIban)
+      ? this.crypto.encryptString(input.creditorIban, tenantId)
       : existing!.creditorIbanEncrypted;
     const data = {
       creditorName: input.creditorName,
@@ -172,7 +172,7 @@ export class SepaService {
           tenantId,
           customerId: input.customerId,
           reference,
-          ibanEncrypted: this.crypto.encryptString(input.iban),
+          ibanEncrypted: this.crypto.encryptString(input.iban, tenantId),
           ibanLast4: input.iban.slice(-4),
           bic: input.bic || null,
           signedAt: new Date(`${input.signedAt}T00:00:00Z`),
@@ -285,7 +285,7 @@ export class SepaService {
       ? invoices.filter((i) => input.invoiceIds!.includes(i.id))
       : invoices;
 
-    const creditorIban = this.crypto.decryptString(settings.creditorIbanEncrypted);
+    const creditorIban = this.crypto.decryptString(settings.creditorIbanEncrypted, tenantId);
     const messageId = `REM-${Date.now().toString(36).toUpperCase()}-${rand(6)}`;
 
     const txs: Pain008Transaction[] = [];
@@ -310,7 +310,7 @@ export class SepaService {
         mandateSignedDate: mandate.signedAt.toISOString().slice(0, 10),
         sequenceType: mandate.sequenceType as 'FRST' | 'RCUR',
         debtorName: inv.customer ? customerName(inv.customer) : 'Cliente',
-        debtorIban: this.crypto.decryptString(mandate.ibanEncrypted),
+        debtorIban: this.crypto.decryptString(mandate.ibanEncrypted, tenantId),
         debtorBic: mandate.bic,
         remittanceInfo: `Factura ${inv.invoiceNumber}`,
       });

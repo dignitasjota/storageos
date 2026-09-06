@@ -43,7 +43,7 @@ export class HoldedSettingsService {
       });
     }
     const apiKeyEncrypted = input.apiKey
-      ? this.crypto.encryptString(input.apiKey)
+      ? this.crypto.encryptString(input.apiKey, tenantId)
       : existing?.apiKeyEncrypted;
 
     await this.prisma.withTenant(
@@ -74,7 +74,7 @@ export class HoldedSettingsService {
       tenantId,
     );
     if (!row?.apiKeyEncrypted) return null;
-    return this.crypto.decryptString(row.apiKeyEncrypted);
+    return this.crypto.decryptString(row.apiKeyEncrypted, tenantId);
   }
 
   async test(tenantId: string): Promise<HoldedTestResultDto> {

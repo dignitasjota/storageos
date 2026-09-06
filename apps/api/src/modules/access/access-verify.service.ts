@@ -364,7 +364,7 @@ export class AccessVerifyService {
       mqttTopic: device.mqttTopic,
       controlUrl: device.controlUrl,
       controlSecret: device.controlSecretEncrypted
-        ? this.crypto.decryptString(device.controlSecretEncrypted)
+        ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
         : null,
       customerId: credentialRow.customerId,
     });
@@ -585,7 +585,7 @@ export class AccessVerifyService {
       mqttTopic: device.mqttTopic,
       controlUrl: device.controlUrl,
       controlSecret: device.controlSecretEncrypted
-        ? this.crypto.decryptString(device.controlSecretEncrypted)
+        ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
         : null,
       customerId,
     });

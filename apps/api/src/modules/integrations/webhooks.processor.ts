@@ -43,7 +43,7 @@ export class WebhooksProcessor extends WorkerHost {
     if (row.status === 'success') {
       return;
     }
-    const secret = this.service.decryptWebhookSecret(row.webhook.secret);
+    const secret = this.service.decryptWebhookSecret(row.webhook.secret, row.webhook.tenantId);
     // Recalcular la firma sobre el body que vamos a enviar AHORA. El
     // payload original viaja como JSONB y Postgres puede reordenar las
     // claves, por lo que `row.signature` calculado en dispatch puede ya no

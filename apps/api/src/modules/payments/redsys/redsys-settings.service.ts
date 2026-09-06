@@ -33,7 +33,7 @@ export class RedsysSettingsService {
       tenantId,
     );
     const secretKeyEncrypted = input.secretKey
-      ? this.crypto.encryptString(input.secretKey)
+      ? this.crypto.encryptString(input.secretKey, tenantId)
       : existing?.secretKeyEncrypted;
     if (input.enabled && !secretKeyEncrypted) {
       throw new BadRequestException({
@@ -86,7 +86,7 @@ export class RedsysSettingsService {
     return {
       merchantCode: row.merchantCode,
       terminal: row.terminal,
-      secretKey: this.crypto.decryptString(row.secretKeyEncrypted),
+      secretKey: this.crypto.decryptString(row.secretKeyEncrypted, tenantId),
       environment: row.environment as 'test' | 'live',
       enabled: row.enabled,
       bizumEnabled: row.bizumEnabled,

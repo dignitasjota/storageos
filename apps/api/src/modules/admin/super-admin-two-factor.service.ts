@@ -121,7 +121,7 @@ export class SuperAdminTwoFactorService {
       });
     }
     const secret = this.totp.generateSecret();
-    const encrypted = this.crypto.encryptString(secret);
+    const encrypted = this.crypto.encryptString(secret, adminId);
     await this.admin.superAdmin.update({
       where: { id: adminId },
       data: { twoFactorPendingSecretEncrypted: encrypted },
@@ -155,7 +155,7 @@ export class SuperAdminTwoFactorService {
         message: 'No hay un setup 2FA en curso',
       });
     }
-    const secret = this.crypto.decryptString(record.twoFactorPendingSecretEncrypted);
+    const secret = this.crypto.decryptString(record.twoFactorPendingSecretEncrypted, adminId);
     if (!this.totp.verify(secret, code)) {
       throw new ForbiddenException({
         code: 'invalid_code',
@@ -324,7 +324,7 @@ export class SuperAdminTwoFactorService {
       ok = await this.consumeRecoveryCode(record.id, code);
     } else {
       try {
-        const secret = this.crypto.decryptString(record.twoFactorSecretEncrypted);
+        const secret = this.crypto.decryptString(record.twoFactorSecretEncrypted, record.id);
         ok = this.totp.verify(secret, code);
       } catch (err) {
         this.logger.error('Error descifrando secret 2FA del super admin', err as Error);
