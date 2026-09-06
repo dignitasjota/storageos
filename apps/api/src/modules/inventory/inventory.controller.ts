@@ -14,6 +14,6 @@ export class InventoryController {
   @RequirePermission('units:read')
   @Get('issues')
   async issues(@CurrentUser() user: AuthenticatedUser) {
-    return this.inventory.findIssues(user.tenantId);
+    return this.inventory.findIssues(user.tenantId, user.facilityScope ?? null);
   }
 }
