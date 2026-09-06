@@ -28,6 +28,11 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import {
+  clearTenantRefreshCookie,
+  readTenantRefreshCookie,
+  setTenantRefreshCookie,
+} from '../../common/cookies/tenant-refresh-cookie';
+import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
@@ -50,12 +55,6 @@ class VerifyEmailDto extends createZodDto(VerifyEmailSchema) {}
 class ResendVerificationDto extends createZodDto(ResendVerificationSchema) {}
 class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) {}
 class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}
-
-const REFRESH_COOKIE_NAME = 'refresh_token';
-// Path raiz: necesario para que el middleware del frontend (otro origen en
-// dev: localhost:3000) pueda leer la presencia de la cookie y proteger las
-// rutas autenticadas.
-const COOKIE_PATH = '/';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -88,7 +87,7 @@ export class AuthController {
   ): Promise<AuthSuccessResponse | LoginRequires2faResponse | LoginRequires2faEnrolmentResponse> {
     const result = await this.authService.login(input, this.extractMeta(req));
     if ('refreshToken' in result) {
-      this.setRefreshCookie(res, result.refreshToken);
+      setTenantRefreshCookie(res, this.config, result.refreshToken);
     }
     return result.body;
   }
@@ -101,12 +100,12 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<RefreshSuccessResponse> {
-    const cookieValue = this.readRefreshCookie(req);
+    const cookieValue = readTenantRefreshCookie(req);
     if (!cookieValue) {
       throw new UnauthorizedException('Refresh requerido');
     }
     const result = await this.authService.refresh(cookieValue, this.extractMeta(req));
-    this.setRefreshCookie(res, result.refreshToken);
+    setTenantRefreshCookie(res, this.config, result.refreshToken);
     return result.body;
   }
 
@@ -120,7 +119,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthSuccessResponse> {
     const result = await this.authService.verifyEmail(input, this.extractMeta(req));
-    this.setRefreshCookie(res, result.refreshToken);
+    setTenantRefreshCookie(res, this.config, result.refreshToken);
     return result.body;
   }
 
@@ -155,7 +154,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    const cookieValue = this.readRefreshCookie(req);
+    const cookieValue = readTenantRefreshCookie(req);
     if (cookieValue) {
       const parsed = this.tokens.parseRefreshToken(cookieValue);
       if (parsed && parsed.tenantId === user.tenantId) {
@@ -166,7 +165,7 @@ export class AuthController {
         });
       }
     }
-    this.clearRefreshCookie(res);
+    clearTenantRefreshCookie(res, this.config);
   }
 
   @Post('logout-all')
@@ -179,7 +178,7 @@ export class AuthController {
       tenantId: user.tenantId,
       userId: user.sub,
     });
-    this.clearRefreshCookie(res);
+    clearTenantRefreshCookie(res, this.config);
   }
 
   @Get('me')
@@ -196,29 +195,5 @@ export class AuthController {
       ...(ua ? { userAgent: ua } : {}),
       ...(ip ? { ipAddress: ip } : {}),
     };
-  }
-
-  private readRefreshCookie(req: Request): string | undefined {
-    const cookies = (req as Request & { cookies?: Record<string, string> }).cookies;
-    return cookies?.[REFRESH_COOKIE_NAME];
-  }
-
-  private setRefreshCookie(res: Response, token: string): void {
-    const ttlSeconds = this.config.get('JWT_REFRESH_TTL_SECONDS', { infer: true });
-    res.cookie(REFRESH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: this.config.get('COOKIE_SECURE', { infer: true }),
-      sameSite: this.config.get('COOKIE_SAMESITE', { infer: true }),
-      domain: this.config.get('COOKIE_DOMAIN', { infer: true }),
-      path: COOKIE_PATH,
-      maxAge: ttlSeconds * 1000,
-    });
-  }
-
-  private clearRefreshCookie(res: Response): void {
-    res.clearCookie(REFRESH_COOKIE_NAME, {
-      domain: this.config.get('COOKIE_DOMAIN', { infer: true }),
-      path: COOKIE_PATH,
-    });
   }
 }

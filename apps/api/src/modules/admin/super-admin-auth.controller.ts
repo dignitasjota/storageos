@@ -28,6 +28,11 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import {
+  clearRefreshCookie,
+  readRefreshCookie,
+  setRefreshCookie,
+} from '../../common/cookies/refresh-cookie';
 import { Public } from '../../common/decorators/public.decorator';
 import {
   Throttle2fa,
@@ -269,25 +274,22 @@ export class SuperAdminAuthController {
   }
 
   private readRefreshCookie(req: Request): string | undefined {
-    const cookies = (req as Request & { cookies?: Record<string, string> }).cookies;
-    return cookies?.[REFRESH_COOKIE_NAME];
+    return readRefreshCookie(req, REFRESH_COOKIE_NAME);
   }
 
   private setRefreshCookie(res: Response, token: string, ttlSeconds: number): void {
-    res.cookie(REFRESH_COOKIE_NAME, token, {
-      httpOnly: true,
+    setRefreshCookie(res, token, {
+      name: REFRESH_COOKIE_NAME,
+      path: COOKIE_PATH,
       secure: this.config.get('COOKIE_SECURE', { infer: true }),
       // `strict` para el super admin: la cookie nunca debe acompañar
       // cross-site requests; el panel admin se sirve desde el mismo origen.
       sameSite: 'strict',
-      path: COOKIE_PATH,
-      maxAge: ttlSeconds * 1000,
+      maxAgeSeconds: ttlSeconds,
     });
   }
 
   private clearRefreshCookie(res: Response): void {
-    res.clearCookie(REFRESH_COOKIE_NAME, {
-      path: COOKIE_PATH,
-    });
+    clearRefreshCookie(res, { name: REFRESH_COOKIE_NAME, path: COOKIE_PATH });
   }
 }
