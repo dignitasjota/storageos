@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
+import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -52,6 +53,8 @@ function generateApiKey(): string {
 
 @Injectable()
 export class AccessDevicesService {
+  private readonly logger = new Logger(AccessDevicesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -220,13 +223,16 @@ export class AccessDevicesService {
     facilityScope?: string[] | null;
   }): Promise<{ online: boolean }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    const result = await this.locks.resolve(device.provider).open({
-      tenantId: args.tenantId,
-      deviceId: device.id,
-      mqttTopic: device.mqttTopic,
-      ...this.controlArgs(device),
-      // sin customerId: es un ping, no una apertura real para un customer.
-    });
+    const safety = await this.assertControlUrlSafe(device);
+    const result = safety.safe
+      ? await this.locks.resolve(device.provider).open({
+          tenantId: args.tenantId,
+          deviceId: device.id,
+          mqttTopic: device.mqttTopic,
+          ...this.controlArgs(device),
+          // sin customerId: es un ping, no una apertura real para un customer.
+        })
+      : { dispatched: false, message: safety.message };
     if (result.dispatched) {
       await this.prisma.withTenant(
         (tx) =>
@@ -253,12 +259,15 @@ export class AccessDevicesService {
     facilityScope?: string[] | null;
   }): Promise<{ dispatched: boolean; message?: string }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    const result = await this.locks.resolve(device.provider).open({
-      tenantId: args.tenantId,
-      deviceId: device.id,
-      mqttTopic: device.mqttTopic,
-      ...this.controlArgs(device),
-    });
+    const safety = await this.assertControlUrlSafe(device);
+    const result = safety.safe
+      ? await this.locks.resolve(device.provider).open({
+          tenantId: args.tenantId,
+          deviceId: device.id,
+          mqttTopic: device.mqttTopic,
+          ...this.controlArgs(device),
+        })
+      : { dispatched: false, message: safety.message };
     await this.prisma.withTenant(
       (tx) =>
         tx.accessLog.create({
@@ -301,12 +310,15 @@ export class AccessDevicesService {
     facilityScope?: string[] | null;
   }): Promise<{ dispatched: boolean; message?: string }> {
     const device = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    const result = await this.locks.resolve(device.provider).close({
-      tenantId: args.tenantId,
-      deviceId: device.id,
-      mqttTopic: device.mqttTopic,
-      ...this.controlArgs(device),
-    });
+    const safety = await this.assertControlUrlSafe(device);
+    const result = safety.safe
+      ? await this.locks.resolve(device.provider).close({
+          tenantId: args.tenantId,
+          deviceId: device.id,
+          mqttTopic: device.mqttTopic,
+          ...this.controlArgs(device),
+        })
+      : { dispatched: false, message: safety.message };
     await this.prisma.withTenant(
       (tx) =>
         tx.accessLog.create({
@@ -326,6 +338,30 @@ export class AccessDevicesService {
       dispatched: result.dispatched,
       ...(result.message ? { message: result.message } : {}),
     };
+  }
+
+  /**
+   * SSRF: el `controlUrl` lo configura el propio tenant y solo los providers
+   * `http`/`dahua` lo usan para un fetch real saliente (stub/mqtt/null lo
+   * ignoran, no hace falta validarlo para ellos). El servidor cloud no tiene
+   * acceso a la LAN real del cliente, así que una respuesta genuina de una
+   * IP privada/loopback solo puede venir de infraestructura de la propia
+   * plataforma (red interna de Docker, metadata cloud) — se corta ANTES de
+   * intentar el fetch, sin llegar a tocar el provider.
+   */
+  private async assertControlUrlSafe(
+    device: AccessDevice,
+  ): Promise<{ safe: boolean; message?: string }> {
+    if ((device.provider === 'http' || device.provider === 'dahua') && device.controlUrl) {
+      const check = await isSafeOutboundUrl(device.controlUrl);
+      if (!check.safe) {
+        this.logger.warn(
+          `[access-devices] controlUrl no permitida (${check.reason}) para device ${device.id}`,
+        );
+        return { safe: false, message: 'control_url_unsafe' };
+      }
+    }
+    return { safe: true };
   }
 
   /** Descifra el secreto HMAC del device y lo pasa al provider HTTP. */

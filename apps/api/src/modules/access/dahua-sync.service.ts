@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -48,12 +49,27 @@ export class DahuaSyncService {
     private readonly files: FilesService,
   ) {}
 
-  private toSyncDevice(d: DeviceWithFacility): SyncDevice {
+  private async toSyncDevice(d: DeviceWithFacility): Promise<SyncDevice> {
+    // SSRF: `controlUrl` lo configura el tenant; el servidor cloud no tiene
+    // acceso a la LAN real del cliente, así que una respuesta genuina de una
+    // IP privada/loopback solo puede ser infraestructura de la propia
+    // plataforma. Si no es segura, se anula (los providers ya tratan
+    // `controlUrl: null` como "sin terminal configurado", sin intentar fetch).
+    let controlUrl = d.controlUrl;
+    if (controlUrl) {
+      const check = await isSafeOutboundUrl(controlUrl);
+      if (!check.safe) {
+        this.logger.warn(
+          `[dahua-sync] controlUrl no permitida (${check.reason}) para device ${d.id}`,
+        );
+        controlUrl = null;
+      }
+    }
     return {
       id: d.id,
       hardwareId: d.hardwareId,
       channel: Number((d.metadata as { channel?: number } | null)?.channel ?? 1),
-      controlUrl: d.controlUrl,
+      controlUrl,
       controlSecret: d.controlSecretEncrypted
         ? this.crypto.decryptString(d.controlSecretEncrypted, d.tenantId)
         : null,
@@ -119,7 +135,7 @@ export class DahuaSyncService {
         const provider = this.registry.resolve(device.provider);
         if (!provider) continue;
         try {
-          const { ref } = await provider.pushCredential(this.toSyncDevice(device), {
+          const { ref } = await provider.pushCredential(await this.toSyncDevice(device), {
             credentialId: cred.id,
             customerId: cred.customerId,
             method: cred.method as 'pin' | 'qr' | 'rfid' | 'face',
@@ -174,7 +190,7 @@ export class DahuaSyncService {
       for (const row of rows) {
         const provider = this.registry.resolve(row.device.provider);
         if (!provider) continue;
-        const dev = this.toSyncDevice(row.device);
+        const dev = await this.toSyncDevice(row.device);
         try {
           if (state === 'revoked') {
             await provider.remove(dev, row.hardwareRef);
@@ -213,7 +229,10 @@ export class DahuaSyncService {
     const provider = this.registry.resolve(device.provider);
     if (!provider) return { imported: 0 };
 
-    const events = await provider.pullEvents(this.toSyncDevice(device), device.lastReconciledAt);
+    const events = await provider.pullEvents(
+      await this.toSyncDevice(device),
+      device.lastReconciledAt,
+    );
     let imported = 0;
     let maxTs = device.lastReconciledAt?.getTime() ?? 0;
     for (const ev of events) {
