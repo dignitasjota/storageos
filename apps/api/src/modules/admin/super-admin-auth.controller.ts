@@ -29,7 +29,11 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
-import { Throttle2fa, ThrottleLogin } from '../../common/decorators/throttle-presets';
+import {
+  Throttle2fa,
+  ThrottleLogin,
+  ThrottleRefresh,
+} from '../../common/decorators/throttle-presets';
 
 import { AdminGuard } from './admin.guard';
 import { CurrentSuperAdmin, type AuthenticatedSuperAdmin } from './current-super-admin.decorator';
@@ -103,6 +107,7 @@ export class SuperAdminAuthController {
   // ============================ refresh ====================================
 
   @Public()
+  @ThrottleRefresh()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
