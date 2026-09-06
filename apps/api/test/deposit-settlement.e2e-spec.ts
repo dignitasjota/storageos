@@ -112,4 +112,44 @@ describe('Liquidación de fianza (e2e)', () => {
     expect(settled.body.depositReturnedAmount).toBe(80);
     expect(settled.body.depositRetentionReason).toBeNull();
   });
+
+  it('dos liquidaciones CONCURRENTES de la misma fianza: solo una gana, la otra 409', async () => {
+    const owner = await registerVerifiedUser(app, 'deposit-race');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const customerId = await createCustomer(app, owner.accessToken);
+
+    const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-05-01',
+      priceMonthly: 60,
+      depositAmount: 100,
+    });
+    const contractId = create.body.id as string;
+    await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
+
+    // Doble clic: dos liquidaciones simultáneas con importes DISTINTOS.
+    const [first, second] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/contracts/${contractId}/settle-deposit`)
+        .set(auth)
+        .send({ returnedAmount: 100 }),
+      request(app.getHttpServer())
+        .post(`/contracts/${contractId}/settle-deposit`)
+        .set(auth)
+        .send({ returnedAmount: 40, retentionReason: 'Daños' }),
+    ]);
+
+    const winner = first.status !== 409 ? first : second;
+    const loser = first.status !== 409 ? second : first;
+    expect(winner.status).toBe(200);
+    expect(loser.status).toBe(409);
+    expect(loser.body.code).toBe('deposit_already_settled');
+
+    // El estado final refleja EXACTAMENTE lo que ganó — nunca un pisado silencioso.
+    const detail = await request(app.getHttpServer()).get(`/contracts/${contractId}`).set(auth);
+    expect(detail.body.depositReturnedAmount).toBe(winner.body.depositReturnedAmount);
+    expect(detail.body.depositStatus).toBe(winner.body.depositStatus);
+  });
 });
