@@ -18,6 +18,7 @@ import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { GoCardlessChargeService } from '../payments/gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gateway.interface';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
@@ -42,6 +43,7 @@ import type {
   RectifyInvoiceInput,
   RectifyInvoiceItemInput,
   RefundInvoiceInput,
+  SignedDownloadDto,
   UpdateInvoiceInput,
 } from '@storageos/shared';
 
@@ -104,6 +106,7 @@ export class InvoicesService {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly communications: CommunicationsService,
     private readonly goCardlessCharge: GoCardlessChargeService,
+    private readonly files: FilesService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -138,6 +141,29 @@ export class InvoicesService {
 
   async detail(tenantId: string, id: string, facilityScope?: string[] | null): Promise<InvoiceDto> {
     return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+  }
+
+  /**
+   * URL firmada de corta duración para descargar el PDF (staff). El
+   * `pdf_url` guardado es una URL PERMANENTE sin firmar sobre un bucket
+   * privado (`invoices`) — nunca se expone tal cual; se firma bajo demanda.
+   */
+  async getSignedPdfUrl(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<SignedDownloadDto> {
+    const row = await this.findOrThrow(tenantId, id, facilityScope);
+    const url = row.pdfUrl
+      ? await this.files.presignFromPublicUrl('invoices', row.pdfUrl, 300)
+      : null;
+    if (!url) {
+      throw new NotFoundException({
+        code: 'pdf_not_available',
+        message: 'Aún no hay un PDF generado',
+      });
+    }
+    return { url };
   }
 
   async create(args: {
@@ -1486,7 +1512,7 @@ export class InvoicesService {
       amountRefunded,
       amountPending: Math.max(0, total - amountPaid),
       currency: row.currency,
-      pdfUrl: row.pdfUrl,
+      hasPdf: !!row.pdfUrl,
       notes: row.notes,
       hash: row.hash,
       previousHash: row.previousHash,

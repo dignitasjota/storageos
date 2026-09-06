@@ -157,6 +157,7 @@
         "redsysUnavailable": "Redsys no disponible",
         "bizumUnavailable": "Bizum no disponible",
         "pdf": "PDF",
+        "pdfDownloadError": "No se pudo descargar la factura.",
         "paymentHistoryTitle": "Historial de pagos",
         "paymentInvoiceSuffix": " · factura {number}",
         "paymentMethodCard": "Tarjeta",

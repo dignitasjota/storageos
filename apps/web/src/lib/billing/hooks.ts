@@ -19,6 +19,7 @@ import type {
   RefundInvoiceInput,
   RegisterPaymentMethodInput,
   SetupIntentResponseDto,
+  SignedDownloadDto,
   UpdateInvoiceSeriesInput,
 } from '@storageos/shared';
 
@@ -162,6 +163,16 @@ export function useGenerateInvoicePdf() {
     onSuccess: (_d, id) => {
       void qc.invalidateQueries({ queryKey: invoiceKey(id) });
     },
+  });
+}
+
+/**
+ * El PDF vive en un bucket privado sin URL pública — pide una URL firmada
+ * de corta duración justo antes de abrirla.
+ */
+export function useInvoiceSignedPdfUrl() {
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<SignedDownloadDto>(`/invoices/${id}/signed-pdf`),
   });
 }
 

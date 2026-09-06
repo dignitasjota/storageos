@@ -157,6 +157,7 @@
         "redsysUnavailable": "Redsys isn't available",
         "bizumUnavailable": "Bizum isn't available",
         "pdf": "PDF",
+        "pdfDownloadError": "Couldn't download the invoice.",
         "paymentHistoryTitle": "Payment history",
         "paymentInvoiceSuffix": " · invoice {number}",
         "paymentMethodCard": "Card",

@@ -22,6 +22,7 @@ import {
   MarkPaidManuallySchema,
   RectifyInvoiceSchema,
   RefundInvoiceSchema,
+  type SignedDownloadDto,
   UpdateInvoiceSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -92,6 +93,16 @@ export class InvoicesController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<InvoiceDto> {
     return this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** URL firmada de corta duración para descargar el PDF (bucket privado). */
+  @RequirePermission('invoices:read')
+  @Get(':id/signed-pdf')
+  async signedPdf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<SignedDownloadDto> {
+    return this.invoices.getSignedPdfUrl(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('invoices:write')

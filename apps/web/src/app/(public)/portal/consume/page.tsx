@@ -662,6 +662,19 @@ function PortalConsumeContent() {
     }
   }
 
+  async function downloadInvoicePdf(invoiceId: string) {
+    if (!session) return;
+    try {
+      const { url } = await portalFetch<{ url: string }>(
+        session,
+        `/portal/me/invoices/${invoiceId}/signed-pdf`,
+      );
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : tInvoices('pdfDownloadError'));
+    }
+  }
+
   async function requestMoveOut(id: string, endDate: string) {
     if (!session) return;
     try {
@@ -1218,11 +1231,9 @@ function PortalConsumeContent() {
                               {tInvoices('payWithBizum')}
                             </Button>
                           )}
-                          {i.pdfUrl && (
-                            <Button variant="outline" asChild>
-                              <a href={i.pdfUrl} target="_blank" rel="noreferrer">
-                                <Download className="mr-1 h-4 w-4" /> {tInvoices('pdf')}
-                              </a>
+                          {i.hasPdf && (
+                            <Button variant="outline" onClick={() => downloadInvoicePdf(i.id)}>
+                              <Download className="mr-1 h-4 w-4" /> {tInvoices('pdf')}
                             </Button>
                           )}
                         </div>

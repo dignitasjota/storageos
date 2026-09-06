@@ -53,3 +53,13 @@ export function useRunReport() {
     },
   });
 }
+
+/**
+ * El fichero generado vive en un bucket privado sin URL pública — pide una
+ * URL firmada de corta duración justo antes de abrirla.
+ */
+export function useReportDownloadUrl() {
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<{ url: string }>(`/reports/${id}/download`),
+  });
+}

@@ -84,7 +84,12 @@ export interface InvoiceDto {
   amountRefunded: number;
   amountPending: number;
   currency: string;
-  pdfUrl: string | null;
+  /**
+   * El PDF NO viaja aquí como URL permanente (bucket privado, sin firmar):
+   * pedir `GET /invoices/:id/signed-pdf` cuando `true` da una URL firmada de
+   * corta duración.
+   */
+  hasPdf: boolean;
   notes: string | null;
   hash: string | null;
   previousHash: string | null;
@@ -241,7 +246,8 @@ export interface PortalInvoiceDto {
   amountPaid: number;
   amountPending: number;
   status: InvoiceStatusValue;
-  pdfUrl: string | null;
+  /** Pedir `POST /portal/me/invoices/:id/signed-pdf` cuando `true` da una URL firmada de corta duración. */
+  hasPdf: boolean;
   /** Hay un cobro en curso (SEPA/GoCardless `processing`) sobre esta factura. */
   paymentInProgress: boolean;
 }

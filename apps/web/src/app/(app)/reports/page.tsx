@@ -33,7 +33,12 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useReportCatalog, useReports, useRunReport } from '@/lib/reports/hooks';
+import {
+  useReportCatalog,
+  useReportDownloadUrl,
+  useReports,
+  useRunReport,
+} from '@/lib/reports/hooks';
 
 const STATUS_LABELS: Record<
   ReportStatusValue,
@@ -145,6 +150,17 @@ function ReportRow({
 }) {
   const meta = catalog.find((c) => c.code === report.generatorCode);
   const s = STATUS_LABELS[report.status];
+  const downloadUrl = useReportDownloadUrl();
+
+  async function onDownload() {
+    try {
+      const { url } = await downloadUrl.mutateAsync(report.id);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo descargar el informe');
+    }
+  }
+
   return (
     <tr className="border-b last:border-b-0">
       <td className="px-3 py-2">{meta?.name ?? report.generatorCode}</td>
@@ -159,11 +175,14 @@ function ReportRow({
         {new Date(report.createdAt).toLocaleString('es-ES')}
       </td>
       <td className="px-3 py-2 text-right">
-        {report.status === 'done' && report.downloadUrl ? (
-          <Button asChild size="sm" variant="outline">
-            <a href={report.downloadUrl} target="_blank" rel="noopener noreferrer">
-              <Download className="mr-1 h-4 w-4" /> Descargar
-            </a>
+        {report.status === 'done' && report.hasDownload ? (
+          <Button size="sm" variant="outline" onClick={onDownload} disabled={downloadUrl.isPending}>
+            {downloadUrl.isPending ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-1 h-4 w-4" />
+            )}
+            Descargar
           </Button>
         ) : report.status === 'pending' || report.status === 'running' ? (
           <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />

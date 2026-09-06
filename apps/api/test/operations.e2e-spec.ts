@@ -287,7 +287,14 @@ describe('Fase 6: tasks + incidents + products + analytics + reports (e2e)', () 
       lastStatus = status.body.status;
       if (lastStatus === 'done' || lastStatus === 'failed') {
         expect(lastStatus).toBe('done');
-        expect(status.body.downloadUrl).toBeTruthy();
+        // El fichero vive en un bucket privado sin URL pública — `hasDownload`
+        // solo indica que existe; hay que pedir una URL firmada aparte.
+        expect(status.body.hasDownload).toBe(true);
+        const download = await request(app.getHttpServer())
+          .get(`/reports/${run.body.id}/download`)
+          .set('Authorization', `Bearer ${owner.accessToken}`);
+        expect(download.status).toBe(200);
+        expect(download.body.url).toEqual(expect.stringContaining('X-Amz-Signature'));
         return;
       }
     }

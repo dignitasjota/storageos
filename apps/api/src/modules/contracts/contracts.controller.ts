@@ -25,6 +25,7 @@ import {
   ContractStatusEnum,
   CreateContractSchema,
   SignContractSchema,
+  type SignedDownloadDto,
   UpdateContractSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -97,6 +98,16 @@ export class ContractsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ContractDto> {
     return this.contracts.detail(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** URL firmada de corta duración para descargar el PDF firmado (bucket privado). */
+  @RequirePermission('contracts:read')
+  @Get(':id/signed-pdf')
+  async signedPdf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<SignedDownloadDto> {
+    return this.contracts.getSignedPdfUrl(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:read')
