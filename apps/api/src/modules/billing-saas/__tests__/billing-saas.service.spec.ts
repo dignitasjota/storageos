@@ -53,8 +53,10 @@ function paymentRow(overrides: Record<string, unknown> = {}): Record<string, unk
   };
 }
 
+type TxMock = AdminMock & { $executeRaw: jest.Mock };
+
 function buildAdmin(): AdminMock {
-  return {
+  const admin: AdminMock = {
     tenantSubscription: {
       findUnique: jest.fn(),
       findFirst: jest.fn().mockResolvedValue(null),
@@ -72,9 +74,22 @@ function buildAdmin(): AdminMock {
     superAdminNotification: {
       create: jest.fn().mockResolvedValue({ id: 'notif-1' }),
     },
-    // El array-form de $transaction recibe las promesas ya lanzadas.
-    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    $transaction: jest.fn(),
   };
+  // `$transaction` soporta las DOS formas que usa el servicio: array de
+  // promesas ya lanzadas (resto de métodos, sin cambios) y callback
+  // interactivo (`recordManualPayment`, tras el fix del claim atómico por
+  // tenant). El callback recibe un `tx` que reutiliza los MISMOS mocks de
+  // `admin` (+ `$executeRaw` del advisory lock) para que las aserciones sobre
+  // `admin.tenantSubscriptionPayment.create` etc. sigan viendo las llamadas.
+  admin.$transaction.mockImplementation((arg: unknown) => {
+    if (typeof arg === 'function') {
+      const tx: TxMock = { ...admin, $executeRaw: jest.fn().mockResolvedValue(1) };
+      return (arg as (tx: TxMock) => unknown)(tx);
+    }
+    return Promise.all(arg as Promise<unknown>[]);
+  });
+  return admin;
 }
 
 function buildService(admin: AdminMock): {
@@ -232,7 +247,11 @@ describe('BillingSaasService', () => {
         durationMonths: 1,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(admin.$transaction).not.toHaveBeenCalled();
+    // La suscripción se busca DENTRO del claim atómico (tras el advisory
+    // lock, para no decidir con datos que otra petición concurrente podría
+    // haber cambiado) → $transaction sí se invoca, pero ninguna escritura.
+    expect(admin.tenantSubscriptionPayment.create).not.toHaveBeenCalled();
+    expect(admin.tenantSubscription.update).not.toHaveBeenCalled();
   });
 
   // ============================ syncSubscriptionFromStripe ================
