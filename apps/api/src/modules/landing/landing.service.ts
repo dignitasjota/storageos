@@ -368,15 +368,20 @@ export class LandingService {
     }
     const tenant = await this.admin.tenant.findFirst({
       where: { customDomain: domain, customDomainVerifiedAt: { not: null }, deletedAt: null },
-      select: { slug: true, webTemplate: true, externalSiteUrl: true },
+      select: { id: true, slug: true, webTemplate: true, externalSiteUrl: true },
     });
     if (!tenant) {
       throw new NotFoundException({ code: 'domain_not_found', message: 'No encontrado' });
     }
-    return {
-      tenantSlug: tenant.slug,
-      hasExternalSite: tenant.webTemplate === 'external' && tenant.externalSiteUrl != null,
-    };
+    // Igual que `getBySlug`: si el tenant perdió `web_premium` (downgrade,
+    // quitar el override, impago que suspende features) el proxy de web
+    // externa deja de activarse — sin esto seguía sirviendo indefinidamente
+    // sin volver a pagar el add-on.
+    const hasExternalSite =
+      tenant.webTemplate === 'external' &&
+      tenant.externalSiteUrl != null &&
+      (await this.hasWebPremium(tenant.id));
+    return { tenantSlug: tenant.slug, hasExternalSite };
   }
 
   /**
@@ -388,7 +393,7 @@ export class LandingService {
   async getExternalSite(slug: string): Promise<ExternalSiteDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
-      select: { webTemplate: true, externalSiteUrl: true, deletedAt: true },
+      select: { id: true, webTemplate: true, externalSiteUrl: true, deletedAt: true },
     });
     if (
       !tenant ||
@@ -396,6 +401,11 @@ export class LandingService {
       tenant.webTemplate !== 'external' ||
       !tenant.externalSiteUrl
     ) {
+      throw new NotFoundException({ code: 'external_site_not_found', message: 'No encontrado' });
+    }
+    // Mismo gating que `resolveDomain`/`getBySlug`: sin `web_premium` el proxy
+    // no debe seguir sirviendo la web externa aunque quede configurada en BD.
+    if (!(await this.hasWebPremium(tenant.id))) {
       throw new NotFoundException({ code: 'external_site_not_found', message: 'No encontrado' });
     }
     return { baseUrl: tenant.externalSiteUrl };

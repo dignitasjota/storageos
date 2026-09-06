@@ -162,6 +162,46 @@ describe('Web externa del tenant (e2e)', () => {
     expect(landing.body.customDomain).toBe(domain);
   });
 
+  it(
+    'al perder `web_premium` (downgrade/quitar el add-on) el proxy deja de servir la web ' +
+      'externa, aunque siga configurada en BD',
+    async () => {
+      const { owner, domain } = await setupTenantWithVerifiedDomain('ext-downgrade');
+      const url = 'https://93.184.216.34/';
+
+      await request(app.getHttpServer())
+        .patch('/settings/tenant/web')
+        .set({ Authorization: `Bearer ${owner.accessToken}` })
+        .send({ template: 'external', externalSiteUrl: url })
+        .expect(200);
+
+      // Con la feature activa, el proxy funciona (regresión del test anterior).
+      const before = await request(app.getHttpServer()).get(
+        `/public/landing/${owner.slug}/external-site`,
+      );
+      expect(before.status).toBe(200);
+      const resolvedBefore = await request(app.getHttpServer())
+        .get('/public/landing/resolve-domain')
+        .query({ host: domain });
+      expect(resolvedBefore.body.hasExternalSite).toBe(true);
+
+      // Se quita el add-on `web_premium` — la config externa NO se borra de BD.
+      await setTenantFeatureOverride(owner.slug, 'web_premium', false);
+
+      const after = await request(app.getHttpServer()).get(
+        `/public/landing/${owner.slug}/external-site`,
+      );
+      expect(after.status).toBe(404);
+      expect(after.body.code).toBe('external_site_not_found');
+
+      const resolvedAfter = await request(app.getHttpServer())
+        .get('/public/landing/resolve-domain')
+        .query({ host: domain });
+      expect(resolvedAfter.status).toBe(200);
+      expect(resolvedAfter.body.hasExternalSite).toBe(false);
+    },
+  );
+
   it('volver a una plantilla propia deja de exponer la web externa como activa', async () => {
     const { owner } = await setupTenantWithVerifiedDomain('ext-revert');
     await request(app.getHttpServer())
