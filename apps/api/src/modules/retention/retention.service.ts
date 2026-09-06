@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
+import { assertFacilityAllowed } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -58,12 +59,16 @@ export class RetentionService {
     contractId: string;
     input: CreateRetentionOfferInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<RetentionOfferDto> {
     const { tenantId, input } = args;
     const created = await this.prisma.withTenant(async (tx) => {
       const contract = await tx.contract.findFirst({
         where: { id: args.contractId, tenantId, deletedAt: null },
-        include: { customer: { select: { email: true } }, unit: { select: { code: true } } },
+        include: {
+          customer: { select: { email: true } },
+          unit: { select: { code: true, facilityId: true } },
+        },
       });
       if (!contract) {
         throw new NotFoundException({
@@ -71,6 +76,7 @@ export class RetentionService {
           message: 'Contrato no encontrado',
         });
       }
+      assertFacilityAllowed(args.facilityScope, contract.unit.facilityId);
       // La retención solo tiene sentido sobre una baja en curso.
       if (contract.status !== 'ending') {
         throw new BadRequestException({
@@ -128,11 +134,25 @@ export class RetentionService {
     return this.toDto(created.row);
   }
 
-  async listForContract(tenantId: string, contractId: string): Promise<RetentionOfferDto[]> {
-    const rows = await this.prisma.withTenant(
-      (tx) => tx.retentionOffer.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } }),
-      tenantId,
-    );
+  async listForContract(
+    tenantId: string,
+    contractId: string,
+    facilityScope?: string[] | null,
+  ): Promise<RetentionOfferDto[]> {
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const contract = await tx.contract.findFirst({
+        where: { id: contractId, tenantId, deletedAt: null },
+        select: { unit: { select: { facilityId: true } } },
+      });
+      if (!contract) {
+        throw new NotFoundException({
+          code: 'contract_not_found',
+          message: 'Contrato no encontrado',
+        });
+      }
+      assertFacilityAllowed(facilityScope, contract.unit.facilityId);
+      return tx.retentionOffer.findMany({ where: { contractId }, orderBy: { createdAt: 'desc' } });
+    }, tenantId);
     return rows.map((r) => this.toDto(r));
   }
 

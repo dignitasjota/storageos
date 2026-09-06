@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -310,5 +312,96 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const ownerList = await request(app.getHttpServer()).get('/access/credentials').set(ownerAuth);
     const ownerIds = (ownerList.body as { id: string }[]).map((c) => c.id);
     expect(ownerIds).toEqual(expect.arrayContaining([credA.body.id, credB.body.id]));
+  });
+
+  it('un manager restringido a un local no ve ni gestiona ofertas de retención de otro local', async () => {
+    const owner = await registerVerifiedUser(app, 'facscoperet');
+    const ownerAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const facA = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local A',
+      typeName: 'Tipo A',
+      unitsCount: 1,
+    });
+    const facB = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local B',
+      typeName: 'Tipo B',
+      unitsCount: 1,
+    });
+    const custA = await createCustomer(app, owner.accessToken);
+    const custB = await createCustomer(app, owner.accessToken);
+
+    const admin = app.get(PrismaAdminService);
+    const mkEndingContract = async (unitId: string, customerId: string): Promise<string> => {
+      const c = await request(app.getHttpServer()).post('/contracts').set(ownerAuth).send({
+        customerId,
+        unitId,
+        startDate: '2026-01-01',
+        priceMonthly: 50,
+      });
+      expect(c.status).toBe(201);
+      // Baja en curso (mismo patrón que retention-offers.e2e-spec.ts): se
+      // fuerza el estado directo, sin pasar por sign+request-end.
+      await admin.contract.update({
+        where: { id: c.body.id as string },
+        data: { status: 'ending', endDate: new Date() },
+      });
+      return c.body.id as string;
+    };
+    const contractA = await mkEndingContract(facA.unitIds[0]!, custA);
+    const contractB = await mkEndingContract(facB.unitIds[0]!, custB);
+
+    // Invitar a un MANAGER (contracts:manage) y restringirlo al local A.
+    const email = `fs-ret-manager-${Date.now()}@e2e.local`;
+    const password = 'Passw0rd!';
+    await request(app.getHttpServer())
+      .post('/invitations')
+      .set(ownerAuth)
+      .send({ email, role: 'manager' })
+      .expect(201);
+    const mail = await waitForEmail(email, { subjectIncludes: 'invitado' });
+    const inviteToken = extractToken(mail.Text, '/invite');
+    await request(app.getHttpServer())
+      .post(`/invitations/token/${inviteToken}/accept`)
+      .send({ fullName: 'Manager Retention', password })
+      .expect(200);
+    const users = await request(app.getHttpServer()).get('/users').set(ownerAuth);
+    const manager = (users.body as { id: string; email: string }[]).find((u) => u.email === email);
+    await request(app.getHttpServer())
+      .patch(`/settings/users/${manager!.id}/facilities`)
+      .set(ownerAuth)
+      .send({ facilityIds: [facA.facilityId] })
+      .expect(204);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: owner.slug, email, password });
+    const mgrAuth = { Authorization: `Bearer ${login.body.accessToken}` };
+
+    // No puede crear una oferta sobre el contrato del local B.
+    const createForB = await request(app.getHttpServer())
+      .post(`/contracts/${contractB}/retention-offers`)
+      .set(mgrAuth)
+      .send({ discountType: 'percentage', discountValue: 10, months: 1 });
+    expect(createForB.status).toBe(403);
+    expect(createForB.body.code).toBe('facility_not_in_scope');
+
+    // Ni listar las ofertas de ese contrato.
+    const listB = await request(app.getHttpServer())
+      .get(`/contracts/${contractB}/retention-offers`)
+      .set(mgrAuth);
+    expect(listB.status).toBe(403);
+    expect(listB.body.code).toBe('facility_not_in_scope');
+
+    // Sí puede crear y listar en el contrato de SU local (A).
+    const createA = await request(app.getHttpServer())
+      .post(`/contracts/${contractA}/retention-offers`)
+      .set(mgrAuth)
+      .send({ discountType: 'percentage', discountValue: 10, months: 1 });
+    expect(createA.status).toBe(201);
+    const listA = await request(app.getHttpServer())
+      .get(`/contracts/${contractA}/retention-offers`)
+      .set(mgrAuth);
+    expect(listA.status).toBe(200);
+    expect(listA.body).toHaveLength(1);
   });
 });

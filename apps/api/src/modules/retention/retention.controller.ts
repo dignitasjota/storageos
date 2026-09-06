@@ -26,7 +26,7 @@ export class RetentionController {
   @RequirePermission('contracts:read')
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser, @Param('contractId') contractId: string) {
-    return this.retention.listForContract(user.tenantId, contractId);
+    return this.retention.listForContract(user.tenantId, contractId, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:manage')
@@ -43,6 +43,7 @@ export class RetentionController {
       contractId,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 }
