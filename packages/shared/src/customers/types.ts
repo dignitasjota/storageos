@@ -80,6 +80,11 @@ export interface InspectionPhotoDto {
   createdAt: string;
 }
 
+/** URL firmada GET de corta duración para descargar un documento de un bucket privado. */
+export interface SignedDownloadDto {
+  url: string;
+}
+
 export interface ContractDto {
   id: string;
   contractNumber: string;
@@ -114,7 +119,13 @@ export interface ContractDto {
   depositReturnedAmount: number;
   depositSettledAt: string | null;
   depositRetentionReason: string | null;
-  signedPdfUrl: string | null;
+  /**
+   * El PDF firmado NO viaja aquí como URL permanente (bucket privado, sin
+   * firmar): pedir `GET /contracts/:id/signed-pdf` cuando `true` da una URL
+   * firmada de corta duración (misma mecánica que el resto de documentos
+   * privados del proyecto).
+   */
+  hasSignedPdf: boolean;
   insurancePlanId: string | null;
   insurancePlanName: string | null;
   insurancePrice: number | null;

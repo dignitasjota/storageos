@@ -672,10 +672,41 @@ export class PortalService {
         amountPaid: paid,
         amountPending: Math.max(0, total - paid),
         status: r.status,
-        pdfUrl: r.pdfUrl,
+        hasPdf: !!r.pdfUrl,
         paymentInProgress: inFlightIds.has(r.id),
       };
     });
+  }
+
+  /**
+   * URL firmada de corta duración para descargar el PDF de una factura del
+   * inquilino. El `pdf_url` guardado es una URL PERMANENTE sin firmar sobre
+   * un bucket privado (`invoices`) — nunca se expone tal cual en la lista;
+   * se firma bajo demanda, mismo patrón que `getMyContractPdf`.
+   */
+  async getMyInvoicePdf(
+    tenantId: string,
+    customerId: string,
+    invoiceId: string,
+  ): Promise<PortalDownloadDto> {
+    await this.requireCustomer(tenantId, customerId);
+    const invoice = await this.admin.invoice.findFirst({
+      where: { id: invoiceId, customerId, tenantId, deletedAt: null },
+      select: { pdfUrl: true },
+    });
+    if (!invoice) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    const url = invoice.pdfUrl
+      ? await this.files.presignFromPublicUrl('invoices', invoice.pdfUrl, 300)
+      : null;
+    if (!url) {
+      throw new NotFoundException({
+        code: 'pdf_not_available',
+        message: 'Aún no hay PDF disponible',
+      });
+    }
+    return { url };
   }
 
   /** Historial de cobros del inquilino (transacciones de pago). */

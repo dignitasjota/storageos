@@ -17,6 +17,7 @@ import type {
   ChangeUnitInput,
   SettleDepositInput,
   SignContractInput,
+  SignedDownloadDto,
   InspectionPhotoDto,
   InspectionPhotoUploadDto,
   CreateCustomerInput,
@@ -287,6 +288,17 @@ export function useGenerateContractPdf() {
     onSuccess: (_d, id) => {
       void qc.invalidateQueries({ queryKey: contractKey(id) });
     },
+  });
+}
+
+/**
+ * El PDF firmado vive en un bucket privado sin URL pública — pide una URL
+ * firmada de corta duración justo antes de abrirla (nunca se guarda un link
+ * permanente en el cliente).
+ */
+export function useContractSignedPdfUrl() {
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<SignedDownloadDto>(`/contracts/${id}/signed-pdf`),
   });
 }
 

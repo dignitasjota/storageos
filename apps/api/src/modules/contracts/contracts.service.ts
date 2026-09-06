@@ -9,7 +9,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { CLOSED_CASE_STATUSES, renderContractClauses, resolvePlanFeatures } from '@storageos/shared';
+import {
+  CLOSED_CASE_STATUSES,
+  renderContractClauses,
+  resolvePlanFeatures,
+} from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
@@ -17,6 +21,7 @@ import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { PromotionsService } from '../promotions/promotions.service';
 
 import { buildContractTermsText } from './contract-terms';
@@ -35,6 +40,7 @@ import type {
   CreateContractInput,
   PortalContractDto,
   SettleDepositInput,
+  SignedDownloadDto,
   UpdateContractInput,
 } from '@storageos/shared';
 
@@ -78,6 +84,7 @@ export class ContractsService {
     private readonly eventBus: EventEmitter2,
     private readonly promotions: PromotionsService,
     private readonly invoices: InvoicesService,
+    private readonly files: FilesService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<ContractDto[]> {
@@ -152,6 +159,30 @@ export class ContractsService {
     facilityScope?: string[] | null,
   ): Promise<ContractDto> {
     return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+  }
+
+  /**
+   * URL firmada de corta duración para descargar el PDF firmado (staff). El
+   * `signed_pdf_url` guardado es una URL PERMANENTE sin firmar sobre un
+   * bucket privado (`uploads`) — nunca se expone tal cual; se firma bajo
+   * demanda, mismo patrón que `PortalService.getMyContractPdf`.
+   */
+  async getSignedPdfUrl(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<SignedDownloadDto> {
+    const row = await this.findOrThrow(tenantId, id, facilityScope);
+    const url = row.signedPdfUrl
+      ? await this.files.presignFromPublicUrl('uploads', row.signedPdfUrl, 300)
+      : null;
+    if (!url) {
+      throw new NotFoundException({
+        code: 'signed_pdf_not_available',
+        message: 'Aún no hay un PDF firmado generado',
+      });
+    }
+    return { url };
   }
 
   async events(
@@ -689,25 +720,28 @@ export class ContractsService {
   // Move-out self-service (portal del inquilino)
   // -------------------------------------------------------------------------
 
-  private toPortalDto(row: {
-    id: string;
-    contractNumber: string;
-    status: string;
-    startDate: Date;
-    endDate: Date | null;
-    priceMonthly: unknown;
-    discountAmount: unknown;
-    cancellationNoticeDays: number;
-    endingRequestedAt: Date | null;
-    depositAmount: unknown;
-    depositStatus: string;
-    freeMonthsRemaining: number;
-    insurancePlanId: string | null;
-    insurancePrice: unknown;
-    signedPdfUrl: string | null;
-    unit: { code: string; facility: { name: string } };
-    insurancePlan: { name: string } | null;
-  }, overlocked = false): PortalContractDto {
+  private toPortalDto(
+    row: {
+      id: string;
+      contractNumber: string;
+      status: string;
+      startDate: Date;
+      endDate: Date | null;
+      priceMonthly: unknown;
+      discountAmount: unknown;
+      cancellationNoticeDays: number;
+      endingRequestedAt: Date | null;
+      depositAmount: unknown;
+      depositStatus: string;
+      freeMonthsRemaining: number;
+      insurancePlanId: string | null;
+      insurancePrice: unknown;
+      signedPdfUrl: string | null;
+      unit: { code: string; facility: { name: string } };
+      insurancePlan: { name: string } | null;
+    },
+    overlocked = false,
+  ): PortalContractDto {
     const base = Number(row.priceMonthly);
     const discount = Number(row.discountAmount);
     return {
@@ -1962,7 +1996,7 @@ export class ContractsService {
       depositReturnedAmount: Number(row.depositReturnedAmount),
       depositSettledAt: row.depositSettledAt ? row.depositSettledAt.toISOString() : null,
       depositRetentionReason: row.depositRetentionReason,
-      signedPdfUrl: row.signedPdfUrl,
+      hasSignedPdf: !!row.signedPdfUrl,
       insurancePlanId: row.insurancePlanId,
       insurancePlanName: row.insurancePlan?.name ?? null,
       insurancePrice: row.insurancePrice != null ? Number(row.insurancePrice) : null,

@@ -49,6 +49,7 @@ import {
   useChargeInvoice,
   useGenerateInvoicePdf,
   useInvoice,
+  useInvoiceSignedPdfUrl,
   useIssueInvoice,
   useLateFeeInvoice,
   useMarkInvoicePaid,
@@ -97,6 +98,7 @@ export default function InvoiceDetailPage() {
   const markPaid = useMarkInvoicePaid();
   const charge = useChargeInvoice();
   const generatePdf = useGenerateInvoicePdf();
+  const signedPdfUrl = useInvoiceSignedPdfUrl();
   const holdedSync = useSyncInvoiceHolded();
   const rectify = useRectifyInvoice();
   const lateFee = useLateFeeInvoice();
@@ -154,6 +156,15 @@ export default function InvoiceDetailPage() {
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function onDownloadPdf(): Promise<void> {
+    try {
+      const { url } = await signedPdfUrl.mutateAsync(i.id);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo descargar el PDF');
     }
   }
 
@@ -338,14 +349,17 @@ export default function InvoiceDetailPage() {
                 ) : (
                   <FileText className="mr-1 h-4 w-4" />
                 )}
-                {i.pdfUrl ? 'Regenerar PDF' : 'Generar PDF'}
+                {i.hasPdf ? 'Regenerar PDF' : 'Generar PDF'}
               </Button>
             )}
-            {i.pdfUrl && (
-              <Button asChild variant="outline">
-                <a href={i.pdfUrl} target="_blank" rel="noreferrer">
-                  <Download className="mr-1 h-4 w-4" /> Descargar
-                </a>
+            {i.hasPdf && (
+              <Button variant="outline" onClick={onDownloadPdf} disabled={signedPdfUrl.isPending}>
+                {signedPdfUrl.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-1 h-4 w-4" />
+                )}
+                Descargar
               </Button>
             )}
             {canCharge && (i.status === 'issued' || i.status === 'overdue') && (

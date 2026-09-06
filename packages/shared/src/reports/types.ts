@@ -6,7 +6,12 @@ export interface ReportRunDto {
   format: ReportFormatValue;
   status: ReportStatusValue;
   params: Record<string, unknown>;
-  downloadUrl: string | null;
+  /**
+   * El fichero NO viaja aquí como URL permanente (bucket privado, sin
+   * firmar): pedir `GET /reports/:id/download` cuando `true` da una URL
+   * firmada de corta duración.
+   */
+  hasDownload: boolean;
   fileBytes: number | null;
   errorMessage: string | null;
   triggeredByUserId: string | null;

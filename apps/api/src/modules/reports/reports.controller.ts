@@ -41,6 +41,16 @@ export class ReportsController {
     return this.service.detail(user.tenantId, id);
   }
 
+  /** URL firmada de corta duración para descargar el fichero (bucket privado). */
+  @RequirePermission('reports:read')
+  @Get(':id/download')
+  download(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ url: string }> {
+    return this.service.getSignedDownloadUrl(user.tenantId, id);
+  }
+
   @Post('run')
   @RequirePermission('reports:run')
   run(@CurrentUser() user: AuthenticatedUser, @Body() body: RunReportDto): Promise<ReportRunDto> {

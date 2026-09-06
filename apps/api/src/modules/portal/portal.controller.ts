@@ -214,6 +214,17 @@ export class PortalController {
     return this.portal.listMyInvoices(tenantId, customerId);
   }
 
+  /** URL temporal para descargar el PDF de una factura del inquilino. */
+  @Public()
+  @Get('me/invoices/:id/signed-pdf')
+  async myInvoicePdf(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalDownloadDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.portal.getMyInvoicePdf(tenantId, customerId, id);
+  }
+
   /** Centro de ayuda: preguntas frecuentes publicadas del negocio. */
   @Public()
   @Get('me/faq')

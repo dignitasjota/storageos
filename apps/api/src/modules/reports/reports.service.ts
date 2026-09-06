@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { JOB_REPORTS_GENERATE, QUEUE_REPORTS } from '../queues/queues.module';
 
 import { AgingGenerator } from './generators/aging.generator';
@@ -41,6 +42,7 @@ export class ReportsService {
     private readonly contractsGenerator: ContractsActiveGenerator,
     private readonly agingGenerator: AgingGenerator,
     @InjectQueue(QUEUE_REPORTS) private readonly queue: Queue,
+    private readonly files: FilesService,
     config: ConfigService<Env, true>,
   ) {
     this.register(this.invoicesGenerator);
@@ -148,6 +150,35 @@ export class ReportsService {
     return this.toDto({ ...row, triggeredByName: row.triggeredBy?.fullName ?? null });
   }
 
+  /**
+   * URL firmada de corta duración para descargar el informe generado. El
+   * `download_url` guardado es una URL PERMANENTE sin firmar sobre un
+   * bucket privado (`reports`) — nunca se expone tal cual; se firma bajo
+   * demanda.
+   */
+  async getSignedDownloadUrl(tenantId: string, id: string): Promise<{ url: string }> {
+    const row = await this.prisma.withTenant(
+      (tx) => tx.reportRun.findFirst({ where: { id } }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({
+        code: 'report_run_not_found',
+        message: 'Informe no encontrado',
+      });
+    }
+    const url = row.downloadUrl
+      ? await this.files.presignFromPublicUrl('reports', row.downloadUrl, 300)
+      : null;
+    if (!url) {
+      throw new NotFoundException({
+        code: 'download_not_available',
+        message: 'Aún no hay un fichero disponible para descargar',
+      });
+    }
+    return { url };
+  }
+
   /** Llamado por el worker (BullMQ). */
   async generate(jobData: ReportJobData): Promise<void> {
     const run = await this.admin.reportRun.findFirst({
@@ -219,7 +250,7 @@ export class ReportsService {
       format: r.format,
       status: r.status,
       params: (r.params ?? {}) as Record<string, unknown>,
-      downloadUrl: r.downloadUrl,
+      hasDownload: !!r.downloadUrl,
       fileBytes: r.fileBytes,
       errorMessage: r.errorMessage,
       triggeredByUserId: r.triggeredByUserId,

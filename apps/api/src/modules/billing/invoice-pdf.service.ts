@@ -120,7 +120,12 @@ export class InvoicePdfService implements OnModuleDestroy {
       );
       const publicUrl = `${this.files.buildPublicUrl('invoices', key)}`;
       await this.invoices.attachPdf({ tenantId, invoiceId, pdfUrl: publicUrl });
-      return { pdfUrl: publicUrl };
+      // Se guarda la forma "pública" (sin firmar) para poder re-firmarla más
+      // tarde vía `presignFromPublicUrl` (y para el link que se manda en el
+      // email de recordatorio de impago, que necesita seguir siendo válido
+      // días después) — pero NUNCA se devuelve tal cual en la respuesta.
+      const url = await this.files.getPresignedGetUrl('invoices', key, 300);
+      return { pdfUrl: url };
     } finally {
       await page.close();
     }

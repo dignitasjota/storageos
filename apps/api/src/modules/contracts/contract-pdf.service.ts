@@ -150,7 +150,11 @@ export class ContractPdfService implements OnModuleDestroy {
         pdfUrl: publicUrl,
         meta: args.meta,
       });
-      return { pdfUrl: publicUrl };
+      // Se guarda la forma "pública" (sin firmar) para poder re-firmarla más
+      // tarde (`getSignedPdfUrl`/portal `getMyContractPdf`), pero nunca se
+      // devuelve tal cual en la respuesta de este endpoint.
+      const url = await this.files.getPresignedGetUrl('uploads', key, 300);
+      return { pdfUrl: url };
     } finally {
       await page.close();
     }

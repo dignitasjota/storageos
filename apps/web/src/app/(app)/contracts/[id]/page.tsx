@@ -52,6 +52,7 @@ import {
   useChangeUnit,
   useContract,
   useContractEvents,
+  useContractSignedPdfUrl,
   useEndContract,
   useGenerateContractPdf,
   useRenewContract,
@@ -91,6 +92,7 @@ export default function ContractDetailPage() {
   const changeUnit = useChangeUnit();
   const addNote = useAddContractNote();
   const generatePdf = useGenerateContractPdf();
+  const signedPdfUrl = useContractSignedPdfUrl();
   const canWriteC = useHasPermission('contracts:write');
   const canManageC = useHasPermission('contracts:manage');
 
@@ -127,6 +129,15 @@ export default function ContractDetailPage() {
       toast.success(ok);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function onDownloadPdf() {
+    try {
+      const { url } = await signedPdfUrl.mutateAsync(c.id);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo descargar el PDF');
     }
   }
 
@@ -257,14 +268,17 @@ export default function ContractDetailPage() {
                 ) : (
                   <FileText className="mr-1 h-4 w-4" />
                 )}
-                {c.signedPdfUrl ? 'Regenerar PDF' : 'Generar PDF'}
+                {c.hasSignedPdf ? 'Regenerar PDF' : 'Generar PDF'}
               </Button>
             )}
-            {c.signedPdfUrl && (
-              <Button asChild variant="outline">
-                <a href={c.signedPdfUrl} target="_blank" rel="noreferrer">
-                  <Download className="mr-1 h-4 w-4" /> Descargar
-                </a>
+            {c.hasSignedPdf && (
+              <Button variant="outline" onClick={onDownloadPdf} disabled={signedPdfUrl.isPending}>
+                {signedPdfUrl.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-1 h-4 w-4" />
+                )}
+                Descargar
               </Button>
             )}
           </div>
