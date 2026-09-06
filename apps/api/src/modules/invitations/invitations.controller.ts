@@ -20,6 +20,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { setTenantRefreshCookie } from '../../common/cookies/tenant-refresh-cookie';
 import {
   type AuthenticatedUser,
   CurrentUser,
@@ -37,9 +38,6 @@ import type { Request, Response } from 'express';
 
 class InviteUserDto extends createZodDto(InviteUserSchema) {}
 class AcceptInvitationDto extends createZodDto(AcceptInvitationSchema) {}
-
-const REFRESH_COOKIE_NAME = 'refresh_token';
-const COOKIE_PATH = '/';
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -134,19 +132,7 @@ export class InvitationsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthSuccessResponse> {
     const result = await this.invitations.accept(token, input, extractMeta(req));
-    this.setRefreshCookie(res, result.refreshToken);
+    setTenantRefreshCookie(res, this.config, result.refreshToken);
     return result.body;
-  }
-
-  private setRefreshCookie(res: Response, token: string): void {
-    const ttlSeconds = this.config.get('JWT_REFRESH_TTL_SECONDS', { infer: true });
-    res.cookie(REFRESH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: this.config.get('COOKIE_SECURE', { infer: true }),
-      sameSite: this.config.get('COOKIE_SAMESITE', { infer: true }),
-      domain: this.config.get('COOKIE_DOMAIN', { infer: true }),
-      path: COOKIE_PATH,
-      maxAge: ttlSeconds * 1000,
-    });
   }
 }
