@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -43,11 +44,20 @@ function toIssue(u: UnitRow, expected: UnitStatusValue, reason: string): Invento
 export class InventoryService {
   constructor(private readonly admin: PrismaAdminService) {}
 
-  async findIssues(tenantId: string): Promise<InventoryIssueDto[]> {
+  async findIssues(
+    tenantId: string,
+    facilityScope?: string[] | null,
+  ): Promise<InventoryIssueDto[]> {
+    // Alcance por local: sin esto, un staff restringido a un local vería
+    // descuadres de inventario de CUALQUIER otro local del tenant (solo
+    // lectura, pero es información de negocio ajena a su alcance).
+    const facFilter = resolveFacilityFilter(facilityScope);
+    if (facFilter === null) return [];
     const find = (where: Prisma.UnitWhereInput) =>
-      this.admin.unit.findMany({ where: { tenantId, ...where }, include: INCLUDE }) as Promise<
-        UnitRow[]
-      >;
+      this.admin.unit.findMany({
+        where: { tenantId, ...(facFilter ? { facilityId: { in: facFilter } } : {}), ...where },
+        include: INCLUDE,
+      }) as Promise<UnitRow[]>;
 
     // (1) Ocupado pero sin ningún contrato vivo → debería estar disponible.
     const occupiedNoContract = await find({

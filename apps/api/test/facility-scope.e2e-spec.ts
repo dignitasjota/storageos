@@ -506,4 +506,60 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const ownerIds2 = (ownerList2.body as { id: string }[]).map((e) => e.id);
     expect(ownerIds2).toEqual(expect.arrayContaining([entryA.body.id, entryB.body.id]));
   });
+
+  it('un manager restringido a un local solo ve los descuadres de inventario de SU local', async () => {
+    const owner = await registerVerifiedUser(app, 'facscopeinv');
+    const ownerAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const facA = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local A',
+      typeName: 'Tipo A',
+      unitsCount: 1,
+    });
+    const facB = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local B',
+      typeName: 'Tipo B',
+      unitsCount: 1,
+    });
+
+    // Forzamos un descuadre (ocupado sin contrato) en CADA local.
+    const admin = app.get(PrismaAdminService);
+    await admin.unit.update({ where: { id: facA.unitIds[0]! }, data: { status: 'occupied' } });
+    await admin.unit.update({ where: { id: facB.unitIds[0]! }, data: { status: 'occupied' } });
+
+    // Invitar a un MANAGER (units:read via READ_ONLY spread) y restringirlo al local A.
+    const email = `fs-inv-manager-${Date.now()}@e2e.local`;
+    const password = 'Passw0rd!';
+    await request(app.getHttpServer())
+      .post('/invitations')
+      .set(ownerAuth)
+      .send({ email, role: 'manager' })
+      .expect(201);
+    const mail = await waitForEmail(email, { subjectIncludes: 'invitado' });
+    const inviteToken = extractToken(mail.Text, '/invite');
+    await request(app.getHttpServer())
+      .post(`/invitations/token/${inviteToken}/accept`)
+      .send({ fullName: 'Manager Inventario', password })
+      .expect(200);
+    const users = await request(app.getHttpServer()).get('/users').set(ownerAuth);
+    const manager = (users.body as { id: string; email: string }[]).find((u) => u.email === email);
+    await request(app.getHttpServer())
+      .patch(`/settings/users/${manager!.id}/facilities`)
+      .set(ownerAuth)
+      .send({ facilityIds: [facA.facilityId] })
+      .expect(204);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: owner.slug, email, password });
+    const mgrAuth = { Authorization: `Bearer ${login.body.accessToken}` };
+
+    const list = await request(app.getHttpServer()).get('/inventory/issues').set(mgrAuth);
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].unitId).toBe(facA.unitIds[0]);
+
+    // El owner ve los descuadres de ambos locales.
+    const ownerList = await request(app.getHttpServer()).get('/inventory/issues').set(ownerAuth);
+    expect(ownerList.body).toHaveLength(2);
+  });
 });
