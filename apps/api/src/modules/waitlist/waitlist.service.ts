@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -167,11 +168,13 @@ export class WaitlistService {
 
   async list(
     tenantId: string,
-    filters: { status?: string; facilityId?: string },
+    filters: { status?: string; facilityId?: string; facilityScope?: string[] | null },
   ): Promise<WaitlistEntryDto[]> {
     const where: Prisma.WaitlistEntryWhereInput = {};
     if (filters.status) where.status = filters.status;
-    if (filters.facilityId) where.facilityId = filters.facilityId;
+    const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
+    if (facFilter === null) return []; // local pedido fuera del scope del usuario
+    if (facFilter) where.facilityId = { in: facFilter };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.waitlistEntry.findMany({
@@ -189,8 +192,10 @@ export class WaitlistService {
     userId: string;
     input: CreateWaitlistEntryInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<WaitlistEntryDto> {
     const { tenantId, input } = args;
+    assertFacilityAllowed(args.facilityScope, input.facilityId);
     const created = await this.prisma.withTenant(async (tx) => {
       const facility = await tx.facility.findFirst({
         where: { id: input.facilityId, deletedAt: null },
@@ -246,12 +251,14 @@ export class WaitlistService {
     id: string;
     status: 'converted' | 'cancelled';
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<WaitlistEntryDto> {
     const updated = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.waitlistEntry.findUnique({ where: { id: args.id } });
       if (!existing) {
         throw new NotFoundException({ code: 'waitlist_entry_not_found', message: 'No encontrada' });
       }
+      assertFacilityAllowed(args.facilityScope, existing.facilityId);
       return tx.waitlistEntry.update({
         where: { id: args.id },
         data: { status: args.status },

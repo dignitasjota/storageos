@@ -34,6 +34,7 @@ export class WaitlistController {
     return this.waitlist.list(user.tenantId, {
       ...(status ? { status } : {}),
       ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -49,6 +50,7 @@ export class WaitlistController {
       userId: user.sub,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -66,6 +68,7 @@ export class WaitlistController {
       id,
       status: body.status,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 }

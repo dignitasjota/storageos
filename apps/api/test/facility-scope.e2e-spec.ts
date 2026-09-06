@@ -404,4 +404,106 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     expect(listA.status).toBe(200);
     expect(listA.body).toHaveLength(1);
   });
+
+  it('un manager restringido a un local no ve ni gestiona la lista de espera de otro local', async () => {
+    const owner = await registerVerifiedUser(app, 'facscopewait');
+    const ownerAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const facA = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local A',
+      typeName: 'Tipo A',
+      unitsCount: 1,
+    });
+    const facB = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local B',
+      typeName: 'Tipo B',
+      unitsCount: 1,
+    });
+
+    const entryA = await request(app.getHttpServer())
+      .post('/waitlist')
+      .set(ownerAuth)
+      .send({
+        facilityId: facA.facilityId,
+        unitTypeId: facA.unitTypeId,
+        contactName: 'Cliente A',
+        contactEmail: `wl-a-${Date.now()}@e2e.local`,
+      });
+    expect(entryA.status).toBe(201);
+    const entryB = await request(app.getHttpServer())
+      .post('/waitlist')
+      .set(ownerAuth)
+      .send({
+        facilityId: facB.facilityId,
+        unitTypeId: facB.unitTypeId,
+        contactName: 'Cliente B',
+        contactEmail: `wl-b-${Date.now()}@e2e.local`,
+      });
+    expect(entryB.status).toBe(201);
+
+    // Invitar a un MANAGER (reservations:write) y restringirlo al local A.
+    const email = `fs-wl-manager-${Date.now()}@e2e.local`;
+    const password = 'Passw0rd!';
+    await request(app.getHttpServer())
+      .post('/invitations')
+      .set(ownerAuth)
+      .send({ email, role: 'manager' })
+      .expect(201);
+    const mail = await waitForEmail(email, { subjectIncludes: 'invitado' });
+    const inviteToken = extractToken(mail.Text, '/invite');
+    await request(app.getHttpServer())
+      .post(`/invitations/token/${inviteToken}/accept`)
+      .send({ fullName: 'Manager Waitlist', password })
+      .expect(200);
+    const users = await request(app.getHttpServer()).get('/users').set(ownerAuth);
+    const manager = (users.body as { id: string; email: string }[]).find((u) => u.email === email);
+    await request(app.getHttpServer())
+      .patch(`/settings/users/${manager!.id}/facilities`)
+      .set(ownerAuth)
+      .send({ facilityIds: [facA.facilityId] })
+      .expect(204);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: owner.slug, email, password });
+    const mgrAuth = { Authorization: `Bearer ${login.body.accessToken}` };
+
+    // list() filtra por el scope: solo ve la entrada del local A.
+    const list = await request(app.getHttpServer()).get('/waitlist').set(mgrAuth);
+    const listIds = (list.body as { id: string }[]).map((e) => e.id);
+    expect(listIds).toContain(entryA.body.id);
+    expect(listIds).not.toContain(entryB.body.id);
+
+    // No puede crear una entrada para el local B fuera de scope.
+    const createForB = await request(app.getHttpServer())
+      .post('/waitlist')
+      .set(mgrAuth)
+      .send({
+        facilityId: facB.facilityId,
+        unitTypeId: facB.unitTypeId,
+        contactName: 'Otro',
+        contactEmail: `wl-c-${Date.now()}@e2e.local`,
+      });
+    expect(createForB.status).toBe(403);
+    expect(createForB.body.code).toBe('facility_not_in_scope');
+
+    // No puede mutar por id una entrada del local B aunque conozca el id.
+    const mutateB = await request(app.getHttpServer())
+      .patch(`/waitlist/${entryB.body.id}`)
+      .set(mgrAuth)
+      .send({ status: 'cancelled' });
+    expect(mutateB.status).toBe(403);
+    expect(mutateB.body.code).toBe('facility_not_in_scope');
+
+    // Sí puede mutar la de su local A.
+    const mutateA = await request(app.getHttpServer())
+      .patch(`/waitlist/${entryA.body.id}`)
+      .set(mgrAuth)
+      .send({ status: 'cancelled' });
+    expect(mutateA.status).toBe(200);
+
+    // El owner sigue viendo ambas.
+    const ownerList2 = await request(app.getHttpServer()).get('/waitlist').set(ownerAuth);
+    const ownerIds2 = (ownerList2.body as { id: string }[]).map((e) => e.id);
+    expect(ownerIds2).toEqual(expect.arrayContaining([entryA.body.id, entryB.body.id]));
+  });
 });
