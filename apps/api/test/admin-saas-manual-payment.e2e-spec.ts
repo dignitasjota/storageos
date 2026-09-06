@@ -149,6 +149,48 @@ describe('Admin SaaS manual payment (e2e)', () => {
     expect(periodEnd).toBeGreaterThan(periodEndBefore);
   });
 
+  it('dos pagos IDÉNTICOS CONCURRENTES (doble clic real) no duplican ni extienden el periodo dos veces', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-smp-race');
+    const before = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set('Authorization', `Bearer ${token}`);
+    const periodEndBefore = new Date(before.body.subscription.currentPeriodEnd).getTime();
+
+    // Ambas peticiones salen A LA VEZ (Promise.all): sin el lock por tenant,
+    // las dos verían la ventana de dedup vacía antes de que cualquiera
+    // comprometiera su escritura.
+    const body = { provider: 'bank_transfer', amount: 77, durationMonths: 2 };
+    const [r1, r2] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(body),
+      request(app.getHttpServer())
+        .post(`/admin/tenants/${owner.tenantId}/saas-payments/manual`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(body),
+    ]);
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+    // Una de las dos ganó el claim y creó el pago; la otra vio el dedup y
+    // devolvió el MISMO registro (no un duplicado).
+    expect(r2.body.id).toBe(r1.body.id);
+
+    const list = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/saas-payments`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(list.body).toHaveLength(1);
+
+    // El periodo se extendió UNA sola vez (2 meses), no el doble (4 meses).
+    const after = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}`)
+      .set('Authorization', `Bearer ${token}`);
+    const periodEnd = new Date(after.body.subscription.currentPeriodEnd).getTime();
+    const monthMs = 28 * 24 * 3600 * 1000;
+    expect(periodEnd - periodEndBefore).toBeLessThan(3 * monthMs);
+    expect(periodEnd - periodEndBefore).toBeGreaterThan(1.5 * monthMs);
+  });
+
   it('el crédito manual se SUMA al periodo de Stripe (acumulador permanente)', async () => {
     const owner = await registerVerifiedUser(app, 'admin-smp-acc');
 

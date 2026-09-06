@@ -821,21 +821,12 @@ export class BillingSaasService {
      */
     couponCode?: string | null | undefined;
   }): Promise<TenantSubscriptionPaymentDto> {
-    const sub = await this.admin.tenantSubscription.findUnique({
-      where: { tenantId: args.tenantId },
-      include: { plan: { select: { slug: true, name: true } } },
-    });
-    if (!sub) {
-      throw new NotFoundException({
-        code: 'subscription_not_found',
-        message: 'El tenant no tiene una suscripción.',
-      });
-    }
-
     // Cupón de plataforma: valida y calcula el descuento server-side. NO se
     // confía en `args.discount` cuando hay cupón; el cupón manda. El uso se
     // incrementa más abajo, tras el guard de dedup (para no consumirlo en un
-    // doble-submit que devuelve el pago existente).
+    // doble-submit que devuelve el pago existente). `incrementUsage` es
+    // atómico por sí solo (UPDATE condicional) → no necesita ir dentro del
+    // lock de más abajo.
     let couponId: string | null = null;
     let discount = args.discount ?? null;
     if (args.couponCode) {
@@ -844,74 +835,92 @@ export class BillingSaasService {
       discount = res.discount;
     }
 
-    // Idempotencia anti-doble-submit: registrar un pago manual extiende el
-    // periodo e incrementa `manualExtensionDays`; un doble clic o reintento de
-    // red lo aplicaría DOS veces (periodo extendido de más, ingreso duplicado).
-    // Si ya hay un pago idéntico (mismo provider+importe) en los últimos 60s, lo
-    // devolvemos en vez de duplicar.
-    const dedupeWindow = new Date(Date.now() - 60_000);
-    const recent = await this.admin.tenantSubscriptionPayment.findFirst({
-      where: {
-        tenantId: args.tenantId,
-        provider: args.provider,
-        amount: args.amount,
-        status: 'paid',
-        createdAt: { gte: dedupeWindow },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (recent) return toPaymentDto(recent);
-
-    // Consumimos el cupón (uso atómico) justo antes de crear el pago: pasada la
-    // dedup, ya vamos a materializar. Si otra petición lo agotó en la carrera,
-    // lanza 400 `coupon_exhausted` y no se registra el pago.
-    if (couponId) await this.coupons.incrementUsage(couponId);
-
     const now = new Date();
     const extendsPeriod = args.extendsPeriod !== false;
 
-    // Cobro puntual (add-on) que NO extiende el periodo: registra el pago sobre
-    // el periodo VIGENTE, sin tocar la suscripción (el periodo lo lleva Stripe).
-    if (!extendsPeriod) {
-      const payment = await this.admin.tenantSubscriptionPayment.create({
-        data: {
+    // Todo lo que decide y escribe el periodo/pago va DENTRO de una única
+    // transacción, serializada por un advisory lock por tenant: sin esto, dos
+    // registros de pago manual concurrentes (doble clic, reintento de red)
+    // podían leer AMBOS el mismo `sub`/dedup-window vacío antes de que
+    // cualquiera comprometiera su escritura → periodo extendido dos veces +
+    // ingreso duplicado (el guard de dedup por SELECT no protege una carrera
+    // real, solo reintentos separados por más de la duración de una tx).
+    const { payment, couponAlreadyRecent } = await this.admin.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text))`;
+
+      const sub = await tx.tenantSubscription.findUnique({
+        where: { tenantId: args.tenantId },
+        include: { plan: { select: { slug: true, name: true } } },
+      });
+      if (!sub) {
+        throw new NotFoundException({
+          code: 'subscription_not_found',
+          message: 'El tenant no tiene una suscripción.',
+        });
+      }
+
+      // Idempotencia anti-doble-submit: registrar un pago manual extiende el
+      // periodo e incrementa `manualExtensionDays`; un doble clic o reintento
+      // de red lo aplicaría DOS veces. Si ya hay un pago idéntico (mismo
+      // provider+importe) en los últimos 60s, lo devolvemos en vez de
+      // duplicar. Con el lock ya tomado, esta lectura ve el commit de
+      // cualquier petición concurrente que haya ganado la carrera.
+      const dedupeWindow = new Date(Date.now() - 60_000);
+      const recent = await tx.tenantSubscriptionPayment.findFirst({
+        where: {
           tenantId: args.tenantId,
           provider: args.provider,
-          externalId: null,
-          status: 'paid',
           amount: args.amount,
-          discount,
-          currency: args.currency,
-          planSlug: sub.plan.slug,
-          planName: sub.plan.name,
-          description: args.description ?? null,
-          periodStart: sub.currentPeriodStart,
-          periodEnd: sub.currentPeriodEnd,
-          paidAt: args.paidAt ?? now,
+          status: 'paid',
+          createdAt: { gte: dedupeWindow },
         },
+        orderBy: { createdAt: 'desc' },
       });
-      await this.platformInvoices.issueForPaymentBestEffort(payment.id);
-      return toPaymentDto(payment);
-    }
+      if (recent) return { payment: recent, couponAlreadyRecent: true };
 
-    // El periodo se extiende SIEMPRE desde `currentPeriodEnd` (la fecha en la que
-    // debía haber pagado), no desde la fecha del pago → un pago tardío no regala
-    // el tiempo impagado ni deja hueco (si pagó 1 mes debiendo 3, sigue en mora).
-    const base = sub.currentPeriodEnd;
-    const newEnd = addMonths(base, args.durationMonths);
-    // ¿El nuevo periodo cubre «ahora»? Si no (pago parcial de un moroso), la
-    // suscripción sigue `past_due` y el tenant NO se reactiva.
-    const covered = newEnd > now;
-    // Días de crédito que aporta este pago. El acumulador SOLO tiene sentido si
-    // el tenant también cobra por Stripe (para que el webhook SUME este tiempo en
-    // vez de pisarlo). Para un tenant SIN Stripe, `currentPeriodEnd` es la verdad
-    // absoluta (no hay webhook que lo pise) → NO se acumula, o al vincularse a
-    // Stripe más tarde se le regalaría el tiempo ya consumido.
-    const accrues = sub.stripeSubscriptionId != null;
-    const addedDays = accrues ? diffInDays(base, newEnd) : 0;
+      // Cobro puntual (add-on) que NO extiende el periodo: registra el pago
+      // sobre el periodo VIGENTE, sin tocar la suscripción (el periodo lo
+      // lleva Stripe).
+      if (!extendsPeriod) {
+        const created = await tx.tenantSubscriptionPayment.create({
+          data: {
+            tenantId: args.tenantId,
+            provider: args.provider,
+            externalId: null,
+            status: 'paid',
+            amount: args.amount,
+            discount,
+            currency: args.currency,
+            planSlug: sub.plan.slug,
+            planName: sub.plan.name,
+            description: args.description ?? null,
+            periodStart: sub.currentPeriodStart,
+            periodEnd: sub.currentPeriodEnd,
+            paidAt: args.paidAt ?? now,
+          },
+        });
+        return { payment: created, couponAlreadyRecent: false };
+      }
 
-    const [payment] = await this.admin.$transaction([
-      this.admin.tenantSubscriptionPayment.create({
+      // El periodo se extiende SIEMPRE desde `currentPeriodEnd` (la fecha en
+      // la que debía haber pagado), no desde la fecha del pago → un pago
+      // tardío no regala el tiempo impagado ni deja hueco (si pagó 1 mes
+      // debiendo 3, sigue en mora).
+      const base = sub.currentPeriodEnd;
+      const newEnd = addMonths(base, args.durationMonths);
+      // ¿El nuevo periodo cubre «ahora»? Si no (pago parcial de un moroso), la
+      // suscripción sigue `past_due` y el tenant NO se reactiva.
+      const covered = newEnd > now;
+      // Días de crédito que aporta este pago. El acumulador SOLO tiene
+      // sentido si el tenant también cobra por Stripe (para que el webhook
+      // SUME este tiempo en vez de pisarlo). Para un tenant SIN Stripe,
+      // `currentPeriodEnd` es la verdad absoluta (no hay webhook que lo pise)
+      // → NO se acumula, o al vincularse a Stripe más tarde se le regalaría
+      // el tiempo ya consumido.
+      const accrues = sub.stripeSubscriptionId != null;
+      const addedDays = accrues ? diffInDays(base, newEnd) : 0;
+
+      const created = await tx.tenantSubscriptionPayment.create({
         data: {
           tenantId: args.tenantId,
           provider: args.provider,
@@ -927,8 +936,8 @@ export class BillingSaasService {
           periodEnd: newEnd,
           paidAt: args.paidAt ?? now,
         },
-      }),
-      this.admin.tenantSubscription.update({
+      });
+      await tx.tenantSubscription.update({
         where: { tenantId: args.tenantId },
         data: {
           currentPeriodEnd: newEnd,
@@ -937,16 +946,23 @@ export class BillingSaasService {
           status: covered ? 'active' : 'past_due',
           manualExtensionDays: { increment: addedDays },
         },
-      }),
-      // Un pago que cubre el periodo activa el tenant: sale del periodo de prueba
-      // (`trial`, ya está pagando) o del dunning (`suspended`, pago regularizado).
-      // El filtro por estado no toca `active` ni `cancelled` (una baja no revive
-      // por un cobro retroactivo). Si el pago NO cubre hasta hoy, no se reactiva.
-      this.admin.tenant.updateMany({
+      });
+      // Un pago que cubre el periodo activa el tenant: sale del periodo de
+      // prueba (`trial`, ya está pagando) o del dunning (`suspended`, pago
+      // regularizado). El filtro por estado no toca `active` ni `cancelled`
+      // (una baja no revive por un cobro retroactivo). Si el pago NO cubre
+      // hasta hoy, no se reactiva.
+      await tx.tenant.updateMany({
         where: { id: args.tenantId, status: { in: covered ? ['suspended', 'trial'] : [] } },
         data: { status: 'active' },
-      }),
-    ]);
+      });
+
+      return { payment: created, couponAlreadyRecent: false };
+    });
+
+    // Consumimos el cupón (uso atómico) solo si NO fue un dedup (un doble-submit
+    // que devuelve el pago existente no debe volver a gastar el cupón).
+    if (couponId && !couponAlreadyRecent) await this.coupons.incrementUsage(couponId);
 
     // Factura del SaaS (best-effort; solo si la facturación está activada).
     await this.platformInvoices.issueForPaymentBestEffort(payment.id);
