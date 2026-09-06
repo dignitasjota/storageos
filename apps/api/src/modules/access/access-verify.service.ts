@@ -3,6 +3,7 @@ import { verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AccessRateLimitService } from './access-rate-limit.service';
@@ -358,16 +359,19 @@ export class AccessVerifyService {
       }
     }
 
-    const openResult = await this.locks.resolve(device.provider).open({
-      tenantId,
-      deviceId: device.id,
-      mqttTopic: device.mqttTopic,
-      controlUrl: device.controlUrl,
-      controlSecret: device.controlSecretEncrypted
-        ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
-        : null,
-      customerId: credentialRow.customerId,
-    });
+    const controlUrlSafety = await this.assertControlUrlSafe(device);
+    const openResult = controlUrlSafety.safe
+      ? await this.locks.resolve(device.provider).open({
+          tenantId,
+          deviceId: device.id,
+          mqttTopic: device.mqttTopic,
+          controlUrl: device.controlUrl,
+          controlSecret: device.controlSecretEncrypted
+            ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
+            : null,
+          customerId: credentialRow.customerId,
+        })
+      : { dispatched: false, message: controlUrlSafety.message };
 
     if (!openResult.dispatched) {
       // La cerradura NO abrió (device offline / timeout). Si era single-use,
@@ -579,16 +583,19 @@ export class AccessVerifyService {
       }
     }
 
-    const openResult = await this.locks.resolve(device.provider).open({
-      tenantId,
-      deviceId: device.id,
-      mqttTopic: device.mqttTopic,
-      controlUrl: device.controlUrl,
-      controlSecret: device.controlSecretEncrypted
-        ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
-        : null,
-      customerId,
-    });
+    const controlUrlSafety = await this.assertControlUrlSafe(device);
+    const openResult = controlUrlSafety.safe
+      ? await this.locks.resolve(device.provider).open({
+          tenantId,
+          deviceId: device.id,
+          mqttTopic: device.mqttTopic,
+          controlUrl: device.controlUrl,
+          controlSecret: device.controlSecretEncrypted
+            ? this.crypto.decryptString(device.controlSecretEncrypted, tenantId)
+            : null,
+          customerId,
+        })
+      : { dispatched: false, message: controlUrlSafety.message };
     // Si la cerradura NO abrió y era single-use, devuelve el uso reservado.
     if (!openResult.dispatched && chosen.maxUses != null) {
       await this.admin.accessCredential.updateMany({
@@ -620,6 +627,28 @@ export class AccessVerifyService {
       opened: false,
       message: 'No se pudo abrir la puerta ahora mismo. Vuelve a intentarlo.',
     };
+  }
+
+  /**
+   * SSRF: `controlUrl` lo configura el tenant y solo lo usan de verdad los
+   * providers `http`/`dahua`. El servidor cloud no tiene acceso a la LAN del
+   * cliente, así que una respuesta genuina de una IP privada/loopback solo
+   * puede ser infraestructura de la propia plataforma — se corta antes del
+   * fetch. Mismo helper que `AccessDevicesService`.
+   */
+  private async assertControlUrlSafe(
+    device: AccessDevice,
+  ): Promise<{ safe: boolean; message?: string }> {
+    if ((device.provider === 'http' || device.provider === 'dahua') && device.controlUrl) {
+      const check = await isSafeOutboundUrl(device.controlUrl);
+      if (!check.safe) {
+        this.logger.warn(
+          `[access-verify] controlUrl no permitida (${check.reason}) para device ${device.id}`,
+        );
+        return { safe: false, message: 'control_url_unsafe' };
+      }
+    }
+    return { safe: true };
   }
 
   /**
