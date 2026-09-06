@@ -79,7 +79,7 @@ export class WebhooksService {
     meta: RequestMeta;
   }): Promise<WebhookWithSecretDto> {
     const secret = generateSecret();
-    const encryptedSecret = this.crypto.encryptString(secret);
+    const encryptedSecret = this.crypto.encryptString(secret, args.tenantId);
     const data: Prisma.WebhookUncheckedCreateInput = {
       tenantId: args.tenantId,
       name: args.input.name,
@@ -143,7 +143,7 @@ export class WebhooksService {
   }): Promise<WebhookWithSecretDto> {
     await this.findOrThrow(args.tenantId, args.id);
     const secret = generateSecret();
-    const encryptedSecret = this.crypto.encryptString(secret);
+    const encryptedSecret = this.crypto.encryptString(secret, args.tenantId);
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.webhook.update({
@@ -285,7 +285,7 @@ export class WebhooksService {
       });
       if (hooks.length === 0) return;
       for (const hook of hooks) {
-        const secret = this.crypto.decryptString(hook.secret);
+        const secret = this.crypto.decryptString(hook.secret, tenantId);
         const enriched = { ...payload, type: eventType };
         const { header } = buildWebhookSignature({ secret, payload: enriched });
         const delivery = await this.admin.webhookDelivery.create({
@@ -332,8 +332,8 @@ export class WebhooksService {
     });
   }
 
-  decryptWebhookSecret(envelope: string): string {
-    return this.crypto.decryptString(envelope);
+  decryptWebhookSecret(envelope: string, tenantId: string): string {
+    return this.crypto.decryptString(envelope, tenantId);
   }
 
   async markDeliverySuccess(args: {

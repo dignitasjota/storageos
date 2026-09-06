@@ -50,13 +50,13 @@ export class GoogleAdsSettingsService {
     );
     const clientId = input.clientId ?? existing?.clientId ?? null;
     const clientSecretEncrypted = input.clientSecret
-      ? this.crypto.encryptString(input.clientSecret)
+      ? this.crypto.encryptString(input.clientSecret, tenantId)
       : (existing?.clientSecretEncrypted ?? null);
     const developerTokenEncrypted = input.developerToken
-      ? this.crypto.encryptString(input.developerToken)
+      ? this.crypto.encryptString(input.developerToken, tenantId)
       : (existing?.developerTokenEncrypted ?? null);
     const refreshTokenEncrypted = input.refreshToken
-      ? this.crypto.encryptString(input.refreshToken)
+      ? this.crypto.encryptString(input.refreshToken, tenantId)
       : (existing?.refreshTokenEncrypted ?? null);
     const customerId = input.customerId ?? existing?.customerId ?? null;
     const loginCustomerId =
@@ -129,9 +129,9 @@ export class GoogleAdsSettingsService {
     }
     return {
       clientId: row.clientId,
-      clientSecret: this.crypto.decryptString(row.clientSecretEncrypted),
-      developerToken: this.crypto.decryptString(row.developerTokenEncrypted),
-      refreshToken: this.crypto.decryptString(row.refreshTokenEncrypted),
+      clientSecret: this.crypto.decryptString(row.clientSecretEncrypted, tenantId),
+      developerToken: this.crypto.decryptString(row.developerTokenEncrypted, tenantId),
+      refreshToken: this.crypto.decryptString(row.refreshTokenEncrypted, tenantId),
       customerId: row.customerId,
       loginCustomerId: row.loginCustomerId,
     };

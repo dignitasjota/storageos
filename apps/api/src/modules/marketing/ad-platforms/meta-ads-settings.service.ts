@@ -39,7 +39,7 @@ export class MetaAdsSettingsService {
       tenantId,
     );
     const accessTokenEncrypted = input.accessToken
-      ? this.crypto.encryptString(input.accessToken)
+      ? this.crypto.encryptString(input.accessToken, tenantId)
       : (existing?.accessTokenEncrypted ?? null);
     const adAccountId = input.adAccountId ?? existing?.adAccountId ?? null;
 
@@ -74,7 +74,7 @@ export class MetaAdsSettingsService {
     );
     if (!row?.enabled || !row.accessTokenEncrypted || !row.adAccountId) return null;
     return {
-      accessToken: this.crypto.decryptString(row.accessTokenEncrypted),
+      accessToken: this.crypto.decryptString(row.accessTokenEncrypted, tenantId),
       adAccountId: row.adAccountId,
     };
   }

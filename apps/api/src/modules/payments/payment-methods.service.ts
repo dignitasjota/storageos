@@ -115,7 +115,7 @@ export class PaymentMethodsService {
     // 'card' rompería el cobro posterior); el input es solo fallback para
     // tipos que el gateway no mapea.
     const resolvedType = details.type ?? args.input.type;
-    const encrypted = this.crypto.encryptString(args.input.gatewayToken);
+    const encrypted = this.crypto.encryptString(args.input.gatewayToken, args.tenantId);
     const created = await this.prisma.withTenant(async (tx) => {
       if (args.input.isDefault) {
         await tx.paymentMethod.updateMany({
@@ -176,7 +176,7 @@ export class PaymentMethodsService {
     isDefault: boolean;
     meta: RequestMeta;
   }): Promise<PaymentMethodDto> {
-    const encrypted = this.crypto.encryptString(args.token);
+    const encrypted = this.crypto.encryptString(args.token, args.tenantId);
     const created = await this.prisma.withTenant(async (tx) => {
       if (args.isDefault) {
         await tx.paymentMethod.updateMany({
@@ -252,7 +252,7 @@ export class PaymentMethodsService {
     const pm = await tx.paymentMethod.findUniqueOrThrow({
       where: { id: paymentMethodId },
     });
-    return this.crypto.decryptString(pm.gatewayTokenEncrypted);
+    return this.crypto.decryptString(pm.gatewayTokenEncrypted, pm.tenantId);
   }
 
   private toDto(row: PaymentMethod): PaymentMethodDto {

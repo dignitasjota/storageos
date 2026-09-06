@@ -35,10 +35,10 @@ export class GoCardlessSettingsService {
       tenantId,
     );
     const accessTokenEncrypted = input.accessToken
-      ? this.crypto.encryptString(input.accessToken)
+      ? this.crypto.encryptString(input.accessToken, tenantId)
       : existing?.accessTokenEncrypted;
     const webhookSecretEncrypted = input.webhookSecret
-      ? this.crypto.encryptString(input.webhookSecret)
+      ? this.crypto.encryptString(input.webhookSecret, tenantId)
       : existing?.webhookSecretEncrypted;
     if (input.enabled && (!accessTokenEncrypted || !webhookSecretEncrypted)) {
       throw new BadRequestException({
@@ -83,9 +83,9 @@ export class GoCardlessSettingsService {
     );
     if (!row?.accessTokenEncrypted) return null;
     return {
-      accessToken: this.crypto.decryptString(row.accessTokenEncrypted),
+      accessToken: this.crypto.decryptString(row.accessTokenEncrypted, tenantId),
       webhookSecret: row.webhookSecretEncrypted
-        ? this.crypto.decryptString(row.webhookSecretEncrypted)
+        ? this.crypto.decryptString(row.webhookSecretEncrypted, tenantId)
         : '',
       environment: row.environment as GoCardlessEnvironment,
       enabled: row.enabled,

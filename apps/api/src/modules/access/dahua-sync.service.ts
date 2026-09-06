@@ -5,13 +5,15 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
-import {
-  type SyncDevice,
-  type SyncState,
-} from './providers/credential-sync-provider';
+import { type SyncDevice, type SyncState } from './providers/credential-sync-provider';
 import { SyncProviderRegistry } from './providers/sync-provider.registry';
 
-import type { AccessCredential, AccessDevice, AccessMethod, AccessResult } from '@storageos/database';
+import type {
+  AccessCredential,
+  AccessDevice,
+  AccessMethod,
+  AccessResult,
+} from '@storageos/database';
 
 /** Device con la timezone de su local (para las fechas de validez del terminal). */
 type DeviceWithFacility = AccessDevice & { facility?: { timezone: string } | null };
@@ -53,7 +55,7 @@ export class DahuaSyncService {
       channel: Number((d.metadata as { channel?: number } | null)?.channel ?? 1),
       controlUrl: d.controlUrl,
       controlSecret: d.controlSecretEncrypted
-        ? this.crypto.decryptString(d.controlSecretEncrypted)
+        ? this.crypto.decryptString(d.controlSecretEncrypted, d.tenantId)
         : null,
       timezone: d.facility?.timezone ?? 'Europe/Madrid',
     };
@@ -62,7 +64,7 @@ export class DahuaSyncService {
   /** Secreto en claro de la credencial (PIN/QR descifrado, o UID RFID). */
   private secretOf(cred: AccessCredential): string | null {
     if (cred.method === ('rfid' as AccessMethod)) return cred.rfidUid;
-    if (cred.secretEncrypted) return this.crypto.decryptString(cred.secretEncrypted);
+    if (cred.secretEncrypted) return this.crypto.decryptString(cred.secretEncrypted, cred.tenantId);
     return null;
   }
 

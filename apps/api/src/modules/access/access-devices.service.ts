@@ -111,7 +111,7 @@ export class AccessDevicesService {
       provider: args.input.provider ?? null,
       controlUrl: args.input.controlUrl?.trim() || null,
       controlSecretEncrypted: args.input.controlSecret
-        ? this.crypto.encryptString(args.input.controlSecret)
+        ? this.crypto.encryptString(args.input.controlSecret, args.tenantId)
         : null,
       metadata: args.input.metadata as Prisma.InputJsonValue,
     };
@@ -155,7 +155,7 @@ export class AccessDevicesService {
     if (input.controlUrl !== undefined) data.controlUrl = input.controlUrl?.trim() || null;
     if (input.controlSecret !== undefined)
       data.controlSecretEncrypted = input.controlSecret
-        ? this.crypto.encryptString(input.controlSecret)
+        ? this.crypto.encryptString(input.controlSecret, args.tenantId)
         : null;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.metadata !== undefined) data.metadata = input.metadata as Prisma.InputJsonValue;
@@ -336,7 +336,7 @@ export class AccessDevicesService {
     return {
       controlUrl: device.controlUrl,
       controlSecret: device.controlSecretEncrypted
-        ? this.crypto.decryptString(device.controlSecretEncrypted)
+        ? this.crypto.decryptString(device.controlSecretEncrypted, device.tenantId)
         : null,
     };
   }

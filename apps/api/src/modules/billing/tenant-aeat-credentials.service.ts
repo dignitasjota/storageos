@@ -174,8 +174,8 @@ export class TenantAeatCredentialsService {
     // CryptoService solo acepta strings; codificamos a base64 y al
     // descifrar volvemos a Buffer.
     const p12B64 = p12Buffer.toString('base64');
-    const certP12Encrypted = Buffer.from(this.crypto.encryptString(p12B64), 'utf8');
-    const certPasswordEncrypted = this.crypto.encryptString(password);
+    const certP12Encrypted = Buffer.from(this.crypto.encryptString(p12B64, tenantId), 'utf8');
+    const certPasswordEncrypted = this.crypto.encryptString(password, tenantId);
 
     // 7. Inserta una fila nueva. Si había una credencial activa, se
     // revoca primero (`replaced_by_new_upload`) dentro de la misma
@@ -237,9 +237,12 @@ export class TenantAeatCredentialsService {
     );
     if (!record) return null;
 
-    const p12B64 = this.crypto.decryptString(Buffer.from(record.certP12Encrypted).toString('utf8'));
+    const p12B64 = this.crypto.decryptString(
+      Buffer.from(record.certP12Encrypted).toString('utf8'),
+      tenantId,
+    );
     const p12Buffer = Buffer.from(p12B64, 'base64');
-    const password = this.crypto.decryptString(record.certPasswordEncrypted);
+    const password = this.crypto.decryptString(record.certPasswordEncrypted, tenantId);
 
     return { p12Buffer, password, record };
   }

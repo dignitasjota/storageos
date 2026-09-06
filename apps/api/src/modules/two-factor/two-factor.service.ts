@@ -83,7 +83,7 @@ export class TwoFactorService {
       });
     }
     const secret = this.totp.generateSecret();
-    const encrypted = this.crypto.encryptString(secret);
+    const encrypted = this.crypto.encryptString(secret, userId);
     await this.admin.user.update({
       where: { id: userId },
       data: { twoFactorPendingSecretEncrypted: encrypted },
@@ -112,7 +112,7 @@ export class TwoFactorService {
         code: 'setup_required',
       });
     }
-    const secret = this.crypto.decryptString(user.twoFactorPendingSecretEncrypted);
+    const secret = this.crypto.decryptString(user.twoFactorPendingSecretEncrypted, userId);
     if (!this.totp.verify(secret, code)) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -205,7 +205,7 @@ export class TwoFactorService {
         code: 'wrong_current_password',
       });
     }
-    const secret = this.crypto.decryptString(user.twoFactorSecretEncrypted);
+    const secret = this.crypto.decryptString(user.twoFactorSecretEncrypted, userId);
     if (!this.totp.verify(secret, input.code)) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -303,7 +303,7 @@ export class TwoFactorService {
       });
     }
     const secret = this.totp.generateSecret();
-    const encrypted = this.crypto.encryptString(secret);
+    const encrypted = this.crypto.encryptString(secret, userId);
     await this.admin.user.update({
       where: { id: userId },
       data: { twoFactorPendingSecretEncrypted: encrypted },
@@ -346,7 +346,7 @@ export class TwoFactorService {
         code: 'setup_required',
       });
     }
-    const secret = this.crypto.decryptString(user.twoFactorPendingSecretEncrypted);
+    const secret = this.crypto.decryptString(user.twoFactorPendingSecretEncrypted, userId);
     if (!this.totp.verify(secret, input.code)) {
       throw new ForbiddenException({
         message: 'Codigo invalido',
@@ -407,7 +407,7 @@ export class TwoFactorService {
     }
     if (!input.code) return false;
     try {
-      const secret = this.crypto.decryptString(encryptedSecret);
+      const secret = this.crypto.decryptString(encryptedSecret, userId);
       return this.totp.verify(secret, input.code);
     } catch (err) {
       this.logger.error('Error descifrando secret 2FA', err as Error);
