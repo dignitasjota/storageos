@@ -70,4 +70,48 @@ describe('Late fees / recargos por mora (e2e)', () => {
     expect(again.status).toBe(409);
     expect(again.body.code).toBe('late_fee_already_applied');
   });
+
+  it('dos aplicaciones CONCURRENTES del mismo recargo: solo una gana, la otra 409 sin dejar factura huérfana', async () => {
+    const owner = await registerVerifiedUser(app, 'latefee-race');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/billing')
+      .set(auth)
+      .send({ lateFeeEnabled: true, lateFeeType: 'fixed', lateFeeValue: 10 })
+      .expect(200);
+
+    const customerId = await createCustomer(app, owner.accessToken);
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+
+    // Doble clic: las dos peticiones salen a la vez.
+    const [first, second] = await Promise.all([
+      request(app.getHttpServer()).post(`/invoices/${invoiceId}/late-fee`).set(auth),
+      request(app.getHttpServer()).post(`/invoices/${invoiceId}/late-fee`).set(auth),
+    ]);
+    const winner = first.status !== 409 ? first : second;
+    const loser = first.status !== 409 ? second : first;
+    expect(winner.status).toBe(200);
+    expect(loser.status).toBe(409);
+    expect(loser.body.code).toBe('late_fee_already_applied');
+
+    // La factura original solo enlaza a la ganadora.
+    const original = await request(app.getHttpServer()).get(`/invoices/${invoiceId}`).set(auth);
+    expect(original.body.lateFeeInvoiceId).toBe(winner.body.id);
+
+    // La factura de recargo que perdió la carrera queda CANCELADA, no
+    // huérfana suelta como issued/draft sin enlazar.
+    const list = await request(app.getHttpServer())
+      .get(`/invoices?customerId=${customerId}`)
+      .set(auth);
+    const feeInvoices = (
+      list.body as { id: string; status: string; items?: { description: string }[] }[]
+    ).filter((i) => i.items?.[0]?.description.includes('Recargo por mora'));
+    expect(feeInvoices).toHaveLength(2);
+    const statuses = feeInvoices.map((i) => i.status).sort();
+    expect(statuses).toEqual(['cancelled', 'issued']);
+  });
 });

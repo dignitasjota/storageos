@@ -704,12 +704,40 @@ export class InvoicesService {
       },
       meta: {},
     });
-    // Enlazar a la original (idempotencia) y emitir.
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.update({ where: { id: created.id }, data: { lateFeeForInvoiceId: invoiceId } }),
-      tenantId,
-    );
+    // Enlazar a la original (idempotencia real: constraint único en
+    // `lateFeeForInvoiceId`). El SELECT de arriba solo evita el caso común
+    // (recargo ya aplicado); dos llamadas CONCURRENTES (doble clic, o el cron
+    // de dunning + un clic manual a la vez) pasan ambas ese check y cada una
+    // crea su propia factura de recargo — el UPDATE que las enlaza es el
+    // árbitro real: solo una lo consigue, la otra choca contra el índice único
+    // y su factura recién creada queda huérfana (sin enlazar, sin emitir) →
+    // se cancela en vez de dejarla suelta.
+    try {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.update({
+            where: { id: created.id },
+            data: { lateFeeForInvoiceId: invoiceId },
+          }),
+        tenantId,
+      );
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        await this.cancel({
+          tenantId,
+          userId: args.userId,
+          invoiceId: created.id,
+          ...(args.facilityScope !== undefined ? { facilityScope: args.facilityScope } : {}),
+          input: { reason: 'Recargo duplicado (carrera con otra petición)' },
+          meta: {},
+        }).catch(() => undefined);
+        throw new ConflictException({
+          code: 'late_fee_already_applied',
+          message: 'Esta factura ya tiene un recargo por mora',
+        });
+      }
+      throw err;
+    }
     return this.issue({ tenantId, userId: args.userId, invoiceId: created.id, meta: {} });
   }
 
