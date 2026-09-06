@@ -2,6 +2,8 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Cron } from '@nestjs/schedule';
 import { Job } from 'bullmq';
 
+import { claimDailyCronRun } from '../../common/cron-claim';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { QUEUE_DUNNING } from '../queues/queues.module';
 
 import {
@@ -21,13 +23,24 @@ import {
  */
 @Processor(QUEUE_DUNNING)
 export class DunningProcessor extends WorkerHost {
-  constructor(private readonly dunning: DunningService) {
+  constructor(
+    private readonly dunning: DunningService,
+    private readonly admin: PrismaAdminService,
+  ) {
     super();
   }
 
-  /** Cron diario 06:00 UTC. */
+  /**
+   * Cron diario 06:00 UTC. `claimDailyCronRun` asegura que solo una réplica
+   * del worker lo ejecute: `dailyTick` marca `overdue` + encola un job y
+   * emite un evento de dominio POR FACTURA sin condicionar el UPDATE al
+   * estado anterior — si dos réplicas corrieran a la vez, ambas verían las
+   * mismas facturas recién vencidas y duplicarían el job/evento por cada
+   * una (recordatorios y webhooks `invoice.overdue` dobles).
+   */
   @Cron('0 6 * * *', { name: 'dunning.daily' })
   async dailyTick(): Promise<void> {
+    if (!(await claimDailyCronRun(this.admin, 'dunning.daily'))) return;
     await this.dunning.dailyTick();
   }
 
