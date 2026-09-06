@@ -49,21 +49,35 @@ export class PushService {
   }
 
   async subscribe(tenantId: string, customerId: string, input: PushSubscribeInput): Promise<void> {
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.pushSubscription.upsert({
-          where: { endpoint: input.endpoint },
-          create: {
-            tenantId,
-            customerId,
-            endpoint: input.endpoint,
-            p256dh: input.keys.p256dh,
-            auth: input.keys.auth,
-          },
-          update: { tenantId, customerId, p256dh: input.keys.p256dh, auth: input.keys.auth },
-        }),
-      tenantId,
-    );
+    await this.prisma.withTenant(async (tx) => {
+      // El `endpoint` (URL de PushManager del navegador) es único global, no
+      // por customer — reutilizar el mismo navegador/dispositivo con OTRA
+      // sesión de portal (equipo compartido, distinto inquilino) reasigna
+      // legítimamente la suscripción a quien esté logueado ahora. Se deja
+      // pasar (bloquearlo rompería ese caso legítimo), pero se deja rastro
+      // si el `customerId` cambia — quien conociera el endpoint de otro
+      // inquilino podría, si no, robarle la suscripción en silencio.
+      const existing = await tx.pushSubscription.findUnique({
+        where: { endpoint: input.endpoint },
+        select: { customerId: true },
+      });
+      if (existing && existing.customerId !== customerId) {
+        this.logger.warn(
+          `Suscripción push reasignada: endpoint ya pertenecía a customer ${existing.customerId}, ahora a ${customerId} (tenant ${tenantId})`,
+        );
+      }
+      await tx.pushSubscription.upsert({
+        where: { endpoint: input.endpoint },
+        create: {
+          tenantId,
+          customerId,
+          endpoint: input.endpoint,
+          p256dh: input.keys.p256dh,
+          auth: input.keys.auth,
+        },
+        update: { tenantId, customerId, p256dh: input.keys.p256dh, auth: input.keys.auth },
+      });
+    }, tenantId);
   }
 
   async unsubscribe(tenantId: string, customerId: string, endpoint: string): Promise<void> {
