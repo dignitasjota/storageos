@@ -1173,8 +1173,13 @@ export class ContractsService {
     }
 
     const updated = await this.prisma.withTenant(async (tx) => {
-      const row = await tx.contract.update({
-        where: { id: args.contractId },
+      // Claim atómico: la condición `depositStatus:'held'` va en el WHERE del
+      // UPDATE (no en un SELECT previo) — dos liquidaciones concurrentes de
+      // la misma fianza (doble clic, dos pestañas) solo dejan pasar a UNA; la
+      // otra ve `count:0` y recibe 409 en vez de pisar en silencio el importe
+      // ya liquidado (mismo patrón que `CollectionsService.completeDisposal`).
+      const claim = await tx.contract.updateMany({
+        where: { id: args.contractId, depositStatus: 'held' },
         data: {
           depositStatus: newStatus,
           depositReturnedAmount: returned,
@@ -1183,6 +1188,15 @@ export class ContractsService {
             ? (args.input.retentionReason?.trim() ?? null)
             : null,
         },
+      });
+      if (claim.count === 0) {
+        throw new ConflictException({
+          code: 'deposit_already_settled',
+          message: 'La fianza ya se ha liquidado (quizá desde otra pestaña)',
+        });
+      }
+      const row = await tx.contract.findUniqueOrThrow({
+        where: { id: args.contractId },
         include: {
           customer: {
             select: {
