@@ -85,6 +85,7 @@ export class AccessCredentialsController {
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(customerId ? { customerId } : {}),
       ...(parsedMethod ? { method: parsedMethod } : {}),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -92,7 +93,7 @@ export class AccessCredentialsController {
   @RequirePermission('access:read')
   @Get('night-passes')
   nightPasses(@CurrentUser() user: AuthenticatedUser): Promise<NightPassListDto> {
-    return this.service.listNightPasses(user.tenantId);
+    return this.service.listNightPasses(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('access:read')
@@ -101,7 +102,7 @@ export class AccessCredentialsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<AccessCredentialDto> {
-    return this.service.detail(user.tenantId, id);
+    return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post()
@@ -116,6 +117,7 @@ export class AccessCredentialsController {
       userId: user.sub,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -137,6 +139,7 @@ export class AccessCredentialsController {
       userId: user.sub,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -154,6 +157,7 @@ export class AccessCredentialsController {
       id,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -172,6 +176,7 @@ export class AccessCredentialsController {
       id,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 
@@ -190,6 +195,7 @@ export class AccessCredentialsController {
       id,
       input: body,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
     return row!;
   }
@@ -207,6 +213,7 @@ export class AccessCredentialsController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
     return row!;
   }
@@ -224,6 +231,7 @@ export class AccessCredentialsController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 }

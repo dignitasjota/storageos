@@ -1,6 +1,11 @@
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { accessWindowsFrom } from '@storageos/shared';
 
@@ -39,6 +44,8 @@ interface ListFilters {
   status?: AccessCredentialStatusValue;
   customerId?: string;
   method?: AccessMethodValue;
+  /** Permisos por local: si está, solo credenciales de clientes con contrato en esos locales. */
+  facilityScope?: string[] | null;
 }
 
 type CredentialWithCustomer = AccessCredential & {
@@ -216,6 +223,11 @@ export class AccessCredentialsService {
     if (filters.status) where.status = filters.status as AccessCredentialStatus;
     if (filters.method) where.method = filters.method as AccessMethod;
     if (filters.customerId) where.customerId = filters.customerId;
+    if (filters.facilityScope) {
+      where.customer = {
+        contracts: { some: { unit: { facilityId: { in: filters.facilityScope } } } },
+      };
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.accessCredential.findMany({
@@ -230,10 +242,19 @@ export class AccessCredentialsService {
   }
 
   /** Pases nocturnos del tenant (credenciales `metadata.source='night_pass'`) + ingresos. */
-  async listNightPasses(tenantId: string): Promise<NightPassListDto> {
+  async listNightPasses(
+    tenantId: string,
+    facilityScope?: string[] | null,
+  ): Promise<NightPassListDto> {
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.accessCredential.findMany({
-        where: { tenantId, metadata: { path: ['source'], equals: 'night_pass' } },
+        where: {
+          tenantId,
+          metadata: { path: ['source'], equals: 'night_pass' },
+          ...(facilityScope
+            ? { customer: { contracts: { some: { unit: { facilityId: { in: facilityScope } } } } } }
+            : {}),
+        },
         include: CUSTOMER_SELECT,
         orderBy: { createdAt: 'desc' },
         take: 500,
@@ -280,8 +301,12 @@ export class AccessCredentialsService {
     }, tenantId);
   }
 
-  async detail(tenantId: string, id: string): Promise<AccessCredentialDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id));
+  async detail(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<AccessCredentialDto> {
+    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
   }
 
   async create(args: {
@@ -289,8 +314,10 @@ export class AccessCredentialsService {
     userId: string;
     input: CreateCredentialInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialWithSecretDto> {
     const input = args.input;
+    await this.assertCustomerInScope(args.tenantId, input.customerId, args.facilityScope);
     let secretHash: string | null = null;
     let secretPreview: string | null = null;
     let rfidUid: string | null = null;
@@ -363,8 +390,10 @@ export class AccessCredentialsService {
     userId: string;
     input: CreateFacialCredentialInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialDto> {
     const input = args.input;
+    await this.assertCustomerInScope(args.tenantId, input.customerId, args.facilityScope);
     const scope =
       input.allowedFacilityIds || input.allowedUnitIds
         ? {
@@ -409,8 +438,9 @@ export class AccessCredentialsService {
     id: string;
     input: UpdateCredentialInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     const data: Prisma.AccessCredentialUncheckedUpdateInput = {};
     const input = args.input;
     if (input.label !== undefined) data.label = input.label?.trim() || null;
@@ -441,8 +471,9 @@ export class AccessCredentialsService {
     id: string;
     input: RotateCredentialInput;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialWithSecretDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.id);
+    const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     if (existing.status === ('revoked' as AccessCredentialStatus)) {
       throw new ConflictException({
         code: 'credential_revoked',
@@ -496,12 +527,21 @@ export class AccessCredentialsService {
     customerId?: string;
     input: SuspendCredentialInput;
     meta: RequestMeta;
+    /**
+     * Solo se aplica cuando se suspende por `id` (path HTTP del staff). El
+     * path por `customerId` lo usan integraciones internas (dunning) sin
+     * contexto de usuario, así que nunca llega con `facilityScope`.
+     */
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialDto[]> {
     if (!args.id && !args.customerId) {
       throw new ConflictException({
         code: 'suspend_target_required',
         message: 'Debes indicar id o customerId',
       });
+    }
+    if (args.id) {
+      await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     }
     const where: Prisma.AccessCredentialWhereInput = {
       status: 'active' as AccessCredentialStatus,
@@ -559,12 +599,17 @@ export class AccessCredentialsService {
      */
     onlyIfReasonStartsWith?: string;
     meta: RequestMeta;
+    /** Igual que en `suspend`: solo aplica cuando se reactiva por `id` (path HTTP). */
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialDto[]> {
     if (!args.id && !args.customerId) {
       throw new ConflictException({
         code: 'resume_target_required',
         message: 'Debes indicar id o customerId',
       });
+    }
+    if (args.id) {
+      await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     }
     const reasonPrefix = args.onlyIfReasonStartsWith;
     const filtered = reasonPrefix !== undefined;
@@ -619,8 +664,9 @@ export class AccessCredentialsService {
     userId: string;
     id: string;
     meta: RequestMeta;
+    facilityScope?: string[] | null;
   }): Promise<AccessCredentialDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.id);
+    const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
     if (existing.status === ('revoked' as AccessCredentialStatus)) {
       throw new ConflictException({
         code: 'credential_already_revoked',
@@ -885,7 +931,11 @@ export class AccessCredentialsService {
     };
   }
 
-  private async findOrThrow(tenantId: string, id: string): Promise<CredentialWithCustomer> {
+  private async findOrThrow(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<CredentialWithCustomer> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.accessCredential.findFirst({
@@ -900,7 +950,38 @@ export class AccessCredentialsService {
         message: 'Credencial no encontrada',
       });
     }
+    await this.assertCustomerInScope(tenantId, row.customerId, facilityScope);
     return row as CredentialWithCustomer;
+  }
+
+  /**
+   * ¿El staff (con `facilityScope`) puede gestionar credenciales de este
+   * cliente? Una credencial no tiene un `facilityId` propio (puede abarcar
+   * varios locales vía `allowedFacilityIds`, que además suele venir VACÍO =
+   * sin restricción física, ver `checkFacility` en access-verify) → el scope
+   * se resuelve por los locales de los CONTRATOS del cliente, el mismo
+   * criterio que ya usa `customerScope` al emitir credenciales automáticas.
+   */
+  private async assertCustomerInScope(
+    tenantId: string,
+    customerId: string,
+    facilityScope: string[] | null | undefined,
+  ): Promise<void> {
+    if (!facilityScope) return;
+    const contract = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findFirst({
+          where: { customerId, unit: { facilityId: { in: facilityScope } } },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    if (!contract) {
+      throw new ForbiddenException({
+        code: 'facility_not_in_scope',
+        message: 'No tienes acceso a ese local',
+      });
+    }
   }
 
   private async writeAudit(

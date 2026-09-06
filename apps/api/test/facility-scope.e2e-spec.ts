@@ -182,4 +182,133 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const ownerInvoiceIds = (ownerInvoices.body as { id: string }[]).map((i) => i.id);
     expect(ownerInvoiceIds).toEqual(expect.arrayContaining([invA, invB]));
   });
+
+  it('un manager restringido a un local no ve ni gestiona credenciales de acceso de otro local', async () => {
+    const owner = await registerVerifiedUser(app, 'facscopeacc');
+    const ownerAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const facA = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local A',
+      typeName: 'Tipo A',
+      unitsCount: 1,
+    });
+    const facB = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local B',
+      typeName: 'Tipo B',
+      unitsCount: 1,
+    });
+    const custA = await createCustomer(app, owner.accessToken);
+    const custB = await createCustomer(app, owner.accessToken);
+    // Contrato en cada local — el scope de una credencial se resuelve por el
+    // local del contrato del cliente (las credenciales no tienen facilityId propio).
+    await request(app.getHttpServer()).post('/contracts').set(ownerAuth).send({
+      customerId: custA,
+      unitId: facA.unitIds[0]!,
+      startDate: '2026-05-01',
+      priceMonthly: 50,
+      depositAmount: 0,
+    });
+    await request(app.getHttpServer()).post('/contracts').set(ownerAuth).send({
+      customerId: custB,
+      unitId: facB.unitIds[0]!,
+      startDate: '2026-05-01',
+      priceMonthly: 50,
+      depositAmount: 0,
+    });
+
+    const credA = await request(app.getHttpServer())
+      .post('/access/credentials')
+      .set(ownerAuth)
+      .send({ customerId: custA, method: 'pin' });
+    expect(credA.status).toBe(201);
+    const credB = await request(app.getHttpServer())
+      .post('/access/credentials')
+      .set(ownerAuth)
+      .send({ customerId: custB, method: 'pin' });
+    expect(credB.status).toBe(201);
+
+    // Invitar a un MANAGER (tiene access:manage) y restringirlo al local A.
+    const email = `fs-manager-${Date.now()}@e2e.local`;
+    const password = 'Passw0rd!';
+    await request(app.getHttpServer())
+      .post('/invitations')
+      .set(ownerAuth)
+      .send({ email, role: 'manager' })
+      .expect(201);
+    const mail = await waitForEmail(email, { subjectIncludes: 'invitado' });
+    const inviteToken = extractToken(mail.Text, '/invite');
+    await request(app.getHttpServer())
+      .post(`/invitations/token/${inviteToken}/accept`)
+      .send({ fullName: 'Manager Scoped', password })
+      .expect(200);
+    const users = await request(app.getHttpServer()).get('/users').set(ownerAuth);
+    const manager = (users.body as { id: string; email: string }[]).find((u) => u.email === email);
+    expect(manager).toBeDefined();
+    await request(app.getHttpServer())
+      .patch(`/settings/users/${manager!.id}/facilities`)
+      .set(ownerAuth)
+      .send({ facilityIds: [facA.facilityId] })
+      .expect(204);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: owner.slug, email, password });
+    expect(login.status).toBe(200);
+    const mgrAuth = { Authorization: `Bearer ${login.body.accessToken}` };
+
+    // list() filtra por el scope: solo ve la credencial de A.
+    const list = await request(app.getHttpServer()).get('/access/credentials').set(mgrAuth);
+    const listIds = (list.body as { id: string }[]).map((c) => c.id);
+    expect(listIds).toContain(credA.body.id);
+    expect(listIds).not.toContain(credB.body.id);
+
+    // detail/update/rotate/suspend/resume/revoke por id → 403 fuera de scope.
+    const detailB = await request(app.getHttpServer())
+      .get(`/access/credentials/${credB.body.id}`)
+      .set(mgrAuth);
+    expect(detailB.status).toBe(403);
+    expect(detailB.body.code).toBe('facility_not_in_scope');
+
+    const updateB = await request(app.getHttpServer())
+      .patch(`/access/credentials/${credB.body.id}`)
+      .set(mgrAuth)
+      .send({ label: 'hackeado' });
+    expect(updateB.status).toBe(403);
+
+    const rotateB = await request(app.getHttpServer())
+      .post(`/access/credentials/${credB.body.id}/rotate`)
+      .set(mgrAuth)
+      .send({});
+    expect(rotateB.status).toBe(403);
+
+    const suspendB = await request(app.getHttpServer())
+      .post(`/access/credentials/${credB.body.id}/suspend`)
+      .set(mgrAuth)
+      .send({ reason: 'x' });
+    expect(suspendB.status).toBe(403);
+
+    const revokeB = await request(app.getHttpServer())
+      .post(`/access/credentials/${credB.body.id}/revoke`)
+      .set(mgrAuth);
+    expect(revokeB.status).toBe(403);
+
+    // Crear una credencial para un cliente de FUERA de scope → 403 (antes de tocar BD).
+    const createForB = await request(app.getHttpServer())
+      .post('/access/credentials')
+      .set(mgrAuth)
+      .send({ customerId: custB, method: 'pin' });
+    expect(createForB.status).toBe(403);
+    expect(createForB.body.code).toBe('facility_not_in_scope');
+
+    // La credencial de SU local (A) sí la gestiona.
+    const suspendA = await request(app.getHttpServer())
+      .post(`/access/credentials/${credA.body.id}/suspend`)
+      .set(mgrAuth)
+      .send({ reason: 'revisión' });
+    expect(suspendA.status).toBe(200);
+
+    // El owner sigue viendo ambas credenciales.
+    const ownerList = await request(app.getHttpServer()).get('/access/credentials').set(ownerAuth);
+    const ownerIds = (ownerList.body as { id: string }[]).map((c) => c.id);
+    expect(ownerIds).toEqual(expect.arrayContaining([credA.body.id, credB.body.id]));
+  });
 });
