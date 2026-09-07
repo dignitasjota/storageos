@@ -562,4 +562,160 @@ describe('Permisos por local (facility scope) (e2e)', () => {
     const ownerList = await request(app.getHttpServer()).get('/inventory/issues').set(ownerAuth);
     expect(ownerList.body).toHaveLength(2);
   });
+
+  it('un manager restringido a un local no ve ni gestiona subidas de precio (ECRI) de otro local ni tenant-wide', async () => {
+    const owner = await registerVerifiedUser(app, 'facscopeecri');
+    const ownerAuth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const facA = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local A',
+      typeName: 'Tipo A',
+      unitsCount: 1,
+      pricePerUnit: 50,
+    });
+    const facB = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local B',
+      typeName: 'Tipo B',
+      unitsCount: 1,
+      pricePerUnit: 50,
+    });
+    // Sin email: al crear la tanda ECRI se evita el aviso por correo al
+    // inquilino (best-effort, `if (!a.customerEmail) continue`) — así el
+    // envío no compite por la misma conexión SMTP del test con la invitación
+    // del manager que se envía justo después.
+    const custA = await createCustomer(app, owner.accessToken, { email: '' });
+    const custB = await createCustomer(app, owner.accessToken, { email: '' });
+
+    const admin = app.get(PrismaAdminService);
+    const mkSignedContract = async (unitId: string, customerId: string): Promise<void> => {
+      const c = await request(app.getHttpServer()).post('/contracts').set(ownerAuth).send({
+        customerId,
+        unitId,
+        startDate: '2020-01-01',
+        priceMonthly: 50,
+      });
+      expect(c.status).toBe(201);
+      // Contrato activo y firmado (mismo patrón que el test de retención): se
+      // fuerza el estado directo, sin pasar por el endpoint /sign.
+      await admin.contract.update({
+        where: { id: c.body.id as string },
+        data: { status: 'active', signedAt: new Date() },
+      });
+    };
+    await mkSignedContract(facA.unitIds[0]!, custA);
+    await mkSignedContract(facB.unitIds[0]!, custB);
+
+    // Tanda tenant-wide (sin facilityId) y tanda por local, ambas creadas por el owner.
+    const batchWide = await request(app.getHttpServer())
+      .post('/rent-increases')
+      .set(ownerAuth)
+      .send({
+        name: 'Subida general',
+        increaseType: 'percentage',
+        increaseValue: 5,
+        scope: { minMonthsSinceSigned: 0 },
+        effectiveDate: '2027-01-01',
+      });
+    expect(batchWide.status).toBe(201);
+    const batchB = await request(app.getHttpServer())
+      .post('/rent-increases')
+      .set(ownerAuth)
+      .send({
+        name: 'Subida Local B',
+        increaseType: 'percentage',
+        increaseValue: 5,
+        scope: { minMonthsSinceSigned: 0, facilityId: facB.facilityId },
+        effectiveDate: '2027-01-01',
+      });
+    expect(batchB.status).toBe(201);
+
+    // Invitar a un MANAGER (contracts:manage) y restringirlo al local A.
+    const email = `fs-ecri-manager-${Date.now()}@e2e.local`;
+    const password = 'Passw0rd!';
+    await request(app.getHttpServer())
+      .post('/invitations')
+      .set(ownerAuth)
+      .send({ email, role: 'manager' })
+      .expect(201);
+    const mail = await waitForEmail(email, { subjectIncludes: 'invitado' });
+    const inviteToken = extractToken(mail.Text, '/invite');
+    await request(app.getHttpServer())
+      .post(`/invitations/token/${inviteToken}/accept`)
+      .send({ fullName: 'Manager ECRI', password })
+      .expect(200);
+    const users = await request(app.getHttpServer()).get('/users').set(ownerAuth);
+    const manager = (users.body as { id: string; email: string }[]).find((u) => u.email === email);
+    await request(app.getHttpServer())
+      .patch(`/settings/users/${manager!.id}/facilities`)
+      .set(ownerAuth)
+      .send({ facilityIds: [facA.facilityId] })
+      .expect(204);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: owner.slug, email, password });
+    const mgrAuth = { Authorization: `Bearer ${login.body.accessToken}` };
+
+    // No ve ninguna de las dos tandas ajenas en la lista.
+    const list = await request(app.getHttpServer()).get('/rent-increases').set(mgrAuth);
+    const listIds = (list.body as { id: string }[]).map((r) => r.id);
+    expect(listIds).not.toContain(batchWide.body.id);
+    expect(listIds).not.toContain(batchB.body.id);
+
+    // No puede ver el detalle, aplicar ni cancelar la tenant-wide ni la de B.
+    for (const batchId of [batchWide.body.id, batchB.body.id]) {
+      const detail = await request(app.getHttpServer())
+        .get(`/rent-increases/${batchId}`)
+        .set(mgrAuth);
+      expect(detail.status).toBe(403);
+      expect(detail.body.code).toBe('facility_not_in_scope');
+
+      const apply = await request(app.getHttpServer())
+        .post(`/rent-increases/${batchId}/apply`)
+        .set(mgrAuth);
+      expect(apply.status).toBe(403);
+
+      const cancel = await request(app.getHttpServer())
+        .post(`/rent-increases/${batchId}/cancel`)
+        .set(mgrAuth);
+      expect(cancel.status).toBe(403);
+    }
+
+    // No puede previsualizar ni crear una tanda sin facilityId (tenant-wide)
+    // ni sobre el local B.
+    const previewWide = await request(app.getHttpServer())
+      .post('/rent-increases/preview')
+      .set(mgrAuth)
+      .send({ increaseType: 'percentage', increaseValue: 5, scope: { minMonthsSinceSigned: 0 } });
+    expect(previewWide.status).toBe(403);
+
+    const createForB = await request(app.getHttpServer())
+      .post('/rent-increases')
+      .set(mgrAuth)
+      .send({
+        name: 'Intento sobre B',
+        increaseType: 'percentage',
+        increaseValue: 5,
+        scope: { minMonthsSinceSigned: 0, facilityId: facB.facilityId },
+        effectiveDate: '2027-01-01',
+      });
+    expect(createForB.status).toBe(403);
+    expect(createForB.body.code).toBe('facility_not_in_scope');
+
+    // Sí puede crear/previsualizar una tanda acotada a SU local (A).
+    const createA = await request(app.getHttpServer())
+      .post('/rent-increases')
+      .set(mgrAuth)
+      .send({
+        name: 'Subida Local A',
+        increaseType: 'percentage',
+        increaseValue: 5,
+        scope: { minMonthsSinceSigned: 0, facilityId: facA.facilityId },
+        effectiveDate: '2027-01-01',
+      });
+    expect(createA.status).toBe(201);
+    const detailA = await request(app.getHttpServer())
+      .get(`/rent-increases/${createA.body.id}`)
+      .set(mgrAuth);
+    expect(detailA.status).toBe(200);
+  });
 });
