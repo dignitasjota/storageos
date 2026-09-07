@@ -35,6 +35,15 @@ export class ProductStockService {
   /**
    * Suma `delta` (positivo o negativo) al stock en la facility. Crea la
    * fila si no existe (solo si quedara con quantity >= 0).
+   *
+   * Atómico: antes leía `quantity` y escribía `currentQty + delta` en dos
+   * pasos — dos ajustes concurrentes sobre la MISMA fila (dos miembros del
+   * staff a la vez) leían el mismo valor de partida y el segundo pisaba el
+   * resultado del primero (lost update), pudiendo además saltarse el guard
+   * `insufficient_stock` en una carrera de dos decrementos. Ahora reutiliza
+   * los mismos helpers atómicos (`decrement`/`increment` de Prisma, UPDATE
+   * condicional en SQL) que ya usa `decrementInTx`/`restoreInTx` para las
+   * ventas — sin lectura previa del valor a modificar.
    */
   async adjust(args: {
     tenantId: string;
@@ -43,37 +52,38 @@ export class ProductStockService {
     input: AdjustStockInput;
     meta: RequestMeta;
   }): Promise<ProductStockDto> {
-    await this.assertProductExists(args.tenantId, args.productId);
+    const product = await this.assertProductExists(args.tenantId, args.productId);
     const updated = await this.prisma.withTenant(async (tx) => {
-      const existing = await tx.productStock.findUnique({
+      if (args.input.delta < 0) {
+        await this.decrementInTx(tx, {
+          productId: args.productId,
+          facilityId: args.input.facilityId,
+          quantity: -args.input.delta,
+          productName: product.name,
+        });
+      } else {
+        await tx.productStock.upsert({
+          where: {
+            productId_facilityId: {
+              productId: args.productId,
+              facilityId: args.input.facilityId,
+            },
+          },
+          create: {
+            tenantId: args.tenantId,
+            productId: args.productId,
+            facilityId: args.input.facilityId,
+            quantity: args.input.delta,
+          },
+          update: { quantity: { increment: args.input.delta } },
+        });
+      }
+      return tx.productStock.findUniqueOrThrow({
         where: {
           productId_facilityId: {
             productId: args.productId,
             facilityId: args.input.facilityId,
           },
-        },
-      });
-      const currentQty = existing?.quantity ?? 0;
-      const newQty = currentQty + args.input.delta;
-      if (newQty < 0) {
-        throw new ConflictException({
-          code: 'insufficient_stock',
-          message: 'No hay suficiente stock para aplicar el ajuste',
-        });
-      }
-      if (existing) {
-        return tx.productStock.update({
-          where: { id: existing.id },
-          data: { quantity: newQty },
-          include: { facility: { select: { name: true } } },
-        });
-      }
-      return tx.productStock.create({
-        data: {
-          tenantId: args.tenantId,
-          productId: args.productId,
-          facilityId: args.input.facilityId,
-          quantity: newQty,
         },
         include: { facility: { select: { name: true } } },
       });
@@ -194,12 +204,15 @@ export class ProductStockService {
     });
   }
 
-  private async assertProductExists(tenantId: string, productId: string): Promise<void> {
+  private async assertProductExists(
+    tenantId: string,
+    productId: string,
+  ): Promise<{ id: string; name: string }> {
     const product = await this.prisma.withTenant(
       (tx) =>
         tx.product.findFirst({
           where: { id: productId, deletedAt: null },
-          select: { id: true },
+          select: { id: true, name: true },
         }),
       tenantId,
     );
@@ -209,6 +222,7 @@ export class ProductStockService {
         message: 'Producto no encontrado',
       });
     }
+    return product;
   }
 
   private toDto(row: StockWithRelations): ProductStockDto {

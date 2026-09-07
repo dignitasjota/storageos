@@ -153,6 +153,64 @@ describe('Fase 6: tasks + incidents + products + analytics + reports (e2e)', () 
     expect(adj.body.quantity).toBe(8);
   });
 
+  it('stock/adjust: dos ajustes CONCURRENTES sobre la misma fila no se pisan (sin lost update)', async () => {
+    const owner = await registerVerifiedUser(app, 'prod-stock-race');
+    const facility = await request(app.getHttpServer())
+      .post('/facilities')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Local Race' });
+    const prod = await request(app.getHttpServer())
+      .post('/products')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ sku: 'RACE_1', name: 'Race 1', type: 'other', price: 1 });
+
+    await request(app.getHttpServer())
+      .put(`/products/${prod.body.id}/stock`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ facilityId: facility.body.id, quantity: 10 });
+
+    // Dos incrementos de +5 A LA VEZ: sin atomicidad, ambos leerían 10 y
+    // escribirían 15 (lost update) → resultado final 20 si es correcto.
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await Promise.all([
+      request(app.getHttpServer())
+        .post(`/products/${prod.body.id}/stock/adjust`)
+        .set(auth)
+        .send({ facilityId: facility.body.id, delta: 5 }),
+      request(app.getHttpServer())
+        .post(`/products/${prod.body.id}/stock/adjust`)
+        .set(auth)
+        .send({ facilityId: facility.body.id, delta: 5 }),
+    ]);
+
+    const stockAfter = await request(app.getHttpServer())
+      .get(`/products/${prod.body.id}/stock`)
+      .set(auth);
+    expect(stockAfter.body[0].quantity).toBe(20);
+
+    // Dos decrementos de -6 A LA VEZ sobre un stock de 20: solo uno debe
+    // poder completarse hasta agotar +/- lo disponible sin overselling. El
+    // resultado final nunca puede ser negativo ni menor de lo que permiten
+    // dos decrementos válidos (20-6-6=8); si hubiera lost update podría
+    // acabar en 14 (uno de los dos decrementos "perdido").
+    const [d1, d2] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/products/${prod.body.id}/stock/adjust`)
+        .set(auth)
+        .send({ facilityId: facility.body.id, delta: -6 }),
+      request(app.getHttpServer())
+        .post(`/products/${prod.body.id}/stock/adjust`)
+        .set(auth)
+        .send({ facilityId: facility.body.id, delta: -6 }),
+    ]);
+    expect(d1.status).toBeLessThan(300);
+    expect(d2.status).toBeLessThan(300);
+    const stockFinal = await request(app.getHttpServer())
+      .get(`/products/${prod.body.id}/stock`)
+      .set(auth);
+    expect(stockFinal.body[0].quantity).toBe(8);
+  });
+
   it('product sale crea invoice cuando hay customer, decrementa stock', async () => {
     const owner = await registerVerifiedUser(app, 'prod-sale');
     const facility = await request(app.getHttpServer())
