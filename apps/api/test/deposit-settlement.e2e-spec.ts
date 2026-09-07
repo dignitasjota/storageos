@@ -141,11 +141,28 @@ describe('Liquidación de fianza (e2e)', () => {
         .send({ returnedAmount: 40, retentionReason: 'Daños' }),
     ]);
 
-    const winner = first.status !== 409 ? first : second;
-    const loser = first.status !== 409 ? second : first;
-    expect(winner.status).toBe(200);
-    expect(loser.status).toBe(409);
-    expect(loser.body.code).toBe('deposit_already_settled');
+    // EXACTAMENTE una gana (200). La perdedora la rechaza el claim atómico
+    // (409 `deposit_already_settled`, si ambas pasaron el chequeo previo
+    // `depositStatus==='held'` antes de que cualquiera comprometiera) O el
+    // propio chequeo previo (400 `deposit_not_held`, si la transacción
+    // ganadora ya había comprometido — cambiando `depositStatus` — antes de
+    // que la perdedora llegara siquiera a leerlo). Cuál de las dos rutas
+    // atrapa a la perdedora depende del solape exacto entre las dos
+    // peticiones (no determinista entre entornos/CI); ambas son correctas:
+    // ninguna pisa el resultado de la otra en silencio.
+    const results = [first, second];
+    const winners = results.filter((r) => r.status === 200);
+    const losers = results.filter((r) => r.status !== 200);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+    const winner = winners[0]!;
+    const loser = losers[0]!;
+    expect([400, 409]).toContain(loser.status);
+    if (loser.status === 409) {
+      expect(loser.body.code).toBe('deposit_already_settled');
+    } else {
+      expect(loser.body.code).toBe('deposit_not_held');
+    }
 
     // El estado final refleja EXACTAMENTE lo que ganó — nunca un pisado silencioso.
     const detail = await request(app.getHttpServer()).get(`/contracts/${contractId}`).set(auth);
