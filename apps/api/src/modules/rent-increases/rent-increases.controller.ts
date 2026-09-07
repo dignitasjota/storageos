@@ -40,7 +40,7 @@ export class RentIncreasesController {
   @RequirePermission('contracts:read')
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<RentIncreaseDto[]> {
-    return this.service.list(user.tenantId);
+    return this.service.list(user.tenantId, user.facilityScope ?? null);
   }
 
   /** Política de subidas (tope % anual + meses mínimos entre subidas). Antes de `:id`. */
@@ -65,7 +65,7 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<RentIncreaseDto> {
-    return this.service.detail(user.tenantId, id);
+    return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   /** Previsualiza los contratos afectados y el delta de MRR (sin persistir). */
@@ -76,7 +76,7 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: PreviewRentIncreaseDto,
   ): Promise<RentIncreasePreviewDto> {
-    return this.service.preview(user.tenantId, body);
+    return this.service.preview(user.tenantId, body, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:manage')
@@ -85,7 +85,12 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateRentIncreaseDto,
   ): Promise<RentIncreaseDto> {
-    return this.service.create({ tenantId: user.tenantId, userId: user.sub, input: body });
+    return this.service.create({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('contracts:manage')
@@ -95,7 +100,7 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<RentIncreaseDto> {
-    return this.service.apply(user.tenantId, id);
+    return this.service.apply(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('contracts:manage')
@@ -105,6 +110,6 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<RentIncreaseDto> {
-    return this.service.cancel(user.tenantId, id);
+    return this.service.cancel(user.tenantId, id, user.facilityScope ?? null);
   }
 }

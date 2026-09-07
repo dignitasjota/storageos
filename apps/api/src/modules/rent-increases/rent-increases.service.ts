@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -84,6 +90,26 @@ export class RentIncreasesService {
     return round2(next);
   }
 
+  /**
+   * ¿El staff (con `facilityScope`) puede operar sobre una tanda con este
+   * `scope`? Una tanda cuyo `scope.facilityId` está VACÍO afecta a contratos
+   * de CUALQUIER local (tenant-wide) — para un usuario restringido a ciertos
+   * locales eso incluye locales fuera de su alcance, así que queda fuera por
+   * completo (no solo "distinto local", sino "no se sabe si toca el suyo").
+   */
+  private assertScopeInFacility(
+    facilityScope: string[] | null | undefined,
+    scope: { facilityId?: string | undefined },
+  ): void {
+    if (!facilityScope) return;
+    if (!scope.facilityId || !facilityScope.includes(scope.facilityId)) {
+      throw new ForbiddenException({
+        code: 'facility_not_in_scope',
+        message: 'No tienes acceso a ese local',
+      });
+    }
+  }
+
   /** Contratos active/ending que cumplen el scope, con su precio nuevo. */
   private async resolveAffected(
     tenantId: string,
@@ -163,7 +189,9 @@ export class RentIncreasesService {
   async preview(
     tenantId: string,
     input: PreviewRentIncreaseInput,
+    facilityScope?: string[] | null,
   ): Promise<RentIncreasePreviewDto> {
+    this.assertScopeInFacility(facilityScope, input.scope);
     const affected = await this.resolveAffected(
       tenantId,
       input.scope,
@@ -186,8 +214,10 @@ export class RentIncreasesService {
     tenantId: string;
     userId: string;
     input: CreateRentIncreaseInput;
+    facilityScope?: string[] | null;
   }): Promise<RentIncreaseDto> {
     const { tenantId, input } = args;
+    this.assertScopeInFacility(args.facilityScope, input.scope);
     const affected = await this.resolveAffected(
       tenantId,
       input.scope,
@@ -274,8 +304,12 @@ export class RentIncreasesService {
   }
 
   /** Aplica una tanda: sube el precio de cada contrato pendiente. Idempotente. */
-  async apply(tenantId: string, id: string): Promise<RentIncreaseDto> {
-    const increase = await this.findRow(tenantId, id);
+  async apply(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<RentIncreaseDto> {
+    const increase = await this.findRow(tenantId, id, facilityScope);
     if (increase.status === 'cancelled') {
       throw new BadRequestException({
         code: 'rent_increase_cancelled',
@@ -333,8 +367,12 @@ export class RentIncreasesService {
     return this.detail(tenantId, id);
   }
 
-  async cancel(tenantId: string, id: string): Promise<RentIncreaseDto> {
-    const increase = await this.findRow(tenantId, id);
+  async cancel(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<RentIncreaseDto> {
+    const increase = await this.findRow(tenantId, id, facilityScope);
     if (increase.status !== 'scheduled') {
       throw new BadRequestException({
         code: 'rent_increase_not_cancellable',
@@ -369,15 +407,25 @@ export class RentIncreasesService {
     return { applied };
   }
 
-  async list(tenantId: string): Promise<RentIncreaseDto[]> {
+  async list(tenantId: string, facilityScope?: string[] | null): Promise<RentIncreaseDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) => tx.rentIncrease.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } }),
       tenantId,
     );
-    return rows.map((r) => this.toDto(r));
+    const visible = facilityScope
+      ? rows.filter((r) => {
+          const scope = (r.scope as RentIncreaseScopeInput | null) ?? null;
+          return !!scope?.facilityId && facilityScope.includes(scope.facilityId);
+        })
+      : rows;
+    return visible.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<RentIncreaseDto> {
+  async detail(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<RentIncreaseDto> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.rentIncrease.findFirst({
@@ -412,6 +460,7 @@ export class RentIncreasesService {
         message: 'Tanda no encontrada',
       });
     }
+    this.assertScopeInFacility(facilityScope, (row.scope as RentIncreaseScopeInput | null) ?? {});
     const items: RentIncreaseItemDto[] = row.items.map((it) => ({
       id: it.id,
       contractId: it.contractId,
@@ -427,7 +476,11 @@ export class RentIncreasesService {
     return { ...this.toDto(row), items };
   }
 
-  private async findRow(tenantId: string, id: string): Promise<RentIncreaseRow> {
+  private async findRow(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<RentIncreaseRow> {
     const row = await this.prisma.withTenant(
       (tx) => tx.rentIncrease.findFirst({ where: { id, tenantId } }),
       tenantId,
@@ -438,6 +491,7 @@ export class RentIncreasesService {
         message: 'Tanda no encontrada',
       });
     }
+    this.assertScopeInFacility(facilityScope, (row.scope as RentIncreaseScopeInput | null) ?? {});
     return row;
   }
 
