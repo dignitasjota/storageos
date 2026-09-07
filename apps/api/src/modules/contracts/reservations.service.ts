@@ -219,27 +219,45 @@ export class ReservationsService {
     this.assertTransition(existing.status, 'confirmed');
 
     const updated = await this.prisma.withTenant(async (tx) => {
-      const row = await tx.reservation.update({
-        where: { id: args.reservationId },
-        data: { status: 'confirmed' },
-        include: {
-          unit: {
-            select: {
-              code: true,
-              facilityId: true,
-              facility: { select: { name: true } },
+      let row;
+      try {
+        row = await tx.reservation.update({
+          where: { id: args.reservationId },
+          data: { status: 'confirmed' },
+          include: {
+            unit: {
+              select: {
+                code: true,
+                facilityId: true,
+                facility: { select: { name: true } },
+              },
+            },
+            customer: {
+              select: {
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                customerType: true,
+              },
             },
           },
-          customer: {
-            select: {
-              firstName: true,
-              lastName: true,
-              companyName: true,
-              customerType: true,
-            },
-          },
-        },
-      });
+        });
+      } catch (err) {
+        // El EXCLUDE gist de `reservations_no_overlap_exclude` (pending/
+        // confirmed) también se revalida en este UPDATE, no solo en el
+        // INSERT de `create()` — por construcción no debería poder saltar
+        // aquí (dos reservas pending/confirmed del mismo unit ya no pueden
+        // solaparse desde que se crearon), pero si alguna vez lo hiciera
+        // (p. ej. una fila creada por otra vía que sortee `create()`), que
+        // dé el mismo 409 claro en vez de un 500 crudo.
+        if (this.isExcludeViolation(err)) {
+          throw new ConflictException({
+            code: 'reservation_overlap',
+            message: 'Ya existe una reserva activa que solapa con este rango',
+          });
+        }
+        throw err;
+      }
       // Marcar la unit como reserved si estaba available.
       const unit = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
       if (unit.status === 'available') {
