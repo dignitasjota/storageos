@@ -33,6 +33,17 @@ function verifyMetaSignature(raw: Buffer, header: string | undefined, appSecret:
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Compara dos strings en tiempo constante (evita filtrar por timing cuánto
+ *  del token coincide, aunque aquí el "secreto" es de baja entropía y de un
+ *  solo uso en la config del webhook — defensa en profundidad, coherente con
+ *  el resto de comparaciones de secretos del proyecto). */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 interface WabaTextMessage {
   from?: string;
   type?: string;
@@ -61,7 +72,7 @@ export class WhatsAppInboundController {
     @Query('hub.challenge') challenge?: string,
   ): string {
     const expected = this.config.get('WHATSAPP_VERIFY_TOKEN', { infer: true });
-    if (mode === 'subscribe' && token && expected && token === expected) {
+    if (mode === 'subscribe' && token && expected && timingSafeEqualString(token, expected)) {
       return challenge ?? '';
     }
     throw new ForbiddenException('verification_failed');
