@@ -269,12 +269,16 @@ jobs:
 
       # MinIO oficial vía docker run (control del command). FilesService crea
       # los buckets al arrancar la app, así que solo necesita estar accesible.
+      # Imagen desde quay.io (no Docker Hub): Docker Hub dejó de servir/
+      # actualizar `minio/minio` y el pull anónimo empezó a devolver "pull
+      # access denied" en los runners de GitHub Actions — quay.io/minio/minio
+      # es el registro oficial de MinIO, sin ese límite.
       - name: Start MinIO
         run: |
           docker run -d --name minio -p 9010:9000 \
             -e MINIO_ROOT_USER=ci-minio-access \
             -e MINIO_ROOT_PASSWORD=ci-minio-secret-dev-only \
-            minio/minio:latest server /data
+            quay.io/minio/minio:latest server /data
           for i in $(seq 1 30); do
             if curl -fs http://localhost:9010/minio/health/live >/dev/null 2>&1; then
               echo "MinIO up"; exit 0
