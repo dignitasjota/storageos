@@ -18,6 +18,9 @@ import { PlatformDunningCron } from './platform-dunning.cron';
 import { PlatformDunningService } from './platform-dunning.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
+import { PlatformSepaSettingsService } from './platform-sepa/platform-sepa-settings.service';
+import { PlatformSepaController } from './platform-sepa/platform-sepa.controller';
 import { SaasAddonsController } from './saas-addons.controller';
 import { SaasAddonsService } from './saas-addons.service';
 import { SubscriptionPlansController } from './subscription-plans.controller';
@@ -63,6 +66,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformInvoicesController,
     PlatformDunningController,
     PlatformCouponsController,
+    PlatformSepaController,
   ],
   providers: [
     BillingSaasService,
@@ -72,6 +76,8 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformCouponsService,
     PlatformDunningService,
     PlatformDunningCron,
+    PlatformSepaSettingsService,
+    PlatformSepaMandateService,
     AdminGuard,
     // Auditoría del super admin sobre el catálogo de add-ons/planes. Solo
     // depende de PrismaAdminService (DatabaseModule es @Global), así que se
@@ -86,6 +92,8 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformInvoicesService,
     PlatformDunningService,
     PlatformCouponsService,
+    PlatformSepaSettingsService,
+    PlatformSepaMandateService,
   ],
 })
 export class BillingSaasModule {}

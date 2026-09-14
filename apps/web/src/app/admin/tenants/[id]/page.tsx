@@ -13,7 +13,7 @@ import {
 } from '@storageos/shared';
 import { Loader2, Mail, MoreVertical, Pencil } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -79,6 +79,8 @@ import {
   useExtendTrial,
   useEndTrial,
   useSetBillingExempt,
+  useAdminTenantSepaMandate,
+  useSetBillingMode,
   useSwitchToManualBilling,
   useImpersonateTenant,
   useReactivateTenant,
@@ -263,14 +265,20 @@ export default function AdminTenantDetailPage() {
                       value={t.subscription.stripeSubscriptionId ?? '—'}
                       mono
                     />
+                    <Row
+                      label="Modo de cobro"
+                      value={
+                        <Badge variant="outline">
+                          {BILLING_MODE_LABELS[t.subscription.billingMode] ??
+                            t.subscription.billingMode}
+                        </Badge>
+                      }
+                    />
                     <ChangePlanControl
                       tenantId={id}
                       currentSlug={t.subscription.planSlug ?? null}
                     />
-                    {/* Pasar de Stripe a pago manual: solo si hoy cobra por Stripe. */}
-                    {t.subscription.stripeSubscriptionId && (
-                      <SwitchToManualControl tenantId={id} />
-                    )}
+                    <BillingModeControl tenantId={id} billingMode={t.subscription.billingMode} />
                   </>
                 ) : (
                   <p className="text-muted-foreground">Sin suscripción activa.</p>
@@ -387,7 +395,7 @@ export default function AdminTenantDetailPage() {
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
@@ -921,50 +929,94 @@ function AnonymizeDialog({
 // implicita a traves del dialog; la mantenemos como documentacion.
 void IMPERSONATION_KEY;
 
-/** Selector inline para cambiar el plan de suscripción del tenant. */
-function SwitchToManualControl({ tenantId }: { tenantId: string }) {
-  const switchMutation = useSwitchToManualBilling();
-  const [open, setOpen] = useState(false);
+const BILLING_MODE_LABELS: Record<string, string> = {
+  stripe: 'Stripe',
+  manual: 'Manual',
+  sepa: 'SEPA (BBVA)',
+};
+
+/**
+ * Modo de cobro de la suscripción + estado del mandato SEPA + los dos
+ * destinos posibles ('manual'/'sepa'; a 'stripe' solo se llega vía Checkout
+ * del propio tenant, nunca desde aquí). Sustituye al antiguo
+ * `SwitchToManualControl` (ahora generalizado: «pasar a manual» funciona
+ * igual viniendo de Stripe o de SEPA).
+ */
+function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billingMode: string }) {
+  const mandate = useAdminTenantSepaMandate(tenantId);
+  const switchToManual = useSwitchToManualBilling();
+  const setSepa = useSetBillingMode();
+  const [confirmMode, setConfirmMode] = useState<'manual' | 'sepa' | null>(null);
+  const hasMandate = mandate.data !== null && mandate.data !== undefined;
+
   async function confirm() {
+    if (!confirmMode) return;
     try {
-      await switchMutation.mutateAsync(tenantId);
-      toast.success('Suscripción pasada a pago manual. Stripe deja de cobrar.');
-      setOpen(false);
+      if (confirmMode === 'manual') {
+        await switchToManual.mutateAsync(tenantId);
+      } else {
+        await setSepa.mutateAsync({ id: tenantId, mode: 'sepa' });
+      }
+      toast.success(
+        confirmMode === 'manual'
+          ? 'Suscripción pasada a pago manual.'
+          : 'Suscripción pasada a SEPA.',
+      );
+      setConfirmMode(null);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
   }
+  const pending = switchToManual.isPending || setSepa.isPending;
+
   return (
-    <div className="border-t pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-medium">Cobro por Stripe</p>
-          <p className="text-xs text-muted-foreground">
-            Cancela la suscripción en Stripe (deja de cobrar) y pasa a cobro manual
-            (transferencia/efectivo), conservando el periodo ya pagado.
-          </p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
-          Pasar a pago manual
-        </Button>
+    <div className="space-y-2 border-t pt-3">
+      <Row
+        label="Mandato SEPA"
+        value={
+          mandate.isLoading
+            ? '…'
+            : hasMandate
+              ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : 'cancelado'})`
+              : 'Sin mandato'
+        }
+      />
+      <div className="flex flex-wrap gap-2">
+        {billingMode !== 'manual' && (
+          <Button variant="secondary" size="sm" onClick={() => setConfirmMode('manual')}>
+            Pasar a manual
+          </Button>
+        )}
+        {billingMode !== 'sepa' && (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!hasMandate}
+            title={hasMandate ? undefined : 'El tenant debe dar de alta un mandato SEPA primero'}
+            onClick={() => setConfirmMode('sepa')}
+          >
+            Pasar a SEPA
+          </Button>
+        )}
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={confirmMode !== null} onOpenChange={(o) => !o && setConfirmMode(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Pasar a pago manual</DialogTitle>
+            <DialogTitle>
+              {confirmMode === 'manual' ? 'Pasar a pago manual' : 'Pasar a cobro por SEPA'}
+            </DialogTitle>
             <DialogDescription>
-              Se cancelará la suscripción en Stripe (deja de cobrar de inmediato) y el tenant
-              pasará a cobro manual. Conserva el periodo ya pagado; cuando venza, cobrarás por
-              transferencia y le aparecerá el aviso de pago pendiente. Para volver a Stripe, el
-              tenant debe suscribirse de nuevo desde su panel.
+              {confirmMode === 'manual'
+                ? 'Se cancelará la suscripción en Stripe (deja de cobrar de inmediato, si la había) y el tenant pasará a cobro manual. Conserva el periodo ya pagado.'
+                : 'Se cancelará la suscripción en Stripe (si la había) y las próximas cuotas se domiciliarán por SEPA con el mandato ya autorizado.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={() => setConfirmMode(null)}>
               Cancelar
             </Button>
-            <Button onClick={confirm} disabled={switchMutation.isPending}>
-              {switchMutation.isPending ? 'Procesando…' : 'Sí, pasar a manual'}
+            <Button onClick={confirm} disabled={pending}>
+              {pending ? 'Procesando…' : 'Confirmar'}
             </Button>
           </DialogFooter>
         </DialogContent>

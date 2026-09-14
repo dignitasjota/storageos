@@ -6,8 +6,10 @@ import type {
   BillingCycle,
   BillingSessionResponseDto,
   CreateCheckoutSessionInput,
+  CreatePlatformSepaMandateInput,
   CreatePortalSessionInput,
   PlatformInvoiceDto,
+  PlatformSepaMandateDto,
   SelfAssignAddonInput,
   SubscriptionPlanDto,
   TenantSelfAddonsDto,
@@ -130,5 +132,37 @@ export function useCancelAddon() {
       void qc.invalidateQueries({ queryKey: ['saas-billing', 'addons'] });
       void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
     },
+  });
+}
+
+// --- Mandato SEPA (domiciliación directa de la cuota, autoservicio) ---
+const sepaMandateKey = ['saas-billing', 'sepa-mandate'] as const;
+
+export function useSaasSepaMandate() {
+  return useQuery({
+    queryKey: sepaMandateKey,
+    queryFn: () =>
+      apiFetch<{ mandate: PlatformSepaMandateDto | null }>('/settings/saas-billing/sepa-mandate'),
+    select: (data) => data.mandate,
+  });
+}
+
+export function useCreateSaasSepaMandate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreatePlatformSepaMandateInput) =>
+      apiFetch<PlatformSepaMandateDto>('/settings/saas-billing/sepa-mandate', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sepaMandateKey }),
+  });
+}
+
+export function useCancelSaasSepaMandate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>('/settings/saas-billing/sepa-mandate', { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sepaMandateKey }),
   });
 }
