@@ -115,6 +115,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/platform-billing', label: 'Facturación SaaS', icon: FileText },
       { href: '/admin/platform-dunning', label: 'Dunning SaaS', icon: BellRing },
       { href: '/admin/platform-sepa', label: 'SEPA (BBVA)', icon: Landmark },
+      { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },
       { href: '/admin/coupons', label: 'Cupones', icon: Ticket },
     ],
   },

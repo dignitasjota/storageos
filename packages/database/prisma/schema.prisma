@@ -501,6 +501,7 @@ model Tenant {
   subscriptionAddons      TenantSubscriptionAddon[]
   winbackSends            WinbackSend[]
   platformSepaMandates    PlatformSepaMandate[]
+  platformSepaRemittanceItems PlatformSepaRemittanceItem[]
 
   // Índices para las queries cross-tenant del panel admin (filtros omnipresentes
   // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
@@ -4187,11 +4188,71 @@ model PlatformSepaMandate {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  PlatformSepaRemittanceItem[]
 
   @@unique([tenantId, reference])
   @@index([tenantId, status])
   @@map("platform_sepa_mandates")
+}
+
+/// Remesa SEPA de PLATAFORMA: lote de domiciliaciones de la cuota SaaS para
+/// una fecha de cobro. Espejo de `SepaRemittance`; sin tenantId propio (es un
+/// documento de la plataforma, no de un tenant).
+model PlatformSepaRemittance {
+  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name                  String
+  messageId             String    @map("message_id")
+  collectionDate        DateTime  @map("collection_date") @db.Date
+  /// generated | confirmed | cancelled
+  status                String    @default("generated")
+  itemCount             Int       @default(0) @map("item_count")
+  /// total en céntimos.
+  totalAmount           Int       @default(0) @map("total_amount")
+  xml                   String?
+  createdBySuperAdminId String?   @map("created_by_super_admin_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  confirmedAt           DateTime? @map("confirmed_at") @db.Timestamptz(6)
+
+  items PlatformSepaRemittanceItem[]
+
+  @@index([status])
+  @@map("platform_sepa_remittances")
+}
+
+/// Línea de remesa de plataforma: una por tenant+periodo. La unicidad
+/// `(tenantId, periodCovered)` es la clave anti-doble-cobro — no hay
+/// "invoice" al que colgar un `@unique` como en el módulo tenant-facing, así
+/// que el periodo cubierto (= `currentPeriodEnd` del tenant al generar la
+/// remesa) hace ese papel.
+model PlatformSepaRemittanceItem {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  remittanceId  String    @map("remittance_id") @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  mandateId     String    @map("mandate_id") @db.Uuid
+  /// importe en céntimos.
+  amount        Int
+  sequenceType  String    @map("sequence_type")
+  endToEndId    String    @map("end_to_end_id")
+  /// Periodo de suscripción que este cargo cubre (= currentPeriodEnd del
+  /// tenant al generar la remesa). Único junto a tenantId: evita que un
+  /// mismo tenant se dombicilie dos veces por el mismo periodo.
+  periodCovered DateTime  @map("period_covered") @db.Date
+  /// pending | collected | bounced — estado de ESTE item; confirmar la
+  /// remesa pasa los no-bounced a collected. bounced lo pone un admin a
+  /// mano cuando el banco devuelve el adeudo (Fase 3).
+  itemStatus    String    @default("pending") @map("item_status")
+  bouncedAt     DateTime? @map("bounced_at") @db.Timestamptz(6)
+  bounceReason  String?   @map("bounce_reason")
+
+  remittance PlatformSepaRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  mandate    PlatformSepaMandate    @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, periodCovered])
+  @@index([remittanceId])
+  @@index([tenantId])
+  @@map("platform_sepa_remittance_items")
 }
 
 /// Feed de notificaciones del super admin (eventos de plataforma). Global.

@@ -24,6 +24,9 @@ import type {
   PlatformSepaSettingsDto,
   UpdatePlatformSepaSettingsInput,
   PlatformSepaMandateDto,
+  PlatformSepaRemittanceDto,
+  PlatformSepaRemittancePreviewDto,
+  CreatePlatformSepaRemittanceInput,
   PlatformBannerDto,
   LegalDocumentDto,
   LegalSlug,
@@ -529,6 +532,73 @@ export function useUpdatePlatformSepaSettings() {
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: ['admin', 'platform-sepa', 'settings'] }),
   });
+}
+
+// --- Remesas SEPA de plataforma (domiciliación de la cuota) ---
+const platformSepaRemittancesKey = ['admin', 'platform-sepa', 'remittances'] as const;
+
+export function useAdminPlatformSepaRemittances() {
+  return useQuery({
+    queryKey: platformSepaRemittancesKey,
+    queryFn: () => adminApiFetch<PlatformSepaRemittanceDto[]>('/admin/platform-sepa/remittances'),
+  });
+}
+
+export function useAdminPlatformSepaRemittance(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...platformSepaRemittancesKey, id] as const,
+    queryFn: () =>
+      adminApiFetch<PlatformSepaRemittanceDto>(`/admin/platform-sepa/remittances/${id}`),
+    enabled,
+  });
+}
+
+export function usePlatformSepaRemittancePreview() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<PlatformSepaRemittancePreviewDto>('/admin/platform-sepa/remittances/preview', {
+        method: 'POST',
+      }),
+  });
+}
+
+export function useCreatePlatformSepaRemittance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreatePlatformSepaRemittanceInput) =>
+      adminApiFetch<PlatformSepaRemittanceDto>('/admin/platform-sepa/remittances', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: platformSepaRemittancesKey }),
+  });
+}
+
+export function useConfirmPlatformSepaRemittance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<PlatformSepaRemittanceDto>(`/admin/platform-sepa/remittances/${id}/confirm`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: platformSepaRemittancesKey });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+    },
+  });
+}
+
+export async function downloadPlatformSepaRemittanceXml(id: string): Promise<void> {
+  const { filename, xml } = await adminApiFetch<{ filename: string; xml: string }>(
+    `/admin/platform-sepa/remittances/${id}/xml`,
+  );
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /** Catálogo de planes (endpoint público) para el selector de cambio de plan. */
