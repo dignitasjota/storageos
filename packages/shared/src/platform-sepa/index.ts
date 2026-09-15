@@ -72,3 +72,60 @@ export interface PlatformSepaMandateDto {
   status: 'active' | 'cancelled';
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Remesas (una línea por tenant+periodo, no por factura)
+// ---------------------------------------------------------------------------
+
+export const CreatePlatformSepaRemittanceSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  /** Fecha de cobro (YYYY-MM-DD). */
+  collectionDate: dateOnly,
+  /** Tenants a incluir; si se omite, se incluyen todos los elegibles. */
+  tenantIds: z.array(z.string().uuid()).optional(),
+});
+export type CreatePlatformSepaRemittanceInput = z.infer<typeof CreatePlatformSepaRemittanceSchema>;
+
+export interface PlatformSepaEligibleTenantDto {
+  tenantId: string;
+  tenantName: string;
+  periodCovered: string;
+  amount: number;
+  mandateReference: string;
+  ibanLast4: string;
+  sequenceType: 'FRST' | 'RCUR';
+}
+
+export interface PlatformSepaRemittancePreviewDto {
+  eligible: PlatformSepaEligibleTenantDto[];
+  total: number;
+  /** Tenants en modo 'sepa' sin mandato activo (no se pueden incluir). */
+  withoutMandate: { tenantId: string; tenantName: string }[];
+}
+
+export interface PlatformSepaRemittanceItemDto {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  amount: number;
+  periodCovered: string;
+  itemStatus: 'pending' | 'collected' | 'bounced';
+  bouncedAt: string | null;
+  bounceReason: string | null;
+}
+
+export interface PlatformSepaRemittanceDto {
+  id: string;
+  name: string;
+  messageId: string;
+  collectionDate: string;
+  status: 'generated' | 'confirmed' | 'cancelled';
+  itemCount: number;
+  total: number;
+  createdAt: string;
+  confirmedAt: string | null;
+  /** true si `PlatformSepaSettings` cambió después de generar el XML — el
+   * creditor embebido en el XML puede estar desactualizado. */
+  creditorMayBeStale?: boolean;
+  items?: PlatformSepaRemittanceItemDto[];
+}

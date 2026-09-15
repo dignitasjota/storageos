@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -133,6 +134,10 @@ export default function PlatformSepaPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Link href="/admin/platform-sepa/remittances" className="text-sm text-primary underline">
+        Ver remesas SEPA →
+      </Link>
     </div>
   );
 }
