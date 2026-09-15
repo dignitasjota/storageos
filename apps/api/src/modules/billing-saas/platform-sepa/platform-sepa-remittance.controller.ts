@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  BouncePlatformSepaRemittanceItemSchema,
   CreatePlatformSepaRemittanceSchema,
   type PlatformSepaRemittanceDto,
   type PlatformSepaRemittancePreviewDto,
@@ -30,6 +31,9 @@ import { PlatformSepaRemittanceService } from './platform-sepa-remittance.servic
 import type { Request } from 'express';
 
 class CreatePlatformSepaRemittanceDto extends createZodDto(CreatePlatformSepaRemittanceSchema) {}
+class BouncePlatformSepaRemittanceItemDto extends createZodDto(
+  BouncePlatformSepaRemittanceItemSchema,
+) {}
 
 function extractMeta(req: Request): { ipAddress: string | null; userAgent: string | null } {
   return { ipAddress: req.ip ?? null, userAgent: req.header('user-agent') ?? null };
@@ -111,5 +115,40 @@ export class PlatformSepaRemittanceController {
       userAgent: meta.userAgent,
     });
     return dto;
+  }
+}
+
+/** Acciones sobre un item de remesa individual (devoluciones bancarias). */
+@Public()
+@UseGuards(AdminGuard)
+@Controller('admin/platform-sepa/remittance-items')
+export class PlatformSepaRemittanceItemController {
+  constructor(
+    private readonly remittances: PlatformSepaRemittanceService,
+    private readonly audit: SuperAdminAuditService,
+  ) {}
+
+  /** El banco devolvió un adeudo ya cobrado (R-transaction). */
+  @Post(':id/bounce')
+  @HttpCode(HttpStatus.OK)
+  async bounce(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: BouncePlatformSepaRemittanceItemDto,
+    @Req() req: Request,
+  ): Promise<{ bounced: true }> {
+    await this.remittances.markBounced(id, body.reason);
+    const meta = extractMeta(req);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.platform_sepa.item_bounced',
+      targetType: 'platform_sepa_remittance_item',
+      targetId: id,
+      targetTenantId: null,
+      changes: { reason: body.reason ?? null },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return { bounced: true };
   }
 }

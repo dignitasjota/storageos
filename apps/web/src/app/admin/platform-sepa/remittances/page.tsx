@@ -1,13 +1,14 @@
 'use client';
 
 import { type ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, CheckCircle2, Download, FileText, Plus } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, Eye, FileText, Plus, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import type {
   PlatformSepaEligibleTenantDto,
   PlatformSepaRemittanceDto,
+  PlatformSepaRemittanceItemDto,
   PlatformSepaRemittancePreviewDto,
 } from '@storageos/shared';
 
@@ -34,8 +35,10 @@ import {
 } from '@/components/ui/table';
 import {
   downloadPlatformSepaRemittanceXml,
+  useAdminPlatformSepaRemittance,
   useAdminPlatformSepaRemittances,
   useAdminPlatformSepaSettings,
+  useBouncePlatformSepaRemittanceItem,
   useConfirmPlatformSepaRemittance,
   useCreatePlatformSepaRemittance,
   usePlatformSepaRemittancePreview,
@@ -58,6 +61,7 @@ export default function PlatformSepaRemittancesPage() {
   const list = useAdminPlatformSepaRemittances();
   const settings = useAdminPlatformSepaSettings();
   const confirmMut = useConfirmPlatformSepaRemittance();
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   async function handleConfirm(id: string) {
     if (
@@ -122,6 +126,11 @@ export default function PlatformSepaRemittancesPage() {
               <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar cobro
             </Button>
           )}
+          {row.original.status === 'confirmed' && (
+            <Button variant="outline" size="sm" onClick={() => setDetailId(row.original.id)}>
+              <Eye className="mr-1 h-4 w-4" /> Ver detalle
+            </Button>
+          )}
         </div>
       ),
     },
@@ -154,7 +163,96 @@ export default function PlatformSepaRemittancesPage() {
         emptyText="Aún no se ha generado ninguna remesa."
         toolbarRight={configured ? <CreateRemittanceDialog /> : null}
       />
+
+      <RemittanceDetailDialog id={detailId} onClose={() => setDetailId(null)} />
     </div>
+  );
+}
+
+/** Detalle de una remesa confirmada: items por tenant + marcar devuelto. */
+function RemittanceDetailDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const detail = useAdminPlatformSepaRemittance(id ?? '', id !== null);
+  const bounce = useBouncePlatformSepaRemittanceItem();
+
+  async function handleBounce(item: PlatformSepaRemittanceItemDto) {
+    if (
+      !window.confirm(
+        `¿Marcar como devuelto el adeudo de ${item.tenantName}? El tenant pasará a "pago pendiente".`,
+      )
+    )
+      return;
+    const reason = window.prompt('Motivo de la devolución (opcional):') ?? undefined;
+    try {
+      await bounce.mutateAsync({ itemId: item.id, remittanceId: id!, reason });
+      toast.success('Item marcado como devuelto. El tenant queda en pago pendiente.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  const ITEM_STATUS: Record<PlatformSepaRemittanceItemDto['itemStatus'], string> = {
+    pending: 'Pendiente',
+    collected: 'Cobrado',
+    bounced: 'Devuelto',
+  };
+
+  return (
+    <Dialog open={id !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Detalle de la remesa</DialogTitle>
+        </DialogHeader>
+        {detail.isLoading ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <div className="max-h-96 overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tenant</TableHead>
+                  <TableHead>Periodo</TableHead>
+                  <TableHead className="text-right">Importe</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(detail.data?.items ?? []).map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-xs">{item.tenantName}</TableCell>
+                    <TableCell className="text-xs">{item.periodCovered}</TableCell>
+                    <TableCell className="text-right text-xs">{eur(item.amount)}</TableCell>
+                    <TableCell className="text-xs">
+                      {ITEM_STATUS[item.itemStatus]}
+                      {item.itemStatus === 'bounced' && item.bounceReason && (
+                        <span className="block text-muted-foreground">{item.bounceReason}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {item.itemStatus === 'collected' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleBounce(item)}
+                          disabled={bounce.isPending}
+                        >
+                          <Undo2 className="mr-1 h-4 w-4" /> Marcar como devuelto
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cerrar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
