@@ -337,6 +337,40 @@ export class PlatformSepaRemittanceService {
     return this.toDto(updated);
   }
 
+  /**
+   * Marca un item ya cobrado como devuelto por el banco (R-transaction) y
+   * fuerza `past_due` en la suscripción del tenant. Es el único punto sin
+   * webhook: `recordManualPayment` ya adelantó `currentPeriodEnd` al
+   * confirmar, así que el cron `markLapsedManualPastDue` no lo detectaría
+   * hasta el SIGUIENTE vencimiento (semanas después). No se revierte el
+   * periodo/pago ya registrado — el bounce solo comunica "ahora está
+   * retroactivamente al día"; `PlatformDunningService.run()` recoge el
+   * `past_due` sin ningún cambio en ese servicio (ya es agnóstico del
+   * origen del impago).
+   */
+  async markBounced(itemId: string, reason?: string): Promise<void> {
+    const item = await this.admin.platformSepaRemittanceItem.findUnique({
+      where: { id: itemId },
+    });
+    if (!item) {
+      throw new NotFoundException({ code: 'item_not_found', message: 'Item no encontrado' });
+    }
+    if (item.itemStatus !== 'collected') {
+      throw new BadRequestException({
+        code: 'item_not_collected',
+        message: 'Solo se puede marcar como devuelto un item ya cobrado',
+      });
+    }
+    await this.admin.platformSepaRemittanceItem.update({
+      where: { id: itemId },
+      data: { itemStatus: 'bounced', bouncedAt: new Date(), bounceReason: reason ?? null },
+    });
+    await this.admin.tenantSubscription.update({
+      where: { tenantId: item.tenantId },
+      data: { status: 'past_due' },
+    });
+  }
+
   private async findOrThrow(id: string) {
     const row = await this.admin.platformSepaRemittance.findUnique({ where: { id } });
     if (!row) {

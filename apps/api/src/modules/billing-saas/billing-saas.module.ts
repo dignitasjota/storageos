@@ -19,7 +19,10 @@ import { PlatformDunningService } from './platform-dunning.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
-import { PlatformSepaRemittanceController } from './platform-sepa/platform-sepa-remittance.controller';
+import {
+  PlatformSepaRemittanceController,
+  PlatformSepaRemittanceItemController,
+} from './platform-sepa/platform-sepa-remittance.controller';
 import { PlatformSepaRemittanceService } from './platform-sepa/platform-sepa-remittance.service';
 import { PlatformSepaSettingsService } from './platform-sepa/platform-sepa-settings.service';
 import { PlatformSepaController } from './platform-sepa/platform-sepa.controller';
@@ -70,6 +73,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformCouponsController,
     PlatformSepaController,
     PlatformSepaRemittanceController,
+    PlatformSepaRemittanceItemController,
   ],
   providers: [
     BillingSaasService,

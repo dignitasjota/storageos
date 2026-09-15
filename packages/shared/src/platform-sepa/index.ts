@@ -129,3 +129,11 @@ export interface PlatformSepaRemittanceDto {
   creditorMayBeStale?: boolean;
   items?: PlatformSepaRemittanceItemDto[];
 }
+
+/** Marca un item de remesa como devuelto por el banco (Fase 3). */
+export const BouncePlatformSepaRemittanceItemSchema = z.object({
+  reason: z.string().trim().max(300).optional(),
+});
+export type BouncePlatformSepaRemittanceItemInput = z.infer<
+  typeof BouncePlatformSepaRemittanceItemSchema
+>;

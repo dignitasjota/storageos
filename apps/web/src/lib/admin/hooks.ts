@@ -588,6 +588,29 @@ export function useConfirmPlatformSepaRemittance() {
   });
 }
 
+/** El banco devolvió un adeudo ya cobrado (R-transaction). */
+export function useBouncePlatformSepaRemittanceItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { itemId: string; remittanceId: string; reason?: string }) =>
+      adminApiFetch<{ bounced: true }>(
+        `/admin/platform-sepa/remittance-items/${args.itemId}/bounce`,
+        {
+          method: 'POST',
+          json: { ...(args.reason ? { reason: args.reason } : {}) },
+        },
+      ),
+    onSuccess: (_data, variables) => {
+      void qc.invalidateQueries({ queryKey: platformSepaRemittancesKey });
+      void qc.invalidateQueries({
+        queryKey: [...platformSepaRemittancesKey, variables.remittanceId],
+      });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', 'at-risk'] });
+    },
+  });
+}
+
 export async function downloadPlatformSepaRemittanceXml(id: string): Promise<void> {
   const { filename, xml } = await adminApiFetch<{ filename: string; xml: string }>(
     `/admin/platform-sepa/remittances/${id}/xml`,
