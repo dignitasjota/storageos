@@ -12,11 +12,13 @@ import {
 } from '@nestjs/common';
 import {
   CreateCheckoutSessionSchema,
+  CreatePlatformSepaMandateSchema,
   CreatePortalSessionSchema,
   SelfAssignAddonSchema,
   SelfChangePlanSchema,
   type BillingSessionResponseDto,
   type PlatformInvoiceDto,
+  type PlatformSepaMandateDto,
   type TenantSelfAddonsDto,
   type TenantSubscriptionDto,
   type TenantSubscriptionPaymentDto,
@@ -31,6 +33,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 
 import { BillingSaasService } from './billing-saas.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import { SaasAddonsService } from './saas-addons.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -40,6 +43,7 @@ class CreateCheckoutSessionDto extends createZodDto(CreateCheckoutSessionSchema)
 class CreatePortalSessionDto extends createZodDto(CreatePortalSessionSchema) {}
 class SelfAssignAddonDto extends createZodDto(SelfAssignAddonSchema) {}
 class SelfChangePlanDto extends createZodDto(SelfChangePlanSchema) {}
+class CreatePlatformSepaMandateDto extends createZodDto(CreatePlatformSepaMandateSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -68,6 +72,7 @@ export class BillingSaasController {
     private readonly service: BillingSaasService,
     private readonly addons_: SaasAddonsService,
     private readonly invoices: PlatformInvoicesService,
+    private readonly sepaMandate: PlatformSepaMandateService,
   ) {}
 
   @Get()
@@ -170,5 +175,37 @@ export class BillingSaasController {
   @Get('payments')
   listPayments(@CurrentUser() user: AuthenticatedUser): Promise<TenantSubscriptionPaymentDto[]> {
     return this.service.listSaasPayments(user.tenantId);
+  }
+
+  // --- Mandato SEPA (domiciliación directa de la cuota, autoservicio) ---
+
+  /**
+   * Mandato activo del tenant (null si no ha dado de alta ninguno). Envuelto
+   * en `{mandate}` — un handler de Nest que devuelve `null` en crudo manda un
+   * body VACÍO (Express `isNil` trata `null` como `undefined`), no el JSON
+   * `null`; envolver evita ese hueco del framework.
+   */
+  @Get('sepa-mandate')
+  async getSepaMandate(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ mandate: PlatformSepaMandateDto | null }> {
+    return { mandate: await this.sepaMandate.getMandate(user.tenantId) };
+  }
+
+  /** Da de alta (o reemplaza) el mandato con el IBAN de la propia empresa. */
+  @Post('sepa-mandate')
+  @HttpCode(HttpStatus.OK)
+  createSepaMandate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreatePlatformSepaMandateDto,
+  ): Promise<PlatformSepaMandateDto> {
+    return this.sepaMandate.createMandate(user.tenantId, body);
+  }
+
+  /** Cancela el mandato propio (bloqueado si el modo de cobro es 'sepa'). */
+  @Delete('sepa-mandate')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancelSepaMandate(@CurrentUser() user: AuthenticatedUser): Promise<void> {
+    await this.sepaMandate.cancelMandate(user.tenantId);
   }
 }

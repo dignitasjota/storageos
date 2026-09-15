@@ -355,6 +355,7 @@ describe('Admin SaaS manual payment (e2e)', () => {
         stripeCustomerId: `cus_switch_${Date.now()}`,
         currentPeriodEnd: periodEnd,
         manualExtensionDays: 15,
+        billingMode: 'stripe',
       },
     });
 

@@ -92,6 +92,8 @@ export interface AdminTenantDto {
     status: string;
     currentPeriodEnd: string | null;
     stripeSubscriptionId: string | null;
+    /** 'manual' | 'stripe' | 'sepa'. */
+    billingMode: string;
   } | null;
   /**
    * Propietario del tenant (el usuario que registró la cuenta). Solo se incluye
@@ -562,6 +564,8 @@ export interface TenantSubscriptionDto {
   cancelAtPeriodEnd: boolean;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  /** 'manual' | 'stripe' | 'sepa'. */
+  billingMode: string;
   plan: SubscriptionPlanDto;
 }
 

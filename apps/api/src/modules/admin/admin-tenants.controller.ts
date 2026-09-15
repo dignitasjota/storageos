@@ -47,6 +47,8 @@ import {
   type ExtendTrialsBatchResultDto,
   type ImpersonationTokenDto,
   ImpersonateSchema,
+  SetSubscriptionBillingModeSchema,
+  type PlatformSepaMandateDto,
   type TenantInteractionDto,
   type TenantSubscriptionPaymentDto,
 } from '@storageos/shared';
@@ -54,6 +56,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
+import { PlatformSepaMandateService } from '../billing-saas/platform-sepa/platform-sepa-mandate.service';
 
 import { AdminSupportService } from './admin-support.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
@@ -80,6 +83,7 @@ class CreateTenantFollowupDto extends createZodDto(CreateTenantFollowupSchema) {
 class CreateManualSaasPaymentDto extends createZodDto(CreateManualSaasPaymentSchema) {}
 class AdminUpdateTenantDto extends createZodDto(AdminUpdateTenantSchema) {}
 class SetTenantFeaturesDto extends createZodDto(SetTenantFeaturesSchema) {}
+class SetBillingModeDto extends createZodDto(SetSubscriptionBillingModeSchema) {}
 
 interface RequestMetaInfo {
   ipAddress: string | null;
@@ -105,6 +109,7 @@ export class AdminTenantsController {
     private readonly followups: AdminTenantFollowupsService,
     private readonly audit: SuperAdminAuditService,
     private readonly support: AdminSupportService,
+    private readonly sepaMandate: PlatformSepaMandateService,
   ) {}
 
   /** Edita datos básicos del tenant (soporte). */
@@ -441,6 +446,71 @@ export class AdminTenantsController {
       userAgent: meta.userAgent,
     });
     return this.tenants.detail(id);
+  }
+
+  /**
+   * Cambia el modo de cobro de la suscripción ('manual' | 'sepa'). Pasar a
+   * 'sepa' exige que el tenant ya tenga un mandato SEPA activo (autoservicio
+   * en `/settings/saas-billing`) — 400 `no_active_mandate` si no lo tiene.
+   */
+  @RequireSuperadmin()
+  @Post(':id/billing-mode')
+  @HttpCode(HttpStatus.OK)
+  async setBillingMode(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SetBillingModeDto,
+    @Req() req: Request,
+  ): Promise<AdminTenantDto> {
+    const meta = extractMeta(req);
+    await this.saasBilling.setBillingMode(id, body.mode);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.billing_mode_changed',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { mode: body.mode },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return this.tenants.detail(id);
+  }
+
+  /**
+   * Mandato SEPA del tenant (soporte: solo lectura). Envuelto en `{mandate}`
+   * — un handler de Nest que devuelve `null` en crudo manda un body VACÍO
+   * (Express `isNil` trata `null` como `undefined`), no el JSON `null`.
+   */
+  @Get(':id/sepa-mandate')
+  async getSepaMandate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ mandate: PlatformSepaMandateDto | null }> {
+    return { mandate: await this.sepaMandate.getMandate(id) };
+  }
+
+  /** Cancela el mandato del tenant por soporte (nunca lo crea el admin). */
+  @RequireSuperadmin()
+  @Post(':id/sepa-mandate/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelSepaMandate(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ cancelled: true }> {
+    const meta = extractMeta(req);
+    await this.sepaMandate.cancelMandate(id);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.sepa_mandate_cancelled',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: {},
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return { cancelled: true };
   }
 
   @Get()

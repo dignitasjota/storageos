@@ -500,6 +500,7 @@ model Tenant {
   delinquencyCaseFiles    DelinquencyCaseFile[]
   subscriptionAddons      TenantSubscriptionAddon[]
   winbackSends            WinbackSend[]
+  platformSepaMandates    PlatformSepaMandate[]
 
   // Índices para las queries cross-tenant del panel admin (filtros omnipresentes
   // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
@@ -701,6 +702,12 @@ model TenantSubscription {
   /// periodo efectivo = fecha de Stripe + estos días; así un pago manual se
   /// SUMA al cobro de Stripe en vez de pisarse.
   manualExtensionDays  Int                @default(0) @map("manual_extension_days")
+  /// Cómo se cobra la cuota de ESTE tenant: 'manual' | 'stripe' | 'sepa'.
+  /// Fuente de verdad independiente de `stripeSubscriptionId != null` (antes
+  /// era la única señal) — necesario porque un tenant puede estar en 'sepa'
+  /// sin ningún objeto de Stripe, y uno en 'manual' no debe leerse como
+  /// 'stripe' solo porque quede un `stripeSubscriptionId` residual.
+  billingMode          String             @default("manual") @map("billing_mode")
   createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4137,6 +4144,54 @@ model PlatformDunningEvent {
   @@unique([tenantId, step, periodEnd])
   @@index([tenantId])
   @@map("platform_dunning_events")
+}
+
+/// Configuración del acreedor SEPA de LA PLATAFORMA (cuenta bancaria de Jota,
+/// p.ej. BBVA) para domiciliar la cuota de suscripción de los tenants en modo
+/// `billingMode='sepa'`. Singleton — mismo patrón que PlatformDunningSettings:
+/// sin id fijo, unicidad aplicada en código (`findFirst() ?? create(...)`).
+/// Un único acreedor a la vez para TODOS los tenants en modo sepa (no se
+/// elige banco por tenant); cambiarlo (de banco, o más adelante de mecanismo)
+/// es reapuntar esta única fila.
+model PlatformSepaSettings {
+  id                    String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  creditorName          String   @default("") @map("creditor_name")
+  /// Identificador de acreedor SEPA de la plataforma (p.ej. ES12ZZZ+NIF).
+  creditorId            String   @default("") @map("creditor_id")
+  creditorIbanEncrypted String?  @map("creditor_iban_encrypted")
+  creditorBic           String?  @map("creditor_bic")
+  enabled               Boolean  @default(false)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_sepa_settings")
+}
+
+/// Mandato SEPA de un TENANT autorizando a la plataforma a domiciliar su
+/// cuota de suscripción en su propia cuenta (el tenant es el DEUDOR aquí,
+/// al revés que en `SepaMandate` donde el deudor es un customer del tenant).
+/// Autoservicio del propio tenant — nunca lo crea un admin en su nombre.
+model PlatformSepaMandate {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  reference     String
+  ibanEncrypted String   @map("iban_encrypted")
+  ibanLast4     String   @map("iban_last4")
+  bic           String?
+  signedAt      DateTime @map("signed_at") @db.Date
+  /// FRST hasta el primer cobro con éxito; luego RCUR.
+  sequenceType  String   @default("FRST") @map("sequence_type")
+  /// active | cancelled. "Un mandato activo por tenant" se aplica en código
+  /// (soft-cancel-and-replace), igual que `SepaMandate` hoy.
+  status        String   @default("active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+  @@map("platform_sepa_mandates")
 }
 
 /// Feed de notificaciones del super admin (eventos de plataforma). Global.

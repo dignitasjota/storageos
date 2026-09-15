@@ -8,6 +8,7 @@ import type { PrismaService } from '../../database/prisma.service';
 import type { StripeGateway } from '../../payments/stripe.gateway';
 import type { PlatformCouponsService } from '../platform-coupons.service';
 import type { PlatformInvoicesService } from '../platform-invoices.service';
+import type { PlatformSepaMandateService } from '../platform-sepa/platform-sepa-mandate.service';
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
 const DAY = 24 * 60 * 60 * 1000;
@@ -108,6 +109,7 @@ function buildService(admin: AdminMock): {
       validateAndComputeDiscount: jest.fn(),
       incrementUsage: jest.fn(),
     } as unknown as PlatformCouponsService,
+    { hasActiveMandate: jest.fn() } as unknown as PlatformSepaMandateService,
     { getClient: () => ({}) } as unknown as StripeGateway,
   );
   return { service, audit, issueBestEffort };

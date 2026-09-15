@@ -260,8 +260,23 @@ export const SaasPaymentProviderEnum = z.enum([
   'cash',
   'bank_transfer',
   'other',
+  'sepa',
 ]);
 export type SaasPaymentProviderValue = z.infer<typeof SaasPaymentProviderEnum>;
+
+/**
+ * Modo de cobro de la suscripción de un tenant. 'stripe' solo se alcanza vía
+ * el Checkout (webhook); `setBillingMode` únicamente acepta 'manual'/'sepa'
+ * como destino explícito.
+ */
+export const SubscriptionBillingModeEnum = z.enum(['manual', 'stripe', 'sepa']);
+export type SubscriptionBillingMode = z.infer<typeof SubscriptionBillingModeEnum>;
+
+/** Cambia el modo de cobro de la suscripción de un tenant (admin). */
+export const SetSubscriptionBillingModeSchema = z.object({
+  mode: z.enum(['manual', 'sepa']),
+});
+export type SetSubscriptionBillingModeInput = z.infer<typeof SetSubscriptionBillingModeSchema>;
 
 /**
  * Registro manual de un pago de la suscripción (efectivo/transferencia/PayPal/…).

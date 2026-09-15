@@ -21,6 +21,9 @@ import type {
   DunningRunResultDto,
   PlatformDunningSettingsDto,
   UpdatePlatformDunningSettingsInput,
+  PlatformSepaSettingsDto,
+  UpdatePlatformSepaSettingsInput,
+  PlatformSepaMandateDto,
   PlatformBannerDto,
   LegalDocumentDto,
   LegalSlug,
@@ -463,6 +466,68 @@ export function useSwitchToManualBilling() {
       qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
       qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] });
     },
+  });
+}
+
+/** Cambia el modo de cobro de la suscripción ('manual' | 'sepa'). */
+export function useSetBillingMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; mode: 'manual' | 'sepa' }) =>
+      adminApiFetch<AdminTenantDto>(`/admin/tenants/${args.id}/billing-mode`, {
+        method: 'POST',
+        json: { mode: args.mode },
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id] });
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id, 'saas-payments'] });
+    },
+  });
+}
+
+/** Mandato SEPA del tenant (soporte: solo lectura + cancelación). */
+export function useAdminTenantSepaMandate(id: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'sepa-mandate'] as const,
+    queryFn: () =>
+      adminApiFetch<{ mandate: PlatformSepaMandateDto | null }>(
+        `/admin/tenants/${id}/sepa-mandate`,
+      ),
+    select: (data) => data.mandate,
+    enabled: !!id,
+  });
+}
+
+export function useCancelTenantSepaMandate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<{ cancelled: true }>(`/admin/tenants/${id}/sepa-mandate/cancel`, {
+        method: 'POST',
+      }),
+    onSuccess: (_data, id) =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'sepa-mandate'] }),
+  });
+}
+
+// --- Config del acreedor SEPA de la plataforma (cuenta de BBVA de Jota) ---
+export function useAdminPlatformSepaSettings() {
+  return useQuery({
+    queryKey: ['admin', 'platform-sepa', 'settings'] as const,
+    queryFn: () => adminApiFetch<PlatformSepaSettingsDto>('/admin/platform-sepa/settings'),
+  });
+}
+
+export function useUpdatePlatformSepaSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformSepaSettingsInput) =>
+      adminApiFetch<PlatformSepaSettingsDto>('/admin/platform-sepa/settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform-sepa', 'settings'] }),
   });
 }
 

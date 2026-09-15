@@ -43,6 +43,7 @@ export * from './portal';
 export * from './faq';
 export * from './blog';
 export * from './sepa';
+export * from './platform-sepa';
 export * from './bank-reconciliation';
 export * from './ai';
 export * from './push';

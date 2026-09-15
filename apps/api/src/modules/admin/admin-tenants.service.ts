@@ -1807,6 +1807,7 @@ export class AdminTenantsService {
       status: string;
       currentPeriodEnd: Date | null;
       stripeSubscriptionId: string | null;
+      billingMode: string;
       plan: { slug: string; name: string } | null;
     };
     _count: { users: number; customers: number; contracts: number; facilities: number };
@@ -1837,6 +1838,7 @@ export class AdminTenantsService {
               ? row.subscription.currentPeriodEnd.toISOString()
               : null,
             stripeSubscriptionId: row.subscription.stripeSubscriptionId,
+            billingMode: row.subscription.billingMode,
           }
         : null,
     };

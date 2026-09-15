@@ -15,6 +15,7 @@ import { StripeGateway } from '../payments/stripe.gateway';
 
 import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { SubscriptionStatus } from '@storageos/database';
@@ -166,6 +167,7 @@ export class BillingSaasService {
     private readonly audit: AuditService,
     private readonly platformInvoices: PlatformInvoicesService,
     private readonly coupons: PlatformCouponsService,
+    private readonly platformSepaMandates: PlatformSepaMandateService,
     stripeGateway: StripeGateway,
   ) {
     this.stripe = stripeGateway.getClient();
@@ -254,11 +256,12 @@ export class BillingSaasService {
     try {
       session = await this.stripe.checkout.sessions.create({
         mode: 'subscription',
-        // Tarjeta + domiciliación SEPA: la domiciliación es el medio recurrente
-        // B2B dominante en España y más barata que la tarjeta. Stripe recoge el
-        // mandato en el Checkout y cobra la suscripción por SEPA cada periodo.
-        // (Requiere activar SEPA Direct Debit en el dashboard de Stripe.)
-        payment_method_types: ['card', 'sepa_debit'],
+        // Solo tarjeta: la domiciliación SEPA de la cuota se cobra por el
+        // módulo `platform-sepa` (remesa pain.008 directa a la cuenta de la
+        // plataforma, sin comisión de Stripe), no por el `sepa_debit` de
+        // Stripe Checkout — un único camino de domiciliación en toda la app
+        // (ver billing-saas.service.ts `setBillingMode`).
+        payment_method_types: ['card'],
         customer: stripeCustomerId,
         line_items: [{ price: priceId, quantity: 1 }],
         success_url: args.successUrl,
@@ -542,6 +545,10 @@ export class BillingSaasService {
         cancelAtPeriodEnd: args.cancelAtPeriodEnd,
         stripeSubscriptionId: args.stripeSubscriptionId,
         stripeCustomerId: args.stripeCustomerId,
+        // El webhook es la única vía legítima para llegar a 'stripe': aquí
+        // se confirma que Stripe procesó de verdad la suscripción (no se
+        // puede alcanzar este modo desde `setBillingMode`, ver más abajo).
+        billingMode: 'stripe',
         ...(args.planIdHint ? { planId: args.planIdHint } : {}),
       },
     });
@@ -735,6 +742,7 @@ export class BillingSaasService {
     cancelAtPeriodEnd: boolean;
     stripeCustomerId: string | null;
     stripeSubscriptionId: string | null;
+    billingMode: string;
     plan: {
       id: string;
       slug: string;
@@ -772,6 +780,7 @@ export class BillingSaasService {
       cancelAtPeriodEnd: row.cancelAtPeriodEnd,
       stripeCustomerId: row.stripeCustomerId,
       stripeSubscriptionId: row.stripeSubscriptionId,
+      billingMode: row.billingMode,
       plan,
     };
   }
@@ -982,10 +991,30 @@ export class BillingSaasService {
    * `currentPeriodEnd`; si el tenant volviera a Stripe más tarde, no debe
    * regalársele ese tiempo otra vez (el weblog lo sumaría de nuevo).
    */
+  /** @deprecated usa `setBillingMode(tenantId, 'manual')`. Se conserva por compatibilidad de nombre con el endpoint admin existente. */
   async switchToManualBilling(tenantId: string): Promise<void> {
+    await this.setBillingMode(tenantId, 'manual');
+  }
+
+  /**
+   * Cambia el modo de cobro de la suscripción a 'manual' o 'sepa'. 'stripe'
+   * NO es un destino directo de este método — no se puede crear una
+   * suscripción Stripe sin el Checkout del navegador del tenant; a 'stripe'
+   * solo se llega confirmando un pago real (`syncSubscriptionFromStripe`).
+   *
+   * Al salir de 'stripe' cancela la suscripción en Stripe (best-effort, no
+   * bloquea si ya estaba cancelada o si Stripe no está configurado) y
+   * resetea los campos asociados — mismo reseteo tanto si el destino es
+   * 'manual' como 'sepa' (ninguno de los dos tiene objeto Stripe).
+   *
+   * El mandato SEPA del tenant (si existe) NUNCA se toca aquí: sigue activo
+   * aunque el modo actual no sea 'sepa', así volver a domiciliar más
+   * adelante no exige volver a autorizar.
+   */
+  async setBillingMode(tenantId: string, mode: 'manual' | 'sepa'): Promise<void> {
     const sub = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
-      select: { id: true, stripeSubscriptionId: true },
+      select: { id: true, stripeSubscriptionId: true, billingMode: true },
     });
     if (!sub) {
       throw new NotFoundException({
@@ -993,15 +1022,28 @@ export class BillingSaasService {
         message: 'Suscripción no encontrada',
       });
     }
+    if (sub.billingMode === mode) {
+      throw new BadRequestException({
+        code: 'already_in_mode',
+        message: `La suscripción ya está en modo ${mode}`,
+      });
+    }
+    if (mode === 'sepa') {
+      const hasMandate = await this.platformSepaMandates.hasActiveMandate(tenantId);
+      if (!hasMandate) {
+        throw new BadRequestException({
+          code: 'no_active_mandate',
+          message: 'El tenant debe dar de alta un mandato SEPA antes de pasar a este modo',
+        });
+      }
+    }
 
-    // Cancela en Stripe inmediatamente (deja de cobrar). Best-effort: ignora si
-    // ya estaba cancelada o si Stripe no está configurado (clave dummy).
     if (sub.stripeSubscriptionId) {
       try {
         await this.stripe.subscriptions.cancel(sub.stripeSubscriptionId);
       } catch (err) {
         this.logger.warn(
-          `switchToManualBilling: no se pudo cancelar la sub Stripe ${sub.stripeSubscriptionId} (tenant ${tenantId}): ${String(err)}`,
+          `setBillingMode: no se pudo cancelar la sub Stripe ${sub.stripeSubscriptionId} (tenant ${tenantId}): ${String(err)}`,
         );
       }
     }
@@ -1014,16 +1056,21 @@ export class BillingSaasService {
         cancelAtPeriodEnd: false,
         status: 'active',
         manualExtensionDays: 0,
+        billingMode: mode,
       },
     });
 
     await this.audit.write({
       tenantId,
       userId: null,
-      action: 'saas_billing.switched_to_manual',
+      action: 'saas_billing.billing_mode_changed',
       entityType: 'TenantSubscription',
       entityId: sub.id,
-      changes: { previousStripeSubscriptionId: sub.stripeSubscriptionId },
+      changes: {
+        from: sub.billingMode,
+        to: mode,
+        previousStripeSubscriptionId: sub.stripeSubscriptionId,
+      },
       ipAddress: null,
       userAgent: null,
     });

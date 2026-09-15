@@ -9,16 +9,20 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCancelAddon,
+  useCancelSaasSepaMandate,
   useChangePlan,
   useContractAddon,
   useCreateCheckoutSession,
   useCreatePortalSession,
+  useCreateSaasSepaMandate,
   useSaasInvoicePdf,
   useSaasInvoices,
   useSaasPayments,
+  useSaasSepaMandate,
   useSaasSubscription,
   useSelfAddons,
   useSubscriptionPlans,
@@ -198,8 +202,8 @@ export default function SaasBillingPage() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Puedes pagar por <strong>tarjeta</strong> o por <strong>domiciliación SEPA</strong>
-          {' '}(elige el método al suscribirte).
+          El pago con tarjeta se gestiona con Stripe. Si prefieres domiciliar tu cuota (sin comisión
+          de tarjeta), configúralo más abajo en «Domiciliación SEPA».
         </p>
 
         {plans.isLoading ? (
@@ -289,9 +293,116 @@ export default function SaasBillingPage() {
         )}
       </section>
 
+      <SepaMandateSection billingMode={sub.billingMode} />
       <SelfAddonsSection />
       <SaasInvoicesSection />
     </div>
+  );
+}
+
+/**
+ * Mandato SEPA para domiciliar la cuota directamente (sin pasar por Stripe).
+ * Autoservicio: el tenant da de alta el IBAN de su propia cuenta una vez; el
+ * cambio de modo de cobro ('manual'→'sepa') lo hace el super admin desde su
+ * ficha, tras verificar que el mandato existe.
+ */
+function SepaMandateSection({ billingMode }: { billingMode: string }) {
+  const mandate = useSaasSepaMandate();
+  const createMandate = useCreateSaasSepaMandate();
+  const cancelMandate = useCancelSaasSepaMandate();
+  const [iban, setIban] = useState('');
+  const [bic, setBic] = useState('');
+
+  if (mandate.isLoading) return null;
+  const m = mandate.data ?? null;
+
+  async function onCreate() {
+    if (!iban.trim()) {
+      toast.error('Indica el IBAN de tu cuenta.');
+      return;
+    }
+    try {
+      await createMandate.mutateAsync({
+        iban: iban.trim(),
+        bic: bic.trim(),
+        signedAt: new Date().toISOString().slice(0, 10),
+      });
+      setIban('');
+      setBic('');
+      toast.success('Mandato SEPA guardado. Pide a soporte que active el cobro por SEPA.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'IBAN no válido.');
+    }
+  }
+
+  async function onCancel() {
+    try {
+      await cancelMandate.mutateAsync();
+      toast.success('Mandato cancelado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Domiciliación SEPA (cobro directo)</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Autoriza a TrasterOS a domiciliar tu cuota directamente en tu cuenta, sin pasar por
+          Stripe. Da de alta el mandato aquí; el cambio al modo de cobro SEPA lo activa nuestro
+          equipo de soporte.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {m ? (
+          <div className="space-y-2 text-sm">
+            <p>
+              Mandato <span className="font-mono">{m.reference}</span> · IBAN ····
+              {m.ibanLast4} · {m.sequenceType === 'FRST' ? 'sin cobros aún' : 'recurrente'}
+            </p>
+            {billingMode === 'sepa' ? (
+              <p className="text-xs text-muted-foreground">
+                Tu cuota se cobra por SEPA con este mandato. Contacta con soporte para cancelarlo.
+              </p>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCancel}
+                disabled={cancelMandate.isPending}
+              >
+                Cancelar mandato
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium">IBAN de tu cuenta</label>
+              <Input
+                value={iban}
+                onChange={(e) => setIban(e.target.value)}
+                placeholder="ES91 2100 0418 4502 0005 1332"
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium">BIC (opcional)</label>
+              <Input
+                value={bic}
+                onChange={(e) => setBic(e.target.value)}
+                placeholder="BBVAESMMXXX"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Button onClick={onCreate} disabled={createMandate.isPending}>
+                Dar de alta el mandato
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
