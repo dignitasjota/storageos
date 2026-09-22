@@ -957,24 +957,24 @@ Para desactivarlo: botón **Desactivar** en `/admin/custom-domains` (o el tenant
 Por cada hostname hace falta **su registro A y su Proxy Host con certificado
 propio** (NPM emite un cert por hostname, no wildcard):
 
-| Hostname | A → | Proxy Host (Scheme http) | SSL |
-|---|---|---|---|
-| `trasteros.pro` | IP del VPS | `web:3000` | Let's Encrypt + Force SSL |
-| `api.trasteros.pro` | IP del VPS | `api:3001` | Let's Encrypt + Force SSL |
+| Hostname            | A →        | Proxy Host (Scheme http) | SSL                       |
+| ------------------- | ---------- | ------------------------ | ------------------------- |
+| `trasteros.pro`     | IP del VPS | `web:3000`               | Let's Encrypt + Force SSL |
+| `api.trasteros.pro` | IP del VPS | `api:3001`               | Let's Encrypt + Force SSL |
 
 ### 19.2 Variables del stack (Portainer)
 
-| Variable | Valor | Nota |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `https://api.trasteros.pro` | **Origen pelado, SIN `/v1`** (el frontend lo añade). ⚠️ Build-time, ver 19.3 |
-| `NEXT_PUBLIC_SITE_URL` | `https://trasteros.pro` | Canonical/OG/sitemap. ⚠️ Build-time |
-| `WEB_BASE_URL` | `https://trasteros.pro` | Enlaces en emails |
-| `API_BASE_URL` | `https://api.trasteros.pro` | Notificaciones Redsys / URLs absolutas |
-| `ALLOWED_ORIGINS` | `https://trasteros.pro` | CORS del API |
-| `COOKIE_DOMAIN` | `.trasteros.pro` | Cookie de refresh |
-| `COOKIE_SAMESITE` | `lax` | Web y API comparten dominio raíz (same-site) |
-| `COOKIE_SECURE` | `true` | HTTPS |
-| `MINIO_PUBLIC_URL` | `https://files.trasteros.pro` (o el que sirva MinIO) | URLs públicas de ficheros |
+| Variable               | Valor                                                | Nota                                                                         |
+| ---------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`  | `https://api.trasteros.pro`                          | **Origen pelado, SIN `/v1`** (el frontend lo añade). ⚠️ Build-time, ver 19.3 |
+| `NEXT_PUBLIC_SITE_URL` | `https://trasteros.pro`                              | Canonical/OG/sitemap. ⚠️ Build-time                                          |
+| `WEB_BASE_URL`         | `https://trasteros.pro`                              | Enlaces en emails                                                            |
+| `API_BASE_URL`         | `https://api.trasteros.pro`                          | Notificaciones Redsys / URLs absolutas                                       |
+| `ALLOWED_ORIGINS`      | `https://trasteros.pro`                              | CORS del API                                                                 |
+| `COOKIE_DOMAIN`        | `.trasteros.pro`                                     | Cookie de refresh                                                            |
+| `COOKIE_SAMESITE`      | `lax`                                                | Web y API comparten dominio raíz (same-site)                                 |
+| `COOKIE_SECURE`        | `true`                                               | HTTPS                                                                        |
+| `MINIO_PUBLIC_URL`     | `https://files.trasteros.pro` (o el que sirva MinIO) | URLs públicas de ficheros                                                    |
 
 Tras cambiarlas: **reiniciar api y worker** (las leen en runtime).
 
@@ -1016,6 +1016,47 @@ subject correcto y `curl -I https://api.<dominio>/health` da 200.
   las páginas públicas `/s/<tenant>`).
 - **Bing Webmaster Tools**: mismo sitemap.
 - **Google Business Profile** de TrasterOS (categoría «Empresa de software»).
+
+---
+
+## 20. Cobro de la suscripción SaaS por SEPA directo (BBVA)
+
+Distinto de §12B/§17 (esos son cobros del TENANT a sus inquilinos). Esto es
+**nosotros cobrando la cuota a los tenants**, como alternativa a Stripe sin
+su comisión — ver `CLAUDE.md` → sesión de cobro SaaS por SEPA (PRs
+#503-#505) para el diseño completo.
+
+1. **Configurar el acreedor** (una sola vez, panel super admin → `Config.
+de plataforma → SEPA (BBVA)`, ruta `/admin/platform-sepa`): nombre del
+   acreedor, **identificador de acreedor SEPA** (lo asigna el Banco de
+   España al dar de alta el CSB de la cuenta), **IBAN de la cuenta BBVA**,
+   BIC, y activar. El IBAN se guarda cifrado (AES-256-GCM); es una fila
+   **única** para todos los tenants en modo SEPA — cambiar de banco más
+   adelante es editar esta misma pantalla, sin tocar nada por tenant.
+2. **Pasar un tenant a modo SEPA**: el tenant da de alta su propio mandato
+   (IBAN de su empresa) desde `Ajustes → Suscripción` en su panel — nunca
+   lo crea el super admin en su nombre. Con el mandato activo, desde la
+   ficha del tenant (`/admin/tenants/:id`) el botón «Pasar a SEPA» cambia
+   su `billingMode`.
+3. **Generar y subir la remesa** (`/admin/platform-sepa/remittances`):
+   «Nueva remesa» → previsualiza los tenants elegibles (periodo a ≤5 días
+   vista, D+2 mínimo de SEPA CORE) → «Generar remesa» → «XML» descarga el
+   fichero pain.008.001.02 → **subirlo a mano a la banca online de
+   empresa de BBVA** (no hay API pública de domiciliación entre bancos
+   españoles, es el mismo patrón que las remesas SEPA del tenant a sus
+   inquilinos).
+4. **Confirmar el cobro** cuando el banco liquide (2-5 días hábiles
+   típico): botón «Confirmar cobro» en la remesa — extiende el periodo de
+   cada tenant (mismo mecanismo que un pago manual) y rota sus mandatos de
+   `FRST` a `RCUR`.
+5. **Si el banco devuelve un adeudo** (R-transaction, cuenta cerrada/sin
+   fondos/etc.): en el detalle de la remesa confirmada, «Marcar como
+   devuelto» sobre el item afectado — el tenant vuelve a `past_due` y el
+   dunning de plataforma ya existente (`/admin/platform-dunning`) lo
+   recoge sin configuración adicional.
+
+Sin variables de entorno nuevas: toda la config vive en BD, gestionada
+desde el panel.
 
 ---
 
