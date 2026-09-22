@@ -553,6 +553,61 @@ Tabla **global**, sin `tenant_id`, **sin RLS**. Acceso solo via `PrismaAdminServ
 
 - `stripe_customer_id`, `stripe_subscription_id`, `stripe_status` (espejo del status de Stripe), `current_period_start`, `current_period_end`, `cancel_at_period_end` (boolean), `canceled_at`.
 
+### `billing_mode` + `platform_sepa_*` — cobro SaaS por SEPA directo (2026-09-15/17, PRs #503-#505)
+
+Tercer modo de cobro de la suscripción (junto a Stripe y manual), para domiciliar
+la cuota directamente contra la propia cuenta bancaria de la plataforma (p.ej.
+BBVA) sin la comisión de Stripe. Espejo, a nivel plataforma, del `SepaModule`
+que cada tenant ya usa para domiciliar a sus inquilinos (§8) — mismo patrón
+pain.008, pero sin API de banco: fichero que se sube a mano.
+
+- **`tenant_subscriptions.billing_mode`** (`'manual'|'stripe'|'sepa'`, default
+  `'manual'`, backfill desde `stripe_subscription_id IS NOT NULL`). Fuente de
+  verdad explícita — antes se inferia solo de `stripe_subscription_id`.
+  `'stripe'` solo se alcanza vía el webhook `customer.subscription.updated`
+  (no es un destino directo de `setBillingMode`, que solo acepta
+  `'manual'|'sepa'`).
+- **`platform_sepa_settings`** (singleton, sin `tenant_id`, sin RLS — mismo
+  patrón `findFirst() ?? create()` que `platform_dunning_settings`):
+  creditor_name, creditor_id, creditor_iban_encrypted (AES-GCM, AAD fijo
+  `'platform-sepa-settings'`), creditor_bic, enabled. Un único acreedor para
+  **todos** los tenants en modo `'sepa'` — cambiar de banco es reapuntar esta
+  fila, sin migración por tenant.
+- **`platform_sepa_mandates`** (deudor = el TENANT, no un customer; sin RLS,
+  scopeada por `tenant_id` explícito vía `PrismaAdminService`, como
+  `tenant_subscription_payments`): reference (`MND-…`), iban_encrypted (AAD =
+  `tenant_id`) + iban_last4, bic, signed_at, sequence_type (FRST→RCUR),
+  status (active/cancelled). Autoservicio: solo el propio tenant lo crea; el
+  admin solo ve/cancela (soporte). Un mandato activo por tenant por
+  soft-cancel-and-replace en código.
+- **`platform_sepa_remittances`** + **`platform_sepa_remittance_items`**
+  (sin RLS, tablas de plataforma): remesa = lote (name, message_id,
+  collection_date, status generated/confirmed/cancelled, item_count,
+  total_amount céntimos, xml); item = **tenant + periodo** (no factura,
+  a diferencia de `sepa_remittance_items`) — `mandate_id`, amount céntimos,
+  sequence_type, end_to_end_id, **`period_covered` @db.Date +
+  `@@unique(tenant_id, period_covered)`** (la clave anti-doble-cobro, ya que
+  no hay invoice al que colgar el unique), `item_status`
+  (pending/collected/bounced), bounced_at, bounce_reason.
+- **Importe**: plan + add-ons NO suspendidos y NO ya cobrados por su propio
+  subscription item de Stripe (evita el doble cobro de un add-on en
+  `billing_mode='stripe'` individual).
+- **Flujo**: `POST /admin/platform-sepa/remittances/preview` → `POST
+.../remittances` genera el XML con `buildPain008` (reutilizada tal cual del
+  módulo tenant-facing) → descargar y subir al banco → `POST
+.../remittances/:id/confirm` reutiliza `BillingSaasService.
+recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
+  periodo que el pago manual) por item + rota FRST→RCUR. Si el banco
+  devuelve un adeudo ya cobrado: `POST .../remittance-items/:id/bounce`
+  marca el item `bounced` y fuerza `status='past_due'` en la suscripción
+  **explícitamente** (único punto sin webhook — el periodo ya se adelantó al
+  confirmar, así que el cron de morosos manuales no lo detectaría hasta el
+  siguiente vencimiento) — `PlatformDunningService.run()` recoge el
+  `past_due` sin ningún cambio en ese servicio (ya es agnóstico del origen
+  del impago).
+- Endpoints admin-only (`AdminGuard`); mandato con endpoints self-service del
+  tenant en `/settings/saas-billing/sepa-mandate`.
+
 ## 15. Pendiente / post-MVP
 
 Estado tras cerrar Fases 1-14 (MVP completo):
