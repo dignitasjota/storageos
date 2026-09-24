@@ -224,10 +224,12 @@ describe('Units + dashboard (e2e)', () => {
     expect(set.body.code).toBe('invalid_file_content');
   });
 
-  it('PATCH floors/:id/plan acepta una key propia con bytes PNG reales', async () => {
+  it('PATCH floors/:id/plan acepta una key propia con bytes PNG reales y devuelve una URL firmada GET (bucket `plans` es privado)', async () => {
     const owner = await registerVerifiedUser(app, 'units-plan-real');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
-    const { floorId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const { facilityId, floorId } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+    });
 
     const presign = await request(app.getHttpServer())
       .post(`/floors/${floorId}/plan-upload-url`)
@@ -246,6 +248,203 @@ describe('Units + dashboard (e2e)', () => {
       .set(auth)
       .send({ planImageUrl: presign.body.publicUrl, planWidthPx: 800, planHeightPx: 600 });
     expect(set.status).toBe(200);
-    expect(set.body.planImageUrl).toBe(presign.body.publicUrl);
+    // `plans` es un bucket privado: el `planImageUrl` devuelto ya no es la
+    // URL "pública" cruda (que daría 403 anónimo) sino una GET firmada sobre
+    // la misma key — mismo prefijo + query de firma SigV4.
+    expect(set.body.planImageUrl.startsWith(presign.body.publicUrl)).toBe(true);
+    expect(set.body.planImageUrl).toContain('X-Amz-Signature');
+
+    // El listado de floors también debe devolver una URL firmada (no la cruda
+    // guardada en BD) para que el editor/viewer puedan cargar la imagen.
+    const list = await request(app.getHttpServer())
+      .get(`/facilities/${facilityId}/floors`)
+      .set(auth);
+    expect(list.status).toBe(200);
+    const floor = list.body.find((f: { id: string }) => f.id === floorId);
+    expect(floor.planImageUrl.startsWith(presign.body.publicUrl)).toBe(true);
+    expect(floor.planImageUrl).toContain('X-Amz-Signature');
+  });
+
+  describe('taquillas apilables (stack-with / unstack)', () => {
+    async function setupStackable(suffix: string) {
+      const owner = await registerVerifiedUser(app, `units-stack-${suffix}`);
+      const auth = { Authorization: `Bearer ${owner.accessToken}` };
+      const facility = await request(app.getHttpServer())
+        .post('/facilities')
+        .set(auth)
+        .send({
+          name: `Local ${suffix}`,
+          city: 'Madrid',
+          country: 'ES',
+          timezone: 'Europe/Madrid',
+        });
+      const facilityId = facility.body.id as string;
+
+      const stackableType = await request(app.getHttpServer())
+        .post('/unit-types')
+        .set(auth)
+        .send({ name: 'Taquilla', defaultPriceMonthly: 20, stackable: true });
+      const otherType = await request(app.getHttpServer())
+        .post('/unit-types')
+        .set(auth)
+        .send({ name: 'Grande', defaultPriceMonthly: 80, stackable: false });
+
+      async function createUnit(code: string, unitTypeId: string, floorIdOverride?: string) {
+        const res = await request(app.getHttpServer())
+          .post('/units')
+          .set(auth)
+          .send({
+            facilityId,
+            ...(floorIdOverride ? { floorId: floorIdOverride } : {}),
+            unitTypeId,
+            code,
+            widthM: 1,
+            depthM: 1,
+            heightM: 2,
+          });
+        return res.body as { id: string; floorId: string };
+      }
+
+      const unitA = await createUnit('LOCK-A', stackableType.body.id);
+      const unitB = await createUnit('LOCK-B', stackableType.body.id, unitA.floorId);
+      const unitC = await createUnit('LOCK-C', stackableType.body.id, unitA.floorId);
+      const nonStackable = await createUnit('BIG-1', otherType.body.id, unitA.floorId);
+
+      return { auth, facilityId, floorId: unitA.floorId, unitA, unitB, unitC, nonStackable };
+    }
+
+    it('apila dos taquillas del mismo tipo en el mismo hueco (hereda posición del destino)', async () => {
+      const { auth, floorId, unitA, unitB } = await setupStackable('ok');
+
+      // Fija una posición conocida en B (el destino) para verificar que A la hereda.
+      await request(app.getHttpServer())
+        .patch(`/floors/${floorId}/units-layout`)
+        .set(auth)
+        .send({ units: [{ id: unitB.id, planX: 100, planY: 200, planWidth: 40, planHeight: 40 }] });
+
+      const res = await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: unitB.id });
+      expect(res.status).toBe(200);
+      const [joined, target] = res.body as Array<{
+        id: string;
+        stackGroupId: string | null;
+        stackLevel: number | null;
+        planX: number | null;
+        planY: number | null;
+      }>;
+      expect(joined.id).toBe(unitA.id);
+      expect(target.id).toBe(unitB.id);
+      expect(joined.stackGroupId).not.toBeNull();
+      expect(joined.stackGroupId).toBe(target.stackGroupId);
+      expect(joined.stackLevel).toBe(1);
+      expect(target.stackLevel).toBe(0);
+      // A hereda la posición de B (comparten el mismo hueco físico).
+      expect(joined.planX).toBe(100);
+      expect(joined.planY).toBe(200);
+    });
+
+    it('rechaza apilar con uno mismo, con un tipo distinto, no apilable, de otra planta, o ya apilado', async () => {
+      const { auth, facilityId, unitA, unitB, unitC, nonStackable } =
+        await setupStackable('guards');
+
+      const itself = await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: unitA.id });
+      expect(itself.status).toBe(400);
+      expect(itself.body.code).toBe('cannot_stack_with_itself');
+
+      const differentType = await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: nonStackable.id });
+      expect(differentType.status).toBe(400);
+      expect(differentType.body.code).toBe('stack_type_mismatch');
+
+      const notStackableType = await request(app.getHttpServer())
+        .post('/unit-types')
+        .set(auth)
+        .send({ name: 'No apilable', defaultPriceMonthly: 10, stackable: false });
+      const u1 = await request(app.getHttpServer()).post('/units').set(auth).send({
+        facilityId,
+        unitTypeId: notStackableType.body.id,
+        code: 'NS-1',
+        widthM: 1,
+        depthM: 1,
+        heightM: 2,
+      });
+      const u2 = await request(app.getHttpServer()).post('/units').set(auth).send({
+        facilityId,
+        unitTypeId: notStackableType.body.id,
+        code: 'NS-2',
+        widthM: 1,
+        depthM: 1,
+        heightM: 2,
+      });
+      const notStackable = await request(app.getHttpServer())
+        .post(`/units/${u1.body.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: u2.body.id });
+      expect(notStackable.status).toBe(400);
+      expect(notStackable.body.code).toBe('unit_type_not_stackable');
+
+      // Ya apilado: apilar A con B, luego intentar apilar C con A -> 400.
+      await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: unitB.id });
+      const alreadyStacked = await request(app.getHttpServer())
+        .post(`/units/${unitC.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: unitA.id });
+      expect(alreadyStacked.status).toBe(400);
+      expect(alreadyStacked.body.code).toBe('already_stacked');
+    });
+
+    it('desapila: ambas quedan libres, la que se unió se reposiciona desde la posición ACTUAL del ancla', async () => {
+      const { auth, floorId, unitA, unitB } = await setupStackable('unstack');
+
+      await request(app.getHttpServer())
+        .patch(`/floors/${floorId}/units-layout`)
+        .set(auth)
+        .send({ units: [{ id: unitB.id, planX: 50, planY: 60, planWidth: 30, planHeight: 30 }] });
+      await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/stack-with`)
+        .set(auth)
+        .send({ targetUnitId: unitB.id });
+
+      // Mueve el ancla (B, stackLevel:0) DESPUÉS de apilar, simulando un
+      // arrastre en el editor — A (stackLevel:1) no se dibuja/arrastra, así
+      // que su planX/Y propio se queda desactualizado.
+      await request(app.getHttpServer())
+        .patch(`/floors/${floorId}/units-layout`)
+        .set(auth)
+        .send({ units: [{ id: unitB.id, planX: 500, planY: 600, planWidth: 30, planHeight: 30 }] });
+
+      const unstack = await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/unstack`)
+        .set(auth);
+      expect(unstack.status).toBe(200);
+      const byId = Object.fromEntries(
+        (unstack.body as Array<{ id: string; stackGroupId: null; planX: number }>).map((u) => [
+          u.id,
+          u,
+        ]),
+      );
+      expect(byId[unitA.id].stackGroupId).toBeNull();
+      expect(byId[unitB.id].stackGroupId).toBeNull();
+      // B (ancla) conserva su posición actual (500,600); A se reposiciona
+      // relativa a ESA posición actual, no a su propio valor obsoleto.
+      expect(byId[unitB.id].planX).toBe(500);
+      expect(byId[unitA.id].planX).toBe(520); // 500 + UNSTACK_OFFSET_PX(20)
+
+      const notStacked = await request(app.getHttpServer())
+        .post(`/units/${unitA.id}/unstack`)
+        .set(auth);
+      expect(notStacked.status).toBe(400);
+      expect(notStacked.body.code).toBe('not_stacked');
+    });
   });
 });

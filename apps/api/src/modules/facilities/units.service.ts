@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -43,6 +45,10 @@ const ALLOWED_TRANSITIONS: Record<UnitStatusValue, UnitStatusValue[]> = {
   blocked: ['available', 'maintenance'],
   occupied: ['available', 'maintenance', 'blocked'],
 };
+
+/** Desplazamiento en px al desapilar, para que las dos taquillas no queden
+ * dibujadas exactamente una encima de la otra tras separarse. */
+const UNSTACK_OFFSET_PX = 20;
 
 export interface ListUnitsFilters {
   facilityId?: string;
@@ -356,6 +362,182 @@ export class UnitsService {
     });
   }
 
+  /**
+   * Apila dos taquillas del mismo tipo (marcado `stackable`) y planta en el
+   * mismo hueco del plano: la que se une (`unitId`) hereda posición/tamaño
+   * de la de destino (`targetUnitId`) y ambas quedan enlazadas por
+   * `stackGroupId` con `stackLevel` 1 (arriba) / 0 (abajo). El tope de 2 por
+   * grupo sale gratis: una unit ya apilada siempre tiene `stackGroupId` no
+   * nulo, así que no puede volver a unirse a otro grupo.
+   */
+  async stackUnits(args: {
+    tenantId: string;
+    userId: string;
+    unitId: string;
+    targetUnitId: string;
+    meta: RequestMeta;
+    facilityScope?: string[] | null;
+  }): Promise<UnitDto[]> {
+    const { tenantId, unitId, targetUnitId } = args;
+    if (unitId === targetUnitId) {
+      throw new BadRequestException({
+        code: 'cannot_stack_with_itself',
+        message: 'No puedes apilar un trastero consigo mismo',
+      });
+    }
+    const a = await this.findOrThrow(tenantId, unitId, args.facilityScope);
+    const b = await this.findOrThrow(tenantId, targetUnitId, args.facilityScope);
+    if (a.unitTypeId !== b.unitTypeId) {
+      throw new BadRequestException({
+        code: 'stack_type_mismatch',
+        message: 'Solo puedes apilar trasteros del mismo tipo',
+      });
+    }
+    if (a.floorId !== b.floorId) {
+      throw new BadRequestException({
+        code: 'stack_floor_mismatch',
+        message: 'Solo puedes apilar trasteros de la misma planta',
+      });
+    }
+    if (a.stackGroupId || b.stackGroupId) {
+      throw new BadRequestException({
+        code: 'already_stacked',
+        message: 'Uno de los dos trasteros ya está apilado; desapílalo primero',
+      });
+    }
+    const unitType = await this.prisma.withTenant(
+      (tx) => tx.unitType.findUnique({ where: { id: a.unitTypeId } }),
+      tenantId,
+    );
+    if (!unitType?.stackable) {
+      throw new BadRequestException({
+        code: 'unit_type_not_stackable',
+        message: 'Este tipo de trastero no está marcado como apilable',
+      });
+    }
+
+    const groupId = randomUUID();
+    const include = {
+      facility: { select: { name: true } },
+      floor: { select: { name: true } },
+      unitType: { select: { name: true, color: true } },
+    } as const;
+    const [updatedA, updatedB] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.unit.update({
+            where: { id: a.id },
+            data: {
+              stackGroupId: groupId,
+              stackLevel: 1,
+              planX: b.planX,
+              planY: b.planY,
+              planWidth: b.planWidth,
+              planHeight: b.planHeight,
+            },
+            include,
+          }),
+          tx.unit.update({
+            where: { id: b.id },
+            data: { stackGroupId: groupId, stackLevel: 0 },
+            include,
+          }),
+        ]),
+      tenantId,
+    );
+
+    await this.audit.write({
+      tenantId,
+      userId: args.userId,
+      action: 'unit.stacked',
+      entityType: 'Unit',
+      entityId: a.id,
+      changes: { groupId, withUnitId: b.id },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return [this.toDto(updatedA), this.toDto(updatedB)];
+  }
+
+  /**
+   * Deshace el apilado: separa las dos taquillas de un grupo (vuelven a ser
+   * trasteros independientes). El editor de plano solo dibuja/arrastra/
+   * redimensiona el trastero `stackLevel:0` (el otro es un miembro "oculto"
+   * del mismo hueco, ver `plan-editor.tsx`) — así que su `planX/Y/W/H`
+   * propios pueden llevar tiempo desactualizados si el grupo se movió tras
+   * apilarse. Por eso ambos liberados se reposicionan desde el `stackLevel:0`
+   * (fuente de verdad de dónde está el grupo AHORA), no desde su propio valor.
+   */
+  async unstackUnit(args: {
+    tenantId: string;
+    userId: string;
+    unitId: string;
+    meta: RequestMeta;
+    facilityScope?: string[] | null;
+  }): Promise<UnitDto[]> {
+    const { tenantId, unitId } = args;
+    const unit = await this.findOrThrow(tenantId, unitId, args.facilityScope);
+    if (!unit.stackGroupId) {
+      throw new BadRequestException({
+        code: 'not_stacked',
+        message: 'Este trastero no está apilado',
+      });
+    }
+    const groupId = unit.stackGroupId;
+    const include = {
+      facility: { select: { name: true } },
+      floor: { select: { name: true } },
+      unitType: { select: { name: true, color: true } },
+    } as const;
+    const partners = await this.prisma.withTenant(
+      (tx) => tx.unit.findMany({ where: { stackGroupId: groupId } }),
+      tenantId,
+    );
+    const anchor = partners.find((p) => p.stackLevel === 0) ?? partners[0];
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all(
+          partners.map((p) => {
+            const isAnchor = anchor !== undefined && p.id === anchor.id;
+            return tx.unit.update({
+              where: { id: p.id },
+              data: {
+                stackGroupId: null,
+                stackLevel: null,
+                ...(!isAnchor && anchor
+                  ? {
+                      planX:
+                        anchor.planX !== null
+                          ? Number(anchor.planX) + UNSTACK_OFFSET_PX
+                          : anchor.planX,
+                      planY: anchor.planY,
+                      planWidth: anchor.planWidth,
+                      planHeight: anchor.planHeight,
+                    }
+                  : {}),
+              },
+              include,
+            });
+          }),
+        ),
+      tenantId,
+    );
+
+    await this.audit.write({
+      tenantId,
+      userId: args.userId,
+      action: 'unit.unstacked',
+      entityType: 'Unit',
+      entityId: unitId,
+      changes: { groupId },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+
+    return updated.map((u) => this.toDto(u));
+  }
+
   async changeStatus(args: {
     tenantId: string;
     userId: string;
@@ -476,6 +658,8 @@ export class UnitsService {
       planHeight:
         row.planHeight !== null && row.planHeight !== undefined ? Number(row.planHeight) : null,
       planShape: (row.planShape as Record<string, unknown> | null) ?? null,
+      stackGroupId: row.stackGroupId,
+      stackLevel: row.stackLevel,
       notes: row.notes,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

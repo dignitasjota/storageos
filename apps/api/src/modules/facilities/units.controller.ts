@@ -15,6 +15,7 @@ import {
 import {
   ChangeUnitStatusSchema,
   CreateUnitSchema,
+  StackUnitsSchema,
   type UnitDto,
   type UnitStatusHistoryDto,
   UnitStatusEnum,
@@ -37,6 +38,7 @@ import type { Request } from 'express';
 class CreateUnitDto extends createZodDto(CreateUnitSchema) {}
 class UpdateUnitDto extends createZodDto(UpdateUnitSchema) {}
 class ChangeUnitStatusDto extends createZodDto(ChangeUnitStatusSchema) {}
+class StackUnitsDto extends createZodDto(StackUnitsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -142,6 +144,42 @@ export class UnitsController {
       userId: user.sub,
       unitId: id,
       input,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  @RequirePermission('units:write')
+  @Post(':id/stack-with')
+  @HttpCode(HttpStatus.OK)
+  async stackWith(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: StackUnitsDto,
+    @Req() req: Request,
+  ): Promise<UnitDto[]> {
+    return this.units.stackUnits({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      unitId: id,
+      targetUnitId: input.targetUnitId,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  @RequirePermission('units:write')
+  @Post(':id/unstack')
+  @HttpCode(HttpStatus.OK)
+  async unstack(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<UnitDto[]> {
+    return this.units.unstackUnit({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      unitId: id,
       meta: extractMeta(req),
       facilityScope: user.facilityScope ?? null,
     });

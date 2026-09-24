@@ -934,6 +934,9 @@ model UnitType {
   defaultDepositAmount Decimal  @default(0) @map("default_deposit_amount") @db.Decimal(10, 2)
   color                String   @default("#888888") @db.Char(7)
   features             Json     @default("{}")
+  /// Taquillas u otros trasteros pequeños que se apilan de dos en dos en el
+  /// mismo hueco físico del plano (p. ej. taquillas de 1m² apilables).
+  stackable            Boolean  @default(false)
   isActive             Boolean  @default(true) @map("is_active")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -973,6 +976,12 @@ model Unit {
   planWidth        Decimal?   @map("plan_width") @db.Decimal(10, 3)
   planHeight       Decimal?   @map("plan_height") @db.Decimal(10, 3)
   planShape        Json?      @map("plan_shape")
+  /// Par de taquillas apiladas en el mismo hueco del plano: comparten
+  /// `stackGroupId` (arbitrario, generado al apilar) y se distinguen por
+  /// `stackLevel` (0=abajo, 1=arriba). Null en ambos = trastero normal, sin
+  /// apilar. Solo permitido entre units del mismo `unitType.stackable`.
+  stackGroupId     String?    @map("stack_group_id") @db.Uuid
+  stackLevel       Int?       @map("stack_level")
   notes            String?
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -994,6 +1003,7 @@ model Unit {
   @@index([tenantId])
   @@index([facilityId, status])
   @@index([floorId])
+  @@index([stackGroupId])
   @@map("units")
 }
 

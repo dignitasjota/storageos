@@ -52,6 +52,8 @@ export interface UnitTypeDto {
   defaultDepositAmount: number;
   color: string;
   features: Record<string, unknown>;
+  /** Taquillas apilables de dos en dos (mismo hueco del plano). */
+  stackable: boolean;
   isActive: boolean;
   unitsCount: number;
   createdAt: string;
@@ -80,6 +82,10 @@ export interface UnitDto {
   planWidth: number | null;
   planHeight: number | null;
   planShape: Record<string, unknown> | null;
+  /** Par de taquillas apiladas en el mismo hueco: comparten `stackGroupId`,
+   * se distinguen por `stackLevel` (0=abajo, 1=arriba). Null = sin apilar. */
+  stackGroupId: string | null;
+  stackLevel: number | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
