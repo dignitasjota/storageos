@@ -266,6 +266,15 @@ export class UnitsService {
       changes.floorId = args.input.floorId;
     }
     if (args.input.unitTypeId !== undefined) {
+      // Un trastero apilado comparte hueco/tipo con su pareja (ver
+      // `stackUnits`) — cambiar el tipo lo dejaría inconsistente. Hay que
+      // desapilar primero (desde el editor de plano).
+      if (existing.stackGroupId) {
+        throw new BadRequestException({
+          code: 'cannot_change_type_while_stacked',
+          message: 'Este trastero está apilado con otro; desapílalo antes de cambiar su tipo',
+        });
+      }
       data.unitType = { connect: { id: args.input.unitTypeId } };
       changes.unitTypeId = args.input.unitTypeId;
     }
