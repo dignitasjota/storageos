@@ -24,17 +24,25 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useContracts } from '@/lib/customers/hooks';
-import { useUnit, useUnitHistory, useUpdateUnit } from '@/lib/facilities/hooks';
+import { useUnit, useUnitHistory, useUnitTypes, useUpdateUnit } from '@/lib/facilities/hooks';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -220,6 +228,8 @@ function EditUnitDialog({
 }: {
   unit: {
     id: string;
+    unitTypeId: string;
+    stackGroupId: string | null;
     widthM: number;
     depthM: number;
     heightM: number;
@@ -230,9 +240,12 @@ function EditUnitDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const update = useUpdateUnit();
+  const types = useUnitTypes();
+  const activeTypes = (types.data ?? []).filter((t) => t.isActive || t.id === unit.unitTypeId);
   const form = useForm<UpdateUnitInput>({
     resolver: zodResolver(UpdateUnitSchema),
     values: {
+      unitTypeId: unit.unitTypeId,
       widthM: unit.widthM,
       depthM: unit.depthM,
       heightM: unit.heightM,
@@ -247,6 +260,13 @@ function EditUnitDialog({
       toast.success('Trastero actualizado.');
       onOpenChange(false);
     } catch (err) {
+      if (
+        err instanceof ApiError &&
+        (err.body as { code?: string }).code === 'cannot_change_type_while_stacked'
+      ) {
+        toast.error('Está apilado con otro trastero; desapílalo antes de cambiar el tipo.');
+        return;
+      }
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar.');
     }
   }
@@ -259,6 +279,40 @@ function EditUnitDialog({
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <FormField
+              control={form.control}
+              name="unitTypeId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tipo de trastero</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={!!unit.stackGroupId}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona un tipo" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {activeTypes.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {unit.stackGroupId && (
+                    <FormDescription>
+                      Este trastero está apilado con otro — desapílalo desde el plano para poder
+                      cambiar su tipo.
+                    </FormDescription>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <FormField
                 control={form.control}

@@ -74,6 +74,71 @@ describe('Units + dashboard (e2e)', () => {
     expect(dup.body.code).toBe('unit_code_taken');
   });
 
+  it('PATCH /units/:id permite corregir el tipo de trastero (equivocación al darlo de alta)', async () => {
+    const owner = await registerVerifiedUser(app, 'units-retype');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+    });
+    const otherType = await request(app.getHttpServer())
+      .post('/unit-types')
+      .set(auth)
+      .send({ name: 'Tipo correcto', defaultPriceMonthly: 40 });
+    expect(otherType.status).toBe(201);
+
+    const patch = await request(app.getHttpServer())
+      .patch(`/units/${unitIds[0]}`)
+      .set(auth)
+      .send({ unitTypeId: otherType.body.id });
+    expect(patch.status).toBe(200);
+    expect(patch.body.unitTypeId).toBe(otherType.body.id);
+    expect(patch.body.unitTypeName).toBe('Tipo correcto');
+
+    const detail = await request(app.getHttpServer()).get(`/units/${unitIds[0]}`).set(auth);
+    expect(detail.body.unitTypeId).toBe(otherType.body.id);
+  });
+
+  it('PATCH /units/:id rechaza cambiar el tipo mientras el trastero está apilado', async () => {
+    const owner = await registerVerifiedUser(app, 'units-retype-stacked');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const stackableType = await request(app.getHttpServer())
+      .post('/unit-types')
+      .set(auth)
+      .send({ name: 'Taquilla', defaultPriceMonthly: 20, stackable: true });
+    const otherType = await request(app.getHttpServer())
+      .post('/unit-types')
+      .set(auth)
+      .send({ name: 'Otro tipo', defaultPriceMonthly: 40 });
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 0,
+    });
+    async function createUnit(code: string) {
+      const res = await request(app.getHttpServer()).post('/units').set(auth).send({
+        facilityId,
+        unitTypeId: stackableType.body.id,
+        code,
+        widthM: 1,
+        depthM: 1,
+        heightM: 2,
+      });
+      return res.body as { id: string };
+    }
+    const a = await createUnit('LOCK-A');
+    const b = await createUnit('LOCK-B');
+    const stack = await request(app.getHttpServer())
+      .post(`/units/${a.id}/stack-with`)
+      .set(auth)
+      .send({ targetUnitId: b.id });
+    expect(stack.status).toBe(200);
+
+    const patch = await request(app.getHttpServer())
+      .patch(`/units/${a.id}`)
+      .set(auth)
+      .send({ unitTypeId: otherType.body.id });
+    expect(patch.status).toBe(400);
+    expect(patch.body.code).toBe('cannot_change_type_while_stacked');
+  });
+
   it('change-status escribe en history y respeta transiciones', async () => {
     const owner = await registerVerifiedUser(app, 'units-status');
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, {
