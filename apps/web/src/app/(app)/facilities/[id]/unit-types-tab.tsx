@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -63,6 +64,7 @@ export function FacilityUnitTypesTab() {
       defaultDepositAmount: 0,
       color: '#3366ff',
       features: {},
+      stackable: false,
     },
   });
 
@@ -75,6 +77,7 @@ export function FacilityUnitTypesTab() {
         defaultDepositAmount: editing.defaultDepositAmount,
         color: editing.color,
         features: editing.features,
+        stackable: editing.stackable,
       });
     }
   }, [editing, form]);
@@ -134,6 +137,12 @@ export function FacilityUnitTypesTab() {
     {
       accessorKey: 'unitsCount',
       header: 'Trasteros',
+    },
+    {
+      accessorKey: 'stackable',
+      header: 'Apilable',
+      cell: ({ row }) =>
+        row.original.stackable ? <Badge variant="outline">Apilable ×2</Badge> : null,
     },
     {
       accessorKey: 'isActive',
@@ -265,6 +274,24 @@ export function FacilityUnitTypesTab() {
                         <Input type="color" {...field} className="h-10 w-20" />
                       </FormControl>
                       <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="stackable"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start gap-2 space-y-0 rounded-md border p-3">
+                      <FormControl>
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                      <div className="space-y-0.5 leading-none">
+                        <FormLabel className="font-normal">Taquilla apilable</FormLabel>
+                        <FormDescription>
+                          Dos trasteros de este tipo se pueden apilar en el mismo hueco del plano
+                          (uno arriba, otro abajo) — por ejemplo, taquillas de 1 m².
+                        </FormDescription>
+                      </div>
                     </FormItem>
                   )}
                 />

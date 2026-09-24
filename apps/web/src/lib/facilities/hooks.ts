@@ -259,6 +259,30 @@ export function useDeleteUnit() {
   });
 }
 
+export function useStackUnits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; targetUnitId: string }) =>
+      apiFetch<UnitDto[]>(`/units/${args.id}/stack-with`, {
+        method: 'POST',
+        json: { targetUnitId: args.targetUnitId },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['units'] });
+    },
+  });
+}
+
+export function useUnstackUnit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<UnitDto[]>(`/units/${id}/unstack`, { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['units'] });
+    },
+  });
+}
+
 // ============================================================================
 // Floors + plano
 // ============================================================================

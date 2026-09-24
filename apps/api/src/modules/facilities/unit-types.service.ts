@@ -59,6 +59,7 @@ export class UnitTypesService {
       defaultDepositAmount: args.input.defaultDepositAmount ?? 0,
       color: args.input.color,
       features: args.input.features as Prisma.InputJsonValue,
+      stackable: args.input.stackable,
     };
     let created: UnitType;
     try {
@@ -118,6 +119,10 @@ export class UnitTypesService {
     if (args.input.features !== undefined) {
       data.features = args.input.features as Prisma.InputJsonValue;
       changes.features = args.input.features;
+    }
+    if (args.input.stackable !== undefined) {
+      data.stackable = args.input.stackable;
+      changes.stackable = args.input.stackable;
     }
     if (args.input.isActive !== undefined) {
       data.isActive = args.input.isActive;
@@ -224,6 +229,7 @@ export class UnitTypesService {
       defaultDepositAmount: Number(row.defaultDepositAmount),
       color: row.color,
       features: (row.features as Record<string, unknown>) ?? {},
+      stackable: row.stackable,
       isActive: row.isActive,
       unitsCount: row._count?.units ?? 0,
       createdAt: row.createdAt.toISOString(),

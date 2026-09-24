@@ -107,6 +107,8 @@ export const CreateUnitTypeSchema = z.object({
   defaultDepositAmount: nonNegativeDecimal.default(0),
   color: hexColor.default('#888888'),
   features: z.record(z.unknown()).default({}),
+  /** Taquillas apilables de dos en dos (mismo hueco del plano). */
+  stackable: z.boolean().default(false),
 });
 export type CreateUnitTypeInput = z.infer<typeof CreateUnitTypeSchema>;
 
@@ -169,6 +171,12 @@ export const ChangeUnitStatusSchema = z.object({
   reason: z.string().trim().max(500).optional().or(z.literal('')),
 });
 export type ChangeUnitStatusInput = z.infer<typeof ChangeUnitStatusSchema>;
+
+/** Apila dos taquillas del mismo tipo apilable en el mismo hueco del plano. */
+export const StackUnitsSchema = z.object({
+  targetUnitId: z.string().uuid(),
+});
+export type StackUnitsInput = z.infer<typeof StackUnitsSchema>;
 
 // ============================================================================
 // Floors + layout

@@ -9,6 +9,7 @@ import type Konva from 'konva';
 
 import { Button } from '@/components/ui/button';
 import { useFloors, useUnits } from '@/lib/facilities/hooks';
+import { proportionalPlanSize } from '@/lib/facilities/plan-size';
 
 interface Props {
   facilityId: string;
@@ -16,8 +17,6 @@ interface Props {
 }
 
 const GRID = 20;
-const DEFAULT_W = 80;
-const DEFAULT_H = 60;
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 5;
 
@@ -49,6 +48,7 @@ interface UnitRect {
   areaM2: number;
   price: number;
   typeName: string;
+  stacked: boolean;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -87,10 +87,16 @@ export function PlanViewer({ facilityId, floorId }: Props) {
     if (!units.data?.items) return [];
     let cursorX = GRID;
     let cursorY = GRID;
-    return units.data.items.map((u) => {
+    const out: UnitRect[] = [];
+    for (const u of units.data.items) {
+      // La taquilla "de arriba" de un par apilado comparte el hueco de la
+      // "de abajo" (stackLevel:0) — no se dibuja aparte, o se verían dos
+      // rects idénticos superpuestos en el mismo sitio.
+      if (u.stackLevel === 1) continue;
       const hasPos = u.planX !== null && u.planY !== null;
-      const w = u.planWidth ?? DEFAULT_W;
-      const h = u.planHeight ?? DEFAULT_H;
+      const proportional = proportionalPlanSize(u.widthM, u.depthM);
+      const w = u.planWidth ?? proportional.width;
+      const h = u.planHeight ?? proportional.height;
       const x = u.planX ?? cursorX;
       const y = u.planY ?? cursorY;
       if (!hasPos) {
@@ -100,7 +106,7 @@ export function PlanViewer({ facilityId, floorId }: Props) {
           cursorY += h + GRID;
         }
       }
-      return {
+      out.push({
         id: u.id,
         code: u.code,
         x,
@@ -111,8 +117,10 @@ export function PlanViewer({ facilityId, floorId }: Props) {
         areaM2: u.areaM2,
         price: u.basePriceMonthly,
         typeName: u.unitTypeName,
-      };
-    });
+        stacked: u.stackGroupId !== null,
+      });
+    }
+    return out;
   }, [units.data?.items]);
 
   // Tooltip al pasar el cursor (precio + detalle del trastero).
@@ -301,6 +309,23 @@ export function PlanViewer({ facilityId, floorId }: Props) {
               )}
             </Layer>
             <Layer>
+              {rects
+                .filter((r) => r.stacked)
+                .map((r) => (
+                  <Rect
+                    key={`stack-echo-${r.id}`}
+                    x={r.x + 5}
+                    y={r.y - 5}
+                    width={r.width}
+                    height={r.height}
+                    fill={STATUS_FILL[r.status] ?? '#64748b'}
+                    opacity={0.35}
+                    stroke="#ffffff"
+                    strokeWidth={1}
+                    cornerRadius={3}
+                    listening={false}
+                  />
+                ))}
               {rects.map((r) => (
                 <Rect
                   key={r.id}
@@ -338,7 +363,11 @@ export function PlanViewer({ facilityId, floorId }: Props) {
                   y={r.y + r.height / 2 - 13}
                   width={r.width}
                   align="center"
-                  text={`${r.code}\n${r.areaM2.toFixed(1)} m²`}
+                  text={
+                    r.stacked
+                      ? `${r.code} ×2\n${r.areaM2.toFixed(1)} m²`
+                      : `${r.code}\n${r.areaM2.toFixed(1)} m²`
+                  }
                   fontSize={12}
                   fontStyle="bold"
                   lineHeight={1.25}

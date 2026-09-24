@@ -50,7 +50,7 @@ export class FacilityFloorsService {
         }),
       tenantId,
     );
-    return rows.map((r) => this.toDto(r));
+    return Promise.all(rows.map((r) => this.toDto(r)));
   }
 
   /**
@@ -319,13 +319,24 @@ export class FacilityFloorsService {
     }
   }
 
-  private toDto(f: FacilityFloor): FacilityFloorDto {
+  /**
+   * El bucket `plans` es PRIVADO (como `uploads`/`invoices`) — `planImageUrl`
+   * se guarda en BD con la forma de `buildPublicUrl('plans', key)`, que no
+   * sirve para un `<img src>` directo (403 anónimo). Se resuelve aquí a una
+   * URL GET firmada (mismo patrón que `presignFromPublicUrl` usa para PDFs
+   * de contrato/factura), así el resto del código (frontend, `setPlan`'s
+   * validación de prefijo) sigue trabajando con la forma "pública" sin tocar.
+   */
+  private async toDto(f: FacilityFloor): Promise<FacilityFloorDto> {
+    const planImageUrl = f.planImageUrl
+      ? ((await this.files.presignFromPublicUrl('plans', f.planImageUrl)) ?? f.planImageUrl)
+      : null;
     return {
       id: f.id,
       facilityId: f.facilityId,
       name: f.name,
       floorNumber: f.floorNumber,
-      planImageUrl: f.planImageUrl,
+      planImageUrl,
       planWidthPx: f.planWidthPx,
       planHeightPx: f.planHeightPx,
       isDefault: f.isDefault,
