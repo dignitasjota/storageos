@@ -16,6 +16,7 @@ import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module';
 import { createCorsOrigin } from './common/cors-origin';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { configureTrustProxy } from './common/http/trust-proxy';
 import { legacyRedirectHandler } from './common/middleware/legacy-redirect.middleware';
 import { PrismaAdminService } from './modules/database/prisma-admin.service';
 
@@ -31,6 +32,9 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
 
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+
+  // IP real del cliente detrás de Nginx Proxy Manager (rate limit + auditoría).
+  configureTrustProxy(app, config.get('TRUST_PROXY_HOPS', { infer: true }));
 
   app.use(helmet());
   // Raw body para la verificacion de firma de webhooks Stripe.

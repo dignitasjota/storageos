@@ -98,6 +98,24 @@ describe('Fase 11A.1: security events (e2e)', () => {
     expect(ev.emailAttempted).toBe(ids.email);
   });
 
+  it('registra la IP real del cliente tras el proxy (trust proxy + X-Forwarded-For)', async () => {
+    // Detrás de Nginx Proxy Manager, sin `trust proxy` `req.ip` era la IP del
+    // proxy para TODAS las peticiones (rate limit global + auditoría inútil).
+    const ids = uniqueTestIds('sec-xff');
+    const r = await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('X-Forwarded-For', '203.0.113.7')
+      .send({ tenantSlug: ids.slug, email: ids.email, password: 'Secret123' });
+    expect(r.status).toBe(401);
+
+    const ev = await waitFor(() =>
+      adminClient.securityEvent.findFirst({
+        where: { eventType: 'login_failed_tenant_not_found', tenantSlugAttempted: ids.slug },
+      }),
+    );
+    expect(ev.ipAddress).toBe('203.0.113.7');
+  });
+
   it('login con email inexistente persiste login_failed_email_not_found', async () => {
     const owner = await registerVerifiedUser(app, 'sec-email');
     const otherIds = uniqueTestIds('sec-other');

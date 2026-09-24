@@ -208,6 +208,14 @@ Crear dos proxy hosts:
 
 En cada uno, pestaña **SSL** → Request a new SSL Certificate con Let's Encrypt + Force SSL + HTTP/2.
 
+**IP real del cliente (`TRUST_PROXY_HOPS`)**: NPM añade `X-Forwarded-For`, y la API
+lo usa gracias a Express `trust proxy` con `TRUST_PROXY_HOPS` (default `1` = solo NPM
+delante). Si pones otro proxy delante de NPM (p. ej. Cloudflare en modo proxy) súbelo a
+`2`. Tiene que ser el nº **exacto**: de menos, todas las peticiones comparten la IP de NPM
+(el rate limit pasa a ser global: 5 logins/min para toda la plataforma) y los audit logs
+registran siempre la misma IP; de más, un cliente puede falsificar su IP con la cabecera.
+Comprobación: en `audit_logs.ip_address` deben aparecer IPs públicas, no `172.x.x.x`.
+
 Para `api.tu-dominio.com` añadir un **Custom location** específico para `/webhooks/stripe` con `Request body size` aumentado a 5MB y sin caché (Stripe envía raw body firmado).
 
 ---
