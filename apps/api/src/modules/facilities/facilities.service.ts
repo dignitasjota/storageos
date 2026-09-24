@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { RESERVED_FACILITY_SLUGS } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -31,11 +32,13 @@ function slugify(s: string): string {
 }
 
 /**
- * Segmentos reservados por el enrutado público bajo `/s/<tenantSlug>/...` —
- * un `publicSlug` de facility nunca puede coincidir con ellos o colisionaría
- * con esas rutas. `l` = prefijo del selector de idioma (`/s/<slug>/l/<locale>`).
+ * Segmentos reservados por el enrutado público bajo `/s/<tenantSlug>/...` y
+ * el dominio propio — un `publicSlug` de facility nunca puede coincidir con
+ * ellos o colisionaría con esas rutas. Fuente única en `@storageos/shared`
+ * (`RESERVED_FACILITY_SLUGS`, derivada de los mismos prefijos que usa
+ * `resolveCustomDomainRoute`), reutilizada aquí para que ambos no diverjan.
  */
-const RESERVED_PUBLIC_SLUGS = new Set(['l', 'blog']);
+const RESERVED_PUBLIC_SLUGS = RESERVED_FACILITY_SLUGS;
 
 interface CreateArgs {
   tenantId: string;

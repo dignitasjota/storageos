@@ -45,6 +45,23 @@ const PLATFORM_PREFIXES = [
 /** Ruta amigable de reserva en el dominio propio → booking del tenant. */
 const BOOK_ALIAS = '/reservar';
 
+/**
+ * Segmentos que un `publicSlug` de facility NUNCA puede usar bajo un dominio
+ * propio: colisionarían con una ruta real (reescrita ANTES que la regla
+ * genérica de 1 segmento en `resolveCustomDomainRoute` — portal/login/
+ * reserva/etc. siempre ganan) y ese local quedaría inalcanzable en
+ * `midominio.com/<slug>`. Fuente única derivada de los mismos prefijos que
+ * usa el resolver, más `l`/`blog` — los 2 segmentos "de sitio" que no vienen
+ * de un prefijo sino de carpetas reales bajo `/s/[slug]/` (idioma y blog).
+ */
+export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
+  ...PASS_PREFIXES.map((p) => p.slice(1)),
+  ...PLATFORM_PREFIXES.map((p) => p.slice(1)),
+  BOOK_ALIAS.slice(1),
+  'l',
+  'blog',
+]);
+
 function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }

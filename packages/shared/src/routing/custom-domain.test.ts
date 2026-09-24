@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveCustomDomainRoute } from './custom-domain';
+import { RESERVED_FACILITY_SLUGS, resolveCustomDomainRoute } from './custom-domain';
 
 const SLUG = 'garcia';
 
@@ -81,6 +81,26 @@ describe('resolveCustomDomainRoute', () => {
 
   it('rutas multi-segmento no reconocidas pasan tal cual', () => {
     expect(resolveCustomDomainRoute('/algo/profundo/aqui', SLUG)).toEqual({ action: 'next' });
+  });
+
+  it('RESERVED_FACILITY_SLUGS: los que vienen de un prefijo real nunca resuelven como página de local', () => {
+    // Invariante: si un local pudiera tener uno de estos slugs, su página
+    // quedaría inalcanzable bajo dominio propio — otra ruta (portal, login,
+    // reserva…) se lo come ANTES de llegar a la regla genérica de 1 segmento.
+    // Excluye `l`/`blog`: esos dos SÍ producen el mismo rewrite genérico
+    // (`/s/<slug>/blog`) — su protección no está aquí, sino en que Next.js
+    // resuelve esa carpeta estática antes que la dinámica `[facility]`.
+    expect(RESERVED_FACILITY_SLUGS.size).toBeGreaterThan(2);
+    for (const slug of RESERVED_FACILITY_SLUGS) {
+      if (slug === 'l' || slug === 'blog') continue;
+      const route = resolveCustomDomainRoute(`/${slug}`, SLUG);
+      expect(route).not.toEqual({ action: 'rewrite', path: `/s/${SLUG}/${slug}` });
+    }
+  });
+
+  it('RESERVED_FACILITY_SLUGS incluye `l` y `blog` (protegidos por precedencia de rutas de Next, no por el resolver)', () => {
+    expect(RESERVED_FACILITY_SLUGS.has('l')).toBe(true);
+    expect(RESERVED_FACILITY_SLUGS.has('blog')).toBe(true);
   });
 });
 

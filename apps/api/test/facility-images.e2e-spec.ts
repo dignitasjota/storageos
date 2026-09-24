@@ -135,4 +135,23 @@ describe('Facility images + slug (e2e)', () => {
     expect(patch.status).toBe(200);
     expect(patch.body.publicSlug).toBe('madrid-centro-test');
   });
+
+  it('el slug público nunca puede ser una palabra reservada por el dominio propio (colisionaría con esa ruta)', async () => {
+    const owner = await registerVerifiedUser(app, 'fac-slug-reserved');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    // 'blog'/'l' ya estaban cubiertos; 'reservar'/'portal'/'login' son los
+    // que se añaden ahora (vienen de PASS_PREFIXES/PLATFORM_PREFIXES/
+    // BOOK_ALIAS de `resolveCustomDomainRoute`, no de una lista a mano).
+    for (const reserved of ['blog', 'reservar', 'portal', 'login']) {
+      const patch = await request(app.getHttpServer())
+        .patch(`/facilities/${facilityId}`)
+        .set(auth)
+        .send({ publicSlug: reserved });
+      expect(patch.status).toBe(200);
+      // Se desambigua con sufijo, como cualquier slug ya en uso.
+      expect(patch.body.publicSlug).toBe(`${reserved}-2`);
+    }
+  });
 });
