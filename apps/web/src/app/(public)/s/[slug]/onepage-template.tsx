@@ -144,7 +144,9 @@ export function OnePageTemplate({
   const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const bookHref = buildBookHref(data.tenantSlug, locale);
-  const blogHref = data.hasBlog ? buildBlogHref(data.tenantSlug, locale) : undefined;
+  const blogHref = data.hasBlog
+    ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
+    : undefined;
   const types = distinctUnitTypes(data);
   const defaultFaqs = t.raw('faqs') as FaqItem[];
   const faqs = data.faqs.length > 0 ? data.faqs : defaultFaqs;

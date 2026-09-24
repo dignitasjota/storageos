@@ -22,6 +22,7 @@ import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   bookHref as buildBookHref,
+  facilityHref as buildFacilityHref,
   type PublicWebLocale,
 } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
@@ -73,7 +74,9 @@ export function EscaparateTemplate({
   const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
   const bookHref = buildBookHref(data.tenantSlug, locale);
-  const blogHref = data.hasBlog ? buildBlogHref(data.tenantSlug, locale) : undefined;
+  const blogHref = data.hasBlog
+    ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
+    : undefined;
   const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
   const hasReviews = data.testimonials.length > 0;
 
@@ -220,7 +223,7 @@ export function EscaparateTemplate({
                       number | null
                     >((min, unitType) => (min === null ? unitType.priceMonthly : Math.min(min, unitType.priceMonthly)), null);
                   const href = f.publicSlug
-                    ? `/s/${data.tenantSlug}/${f.publicSlug}`
+                    ? buildFacilityHref(data.tenantSlug, f.publicSlug, locale, data.customDomain)
                     : buildBookHref(data.tenantSlug, locale, { facilityId: f.id });
                   return (
                     <Link
