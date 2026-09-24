@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { trackEvent } from '../google-analytics';
-import { bookHref, type PublicWebLocale } from '../i18n/messages';
+import { bookHref, landingHref, type PublicWebLocale } from '../i18n/messages';
 import { FacilityMeta, UnitTypeList } from '../templates';
 
 import { buildFacilityJsonLd } from './facility-shared';
@@ -83,7 +83,10 @@ export function FacilityBody({
       )}
 
       <nav className="mb-4 text-sm text-muted-foreground">
-        <Link href={`/s/${data.tenantSlug}`} className="hover:text-foreground">
+        <Link
+          href={landingHref(data.tenantSlug, locale, data.customDomain)}
+          className="hover:text-foreground"
+        >
           {data.tenantName}
         </Link>
         <span className="mx-1.5">/</span>

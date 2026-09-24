@@ -18,6 +18,13 @@ interface TenantBrand {
   tenantSlug: string;
   brandColor: string | null;
   logoUrl: string | null;
+  /**
+   * Dominio propio verificado, o null — ver `facilityHref`/`blogHref`.
+   * Opcional: `/book`/`/sign` (que también usan este marco) no reescriben
+   * por dominio propio (`PASS_PREFIXES` en `resolveCustomDomainRoute`), así
+   * que su DTO no lo trae; se trata como sin dominio propio en ese caso.
+   */
+  customDomain?: string | null;
 }
 
 /**
@@ -92,7 +99,7 @@ export async function TenantWebChrome({
           <div className="flex items-center gap-2">
             {hasBlog && (
               <Link
-                href={blogHref(data.tenantSlug, locale)}
+                href={blogHref(data.tenantSlug, locale, data.customDomain)}
                 className="text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 {tBlog('title')}
@@ -103,6 +110,7 @@ export async function TenantWebChrome({
               facilitySlug={facilitySlug}
               currentLocale={locale}
               otherLocaleHref={otherLocaleHref}
+              customDomain={data.customDomain}
             />
             <Link
               href={portalHref}

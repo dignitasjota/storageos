@@ -65,10 +65,12 @@ function RelatedFacilities({
   facilities,
   slug,
   locale,
+  customDomain,
 }: {
   facilities: PublicBlogFacilityLinkDto[];
   slug: string;
   locale: PublicWebLocale;
+  customDomain: string | null;
 }) {
   const t = useTranslations('publicWeb.blog');
   const tCommon = useTranslations('publicWeb.common');
@@ -80,7 +82,7 @@ function RelatedFacilities({
         {facilities.map((f) => (
           <li key={f.publicSlug}>
             <Link
-              href={facilityHref(slug, f.publicSlug, locale)}
+              href={facilityHref(slug, f.publicSlug, locale, customDomain)}
               className="block rounded-md border p-3 hover:border-primary hover:bg-muted/40"
             >
               <span className="font-medium">{f.name}</span>
@@ -122,7 +124,7 @@ export function BlogListBody({
           {data.posts.map((post) => (
             <li key={post.slug} className="border-b pb-8 last:border-0">
               <Link
-                href={blogPostHref(slug, post.slug, locale)}
+                href={blogPostHref(slug, post.slug, locale, data.customDomain)}
                 className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_1fr]"
               >
                 {post.coverImageUrl ? (
@@ -161,7 +163,12 @@ export function BlogListBody({
         </ul>
       )}
 
-      <RelatedFacilities facilities={data.facilities} slug={slug} locale={locale} />
+      <RelatedFacilities
+        facilities={data.facilities}
+        slug={slug}
+        locale={locale}
+        customDomain={data.customDomain}
+      />
     </div>
   );
 }
@@ -183,7 +190,10 @@ export function BlogPostBody({
     <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
 
-      <Link href={blogHref(slug, locale)} className="text-sm text-muted-foreground hover:underline">
+      <Link
+        href={blogHref(slug, locale, data.customDomain)}
+        className="text-sm text-muted-foreground hover:underline"
+      >
         ← {t('backToBlog')}
       </Link>
 
@@ -206,7 +216,12 @@ export function BlogPostBody({
         <MarkdownView content={p.contentMarkdown} />
       </div>
 
-      <RelatedFacilities facilities={data.facilities} slug={slug} locale={locale} />
+      <RelatedFacilities
+        facilities={data.facilities}
+        slug={slug}
+        locale={locale}
+        customDomain={data.customDomain}
+      />
     </article>
   );
 }

@@ -179,7 +179,7 @@ export async function BlogListPageBody({
         locale={locale}
         hasBlog
         googleAnalyticsId={data.googleAnalyticsId}
-        languageHrefBuilder={(l) => blogHref(slug, l)}
+        languageHrefBuilder={(l) => blogHref(slug, l, data.customDomain)}
       >
         <BlogListBody data={data} slug={slug} locale={locale} />
       </TenantWebChrome>
@@ -206,7 +206,7 @@ export async function BlogPostPageBody({
         locale={locale}
         hasBlog
         googleAnalyticsId={data.googleAnalyticsId}
-        languageHrefBuilder={(l) => blogPostHref(slug, postSlug, l)}
+        languageHrefBuilder={(l) => blogPostHref(slug, postSlug, l, data.customDomain)}
       >
         <BlogPostBody data={data} slug={slug} locale={locale} />
       </TenantWebChrome>

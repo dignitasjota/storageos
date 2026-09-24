@@ -71,35 +71,85 @@ export function signHref(token: string, locale: PublicWebLocale): string {
     : `/sign/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
 }
 
-/** URL del listado del blog del tenant, respetando el idioma actual. */
-export function blogHref(tenantSlug: string, locale: PublicWebLocale): string {
+/**
+ * URL de la home (landing) del tenant, respetando el idioma actual y, si
+ * tiene un dominio propio VERIFICADO (`resolveCustomDomainRoute` ya sabe
+ * reescribir sus rutas de 1 segmento), la forma corta bajo ese dominio en
+ * vez de `/s/<slug>`.
+ */
+export function landingHref(
+  tenantSlug: string,
+  locale: PublicWebLocale,
+  customDomain?: string | null,
+): string {
+  if (customDomain) {
+    return locale === DEFAULT_PUBLIC_WEB_LOCALE
+      ? `https://${customDomain}`
+      : `https://${customDomain}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+  }
+  const encoded = encodeURIComponent(tenantSlug);
+  return locale === DEFAULT_PUBLIC_WEB_LOCALE
+    ? `/s/${encoded}`
+    : `/s/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+}
+
+/** URL del listado del blog del tenant, respetando el idioma actual y el dominio propio (ver `landingHref`). */
+export function blogHref(
+  tenantSlug: string,
+  locale: PublicWebLocale,
+  customDomain?: string | null,
+): string {
+  if (customDomain) {
+    return locale === DEFAULT_PUBLIC_WEB_LOCALE
+      ? `https://${customDomain}/blog`
+      : `https://${customDomain}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog`;
+  }
   const encoded = encodeURIComponent(tenantSlug);
   return locale === DEFAULT_PUBLIC_WEB_LOCALE
     ? `/s/${encoded}/blog`
     : `/s/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog`;
 }
 
-/** URL de una entrada del blog del tenant, respetando el idioma actual. */
+/** URL de una entrada del blog del tenant, respetando el idioma actual y el dominio propio (ver `landingHref`). */
 export function blogPostHref(
   tenantSlug: string,
   postSlug: string,
   locale: PublicWebLocale,
+  customDomain?: string | null,
 ): string {
-  const encodedTenant = encodeURIComponent(tenantSlug);
   const encodedPost = encodeURIComponent(postSlug);
+  if (customDomain) {
+    return locale === DEFAULT_PUBLIC_WEB_LOCALE
+      ? `https://${customDomain}/blog/${encodedPost}`
+      : `https://${customDomain}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog/${encodedPost}`;
+  }
+  const encodedTenant = encodeURIComponent(tenantSlug);
   return locale === DEFAULT_PUBLIC_WEB_LOCALE
     ? `/s/${encodedTenant}/blog/${encodedPost}`
     : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/blog/${encodedPost}`;
 }
 
-/** URL de la ficha pública de un local del tenant, respetando el idioma actual. */
+/**
+ * URL de la ficha pública de un local del tenant, respetando el idioma
+ * actual y, si tiene un dominio propio verificado, la forma corta
+ * `https://<dominio>/<local>` en vez de `/s/<slug>/<local>` — el middleware
+ * (`resolveCustomDomainRoute`) ya reescribe internamente esa ruta de 1
+ * segmento hacia `/s/<slug>/<local>`, así que enlazar directamente a la
+ * forma corta es válido y evita que se vea/comparta la URL larga.
+ */
 export function facilityHref(
   tenantSlug: string,
   facilitySlug: string,
   locale: PublicWebLocale,
+  customDomain?: string | null,
 ): string {
-  const encodedTenant = encodeURIComponent(tenantSlug);
   const encodedFacility = encodeURIComponent(facilitySlug);
+  if (customDomain) {
+    return locale === DEFAULT_PUBLIC_WEB_LOCALE
+      ? `https://${customDomain}/${encodedFacility}`
+      : `https://${customDomain}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/${encodedFacility}`;
+  }
+  const encodedTenant = encodeURIComponent(tenantSlug);
   return locale === DEFAULT_PUBLIC_WEB_LOCALE
     ? `/s/${encodedTenant}/${encodedFacility}`
     : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/${encodedFacility}`;
