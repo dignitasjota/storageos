@@ -85,9 +85,11 @@ services:
   # ---------------------------------------------------------------------------
   # MinIO - S3-compatible object storage (planos, docs, facturas PDF).
   # Console expuesta solo via NPM (opcional) en una ruta restringida.
+  # MinIO descontinuó sus imágenes públicas (Docker Hub y quay.io, ambas con
+  # pull anónimo denegado a fecha 2026-09-24) — espejo propio en GHCR.
   # ---------------------------------------------------------------------------
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ghcr.io/dignitasjota/minio:RELEASE.2025-04-22T22-12-26Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
