@@ -2,6 +2,11 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
+import {
+  safePostJson,
+  UnsafeDestinationError,
+  type SafePostResult,
+} from '../../common/security/safe-http-post';
 import { JOB_WEBHOOK_DELIVER, QUEUE_WEBHOOKS } from '../queues/queues.module';
 
 import { buildWebhookSignature, WebhooksService, type DeliverJobData } from './webhooks.service';
@@ -55,12 +60,12 @@ export class WebhooksProcessor extends WorkerHost {
       payload: row.payload,
     });
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let res: Response;
+    let res: SafePostResult;
     try {
-      res = await fetch(row.webhook.url, {
-        method: 'POST',
+      // Envío blindado contra SSRF (IP resuelta validada al conectar, sin
+      // redirecciones): la URL la controla el tenant — ver `safe-http-post.ts`.
+      res = await safePostJson({
+        url: row.webhook.url,
         headers: {
           'Content-Type': 'application/json',
           'X-Storageos-Signature': signatureHeader,
@@ -68,12 +73,20 @@ export class WebhooksProcessor extends WorkerHost {
           'X-Storageos-Delivery': row.id,
         },
         body,
-        signal: controller.signal,
+        timeoutMs: REQUEST_TIMEOUT_MS,
       });
     } catch (err) {
-      clearTimeout(timer);
-      const msg = err instanceof Error ? err.message : String(err);
-      const isFinal = attemptNumber >= MAX_ATTEMPTS;
+      const unsafe = err instanceof UnsafeDestinationError;
+      const msg = unsafe
+        ? `Destino no permitido (${err.reason}): la URL debe resolver a una IP pública`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+      if (unsafe) {
+        this.logger.warn(`[webhooks] delivery ${deliveryId} bloqueado: ${err.message}`);
+      }
+      // Un destino no permitido no se arregla reintentando: final ya.
+      const isFinal = unsafe || attemptNumber >= MAX_ATTEMPTS;
       await this.service.markDeliveryAttempt({
         deliveryId,
         statusCode: null,
@@ -85,8 +98,7 @@ export class WebhooksProcessor extends WorkerHost {
       if (!isFinal) throw err;
       return;
     }
-    clearTimeout(timer);
-    const text = await safeReadText(res);
+    const text = res.text;
     if (res.status >= 200 && res.status < 300) {
       await this.service.markDeliverySuccess({
         deliveryId,
@@ -112,14 +124,5 @@ export class WebhooksProcessor extends WorkerHost {
       // el attemptNumber actual.
       throw new Error(`HTTP ${res.status}`);
     }
-  }
-}
-
-async function safeReadText(res: Response): Promise<string> {
-  try {
-    const t = await res.text();
-    return t ?? '';
-  } catch {
-    return '';
   }
 }

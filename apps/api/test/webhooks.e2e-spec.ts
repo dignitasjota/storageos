@@ -578,4 +578,89 @@ describe('Webhooks salientes (e2e)', () => {
     expect(rotated.body.secret).toMatch(/^whsec_/);
     expect(rotated.body.secret).not.toBe(firstSecret);
   });
+
+  describe('SSRF: la URL del webhook no puede apuntar a infraestructura interna', () => {
+    it.each([
+      'http://loki:3100/loki/api/v1/query_range',
+      'http://127.0.0.1:3001/v1/health',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://[::1]/',
+      'http://nas.local/hook',
+    ])('crear/editar con %s → 400 webhook_url_not_allowed', async (url) => {
+      const owner = await registerVerifiedUser(app, 'wh-ssrf');
+      const create = await request(app.getHttpServer())
+        .post('/settings/webhooks')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Interno', url, events: ['lead.created'] });
+      expect(create.status).toBe(400);
+      expect(create.body.code).toBe('webhook_url_not_allowed');
+
+      const ok = await request(app.getHttpServer())
+        .post('/settings/webhooks')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Público', url: 'https://hook.example.test/p', events: ['lead.created'] });
+      expect(ok.status).toBe(201);
+      const patch = await request(app.getHttpServer())
+        .patch(`/settings/webhooks/${ok.body.id}`)
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ url });
+      expect(patch.status).toBe(400);
+      expect(patch.body.code).toBe('webhook_url_not_allowed');
+    });
+
+    it('una URL interna ya guardada (anterior al fix) se bloquea al enviar, sin reintentos', async () => {
+      const owner = await registerVerifiedUser(app, 'wh-ssrf-legacy');
+      const create = await request(app.getHttpServer())
+        .post('/settings/webhooks')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Legacy', url: 'https://hook.example.test/l', events: ['lead.created'] });
+      expect(create.status).toBe(201);
+      const webhookId = create.body.id as string;
+      // Simula un webhook creado antes de la validación: URL a la red interna.
+      const { PrismaAdminService } = await import('../src/modules/database/prisma-admin.service');
+      await app
+        .get(PrismaAdminService)
+        .webhook.update({ where: { id: webhookId }, data: { url: 'http://127.0.0.1:9/x' } });
+
+      const { WebhooksService } = await import('../src/modules/integrations/webhooks.service');
+      await app.get(WebhooksService).dispatch(owner.tenantId, 'lead.created', { sample: 1 });
+
+      let delivery: { status: string; attempts: number; errorMessage: string | null } | undefined;
+      await waitFor(async () => {
+        const list = await request(app.getHttpServer())
+          .get(`/settings/webhooks/${webhookId}/deliveries`)
+          .set('Authorization', `Bearer ${owner.accessToken}`);
+        delivery = list.body.items?.[0];
+        return delivery?.status === 'failed';
+      });
+      expect(delivery!.attempts).toBe(1);
+      expect(delivery!.errorMessage).toMatch(/Destino no permitido/);
+    }, 20_000);
+
+    it('no sigue redirecciones (un 302 hacia la red interna queda como respuesta 302)', async () => {
+      const owner = await registerVerifiedUser(app, 'wh-ssrf-redirect');
+      const create = await request(app.getHttpServer())
+        .post('/settings/webhooks')
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ name: 'Redirect', url: 'https://hook.example.test/r', events: ['lead.created'] });
+      expect(create.status).toBe(201);
+      const webhookId = create.body.id as string;
+      nock('https://hook.example.test')
+        .post('/r')
+        .reply(302, '', { Location: 'http://loki:3100/loki/api/v1/labels' });
+
+      const { WebhooksService } = await import('../src/modules/integrations/webhooks.service');
+      await app.get(WebhooksService).dispatch(owner.tenantId, 'lead.created', { sample: 1 });
+
+      let delivery: { statusCode: number | null } | undefined;
+      await waitFor(async () => {
+        const list = await request(app.getHttpServer())
+          .get(`/settings/webhooks/${webhookId}/deliveries`)
+          .set('Authorization', `Bearer ${owner.accessToken}`);
+        delivery = list.body.items?.[0];
+        return delivery?.statusCode === 302;
+      });
+      expect(delivery!.statusCode).toBe(302);
+    }, 20_000);
+  });
 });
