@@ -9,6 +9,8 @@ import {
 import * as Sentry from '@sentry/nestjs';
 import { ZodError } from 'zod';
 
+import { sanitizeUrl } from '../logging/sanitize';
+
 import type { Request, Response } from 'express';
 
 const STATUS_TEXT: Record<number, string> = {
@@ -61,13 +63,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (normalized.statusCode >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} -> ${normalized.statusCode}: ${normalized.message}`,
+        `${request.method} ${sanitizeUrl(request.url)} -> ${normalized.statusCode}: ${normalized.message}`,
         exception instanceof Error ? exception.stack : undefined,
       );
       // Errores inesperados a Sentry (no-op sin SENTRY_DSN). Los 4xx son
       // flujo de negocio y no se reportan.
       Sentry.captureException(exception, {
-        extra: { method: request.method, url: request.url },
+        extra: { method: request.method, url: sanitizeUrl(request.url) },
       });
     }
 
