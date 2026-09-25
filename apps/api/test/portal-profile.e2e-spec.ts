@@ -104,6 +104,10 @@ describe('Portal — editar perfil (e2e)', () => {
     expect(patch.body.locale).toBe('en');
 
     // Una nueva sesión ya devuelve el idioma persistido en la ficha del cliente.
+    // Se vacía el buzón: el enlace se envía en segundo plano (anti-enumeración)
+    // y, sin esto, `waitForEmail` podría devolver el email ANTERIOR, cuyo token
+    // ya está consumido.
+    await deleteAllMessages();
     await request(app.getHttpServer())
       .post('/portal/login/request')
       .send({ tenantSlug: owner.slug, email })
