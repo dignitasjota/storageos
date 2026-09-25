@@ -237,27 +237,49 @@ graves que las pasadas anteriores no detectaron.
   proxificado podía leer la sesión del portal (localStorage) → datos, pagos y
   apertura de puertas. `Content-Security-Policy: sandbox` sin
   `allow-same-origin` en todas las respuestas de `/tenant-site`.
+- **Secretos en logs y Sentry** (#516): `common/logging/sanitize.ts` sanea url,
+  query y cabeceras (`x-device-key`, `x-camera-token`, `x-inbound-secret`, la
+  device key + PIN de `GET /access/verify`, tokens de firma/NPS/invitación en la
+  ruta) en pino, en el log de 5xx y en `beforeSend` de Sentry. ⚠️ Los logs ya
+  almacenados en Loki conservan esos secretos: rotar device keys y tokens de
+  cámaras o purgar la retención.
+- **Next.js 15.5.18 → 15.5.26** (#517): 0 avisos críticos en `pnpm audit`.
+- **Sesión expulsada al recargar** (#518): la detección paranoid de reuso del
+  refresh revocaba TODAS las sesiones del usuario en carreras normales del
+  navegador (recarga que aborta un refresh, varias pestañas; `AuthBootstrap`
+  hacía su propio refresh sin deduplicar). Margen de gracia de 30 s (mismo
+  user-agent, tope 3 hermanas) + bootstrap deduplicado. Era la causa del smoke
+  01/02/03 intermitente.
+- **Borradores de factura con número provisional no único** (#519):
+  `DRAFT-<ms>` chocaba con `(tenant_id, invoice_number)` → 409 engañoso y
+  facturas recurrentes saltadas en silencio. Sufijo aleatorio.
+- **Cerraduras HTTP/Dahua seguían redirects** (#520): `redirect: 'manual'`.
+- **Sesiones del portal no revocables** (#521): `customers.portal_session_version`
+  en el JWT (`sv`), comprobada en cada request; se incrementa al restablecer o
+  desactivar la contraseña y con «Cerrar sesiones del portal» (staff).
+- **Bloqueo del teclado = puerta inutilizable para todos** (#522, decisión de
+  Jota): la apertura desde el portal ya no consulta el bloqueo del teclado;
+  aviso in-app al staff al bloquearse; PIN nuevos de 6-8 dígitos (los antiguos
+  siguen valiendo). De paso: las operaciones automáticas sobre credenciales
+  (emisión, suspensión por impago, reactivación, pase nocturno, acceso extra)
+  no quedaban auditadas (`userId: 'system'` no es UUID) → `null`.
+- **Email entrante suplantable** (#523, decisión de Jota: aceptar con aviso):
+  sin DMARC `pass` del proveedor el mensaje entra marcado «remitente no
+  verificado» (`customer_messages.sender_verified`). El proveedor debe reenviar
+  el veredicto (`dmarc` o `Authentication-Results`).
 
-## ⏳ Pendiente (priorizado)
+## ⏳ Pendiente (menor)
 
-1. **Secretos en logs/Loki**: `redact` de pino no cubre `x-device-key`,
-   `x-camera-token`, `x-inbound-secret`, ni la query de
-   `GET /access/verify?key=…&pin=…` (device key + PIN en claro) ni los tokens en
-   ruta (`/public/move-in/sign/:token`, `/public/reviews/:token`).
-2. **Dependencias**: Next 15.5.18 → ≥15.5.24 (RCE crítica en el optimizador de
-   imágenes con AVIF); multer, nodemailer, ip-address (vía mqtt).
-3. **Email entrante suplantable**: el `From` decide a qué inquilino se atribuye
-   el mensaje (`inbound-messages.service.ts`) sin verificar SPF/DKIM/DMARC.
-4. **Cerraduras HTTP/Dahua siguen redirects** (`http-lock.provider.ts`,
-   `digest-fetch.ts`): SSRF ciego + oráculo de puertos → `redirect: 'manual'`.
-5. **Fuerza bruta de PIN en el teclado**: ~700 intentos/día por lector; PIN de 4
-   dígitos permitidos a mano. Mínimo 6 dígitos + bloqueo exponencial + alerta.
-6. **Sesiones del portal no revocables** (JWT 48 h): falta `sessionVersion` en el
-   customer para invalidarlas al cambiar/desactivar contraseña.
-7. Menores: enumeración por tiempo en login/portal (sin argon2 ficticio), sin
-   contador de fallos 2FA por usuario ni anti-replay TOTP, rol del super admin
-   leído del JWT (8 h), presigned PUT sin tamaño máximo, `REVOKE` a
-   `storageos_app` sobre tablas de plataforma sin RLS, CSP con `'unsafe-inline'`.
+- Enumeración de cuentas por tiempo en login/portal (sin argon2 ficticio).
+- 2FA sin contador de fallos por usuario ni anti-replay TOTP.
+- Rol del super admin leído del JWT (8 h) en vez de la BD.
+- Presigned PUT de MinIO sin tamaño máximo.
+- `REVOKE` a `storageos_app` sobre las tablas de plataforma sin RLS.
+- CSP con `'unsafe-inline'` en `script-src`.
+- Ventana de DNS rebinding en cerraduras/Dahua entre `isSafeOutboundUrl` y el
+  `fetch` (fijar la IP resuelta como `safe-http-post.ts`).
+- Suite e2e `webhooks`: el test «retry manual» falla en local (attempts 2 vs 1);
+  en CI pasa.
 
 ## Nota de test local
 
