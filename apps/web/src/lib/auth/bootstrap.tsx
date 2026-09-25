@@ -4,8 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect } from 'react';
 
-import { env } from '../env';
-
+import { performRefresh } from './api';
 import { useAuthStore } from './store';
 
 /**
@@ -36,19 +35,17 @@ export function AuthBootstrap({ children }: { children: ReactNode }) {
     setBootstrapping(true);
 
     (async () => {
+      // Refresh deduplicado (comparte promesa con `apiFetch`): nunca dos
+      // `/auth/refresh` en paralelo con la misma cookie.
       try {
-        const res = await fetch(`${env.apiUrl}/v1/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-        });
+        const token = await performRefresh();
         if (cancelled) return;
-        if (!res.ok) {
+        if (!token) {
           setAccessToken(null);
           router.replace('/login?reason=expired');
           return;
         }
-        const data = (await res.json()) as { accessToken: string };
-        setAccessToken(data.accessToken);
+        setAccessToken(token);
       } catch {
         if (cancelled) return;
         setAccessToken(null);
