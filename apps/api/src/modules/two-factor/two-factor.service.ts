@@ -15,6 +15,11 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { RecoveryCodesService } from './recovery-codes.service';
 import { TotpService } from './totp.service';
+import {
+  TWO_FACTOR_FAILURE_WINDOW_MS,
+  TWO_FACTOR_MAX_FAILURES,
+  twoFactorLockedException,
+} from './two-factor-limits';
 
 import type { AuthFlowResult } from '../auth/auth.service';
 import type {
@@ -245,7 +250,20 @@ export class TwoFactorService {
       });
     }
 
-    const ok = await this.verifyChallenge(user.twoFactorSecretEncrypted, sub, input);
+    // Tope de fallos por usuario (los fallos quedan en audit_logs).
+    const recentFailures = await this.admin.auditLog.count({
+      where: {
+        tenantId,
+        userId: sub,
+        action: 'auth.2fa.challenge.failed',
+        occurredAt: { gte: new Date(Date.now() - TWO_FACTOR_FAILURE_WINDOW_MS) },
+      },
+    });
+    if (recentFailures >= TWO_FACTOR_MAX_FAILURES) throw twoFactorLockedException();
+
+    const ok = await this.verifyChallenge(user.twoFactorSecretEncrypted, sub, input, {
+      consumeStep: true,
+    });
     if (!ok) {
       await this.audit.write({
         tenantId,
@@ -390,6 +408,7 @@ export class TwoFactorService {
     encryptedSecret: string,
     userId: string,
     input: Disable2faInput | Challenge2faInput,
+    opts: { consumeStep?: boolean } = {},
   ): Promise<boolean> {
     if (input.recoveryCode) {
       const consumed = await this.recovery.consume(userId, input.recoveryCode);
@@ -408,7 +427,20 @@ export class TwoFactorService {
     if (!input.code) return false;
     try {
       const secret = this.crypto.decryptString(encryptedSecret, userId);
-      return this.totp.verify(secret, input.code);
+      if (!opts.consumeStep) return this.totp.verify(secret, input.code);
+      // Login: anti-replay. El código solo vale si su paso es POSTERIOR al
+      // último aceptado (un código interceptado no se puede reutilizar dentro
+      // de su ventana de ~90 s). El claim es atómico (updateMany condicional).
+      const step = this.totp.matchStep(secret, input.code);
+      if (step === null) return false;
+      const claim = await this.admin.user.updateMany({
+        where: {
+          id: userId,
+          OR: [{ twoFactorLastStep: null }, { twoFactorLastStep: { lt: BigInt(step) } }],
+        },
+        data: { twoFactorLastStep: BigInt(step) },
+      });
+      return claim.count === 1;
     } catch (err) {
       this.logger.error('Error descifrando secret 2FA', err as Error);
       return false;

@@ -529,6 +529,8 @@ model User {
   twoFactorSecretEncrypted        String?   @map("two_factor_secret")
   twoFactorPendingSecretEncrypted String?   @map("two_factor_pending_secret")
   twoFactorEnabled                Boolean   @default(false) @map("two_factor_enabled")
+  /// Anti-replay TOTP: último paso de 30 s aceptado en un login.
+  twoFactorLastStep               BigInt?   @map("two_factor_last_step")
   twoFactorEnrolledAt             DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt                     DateTime? @map("last_login_at") @db.Timestamptz(6)
   isActive                        Boolean   @default(true) @map("is_active")
@@ -3215,6 +3217,8 @@ model SuperAdmin {
   twoFactorSecretEncrypted        String?        @map("two_factor_secret")
   twoFactorPendingSecretEncrypted String?        @map("two_factor_pending_secret")
   twoFactorEnabled                Boolean        @default(false) @map("two_factor_enabled")
+  /// Anti-replay TOTP: último paso de 30 s aceptado en un login.
+  twoFactorLastStep               BigInt?        @map("two_factor_last_step")
   twoFactorEnrolledAt             DateTime?      @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt                     DateTime?      @map("last_login_at") @db.Timestamptz(6)
   createdAt                       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)

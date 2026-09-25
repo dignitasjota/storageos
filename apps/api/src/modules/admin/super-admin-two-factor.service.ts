@@ -16,6 +16,11 @@ import QRCode from 'qrcode';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { TotpService } from '../two-factor/totp.service';
+import {
+  TWO_FACTOR_FAILURE_WINDOW_MS,
+  TWO_FACTOR_MAX_FAILURES,
+  twoFactorLockedException,
+} from '../two-factor/two-factor-limits';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
@@ -318,6 +323,16 @@ export class SuperAdminTwoFactorService {
       });
     }
 
+    // Tope de fallos por super admin (los fallos quedan en super_admin_audit_logs).
+    const recentFailures = await this.admin.superAdminAuditLog.count({
+      where: {
+        superAdminId: record.id,
+        action: 'admin.2fa.challenge.failed',
+        occurredAt: { gte: new Date(Date.now() - TWO_FACTOR_FAILURE_WINDOW_MS) },
+      },
+    });
+    if (recentFailures >= TWO_FACTOR_MAX_FAILURES) throw twoFactorLockedException();
+
     const usedRecovery = isRecoveryCodeShape(code);
     let ok = false;
     if (usedRecovery) {
@@ -325,7 +340,18 @@ export class SuperAdminTwoFactorService {
     } else {
       try {
         const secret = this.crypto.decryptString(record.twoFactorSecretEncrypted, record.id);
-        ok = this.totp.verify(secret, code);
+        // Anti-replay: solo un paso POSTERIOR al último aceptado (claim atómico).
+        const step = this.totp.matchStep(secret, code);
+        if (step !== null) {
+          const claim = await this.admin.superAdmin.updateMany({
+            where: {
+              id: record.id,
+              OR: [{ twoFactorLastStep: null }, { twoFactorLastStep: { lt: BigInt(step) } }],
+            },
+            data: { twoFactorLastStep: BigInt(step) },
+          });
+          ok = claim.count === 1;
+        }
       } catch (err) {
         this.logger.error('Error descifrando secret 2FA del super admin', err as Error);
         ok = false;

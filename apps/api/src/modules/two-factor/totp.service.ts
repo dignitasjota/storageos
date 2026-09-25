@@ -59,4 +59,24 @@ export class TotpService {
     const delta = totp.validate({ token: normalized, window: 1 });
     return delta !== null;
   }
+
+  /**
+   * Como `verify`, pero devuelve el PASO de 30 s con el que casó el código
+   * (o `null`). Permite el anti-replay: guardar el último paso aceptado y
+   * rechazar un código de un paso igual o anterior aunque siga en la ventana.
+   */
+  matchStep(secretBase32: string, code: string, now: number = Date.now()): number | null {
+    const normalized = code.replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(normalized)) return null;
+    const totp = new TOTP({
+      issuer: this.issuer,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: Secret.fromBase32(secretBase32),
+    });
+    const delta = totp.validate({ token: normalized, window: 1, timestamp: now });
+    if (delta === null) return null;
+    return Math.floor(now / 1000 / 30) + delta;
+  }
 }
