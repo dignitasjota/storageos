@@ -268,16 +268,37 @@ graves que las pasadas anteriores no detectaron.
   verificado» (`customer_messages.sender_verified`). El proveedor debe reenviar
   el veredicto (`dmarc` o `Authentication-Results`).
 
-## ⏳ Pendiente (menor)
+- **Enumeración de cuentas por tiempo** (#525): argon2 ficticio en las ramas
+  «no existe» de los logins de staff y super admin; «olvidé la contraseña»,
+  «reenviar verificación» y enlaces del portal responden YA y envían en segundo
+  plano (`respondThenRun`); el super admin desactivado ya no se revela antes de
+  comprobar la contraseña.
+- **Rol del super admin desde la BD** (#525): degradar surte efecto en la
+  siguiente petición (antes, al caducar el JWT de 8 h).
+- **2FA** (#526): tope de 5 fallos/15 min por usuario (tenant y super admin,
+  429 `too_many_2fa_attempts`) + anti-replay TOTP (`two_factor_last_step`).
+- **Rol restringido sin acceso a tablas globales** (#527): `REVOKE ALL` a
+  `storageos_app` sobre 26 tablas de plataforma sin RLS (salvo
+  `subscription_plans`/`subscription_addons`). ⚠️ Toda tabla global NUEVA debe
+  llevar su propio REVOKE (los default privileges se lo conceden).
+- **Tamaño máximo de subidas** (#528): 20 MB validados al registrar
+  (`file_too_large`) + borrado de los objetos rechazados.
 
-- Enumeración de cuentas por tiempo en login/portal (sin argon2 ficticio).
-- 2FA sin contador de fallos por usuario ni anti-replay TOTP.
-- Rol del super admin leído del JWT (8 h) en vez de la BD.
-- Presigned PUT de MinIO sin tamaño máximo.
-- `REVOKE` a `storageos_app` sobre las tablas de plataforma sin RLS.
-- CSP con `'unsafe-inline'` en `script-src`.
-- Ventana de DNS rebinding en cerraduras/Dahua entre `isSafeOutboundUrl` y el
-  `fetch` (fijar la IP resuelta como `safe-http-post.ts`).
+## ⚖️ Riesgos aceptados (decisión de Jota)
+
+- **CSP con `'unsafe-inline'` en `script-src`**: quitarlo en Next.js exige
+  nonces, que fuerzan el renderizado dinámico de todas las páginas (se pierde la
+  caché estática y la web pública va más lenta). Revisar si aparece HTML
+  enriquecido de usuario.
+- **Ventana de DNS rebinding en cerraduras/Dahua** entre `isSafeOutboundUrl` y
+  el `fetch`: riesgo residual bajo (IP validada, sin redirects #520, exige ser
+  admin del tenant). Se cerraría fijando la IP resuelta como `safe-http-post.ts`.
+- **Contraseña fija de `storageos_app` en la migración de la fase 1A**: no se
+  aplica en producción (DEPLOYMENT §6.5 crea el rol antes con
+  `POSTGRES_APP_PASSWORD`); verificar una vez en el VPS.
+
+## Otros
+
 - Suite e2e `webhooks`: el test «retry manual» falla en local (attempts 2 vs 1);
   en CI pasa.
 
