@@ -8,6 +8,7 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
@@ -42,6 +43,7 @@ import {
   ThrottleRefresh,
   ThrottleRegister,
 } from '../../common/decorators/throttle-presets';
+import { respondThenRun } from '../../common/security/respond-then-run';
 
 import { AuthService, type RequestMeta } from './auth.service';
 import { TokensService } from './tokens.service';
@@ -59,6 +61,8 @@ class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly tokens: TokensService,
@@ -128,7 +132,9 @@ export class AuthController {
   @Post('resend-verification')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resendVerification(@Body() input: ResendVerificationDto): Promise<void> {
-    await this.authService.resendVerification(input);
+    respondThenRun(this.logger, 'resend-verification', () =>
+      this.authService.resendVerification(input),
+    );
   }
 
   @Public()
@@ -136,7 +142,10 @@ export class AuthController {
   @Post('password/forgot')
   @HttpCode(HttpStatus.NO_CONTENT)
   async forgotPassword(@Body() input: ForgotPasswordDto, @Req() req: Request): Promise<void> {
-    await this.authService.forgotPassword(input, this.extractMeta(req));
+    const meta = this.extractMeta(req);
+    respondThenRun(this.logger, 'password-forgot', () =>
+      this.authService.forgotPassword(input, meta),
+    );
   }
 
   @Public()

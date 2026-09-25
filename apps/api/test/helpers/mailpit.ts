@@ -48,7 +48,12 @@ export async function waitForEmail(
   toAddress: string,
   options: { subjectIncludes?: string; timeoutMs?: number } = {},
 ): Promise<MailpitMessage> {
-  const deadline = Date.now() + (options.timeoutMs ?? 5000);
+  // 20 s: varios endpoints públicos (olvidé la contraseña, enlace mágico del
+  // portal) responden YA y envían el email en segundo plano (anti-enumeración
+  // por tiempo), así que la espera empieza antes; el primer render de React
+  // Email puede tardar varios segundos en jest.
+  const timeoutMs = options.timeoutMs ?? 20_000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const messages = await search(toAddress);
     const match = options.subjectIncludes
@@ -57,7 +62,7 @@ export async function waitForEmail(
     if (match) return fetchMessage(match.ID);
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`No llego email a ${toAddress} en ${options.timeoutMs ?? 5000}ms`);
+  throw new Error(`No llego email a ${toAddress} en ${timeoutMs}ms`);
 }
 
 /**

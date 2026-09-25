@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 
+import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
@@ -104,22 +105,10 @@ export class SuperAdminService {
         userAgent: meta.userAgent ?? null,
         changes: { email: input.email, reason: 'email_not_found' },
       });
+      await verifyAgainstDummyHash(input.password); // mismo coste que un login real
       throw new UnauthorizedException({
         code: 'invalid_credentials',
         message: 'Credenciales invalidas',
-      });
-    }
-    if (!record.isActive) {
-      await this.audit.record({
-        superAdminId: record.id,
-        action: 'admin.login.failed',
-        ipAddress: meta.ipAddress ?? null,
-        userAgent: meta.userAgent ?? null,
-        changes: { email: input.email, reason: 'account_disabled' },
-      });
-      throw new ForbiddenException({
-        code: 'account_disabled',
-        message: 'Cuenta desactivada',
       });
     }
     const passwordOk = await argonVerify(record.passwordHash, input.password);
@@ -134,6 +123,21 @@ export class SuperAdminService {
       throw new UnauthorizedException({
         code: 'invalid_credentials',
         message: 'Credenciales invalidas',
+      });
+    }
+    // El estado de la cuenta se comprueba DESPUÉS de la contraseña: si no,
+    // un 403 `account_disabled` revelaba que el email existe sin conocer la clave.
+    if (!record.isActive) {
+      await this.audit.record({
+        superAdminId: record.id,
+        action: 'admin.login.failed',
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+        changes: { email: input.email, reason: 'account_disabled' },
+      });
+      throw new ForbiddenException({
+        code: 'account_disabled',
+        message: 'Cuenta desactivada',
       });
     }
 

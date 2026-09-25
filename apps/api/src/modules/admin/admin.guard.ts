@@ -71,7 +71,7 @@ export class AdminGuard implements CanActivate {
     // SELECT por PK por request (tráfico admin es mínimo) cierra el hueco.
     const record = await this.adminDb.superAdmin.findUnique({
       where: { id: payload.sub },
-      select: { isActive: true },
+      select: { isActive: true, role: true },
     });
     if (!record?.isActive) {
       throw new UnauthorizedException({
@@ -85,13 +85,16 @@ export class AdminGuard implements CanActivate {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
-    if (requiresSuperadmin && payload.role !== 'superadmin') {
+    // El rol se toma de la BD, no del JWT (vive 8 h): degradar a un
+    // `superadmin` a `support` surte efecto en la siguiente petición.
+    const role = record.role as AuthenticatedSuperAdmin['role'];
+    if (requiresSuperadmin && role !== 'superadmin') {
       throw new ForbiddenException({
         code: 'insufficient_super_admin_role',
         message: 'Esta acción requiere el rol superadmin',
       });
     }
-    req.user = payload;
+    req.user = { ...payload, role };
     return true;
   }
 }

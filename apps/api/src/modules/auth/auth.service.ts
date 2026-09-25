@@ -15,6 +15,7 @@ import {
   resolvePlanFeatures,
 } from '@storageos/shared';
 
+import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
 import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -214,6 +215,7 @@ export class AuthService {
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
       });
+      await verifyAgainstDummyHash(input.password); // mismo coste que un login real
       throw new UnauthorizedException('Credenciales invalidas');
     }
 
@@ -238,6 +240,7 @@ export class AuthService {
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
       });
+      await verifyAgainstDummyHash(input.password); // mismo coste que un login real
       throw new UnauthorizedException('Credenciales invalidas');
     }
 
