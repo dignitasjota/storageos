@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Send, Sparkles } from 'lucide-react';
+import { Loader2, Send, ShieldAlert, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -90,6 +90,15 @@ export function CustomerChatTab({ customerId }: { customerId: string }) {
                     {m.senderType === 'customer' && m.channel !== 'portal' && (
                       <p className="text-[10px] font-medium uppercase tracking-wide opacity-60">
                         vía {m.channel === 'whatsapp' ? 'WhatsApp' : 'email'}
+                      </p>
+                    )}
+                    {m.senderType === 'customer' && !m.senderVerified && (
+                      <p
+                        className="mb-1 flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                        title="El proveedor de email no ha verificado (DMARC) que este mensaje venga realmente de la dirección del inquilino. No actúes sobre datos sensibles (IBAN, accesos…) sin confirmarlo por otra vía."
+                      >
+                        <ShieldAlert className="h-3 w-3 shrink-0" />
+                        Remitente no verificado: confírmalo antes de actuar
                       </p>
                     )}
                     <p className="whitespace-pre-wrap">{m.body}</p>

@@ -123,7 +123,37 @@ describe('Inbound de mensajes (e2e)', () => {
       .get(`/customers/${customerId}/messages`)
       .set(auth);
     expect(thread.body).toHaveLength(1);
-    expect(thread.body[0]).toMatchObject({ senderType: 'customer', channel: 'email' });
+    // Sin veredicto DMARC del proveedor → entra, pero marcado como no verificado
+    // (el `From` de un email lo puede falsificar cualquiera).
+    expect(thread.body[0]).toMatchObject({
+      senderType: 'customer',
+      channel: 'email',
+      senderVerified: false,
+    });
+
+    // Con DMARC pass (cabecera Authentication-Results cruda) → verificado.
+    await request(app.getHttpServer())
+      .post('/webhooks/email-inbound')
+      .set('X-Inbound-Secret', EMAIL_SECRET)
+      .send({
+        from: 'mail-inbound@e2e.local',
+        text: 'Este sí es mío',
+        authenticationResults:
+          'mx.proveedor.com; spf=pass; dkim=pass header.d=e2e.local; dmarc=pass (p=reject)',
+      })
+      .expect(200);
+    const thread2 = await request(app.getHttpServer())
+      .get(`/customers/${customerId}/messages`)
+      .set(auth);
+    const verified = (thread2.body as Array<{ body: string; senderVerified: boolean }>).find(
+      (m) => m.body === 'Este sí es mío',
+    );
+    expect(verified?.senderVerified).toBe(true);
+
+    // La notificación al staff del mensaje no verificado lo avisa en el título.
+    const notifs = await request(app.getHttpServer()).get('/notifications').set(auth);
+    const titles = (notifs.body.items as Array<{ title: string }>).map((n) => n.title);
+    expect(titles.some((t) => t.includes('remitente no verificado'))).toBe(true);
   });
 
   it('teléfono ambiguo entre 2 tenants sin conversación previa → se descarta (no adivina)', async () => {

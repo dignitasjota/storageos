@@ -18,6 +18,7 @@ function toDto(row: MessageRow): CustomerMessageDto {
     id: row.id,
     senderType: row.senderType as CustomerMessageDto['senderType'],
     channel: (row.channel ?? 'portal') as CustomerMessageDto['channel'],
+    senderVerified: row.senderVerified,
     senderName: row.sender?.fullName ?? null,
     body: row.body,
     readAt: row.readAt ? row.readAt.toISOString() : null,
@@ -148,12 +149,14 @@ export class CustomerMessagesService {
     customerId: string,
     body: string,
     channel: 'portal' | 'whatsapp' | 'email' = 'portal',
+    /** `false` = email entrante sin DMARC `pass` (remitente no autenticado). */
+    senderVerified = true,
   ): Promise<CustomerMessageDto> {
     const { name } = await this.assertCustomer(tenantId, customerId);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.customerMessage.create({
-          data: { tenantId, customerId, senderType: 'customer', body, channel },
+          data: { tenantId, customerId, senderType: 'customer', body, channel, senderVerified },
           include: messageInclude,
         }),
       tenantId,
@@ -161,7 +164,7 @@ export class CustomerMessagesService {
     const via = channel === 'whatsapp' ? ' (WhatsApp)' : channel === 'email' ? ' (email)' : '';
     await this.notifications.create(tenantId, {
       type: 'customer.message',
-      title: `Mensaje de ${name}${via}`,
+      title: `Mensaje de ${name}${via}${senderVerified ? '' : ' — remitente no verificado'}`,
       body: body.slice(0, 140),
       link: `/customers/${customerId}`,
     });

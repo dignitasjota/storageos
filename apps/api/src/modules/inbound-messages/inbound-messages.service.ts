@@ -87,7 +87,13 @@ export class InboundMessagesService {
    * el cuerpo está vacío, se descarta con un log (no rompe el webhook, que debe
    * responder 200 para que el proveedor no reintente en bucle).
    */
-  async record(args: { channel: InboundChannel; from: string; body: string }): Promise<boolean> {
+  async record(args: {
+    channel: InboundChannel;
+    from: string;
+    body: string;
+    /** Solo email: ¿reportó el proveedor DMARC `pass`? (WhatsApp lo autentica Meta). */
+    senderVerified?: boolean;
+  }): Promise<boolean> {
     const body = args.body.trim();
     if (!body) return false;
     const resolved =
@@ -103,7 +109,13 @@ export class InboundMessagesService {
       resolved.customerId,
       body.slice(0, 5000),
       args.channel,
+      args.senderVerified ?? true,
     );
+    if (args.senderVerified === false) {
+      this.logger.warn(
+        `inbound ${args.channel}: remitente NO verificado (sin DMARC pass) para ${resolved.customerId}`,
+      );
+    }
     return true;
   }
 }

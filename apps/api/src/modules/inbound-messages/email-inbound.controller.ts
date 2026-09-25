@@ -11,7 +11,7 @@ import {
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EmailInboundSchema } from '@storageos/shared';
+import { EmailInboundSchema, isInboundEmailSenderVerified } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -56,6 +56,9 @@ export class EmailInboundController {
       channel: 'email',
       from: body.from,
       body: body.text,
+      // El `From` de un email lo falsifica cualquiera: solo se da por bueno si
+      // el proveedor reporta DMARC `pass`. Si no, el mensaje entra marcado.
+      senderVerified: isInboundEmailSenderVerified(body),
     });
     return { received };
   }
