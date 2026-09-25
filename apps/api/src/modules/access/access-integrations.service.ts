@@ -55,7 +55,7 @@ export class AccessIntegrationsService {
     );
     const created = await this.credentials.create({
       tenantId: args.tenantId,
-      userId: 'system',
+      userId: null,
       input: {
         customerId: args.customerId,
         method: 'pin',
@@ -162,7 +162,7 @@ export class AccessIntegrationsService {
       //    staff suspendió por seguridad). Idempotente si no hay ninguna.
       await this.credentials.resume({
         tenantId: payload.tenantId,
-        userId: 'system',
+        userId: null,
         customerId,
         onlyIfReasonStartsWith: 'dunning:',
         meta: {},
@@ -212,7 +212,7 @@ export class AccessIntegrationsService {
   }): Promise<void> {
     await this.credentials.suspend({
       tenantId: args.tenantId,
-      userId: 'system',
+      userId: null,
       customerId: args.customerId,
       input: { reason: `dunning:invoice-${args.invoiceId}` },
       meta: {},
@@ -256,7 +256,7 @@ export class AccessIntegrationsService {
       try {
         await this.credentials.revoke({
           tenantId: payload.tenantId,
-          userId: 'system',
+          userId: null,
           id: cred.id,
           meta: {},
         });

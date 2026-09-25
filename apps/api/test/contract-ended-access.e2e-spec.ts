@@ -67,7 +67,7 @@ describe('Contrato finalizado → revoca accesos (e2e)', () => {
     const cred = await request(app.getHttpServer())
       .post('/access/credentials')
       .set(auth)
-      .send({ customerId, method: 'pin', pin: '4321', allowedHours: {} });
+      .send({ customerId, method: 'pin', pin: '432187', allowedHours: {} });
     expect(cred.status).toBe(201);
     const credId = cred.body.id as string;
     expect(await statusOf(auth, credId)).toBe('active');

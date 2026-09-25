@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { QUEUE_BILLING } from '../queues/queues.module';
 
 import { AccessCredentialsController } from './access-credentials.controller';
@@ -28,7 +29,7 @@ import { SyncProviderRegistry } from './providers/sync-provider.registry';
 @Module({
   // La cola de billing solo se registra para obtener su conexión ioredis
   // (`queue.client`) — el rate-limit de accesos guarda sus contadores en Redis.
-  imports: [AuthModule, BullModule.registerQueue({ name: QUEUE_BILLING })],
+  imports: [AuthModule, NotificationsModule, BullModule.registerQueue({ name: QUEUE_BILLING })],
   controllers: [
     AccessCredentialsController,
     AccessDevicesController,

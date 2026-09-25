@@ -61,15 +61,13 @@ describe('Portal: abrir puerta desde el móvil (e2e)', () => {
       .expect(200);
 
     // Dispositivo (puerta) del local.
-    const device = await request(app.getHttpServer())
-      .post('/access/devices')
-      .set(auth)
-      .send({
-        facilityId,
-        type: 'gate',
-        name: 'Puerta principal',
-        hardwareId: `door-hw-${Date.now()}`,
-      });
+    const hardwareId = `door-hw-${Date.now()}`;
+    const device = await request(app.getHttpServer()).post('/access/devices').set(auth).send({
+      facilityId,
+      type: 'gate',
+      name: 'Puerta principal',
+      hardwareId,
+    });
     expect(device.status).toBe(201);
     const deviceId = device.body.id as string;
 
@@ -87,6 +85,21 @@ describe('Portal: abrir puerta desde el móvil (e2e)', () => {
     const doors = await request(app.getHttpServer()).get('/portal/me/doors').set(pAuth);
     expect(doors.status).toBe(200);
     expect(doors.body.map((d: { id: string }) => d.id)).toContain(deviceId);
+
+    // Alguien bloquea el TECLADO de la puerta con 10 PIN falsos. Eso no debe
+    // dejar fuera al inquilino: el móvil abre igual (antes daba "Demasiados
+    // intentos" y cualquiera podía dejar la puerta inutilizable para todos).
+    for (let i = 0; i < 10; i++) {
+      await request(app.getHttpServer())
+        .post('/access/verify')
+        .set('X-Device-Key', device.body.revealedApiKey as string)
+        .send({ method: 'pin', credential: String(900000 + i), deviceId: hardwareId });
+    }
+    const lockedKeypad = await request(app.getHttpServer())
+      .post('/access/verify')
+      .set('X-Device-Key', device.body.revealedApiKey as string)
+      .send({ method: 'pin', credential: '000000', deviceId: hardwareId });
+    expect(lockedKeypad.body.reason).toBe('Dispositivo bloqueado temporalmente');
 
     // La abre → dispatched (LockProvider stub).
     const open = await request(app.getHttpServer())

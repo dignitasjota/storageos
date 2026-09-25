@@ -118,7 +118,7 @@ export const CreateCredentialSchema = z
     pin: z
       .string()
       .trim()
-      .regex(/^\d{4,8}$/, 'PIN de 4 a 8 digitos')
+      .regex(/^\d{6,8}$/, 'El PIN debe tener entre 6 y 8 dígitos')
       .optional(),
     allowedFacilityIds: z.array(z.string().uuid()).default([]),
     allowedUnitIds: z.array(z.string().uuid()).default([]),
@@ -157,7 +157,7 @@ export const RotateCredentialSchema = z.object({
   pin: z
     .string()
     .trim()
-    .regex(/^\d{4,8}$/, 'PIN de 4 a 8 digitos')
+    .regex(/^\d{6,8}$/, 'El PIN debe tener entre 6 y 8 dígitos')
     .optional(),
   rfidUid: z.string().trim().min(4).max(40).optional(),
 });

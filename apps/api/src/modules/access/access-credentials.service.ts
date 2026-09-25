@@ -311,7 +311,7 @@ export class AccessCredentialsService {
 
   async create(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     input: CreateCredentialInput;
     meta: RequestMeta;
     facilityScope?: string[] | null;
@@ -387,7 +387,7 @@ export class AccessCredentialsService {
    */
   async createFacial(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     input: CreateFacialCredentialInput;
     meta: RequestMeta;
     facilityScope?: string[] | null;
@@ -434,7 +434,7 @@ export class AccessCredentialsService {
 
   async update(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     id: string;
     input: UpdateCredentialInput;
     meta: RequestMeta;
@@ -467,7 +467,7 @@ export class AccessCredentialsService {
 
   async rotate(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     id: string;
     input: RotateCredentialInput;
     meta: RequestMeta;
@@ -522,7 +522,7 @@ export class AccessCredentialsService {
 
   async suspend(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     id?: string;
     customerId?: string;
     input: SuspendCredentialInput;
@@ -586,7 +586,7 @@ export class AccessCredentialsService {
 
   async resume(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     id?: string;
     customerId?: string;
     /**
@@ -661,7 +661,7 @@ export class AccessCredentialsService {
 
   async revoke(args: {
     tenantId: string;
-    userId: string;
+    userId: string | null;
     id: string;
     meta: RequestMeta;
     facilityScope?: string[] | null;
@@ -869,7 +869,7 @@ export class AccessCredentialsService {
     const scope = await this.customerScope(tenantId, customerId);
     const created = await this.create({
       tenantId,
-      userId: 'system',
+      userId: null,
       input: {
         customerId,
         method: 'pin',
@@ -905,7 +905,7 @@ export class AccessCredentialsService {
     const scope = await this.customerScope(tenantId, customerId);
     const created = await this.create({
       tenantId,
-      userId: 'system',
+      userId: null,
       input: {
         customerId,
         method: 'pin',
@@ -986,7 +986,7 @@ export class AccessCredentialsService {
 
   private async writeAudit(
     action: string,
-    args: { tenantId: string; userId: string; meta: RequestMeta },
+    args: { tenantId: string; userId: string | null; meta: RequestMeta },
     entityId: string,
   ): Promise<void> {
     await this.audit.write({

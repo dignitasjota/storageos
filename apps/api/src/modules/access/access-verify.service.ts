@@ -5,6 +5,7 @@ import { accessWindowsFrom, isWithinAccessWindows } from '@storageos/shared';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { isSafeOutboundUrl } from '../../common/security/safe-outbound-url';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import { AccessRateLimitService } from './access-rate-limit.service';
 import { LockProviderRegistry } from './providers/lock-provider.registry';
@@ -154,7 +155,27 @@ export class AccessVerifyService {
     private readonly crypto: CryptoService,
     private readonly locks: LockProviderRegistry,
     private readonly rateLimit: AccessRateLimitService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  /**
+   * Aviso in-app al staff cuando el teclado de una puerta se bloquea por PIN
+   * incorrectos seguidos (posible intento de adivinar PIN). Best-effort.
+   */
+  private async notifyDeviceLocked(tenantId: string, device: AccessDevice): Promise<void> {
+    try {
+      await this.notifications.create(tenantId, {
+        type: 'access.device_locked',
+        title: `Teclado bloqueado: ${device.name}`,
+        body:
+          `Varios PIN incorrectos seguidos. El teclado queda bloqueado ${this.rateLimit.lockoutMinutes} min; ` +
+          'los inquilinos pueden seguir abriendo desde el portal. Revisa el registro y las cámaras.',
+        link: '/access/logs',
+      });
+    } catch (err) {
+      this.logger.warn(`[access] aviso de bloqueo no enviado: ${String(err)}`);
+    }
+  }
 
   /**
    * Resuelve un device por hardwareId (o UUID) y valida la API key.
@@ -232,7 +253,8 @@ export class AccessVerifyService {
     const credentialRow = await this.findCredential(tenantId, method, credential);
     if (!credentialRow) {
       // PIN/QR no reconocido: cuenta para el lockout del dispositivo.
-      await this.rateLimit.recordDeviceFailure(device.id);
+      const justLocked = await this.rateLimit.recordDeviceFailure(device.id);
+      if (justLocked) await this.notifyDeviceLocked(tenantId, device);
       await this.log({
         tenantId,
         deviceId: device.id,
@@ -489,9 +511,11 @@ export class AccessVerifyService {
     if (hasContract === 0) {
       return { opened: false, message: 'No tienes un contrato en este local.' };
     }
-    if (await this.rateLimit.isDeviceLocked(device.id)) {
-      return { opened: false, message: 'Demasiados intentos. Prueba en unos minutos.' };
-    }
+    // A propósito NO se consulta el bloqueo del teclado (`isDeviceLocked`): ese
+    // bloqueo frena a quien teclea PIN al azar, pero afecta a la puerta entera
+    // → cualquiera con 10 PIN falsos dejaba fuera a TODOS los inquilinos. Aquí
+    // el inquilino ya está autenticado por su sesión del portal (no adivina
+    // nada) y el endpoint tiene su propio throttle: el móvil siempre abre.
     const facility = await this.admin.facility.findUnique({
       where: { id: device.facilityId },
       select: {
