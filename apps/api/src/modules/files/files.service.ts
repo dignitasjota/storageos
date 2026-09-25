@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -53,6 +54,9 @@ interface PresignArgs {
  * — incluyen el tenant para defensa en profundidad: incluso si alguien
  * acertara una key de otro tenant, las URLs firmadas son distintas.
  */
+/** Tamaño máximo de un fichero subido por URL presignada (se valida al registrarlo). */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
 @Injectable()
 export class FilesService implements OnModuleInit {
   private readonly logger = new Logger(FilesService.name);
@@ -217,24 +221,50 @@ export class FilesService implements OnModuleInit {
     bucket: PresignArgs['bucket'],
     key: string,
     allowedMimeTypes: readonly string[],
+    maxBytes: number = MAX_UPLOAD_BYTES,
   ): Promise<void> {
     let bytes: Buffer;
+    let totalBytes: number | null = null;
     try {
       const res = await this.s3.send(
         new GetObjectCommand({ Bucket: this.bucketMap[bucket], Key: key, Range: 'bytes=0-31' }),
       );
       bytes = Buffer.from(await res.Body!.transformToByteArray());
+      // `ContentRange: bytes 0-31/<total>` → tamaño real del objeto subido.
+      const total = /\/(\d+)$/.exec(res.ContentRange ?? '')?.[1];
+      totalBytes = total ? Number(total) : (res.ContentLength ?? null);
     } catch (err) {
       const code = (err as { name?: string })?.name;
       if (code === 'NoSuchKey' || code === 'NotFound') return;
       throw err;
     }
+    // La URL presignada PUT no puede limitar el tamaño (MinIO no admite
+    // content-length-range en PUT): sin este control, cualquiera con una URL de
+    // subida podía llenar el almacenamiento. Se comprueba al registrar y el
+    // objeto rechazado se borra para no dejarlo huérfano.
+    if (totalBytes !== null && totalBytes > maxBytes) {
+      await this.deleteObjectQuietly(bucket, key);
+      throw new BadRequestException({
+        code: 'file_too_large',
+        message: `El fichero supera el tamaño máximo permitido (${Math.round(maxBytes / 1024 / 1024)} MB)`,
+      });
+    }
     const matches = allowedMimeTypes.some((mime) => MAGIC_BYTE_CHECKS[mime]?.(bytes));
     if (!matches) {
+      await this.deleteObjectQuietly(bucket, key);
       throw new BadRequestException({
         code: 'invalid_file_content',
         message: 'El contenido del fichero no coincide con un tipo permitido',
       });
+    }
+  }
+
+  /** Borra un objeto rechazado; best-effort (no enmascara el error original). */
+  private async deleteObjectQuietly(bucket: PresignArgs['bucket'], key: string): Promise<void> {
+    try {
+      await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucketMap[bucket], Key: key }));
+    } catch (err) {
+      this.logger.warn(`No se pudo borrar el objeto rechazado ${key}: ${String(err)}`);
     }
   }
 

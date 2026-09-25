@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { FilesService, MAX_UPLOAD_BYTES } from '../src/modules/files/files.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -95,6 +97,39 @@ describe('Facility images + slug (e2e)', () => {
     expect(set.status).toBe(400);
     expect(set.body.code).toBe('invalid_file_content');
   });
+
+  it('setImages rechaza un fichero que supera el tamaño máximo y lo borra del bucket', async () => {
+    const owner = await registerVerifiedUser(app, 'fac-img-big');
+    const { facilityId } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const presign = await request(app.getHttpServer())
+      .post(`/facilities/${facilityId}/images/upload-url`)
+      .set(auth)
+      .send({ mimeType: 'image/jpeg', sizeBytes: 100 });
+    const key = presign.body.key as string;
+
+    // La URL presignada no limita el tamaño: el cliente declara 100 bytes y
+    // sube 21 MB (cabecera JPEG real + relleno).
+    const big = Buffer.alloc(MAX_UPLOAD_BYTES + 1024 * 1024);
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0]).copy(big);
+    const putRes = await fetch(presign.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'content-type': 'image/jpeg' },
+      body: big,
+    });
+    expect(putRes.status).toBe(200);
+
+    const set = await request(app.getHttpServer())
+      .put(`/facilities/${facilityId}/images`)
+      .set(auth)
+      .send({ images: [key] });
+    expect(set.status).toBe(400);
+    expect(set.body.code).toBe('file_too_large');
+
+    // El objeto rechazado no se queda ocupando espacio.
+    await expect(app.get(FilesService).getObject({ bucket: 'public', key })).rejects.toBeTruthy();
+  }, 30_000);
 
   it('setImages acepta una key con bytes JPEG reales', async () => {
     const owner = await registerVerifiedUser(app, 'fac-img-real');
