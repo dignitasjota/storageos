@@ -191,7 +191,7 @@ hallazgos críticos/altos quedaron cerrados** (9 PRs).
    `payment.create`.
 4. **`end()`/`cancel()`** → `#320`: cancelan las `dunning_actions` `scheduled` del contrato +
    alerta de fianza sin liquidar en «Hoy».
-6. **Rol `support`** → `fix/admin-support-monetization-guard`: `revoke-sessions`/`extend-trial`
+5. **Rol `support`** → `fix/admin-support-monetization-guard`: `revoke-sessions`/`extend-trial`
    ya exigían `@RequireSuperadmin` (verificado); se cierra además `custom-domain verify/revoke`
    (white-label = feature de pago) como superadmin-only.
 
@@ -212,3 +212,55 @@ hallazgos críticos/altos quedaron cerrados** (9 PRs).
 Cobro recurrente automático con reintentos (smart dunning) · waitlist por tipo de trastero ·
 motor de retención sobre bajas/`ending` · reconciliación de inventario (cron) · rent
 increase con tope anual + no solapar subidas.
+
+---
+
+# Auditoría 4 — seguridad (septiembre 2026, 2026-09-25)
+
+Pasada completa de seguridad sobre el código actual (auth/JWT, guards, RLS,
+peticiones salientes, webhooks, ficheros, logs, dependencias). Tres hallazgos
+graves que las pasadas anteriores no detectaron.
+
+## ✅ Solucionado
+
+- **`trust proxy`** (#512): detrás de Nginx Proxy Manager `req.ip` era la IP del
+  proxy para TODAS las peticiones → rate limiting global (5 logins/min para toda
+  la plataforma, DoS trivial) y audit/security_events con una sola IP. Env
+  `TRUST_PROXY_HOPS` (default 1).
+- **SSRF con lectura en webhooks salientes** (#513): la URL la controla el tenant
+  (alta libre) y el worker hacía `fetch` sin validar destino, siguiendo redirects
+  y guardando 4 KB de la respuesta visibles en el panel → lectura de la red
+  interna (Loki, Grafana, metadatos del VPS). `common/security/safe-http-post.ts`:
+  IP validada en el `lookup` del socket (sin ventana de DNS rebinding), sin
+  redirects, tope de respuesta; 400 `webhook_url_not_allowed` al guardar.
+- **Web externa del tenant en el mismo origen que el portal** (#514): el HTML/JS
+  proxificado podía leer la sesión del portal (localStorage) → datos, pagos y
+  apertura de puertas. `Content-Security-Policy: sandbox` sin
+  `allow-same-origin` en todas las respuestas de `/tenant-site`.
+
+## ⏳ Pendiente (priorizado)
+
+1. **Secretos en logs/Loki**: `redact` de pino no cubre `x-device-key`,
+   `x-camera-token`, `x-inbound-secret`, ni la query de
+   `GET /access/verify?key=…&pin=…` (device key + PIN en claro) ni los tokens en
+   ruta (`/public/move-in/sign/:token`, `/public/reviews/:token`).
+2. **Dependencias**: Next 15.5.18 → ≥15.5.24 (RCE crítica en el optimizador de
+   imágenes con AVIF); multer, nodemailer, ip-address (vía mqtt).
+3. **Email entrante suplantable**: el `From` decide a qué inquilino se atribuye
+   el mensaje (`inbound-messages.service.ts`) sin verificar SPF/DKIM/DMARC.
+4. **Cerraduras HTTP/Dahua siguen redirects** (`http-lock.provider.ts`,
+   `digest-fetch.ts`): SSRF ciego + oráculo de puertos → `redirect: 'manual'`.
+5. **Fuerza bruta de PIN en el teclado**: ~700 intentos/día por lector; PIN de 4
+   dígitos permitidos a mano. Mínimo 6 dígitos + bloqueo exponencial + alerta.
+6. **Sesiones del portal no revocables** (JWT 48 h): falta `sessionVersion` en el
+   customer para invalidarlas al cambiar/desactivar contraseña.
+7. Menores: enumeración por tiempo en login/portal (sin argon2 ficticio), sin
+   contador de fallos 2FA por usuario ni anti-replay TOTP, rol del super admin
+   leído del JWT (8 h), presigned PUT sin tamaño máximo, `REVOKE` a
+   `storageos_app` sobre tablas de plataforma sin RLS, CSP con `'unsafe-inline'`.
+
+## Nota de test local
+
+La suite e2e `webhooks` es inestable en local si hay un `nest start --watch`
+compartiendo Redis (se lleva los jobs de la cola) o jobs retrasados de
+ejecuciones previas; usar `REDIS_DB=<n>` con la DB vacía. En CI pasa.
