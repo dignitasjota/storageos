@@ -191,6 +191,11 @@ export interface CustomerMessageDto {
   senderType: 'customer' | 'staff';
   /** Canal de origen del mensaje del inquilino: portal, whatsapp o email. */
   channel: 'portal' | 'whatsapp' | 'email';
+  /**
+   * `false` solo en emails entrantes sin DMARC `pass`: el remitente (`From`)
+   * no está autenticado y podría estar suplantado → el panel lo avisa.
+   */
+  senderVerified: boolean;
   /** Nombre del staff que escribió (null si lo escribió el inquilino). */
   senderName: string | null;
   body: string;

@@ -366,5 +366,26 @@ export const EmailInboundSchema = z.object({
   from: z.string().trim().email().max(320),
   text: z.string().trim().min(1).max(20000),
   subject: z.string().trim().max(500).optional(),
+  /**
+   * Veredictos de autenticación del proveedor de email entrante. Sin DMARC
+   * `pass` (en `dmarc` o en la cabecera `Authentication-Results` cruda) el
+   * mensaje se guarda como «remitente no verificado».
+   */
+  dmarc: z.string().trim().max(50).optional(),
+  dkim: z.string().trim().max(50).optional(),
+  spf: z.string().trim().max(50).optional(),
+  authenticationResults: z.string().max(5000).optional(),
 });
 export type EmailInboundInput = z.infer<typeof EmailInboundSchema>;
+
+/**
+ * ¿Autentica el proveedor el remitente de un email entrante? Solo DMARC `pass`
+ * garantiza que el dominio del `From` es quien envió (DKIM/SPF sueltos pueden
+ * pasar para un dominio distinto del `From`).
+ */
+export function isInboundEmailSenderVerified(
+  input: Pick<EmailInboundInput, 'dmarc' | 'authenticationResults'>,
+): boolean {
+  if (input.dmarc?.trim().toLowerCase() === 'pass') return true;
+  return /\bdmarc\s*=\s*pass\b/i.test(input.authenticationResults ?? '');
+}
