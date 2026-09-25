@@ -73,4 +73,16 @@ export class PortalLinkController {
   ): Promise<void> {
     await this.portal.disablePortalPassword(user.tenantId, customerId, user.sub, meta(req));
   }
+
+  /** Cierra todas las sesiones vivas del portal del inquilino (en todos sus dispositivos). */
+  @RequirePermission('customers:write')
+  @Post('revoke-sessions')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeSessions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.portal.revokePortalSessions(user.tenantId, customerId, user.sub, meta(req));
+  }
 }

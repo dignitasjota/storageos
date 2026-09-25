@@ -201,7 +201,7 @@ export class SignaturesService {
       return {
         contractId: contract.id,
         status: contract.status,
-        portalToken: this.mintPortalToken(contract.tenantId, contract.customerId),
+        portalToken: await this.mintPortalToken(contract.tenantId, contract.customerId),
       };
     }
 
@@ -227,7 +227,7 @@ export class SignaturesService {
     return {
       contractId: contract.id,
       status: 'active',
-      portalToken: this.mintPortalToken(contract.tenantId, contract.customerId),
+      portalToken: await this.mintPortalToken(contract.tenantId, contract.customerId),
     };
   }
 
@@ -300,9 +300,15 @@ export class SignaturesService {
     return contract;
   }
 
-  private mintPortalToken(tenantId: string, customerId: string): string {
+  private async mintPortalToken(tenantId: string, customerId: string): Promise<string> {
+    // `sv` = versión de sesión vigente: si el staff revocó las sesiones del
+    // inquilino, el token nuevo nace con la versión actual (ver PortalService).
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId },
+      select: { portalSessionVersion: true },
+    });
     return this.jwt.sign(
-      { customerId, tenantId, purpose: 'portal' },
+      { customerId, tenantId, purpose: 'portal', sv: customer?.portalSessionVersion ?? 0 },
       {
         secret: this.portalSecret(),
         expiresIn: PORTAL_TOKEN_TTL_SECONDS,
@@ -563,7 +569,7 @@ export class SignaturesService {
     return {
       contractId: contract.id,
       invoiceId: invoice?.id ?? null,
-      portalToken: this.mintPortalToken(tenantId, customerId),
+      portalToken: await this.mintPortalToken(tenantId, customerId),
     };
   }
 

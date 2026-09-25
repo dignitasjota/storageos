@@ -1,6 +1,6 @@
 'use client';
 
-import { Copy, KeyRound, Loader2, Link2, ShieldOff } from 'lucide-react';
+import { Copy, KeyRound, Loader2, Link2, LogOut, ShieldOff } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -28,6 +28,7 @@ import {
   useCreatePasswordResetLink,
   useCreatePortalLink,
   useDisablePortalPassword,
+  useRevokePortalSessions,
 } from '@/lib/customers/hooks';
 
 export function PortalLinkButton({
@@ -42,11 +43,13 @@ export function PortalLinkButton({
   const createLink = useCreatePortalLink(customerId);
   const createReset = useCreatePasswordResetLink(customerId);
   const disable = useDisablePortalPassword(customerId);
+  const revoke = useRevokePortalSessions(customerId);
   const [link, setLink] = useState<{ dto: PortalMagicLinkDto; kind: 'access' | 'reset' } | null>(
     null,
   );
 
-  const busy = createLink.isPending || createReset.isPending || disable.isPending;
+  const busy =
+    createLink.isPending || createReset.isPending || disable.isPending || revoke.isPending;
 
   async function genAccess() {
     try {
@@ -69,6 +72,21 @@ export function PortalLinkButton({
     try {
       await disable.mutateAsync();
       toast.success('Acceso por contraseña desactivado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function revokeSessions() {
+    if (
+      !confirm(
+        '¿Cerrar la sesión del portal de este inquilino en todos sus dispositivos? Tendrá que volver a entrar.',
+      )
+    )
+      return;
+    try {
+      await revoke.mutateAsync();
+      toast.success('Sesiones del portal cerradas.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -108,13 +126,14 @@ export function PortalLinkButton({
           <DropdownMenuItem onClick={() => void genReset()}>
             <KeyRound className="mr-2 h-4 w-4" /> Enlace para establecer contraseña
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-destructive" onClick={() => void revokeSessions()}>
+            <LogOut className="mr-2 h-4 w-4" /> Cerrar sesiones del portal
+          </DropdownMenuItem>
           {portalAccessEnabled && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive" onClick={() => void disablePwd()}>
-                <ShieldOff className="mr-2 h-4 w-4" /> Desactivar contraseña
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem className="text-destructive" onClick={() => void disablePwd()}>
+              <ShieldOff className="mr-2 h-4 w-4" /> Desactivar contraseña
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

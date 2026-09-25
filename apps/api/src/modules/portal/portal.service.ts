@@ -479,7 +479,13 @@ export class PortalService {
     const portalPasswordHash = await argonHash(password);
     const updated = await this.admin.customer.update({
       where: { id: customer.id },
-      data: { portalPasswordHash, portalAccessEnabled: true },
+      // Restablecer la contraseña cierra todas las sesiones previas del portal
+      // (la nueva sesión nace ya con la versión incrementada).
+      data: {
+        portalPasswordHash,
+        portalAccessEnabled: true,
+        portalSessionVersion: { increment: 1 },
+      },
     });
     return this.buildSession(updated, tenant);
   }
@@ -553,12 +559,47 @@ export class PortalService {
     }
     await this.admin.customer.update({
       where: { id: customerId },
-      data: { portalAccessEnabled: false, portalPasswordHash: null },
+      data: {
+        portalAccessEnabled: false,
+        portalPasswordHash: null,
+        // Desactivar el acceso por contraseña también cierra las sesiones vivas.
+        portalSessionVersion: { increment: 1 },
+      },
     });
     await this.audit.write({
       tenantId,
       userId,
       action: 'portal.password_access_disabled',
+      entityType: 'Customer',
+      entityId: customerId,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  /**
+   * El staff cierra TODAS las sesiones vivas del portal de un inquilino (móvil
+   * perdido, enlace de acceso reenviado a quien no debía…). Incrementa la
+   * versión de sesión: los JWT ya emitidos dejan de valer en la siguiente
+   * petición. El inquilino vuelve a entrar con magic link o contraseña. Auditado.
+   */
+  async revokePortalSessions(
+    tenantId: string,
+    customerId: string,
+    userId: string,
+    meta: { ipAddress: string | null; userAgent: string | null },
+  ): Promise<void> {
+    const res = await this.admin.customer.updateMany({
+      where: { id: customerId, tenantId, deletedAt: null },
+      data: { portalSessionVersion: { increment: 1 } },
+    });
+    if (res.count === 0) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
+    }
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'portal.sessions_revoked',
       entityType: 'Customer',
       entityId: customerId,
       ipAddress: meta.ipAddress,
@@ -576,6 +617,7 @@ export class PortalService {
       companyName: string | null;
       email: string | null;
       locale: string;
+      portalSessionVersion: number;
     },
     tenant: {
       id: string;
@@ -587,7 +629,12 @@ export class PortalService {
   ): Promise<PortalSessionDto> {
     const ttl = PORTAL_SESSION_TTL_SECONDS;
     const accessToken = await this.jwt.signAsync(
-      { customerId: customer.id, tenantId: tenant.id, purpose: 'portal' },
+      {
+        customerId: customer.id,
+        tenantId: tenant.id,
+        purpose: 'portal',
+        sv: customer.portalSessionVersion,
+      },
       { subject: customer.id, secret: this.portalSecret(), expiresIn: ttl },
     );
     const displayName =
@@ -609,25 +656,41 @@ export class PortalService {
   }
 
   async verifyPortalToken(token: string): Promise<{ customerId: string; tenantId: string }> {
+    let payload: { customerId: string; tenantId: string; purpose: string; sv?: number };
     try {
-      const payload = await this.jwt.verifyAsync<{
+      payload = await this.jwt.verifyAsync<{
         sub: string;
         customerId: string;
         tenantId: string;
         purpose: string;
+        sv?: number;
       }>(token, {
         secret: this.portalSecret(),
       });
       if (payload.purpose !== 'portal') {
         throw new Error('purpose');
       }
-      return { customerId: payload.customerId, tenantId: payload.tenantId };
     } catch {
       throw new UnauthorizedException({
         code: 'portal_token_invalid',
         message: 'Sesion invalida',
       });
     }
+    // Revocación: el JWT vive 48 h y se guarda en el navegador del inquilino.
+    // Si el staff revocó sus sesiones (o se restableció/desactivó su
+    // contraseña, o se borró el cliente) la versión ya no coincide → 401.
+    // Tokens emitidos antes de existir `sv` cuentan como versión 0.
+    const customer = await this.admin.customer.findFirst({
+      where: { id: payload.customerId, tenantId: payload.tenantId, deletedAt: null },
+      select: { portalSessionVersion: true },
+    });
+    if (!customer || customer.portalSessionVersion !== (payload.sv ?? 0)) {
+      throw new UnauthorizedException({
+        code: 'portal_session_revoked',
+        message: 'Tu sesión ha caducado. Vuelve a entrar.',
+      });
+    }
+    return { customerId: payload.customerId, tenantId: payload.tenantId };
   }
 
   async listMyInvoices(tenantId: string, customerId: string): Promise<PortalInvoiceDto[]> {

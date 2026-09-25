@@ -501,6 +501,14 @@ export function useDisablePortalPassword(customerId: string) {
   });
 }
 
+/** Cierra todas las sesiones vivas del portal del inquilino (todos sus dispositivos). */
+export function useRevokePortalSessions(customerId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<void>(`/customers/${customerId}/portal-link/revoke-sessions`, { method: 'POST' }),
+  });
+}
+
 // --- Chat con el inquilino ---------------------------------------------------
 
 export function useCustomerMessages(id: string | undefined, enabled = true) {

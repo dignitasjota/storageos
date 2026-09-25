@@ -208,7 +208,7 @@ Códigos promocionales.
 
 Inquilinos del tenant.
 
-- id, tenant_id, customer_type (individual/business), first_name, last_name, company_name, document_type, document_number, email, phone, address, city, postal_code, country, emergency_contact_name, emergency_contact_phone, notes, tags (array), portal_access_enabled, portal_password_hash, kyc_verified, kyc_verified_at, deleted_at
+- id, tenant_id, customer_type (individual/business), first_name, last_name, company_name, document_type, document_number, email, phone, address, city, postal_code, country, emergency_contact_name, emergency_contact_phone, notes, tags (array), portal_access_enabled, portal_password_hash, portal_session_version (va en el JWT del portal como `sv`; incrementarla revoca todas sus sesiones), kyc_verified, kyc_verified_at, deleted_at
 - **Referidos (2026-06-22)**: `referral_code TEXT` (índice único parcial por tenant, autogenerado 8 chars sin ambiguos al verlo en el portal). Es el código que el inquilino comparte para referir a otros.
 
 ### `customer_documents`
