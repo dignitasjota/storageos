@@ -123,6 +123,52 @@ describe('2FA TOTP (e2e)', () => {
     expect(challenge.body.code).toBe('invalid_code');
   });
 
+  it('anti-replay: el mismo código TOTP no sirve para un segundo login', async () => {
+    const user = await registerVerifiedUser(app, '2fa-replay');
+    const { secret } = await enable2fa(user.accessToken);
+    const loginPending = async () =>
+      (
+        await request(app.getHttpServer())
+          .post('/auth/login')
+          .send({ tenantSlug: user.slug, email: user.email, password: user.password })
+      ).body.pendingToken as string;
+
+    const code = generateTotpCode(secret);
+    const first = await request(app.getHttpServer())
+      .post('/auth/2fa/challenge')
+      .send({ pendingToken: await loginPending(), code });
+    expect(first.status).toBe(200);
+
+    // Un código interceptado (phishing, hombro) ya no se puede reutilizar
+    // aunque siga dentro de su ventana de validez.
+    const replay = await request(app.getHttpServer())
+      .post('/auth/2fa/challenge')
+      .send({ pendingToken: await loginPending(), code });
+    expect(replay.status).toBe(403);
+    expect(replay.body.code).toBe('invalid_code');
+  });
+
+  it('tope de fallos por usuario: tras 5 códigos erróneos, 429 aunque el código sea correcto', async () => {
+    const user = await registerVerifiedUser(app, '2fa-lock');
+    const { secret } = await enable2fa(user.accessToken);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ tenantSlug: user.slug, email: user.email, password: user.password });
+    const pendingToken = login.body.pendingToken as string;
+
+    for (let i = 0; i < 5; i++) {
+      const bad = await request(app.getHttpServer())
+        .post('/auth/2fa/challenge')
+        .send({ pendingToken, code: String(100000 + i) });
+      expect(bad.status).toBe(403);
+    }
+    const locked = await request(app.getHttpServer())
+      .post('/auth/2fa/challenge')
+      .send({ pendingToken, code: generateTotpCode(secret) });
+    expect(locked.status).toBe(429);
+    expect(locked.body.code).toBe('too_many_2fa_attempts');
+  });
+
   it('recovery code: consumible una sola vez', async () => {
     const user = await registerVerifiedUser(app, '2fa-recovery');
     const { recoveryCodes } = await enable2fa(user.accessToken);
