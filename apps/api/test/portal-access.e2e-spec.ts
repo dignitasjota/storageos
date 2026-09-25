@@ -47,9 +47,9 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     const pinRes = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId, method: 'pin', pin: '4821', label: 'Puerta principal' });
+      .send({ customerId, method: 'pin', pin: '482193', label: 'Puerta principal' });
     expect(pinRes.status).toBe(201);
-    expect(pinRes.body.revealedSecret).toBe('4821');
+    expect(pinRes.body.revealedSecret).toBe('482193');
 
     const qrRes = await request(app.getHttpServer())
       .post('/access/credentials')
@@ -72,7 +72,7 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     const qr = (list.body as { method: string; value: string; id: string }[]).find(
       (c) => c.method === 'qr',
     );
-    expect(pin?.value).toBe('4821');
+    expect(pin?.value).toBe('482193');
     expect(qr?.value).toBe(qrToken);
 
     // Regenera el PIN: cambia el valor y sigue visible.
@@ -81,7 +81,7 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
       .set('Authorization', `Bearer ${portalToken}`);
     expect(regen.status).toBe(200);
     expect(regen.body.value).toBeTruthy();
-    expect(regen.body.value).not.toBe('4821');
+    expect(regen.body.value).not.toBe('482193');
   });
 
   it('el inquilino crea accesos adicionales hasta el límite del tenant (409 al exceder)', async () => {
@@ -139,7 +139,7 @@ describe('Portal: acceso por QR/PIN (e2e)', () => {
     const credA = await request(app.getHttpServer())
       .post('/access/credentials')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ customerId: customerA, method: 'pin', pin: '1234' });
+      .send({ customerId: customerA, method: 'pin', pin: '123487' });
     expect(credA.status).toBe(201);
 
     const tokenB = await portalLogin(owner.slug, emailB);

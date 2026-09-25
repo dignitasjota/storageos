@@ -550,7 +550,7 @@ function CreateCredentialDialog({
                       <Input
                         {...field}
                         value={field.value ?? ''}
-                        placeholder="4-8 dígitos"
+                        placeholder="6-8 dígitos"
                         inputMode="numeric"
                       />
                     </FormControl>
@@ -835,7 +835,7 @@ function RotateCredentialDialog({
                       <Input
                         {...field}
                         value={field.value ?? ''}
-                        placeholder="4-8 dígitos"
+                        placeholder="6-8 dígitos"
                         inputMode="numeric"
                       />
                     </FormControl>

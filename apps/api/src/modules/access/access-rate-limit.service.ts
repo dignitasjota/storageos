@@ -67,8 +67,14 @@ export class AccessRateLimitService {
   }
 
   /** Intento de PIN/QR NO reconocido en un dispositivo → cuenta para su lockout. */
-  async recordDeviceFailure(deviceId: string): Promise<void> {
-    await this.recordFailure('device', deviceId, this.deviceMax);
+  /** Devuelve `true` si ESTE fallo acaba de bloquear el dispositivo (para avisar al staff). */
+  async recordDeviceFailure(deviceId: string): Promise<boolean> {
+    return this.recordFailure('device', deviceId, this.deviceMax);
+  }
+
+  /** Minutos que dura un bloqueo (para el texto del aviso). */
+  get lockoutMinutes(): number {
+    return Math.round(this.lockoutSeconds / 60);
   }
 
   /** Denegación sobre una credencial concreta (ya identificada) → su lockout. */
@@ -76,7 +82,7 @@ export class AccessRateLimitService {
     await this.recordFailure('cred', credentialId, this.credentialMax);
   }
 
-  private async recordFailure(kind: Kind, id: string, max: number): Promise<void> {
+  private async recordFailure(kind: Kind, id: string, max: number): Promise<boolean> {
     try {
       const client = await this.queue.client;
       const key = this.failKey(kind, id);
@@ -88,10 +94,13 @@ export class AccessRateLimitService {
         this.logger.warn(
           `access rate-limit: ${kind} ${id} bloqueado ${this.lockoutSeconds}s tras ${n} fallos`,
         );
+        return true;
       }
+      return false;
     } catch (err) {
       // fail-open: no romper el acceso por un fallo de Redis.
       this.logger.warn(`rate-limit recordFailure fail-open (${kind}): ${String(err)}`);
+      return false;
     }
   }
 

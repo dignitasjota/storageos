@@ -201,7 +201,7 @@ export class NightPassService {
   /** Revoca el PIN del pase (best-effort, no enmascara el error de cobro). */
   private async revokeCredential(tenantId: string, credentialId: string): Promise<void> {
     try {
-      await this.credentials.revoke({ tenantId, userId: 'system', id: credentialId, meta: {} });
+      await this.credentials.revoke({ tenantId, userId: null, id: credentialId, meta: {} });
     } catch (err) {
       this.logger.error(
         `[night-pass] no se pudo revocar la credencial ${credentialId}: ${

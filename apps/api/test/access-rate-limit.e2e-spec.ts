@@ -44,7 +44,7 @@ describe('Rate-limit de accesos: lockout por dispositivo (e2e)', () => {
       .set(auth)
       .send({ customerId, method: 'pin', pin: '135790', allowedHours: {} })
       .expect(201);
-    return { apiKey, hardwareId };
+    return { apiKey, hardwareId, auth };
   }
 
   const verify = (apiKey: string, hardwareId: string, pin: string) =>
@@ -54,7 +54,7 @@ describe('Rate-limit de accesos: lockout por dispositivo (e2e)', () => {
       .send({ method: 'pin', credential: pin, deviceId: hardwareId });
 
   it('bloquea el dispositivo tras N PINs erróneos; el PIN correcto ya no abre', async () => {
-    const { apiKey, hardwareId } = await setup('rl-lock');
+    const { apiKey, hardwareId, auth } = await setup('rl-lock');
 
     // N intentos con PIN no reconocido → cada uno denied_invalid_credential.
     for (let i = 0; i < DEVICE_MAX; i++) {
@@ -67,6 +67,15 @@ describe('Rate-limit de accesos: lockout por dispositivo (e2e)', () => {
     const locked = await verify(apiKey, hardwareId, '135790');
     expect(locked.body.allowed).toBe(false);
     expect(locked.body.result).toBe('denied_unknown');
+
+    // El staff recibe un aviso in-app (una sola vez, al saltar el bloqueo).
+    const notifs = await request(app.getHttpServer()).get('/notifications').set(auth);
+    expect(notifs.status).toBe(200);
+    const lockNotifs = (notifs.body.items as Array<{ type: string; title: string }>).filter(
+      (n) => n.type === 'access.device_locked',
+    );
+    expect(lockNotifs).toHaveLength(1);
+    expect(lockNotifs[0]!.title).toBe('Teclado bloqueado: Cancela');
   });
 
   it('por debajo del umbral, el PIN correcto abre (y resetea el contador)', async () => {
