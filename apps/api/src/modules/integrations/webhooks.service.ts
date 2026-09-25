@@ -5,6 +5,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { checkOutboundUrlShape } from '../../common/security/safe-http-post';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -78,6 +79,7 @@ export class WebhooksService {
     input: CreateWebhookInput;
     meta: RequestMeta;
   }): Promise<WebhookWithSecretDto> {
+    assertWebhookUrlAllowed(args.input.url);
     const secret = generateSecret();
     const encryptedSecret = this.crypto.encryptString(secret, args.tenantId);
     const data: Prisma.WebhookUncheckedCreateInput = {
@@ -105,7 +107,10 @@ export class WebhooksService {
     await this.findOrThrow(args.tenantId, args.id);
     const data: Prisma.WebhookUncheckedUpdateInput = {};
     if (args.input.name !== undefined) data.name = args.input.name;
-    if (args.input.url !== undefined) data.url = args.input.url;
+    if (args.input.url !== undefined) {
+      assertWebhookUrlAllowed(args.input.url);
+      data.url = args.input.url;
+    }
     if (args.input.events !== undefined) data.events = args.input.events;
     if (args.input.isActive !== undefined) data.isActive = args.input.isActive;
     const updated = await this.prisma.withTenant(
@@ -516,3 +521,20 @@ export interface WebhookCleanupStats {
 }
 
 export type { DeliverJobData };
+
+/**
+ * Rechaza al guardar una URL de webhook que apunte a infraestructura interna
+ * (IP privada/loopback, nombre de contenedor sin dominio como `loki`, `.local`…).
+ * El envío la vuelve a validar al conectar (DNS rebinding) — ver
+ * `common/security/safe-http-post.ts`; esto solo da un error claro al tenant.
+ */
+function assertWebhookUrlAllowed(url: string): void {
+  const check = checkOutboundUrlShape(url);
+  if (!check.ok) {
+    throw new BadRequestException({
+      code: 'webhook_url_not_allowed',
+      message: 'La URL del webhook debe apuntar a un servidor público de internet',
+      details: { reason: check.reason },
+    });
+  }
+}
