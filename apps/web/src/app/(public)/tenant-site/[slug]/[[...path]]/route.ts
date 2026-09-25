@@ -26,6 +26,33 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const MAX_PROXY_BYTES = 15 * 1024 * 1024; // 15MB por fichero — sobra para una web normal.
 const UPSTREAM_TIMEOUT_MS = 8000;
 
+/**
+ * El contenido proxificado (HTML/JS/SVG del tenant, que no controlamos: p. ej.
+ * un WordPress) se sirve bajo `midominio.com`, el MISMO origen que el portal
+ * del inquilino (`midominio.com/portal`), cuya sesión vive en `localStorage`.
+ * Sin aislar, cualquier script de esa web (o de quien la comprometa) podría
+ * leer la sesión de los inquilinos y, con ella, sus datos, sus métodos de
+ * pago y la apertura remota de puertas (`/portal/me/doors/:id/open`).
+ *
+ * `sandbox` SIN `allow-same-origin` ejecuta el documento con un origen OPACO:
+ * sus scripts siguen funcionando (menús, formularios, analítica sin cookies
+ * propias, vídeos embebidos), pero no pueden leer `localStorage`/cookies del
+ * dominio ni hablar con ventanas/iframes del portal. Contrapartida asumida:
+ * la web externa no puede usar almacenamiento propio del navegador en este
+ * dominio. Se aplica a TODAS las respuestas (un SVG abierto directamente
+ * también ejecutaría scripts en el origen).
+ */
+const SANDBOX_CSP = [
+  'sandbox',
+  'allow-scripts',
+  'allow-forms',
+  'allow-popups',
+  'allow-popups-to-escape-sandbox',
+  'allow-modals',
+  'allow-downloads',
+  'allow-top-navigation-by-user-activation',
+].join(' ');
+
 function platformHosts(): string[] {
   const hosts = new Set<string>();
   for (const raw of [process.env.NEXT_PUBLIC_SITE_URL, process.env.NEXT_PUBLIC_API_URL]) {
@@ -184,7 +211,10 @@ function fetchPinned(
 }
 
 function notAvailable(status: number): NextResponse {
-  return new NextResponse('No disponible', { status });
+  return new NextResponse('No disponible', {
+    status,
+    headers: { 'content-security-policy': SANDBOX_CSP },
+  });
 }
 
 export async function GET(
@@ -233,6 +263,7 @@ export async function GET(
       'content-type': upstream.contentType ?? 'application/octet-stream',
       'cache-control': 'public, max-age=30',
       'x-content-type-options': 'nosniff',
+      'content-security-policy': SANDBOX_CSP,
     },
   });
 }
