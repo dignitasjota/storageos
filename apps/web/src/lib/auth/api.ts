@@ -60,8 +60,13 @@ function withVersion(path: string): string {
 
 let refreshInFlight: Promise<string | null> | null = null;
 
-/** Lanza la rotacion del refresh token; deduplica si ya hay una en curso. */
-async function performRefresh(): Promise<string | null> {
+/**
+ * Lanza la rotacion del refresh token; deduplica si ya hay una en curso.
+ * Exportado para que `AuthBootstrap` comparta la MISMA promesa: dos refresh
+ * simultáneos con la misma cookie se interpretan en el backend como reuso de
+ * token (y, fuera del margen de gracia, revocan todas las sesiones).
+ */
+export async function performRefresh(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {

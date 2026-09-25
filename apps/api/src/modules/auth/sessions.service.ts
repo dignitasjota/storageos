@@ -32,6 +32,20 @@ export interface RotateResult {
 export type RevocationReason = 'logout' | 'logout_all' | 'rotated' | 'refresh_reuse';
 
 /**
+ * Margen de gracia para reutilizar un refresh RECIÉN rotado. Sin él, la
+ * política paranoid expulsaba a usuarios legítimos (revocando TODAS sus
+ * sesiones, en todos sus dispositivos) en carreras normales del navegador:
+ *  - una recarga/navegación que aborta un `/auth/refresh` en vuelo: el
+ *    servidor rotó la sesión pero el `Set-Cookie` nuevo no llegó a guardarse,
+ *    así que la página siguiente reenvía el token ya rotado;
+ *  - varias pestañas que arrancan a la vez con la misma cookie.
+ * Mismo patrón que el "reuse interval" de Auth0 / "grace period" de Okta.
+ */
+export const REFRESH_REUSE_GRACE_MS = 30_000;
+/** Máximo de sesiones hermanas emitidas por gracia a partir de un mismo token. */
+export const REFRESH_REUSE_GRACE_MAX_FORKS = 3;
+
+/**
  * Gestiona el ciclo de vida de las sesiones de refresh.
  *
  *   - `createForLogin`: tras un login exitoso, emite refresh + crea fila.
@@ -39,7 +53,8 @@ export type RevocationReason = 'logout' | 'logout_all' | 'rotated' | 'refresh_re
  *     sesion como rotada y emite otra (apuntando a la anterior). Si el
  *     refresh es reusado (sesion revocada o rotada o expirada) revocamos
  *     **todas** las sesiones del usuario -- politica paranoid contra robo
- *     de token.
+ *     de token. Excepción: token rotado hace ≤ REFRESH_REUSE_GRACE_MS desde
+ *     el mismo user-agent (carrera benigna del navegador) → sesión hermana.
  *   - `revoke`: logout simple, revoca la sesion actual.
  *   - `revokeAllForUser`: logout global.
  */
@@ -113,6 +128,12 @@ export class SessionsService {
       throw new UnauthorizedException('Refresh invalido');
     }
 
+    // Sesión ya revocada: reuso del token. Solo se perdona si es una
+    // rotación reciente desde el mismo navegador (ver REFRESH_REUSE_GRACE_MS).
+    if (session.revokedAt) {
+      return this.rotateWithinGraceOrRevoke(session, tenantId, args);
+    }
+
     // 3) Rotacion atomica con compare-and-swap: el `updateMany` solo tiene
     //    efecto si la sesion SIGUE `revokedAt: null` en el instante exacto
     //    del UPDATE (no en el instante de la lectura del paso 1). Cierra la
@@ -148,15 +169,75 @@ export class SessionsService {
     }, tenantId);
 
     if (!newSession) {
-      // Perdió la carrera (o ya estaba revocada por otra vía): mismo
-      // tratamiento paranoid que un reuso franco.
-      await this.revokeAllAndFlagReuse(session, tenantId, args, 'revoked_session');
-      throw new UnauthorizedException('Refresh invalido');
+      // Perdió la carrera contra otra rotación del MISMO token (o ya estaba
+      // revocada): se relee para decidir entre gracia y reuso real.
+      const current = await this.prisma.withTenant(
+        (tx) => tx.session.findUnique({ where: { id: session.id } }),
+        tenantId,
+      );
+      return this.rotateWithinGraceOrRevoke(current ?? session, tenantId, args);
     }
 
     return {
       session: newSession,
       refreshToken: this.tokens.formatRefreshToken(tenantId, newSession.id, newSecret),
+      tenantId,
+      userId: session.userId,
+    };
+  }
+
+  /**
+   * Un token ya revocado se ha vuelto a presentar. Si fue ROTADO hace menos de
+   * `REFRESH_REUSE_GRACE_MS`, desde el mismo user-agent y sin agotar el tope de
+   * hermanas, es una carrera benigna del navegador: se emite una sesión
+   * hermana (mismo `rotatedFromId`). Si se agotó el tope, 401 sin castigar al
+   * resto de sesiones. En cualquier otro caso (revocada por logout, rotada
+   * hace rato, otro navegador) es un reuso real → revoke-all paranoid.
+   */
+  private async rotateWithinGraceOrRevoke(
+    session: Session,
+    tenantId: string,
+    args: RotateSessionArgs,
+  ): Promise<RotateResult> {
+    const now = Date.now();
+    const withinGrace =
+      session.revokedReason === 'rotated' &&
+      session.revokedAt !== null &&
+      now - session.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS &&
+      (session.userAgent ?? null) === (args.userAgent ?? null);
+
+    if (!withinGrace) {
+      await this.revokeAllAndFlagReuse(session, tenantId, args, 'revoked_session');
+      throw new UnauthorizedException('Refresh invalido');
+    }
+
+    const { secret, secretHash } = await this.tokens.generateRefreshSecret();
+    const forked = await this.prisma.withTenant(async (tx) => {
+      const siblings = await tx.session.count({ where: { rotatedFromId: session.id } });
+      if (siblings >= 1 + REFRESH_REUSE_GRACE_MAX_FORKS) return null;
+      return tx.session.create({
+        data: {
+          tenantId,
+          userId: session.userId,
+          refreshTokenHash: secretHash,
+          userAgent: args.userAgent ?? null,
+          ipAddress: args.ipAddress ?? null,
+          expiresAt: this.computeExpiresAt(),
+          rotatedFromId: session.id,
+        },
+      });
+    }, tenantId);
+
+    if (!forked) {
+      this.logger.warn(`Tope de gracia agotado para la sesion ${session.id}; 401 sin revoke-all`);
+      throw new UnauthorizedException('Refresh invalido');
+    }
+    this.logger.log(
+      `Reuso de refresh dentro de gracia en sesion ${session.id}; sesion hermana emitida`,
+    );
+    return {
+      session: forked,
+      refreshToken: this.tokens.formatRefreshToken(tenantId, forked.id, secret),
       tenantId,
       userId: session.userId,
     };

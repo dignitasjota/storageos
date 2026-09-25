@@ -2,7 +2,11 @@ import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
-import { SessionsService } from '../sessions.service';
+import {
+  REFRESH_REUSE_GRACE_MAX_FORKS,
+  REFRESH_REUSE_GRACE_MS,
+  SessionsService,
+} from '../sessions.service';
 import { TokensService } from '../tokens.service';
 
 import type { Env } from '../../../config/env.schema';
@@ -34,6 +38,7 @@ interface TxMock {
     findUnique: jest.Mock;
     update: jest.Mock;
     updateMany: jest.Mock;
+    count: jest.Mock;
   };
 }
 
@@ -52,6 +57,7 @@ function buildTx(): TxMock {
       findUnique: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
+      count: jest.fn().mockResolvedValue(1),
     },
   };
 }
@@ -165,7 +171,17 @@ describe('SessionsService', () => {
       // ventana de la carrera: el reuso ya ocurrió en BD para cuando este
       // request llega al UPDATE, pero su propia lectura fue anterior a eso.
       const session = buildSession({ refreshTokenHash: secretHash });
-      tx.session.findUnique.mockResolvedValue(session);
+      // La relectura tras perder el CAS muestra que la revocación NO fue una
+      // rotación reciente (logout) → reuso real, fuera de la gracia.
+      tx.session.findUnique
+        .mockResolvedValueOnce(session)
+        .mockResolvedValueOnce(
+          buildSession({
+            refreshTokenHash: secretHash,
+            revokedAt: new Date(),
+            revokedReason: 'logout',
+          }),
+        );
       // 1ª llamada a updateMany = el intento de CAS de la rotación -> pierde.
       // 2ª llamada = el revoke-all paranoid subsiguiente.
       tx.session.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 2 });
@@ -210,25 +226,89 @@ describe('SessionsService', () => {
       const { secret, secretHash } = await tokens.generateRefreshSecret();
       const session = buildSession({
         refreshTokenHash: secretHash,
-        revokedAt: new Date(Date.now() - 1000),
+        // Rotada hace más que el margen de gracia → reuso real.
+        revokedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 5_000),
         revokedReason: 'rotated',
       });
       tx.session.findUnique.mockResolvedValue(session);
-      // El CAS de rotación (`WHERE revokedAt IS NULL`) pierde de entrada
-      // porque la sesión YA está revocada en BD -> count 0. Solo entonces
-      // se dispara el revoke-all paranoid (2ª llamada), que sí afecta filas.
-      tx.session.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 3 });
+      tx.session.updateMany.mockResolvedValueOnce({ count: 3 });
 
       const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
       await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(tx.session.updateMany).toHaveBeenNthCalledWith(
-        2,
+      expect(tx.session.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId: USER_ID, revokedAt: null },
           data: expect.objectContaining({ revokedReason: 'refresh_reuse' }),
         }),
       );
       expect(tx.session.create).not.toHaveBeenCalled();
+    });
+
+    describe('margen de gracia (carreras benignas del navegador)', () => {
+      async function rotatedSession(overrides: Partial<Session> = {}) {
+        const { secret, secretHash } = await tokens.generateRefreshSecret();
+        const session = buildSession({
+          refreshTokenHash: secretHash,
+          revokedAt: new Date(Date.now() - 2_000),
+          revokedReason: 'rotated',
+          userAgent: 'Mozilla/5.0 test',
+          ...overrides,
+        });
+        tx.session.findUnique.mockResolvedValue(session);
+        return tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
+      }
+
+      it('token rotado hace 2 s desde el mismo navegador → sesión hermana, sin revoke-all', async () => {
+        const refreshToken = await rotatedSession();
+        tx.session.create.mockImplementation(async ({ data }) =>
+          buildSession({ ...data, id: 'fork-id' }),
+        );
+
+        const result = await svc.rotate({ refreshToken, userAgent: 'Mozilla/5.0 test' });
+
+        expect(result.session.id).toBe('fork-id');
+        expect(tx.session.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ rotatedFromId: SESSION_ID }) }),
+        );
+        expect(tx.session.updateMany).not.toHaveBeenCalled();
+        expect(securityEvents.record).not.toHaveBeenCalled();
+      });
+
+      it('mismo token pero OTRO navegador (user-agent distinto) → reuso real, revoke-all', async () => {
+        const refreshToken = await rotatedSession();
+        tx.session.updateMany.mockResolvedValue({ count: 2 });
+
+        await expect(svc.rotate({ refreshToken, userAgent: 'curl/8.0' })).rejects.toBeInstanceOf(
+          UnauthorizedException,
+        );
+        expect(tx.session.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ revokedReason: 'refresh_reuse' }),
+          }),
+        );
+        expect(tx.session.create).not.toHaveBeenCalled();
+      });
+
+      it('sesión cerrada por logout (no rotada) → revoke-all aunque sea reciente', async () => {
+        const refreshToken = await rotatedSession({ revokedReason: 'logout' });
+        tx.session.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(
+          svc.rotate({ refreshToken, userAgent: 'Mozilla/5.0 test' }),
+        ).rejects.toBeInstanceOf(UnauthorizedException);
+        expect(tx.session.create).not.toHaveBeenCalled();
+      });
+
+      it('tope de hermanas agotado → 401 SIN revocar el resto de sesiones', async () => {
+        const refreshToken = await rotatedSession();
+        tx.session.count.mockResolvedValue(1 + REFRESH_REUSE_GRACE_MAX_FORKS);
+
+        await expect(
+          svc.rotate({ refreshToken, userAgent: 'Mozilla/5.0 test' }),
+        ).rejects.toBeInstanceOf(UnauthorizedException);
+        expect(tx.session.create).not.toHaveBeenCalled();
+        expect(tx.session.updateMany).not.toHaveBeenCalled();
+      });
     });
 
     it('revoca TODAS si la sesion esta expirada', async () => {

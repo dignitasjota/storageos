@@ -1,6 +1,8 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { REFRESH_REUSE_GRACE_MS } from '../src/modules/auth/sessions.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -63,12 +65,15 @@ describe('POST /auth/refresh (e2e)', () => {
     expect(sessions[1]?.revokedAt).toBeNull();
   });
 
-  it('reusar un refresh ya rotado revoca todas las sesiones del usuario (paranoid)', async () => {
+  it('reusar un refresh rotado FUERA del margen de gracia revoca todas las sesiones (paranoid)', async () => {
     const { cookie, tenantId, userId } = await registerNewTenant();
-    // primer refresh exitoso
     const ok = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
     expect(ok.status).toBe(200);
-    // reuso del refresh original (ya revocado por rotacion)
+    // Simula que la rotación ocurrió hace más de REFRESH_REUSE_GRACE_MS.
+    await admin.session.updateMany({
+      where: { tenantId, userId, revokedReason: 'rotated' },
+      data: { revokedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 10_000) },
+    });
     const replay = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
     expect(replay.status).toBe(401);
 
@@ -77,53 +82,48 @@ describe('POST /auth/refresh (e2e)', () => {
     for (const s of sessions) {
       expect(s.revokedAt).not.toBeNull();
     }
-    const reasons = sessions.map((s) => s.revokedReason);
-    expect(reasons).toContain('refresh_reuse');
+    expect(sessions.map((s) => s.revokedReason)).toContain('refresh_reuse');
   });
 
-  it('condición de carrera: N refresh CONCURRENTES con el MISMO cookie — solo UNO rota con éxito, sin sesiones huérfanas', async () => {
+  it('reusar un refresh recién rotado desde el mismo navegador (recarga que aborta el refresh) NO expulsa al usuario', async () => {
     const { cookie, tenantId, userId } = await registerNewTenant();
+    // 1ª rotación: su respuesta "se pierde" (el navegador no guardó la cookie nueva).
+    const lost = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
+    expect(lost.status).toBe(200);
+    // La página siguiente reenvía el token ya rotado, segundos después.
+    const retry = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie);
+    expect(retry.status).toBe(200);
+    expect(retry.body.accessToken).toBeTruthy();
 
-    // 5 requests en paralelo con el mismo refresh token todavía válido (aún
-    // no rotado por ninguno). Antes del fix, el `update` sin condición de
-    // `rotate()` dejaba que TODOS pasaran la lectura+verificación y cada uno
-    // generase su propia sesión nueva a partir de un solo uso del token —
-    // sin disparar nunca la detección de reuso. El compare-and-swap
-    // (`updateMany` con `WHERE revokedAt IS NULL`) debe dejar pasar
-    // exactamente una.
+    const sessions = await admin.session.findMany({ where: { tenantId, userId } });
+    expect(sessions.map((s) => s.revokedReason)).not.toContain('refresh_reuse');
+    const original = sessions.find((s) => s.rotatedFromId === null)!;
+    const active = sessions.filter((s) => s.revokedAt === null);
+    expect(active).toHaveLength(2);
+    for (const s of active) expect(s.rotatedFromId).toBe(original.id);
+  });
+
+  it('N refresh CONCURRENTES con el MISMO cookie (varias pestañas): no se revoca nada y el usuario sigue dentro', async () => {
+    const { cookie, tenantId, userId } = await registerNewTenant();
     const attempts = 5;
     const responses = await Promise.all(
       Array.from({ length: attempts }, () =>
         request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie),
       ),
     );
-
     const succeeded = responses.filter((r) => r.status === 200);
-    const failed = responses.filter((r) => r.status === 401);
-    expect(succeeded).toHaveLength(1);
-    expect(failed).toHaveLength(attempts - 1);
+    expect(succeeded.length).toBeGreaterThanOrEqual(1);
+    for (const r of responses) expect([200, 401]).toContain(r.status);
 
-    // Solo el ganador de la carrera llega a crear una sesión nueva (los
-    // perdedores nunca llaman `create`): sesión original + exactamente 1.
-    // Si el fix no estuviera, aquí veríamos varias sesiones nuevas
-    // (una por cada request que "ganaba" su propia lectura+escritura).
     const sessions = await admin.session.findMany({ where: { tenantId, userId } });
-    expect(sessions).toHaveLength(2);
-
-    // Nunca puede haber MÁS de una sesión activa a la vez a partir de un
-    // solo uso del token (la garantía que cierra la carrera). Puede haber 0
-    // si algún perdedor, al detectar el reuso, dispara el revoke-all
-    // paranoid DESPUÉS de que el ganador ya hubiera creado la suya (el
-    // revoke-all barre TODAS las sesiones activas del usuario, sin
-    // distinguir cuál es "la buena") — es una consecuencia esperada de la
-    // política paranoid, no un fallo del fix.
+    // Antes del margen de gracia, los perdedores disparaban el revoke-all y
+    // el usuario podía quedarse con 0 sesiones activas.
+    expect(sessions.map((s) => s.revokedReason)).not.toContain('refresh_reuse');
+    const original = sessions.find((s) => s.rotatedFromId === null)!;
+    expect(original.revokedReason).toBe('rotated');
     const active = sessions.filter((s) => s.revokedAt === null);
-    expect(active.length).toBeLessThanOrEqual(1);
-
-    // La sesión ORIGINAL (la que todos leyeron) siempre queda marcada
-    // 'rotated' por el ganador, sin importar qué pase después con la nueva.
-    const original = sessions.find((s) => s.rotatedFromId === null);
-    expect(original?.revokedReason).toBe('rotated');
+    expect(active).toHaveLength(succeeded.length);
+    for (const s of active) expect(s.rotatedFromId).toBe(original.id);
   });
 
   it('responde 401 cuando no hay cookie', async () => {
