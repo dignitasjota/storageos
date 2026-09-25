@@ -1,13 +1,8 @@
 import { createServer, type Server } from 'node:http';
 
-import {
-  buildDigestAuthHeader,
-  digestRequest,
-  parseDigestChallenge,
-} from '../digest-fetch';
+import { buildDigestAuthHeader, digestRequest, parseDigestChallenge } from '../digest-fetch';
 
 import type { AddressInfo } from 'node:net';
-
 
 describe('digest-fetch', () => {
   describe('parseDigestChallenge', () => {
@@ -50,9 +45,21 @@ describe('digest-fetch', () => {
   describe('digestRequest (handshake contra un servidor local)', () => {
     let server: Server;
     let base: string;
+    let internalHits = 0;
 
     beforeAll(async () => {
       server = createServer((req, res) => {
+        if (req.url === '/redirect') {
+          res.writeHead(302, { location: '/internal' });
+          res.end();
+          return;
+        }
+        if (req.url === '/internal') {
+          internalHits += 1;
+          res.writeHead(200);
+          res.end('SECRETO INTERNO');
+          return;
+        }
         const auth = req.headers.authorization;
         if (!auth) {
           res.writeHead(401, {
@@ -83,6 +90,16 @@ describe('digest-fetch', () => {
       expect(res.ok).toBe(true);
       expect(res.status).toBe(200);
       expect(res.body).toBe('OK');
+    });
+
+    it('no sigue redirecciones (anti-SSRF): 302 → ok false, sin leer el destino', async () => {
+      const res = await digestRequest({
+        url: `${base}/redirect`,
+        username: 'admin',
+        password: 'pw',
+      });
+      expect(res).toEqual({ ok: false, status: 302, body: '' });
+      expect(internalHits).toBe(0);
     });
 
     it('no lanza ante red caída → ok false, status 0', async () => {

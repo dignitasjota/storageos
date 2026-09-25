@@ -51,7 +51,17 @@ export class HttpLockProvider extends LockProvider {
         headers,
         body,
         signal: controller.signal,
+        // Nunca seguir redirecciones: la URL ya pasó `isSafeOutboundUrl`,
+        // pero un 30x del destino podría llevar la petición a la red interna
+        // (SSRF). Un controlador de cerradura legítimo no redirige.
+        redirect: 'manual',
       });
+      if (res.status >= 300 && res.status < 400) {
+        this.logger.warn(
+          `[http-lock] ${args.controlUrl} intentó redirigir (${res.status}); bloqueado`,
+        );
+        return { dispatched: false, message: 'redirect_not_allowed' };
+      }
       if (!res.ok) {
         this.logger.warn(`[http-lock] ${args.controlUrl} respondió ${res.status}`);
         return { dispatched: false, message: `http_${res.status}` };

@@ -110,14 +110,20 @@ export async function digestRequest(args: {
   const doFetch = (headers: Record<string, string>): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    return fetch(args.url, { method, headers, signal: controller.signal }).finally(() =>
-      clearTimeout(timer),
-    );
+    // `redirect: 'manual'`: un 30x del terminal no se sigue (evita SSRF hacia
+    // la red interna tras pasar `isSafeOutboundUrl`); se trata como fallo.
+    return fetch(args.url, {
+      method,
+      headers,
+      signal: controller.signal,
+      redirect: 'manual',
+    }).finally(() => clearTimeout(timer));
   };
 
   try {
     // Paso 1: sin auth → esperamos 401 con el challenge.
     const first = await doFetch({});
+    if (isRedirect(first.status)) return { ok: false, status: first.status, body: '' };
     if (first.status !== 401) {
       // Algún terminal antiguo acepta Basic o no exige auth: devolvemos lo que haya.
       return { ok: first.ok, status: first.status, body: await first.text() };
@@ -135,8 +141,13 @@ export async function digestRequest(args: {
       challenge,
     });
     const second = await doFetch({ authorization: authHeader });
+    if (isRedirect(second.status)) return { ok: false, status: second.status, body: '' };
     return { ok: second.ok, status: second.status, body: await second.text() };
   } catch {
     return { ok: false, status: 0, body: '' };
   }
+}
+
+function isRedirect(status: number): boolean {
+  return status >= 300 && status < 400;
 }

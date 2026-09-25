@@ -58,6 +58,19 @@ describe('HttpLockProvider', () => {
     expect(res.message).toBe('http_503');
   });
 
+  it('no sigue redirecciones (anti-SSRF): 302 → dispatched false', async () => {
+    let capturedInit: RequestInit | undefined;
+    jest.spyOn(global, 'fetch').mockImplementation((_url, init) => {
+      capturedInit = init;
+      return Promise.resolve(
+        new Response(null, { status: 302, headers: { location: 'http://loki:3100/' } }),
+      );
+    });
+    const res = await provider.open(baseArgs);
+    expect(capturedInit?.redirect).toBe('manual');
+    expect(res).toEqual({ dispatched: false, message: 'redirect_not_allowed' });
+  });
+
   it('error de red → dispatched false sin lanzar', async () => {
     jest.spyOn(global, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
     const res = await provider.open(baseArgs);
