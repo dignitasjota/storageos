@@ -12,6 +12,7 @@ import {
   Put,
   Req,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import {
   type GoCardlessMandateStartDto,
@@ -75,6 +76,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { ThrottleLogin, ThrottleRegister } from '../../common/decorators/throttle-presets';
+import { respondThenRun } from '../../common/security/respond-then-run';
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { AccessVerifyService } from '../access/access-verify.service';
 import { AiService } from '../ai/ai.service';
@@ -124,6 +126,8 @@ class PortalBookUnitDto2 extends createZodDto(PortalBookUnitSchema) {}
 
 @Controller('portal')
 export class PortalController {
+  private readonly logger = new Logger(PortalController.name);
+
   constructor(
     private readonly portal: PortalService,
     private readonly redsys: RedsysService,
@@ -152,7 +156,7 @@ export class PortalController {
   @Post('login/request')
   @HttpCode(HttpStatus.NO_CONTENT)
   async requestLink(@Body() input: PortalRequestMagicLinkDto): Promise<void> {
-    await this.portal.requestMagicLink(input);
+    respondThenRun(this.logger, 'portal-magic-link', () => this.portal.requestMagicLink(input));
   }
 
   @Public()
@@ -193,7 +197,9 @@ export class PortalController {
   @Post('login/forgot')
   @HttpCode(HttpStatus.NO_CONTENT)
   async forgotPassword(@Body() input: PortalRequestMagicLinkDto): Promise<void> {
-    await this.portal.requestPasswordReset(input);
+    respondThenRun(this.logger, 'portal-password-forgot', () =>
+      this.portal.requestPasswordReset(input),
+    );
   }
 
   /** Fijar la nueva contraseña con el token del email → sesión (auto-login). */

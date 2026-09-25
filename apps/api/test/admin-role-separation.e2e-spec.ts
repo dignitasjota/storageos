@@ -173,4 +173,57 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
       .set('Authorization', `Bearer ${supportToken}`);
     expect(after.status).toBe(401);
   });
+
+  it('degradar a un superadmin a support le quita las acciones destructivas YA (rol leído de BD, no del JWT)', async () => {
+    const email = 'role-demote-e2e@storageos.local';
+    await adminClient.superAdmin.deleteMany({ where: { email } });
+    const demoted = await adminClient.superAdmin.create({
+      data: {
+        email,
+        passwordHash: await argonHash('AdminTest!23'),
+        fullName: 'Demote',
+        role: 'superadmin',
+      },
+    });
+    const token = await login(app, email);
+    const owner = await registerVerifiedUser(app, 'role-demote');
+
+    await adminClient.superAdmin.update({ where: { id: demoted.id }, data: { role: 'support' } });
+
+    // El token sigue diciendo `superadmin`, pero la BD manda.
+    const res = await request(app.getHttpServer())
+      .post(`/admin/tenants/${owner.tenantId}/suspend`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason: 'test' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('insufficient_super_admin_role');
+
+    await adminClient.superAdmin.delete({ where: { id: demoted.id } });
+  });
+
+  it('login de un super admin desactivado: con contraseña incorrecta da 401 (no revela que la cuenta existe)', async () => {
+    const email = 'disabled-login-e2e@storageos.local';
+    await adminClient.superAdmin.deleteMany({ where: { email } });
+    await adminClient.superAdmin.create({
+      data: {
+        email,
+        passwordHash: await argonHash('AdminTest!23'),
+        fullName: 'Disabled',
+        role: 'support',
+        isActive: false,
+      },
+    });
+    // Antes: 403 account_disabled sin comprobar la contraseña → enumeración.
+    const wrong = await request(app.getHttpServer())
+      .post('/admin/auth/login')
+      .send({ email, password: 'incorrecta-123' });
+    expect(wrong.status).toBe(401);
+    // Con la contraseña correcta sí se informa de que está desactivada.
+    const right = await request(app.getHttpServer())
+      .post('/admin/auth/login')
+      .send({ email, password: 'AdminTest!23' });
+    expect(right.status).toBe(403);
+    expect(right.body.code).toBe('account_disabled');
+    await adminClient.superAdmin.deleteMany({ where: { email } });
+  });
 });
