@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
@@ -225,7 +227,7 @@ export class InvoicesService {
           });
         }
         // En draft NO se asigna invoiceNumber; se asigna al issue.
-        const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
+        const placeholderNumber = draftPlaceholderNumber();
         const baseNotes = args.input.notes?.trim();
         // Si es F2 con justificacion, anotamos el motivo como prefijo del
         // campo notes para que quede trazable (no anadimos columna nueva,
@@ -1220,7 +1222,7 @@ export class InvoicesService {
 
     const correctionMethod: CorrectionMethodValue = args.input.correctionMethod ?? 'by_differences';
     const { subtotal, taxAmount, total } = this.computeTotalsRectify(args.input.items);
-    const placeholderNumber = `DRAFT-${Date.now().toString(36)}`;
+    const placeholderNumber = draftPlaceholderNumber();
 
     const created = await this.prisma.withTenant(
       (tx) =>
@@ -1574,4 +1576,16 @@ export class InvoicesService {
       position: item.position,
     };
   }
+}
+
+/**
+ * Número provisional de un borrador (el definitivo se asigna al emitir). Tiene
+ * que ser ÚNICO: `invoices` tiene `@@unique([tenantId, invoiceNumber])`. Antes
+ * era `DRAFT-${Date.now()}` → dos borradores del mismo tenant creados en el
+ * mismo milisegundo chocaban: 409 engañoso `duplicate_period_invoice` al
+ * usuario y, en la facturación recurrente (que trata el P2002 como "periodo ya
+ * facturado"), una factura SALTADA en silencio.
+ */
+export function draftPlaceholderNumber(): string {
+  return `DRAFT-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
 }
