@@ -1058,6 +1058,8 @@ model Customer {
   tags                  String[]     @default([])
   portalAccessEnabled   Boolean      @default(false) @map("portal_access_enabled")
   portalPasswordHash    String?      @map("portal_password_hash")
+  /// Se incrementa para revocar todas las sesiones vivas del portal (va en el JWT como `sv`).
+  portalSessionVersion  Int          @default(0) @map("portal_session_version")
   kycVerified           Boolean      @default(false) @map("kyc_verified")
   kycVerifiedAt         DateTime?    @map("kyc_verified_at") @db.Timestamptz(6)
   /// Codigo de referido que este cliente comparte (unico por tenant).

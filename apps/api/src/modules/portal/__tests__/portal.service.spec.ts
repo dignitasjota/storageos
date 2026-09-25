@@ -56,6 +56,8 @@ function buildAdmin(): {
     lastName: 'García',
     companyName: null,
     email: 'puri@e2e.local',
+    locale: 'es',
+    portalSessionVersion: 0,
   };
   return {
     customer: {
@@ -224,6 +226,21 @@ describe('PortalService', () => {
     await expect(service.verifyPortalToken(legacy)).resolves.toEqual({
       customerId: CUSTOMER,
       tenantId: TENANT,
+    });
+  });
+
+  it('verifyPortalToken rechaza una sesión revocada (portalSessionVersion incrementada)', async () => {
+    const { service, admin } = buildService();
+    const { url } = await service.createMagicLinkForCustomer(TENANT, CUSTOMER, USER, {
+      ipAddress: null,
+      userAgent: null,
+    });
+    const token = new URL(url).searchParams.get('token')!;
+    const session = await service.consumeMagicLink(token);
+    // El staff revoca: la versión en BD pasa a 1; el JWT sigue llevando sv=0.
+    admin.customer.findFirst.mockResolvedValue({ portalSessionVersion: 1 });
+    await expect(service.verifyPortalToken(session.accessToken)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'portal_session_revoked' }),
     });
   });
 

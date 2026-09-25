@@ -79,4 +79,52 @@ describe('Staff genera magic link del portal (e2e)', () => {
     );
     expect(noauth.status).toBe(401);
   });
+
+  it('el staff cierra las sesiones del portal: el token vivo deja de valer y se puede volver a entrar', async () => {
+    const owner = await registerVerifiedUser(app, 'plinkrv');
+    const staff = { Authorization: `Bearer ${owner.accessToken}` };
+    const customerId = await createCustomer(app, owner.accessToken, {
+      email: `rv-${Date.now()}@e2e.local`,
+    });
+    const login = async (): Promise<string> => {
+      const gen = await request(app.getHttpServer())
+        .post(`/customers/${customerId}/portal-link`)
+        .set(staff);
+      const token = new URL(gen.body.url as string).searchParams.get('token')!;
+      const consume = await request(app.getHttpServer())
+        .post('/portal/login/consume')
+        .send({ token });
+      expect(consume.status).toBe(200);
+      return consume.body.accessToken as string;
+    };
+
+    const session = await login();
+    const before = await request(app.getHttpServer())
+      .get('/portal/me/invoices')
+      .set({ Authorization: `Bearer ${session}` });
+    expect(before.status).toBe(200);
+
+    const revoke = await request(app.getHttpServer())
+      .post(`/customers/${customerId}/portal-link/revoke-sessions`)
+      .set(staff);
+    expect(revoke.status).toBe(204);
+
+    const after = await request(app.getHttpServer())
+      .get('/portal/me/invoices')
+      .set({ Authorization: `Bearer ${session}` });
+    expect(after.status).toBe(401);
+    expect(after.body.code).toBe('portal_session_revoked');
+
+    // Un acceso nuevo nace con la versión vigente y funciona.
+    const fresh = await login();
+    const ok = await request(app.getHttpServer())
+      .get('/portal/me/invoices')
+      .set({ Authorization: `Bearer ${fresh}` });
+    expect(ok.status).toBe(200);
+
+    const audit = await db.auditLog.findFirst({
+      where: { action: 'portal.sessions_revoked', entityId: customerId },
+    });
+    expect(audit).toBeTruthy();
+  });
 });
