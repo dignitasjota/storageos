@@ -13,6 +13,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
 import { TenantStatusGuard } from './common/guards/tenant-status.guard';
+import { serializeRequestForLog } from './common/logging/sanitize';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
@@ -101,10 +102,17 @@ import type { Options as PinoHttpOptions } from 'pino-http';
         const pretty = config.get('LOG_PRETTY', { infer: true });
         const pinoHttp: PinoHttpOptions = {
           level: config.get('LOG_LEVEL', { infer: true }),
+          // URL/query/cabeceras con secretos (device key + PIN de
+          // /access/verify, tokens de firma/NPS/invitación en la ruta…) se
+          // enmascaran antes de salir hacia Loki — ver common/logging/sanitize.ts.
+          serializers: { req: serializeRequestForLog },
           redact: {
             paths: [
               'req.headers.authorization',
               'req.headers.cookie',
+              'req.headers["x-device-key"]',
+              'req.headers["x-camera-token"]',
+              'req.headers["x-inbound-secret"]',
               'res.headers["set-cookie"]',
               '*.password',
               '*.passwordHash',
