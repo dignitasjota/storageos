@@ -5,9 +5,11 @@ import { raw } from 'express';
 
 import { AppModule } from '../../src/app.module';
 import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
+import { configureTrustProxy } from '../../src/common/http/trust-proxy';
 import { legacyRedirectHandler } from '../../src/common/middleware/legacy-redirect.middleware';
 
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 
 export interface CreateTestAppOptions {
@@ -48,7 +50,9 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
     imports: [AppModule],
   }).compile();
 
-  const app = moduleRef.createNestApplication({ bufferLogs: true });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ bufferLogs: true });
+  // Igual que prod (1 proxy delante): la IP del cliente sale de X-Forwarded-For.
+  configureTrustProxy(app, 1);
   // Webhooks firmados sobre el raw body (deben ir antes del parser JSON).
   app.use('/webhooks/stripe', raw({ type: 'application/json' }));
   app.use('/webhooks/gocardless', raw({ type: 'application/json' }));

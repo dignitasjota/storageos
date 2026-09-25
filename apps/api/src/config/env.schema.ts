@@ -9,6 +9,16 @@ import { z } from 'zod';
 const envSchemaBase = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
+  /**
+   * Nº de proxies inversos de confianza delante de la API (Express
+   * `trust proxy`). En producción la API va detrás de Nginx Proxy Manager
+   * (1 salto): sin esto `req.ip` es la IP del contenedor de NPM para TODAS
+   * las peticiones → el rate limiting pasa a ser global (5 logins/min para
+   * toda la plataforma) y audit/security_events registran siempre la misma
+   * IP. Poner el nº EXACTO de saltos: uno de más permite falsificar la IP
+   * vía `X-Forwarded-For`. `0` = sin proxy (API expuesta directamente).
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
 
   // --- Postgres ---
   /** URL para el rol restringido `storageos_app` (RLS activo). */
