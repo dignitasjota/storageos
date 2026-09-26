@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  PutBucketPolicyCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -86,8 +87,9 @@ export class FilesService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    // Asegura que los buckets existen al arrancar. En dev el sidecar
-    // `createbuckets` ya los crea; este check es idempotente.
+    // Asegura que los buckets existen al arrancar (idempotente). Antes lo hacía
+    // además un sidecar `createbuckets` con la imagen `minio/mc`, retirado
+    // cuando MinIO dejó de publicar sus imágenes (Docker Hub/quay.io).
     for (const bucket of Object.values(this.bucketMap)) {
       try {
         await this.s3.send(new HeadBucketCommand({ Bucket: bucket }));
@@ -99,6 +101,38 @@ export class FilesService implements OnModuleInit {
           this.logger.warn(`No se pudo crear bucket ${bucket}: ${(err as Error).message}`);
         }
       }
+    }
+    await this.ensurePublicReadPolicy();
+  }
+
+  /**
+   * El bucket `public` (fotos de local, portada del blog…) debe ser de lectura
+   * anónima: sus URLs se sirven sin firmar en la web pública. Solo GetObject
+   * (no ListBucket: nadie puede listar el contenido), equivalente a
+   * `mc anonymous set download`. Se reaplica en cada arranque (idempotente);
+   * el resto de buckets siguen privados.
+   */
+  private async ensurePublicReadPolicy(): Promise<void> {
+    const bucket = this.bucketMap.public;
+    const policy = {
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: { AWS: ['*'] },
+          Action: ['s3:GetObject'],
+          Resource: [`arn:aws:s3:::${bucket}/*`],
+        },
+      ],
+    };
+    try {
+      await this.s3.send(
+        new PutBucketPolicyCommand({ Bucket: bucket, Policy: JSON.stringify(policy) }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo aplicar la política pública a ${bucket}: ${(err as Error).message}`,
+      );
     }
   }
 

@@ -326,7 +326,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO $POSTGRES_APP_USER;
 SQL
 
-# 6.8 Crear los buckets MinIO
+# 6.8 Crear los buckets MinIO (OPCIONAL desde 2026-09-26: el `api` los crea al
+#     arrancar y deja `storageos-public` como lectura anónima; esto solo lo adelanta)
 # IMPORTANTE: `storageos-public` es PUBLIC-READ (anonymous download) porque
 # sirve las imágenes de los locales en la landing pública sin auth. Los demás
 # buckets quedan PRIVADOS (guardan documentos de clientes y PDFs de contratos).
@@ -363,7 +364,11 @@ Automatiza los tres pasos imperativos del arranque:
   automáticamente — sin paso de grants manual.
 - **Migraciones** → servicio `migrate`; `api`/`worker` esperan con
   `service_completed_successfully`.
-- **Buckets MinIO** → init-container `createbuckets`.
+- **Buckets MinIO** → los crea el propio `api` al arrancar (`FilesService.onModuleInit`)
+  y deja `storageos-public` como lectura anónima (solo `GetObject`, sin listado).
+  Antes lo hacía el init-container `createbuckets` con la imagen `minio/mc`,
+  retirado el 2026-09-26 porque MinIO dejó de publicar sus imágenes (Docker Hub
+  denegaba el pull: `pull access denied for minio/mc`).
 
 ### Pasos
 
@@ -382,8 +387,10 @@ Automatiza los tres pasos imperativos del arranque:
    `SECURITY_ALERT_EMAIL` vacías (validación de formato estricta: o un valor
    válido, o ausentes).
 4. **Deploy**. Portainer construye las imágenes (api/worker/web), levanta la
-   infra, corre el init de Postgres + `migrate` + `createbuckets`, y arranca
-   api/web/worker. `migrate` y `createbuckets` quedan en `exited (0)`: es normal.
+   infra, corre el init de Postgres + `migrate`, y arranca api/web/worker
+   (el `api` crea los buckets). `migrate` queda en `exited (0)`: es normal.
+   Si el stack venía de una versión con `createbuckets`, Portainer puede dejar
+   ese contenedor huérfano en `exited`: se puede borrar sin más.
 5. Conecta NPM a la red (la otra app sigue en `npm-net`):
    `docker network connect storageos-net <contenedor-npm>`.
 

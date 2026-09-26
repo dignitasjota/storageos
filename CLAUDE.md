@@ -59,7 +59,7 @@ storageos/
 │   ├── database/      # Prisma schema + cliente + migraciones + seed + tests Vitest
 │   ├── shared/        # Schemas Zod + tipos compartidos (auth, users, invitations, 2fa, ...)
 │   └── ui/            # Componentes UI compartidos (placeholder, shadcn vive en apps/web/src/components/ui/)
-├── docker-compose.yml    # Servicios dev: postgres, redis, minio, mailpit, createbuckets
+├── docker-compose.yml    # Servicios dev: postgres, redis, minio, mailpit (los buckets los crea el api al arrancar)
 ├── docker-compose.prod.yml  # Placeholder (Fase 8)
 ├── docs/              # ARCHITECTURE, DATA_MODEL, ROADMAP, API, DEPLOYMENT
 ├── CLAUDE.md          # Este archivo
