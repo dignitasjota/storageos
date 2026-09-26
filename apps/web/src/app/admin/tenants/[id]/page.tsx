@@ -33,6 +33,7 @@ import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
 import { TenantNotesCard } from './tenant-notes-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
 
+import { SupportTicketList } from '@/components/admin/support-ticket-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -215,6 +216,7 @@ export default function AdminTenantDetailPage() {
           <TabsTrigger value="payments">Pagos</TabsTrigger>
           <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
+          <TabsTrigger value="tickets">Tickets</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="mt-4">
@@ -342,6 +344,14 @@ export default function AdminTenantDetailPage() {
 
         <TabsContent value="followups" className="mt-4">
           <TenantFollowupsCard tenantId={id} />
+        </TabsContent>
+
+        <TabsContent value="tickets" className="mt-4">
+          <SupportTicketList
+            filters={{ tenantId: id }}
+            showTenant={false}
+            emptyText="Este tenant no ha abierto ningún ticket de soporte."
+          />
         </TabsContent>
       </Tabs>
 

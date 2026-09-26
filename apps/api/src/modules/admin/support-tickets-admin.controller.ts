@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -13,9 +14,12 @@ import {
 } from '@nestjs/common';
 import {
   AddTicketMessageSchema,
+  type AdminSupportTicketsPageDto,
   AssignTicketSchema,
   type SupportTicketDto,
   type SupportTicketMessageDto,
+  SupportTicketPriorityEnum,
+  type SupportTicketPriorityValue,
   SupportTicketStatusEnum,
   type SupportTicketStatusValue,
   TransitionTicketSchema,
@@ -29,6 +33,8 @@ import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super
 import { SupportTicketsService } from './support-tickets.service';
 
 import type { Request } from 'express';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class AddTicketMessageDto extends createZodDto(AddTicketMessageSchema) {}
 class TransitionTicketDto extends createZodDto(TransitionTicketSchema) {}
@@ -62,17 +68,35 @@ export class SupportTicketsAdminController {
     @Query('status') status?: string,
     @Query('tenantId') tenantId?: string,
     @Query('assignedAdminId') assignedAdminId?: string,
-  ): Promise<SupportTicketDto[]> {
+    @Query('priority') priority?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<AdminSupportTicketsPageDto> {
     const parsedStatus =
       status && SupportTicketStatusEnum.safeParse(status).success
         ? (status as SupportTicketStatusValue)
         : undefined;
-    return this.tickets.listForAdmin({
-      ...(search ? { search } : {}),
-      ...(parsedStatus ? { status: parsedStatus } : {}),
-      ...(tenantId ? { tenantId } : {}),
-      ...(assignedAdminId !== undefined ? { assignedAdminId } : {}),
-    });
+    const parsedPriority =
+      priority && SupportTicketPriorityEnum.safeParse(priority).success
+        ? (priority as SupportTicketPriorityValue)
+        : undefined;
+    for (const id of [tenantId, cursor]) {
+      if (id && !UUID_RE.test(id)) throw new BadRequestException({ code: 'invalid_id' });
+    }
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    return this.tickets.listForAdmin(
+      {
+        ...(search ? { search } : {}),
+        ...(parsedStatus ? { status: parsedStatus } : {}),
+        ...(parsedPriority ? { priority: parsedPriority } : {}),
+        ...(tenantId ? { tenantId } : {}),
+        ...(assignedAdminId !== undefined ? { assignedAdminId } : {}),
+      },
+      {
+        ...(cursor ? { cursor } : {}),
+        ...(parsedLimit && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
+      },
+    );
   }
 
   /** Nº de tickets abiertos esperando respuesta del admin — badge del menú. */
