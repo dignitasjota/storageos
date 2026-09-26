@@ -1569,7 +1569,13 @@ function PortalConsumeContent() {
           </TabsContent>
 
           <TabsContent value="datos" className="space-y-6">
-            <ProfileCard session={session} />
+            <ProfileCard
+              session={session}
+              onSessionRenewed={(renewed) => {
+                storePortalSession(renewed);
+                setSession(renewed);
+              }}
+            />
 
             <DocumentsCard session={session} />
 
