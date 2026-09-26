@@ -11,7 +11,8 @@ name: storageos-prod
 #   - Arranque 100% automatico: el rol Postgres + extensiones los crea
 #     `scripts/pg-init-prod.sh` (init de Postgres); `migrate` aplica las
 #     migraciones y `api`/`worker` esperan con `service_completed_successfully`;
-#     `createbuckets` crea los buckets MinIO. Cero pasos manuales.
+#     el propio `api` crea los buckets MinIO al arrancar (y deja público el
+#     de `storageos-public`). Cero pasos manuales.
 #
 # COMO USARLO EN PORTAINER:
 #   Stacks -> Add stack -> Repository
@@ -164,29 +165,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-
-  # Init-container: crea los buckets y sale. restart "no" => Portainer lo muestra
-  # como "exited (0)" tras completarse; es normal.
-  createbuckets:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        mc alias set local http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" &&
-        mc mb --ignore-existing local/storageos-uploads &&
-        mc mb --ignore-existing local/storageos-invoices &&
-        mc mb --ignore-existing local/storageos-plans &&
-        mc mb --ignore-existing local/storageos-reports &&
-        mc mb --ignore-existing local/storageos-public &&
-        mc anonymous set download local/storageos-public &&
-        echo "[createbuckets] OK (storageos-public es public-read)"
-    networks:
-      - storageos-net
-    restart: 'no'
 
   # Aplica migraciones Prisma con el rol admin (bypass RLS) y sale. Idempotente.
   # Build propio (mismo Dockerfile que la API, con el CLI prisma): asi NO hay
