@@ -180,13 +180,15 @@ export class PortalController {
   @Public()
   @ThrottleLogin()
   @Post('me/password')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   async setPassword(
     @Headers('authorization') auth: string | undefined,
     @Body() input: PortalSetPasswordDto,
-  ): Promise<void> {
+  ): Promise<PortalSessionDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    await this.portal.setMyPassword(tenantId, customerId, input.password);
+    // Devuelve una sesión NUEVA: el cambio cierra las demás sesiones (y la
+    // actual, cuyo token queda con la versión anterior).
+    return this.portal.setMyPassword(tenantId, customerId, input.password);
   }
 
   /** Solicitar un enlace de restablecimiento de contraseña por email (204 silencioso). */

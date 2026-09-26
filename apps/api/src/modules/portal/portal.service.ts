@@ -404,13 +404,29 @@ export class PortalService {
    * p. ej. entró por magic link). Activa `portalAccessEnabled` para habilitar el
    * login por contraseña.
    */
-  async setMyPassword(tenantId: string, customerId: string, password: string): Promise<void> {
+  /**
+   * El inquilino fija o cambia su contraseña con la sesión iniciada. Cierra
+   * TODAS sus demás sesiones del portal (incrementa `portalSessionVersion`: si
+   * cambia la clave porque sospecha que alguien entró, ese alguien sale) y
+   * devuelve una sesión nueva para que el dispositivo actual siga dentro.
+   */
+  async setMyPassword(
+    tenantId: string,
+    customerId: string,
+    password: string,
+  ): Promise<PortalSessionDto> {
     await this.requireCustomer(tenantId, customerId);
     const portalPasswordHash = await argonHash(password);
-    await this.admin.customer.update({
+    const updated = await this.admin.customer.update({
       where: { id: customerId },
-      data: { portalPasswordHash, portalAccessEnabled: true },
+      data: {
+        portalPasswordHash,
+        portalAccessEnabled: true,
+        portalSessionVersion: { increment: 1 },
+      },
     });
+    const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    return this.buildSession(updated, tenant);
   }
 
   /**

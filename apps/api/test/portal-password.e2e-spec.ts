@@ -59,15 +59,22 @@ describe('Portal — login por contraseña (e2e)', () => {
     const profile = await request(app.getHttpServer()).get('/portal/me/profile').set(pAuth);
     expect(profile.body.hasPortalPassword).toBe(false);
 
-    // Fija la contraseña (mín. 8 caracteres).
-    await request(app.getHttpServer())
+    // Fija la contraseña (mín. 8 caracteres). Devuelve una sesión NUEVA: el
+    // cambio cierra todas las demás sesiones del portal, incluida la anterior
+    // de este mismo dispositivo.
+    const setPwd = await request(app.getHttpServer())
       .post('/portal/me/password')
       .set(pAuth)
       .send({ password: 'Secreto123' })
-      .expect(204);
+      .expect(200);
+    expect(setPwd.body.accessToken).toBeTruthy();
+    const renewed = { Authorization: `Bearer ${setPwd.body.accessToken as string}` };
 
-    // El perfil ya la refleja.
-    const after = await request(app.getHttpServer()).get('/portal/me/profile').set(pAuth);
+    // El token anterior ya no vale; el nuevo sí, y el perfil refleja la clave.
+    const oldToken = await request(app.getHttpServer()).get('/portal/me/profile').set(pAuth);
+    expect(oldToken.status).toBe(401);
+    expect(oldToken.body.code).toBe('portal_session_revoked');
+    const after = await request(app.getHttpServer()).get('/portal/me/profile').set(renewed);
     expect(after.body.hasPortalPassword).toBe(true);
 
     // Ahora entra con email + contraseña → sesión válida.
@@ -100,6 +107,37 @@ describe('Portal — login por contraseña (e2e)', () => {
       .send({ tenantSlug: 'tenant-que-no-existe-nunca', email, password: 'Secreto123' });
     expect(noTenant.status).toBe(401);
     expect(noTenant.body.code).toBe('portal_login_failed');
+  });
+
+  it('cambiar la contraseña con la sesión iniciada cierra la sesión de los demás dispositivos', async () => {
+    const owner = await registerVerifiedUser(app, 'portal-pwd-rv');
+    const email = `pwd-rv-${Date.now()}@e2e.local`;
+    await createCustomer(app, owner.accessToken, { email });
+
+    // Dos dispositivos con sesión (móvil y ordenador).
+    const phone = await magicLogin(owner.slug, email);
+    await deleteAllMessages();
+    const laptop = await magicLogin(owner.slug, email);
+
+    // Desde el móvil cambia la contraseña.
+    const change = await request(app.getHttpServer())
+      .post('/portal/me/password')
+      .set({ Authorization: `Bearer ${phone}` })
+      .send({ password: 'NuevaClave123' })
+      .expect(200);
+
+    // El ordenador queda fuera…
+    const laptopAfter = await request(app.getHttpServer())
+      .get('/portal/me/profile')
+      .set({ Authorization: `Bearer ${laptop}` });
+    expect(laptopAfter.status).toBe(401);
+    expect(laptopAfter.body.code).toBe('portal_session_revoked');
+
+    // …y el móvil sigue dentro con la sesión nueva.
+    const phoneAfter = await request(app.getHttpServer())
+      .get('/portal/me/profile')
+      .set({ Authorization: `Bearer ${change.body.accessToken as string}` });
+    expect(phoneAfter.status).toBe(200);
   });
 
   it('set-password exige sesión de portal; contraseña corta → 400', async () => {

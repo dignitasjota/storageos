@@ -297,7 +297,7 @@
           "saveButton": "Save password",
           "tooShort": "The password must be at least 8 characters.",
           "mismatch": "The passwords don't match.",
-          "saved": "Password saved. You can now sign in with email and password.",
+          "saved": "Password saved. We signed you out on your other devices; you can now sign in with email and password.",
           "saveError": "Couldn't save the password."
         }
       },
