@@ -91,7 +91,7 @@ Empresas clientes del SaaS.
 
 Staff interno del tenant.
 
-- `id`, `tenant_id`, `email` (único por tenant), `password_hash` (argon2id), `full_name`, `phone`, `role` (owner/manager/staff/readonly), `email_verified_at`, `two_factor_secret` (cifrado AES-256-GCM, ver ADR-015), `two_factor_pending_secret` (cifrado; setado durante el flujo de enrolment, se mueve a `two_factor_secret` al verificar), `two_factor_enabled`, `two_factor_enrolled_at`, `last_login_at`, `is_active`.
+- `id`, `tenant_id`, `email` (único por tenant), `password_hash` (argon2id), `full_name`, `phone`, `role` (owner/manager/staff/readonly), `email_verified_at`, `two_factor_secret` (cifrado AES-256-GCM, ver ADR-015), `two_factor_pending_secret` (cifrado; setado durante el flujo de enrolment, se mueve a `two_factor_secret` al verificar), `two_factor_enabled`, `two_factor_enrolled_at`, `two_factor_last_step` (BIGINT nullable: último paso TOTP de 30 s aceptado en un login → anti-replay, 2026-09), `last_login_at`, `is_active`.
 
 **Invariantes** (Fase 1E):
 
@@ -506,7 +506,7 @@ Toda emisión de factura genera un `audit_log` con el hash y el `aeat_status` fi
 Tabla global sin `tenant_id`. RLS deshabilitada (acceso solo via `PrismaAdminService`).
 
 - `id`, `email` (UNIQUE), `password_hash` (argon2id), `name`, `role` (`superadmin` | `support`), `is_active`, `created_at`, `last_login_at`.
-- **Fase 9A** añade: `two_factor_secret` (cifrado AES-256-GCM, nullable), `two_factor_pending_secret`, `two_factor_enabled` (boolean), `two_factor_enrolled_at`.
+- **Fase 9A** añade: `two_factor_secret` (cifrado AES-256-GCM, nullable), `two_factor_pending_secret`, `two_factor_enabled` (boolean), `two_factor_enrolled_at`. **2026-09 (#526):** `two_factor_last_step` (anti-replay TOTP, igual que en `users`).
 
 ### `super_admin_sessions` (Fase 9A)
 
@@ -607,6 +607,29 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
   del impago).
 - Endpoints admin-only (`AdminGuard`); mandato con endpoints self-service del
   tenant en `/settings/saas-billing/sepa-mandate`.
+
+## 14.9. Seguridad — columnas y permisos (auditoría 4, 2026-09-25)
+
+- `customers.portal_session_version` (INT, default 0, #521): versión de sesión
+  del portal del inquilino; viaja en el JWT del portal como `sv` y se compara en
+  cada request. Se incrementa al restablecer o desactivar la contraseña del
+  portal y con «Cerrar sesiones del portal» (staff) → invalida todas las
+  sesiones vivas.
+- `customer_messages.sender_verified` (BOOLEAN, default true, #523): `false`
+  solo en emails entrantes sin DMARC `pass` (el `From` podría estar
+  falsificado); el chat del staff lo marca «remitente no verificado».
+  `customer_messages` es el hilo inquilino↔staff (un hilo por cliente; `channel`
+  portal/whatsapp/email, `sender_type` customer/staff).
+- `users.two_factor_last_step` / `super_admins.two_factor_last_step` (BIGINT
+  nullable, #526): anti-replay TOTP.
+- **Permisos del rol `storageos_app`** (#527): sin acceso (`REVOKE ALL`) a las
+  26 tablas globales de plataforma sin RLS (`super_admins*`, `security_events`,
+  `impersonation_logs`, `platform_*`, `processed_*_events`, `cron_runs`,
+  `mrr_snapshots`, `tenant_followups`, `tenant_lifecycle_emails`). Se conservan
+  `subscription_plans` y `subscription_addons` (los leen consultas del tenant).
+  ⚠️ Los default privileges conceden CRUD a `storageos_app` en cada tabla nueva:
+  **una tabla global nueva debe incluir su propio `REVOKE` (o RLS) en la
+  migración.**
 
 ## 15. Pendiente / post-MVP
 
