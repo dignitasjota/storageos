@@ -336,6 +336,21 @@
         "acceptTerms": "I have read and accept the storage unit rental terms and the data processing policy.",
         "confirmButton": "Sign and continue to payment"
       },
+      "waitlist": {
+        "title": "Waiting list",
+        "description": "Is the size you need sold out? Join the list and we'll email you as soon as one becomes available at your facility.",
+        "myEntries": "You're on the waiting list for",
+        "soldOut": "Sold-out sizes at your facilities",
+        "pricePerMonth": "{price}/month (VAT incl.)",
+        "join": "Notify me",
+        "alreadyJoined": "Already joined",
+        "leave": "Leave",
+        "statusWaiting": "Waiting",
+        "statusNotified": "One is available!",
+        "joined": "We'll email you as soon as one becomes available.",
+        "left": "You've left the waiting list.",
+        "error": "The action could not be completed."
+      },
       "aiChat": {
         "title": "Assistant",
         "emptyHint": "Ask me about your unit, your invoices or how the service works. If I can't solve it, I'll tell you how to contact your manager.",

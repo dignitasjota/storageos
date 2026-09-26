@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -15,6 +16,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import {
+  PortalJoinWaitlistSchema,
+  type PortalWaitlistDto,
   type GoCardlessMandateStartDto,
   type PortalAccessCredentialDto,
   type PortalAccessLogDto,
@@ -92,6 +95,7 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { RetentionService } from '../retention/retention.service';
 import { UnitChangesService } from '../unit-changes/unit-changes.service';
 import { UnitRequestsService } from '../unit-requests/unit-requests.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 import { NightPassService } from './night-pass.service';
 import { PortalService } from './portal.service';
@@ -99,6 +103,7 @@ import { PortalService } from './portal.service';
 import type { Request } from 'express';
 
 class PortalRequestMagicLinkDto extends createZodDto(PortalRequestMagicLinkSchema) {}
+class PortalJoinWaitlistDto extends createZodDto(PortalJoinWaitlistSchema) {}
 class PortalConsumeMagicLinkDto extends createZodDto(PortalConsumeMagicLinkSchema) {}
 class PortalLoginPasswordDto extends createZodDto(PortalLoginPasswordSchema) {}
 class PortalSetPasswordDto extends createZodDto(PortalSetPasswordSchema) {}
@@ -138,6 +143,7 @@ export class PortalController {
     private readonly push: PushService,
     private readonly unitChanges: UnitChangesService,
     private readonly unitRequests: UnitRequestsService,
+    private readonly waitlist: WaitlistService,
     private readonly signatures: SignaturesService,
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
@@ -670,6 +676,38 @@ export class PortalController {
   ): Promise<PortalUnitRequestDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.unitRequests.createFromPortal({ tenantId, customerId, input });
+  }
+
+  /** Lista de espera: tipos agotados de sus locales + sus altas vigentes. */
+  @Public()
+  @Get('me/waitlist')
+  async myWaitlist(@Headers('authorization') auth: string | undefined): Promise<PortalWaitlistDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.waitlist.portalView(tenantId, customerId);
+  }
+
+  /** El inquilino se apunta a la cola de un (local, tipo) agotado de sus locales. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/waitlist')
+  async joinWaitlist(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalJoinWaitlistDto,
+  ): Promise<PortalWaitlistDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.waitlist.joinFromPortal(tenantId, customerId, input);
+  }
+
+  /** El inquilino sale de la cola. */
+  @Public()
+  @ThrottleLogin()
+  @Delete('me/waitlist/:id')
+  async leaveWaitlist(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalWaitlistDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.waitlist.cancelFromPortal(tenantId, customerId, id);
   }
 
   /** Self-service: contrata un trastero disponible (crea contrato + 1ª factura). */

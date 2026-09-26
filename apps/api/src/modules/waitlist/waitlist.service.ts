@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
@@ -12,6 +12,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, WaitlistEntry } from '@storageos/database';
 import type {
+  PortalJoinWaitlistInput,
+  PortalWaitlistDto,
   CreateWaitlistEntryInput,
   PublicJoinWaitlistInput,
   PublicWaitlistOptionsDto,
@@ -164,6 +166,184 @@ export class WaitlistService {
       }
     }
     return { joined: true };
+  }
+
+  // --- Portal del inquilino ---------------------------------------------------
+
+  /**
+   * Vista del portal: tipos sin stock (`available` = 0) en los locales donde el
+   * inquilino tiene un contrato vivo + sus altas vigentes (waiting/notified).
+   * Solo sus locales: la cola es para ampliar/cambiar donde ya es cliente.
+   */
+  async portalView(tenantId: string, customerId: string): Promise<PortalWaitlistDto> {
+    const contracts = await this.admin.contract.findMany({
+      where: { tenantId, customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
+      select: { unit: { select: { facilityId: true } } },
+    });
+    const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
+    const [facilities, unitTypes, grouped, entries] = await Promise.all([
+      this.admin.facility.findMany({
+        where: { tenantId, id: { in: facilityIds }, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.unitType.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, name: true, defaultPriceMonthly: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { tenantId, facilityId: { in: facilityIds } },
+        _count: { _all: true },
+      }),
+      this.admin.waitlistEntry.findMany({
+        where: { tenantId, customerId, status: { in: ['waiting', 'notified'] } },
+        include: INCLUDE,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const available = await this.admin.unit.groupBy({
+      by: ['facilityId', 'unitTypeId'],
+      where: { tenantId, facilityId: { in: facilityIds }, status: 'available' },
+      _count: { _all: true },
+    });
+    const availSet = new Set(available.map((a) => `${a.facilityId}:${a.unitTypeId}`));
+    // Solo tipos que EXISTEN en ese local (tiene trasteros de ese tipo) y que
+    // ahora mismo están agotados.
+    const existsSet = new Set(grouped.map((g) => `${g.facilityId}:${g.unitTypeId}`));
+    return {
+      options: facilities
+        .map((f) => ({
+          facilityId: f.id,
+          facilityName: f.name,
+          unitTypes: unitTypes
+            .filter((t) => existsSet.has(`${f.id}:${t.id}`) && !availSet.has(`${f.id}:${t.id}`))
+            .map((t) => ({ id: t.id, name: t.name, priceMonthly: Number(t.defaultPriceMonthly) })),
+        }))
+        .filter((f) => f.unitTypes.length > 0),
+      entries: entries.map((e) => ({
+        id: e.id,
+        facilityId: e.facilityId,
+        facilityName: e.facility.name,
+        unitTypeId: e.unitTypeId,
+        unitTypeName: e.unitType.name,
+        status: e.status as 'waiting' | 'notified',
+        createdAt: e.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * El inquilino se apunta a la cola de un (local, tipo) de uno de SUS locales.
+   * Idempotente: si ya tiene un alta vigente para ese par, no se duplica.
+   */
+  async joinFromPortal(
+    tenantId: string,
+    customerId: string,
+    input: PortalJoinWaitlistInput,
+  ): Promise<PortalWaitlistDto> {
+    const [customer, contractHere, unitType] = await Promise.all([
+      this.admin.customer.findFirst({
+        where: { id: customerId, tenantId, deletedAt: null },
+        select: {
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          customerType: true,
+          email: true,
+          phone: true,
+        },
+      }),
+      this.admin.contract.count({
+        where: {
+          tenantId,
+          customerId,
+          deletedAt: null,
+          status: { in: ['active', 'ending'] },
+          unit: { facilityId: input.facilityId },
+        },
+      }),
+      this.admin.unitType.findFirst({
+        where: { id: input.unitTypeId, tenantId },
+        select: { id: true },
+      }),
+    ]);
+    if (!customer) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'No encontrado' });
+    }
+    if (contractHere === 0 || !unitType) {
+      throw new NotFoundException({ code: 'not_found', message: 'Local o tipo no encontrado' });
+    }
+    if (!customer.email) {
+      throw new BadRequestException({
+        code: 'email_required',
+        message: 'Añade un email en «Mis datos» para que podamos avisarte',
+      });
+    }
+    const name =
+      customer.customerType === 'business'
+        ? (customer.companyName ?? 'Empresa')
+        : [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
+
+    const created = await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.waitlistEntry.findFirst({
+        where: {
+          customerId,
+          facilityId: input.facilityId,
+          unitTypeId: input.unitTypeId,
+          status: { in: ['waiting', 'notified'] },
+        },
+      });
+      if (existing) return null;
+      return tx.waitlistEntry.create({
+        data: {
+          tenantId,
+          facilityId: input.facilityId,
+          unitTypeId: input.unitTypeId,
+          customerId,
+          contactName: name,
+          contactEmail: customer.email!,
+          ...(customer.phone ? { contactPhone: customer.phone } : {}),
+          notes: 'Alta desde el portal del inquilino',
+        },
+        include: INCLUDE,
+      });
+    }, tenantId);
+
+    if (created) {
+      try {
+        await this.notifications.create(tenantId, {
+          type: 'waitlist.joined',
+          title: 'Nueva alta en la lista de espera',
+          body: `${name} (inquilino) se ha apuntado a ${created.unitType.name} en ${created.facility.name} desde el portal.`,
+          link: '/waitlist',
+        });
+      } catch (err) {
+        this.logger.warn(`[waitlist] aviso al staff falló: ${(err as Error).message}`);
+      }
+    }
+    return this.portalView(tenantId, customerId);
+  }
+
+  /** El inquilino sale de la cola (solo sus propias altas). */
+  async cancelFromPortal(
+    tenantId: string,
+    customerId: string,
+    entryId: string,
+  ): Promise<PortalWaitlistDto> {
+    const res = await this.prisma.withTenant(
+      (tx) =>
+        tx.waitlistEntry.updateMany({
+          where: { id: entryId, customerId, status: { in: ['waiting', 'notified'] } },
+          data: { status: 'cancelled' },
+        }),
+      tenantId,
+    );
+    if (res.count === 0) {
+      throw new NotFoundException({ code: 'waitlist_entry_not_found', message: 'No encontrado' });
+    }
+    return this.portalView(tenantId, customerId);
   }
 
   async list(

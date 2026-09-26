@@ -62,6 +62,7 @@ import { OverviewCard } from './overview-card';
 import { ProfileCard } from './profile-card';
 import { RetentionOfferCard } from './retention-offer-card';
 import { ShopCard } from './shop-card';
+import { WaitlistCard } from './waitlist-card';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
@@ -1124,6 +1125,7 @@ function PortalConsumeContent() {
                 setTab('facturas');
               }}
             />
+            <WaitlistCard session={session} />
           </TabsContent>
 
           <TabsContent value="facturas" className="space-y-6">
