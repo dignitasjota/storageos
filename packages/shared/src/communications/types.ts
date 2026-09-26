@@ -91,6 +91,13 @@ export interface CommunicationDto {
   customerId: string | null;
   customerName: string | null;
   leadId: string | null;
+  /** Recurso que originó el envío (para enlazarlo desde el historial). */
+  contractId: string | null;
+  contractNumber: string | null;
+  unitId: string | null;
+  unitCode: string | null;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
   recipient: string;
   subject: string | null;
   bodyText: string;

@@ -87,6 +87,10 @@ export class AccessIntegrationsService {
         tenant: args.scope.tenant ?? {},
       },
       customerId: args.customerId,
+      // El PIN se emite al firmar (entityId = contrato) o al pagar la 1ª factura
+      // (entityId = factura): se enlaza el recurso que lo originó.
+      ...(args.source === 'contract_signed' ? { contractId: args.entityId } : {}),
+      ...(args.source === 'invoice_paid' ? { invoiceId: args.entityId } : {}),
       source: `access.${args.source}`,
     });
     this.logger.log(

@@ -3,6 +3,7 @@
 import { type CommunicationDto, type CommunicationStatusValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { DataTable } from '@/components/data-table';
@@ -43,8 +44,50 @@ export default function CommunicationsPage() {
       cell: ({ row }) => new Date(row.original.createdAt).toLocaleString('es-ES'),
     },
     { accessorKey: 'channel', header: 'Canal' },
-    { accessorKey: 'recipient', header: 'Destinatario' },
+    {
+      accessorKey: 'recipient',
+      header: 'Destinatario',
+      cell: ({ row }) => {
+        const c = row.original;
+        if (!c.customerId) return c.recipient;
+        return (
+          <Link href={`/customers/${c.customerId}`} className="hover:underline">
+            {c.customerName ?? c.recipient}
+            {c.customerName ? (
+              <span className="block text-xs text-muted-foreground">{c.recipient}</span>
+            ) : null}
+          </Link>
+        );
+      },
+    },
     { accessorKey: 'subject', header: 'Asunto', cell: ({ row }) => row.original.subject ?? '—' },
+    {
+      id: 'related',
+      header: 'Relacionado',
+      cell: ({ row }) => {
+        const c = row.original;
+        const links: { href: string; label: string }[] = [];
+        if (c.contractId) {
+          links.push({ href: `/contracts/${c.contractId}`, label: c.contractNumber ?? 'Contrato' });
+        }
+        if (c.unitId) {
+          links.push({ href: `/units/${c.unitId}`, label: c.unitCode ?? 'Trastero' });
+        }
+        if (c.invoiceId) {
+          links.push({ href: `/invoices/${c.invoiceId}`, label: c.invoiceNumber ?? 'Factura' });
+        }
+        if (links.length === 0) return <span className="text-muted-foreground">—</span>;
+        return (
+          <div className="flex flex-col gap-0.5 text-xs">
+            {links.map((l) => (
+              <Link key={l.href} href={l.href} className="hover:underline">
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        );
+      },
+    },
     {
       accessorKey: 'source',
       header: 'Origen',

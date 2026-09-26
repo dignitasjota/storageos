@@ -285,6 +285,7 @@ export class RentIncreasesService {
             `pasará de ${a.oldPrice.toFixed(2)} € a ${a.newPrice.toFixed(2)} €.\n\n` +
             `Si tienes cualquier duda, responde a este correo.\n\nGracias por confiar en ${tenantName}.`,
           source: `rent_increase:${created.id}`,
+          contractId: a.contractId,
         });
         noticeSent = true;
       } catch (err) {

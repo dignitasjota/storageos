@@ -868,12 +868,12 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 
 ### Endpoints — Communications
 
-| Metodo | Ruta                        | Auth | Roles                 | Descripcion                                             |
-| ------ | --------------------------- | ---- | --------------------- | ------------------------------------------------------- |
-| GET    | `/communications`           | SI   | cualquiera            | Filtros `?status=&channel=&customerId=&leadId=&source=` |
-| GET    | `/communications/:id`       | SI   | cualquiera            | Detalle                                                 |
-| POST   | `/communications`           | SI   | owner, manager, staff | Envio manual (resuelve template + outbox + queue)       |
-| POST   | `/communications/:id/retry` | SI   | owner, manager        | Reintenta una en estado `failed`/`bounced`              |
+| Metodo | Ruta                        | Auth | Roles                 | Descripcion                                                                                                                                                                                |
+| ------ | --------------------------- | ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/communications`           | SI   | cualquiera            | Filtros `?status=&channel=&customerId=&leadId=&contractId=&invoiceId=&source=` (ids UUID, si no 400 `invalid_id`); cada fila trae `contractNumber`/`unitCode`/`invoiceNumber` para enlazar |
+| GET    | `/communications/:id`       | SI   | cualquiera            | Detalle                                                                                                                                                                                    |
+| POST   | `/communications`           | SI   | owner, manager, staff | Envio manual (resuelve template + outbox + queue)                                                                                                                                          |
+| POST   | `/communications/:id/retry` | SI   | owner, manager        | Reintenta una en estado `failed`/`bounced`                                                                                                                                                 |
 
 ### Endpoints — Message templates
 
