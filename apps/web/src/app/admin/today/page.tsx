@@ -55,6 +55,7 @@ export default function AdminTodayPage() {
     data.followupsDue.length === 0 &&
     data.staleSuspendedAddons.length === 0 &&
     data.openTickets.length === 0 &&
+    data.failedWebhooks.length === 0 &&
     data.failedJobs === 0;
 
   return (
@@ -124,6 +125,35 @@ export default function AdminTodayPage() {
               </div>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {t.waitingDays === 0 ? 'hoy' : `${t.waitingDays} d`}
+              </span>
+            </div>
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Webhooks salientes fallidos por tenant (integraciones rotas) */}
+      {data && data.failedWebhooks.length > 0 && (
+        <SimpleCard
+          title={`Webhooks fallidos · 7 días (${data.failedWebhooks.length})`}
+          icon={<AlertTriangle className="size-4 text-amber-500" />}
+        >
+          {data.failedWebhooks.map((w) => (
+            <div
+              key={w.tenantId}
+              className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+            >
+              <div className="min-w-0">
+                <Link href={`/admin/tenants/${w.tenantId}`} className="font-medium hover:underline">
+                  {w.tenantName}
+                </Link>
+                {w.lastError && (
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {w.lastError}
+                  </span>
+                )}
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {w.failedCount} fallo(s) · {new Date(w.lastFailedAt).toLocaleDateString('es-ES')}
               </span>
             </div>
           ))}

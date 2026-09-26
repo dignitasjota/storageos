@@ -157,6 +157,53 @@ describe('Admin «Hoy» (e2e)', () => {
     expect(stillThere).toBeUndefined();
   });
 
+  it('lista los tenants con entregas de webhook fallidas en los últimos 7 días', async () => {
+    const owner = await registerVerifiedUser(app, 'today-webhooks');
+    const auth = { Authorization: `Bearer ${adminToken}` };
+    const tenant = await admin.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id;
+
+    const webhook = await admin.webhook.create({
+      data: {
+        tenantId,
+        name: 'ERP',
+        url: 'https://example.com/hook',
+        secret: 'enc',
+        events: ['invoice.paid'],
+      },
+    });
+    const base = {
+      tenantId,
+      webhookId: webhook.id,
+      eventType: 'invoice.paid',
+      payload: {},
+      signature: 'x',
+      scheduledFor: new Date(),
+    };
+    await admin.webhookDelivery.createMany({
+      data: [
+        { ...base, status: 'failed', statusCode: 500, attempts: 3 },
+        { ...base, status: 'failed', errorMessage: 'timeout', attempts: 3 },
+        { ...base, status: 'delivered', statusCode: 200, attempts: 1 },
+        // Fallida pero antigua (>7 días) → no cuenta.
+        {
+          ...base,
+          status: 'failed',
+          attempts: 3,
+          createdAt: new Date(Date.now() - 10 * 24 * 3600 * 1000),
+        },
+      ],
+    });
+
+    const today = await request(app.getHttpServer()).get('/admin/today').set(auth);
+    expect(today.status).toBe(200);
+    const row = today.body.failedWebhooks.find(
+      (w: { tenantId: string }) => w.tenantId === tenantId,
+    );
+    expect(row).toMatchObject({ tenantName: tenant!.name, failedCount: 2 });
+    expect(typeof row.lastFailedAt).toBe('string');
+  });
+
   it('sin token → 401', async () => {
     await request(app.getHttpServer()).get('/admin/today').expect(401);
   });

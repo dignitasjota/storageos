@@ -1164,17 +1164,19 @@ Ver tambien la subseccion **Fase 9A** mas abajo para 2FA, refresh cookie y recov
 
 ### Endpoints — Support tickets
 
-| Metodo | Ruta                                    | Auth        | Descripcion                               |
-| ------ | --------------------------------------- | ----------- | ----------------------------------------- |
-| GET    | `/support/tickets`                      | SI (tenant) | Lista del tenant                          |
-| POST   | `/support/tickets`                      | SI (tenant) | Abre ticket                               |
-| GET    | `/support/tickets/:id`                  | SI (tenant) | Detalle + mensajes (sin internal)         |
-| POST   | `/support/tickets/:id/messages`         | SI (tenant) | Anade respuesta                           |
-| GET    | `/admin/support/tickets`                | AdminGuard  | Lista global con filtros                  |
-| GET    | `/admin/support/tickets/:id`            | AdminGuard  | Detalle + mensajes (incluye internal)     |
-| POST   | `/admin/support/tickets/:id/messages`   | AdminGuard  | Anade mensaje, flag `isInternal` opcional |
-| POST   | `/admin/support/tickets/:id/transition` | AdminGuard  | State machine                             |
-| POST   | `/admin/support/tickets/:id/assign`     | AdminGuard  | Asigna a super admin                      |
+| Metodo | Ruta                                    | Auth        | Descripcion                                                                                                                                      |
+| ------ | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/support/tickets`                      | SI (tenant) | Lista del tenant                                                                                                                                 |
+| POST   | `/support/tickets`                      | SI (tenant) | Abre ticket                                                                                                                                      |
+| GET    | `/support/tickets/:id`                  | SI (tenant) | Detalle + mensajes (sin internal)                                                                                                                |
+| POST   | `/support/tickets/:id/messages`         | SI (tenant) | Anade respuesta                                                                                                                                  |
+| GET    | `/admin/support/tickets`                | AdminGuard  | Lista global paginada por cursor `{items, nextCursor}`; filtros `?status=&priority=&tenantId=&search=&assignedAdminId=&cursor=&limit=` (máx 100) |
+| GET    | `/admin/support/tickets/:id`            | AdminGuard  | Detalle + mensajes (incluye internal)                                                                                                            |
+| POST   | `/admin/support/tickets/:id/messages`   | AdminGuard  | Anade mensaje, flag `isInternal` opcional                                                                                                        |
+| POST   | `/admin/support/tickets/:id/transition` | AdminGuard  | State machine                                                                                                                                    |
+| POST   | `/admin/support/tickets/:id/assign`     | AdminGuard  | Asigna a super admin                                                                                                                             |
+
+> **2026-09-26** — `GET /admin/today` añade `failedWebhooks` (tenants con entregas de webhook `failed` en los últimos 7 días, con nº de fallos y último error). Las agregaciones pesadas del admin (`/admin/metrics`, `/admin/metrics/retention`, `/admin/metrics/ltv`, `/admin/tenants/health`, `/admin/tenants/adoption`) se cachean 60 s en memoria por proceso.
 
 ### Endpoints — SaaS billing (tenant paga el SaaS)
 

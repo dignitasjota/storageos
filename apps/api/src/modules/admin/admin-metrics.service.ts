@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -64,7 +65,24 @@ export class AdminMetricsService {
     private readonly addons: SaasAddonsService,
   ) {}
 
-  async getOverview(): Promise<AdminMetricsDto> {
+  /** Caché de 60 s de las agregaciones cross-tenant (el panel re-consulta a menudo). */
+  private readonly overviewCache = new TtlCache<AdminMetricsDto>();
+  private readonly retentionCache = new TtlCache<AdminRetentionDto>();
+  private readonly ltvCache = new TtlCache<AdminLtvDto>();
+
+  getOverview(): Promise<AdminMetricsDto> {
+    return this.overviewCache.get('overview', () => this.computeOverview());
+  }
+
+  getRetention(months: number): Promise<AdminRetentionDto> {
+    return this.retentionCache.get(String(months), () => this.computeRetention(months));
+  }
+
+  getLtv(months: number): Promise<AdminLtvDto> {
+    return this.ltvCache.get(String(months), () => this.computeLtv(months));
+  }
+
+  private async computeOverview(): Promise<AdminMetricsDto> {
     const now = new Date();
     const monthStart = startOfMonthUtc(now);
 
@@ -254,7 +272,7 @@ export class AdminMetricsService {
    * `cancelled`/`suspended`; la fecha de baja se aproxima por `updatedAt` (igual
    * criterio que el resto de métricas). M0 es 100% por construcción.
    */
-  async getRetention(months: number): Promise<AdminRetentionDto> {
+  private async computeRetention(months: number): Promise<AdminRetentionDto> {
     const span = Math.min(Math.max(months, 1), 24);
     const nowMonth = startOfMonthUtc(new Date());
     const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
@@ -383,7 +401,7 @@ export class AdminMetricsService {
    * Cohortes de ingresos: por mes de alta (`createdAt`, últimos N meses), el
    * ingreso ACUMULADO (Σ pagos de esos tenants) y el nº de tenants de la cohorte.
    */
-  async getLtv(months: number): Promise<AdminLtvDto> {
+  private async computeLtv(months: number): Promise<AdminLtvDto> {
     const span = Math.min(Math.max(months, 1), 24);
     const nowMonth = startOfMonthUtc(new Date());
     const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
