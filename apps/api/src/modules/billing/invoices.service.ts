@@ -517,6 +517,7 @@ export class InvoicesService {
           amountRefunded: true,
           dueDate: true,
           customerId: true,
+          contractId: true,
           customer: {
             select: {
               email: true,
@@ -575,6 +576,8 @@ export class InvoicesService {
       tenantId,
       channel: 'email',
       recipient: customer.email,
+      invoiceId,
+      contractId: invoice.contractId,
       templateCode: 'invoice_overdue_email',
       trigger: 'invoice_overdue',
       variables: {

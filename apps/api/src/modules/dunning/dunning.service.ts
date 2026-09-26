@@ -224,6 +224,7 @@ export class DunningService {
       select: {
         status: true,
         customerId: true,
+        contractId: true,
         invoiceNumber: true,
         total: true,
         amountPaid: true,
@@ -335,6 +336,7 @@ export class DunningService {
       amountRefunded: Prisma.Decimal;
       dueDate: Date | null;
       customerId: string | null;
+      contractId: string | null;
       customer: {
         email: string | null;
         firstName: string | null;
@@ -366,6 +368,8 @@ export class DunningService {
       tenantId,
       channel: 'email',
       recipient: customer.email,
+      invoiceId,
+      contractId: invoice.contractId,
       templateCode: 'invoice_overdue_email',
       trigger: 'invoice_overdue',
       variables: {

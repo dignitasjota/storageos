@@ -253,6 +253,8 @@ export class AutomationsService {
         variables: job.scope,
         ...(job.customerId ? { customerId: job.customerId } : {}),
         ...(job.leadId ? { leadId: job.leadId } : {}),
+        ...(job.entityType === 'contract' ? { contractId: job.entityId } : {}),
+        ...(job.entityType === 'invoice' ? { invoiceId: job.entityId } : {}),
         source: `automation:${rule.id}`,
         trigger: job.trigger,
       });

@@ -32,6 +32,8 @@ export interface ListFilters {
   status?: CommunicationStatusValue;
   customerId?: string;
   leadId?: string;
+  contractId?: string;
+  invoiceId?: string;
   source?: string;
 }
 
@@ -49,6 +51,9 @@ export interface SendArgs {
   variables?: Record<string, unknown>;
   customerId?: string;
   leadId?: string;
+  /** Recurso que originó el envío (se enlaza desde /communications). */
+  contractId?: string | null;
+  invoiceId?: string | null;
   /** Nombre legible para tracking (e.g. "dunning.email_reminder"). */
   source?: string;
   scheduledFor?: Date;
@@ -141,6 +146,8 @@ export class CommunicationsService {
       templateId,
       customerId: args.customerId ?? null,
       leadId: args.leadId ?? null,
+      contractId: args.contractId ?? null,
+      invoiceId: args.invoiceId ?? null,
       recipient: args.recipient,
       subject,
       bodyText,
@@ -253,12 +260,14 @@ export class CommunicationsService {
     if (filters.status) where.status = filters.status;
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.leadId) where.leadId = filters.leadId;
+    if (filters.contractId) where.contractId = filters.contractId;
+    if (filters.invoiceId) where.invoiceId = filters.invoiceId;
     if (filters.source) where.source = filters.source;
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.communication.findMany({
           where,
-          include: { template: { select: { name: true } }, customer: true },
+          include: LIST_INCLUDE,
           orderBy: { createdAt: 'desc' },
           take: 200,
         }),
@@ -269,6 +278,7 @@ export class CommunicationsService {
         ...r,
         templateName: r.template?.name ?? null,
         customerName: r.customer ? customerDisplay(r.customer) : null,
+        ...linkFields(r),
       }),
     );
   }
@@ -278,7 +288,7 @@ export class CommunicationsService {
       (tx) =>
         tx.communication.findFirst({
           where: { id },
-          include: { template: { select: { name: true } }, customer: true },
+          include: LIST_INCLUDE,
         }),
       tenantId,
     );
@@ -292,6 +302,7 @@ export class CommunicationsService {
       ...row,
       templateName: row.template?.name ?? null,
       customerName: row.customer ? customerDisplay(row.customer) : null,
+      ...linkFields(row),
     });
   }
 
@@ -439,6 +450,8 @@ export class CommunicationsService {
             templateId,
             customerId: args.customerId ?? null,
             leadId: args.leadId ?? null,
+            contractId: args.contractId ?? null,
+            invoiceId: args.invoiceId ?? null,
             recipient: args.recipient,
             subject,
             bodyText,
@@ -476,7 +489,14 @@ export class CommunicationsService {
   }
 
   private toDto(
-    c: Communication & { templateName?: string | null; customerName?: string | null },
+    c: Communication & {
+      templateName?: string | null;
+      customerName?: string | null;
+      contractNumber?: string | null;
+      unitId?: string | null;
+      unitCode?: string | null;
+      invoiceNumber?: string | null;
+    },
   ): CommunicationDto {
     return {
       id: c.id,
@@ -488,6 +508,12 @@ export class CommunicationsService {
       customerId: c.customerId,
       customerName: c.customerName ?? null,
       leadId: c.leadId,
+      contractId: c.contractId,
+      contractNumber: c.contractNumber ?? null,
+      unitId: c.unitId ?? null,
+      unitCode: c.unitCode ?? null,
+      invoiceId: c.invoiceId,
+      invoiceNumber: c.invoiceNumber ?? null,
       recipient: c.recipient,
       subject: c.subject,
       bodyText: c.bodyText,
@@ -505,6 +531,29 @@ export class CommunicationsService {
       createdAt: c.createdAt.toISOString(),
     };
   }
+}
+
+const LIST_INCLUDE = {
+  template: { select: { name: true } },
+  customer: true,
+  contract: { select: { contractNumber: true, unitId: true, unit: { select: { code: true } } } },
+  invoice: { select: { invoiceNumber: true, status: true } },
+} satisfies Prisma.CommunicationInclude;
+
+/** Campos de enlace (contrato/trastero/factura) para el DTO. */
+function linkFields(r: Prisma.CommunicationGetPayload<{ include: typeof LIST_INCLUDE }>): {
+  contractNumber: string | null;
+  unitId: string | null;
+  unitCode: string | null;
+  invoiceNumber: string | null;
+} {
+  return {
+    contractNumber: r.contract?.contractNumber ?? null,
+    unitId: r.contract?.unitId ?? null,
+    unitCode: r.contract?.unit.code ?? null,
+    // Un borrador lleva un número provisional `DRAFT-…`: no se muestra.
+    invoiceNumber: r.invoice && r.invoice.status !== 'draft' ? r.invoice.invoiceNumber : null,
+  };
 }
 
 function escapeHtml(s: string): string {
