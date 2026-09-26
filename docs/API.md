@@ -503,13 +503,14 @@ estandar de login (cookie `refresh_token` + `accessToken` + `user/tenant/subscri
 
 ### Codigos `code` (en respuestas 403/400)
 
-| `code`                   | Cuando                                              |
-| ------------------------ | --------------------------------------------------- |
-| `already_enabled`        | `setup`/`verify` con 2FA ya activo.                 |
-| `setup_required`         | `verify` sin haber llamado a `setup` antes.         |
-| `not_enabled`            | `disable`/`regenerate` con 2FA apagado.             |
-| `wrong_current_password` | `disable`/`regenerate` con password incorrecta.     |
-| `invalid_code`           | Codigo TOTP o recovery invalido en cualquier flujo. |
+| `code`                   | Cuando                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `already_enabled`        | `setup`/`verify` con 2FA ya activo.                                                                                      |
+| `setup_required`         | `verify` sin haber llamado a `setup` antes.                                                                              |
+| `not_enabled`            | `disable`/`regenerate` con 2FA apagado.                                                                                  |
+| `wrong_current_password` | `disable`/`regenerate` con password incorrecta.                                                                          |
+| `invalid_code`           | Codigo TOTP o recovery invalido en cualquier flujo. Tambien un TOTP **ya usado** en un login anterior (anti-replay).     |
+| `too_many_2fa_attempts`  | **429** en el challenge tras 5 fallos en 15 min del mismo usuario (tenant o super admin), aunque el codigo sea correcto. |
 
 ### Recovery codes
 
@@ -1828,6 +1829,26 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - El slug se edita con el `PATCH /facilities/:id` existente (`publicSlug`). `FacilityDto.images = { key, url }[]`; la landing pública las muestra.
 
 ---
+
+## Seguridad — cambios de contrato de la auditoría 4 (2026-09-25)
+
+Detalle y motivación en `docs/AUDITORIA.md` y `docs/ARCHITECTURE.md`
+(«Seguridad: primitivas y reglas del código»).
+
+| Endpoint / área                                                                                                           | Cambio                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /customers/:id/portal-link/revoke-sessions`                                                                         | **Nuevo** (`customers:write`, 204, auditado `portal.sessions_revoked`): cierra todas las sesiones vivas del portal del inquilino.                                                                                                                                               |
+| `/portal/me/*`                                                                                                            | 401 **`portal_session_revoked`** si la sesión fue revocada (revocación por el staff, reset o desactivación de la contraseña del portal).                                                                                                                                        |
+| `POST /auth/password/forgot`, `POST /auth/resend-verification`, `POST /portal/login/request`, `POST /portal/login/forgot` | Responden **204 inmediatamente** y generan el token / envían el email en segundo plano (misma latencia exista o no la cuenta).                                                                                                                                                  |
+| `POST /admin/auth/login`                                                                                                  | Cuenta desactivada + contraseña incorrecta → **401** (antes 403 `account_disabled` sin comprobar la contraseña).                                                                                                                                                                |
+| `POST /auth/2fa/challenge`, `POST /admin/auth/2fa/challenge`                                                              | Tope por usuario (429 `too_many_2fa_attempts`) + anti-replay TOTP.                                                                                                                                                                                                              |
+| `POST/PATCH /settings/webhooks`                                                                                           | 400 **`webhook_url_not_allowed`** (`details.reason`) si la URL apunta a infraestructura interna (IP privada, nombre sin dominio, `.local`, credenciales en la URL). En el envío, un destino no permitido marca el delivery `failed` sin reintentos. No se siguen redirecciones. |
+| `POST /webhooks/email-inbound`                                                                                            | Nuevos campos opcionales `dmarc`, `dkim`, `spf`, `authenticationResults`. Sin DMARC `pass`, el mensaje se guarda con `senderVerified: false` (`CustomerMessageDto.senderVerified`).                                                                                             |
+| Endpoints «register» de ficheros subidos                                                                                  | 400 **`file_too_large`** (> 20 MB); el objeto rechazado (tamaño o contenido) se borra.                                                                                                                                                                                          |
+| `POST /access/credentials`, `POST /access/credentials/:id/rotate`                                                         | El PIN manual pasa a **6–8 dígitos** (antes 4–8). Los PIN existentes siguen verificando.                                                                                                                                                                                        |
+| `POST /portal/me/doors/:deviceId/open`                                                                                    | Ya **no** se bloquea por el lockout del teclado (anti-fuerza-bruta) del dispositivo.                                                                                                                                                                                            |
+| Notificaciones                                                                                                            | Nuevo tipo `access.device_locked` al saltar el bloqueo del teclado.                                                                                                                                                                                                             |
+| Rate limiting                                                                                                             | La IP es la real del cliente (`TRUST_PROXY_HOPS`, default 1): los límites vuelven a ser por cliente.                                                                                                                                                                            |
 
 ## Pendiente / Backlog post-MVP
 

@@ -93,6 +93,8 @@ Cada refresh **rota** la sesión actual (la marca `revokedReason: rotated`) y cr
 
 **Por qué:** detectar robo del refresh sin necesidad de fingerprinting frágil. Los pasos viven en `SessionsService.rotate` en transacciones separadas para evitar perder la revocación si el flujo posterior lanza (ver comentarios del código).
 
+**Margen de gracia (2026-09, #518):** la política paranoid expulsaba a usuarios legítimos de todos sus dispositivos en carreras normales del navegador (una recarga que aborta un `/auth/refresh` en vuelo deja el `Set-Cookie` sin guardar y la página siguiente reenvía el token ya rotado; varias pestañas arrancando a la vez). Ahora un token **rotado hace ≤ 30 s** (`REFRESH_REUSE_GRACE_MS`) y presentado **desde el mismo user-agent** emite una sesión hermana (mismo `rotatedFromId`, tope 3 → al agotarlo, 401 sin revoke-all). Revocado por logout, rotado hace más o desde otro navegador → revoke-all como antes. En el frontend, `AuthBootstrap` comparte la promesa deduplicada de `performRefresh`. Mismo patrón que el _reuse interval_ de Auth0 / _grace period_ de Okta; contrapartida asumida: un refresh robado y usado en esos 30 s con el mismo user-agent no dispara la alarma.
+
 ## ADR-015: Cifrado simétrico de secrets en BD (AES-256-GCM)
 
 **Decisión:** los secretos persistidos (de momento solo TOTP) se cifran con AES-256-GCM usando `MASTER_ENCRYPTION_KEY` (32 bytes base64). `CryptoService` produce un envelope `<iv>.<authTag>.<ciphertext>` en base64url.
@@ -214,6 +216,48 @@ En tiempo de envío, el `RealAeatClient` descifra, extrae el cert PEM + clave pr
 - **Secretos:** nunca en repo, gestionados como variables de entorno y montados como Docker secrets en prod.
 - **Backups:** cifrados con gpg antes de subir a almacenamiento externo.
 
+## Seguridad: primitivas y reglas del código (auditoría 4, 2026-09)
+
+Piezas reutilizables introducidas en la cuarta auditoría (detalle y PRs en
+`docs/AUDITORIA.md`). **Usarlas en código nuevo en vez de reimplementarlas.**
+
+- **IP real del cliente** — `common/http/trust-proxy.ts` + env
+  `TRUST_PROXY_HOPS` (default 1 = solo Nginx Proxy Manager). Sin ella `req.ip`
+  es la IP del proxy: el rate limiting se vuelve global y la auditoría inútil.
+  Debe ser el nº EXACTO de proxies (de más → IP falsificable por
+  `X-Forwarded-For`).
+- **Peticiones salientes a URLs de un tenant** —
+  `common/security/safe-http-post.ts` (`checkOutboundUrlShape` +
+  `createSafeLookup` + `safePostJson`): la IP resuelta se valida en el `lookup`
+  del propio socket (sin ventana de DNS rebinding), sin redirecciones, respuesta
+  acotada. `isSafeOutboundUrl` + `redirect: 'manual'` para las cerraduras.
+  **Nunca** `fetch` directo a una URL que controle un tenant.
+- **Logs y Sentry sin secretos** — `common/logging/sanitize.ts`: serializer
+  `req` de pino (url/query/cabeceras; descarta `params`), log de 5xx y
+  `beforeSend` de Sentry. Un endpoint nuevo con secretos en la query, en la ruta
+  o en una cabecera propia debe añadirse a sus listas.
+- **Anti-enumeración por tiempo** — `common/security/dummy-password.ts`
+  (argon2 ficticio en las ramas «no existe» de un login) y
+  `common/security/respond-then-run.ts` (los endpoints públicos «si el email
+  existe te enviamos…» responden ya y trabajan en segundo plano).
+- **Sesiones del portal revocables** — `customers.portal_session_version` va en
+  el JWT del portal (`sv`) y se compara en cada request; incrementarla invalida
+  todas las sesiones del inquilino.
+- **2FA** — tope de 5 fallos / 15 min por usuario (`two-factor-limits.ts`) y
+  anti-replay TOTP (`two_factor_last_step`, `TotpService.matchStep`).
+- **Contenido de terceros en un dominio propio** — `/tenant-site` se sirve con
+  `Content-Security-Policy: sandbox` sin `allow-same-origin` (origen opaco): no
+  puede leer la sesión del portal, que vive en el mismo origen.
+- **Rol restringido de BD** — `storageos_app` no tiene acceso a las tablas
+  globales de plataforma (migración `20260925180000`). Los default privileges
+  le conceden CRUD en cada tabla nueva: **toda tabla global nueva debe llevar su
+  propio `REVOKE` (o RLS) en su migración.**
+- **Subidas** — `FilesService.assertObjectMimeType` (en cada endpoint
+  «register») valida los magic bytes y el tamaño (≤ `MAX_UPLOAD_BYTES`, 20 MB)
+  y borra el objeto rechazado.
+- **Riesgos aceptados**: CSP con `'unsafe-inline'` (ver abajo) y la ventana de
+  DNS rebinding en cerraduras/Dahua (IP validada + sin redirects).
+
 ## Seguridad: Content Security Policy (frontend)
 
 El frontend `apps/web` aplica una **Content Security Policy** definida en
@@ -283,6 +327,8 @@ cambio a enforcement.
 3. **Fase 13A.4 (actual): enforcement activo** (`Content-Security-Policy`).
    El endpoint `/api/csp-report` permanece desplegado por si aparecen
    violaciones reales en producción.
-4. Futuro (opcional): migrar `'unsafe-inline'` de `script-src` a nonces
-   dinámicos generados en middleware. Queda fuera de scope porque
-   requiere recablear todo el render path de Next App Router.
+4. **Riesgo aceptado (auditoría 4, 2026-09-25):** se mantiene
+   `'unsafe-inline'` en `script-src`. Migrar a nonces obliga a renderizar
+   dinámicamente todas las páginas (se pierde la caché estática y la web
+   pública va más lenta). Reevaluar si aparece HTML enriquecido escrito por
+   usuarios (hoy el Markdown se renderiza sin HTML crudo).
