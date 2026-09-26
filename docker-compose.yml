@@ -59,7 +59,15 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ['CMD', 'mc', 'ready', 'local']
+      # Sin depender de `mc`: el espejo de GHCR (Alpine) no lo incluye → con
+      # `mc ready local` el contenedor quedaba `unhealthy` y el stack no
+      # arrancaba. Endpoint oficial de liveness; wget (busybox) o curl según la
+      # imagen, y `mc` como último recurso por si se vuelve a la oficial.
+      test:
+        [
+          'CMD-SHELL',
+          'wget -q --spider http://127.0.0.1:9000/minio/health/live || curl -fs http://127.0.0.1:9000/minio/health/live || mc ready local',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
