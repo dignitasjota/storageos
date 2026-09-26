@@ -795,6 +795,9 @@ portal mínimo para que el inquilino consulte sus facturas.
 | POST   | `/portal/me/access/extra`                 | NO   | 5/min/IP  | Bearer JWT portal; crea un acceso adicional (PIN, body `{label}`) hasta `tenants.extra_access_limit`. 409 `extra_access_limit_reached` al exceder              |
 | GET    | `/portal/me/access/night-pass`            | NO   | 60/min/IP | Bearer JWT portal; disponibilidad + precio del pase nocturno (`{enabled, price}`)                                                                              |
 | POST   | `/portal/me/access/night-pass`            | NO   | 5/min/IP  | Bearer JWT portal; compra un pase nocturno (PIN de un solo uso que salta el toque de queda, caduca a la mañana siguiente) + factura. 409 `night_pass_disabled` |
+| GET    | `/portal/me/waitlist`                     | NO   | 60/min/IP | Bearer JWT portal; tipos **agotados** de los locales donde tiene contrato vivo + sus altas vigentes en la lista de espera                                      |
+| POST   | `/portal/me/waitlist`                     | NO   | 5/min/IP  | Bearer JWT portal; se apunta a la cola de `{facilityId, unitTypeId}` (idempotente; 404 si no es cliente de ese local; 400 `email_required` sin email)          |
+| DELETE | `/portal/me/waitlist/:id`                 | NO   | 5/min/IP  | Bearer JWT portal; sale de la cola (solo sus altas; 404 si no es suya)                                                                                         |
 
 ### Codigos `code` (Fase 4)
 
