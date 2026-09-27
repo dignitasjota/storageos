@@ -110,6 +110,7 @@ export function NightAccessCard({
                       month: 'short',
                       year: 'numeric',
                     })}
+                    {p.facilityName ? ` · ${p.facilityName}` : ''}
                   </span>
                   <Badge variant={status.variant}>{status.label}</Badge>
                 </li>

@@ -47,12 +47,17 @@ export class CashService {
     if (facilityId) assertFacilityAllowed(facilityScope, facilityId);
     const { gte, lt } = this.dayRange(date);
     // Filtro por local: una factura pertenece a un local por su contrato
-    // (alquiler) O por su venta de producto (tienda, sin contrato). Sin este
-    // segundo caso, las ventas de accesorios no entraban en la caja del local.
+    // (alquiler), por su venta de producto (tienda, sin contrato) o por su local
+    // imputado directamente (pase nocturno).
     const facilityFilter: Prisma.PaymentWhereInput = facilityId
       ? {
           invoice: {
-            OR: [{ contract: { unit: { facilityId } } }, { productSale: { facilityId } }],
+            OR: [
+              { contract: { unit: { facilityId } } },
+              { productSale: { facilityId } },
+              // Facturas imputadas a un local sin contrato ni venta (pase nocturno).
+              { facilityId },
+            ],
           },
         }
       : {};

@@ -817,11 +817,17 @@ export class AccessCredentialsService {
   private async customerScope(
     tenantId: string,
     customerId: string,
+    facilityId?: string,
   ): Promise<{ allowedFacilityIds: string[]; allowedUnitIds: string[] }> {
     const contracts = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
-          where: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+          where: {
+            customerId,
+            status: { in: ['active', 'ending'] },
+            deletedAt: null,
+            ...(facilityId ? { unit: { facilityId } } : {}),
+          },
           select: { unitId: true, unit: { select: { facilityId: true } } },
         }),
       tenantId,
@@ -898,11 +904,16 @@ export class AccessCredentialsService {
    * caduca a la mañana siguiente (08:00 Europe/Madrid). El cobro lo orquesta
    * quien llama (NightPassService) — esto solo emite el código.
    */
+  /**
+   * Pase nocturno: con `facilityId` el PIN solo abre ese local (y los trasteros
+   * del inquilino en él); sin él, todos sus locales con contrato vivo.
+   */
   async createNightPassForCustomer(
     tenantId: string,
     customerId: string,
+    facilityId?: string,
   ): Promise<PortalAccessCredentialDto> {
-    const scope = await this.customerScope(tenantId, customerId);
+    const scope = await this.customerScope(tenantId, customerId, facilityId);
     const created = await this.create({
       tenantId,
       userId: null,
@@ -916,7 +927,7 @@ export class AccessCredentialsService {
         bypassCurfew: true,
         maxUses: 1,
         expiresAt: nextMorningIso(),
-        metadata: { source: 'night_pass' },
+        metadata: { source: 'night_pass', ...(facilityId ? { facilityId } : {}) },
       } as CreateCredentialInput,
       meta: {},
     });

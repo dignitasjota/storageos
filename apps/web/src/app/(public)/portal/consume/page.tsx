@@ -330,6 +330,7 @@ function PortalConsumeContent() {
   const [extraAccessOpen, setExtraAccessOpen] = useState(false);
   const [extraAccessLabel, setExtraAccessLabel] = useState('');
   const [nightPassConfirmOpen, setNightPassConfirmOpen] = useState(false);
+  const [nightPassFacility, setNightPassFacility] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
@@ -532,13 +533,19 @@ function PortalConsumeContent() {
 
   async function buyNightPass() {
     if (!session || !nightPass) return;
+    // Con varios locales hay que elegir uno; con uno solo lo decide el servidor.
+    const facilityId = nightPass.facilities.length > 1 ? nightPassFacility || undefined : undefined;
+    if (nightPass.facilities.length > 1 && !facilityId) {
+      toast.error(tAccess('nightPassChooseFacility'));
+      return;
+    }
     setNightPassConfirmOpen(false);
     setBuyingPass(true);
     try {
       const created = await portalFetch<PortalAccessCredentialDto>(
         session,
         '/portal/me/access/night-pass',
-        { method: 'POST' },
+        { method: 'POST', json: facilityId ? { facilityId } : {} },
       );
       setAccess((prev) => [created, ...(prev ?? [])]);
       const inv = await portalFetch<PortalInvoiceDto[]>(session, '/portal/me/invoices');
@@ -1782,6 +1789,32 @@ function PortalConsumeContent() {
                 : ''}
             </DialogDescription>
           </DialogHeader>
+          {nightPass && nightPass.facilities.length > 1 && (
+            <div className="space-y-1">
+              <label htmlFor="night-pass-facility" className="text-sm font-medium">
+                {tAccess('nightPassFacility')}
+              </label>
+              <select
+                id="night-pass-facility"
+                value={nightPassFacility}
+                onChange={(e) => setNightPassFacility(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-base sm:text-sm"
+              >
+                <option value="">{tAccess('nightPassChooseFacility')}</option>
+                {nightPass.facilities.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{tAccess('nightPassFacilityHint')}</p>
+            </div>
+          )}
+          {nightPass && nightPass.facilities.length === 1 && (
+            <p className="text-sm text-muted-foreground">
+              {tAccess('nightPassForFacility', { name: nightPass.facilities[0]!.name })}
+            </p>
+          )}
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="outline" onClick={() => setNightPassConfirmOpen(false)}>
               {tAccess('cancel')}

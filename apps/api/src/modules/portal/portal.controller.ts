@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -32,6 +33,7 @@ import {
   type PortalDownloadDto,
   type PortalFacilityDto,
   type PortalIncidentDto,
+  PortalBuyNightPassSchema,
   PortalCreateExtraAccessSchema,
   type PortalInvoiceDto,
   type PortalNightPassDto,
@@ -772,8 +774,8 @@ export class PortalController {
   async nightPassInfo(
     @Headers('authorization') auth: string | undefined,
   ): Promise<PortalNightPassInfoDto> {
-    const { tenantId } = await this.requirePortalSession(auth);
-    return this.nightPass.info(tenantId);
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.nightPass.info(tenantId, customerId);
   }
 
   /** El inquilino compra un pase nocturno (código de un solo uso, se factura). */
@@ -782,9 +784,15 @@ export class PortalController {
   @Post('me/access/night-pass')
   async buyNightPass(
     @Headers('authorization') auth: string | undefined,
+    @Body() body: unknown,
   ): Promise<PortalAccessCredentialDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    return this.nightPass.buy(tenantId, customerId);
+    // Body opcional (compras previas sin local): se valida a mano para aceptar vacío.
+    const parsed = PortalBuyNightPassSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'validation_failed', message: 'Local no válido' });
+    }
+    return this.nightPass.buy(tenantId, customerId, parsed.data.facilityId);
   }
 
   /** Historial de pases nocturnos comprados por el inquilino. */
