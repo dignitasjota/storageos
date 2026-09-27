@@ -9,6 +9,7 @@ import type {
   ContractSignViewDto,
   PortalChargeResultDto,
   PortalInvoiceDto,
+  RedsysPayMethod,
   SetupIntentResponseDto,
   SignResultDto,
 } from '@storageos/shared';
@@ -295,8 +296,28 @@ function BookingPayment({
   const [processing, setProcessing] = useState(false);
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
   const [busy, setBusy] = useState(false);
+  // Qué ofrece el TPV del tenant (Redsys + Bizum). Sin Redsys no se muestra.
+  const [redsys, setRedsys] = useState<{ enabled: boolean; bizumEnabled: boolean } | null>(null);
 
   const auth = { Authorization: `Bearer ${portalToken}` };
+
+  useEffect(() => {
+    apiFetch<{ enabled: boolean; bizumEnabled: boolean }>('/portal/me/redsys/enabled', {
+      requiresAuth: false,
+      headers: { Authorization: `Bearer ${portalToken}` },
+    })
+      .then(setRedsys)
+      .catch(() => setRedsys(null));
+  }, [portalToken]);
+
+  async function payWithRedsys(payMethod?: RedsysPayMethod) {
+    trackEvent('payment_redirect', { method: payMethod === 'bizum' ? 'bizum' : 'redsys_card' });
+    try {
+      submitRedsysForm(await fetchPortalRedsysRedirect(portalToken, invoice.id, payMethod));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : t('redsysUnavailable'));
+    }
+  }
 
   if (paid) {
     return (
@@ -371,18 +392,20 @@ function BookingPayment({
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             {t('payWithCard')}
           </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              try {
-                submitRedsysForm(await fetchPortalRedsysRedirect(portalToken, invoice.id));
-              } catch (err) {
-                toast.error(err instanceof ApiError ? err.body.message : t('redsysUnavailable'));
-              }
-            }}
-          >
-            {t('payWithRedsys')}
-          </Button>
+          {redsys?.bizumEnabled && (
+            <Button variant="outline" onClick={() => void payWithRedsys('bizum')}>
+              {t('payWithBizum')}
+            </Button>
+          )}
+          {redsys?.enabled && (
+            // Con Bizum también activo, este botón fuerza tarjeta para separar métodos.
+            <Button
+              variant="outline"
+              onClick={() => void payWithRedsys(redsys.bizumEnabled ? 'card' : undefined)}
+            >
+              {t('payWithRedsys')}
+            </Button>
+          )}
         </div>
       )}
       <p className="text-xs text-muted-foreground">{t('paymentEmailNote')}</p>

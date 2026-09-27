@@ -216,6 +216,65 @@ describe('Redsys (e2e)', () => {
     expect(cardParams.DS_MERCHANT_PAYMETHODS).toBe('C');
   });
 
+  it('portal (pago tras firmar la reserva): disponibilidad de Bizum + redirect del propio inquilino', async () => {
+    const owner = await registerVerifiedUser(app, 'redsys-portal-bizum');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await configureRedsys(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken);
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 100,
+    });
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+
+    // Sesión de portal del inquilino (la firma remota devuelve una equivalente).
+    const link = await request(app.getHttpServer())
+      .post(`/customers/${customerId}/portal-link`)
+      .set(auth);
+    const token = new URL(link.body.url).searchParams.get('token')!;
+    const consume = await request(app.getHttpServer())
+      .post('/portal/login/consume')
+      .send({ token });
+    const portal = { Authorization: `Bearer ${consume.body.accessToken}` };
+
+    const before = await request(app.getHttpServer())
+      .get('/portal/me/redsys/enabled')
+      .set(portal)
+      .expect(200);
+    expect(before.body).toEqual({ enabled: true, bizumEnabled: false });
+    const denied = await request(app.getHttpServer())
+      .post(`/portal/me/invoices/${invoiceId}/redsys-redirect`)
+      .set(portal)
+      .send({ payMethod: 'bizum' });
+    expect(denied.body.code).toBe('bizum_not_enabled');
+
+    await request(app.getHttpServer())
+      .put('/settings/redsys')
+      .set(auth)
+      .send({
+        merchantCode: '999008881',
+        terminal: '1',
+        environment: 'test',
+        enabled: true,
+        bizumEnabled: true,
+      })
+      .expect(200);
+    const after = await request(app.getHttpServer())
+      .get('/portal/me/redsys/enabled')
+      .set(portal)
+      .expect(200);
+    expect(after.body.bizumEnabled).toBe(true);
+
+    const redirect = await request(app.getHttpServer())
+      .post(`/portal/me/invoices/${invoiceId}/redsys-redirect`)
+      .set(portal)
+      .send({ payMethod: 'bizum' });
+    expect(redirect.status).toBe(200);
+    const params = JSON.parse(
+      Buffer.from(redirect.body.merchantParameters, 'base64').toString('utf8'),
+    );
+    expect(params.DS_MERCHANT_PAYMETHODS).toBe('z');
+  });
+
   it('doble clic (2 redirects seguidos, sin pagar) reutiliza la MISMA orden pendiente — no crea dos', async () => {
     const owner = await registerVerifiedUser(app, 'redsys-doubleclick');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
