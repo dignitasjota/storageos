@@ -486,7 +486,7 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 - ✅ **Cuarta auditoría de seguridad (2026-09-25, #512–#529)**: `trust proxy` (el rate limiting era global tras NPM), SSRF con lectura en webhooks salientes, web externa del tenant aislada del portal (`CSP: sandbox`), secretos fuera de logs/Sentry, Next 15.5.26, cerraduras sin redirects, sesiones del portal revocables, bloqueo del teclado que ya no deja fuera a los inquilinos + PIN de 6-8, emails entrantes sin DMARC marcados, anti-enumeración por tiempo, rol del super admin desde BD, 2FA con tope por usuario + anti-replay, `REVOKE` del rol de la app sobre las tablas globales y subidas ≤ 20 MB. Bugs encontrados por el camino: sesión expulsada de todos los dispositivos al recargar (#518, causa del smoke intermitente) y facturas recurrentes saltadas en silencio (#519). Detalle en `docs/AUDITORIA.md`; riesgos aceptados: CSP `'unsafe-inline'` y DNS rebinding en cerraduras.
 
-### Tanda de mejoras 2026-09-26/27 (#533–#538)
+### Tanda de mejoras 2026-09-26/28 (#533–#542)
 
 - ~~**Cambiar la contraseña del portal cierra las otras sesiones**~~ ✅ (#533) — incrementa `portal_session_version`; el dispositivo actual recibe sesión nueva.
 - ~~**Lista de espera desde el portal**~~ ✅ (#534) — el inquilino se apunta a tipos agotados de sus locales; el aviso automático al liberarse ya existía.
@@ -494,6 +494,9 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 - ~~**Panel admin: tickets en la ficha, webhooks fallidos en «Hoy», paginación de soporte, caché de agregaciones**~~ ✅ (#536).
 - ~~**Pase nocturno por local + cierre de caja por local**~~ ✅ (#537) — `invoices.facility_id`.
 - ~~**Abono de los meses no consumidos al dar de baja un prepago**~~ ✅ (#538) — rectificativa R1 en borrador; reembolso manual.
+- ~~**«Sugerencias de hoy» priorizadas y redactadas con IA**~~ ✅ (#540) — solo con `ai_assistant`; nunca añade acciones ni cambia enlaces; timeout 8 s y caché 1 h.
+- ~~**Lista de espera desde la web pública**~~ ✅ (#541) — «Avísame» en los tipos agotados → lista de espera de `/book` preseleccionada (el alta pública existía desde #323) + fix de la preselección de `/book`.
+- ~~**Bizum en la reserva/firma**~~ ✅ (#542) — «Pagar con Bizum» en `/sign` si el TPV lo tiene activo.
 - ~~**Revertir el descuento de retención tras N meses**~~ ✅ ya estaba implementado (`RetentionDiscountExpiryCron`).
 
 ### Prioridad recomendada
