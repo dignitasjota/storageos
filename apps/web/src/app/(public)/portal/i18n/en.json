@@ -222,6 +222,10 @@
         "cancel": "Cancel",
         "createAccess": "Create access",
         "nightPassConfirmTitle": "Buy night pass",
+        "nightPassFacility": "Facility",
+        "nightPassChooseFacility": "Choose the facility",
+        "nightPassFacilityHint": "The code will only open the door of this facility.",
+        "nightPassForFacility": "Valid for {name}.",
         "nightPassConfirmDescription": "You'll be charged {price} (+ VAT) to your default payment method. The code is single-use and expires the following morning.",
         "buyAndPay": "Buy and pay"
       },

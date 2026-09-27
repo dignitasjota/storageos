@@ -1,4 +1,11 @@
-import { ConflictException, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 
 import { AccessCredentialsService } from '../access/access-credentials.service';
 import { InvoiceSeriesService } from '../billing/invoice-series.service';
@@ -29,15 +36,71 @@ export class NightPassService {
     private readonly payments: PaymentsService,
   ) {}
 
-  async info(tenantId: string): Promise<PortalNightPassInfoDto> {
-    const tenant = await this.admin.tenant.findUnique({
-      where: { id: tenantId },
-      select: { nightPassEnabled: true, nightPassPrice: true },
-    });
+  async info(tenantId: string, customerId: string): Promise<PortalNightPassInfoDto> {
+    const [tenant, facilities] = await Promise.all([
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { nightPassEnabled: true, nightPassPrice: true },
+      }),
+      this.customerFacilities(tenantId, customerId),
+    ]);
     return {
       enabled: tenant?.nightPassEnabled ?? false,
       price: Number(tenant?.nightPassPrice ?? 0),
+      facilities,
     };
+  }
+
+  /** Locales donde el inquilino tiene algún contrato vivo (active/ending). */
+  private async customerFacilities(
+    tenantId: string,
+    customerId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    return this.admin.facility.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        units: {
+          some: {
+            contracts: {
+              some: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+            },
+          },
+        },
+      },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
+   * Local para el que se compra el pase: el indicado (debe ser uno de los del
+   * inquilino), o el único que tiene. Con varios y sin elegir → 400.
+   * Sin contratos vivos → null (pase sin local, comportamiento previo).
+   */
+  private async resolveFacility(
+    tenantId: string,
+    customerId: string,
+    facilityId: string | undefined,
+  ): Promise<string | null> {
+    const facilities = await this.customerFacilities(tenantId, customerId);
+    if (facilityId) {
+      if (!facilities.some((f) => f.id === facilityId)) {
+        throw new BadRequestException({
+          code: 'facility_not_allowed',
+          message: 'Solo puedes comprar el pase para un local donde tengas trastero',
+        });
+      }
+      return facilityId;
+    }
+    if (facilities.length === 1) return facilities[0]!.id;
+    if (facilities.length > 1) {
+      throw new BadRequestException({
+        code: 'facility_required',
+        message: 'Elige el local para el que quieres el pase',
+      });
+    }
+    return null;
   }
 
   /** Historial de pases nocturnos comprados por el inquilino. */
@@ -55,8 +118,22 @@ export class NightPassService {
         usesCount: true,
         expiresAt: true,
         createdAt: true,
+        metadata: true,
       },
     });
+    const facilityIds = [
+      ...new Set(rows.map((r) => this.facilityIdOf(r.metadata)).filter((x): x is string => !!x)),
+    ];
+    const names = new Map(
+      facilityIds.length
+        ? (
+            await this.admin.facility.findMany({
+              where: { tenantId, id: { in: facilityIds } },
+              select: { id: true, name: true },
+            })
+          ).map((f) => [f.id, f.name])
+        : [],
+    );
     const now = new Date();
     return rows.map((r) => {
       let status: PortalNightPassDto['status'];
@@ -75,6 +152,7 @@ export class NightPassService {
         status,
         createdAt: r.createdAt.toISOString(),
         expiresAt: r.expiresAt?.toISOString() ?? null,
+        facilityName: names.get(this.facilityIdOf(r.metadata) ?? '') ?? null,
       };
     });
   }
@@ -93,7 +171,19 @@ export class NightPassService {
    *  - Cobro `failed`/`pending` o error del gateway → se revoca el PIN + se
    *    anula la factura + 402 `payment_failed`.
    */
-  async buy(tenantId: string, customerId: string): Promise<PortalAccessCredentialDto> {
+  private facilityIdOf(metadata: unknown): string | null {
+    if (metadata && typeof metadata === 'object' && 'facilityId' in metadata) {
+      const v = (metadata as { facilityId?: unknown }).facilityId;
+      return typeof v === 'string' ? v : null;
+    }
+    return null;
+  }
+
+  async buy(
+    tenantId: string,
+    customerId: string,
+    requestedFacilityId?: string,
+  ): Promise<PortalAccessCredentialDto> {
     const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant || tenant.deletedAt || !tenant.nightPassEnabled) {
       throw new ConflictException({
@@ -102,22 +192,31 @@ export class NightPassService {
       });
     }
     const price = Number(tenant.nightPassPrice);
+    const facilityId = await this.resolveFacility(tenantId, customerId, requestedFacilityId);
 
     // Pase gratuito: nada que cobrar, se emite directamente.
     if (price <= 0) {
-      return this.credentials.createNightPassForCustomer(tenantId, customerId);
+      return this.credentials.createNightPassForCustomer(
+        tenantId,
+        customerId,
+        facilityId ?? undefined,
+      );
     }
 
     // Cobro en el acto: exige método de pago cobrable ANTES de emitir el PIN.
     await this.payments.assertChargeableDefaultMethod(tenantId, customerId);
 
-    const credential = await this.credentials.createNightPassForCustomer(tenantId, customerId);
+    const credential = await this.credentials.createNightPassForCustomer(
+      tenantId,
+      customerId,
+      facilityId ?? undefined,
+    );
 
     // Emitir la factura del pase. Si falla (p. ej. sin serie por defecto), no
     // podemos cobrar → revocamos el PIN y avisamos.
     let invoiceId: string;
     try {
-      invoiceId = await this.invoiceNightPass(tenantId, customerId, price);
+      invoiceId = await this.invoiceNightPass(tenantId, customerId, price, facilityId);
     } catch (err) {
       await this.revokeCredential(tenantId, credential.id);
       this.logger.warn(
@@ -164,6 +263,7 @@ export class NightPassService {
     tenantId: string,
     customerId: string,
     price: number,
+    facilityId: string | null,
   ): Promise<string> {
     const series = await this.series.getDefault(tenantId);
     if (!series) {
@@ -194,6 +294,10 @@ export class NightPassService {
       },
       meta: {},
     });
+    // Imputa la factura al local del pase (cierre de caja por local).
+    if (facilityId) {
+      await this.admin.invoice.update({ where: { id: invoice.id }, data: { facilityId } });
+    }
     await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
     return invoice.id;
   }

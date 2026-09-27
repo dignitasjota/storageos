@@ -892,6 +892,7 @@ model Facility {
   expenses             Expense[]
   recurringExpenses    RecurringExpense[]
   marketingChannels    MarketingChannel[]
+  invoices             Invoice[]            @relation("InvoiceFacility")
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -1513,6 +1514,9 @@ model Invoice {
   /// `InvoicesService.create`, no a nivel de schema).
   customerId          String?           @map("customer_id") @db.Uuid
   contractId          String?           @map("contract_id") @db.Uuid
+  /// Local al que se imputa una factura sin contrato ni venta (p. ej. el pase
+  /// nocturno), para el cierre de caja por local.
+  facilityId          String?           @map("facility_id") @db.Uuid
   seriesId            String            @map("series_id") @db.Uuid
   sequenceNumber      Int               @map("sequence_number")
   invoiceNumber       String            @map("invoice_number")
@@ -1562,6 +1566,7 @@ model Invoice {
   tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer           Customer?                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   contract           Contract?                  @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  facility           Facility?                  @relation("InvoiceFacility", fields: [facilityId], references: [id], onDelete: SetNull)
   series             InvoiceSeries              @relation(fields: [seriesId], references: [id], onDelete: Restrict)
   items              InvoiceItem[]
   payments           Payment[]
@@ -1586,6 +1591,7 @@ model Invoice {
   @@index([dueDate])
   @@index([rectifiesInvoiceId])
   @@index([tenantId, issueDate])
+  @@index([tenantId, facilityId])
   @@map("invoices")
 }
 

@@ -172,7 +172,15 @@ export interface PortalNightPassInfoDto {
   enabled: boolean;
   /** Precio del pase (sin IVA; la factura añade el 21%). */
   price: number;
+  /** Locales donde el inquilino tiene contrato vivo: el pase abre solo el elegido. */
+  facilities: { id: string; name: string }[];
 }
+
+/** Compra del pase nocturno: el local es obligatorio si hay más de uno. */
+export const PortalBuyNightPassSchema = z.object({
+  facilityId: z.string().uuid().optional(),
+});
+export type PortalBuyNightPassInput = z.infer<typeof PortalBuyNightPassSchema>;
 
 /** Un pase nocturno comprado por el inquilino (historial). */
 export interface PortalNightPassDto {
@@ -181,4 +189,6 @@ export interface PortalNightPassDto {
   status: 'active' | 'used' | 'expired';
   createdAt: string;
   expiresAt: string | null;
+  /** Local para el que se compró (null en pases anteriores a 2026-09). */
+  facilityName: string | null;
 }

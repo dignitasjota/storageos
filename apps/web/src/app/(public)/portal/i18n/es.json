@@ -222,6 +222,10 @@
         "cancel": "Cancelar",
         "createAccess": "Crear acceso",
         "nightPassConfirmTitle": "Comprar pase nocturno",
+        "nightPassFacility": "Local",
+        "nightPassChooseFacility": "Elige el local",
+        "nightPassFacilityHint": "El código solo abrirá la puerta de este local.",
+        "nightPassForFacility": "Válido para {name}.",
         "nightPassConfirmDescription": "Se cobrará {price} (+ IVA) a tu método de pago por defecto. El código es de un solo uso y caduca a la mañana siguiente.",
         "buyAndPay": "Comprar y pagar"
       },
