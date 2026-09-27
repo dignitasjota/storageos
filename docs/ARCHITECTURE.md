@@ -258,6 +258,11 @@ Piezas reutilizables introducidas en la cuarta auditoría (detalle y PRs en
 - **Riesgos aceptados**: CSP con `'unsafe-inline'` (ver abajo) y la ventana de
   DNS rebinding en cerraduras/Dahua (IP validada + sin redirects).
 
+## Piezas reutilizables añadidas en 2026-09 (#536, #540)
+
+- **`common/cache/ttl-cache.ts` (`TtlCache<T>`)**: caché en memoria con TTL, **por proceso**, para agregaciones caras de solo lectura (métricas del super admin, «Sugerencias de hoy» con IA). Las peticiones concurrentes a la misma clave comparten la misma promesa y un fallo no se cachea. **TTL 0 en `NODE_ENV=test`** para que los e2e que mutan y releen vean el cambio. Con varias réplicas cada una guarda su copia: vale para cortar refrescos repetidos, no como caché compartida (para eso, Redis).
+- **IA como «editor», no como decisor** (`modules/ai/suggested-actions-ranking.ts`): cuando el modelo enriquece una salida del sistema, el motor determinista decide QUÉ se muestra y el modelo solo **reordena y redacta**. Se valida la respuesta (JSON, ids conocidos, longitud), se ignora cualquier id inventado, los campos sensibles (enlaces, categoría, prioridad) salen siempre del original, hay timeout y cualquier fallo vuelve a la salida determinista. Patrón a repetir si se añade IA a otras pantallas.
+
 ## Seguridad: Content Security Policy (frontend)
 
 El frontend `apps/web` aplica una **Content Security Policy** definida en
