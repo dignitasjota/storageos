@@ -204,8 +204,9 @@ hallazgos críticos/altos quedaron cerrados** (9 PRs).
 
 ## ⏳ Pendiente (menor, priorizado)
 
-7. **Tokens de staff** no revalidan el estado del tenant (suspendido/cancelado) hasta que
-   expira el access token (ventana corta por el TTL).
+7. ~~**Tokens de staff** no revalidan el estado del tenant (suspendido/cancelado) hasta que
+   expira el access token~~ ✅ **Resuelto en #319**: `TenantStatusGuard` (APP_GUARD) revalida
+   el estado del tenant en cada request.
 
 ## Mejoras de valor propuestas (agente de negocio)
 
