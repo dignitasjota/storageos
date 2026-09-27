@@ -203,9 +203,12 @@ export function isUrgentStock(available: number): boolean {
 export function UnitTypeList({
   f,
   locale,
+  tenantSlug,
 }: {
   f: PublicLandingDto['facilities'][number];
   locale: PublicWebLocale;
+  /** Para el enlace «Avísame» de los tipos agotados (lista de espera). */
+  tenantSlug: string;
 }) {
   const t = useTranslations('publicWeb.common');
   if (f.unitTypes.length === 0) {
@@ -243,12 +246,26 @@ export function UnitTypeList({
                       : t('availableMany', { count: unitType.available })}
               </span>
             </span>
-            <span className="font-semibold">
-              {t('from')} {formatPrice(unitType.priceMonthly * 1.21, locale)}
-              <span className="text-xs font-normal text-muted-foreground">
-                {t('perMonthVatIncl')}
+            {soldOut ? (
+              <Link
+                href={bookHref(tenantSlug, locale, {
+                  facilityId: f.id,
+                  unitTypeId: unitType.id,
+                  waitlist: true,
+                })}
+                onClick={() => trackEvent('waitlist_notify_click', { location: 'unit_type_list' })}
+                className="shrink-0 text-xs font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {t('notifyMe')}
+              </Link>
+            ) : (
+              <span className="font-semibold">
+                {t('from')} {formatPrice(unitType.priceMonthly * 1.21, locale)}
+                <span className="text-xs font-normal text-muted-foreground">
+                  {t('perMonthVatIncl')}
+                </span>
               </span>
-            </span>
+            )}
           </li>
         );
       })}
@@ -433,7 +450,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
               <div className="p-6">
                 <h2 className="text-xl font-bold uppercase tracking-wide">{f.name}</h2>
                 <FacilityMeta f={f} tenantName={data.tenantName} />
-                <UnitTypeList f={f} locale={locale} />
+                <UnitTypeList f={f} locale={locale} tenantSlug={data.tenantSlug} />
                 <Link
                   href={
                     f.publicSlug
@@ -502,7 +519,7 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
           <div className="p-6">
             <h2 className="text-xl font-semibold">{f.name}</h2>
             <FacilityMeta f={f} tenantName={data.tenantName} />
-            <UnitTypeList f={f} locale={locale} />
+            <UnitTypeList f={f} locale={locale} tenantSlug={data.tenantSlug} />
             <Link
               href={
                 f.publicSlug

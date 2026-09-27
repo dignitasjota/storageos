@@ -129,7 +129,7 @@ export function FacilityBody({
       </Link>
 
       <h2 className="mt-10 text-xl font-semibold">{t('facility.sizesAndPrices')}</h2>
-      <UnitTypeList f={f} locale={locale} />
+      <UnitTypeList f={f} locale={locale} tenantSlug={data.tenantSlug} />
     </div>
   );
 }

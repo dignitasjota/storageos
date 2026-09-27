@@ -3,7 +3,7 @@
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import type {
@@ -71,27 +71,31 @@ export function BookPageBody({
     apiFetch<BookingAvailabilityDto>(`/public/move-in/book/${slug}/availability`, {
       requiresAuth: false,
     })
-      .then((res) => {
-        setData(res);
-        // Preselecciona el local/tipo que el visitante ya eligió en la
-        // calculadora, la ficha de un local o el listado (evita que lo
-        // repita aquí) — solo si sigue siendo una elección válida.
-        const sp = new URLSearchParams(window.location.search);
-        const fid = sp.get('facilityId');
-        const facility = fid ? res.facilities.find((f) => f.id === fid) : undefined;
-        if (facility) {
-          setFacilityId(facility.id);
-          const utid = sp.get('unitTypeId');
-          if (utid && facility.unitTypes.some((t) => t.id === utid)) {
-            setUnitTypeId(utid);
-          }
-        }
-      })
+      .then(setData)
       .catch((err) =>
         setLoadError(err instanceof ApiError ? err.body.message : t('notAvailableFallback')),
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  // Preselecciona el local/tipo que el visitante ya eligió en la calculadora,
+  // la ficha de un local o el listado (evita que lo repita aquí), solo si sigue
+  // siendo una elección válida. Va aparte del fetch porque normalmente los
+  // datos llegan precargados del servidor (`initialData`) y el fetch no corre.
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (!data || preselected.current) return;
+    preselected.current = true;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('waitlist') === '1') return; // la elección va a la lista de espera
+    const fid = sp.get('facilityId');
+    const facility = fid ? data.facilities.find((f) => f.id === fid) : undefined;
+    if (facility) {
+      setFacilityId(facility.id);
+      const utid = sp.get('unitTypeId');
+      if (utid && facility.unitTypes.some((t) => t.id === utid)) setUnitTypeId(utid);
+    }
+  }, [data]);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -378,9 +382,25 @@ function WaitlistSection({ slug }: { slug: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
+  const cardRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     apiFetch<PublicWaitlistOptionsDto>(`/public/waitlist/${slug}/options`, { requiresAuth: false })
-      .then(setOptions)
+      .then((res) => {
+        setOptions(res);
+        // Llegada desde «Avísame» de un tipo agotado (?waitlist=1): preselecciona
+        // local y tipo y lleva al visitante directamente al formulario.
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('waitlist') !== '1') return;
+        const f = res.facilities.find((x) => x.id === sp.get('facilityId'));
+        if (!f) return;
+        setFacilityId(f.id);
+        const utid = sp.get('unitTypeId');
+        if (utid && f.unitTypes.some((ut) => ut.id === utid)) setUnitTypeId(utid);
+        requestAnimationFrame(() =>
+          cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+        );
+      })
       .catch(() => setOptions(null));
   }, [slug]);
 
@@ -415,7 +435,7 @@ function WaitlistSection({ slug }: { slug: string }) {
   if (!options || options.facilities.length === 0) return null;
 
   return (
-    <Card className="w-full">
+    <Card ref={cardRef} id="waitlist" className="w-full scroll-mt-20">
       <CardHeader>
         <CardTitle className="text-base">{t('waitlistTitle')}</CardTitle>
       </CardHeader>
