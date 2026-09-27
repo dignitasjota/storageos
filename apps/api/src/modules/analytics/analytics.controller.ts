@@ -12,6 +12,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { AnalyticsService } from './analytics.service';
 import { BenchmarkService } from './benchmark.service';
 import { InsightsService } from './insights.service';
+import { SuggestedActionsService } from './suggested-actions.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
@@ -55,6 +56,7 @@ export class AnalyticsController {
     private readonly service: AnalyticsService,
     private readonly insights: InsightsService,
     private readonly benchmark: BenchmarkService,
+    private readonly suggestedActions: SuggestedActionsService,
   ) {}
 
   /** Comparativa anónima del tenant frente al sector (ocupación / precio / €m²). */
@@ -175,7 +177,7 @@ export class AnalyticsController {
   /** «Sugerencias de hoy»: acciones concretas priorizadas para el dashboard. */
   @Get('suggested-actions')
   getSuggestedActions(@CurrentUser() user: AuthenticatedUser): Promise<SuggestedActionsDto> {
-    return this.insights.getSuggestedActions(user.tenantId);
+    return this.suggestedActions.get(user.tenantId);
   }
 
   @Get('pricing-suggestions')

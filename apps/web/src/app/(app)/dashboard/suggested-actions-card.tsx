@@ -6,6 +6,7 @@ import {
   HeartHandshake,
   Loader2,
   Lightbulb,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -38,6 +39,16 @@ export function SuggestedActionsCard() {
         <CardTitle className="flex items-center gap-2 text-base">
           <Lightbulb className="size-4 text-amber-500" />
           Sugerencias de hoy
+          {q.data?.aiEnhanced && (
+            <Badge
+              variant="secondary"
+              className="gap-1 text-[10px] font-normal"
+              title="Orden y redacción afinados por el asistente IA"
+            >
+              <Sparkles className="size-3" />
+              Priorizado con IA
+            </Badge>
+          )}
         </CardTitle>
         <CardDescription>Lo más rentable en lo que actuar ahora mismo.</CardDescription>
       </CardHeader>
