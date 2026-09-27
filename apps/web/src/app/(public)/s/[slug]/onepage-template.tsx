@@ -281,9 +281,25 @@ export function OnePageTemplate({
                       </p>
                     )}
                     {soldOut ? (
-                      <p className="mt-3 text-sm font-medium text-destructive">
-                        {tCommon('soldOut')}
-                      </p>
+                      <>
+                        <p className="mt-3 text-sm font-medium text-destructive">
+                          {tCommon('soldOut')}
+                        </p>
+                        <Link
+                          href={buildBookHref(data.tenantSlug, locale, {
+                            facilityId: unitType.facilityId,
+                            unitTypeId: unitType.unitTypeId,
+                            waitlist: true,
+                          })}
+                          onClick={() =>
+                            trackEvent('waitlist_notify_click', { location: 'sizes_onepage' })
+                          }
+                          className="mt-1 inline-block text-sm font-medium underline-offset-2 hover:underline"
+                          style={{ color: brand }}
+                        >
+                          {tCommon('notifyMe')}
+                        </Link>
+                      </>
                     ) : (
                       <Link
                         href={buildBookHref(data.tenantSlug, locale, {

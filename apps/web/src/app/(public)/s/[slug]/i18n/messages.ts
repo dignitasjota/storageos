@@ -47,7 +47,7 @@ export async function getPublicWebMessages(locale: PublicWebLocale): Promise<Abs
 export function bookHref(
   tenantSlug: string,
   locale: PublicWebLocale,
-  params?: { facilityId?: string; unitTypeId?: string },
+  params?: { facilityId?: string; unitTypeId?: string; waitlist?: boolean },
 ): string {
   const encoded = encodeURIComponent(tenantSlug);
   const base =
@@ -57,6 +57,11 @@ export function bookHref(
   if (!params?.facilityId) return base;
   const qs = new URLSearchParams({ facilityId: params.facilityId });
   if (params.unitTypeId) qs.set('unitTypeId', params.unitTypeId);
+  // Tipo agotado: abre la lista de espera de la reserva con esa elección.
+  if (params.waitlist) {
+    qs.set('waitlist', '1');
+    return `${base}?${qs.toString()}#waitlist`;
+  }
   return `${base}?${qs.toString()}`;
 }
 
