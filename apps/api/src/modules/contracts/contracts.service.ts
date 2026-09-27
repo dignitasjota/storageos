@@ -25,6 +25,7 @@ import { FilesService } from '../files/files.service';
 import { PromotionsService } from '../promotions/promotions.service';
 
 import { buildContractTermsText } from './contract-terms';
+import { creditForLine, unusedPrepaidMonths } from './prepay-credit';
 import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -1028,8 +1029,117 @@ export class ContractsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // Baja de un contrato PREPAGADO: abono (rectificativa en borrador) de los
+    // meses completos no consumidos. Best-effort: no bloquea la baja.
+    if (existing.billingIntervalMonths > 1) {
+      try {
+        await this.createPrepayCreditNote({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          contractId: args.contractId,
+          interval: existing.billingIntervalMonths,
+          endDate: existing.endDate ?? new Date(),
+          meta: args.meta,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `[prepay-credit] contrato=${args.contractId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     await this.emitContractEnded(args.tenantId, updated);
     return this.toDto(updated);
+  }
+
+  /**
+   * Genera la rectificativa (R1, por diferencias, en BORRADOR) que abona los
+   * meses completos no consumidos de la factura prepagada que cubre la fecha
+   * de baja. El staff la revisa, la emite y devuelve el importe a mano (no se
+   * reembolsa por pasarela). Idempotente: si la factura ya tiene una
+   * rectificativa viva, no hace nada.
+   */
+  private async createPrepayCreditNote(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    interval: number;
+    endDate: Date;
+    meta: RequestMeta;
+  }): Promise<void> {
+    const invoice = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: {
+            contractId: args.contractId,
+            invoiceType: 'F1',
+            status: { in: ['paid', 'partially_refunded'] },
+            periodStart: { lte: args.endDate },
+            periodEnd: { gte: args.endDate },
+          },
+          include: { items: true },
+          orderBy: { periodStart: 'desc' },
+        }),
+      args.tenantId,
+    );
+    if (!invoice?.periodStart) return;
+
+    const alreadyCredited = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.count({
+          where: { rectifiesInvoiceId: invoice.id, status: { not: 'cancelled' } },
+        }),
+      args.tenantId,
+    );
+    if (alreadyCredited > 0) return;
+
+    const unused = unusedPrepaidMonths(invoice.periodStart, args.interval, args.endDate);
+    if (unused === 0) return;
+
+    // Solo las líneas prepagadas (alquiler + protección, que llevan periodo);
+    // la fianza no tiene periodo y se liquida aparte.
+    const items = invoice.items
+      .filter((i) => i.periodStart && i.periodEnd)
+      .map((i) => ({
+        description: `Abono baja anticipada (${unused} de ${args.interval} meses no consumidos) — ${i.description}`,
+        quantity: 1,
+        unitPrice: -creditForLine(Number(i.unitPrice) * Number(i.quantity), args.interval, unused),
+        taxRate: Number(i.taxRate),
+        relatedContractId: args.contractId,
+      }))
+      .filter((i) => i.unitPrice < 0);
+    if (items.length === 0) return;
+
+    const credit = await this.invoices.rectify({
+      originalInvoiceId: invoice.id,
+      tenantId: args.tenantId,
+      userId: args.userId,
+      input: {
+        rectificationType: 'R1',
+        reason: `Baja anticipada de contrato prepagado: abono de ${unused} meses no consumidos`,
+        correctionMethod: 'by_differences',
+        items,
+      },
+      meta: args.meta,
+    });
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.contractEvent.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            eventType: 'note_added',
+            payload: {
+              event: 'prepay_credit_note',
+              invoiceId: credit.id,
+              originalInvoiceId: invoice.id,
+              unusedMonths: unused,
+              total: credit.total,
+            },
+            createdByUserId: args.userId,
+          },
+        }),
+      args.tenantId,
+    );
   }
 
   /**

@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { BillingJobsService } from '../src/modules/billing/billing-jobs.service';
@@ -16,16 +17,23 @@ import type { INestApplication } from '@nestjs/common';
  * NO vuelve a facturar mientras el periodo esté cubierto y emite el siguiente
  * periodo al vencer la cobertura.
  */
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 describe('Prepago anual/semestral del inquilino (e2e)', () => {
   let app: INestApplication;
+  let adminClient: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    adminClient = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await adminClient.$disconnect();
     await cleanupTestTenants();
   });
 
@@ -113,5 +121,76 @@ describe('Prepago anual/semestral del inquilino (e2e)', () => {
       .set(auth);
     const invs2 = afterJan27.body.items ?? afterJan27.body;
     expect(invs2.length).toBe(2);
+  });
+
+  it('baja anticipada de un anual pagado: rectificativa en borrador por los meses no consumidos', async () => {
+    const owner = await registerVerifiedUser(app, 'prepaycredit');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+      pricePerUnit: 100,
+    });
+    const customer = await request(app.getHttpServer())
+      .post('/customers')
+      .set(auth)
+      .send({ customerType: 'individual', firstName: 'Baja', lastName: 'Pronto', country: 'ES' });
+
+    const contract = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId: customer.body.id,
+      unitId: unitIds[0],
+      startDate: '2026-01-10',
+      priceMonthly: 100,
+      billingIntervalMonths: 12,
+      prepayDiscountPct: 10,
+      depositAmount: 0,
+    });
+    const contractId = contract.body.id as string;
+    await request(app.getHttpServer())
+      .post(`/contracts/${contractId}/sign`)
+      .set(auth)
+      .send({})
+      .expect(200);
+
+    await app.get(BillingJobsService).processGenerateRecurring({
+      tenantId: owner.tenantId,
+      periodStart: '2026-01-01',
+      periodEnd: '2026-01-31',
+    });
+    const list = await request(app.getHttpServer())
+      .get(`/invoices?contractId=${contractId}`)
+      .set(auth);
+    const invoiceId = (list.body.items ?? list.body)[0].id as string;
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/mark-paid`)
+      .set(auth)
+      .send({ amount: 1306.8, methodType: 'cash' })
+      .expect(200);
+
+    // Baja el 5-mar-2026: consumidos ene y feb (meses por aniversario) → 10 sin usar.
+    await adminClient.contract.update({
+      where: { id: contractId },
+      data: { endDate: new Date('2026-03-05') },
+    });
+    await request(app.getHttpServer()).post(`/contracts/${contractId}/end`).set(auth).expect(200);
+
+    const credit = await adminClient.invoice.findFirstOrThrow({
+      where: { rectifiesInvoiceId: invoiceId },
+      include: { items: true },
+    });
+    expect(credit.status).toBe('draft');
+    expect(credit.invoiceType).toBe('R1');
+    // 1080 € × 10/12 = 900 € de base; con IVA 21% → −1089 €.
+    expect(Number(credit.items[0]!.unitPrice)).toBe(-900);
+    expect(Number(credit.total)).toBe(-1089);
+
+    const events = await request(app.getHttpServer())
+      .get(`/contracts/${contractId}/events`)
+      .set(auth);
+    const ev = (events.body as { payload: { event?: string; unusedMonths?: number } }[]).find(
+      (e) => e.payload?.event === 'prepay_credit_note',
+    );
+    expect(ev?.payload.unusedMonths).toBe(10);
   });
 });

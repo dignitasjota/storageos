@@ -391,11 +391,22 @@ export default function ContractDetailPage() {
                     <strong>{EVENT_LABELS[e.eventType] ?? e.eventType}</strong>
                     {e.eventType === 'price_changed' &&
                       ` · ${(e.payload.from as number).toFixed(2)} → ${(e.payload.to as number).toFixed(2)} €`}
-                    {e.eventType === 'note_added' && (
+                    {e.eventType === 'note_added' && e.payload.event === 'prepay_credit_note' ? (
+                      <span className="block text-muted-foreground">
+                        Abono por baja anticipada ({String(e.payload.unusedMonths)} meses no
+                        consumidos) en borrador ·{' '}
+                        <Link
+                          href={`/invoices/${String(e.payload.invoiceId)}`}
+                          className="text-primary hover:underline"
+                        >
+                          revisar, emitir y reembolsar
+                        </Link>
+                      </span>
+                    ) : e.eventType === 'note_added' ? (
                       <span className="block whitespace-pre-line text-muted-foreground">
                         {String(e.payload.note ?? '')}
                       </span>
-                    )}
+                    ) : null}
                     {e.eventType === 'cancelled' && e.payload.reason ? (
                       <span className="block text-muted-foreground">
                         Motivo: {String(e.payload.reason)}
