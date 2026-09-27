@@ -12,5 +12,6 @@ import { WaitlistService } from './waitlist.service';
   imports: [AuthModule, EmailModule, NotificationsModule],
   controllers: [WaitlistController, WaitlistPublicController],
   providers: [WaitlistService],
+  exports: [WaitlistService],
 })
 export class WaitlistModule {}

@@ -336,6 +336,21 @@
         "acceptTerms": "He leído y acepto las condiciones del contrato de alquiler de trastero y la política de tratamiento de datos.",
         "confirmButton": "Firmar y continuar al pago"
       },
+      "waitlist": {
+        "title": "Lista de espera",
+        "description": "¿No queda libre el tamaño que necesitas? Apúntate y te avisamos por email en cuanto se libere uno en tu local.",
+        "myEntries": "Estás en la lista de espera de",
+        "soldOut": "Tamaños agotados en tus locales",
+        "pricePerMonth": "{price}/mes (IVA incl.)",
+        "join": "Avisarme",
+        "alreadyJoined": "Ya apuntado",
+        "leave": "Salir",
+        "statusWaiting": "En espera",
+        "statusNotified": "¡Hay uno libre!",
+        "joined": "Te avisaremos por email en cuanto se libere uno.",
+        "left": "Has salido de la lista de espera.",
+        "error": "No se pudo completar la acción."
+      },
       "aiChat": {
         "title": "Asistente",
         "emptyHint": "Pregúntame sobre tu trastero, tus facturas o cómo funciona el servicio. Si no puedo resolverlo, te diré cómo contactar con tu gestor.",

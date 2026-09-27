@@ -20,6 +20,7 @@ import { ReferralsModule } from '../referrals/referrals.module';
 import { RetentionModule } from '../retention/retention.module';
 import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 import { UnitRequestsModule } from '../unit-requests/unit-requests.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 
 import { NightPassService } from './night-pass.service';
 import { PortalLinkController } from './portal-link.controller';
@@ -60,6 +61,8 @@ import { PortalService } from './portal.service';
     CustomerMessagesModule,
     // FaqModule: centro de ayuda (preguntas frecuentes).
     FaqModule,
+    // WaitlistModule: el inquilino se apunta a la cola de un tipo agotado.
+    WaitlistModule,
     AiModule,
   ],
   controllers: [PortalController, PortalLinkController],

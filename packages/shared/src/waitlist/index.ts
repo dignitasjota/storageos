@@ -69,3 +69,36 @@ export interface WaitlistEntryDto {
   notes: string | null;
   createdAt: string;
 }
+
+// --- Portal del inquilino -----------------------------------------------------
+
+/** Alta del inquilino (con sesión de portal) en la cola de un (local, tipo). */
+export const PortalJoinWaitlistSchema = z.object({
+  facilityId: z.string().uuid(),
+  unitTypeId: z.string().uuid(),
+});
+export type PortalJoinWaitlistInput = z.infer<typeof PortalJoinWaitlistSchema>;
+
+export interface PortalWaitlistEntryDto {
+  id: string;
+  facilityId: string;
+  facilityName: string;
+  unitTypeId: string;
+  unitTypeName: string;
+  /** `waiting` = en cola · `notified` = ya se le avisó de un hueco libre. */
+  status: 'waiting' | 'notified';
+  createdAt: string;
+}
+
+/**
+ * Vista del portal: tipos AGOTADOS de los locales donde el inquilino tiene un
+ * contrato vivo (a los que tiene sentido apuntarse) + sus altas vigentes.
+ */
+export interface PortalWaitlistDto {
+  options: {
+    facilityId: string;
+    facilityName: string;
+    unitTypes: { id: string; name: string; priceMonthly: number }[];
+  }[];
+  entries: PortalWaitlistEntryDto[];
+}
