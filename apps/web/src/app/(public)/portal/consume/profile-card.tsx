@@ -51,7 +51,14 @@ function toForm(p: PortalProfileDto): FormState {
   };
 }
 
-export function ProfileCard({ session }: { session: PortalSessionDto }) {
+export function ProfileCard({
+  session,
+  onSessionRenewed,
+}: {
+  session: PortalSessionDto;
+  /** Cambiar la contraseña cierra las demás sesiones y devuelve una nueva para este dispositivo. */
+  onSessionRenewed: (s: PortalSessionDto) => void;
+}) {
   const t = useTranslations('portal.consume.profile');
   const { locale, setLocale } = usePortalLocale();
   const [profile, setProfile] = useState<PortalProfileDto | null>(null);
@@ -212,7 +219,10 @@ export function ProfileCard({ session }: { session: PortalSessionDto }) {
         <PasswordSection
           session={session}
           hasPassword={profile.hasPortalPassword}
-          onChanged={() => setProfile((p) => (p ? { ...p, hasPortalPassword: true } : p))}
+          onChanged={(renewed) => {
+            setProfile((p) => (p ? { ...p, hasPortalPassword: true } : p));
+            onSessionRenewed(renewed);
+          }}
         />
       </CardContent>
     </Card>
@@ -227,7 +237,7 @@ function PasswordSection({
 }: {
   session: PortalSessionDto;
   hasPassword: boolean;
-  onChanged: () => void;
+  onChanged: (renewed: PortalSessionDto) => void;
 }) {
   const t = useTranslations('portal.consume.profile.password');
   const [pwd, setPwd] = useState('');
@@ -245,7 +255,7 @@ function PasswordSection({
     }
     setSaving(true);
     try {
-      await apiFetch<void>('/portal/me/password', {
+      const renewed = await apiFetch<PortalSessionDto>('/portal/me/password', {
         method: 'POST',
         json: { password: pwd },
         headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -253,7 +263,7 @@ function PasswordSection({
       });
       setPwd('');
       setConfirm('');
-      onChanged();
+      onChanged(renewed);
       toast.success(t('saved'));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('saveError'));

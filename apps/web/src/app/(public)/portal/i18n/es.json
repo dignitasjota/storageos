@@ -297,7 +297,7 @@
           "saveButton": "Guardar contraseña",
           "tooShort": "La contraseña debe tener al menos 8 caracteres.",
           "mismatch": "Las contraseñas no coinciden.",
-          "saved": "Contraseña guardada. Ya puedes entrar con email y contraseña.",
+          "saved": "Contraseña guardada. Hemos cerrado tu sesión en los demás dispositivos; ya puedes entrar con email y contraseña.",
           "saveError": "No se pudo guardar la contraseña."
         }
       },
