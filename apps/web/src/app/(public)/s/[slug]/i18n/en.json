@@ -387,7 +387,8 @@
       "paymentSuccessToast": "Payment completed. Thank you!",
       "signatureEmpty": "Draw your signature in the box",
       "signatureFilled": "Signature captured",
-      "signatureClear": "Clear"
+      "signatureClear": "Clear",
+      "payWithBizum": "Pay with Bizum"
     },
     "blog": {
       "title": "Blog",

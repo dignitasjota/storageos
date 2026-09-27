@@ -387,7 +387,8 @@
       "paymentSuccessToast": "Pago realizado. ¡Gracias!",
       "signatureEmpty": "Dibuja tu firma en el recuadro",
       "signatureFilled": "Firma capturada",
-      "signatureClear": "Limpiar"
+      "signatureClear": "Limpiar",
+      "payWithBizum": "Pagar con Bizum"
     },
     "blog": {
       "title": "Blog",
