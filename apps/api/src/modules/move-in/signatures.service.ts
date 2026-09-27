@@ -120,6 +120,7 @@ export class SignaturesService {
         bodyText: `Hola,\n\nYa puedes revisar y firmar tu contrato de alquiler de trastero en el siguiente enlace:\n\n${signingUrl}\n\nEl enlace caduca el ${expiresAt.toISOString().slice(0, 10)}.`,
         source: 'contract.request_signature',
         customerId: contract.customerId,
+        contractId,
       });
       emailed = true;
     }

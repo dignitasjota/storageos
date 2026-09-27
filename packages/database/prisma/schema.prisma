@@ -1216,6 +1216,7 @@ model Contract {
   delinquencyCases   DelinquencyCase[]
   retentionOffers    RetentionOffer[]
 
+  communications Communication[]
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -1577,6 +1578,7 @@ model Invoice {
   // La unicidad de numeración vive en SQL como índice PARCIAL (solo
   // sequence_number > 0): los drafts llevan 0 y deben poder convivir.
   // Ver migración 20260702140000 (Prisma no representa índices parciales).
+  communications Communication[]
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -2467,6 +2469,9 @@ model Communication {
   templateId               String?                @map("template_id") @db.Uuid
   customerId               String?                @map("customer_id") @db.Uuid
   leadId                   String?                @map("lead_id") @db.Uuid
+  /// Recurso que originó el envío (recordatorio → factura; firma/subida/PIN → contrato).
+  contractId               String?                @map("contract_id") @db.Uuid
+  invoiceId                String?                @map("invoice_id") @db.Uuid
   /// Recipient resuelto en el momento de crear la fila (snapshot).
   recipient                String
   subject                  String?
@@ -2497,8 +2502,12 @@ model Communication {
   template MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   customer Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  invoice  Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([tenantId, contractId])
+  @@index([tenantId, invoiceId])
   @@index([tenantId, status, scheduledFor])
   @@index([tenantId, customerId])
   @@index([tenantId, leadId])

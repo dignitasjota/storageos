@@ -27,11 +27,15 @@ export function useCommunications(params?: {
   status?: string;
   channel?: string;
   customerId?: string;
+  contractId?: string;
+  invoiceId?: string;
 }) {
   const qs = new URLSearchParams();
   if (params?.status) qs.set('status', params.status);
   if (params?.channel) qs.set('channel', params.channel);
   if (params?.customerId) qs.set('customerId', params.customerId);
+  if (params?.contractId) qs.set('contractId', params.contractId);
+  if (params?.invoiceId) qs.set('invoiceId', params.invoiceId);
   return useQuery({
     queryKey: communicationsKey(params),
     queryFn: () => apiFetch<CommunicationDto[]>(`/communications${qs.toString() ? `?${qs}` : ''}`),

@@ -316,6 +316,7 @@ export class ReviewsService {
               }),
           variables,
           customerId: args.customerId,
+          contractId: args.contractId,
           source: args.source,
         });
         enqueued = true;
@@ -326,6 +327,7 @@ export class ReviewsService {
           recipient: args.recipientPhone,
           bodyText: `Hola ${args.scope.customerFirstName}, ¿que tal tu experiencia con ${tenantName}? Dejanos tu valoracion: ${url}`,
           customerId: args.customerId,
+          contractId: args.contractId,
           source: args.source,
         });
         enqueued = true;

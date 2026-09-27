@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   type CommunicationChannelValue,
@@ -40,6 +41,8 @@ export class CommunicationsController {
     @Query('customerId') customerId?: string,
     @Query('leadId') leadId?: string,
     @Query('source') source?: string,
+    @Query('contractId') contractId?: string,
+    @Query('invoiceId') invoiceId?: string,
   ): Promise<CommunicationDto[]> {
     const filters: ListFilters = {};
     if (channel) filters.channel = channel as CommunicationChannelValue;
@@ -47,6 +50,17 @@ export class CommunicationsController {
     if (customerId) filters.customerId = customerId;
     if (leadId) filters.leadId = leadId;
     if (source) filters.source = source;
+    // Un id mal formado daría un 500 de Prisma (columna UUID): se valida aquí.
+    for (const [key, value] of [
+      ['contractId', contractId],
+      ['invoiceId', invoiceId],
+    ] as const) {
+      if (!value) continue;
+      if (!UUID_RE.test(value)) {
+        throw new BadRequestException({ code: 'invalid_id', message: `${key} no es un UUID` });
+      }
+      filters[key] = value;
+    }
     return this.service.list(user.tenantId, filters);
   }
 
@@ -78,3 +92,5 @@ export class CommunicationsController {
     return this.service.retry(user.tenantId, id);
   }
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
