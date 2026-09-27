@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -16,6 +17,11 @@ import {
   type AiToolResultBlock,
 } from './ai-provider';
 import { AiToolsService } from './ai-tools.service';
+import {
+  applySuggestedActionsRanking,
+  buildSuggestedActionsPrompt,
+  SUGGESTED_ACTIONS_SYSTEM_PROMPT,
+} from './suggested-actions-ranking';
 
 import type {
   AdCampaignDraftDto,
@@ -27,6 +33,7 @@ import type {
   PortalAiChatInput,
   PortalAiChatResultDto,
   SuggestAdCampaignInput,
+  SuggestedActionDto,
   TenantFeature,
 } from '@storageos/shared';
 
@@ -97,6 +104,8 @@ const MAX_TOOL_ITERATIONS = 5;
 
 @Injectable()
 export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tools: AiToolsService,
@@ -385,6 +394,47 @@ Redacta el borrador de campaña:`;
       platform: input.platform,
       draft: draft || 'No he podido redactar el borrador. Inténtalo de nuevo.',
     };
+  }
+
+  /**
+   * «Sugerencias de hoy» con IA: el modelo reordena y redacta las acciones que
+   * ya calculó el motor heurístico. Devuelve `null` (→ lista heurística) si el
+   * tenant no tiene IA, el modelo tarda más de `timeoutMs` o la respuesta no es
+   * válida: nunca rompe el dashboard.
+   */
+  async rankSuggestedActions(
+    tenantId: string,
+    actions: SuggestedActionDto[],
+    timeoutMs = 8_000,
+  ): Promise<SuggestedActionDto[] | null> {
+    if (actions.length < 2) return null;
+    if (!(await this.isAiEnabled(tenantId))) return null;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const completion = await Promise.race([
+        this.provider.createMessage({
+          system: SUGGESTED_ACTIONS_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: buildSuggestedActionsPrompt(actions) }],
+          tools: [],
+        }),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), timeoutMs);
+        }),
+      ]);
+      if (!completion) return null;
+      const text = completion.content
+        .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      return applySuggestedActionsRanking(actions, text);
+    } catch (err) {
+      this.logger.warn(
+        `[suggested-actions] tenant=${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /** ¿El tenant tiene la feature `ai_assistant` (plan + overrides)? */

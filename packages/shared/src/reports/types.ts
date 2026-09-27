@@ -261,6 +261,8 @@ export interface SuggestedActionDto {
 
 export interface SuggestedActionsDto {
   actions: SuggestedActionDto[];
+  /** true si el orden y la redacción los ha afinado la IA (el tenant tiene el asistente). */
+  aiEnhanced: boolean;
 }
 
 /**

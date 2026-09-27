@@ -343,7 +343,7 @@ export class InsightsService {
     // Prioriza (alta primero) y limita a 6 para no saturar el dashboard.
     const order: Record<SuggestedActionDto['priority'], number> = { high: 0, medium: 1 };
     actions.sort((a, b) => order[a.priority] - order[b.priority]);
-    return { actions: actions.slice(0, 6) };
+    return { actions: actions.slice(0, 6), aiEnhanced: false };
   }
 
   // ---------------------------------------------------------------------------
