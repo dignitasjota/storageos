@@ -496,6 +496,12 @@ export interface AdminMetricsDto {
   monthlySaasRevenue: AdminMetricsRevenueMonthDto[];
 }
 
+/** Página de tickets del panel admin (paginación por cursor). */
+export interface AdminSupportTicketsPageDto {
+  items: SupportTicketDto[];
+  nextCursor: string | null;
+}
+
 export interface SupportTicketDto {
   id: string;
   tenantId: string;
@@ -973,6 +979,15 @@ export interface AdminStaleSuspendedAddonDto {
 }
 
 /** Ticket de soporte esperando respuesta del super admin (bandeja «Hoy»). */
+/** Entregas de webhook salientes fallidas de un tenant (últimos 7 días). */
+export interface AdminFailedWebhooksDto {
+  tenantId: string;
+  tenantName: string;
+  failedCount: number;
+  lastFailedAt: string;
+  lastError: string | null;
+}
+
 export interface AdminOpenTicketDto {
   id: string;
   tenantId: string;
@@ -995,6 +1010,8 @@ export interface AdminTodayDto {
   staleSuspendedAddons: AdminStaleSuspendedAddonDto[];
   /** Tickets de soporte esperando respuesta del admin (status open). */
   openTickets: AdminOpenTicketDto[];
+  /** Tenants con entregas de webhook fallidas en los últimos 7 días. */
+  failedWebhooks: AdminFailedWebhooksDto[];
   /** Nº de jobs BullMQ en estado failed (colas rotas → revisar /admin/queues). */
   failedJobs: number;
   /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas). */

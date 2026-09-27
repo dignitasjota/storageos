@@ -13,10 +13,12 @@ import { AdminTenantInteractionsService } from './admin-tenant-interactions.serv
 
 import type {
   AddTicketMessageInput,
+  AdminSupportTicketsPageDto,
   AssignTicketInput,
   CreateSupportTicketInput,
   SupportTicketDto,
   SupportTicketMessageDto,
+  SupportTicketPriorityValue,
   SupportTicketStatusValue,
   TransitionTicketInput,
 } from '@storageos/shared';
@@ -40,6 +42,7 @@ interface AdminContext {
 interface ListAdminFilters {
   search?: string;
   status?: SupportTicketStatusValue;
+  priority?: SupportTicketPriorityValue;
   assignedAdminId?: string | null;
   tenantId?: string;
 }
@@ -251,11 +254,20 @@ export class SupportTicketsService {
     return this.admin.supportTicket.count({ where: { status: 'open' } });
   }
 
-  async listForAdmin(filters: ListAdminFilters): Promise<SupportTicketDto[]> {
+  /**
+   * Lista paginada por cursor (id del último ticket de la página). El orden es
+   * estable gracias al desempate por `id`.
+   */
+  async listForAdmin(
+    filters: ListAdminFilters,
+    page: { cursor?: string; limit?: number } = {},
+  ): Promise<AdminSupportTicketsPageDto> {
+    const limit = Math.min(Math.max(page.limit ?? 50, 1), 100);
     const rows = await this.admin.supportTicket.findMany({
       where: {
         ...(filters.tenantId ? { tenantId: filters.tenantId } : {}),
         ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.priority ? { priority: filters.priority } : {}),
         ...(filters.assignedAdminId !== undefined
           ? { assignedAdminId: filters.assignedAdminId }
           : {}),
@@ -274,9 +286,16 @@ export class SupportTicketsService {
         createdBy: { select: { fullName: true } },
         assignedAdmin: { select: { fullName: true } },
       },
-      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),
     });
-    return rows.map((r) => this.toDto(r));
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items: pageRows.map((r) => this.toDto(r)),
+      nextCursor: hasMore ? (pageRows[pageRows.length - 1]?.id ?? null) : null,
+    };
   }
 
   async detailForAdmin(ticketId: string): Promise<SupportTicketDto> {

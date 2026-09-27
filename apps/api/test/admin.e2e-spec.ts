@@ -290,7 +290,16 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
       .get('/admin/support/tickets')
       .set('Authorization', `Bearer ${superAdminToken}`);
     expect(listAdmin.status).toBe(200);
-    expect(listAdmin.body.some((t: { id: string }) => t.id === ticketId)).toBe(true);
+    expect(listAdmin.body.items.some((t: { id: string }) => t.id === ticketId)).toBe(true);
+
+    // Filtrado por tenant + paginación por cursor (limit 1).
+    const byTenant = await request(app.getHttpServer())
+      .get(`/admin/support/tickets?tenantId=${create.body.tenantId}&limit=1`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(byTenant.status).toBe(200);
+    expect(byTenant.body.items).toHaveLength(1);
+    expect(byTenant.body.items[0].id).toBe(ticketId);
+    expect(byTenant.body.nextCursor).toBeNull();
 
     const reply = await request(app.getHttpServer())
       .post(`/admin/support/tickets/${ticketId}/messages`)

@@ -66,6 +66,7 @@ import type {
   AdminMrrForecastDto,
   AdminPaymentRetryAnalysisDto,
   AdminRetentionDto,
+  AdminSupportTicketsPageDto,
   AdminSystemHealthDto,
   AdminTenantActionInput,
   SuspendTenantInput,
@@ -764,20 +765,31 @@ export interface AdminSupportFilters {
   status?: SupportTicketStatusValue | undefined;
   priority?: SupportTicketPriorityValue | undefined;
   assignedAdminId?: string | undefined;
+  tenantId?: string | undefined;
+  search?: string | undefined;
 }
 
 export const adminSupportTicketsKey = (filters?: AdminSupportFilters) =>
   ['admin', 'support', 'tickets', filters ?? {}] as const;
 
+/** Tickets del panel admin, paginados por cursor («Cargar más»). */
 export function useAdminSupportTickets(filters?: AdminSupportFilters) {
-  const qs = new URLSearchParams();
-  if (filters?.status) qs.set('status', filters.status);
-  if (filters?.priority) qs.set('priority', filters.priority);
-  if (filters?.assignedAdminId) qs.set('assignedAdminId', filters.assignedAdminId);
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: adminSupportTicketsKey(filters),
-    queryFn: () =>
-      adminApiFetch<SupportTicketDto[]>(`/admin/support/tickets${qs.toString() ? `?${qs}` : ''}`),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams();
+      if (filters?.status) qs.set('status', filters.status);
+      if (filters?.priority) qs.set('priority', filters.priority);
+      if (filters?.assignedAdminId) qs.set('assignedAdminId', filters.assignedAdminId);
+      if (filters?.tenantId) qs.set('tenantId', filters.tenantId);
+      if (filters?.search) qs.set('search', filters.search);
+      if (pageParam) qs.set('cursor', pageParam);
+      return adminApiFetch<AdminSupportTicketsPageDto>(
+        `/admin/support/tickets${qs.toString() ? `?${qs}` : ''}`,
+      );
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 }
 

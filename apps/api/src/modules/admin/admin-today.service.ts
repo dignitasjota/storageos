@@ -21,6 +21,7 @@ import { AdminTenantsService } from './admin-tenants.service';
 
 import type {
   AdminAddonChargeDueDto,
+  AdminFailedWebhooksDto,
   AdminManualRenewalDueDto,
   AdminOpenTicketDto,
   AdminStaleSuspendedAddonDto,
@@ -89,6 +90,7 @@ export class AdminTodayService {
       followupsDue,
       openTickets,
       failedJobs,
+      failedWebhooks,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -97,6 +99,7 @@ export class AdminTodayService {
       this.followups.listPending(),
       this.openTickets(now),
       this.countFailedJobs(),
+      this.failedWebhooks(now),
     ]);
 
     const urgentCount =
@@ -105,6 +108,7 @@ export class AdminTodayService {
       atRisk.pastDue.length +
       followupsDue.length +
       openTickets.length +
+      failedWebhooks.length +
       (failedJobs > 0 ? 1 : 0);
     return {
       date: now.toISOString(),
@@ -115,6 +119,7 @@ export class AdminTodayService {
       followupsDue,
       staleSuspendedAddons,
       openTickets,
+      failedWebhooks,
       failedJobs,
       urgentCount,
     };
@@ -142,6 +147,50 @@ export class AdminTodayService {
       priority: r.priority,
       waitingDays: Math.floor((now.getTime() - r.updatedAt.getTime()) / MS_PER_DAY),
     }));
+  }
+
+  /**
+   * Tenants con entregas de webhook salientes en `failed` en los últimos 7 días
+   * (agotaron los reintentos): su integración está rota y conviene avisarles.
+   */
+  private async failedWebhooks(now: Date): Promise<AdminFailedWebhooksDto[]> {
+    const since = new Date(now.getTime() - 7 * MS_PER_DAY);
+    const groups = await this.admin.webhookDelivery.groupBy({
+      by: ['tenantId'],
+      where: { status: 'failed', createdAt: { gte: since } },
+      _count: { _all: true },
+      _max: { createdAt: true },
+    });
+    if (groups.length === 0) return [];
+    const tenantIds = groups.map((g) => g.tenantId);
+    const [tenants, lastErrors] = await Promise.all([
+      this.admin.tenant.findMany({
+        where: { id: { in: tenantIds } },
+        select: { id: true, name: true },
+      }),
+      this.admin.webhookDelivery.findMany({
+        where: { tenantId: { in: tenantIds }, status: 'failed', createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        distinct: ['tenantId'],
+        select: { tenantId: true, errorMessage: true, statusCode: true },
+      }),
+    ]);
+    const names = new Map(tenants.map((t) => [t.id, t.name]));
+    const errors = new Map(
+      lastErrors.map((e) => [
+        e.tenantId,
+        e.errorMessage ?? (e.statusCode != null ? `HTTP ${e.statusCode}` : null),
+      ]),
+    );
+    return groups
+      .map((g) => ({
+        tenantId: g.tenantId,
+        tenantName: names.get(g.tenantId) ?? '—',
+        failedCount: g._count._all,
+        lastFailedAt: (g._max.createdAt ?? now).toISOString(),
+        lastError: errors.get(g.tenantId) ?? null,
+      }))
+      .sort((a, b) => b.failedCount - a.failedCount);
   }
 
   /** Nº total de jobs BullMQ en estado failed (colas que necesitan atención). */

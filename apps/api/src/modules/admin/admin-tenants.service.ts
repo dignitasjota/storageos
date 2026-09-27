@@ -9,6 +9,7 @@ import {
   resolvePlanFeatures,
 } from '@storageos/shared';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -100,6 +101,9 @@ const ANON = '*** ANONIMIZADO ***';
 @Injectable()
 export class AdminTenantsService {
   private readonly logger = new Logger(AdminTenantsService.name);
+  /** Caché de 60 s de las agregaciones cross-tenant de salud y adopción. */
+  private readonly healthCache = new TtlCache<AdminTenantHealthDto[]>();
+  private readonly adoptionCache = new TtlCache<AdminAdoptionDto>();
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -405,7 +409,11 @@ export class AdminTenantsService {
    * facturación reciente, estado de la suscripción y adopción (contratos +
    * locales). Solo lectura/agregación cross-tenant.
    */
-  async getTenantsHealth(): Promise<AdminTenantHealthDto[]> {
+  getTenantsHealth(): Promise<AdminTenantHealthDto[]> {
+    return this.healthCache.get('all', () => this.computeTenantsHealth());
+  }
+
+  private async computeTenantsHealth(): Promise<AdminTenantHealthDto[]> {
     const now = new Date();
     const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -623,7 +631,11 @@ export class AdminTenantsService {
    * límites; es candidato si ese plan es más caro que el actual (engloba tanto
    * "usa una feature fuera de su plan" como "topa límites"). Solo lectura.
    */
-  async getAdoption(): Promise<AdminAdoptionDto> {
+  getAdoption(): Promise<AdminAdoptionDto> {
+    return this.adoptionCache.get('all', () => this.computeAdoption());
+  }
+
+  private async computeAdoption(): Promise<AdminAdoptionDto> {
     const [
       tenants,
       plans,
