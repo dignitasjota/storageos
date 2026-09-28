@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { ContractEndingSoonCron } from '../src/modules/contracts/contract-ending-soon.cron';
+import { PushService } from '../src/modules/push/push.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -26,6 +27,7 @@ async function createSignedContract(
   unitId: string,
   customerId: string,
   endDate: string,
+  autoRenew = true,
 ): Promise<string> {
   const res = await request(app.getHttpServer())
     .post('/contracts')
@@ -38,6 +40,7 @@ async function createSignedContract(
       priceMonthly: 80,
       discountAmount: 0,
       depositAmount: 100,
+      autoRenew,
     });
   if (res.status !== 201) {
     throw new Error(`contract create failed ${res.status}: ${JSON.stringify(res.body)}`);
@@ -115,5 +118,28 @@ describe('Cron contract_ending_soon (e2e)', () => {
     // (second.notified puede ser >0 si otros tenants tienen contratos; lo relevante
     // es que este tenant no recibe un segundo aviso.)
     void second;
+  });
+
+  it('push al inquilino solo si el contrato sigue activo y sin renovación automática', async () => {
+    const owner = await registerVerifiedUser(app, 'ces-push');
+    const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    const noRenew = await createCustomer(app, owner.accessToken);
+    const renews = await createCustomer(app, owner.accessToken);
+    await createSignedContract(app, owner.accessToken, unitIds[0]!, noRenew, isoDate(12), false);
+    await createSignedContract(app, owner.accessToken, unitIds[1]!, renews, isoDate(12), true);
+
+    const push = app.get(PushService);
+    const spy = jest.spyOn(push, 'sendToCustomer');
+    await cron.run();
+
+    let calls: unknown[][] = [];
+    for (let i = 0; i < 15; i++) {
+      calls = spy.mock.calls.filter((c) => c[1] === noRenew || c[1] === renews);
+      if (calls.length > 0) break;
+      await sleep(300);
+    }
+    spy.mockRestore();
+    expect(calls.map((c) => c[1])).toEqual([noRenew]);
+    expect(calls[0]![2]).toMatchObject({ title: 'Tu contrato vence pronto', url: '/portal/login' });
   });
 });
