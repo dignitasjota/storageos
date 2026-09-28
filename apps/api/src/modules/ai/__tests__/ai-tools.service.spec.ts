@@ -15,11 +15,16 @@ describe('AiToolsService — permisos', () => {
     const names = tools
       .definitions({ permissions: ['units:read', 'customers:read'] })
       .map((d) => d.name);
-    expect(names).toEqual(['get_occupancy', 'search_customers', 'get_customer_summary']);
+    expect(names).toEqual([
+      'get_occupancy',
+      'search_customers',
+      'get_customer_summary',
+      'get_unit_availability',
+    ]);
   });
 
   it('sin permisos relevantes no ofrece ninguna herramienta', () => {
-    expect(tools.definitions({ permissions: ['tasks:read'] })).toEqual([]);
+    expect(tools.definitions({ permissions: ['templates:read'] })).toEqual([]);
   });
 
   it('rechaza ejecutar una herramienta no permitida o inventada sin consultar la BD', async () => {

@@ -46,7 +46,7 @@ export class AnthropicAiProvider extends AiProvider {
       },
       body: JSON.stringify({
         model: this.model,
-        max_tokens: 1024,
+        max_tokens: 2048,
         system: args.system,
         tools: args.tools,
         messages: args.messages,

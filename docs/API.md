@@ -1809,7 +1809,7 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 
 ### Asistente IA (`/ai/...`)
 
-- `POST /ai/chat` (`ai:use`): body `{ conversationId?, content }`. Crea la conversación si no se pasa id; el asistente puede invocar herramientas read-only (ocupación, vencidas, métricas, búsqueda/resumen de cliente) ejecutadas con el contexto del tenant **y del usuario**: solo se ofrecen las que su rol permite (métricas `analytics:read`, ocupación `units:read`, vencidas `invoices:read`, clientes `customers:read`) y los datos se filtran por su `facilityScope`. Devuelve `{ conversationId, message }` (con `toolsUsed`). 503 `ai_not_configured` si el provider anthropic no tiene API key.
+- `POST /ai/chat` (`ai:use`): body `{ conversationId?, content }`. Crea la conversación si no se pasa id; el asistente puede invocar herramientas read-only (ocupación, vencidas, métricas, búsqueda/resumen de cliente) ejecutadas con el contexto del tenant **y del usuario**: solo se ofrecen las que su rol permite (métricas e ingresos por mes `analytics:read`, ocupación y disponibilidad `units:read`, vencidas `invoices:read`, clientes `customers:read`, contratos que vencen `contracts:read`, leads `leads:read`, tareas `tasks:read`, incidencias `incidents:read`, gastos `expenses:read`) y los datos se filtran por su `facilityScope`. Devuelve `{ conversationId, message }` (con `toolsUsed`). 503 `ai_not_configured` si el provider anthropic no tiene API key.
 - `GET /ai/conversations` (`ai:use`) + `GET /ai/conversations/:id` + `DELETE /ai/conversations/:id`: scoped por usuario.
 - Provider por `AI_PROVIDER=stub|anthropic` (+ `ANTHROPIC_API_KEY`, `AI_MODEL`). El stub permite dev/test sin coste.
 
