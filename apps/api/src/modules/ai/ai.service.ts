@@ -103,6 +103,20 @@ Reglas ESTRICTAS:
 
 const MAX_TOOL_ITERATIONS = 5;
 
+interface ChatArgs {
+  tenantId: string;
+  userId: string;
+  /** Permisos y locales del usuario: acotan las herramientas y sus datos. */
+  permissions: readonly Permission[];
+  facilityScope: string[] | null;
+  input: ChatInput;
+}
+
+export interface ChatStreamHooks {
+  onText: (delta: string) => void;
+  onTool: (toolName: string) => void;
+}
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -113,20 +127,34 @@ export class AiService {
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
   ) {}
 
-  async chat(args: {
-    tenantId: string;
-    userId: string;
-    /** Permisos y locales del usuario: acotan las herramientas y sus datos. */
-    permissions: readonly Permission[];
-    facilityScope: string[] | null;
-    input: ChatInput;
-  }): Promise<ChatResultDto> {
+  /** 503 si el provider no está configurado (antes de abrir un stream). */
+  assertAvailable(): void {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
         code: 'ai_not_configured',
         message: 'El asistente IA no está configurado en este entorno',
       });
     }
+  }
+
+  async chat(args: ChatArgs): Promise<ChatResultDto> {
+    this.assertAvailable();
+    return this.runChat(args);
+  }
+
+  /**
+   * Igual que `chat`, pero entrega el texto según se genera (`onText`) y avisa
+   * de cada herramienta que se consulta (`onTool`). Si una iteración acaba
+   * pidiendo herramientas, el texto que el modelo escribiera antes no forma
+   * parte de la respuesta final (igual que en `chat`): el cliente lo descarta
+   * al recibir `onTool`.
+   */
+  async chatStream(args: ChatArgs, hooks: ChatStreamHooks): Promise<ChatResultDto> {
+    this.assertAvailable();
+    return this.runChat(args, hooks);
+  }
+
+  private async runChat(args: ChatArgs, hooks?: ChatStreamHooks): Promise<ChatResultDto> {
     const { tenantId, userId, input } = args;
 
     const conversationId = input.conversationId
@@ -166,11 +194,10 @@ export class AiService {
     const toolDefs = this.tools.definitions(toolCtx);
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const completion = await this.provider.createMessage({
-        system: SYSTEM_PROMPT,
-        messages,
-        tools: toolDefs,
-      });
+      const request = { system: SYSTEM_PROMPT, messages, tools: toolDefs };
+      const completion = hooks
+        ? await this.provider.streamMessage(request, hooks.onText)
+        : await this.provider.createMessage(request);
       messages.push({ role: 'assistant', content: completion.content });
 
       const toolUses = completion.content.filter((b) => b.type === 'tool_use');
@@ -186,6 +213,7 @@ export class AiService {
       const results: AiToolResultBlock[] = [];
       for (const use of toolUses) {
         toolsUsed.add(use.name);
+        hooks?.onTool(use.name);
         const output = await this.tools.execute(toolCtx, use.name, use.input);
         results.push({ type: 'tool_result', tool_use_id: use.id, content: output });
       }

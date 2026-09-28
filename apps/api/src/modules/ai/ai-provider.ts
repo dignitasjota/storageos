@@ -50,4 +50,20 @@ export abstract class AiProvider {
     messages: AiMessageParam[];
     tools: AiToolDef[];
   }): Promise<AiCompletion>;
+
+  /**
+   * Como `createMessage`, pero va entregando el texto a `onText` según se
+   * genera (streaming). Devuelve la respuesta completa al terminar. Por defecto
+   * (stub y providers sin streaming) entrega el texto de una vez.
+   */
+  async streamMessage(
+    args: { system: string; messages: AiMessageParam[]; tools: AiToolDef[] },
+    onText: (delta: string) => void,
+  ): Promise<AiCompletion> {
+    const completion = await this.createMessage(args);
+    for (const block of completion.content) {
+      if (block.type === 'text' && block.text) onText(block.text);
+    }
+    return completion;
+  }
 }

@@ -205,3 +205,37 @@ export async function apiFetchBlob(path: string, options: ApiFetchOptions = {}):
 
   return res.blob();
 }
+
+/**
+ * Igual que `apiFetch` (auth + refresh transparente + errores uniformes) pero
+ * devuelve la `Response` sin consumir el cuerpo — para leer respuestas en
+ * streaming (Server-Sent Events del asistente IA).
+ */
+export async function apiFetchResponse(
+  path: string,
+  options: ApiFetchOptions = {},
+): Promise<Response> {
+  const url = path.startsWith('http') ? path : `${env.apiUrl}${withVersion(path)}`;
+  const init: RequestInit = {
+    method: options.method ?? 'GET',
+    ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
+
+  let res = await executeFetch(url, init, options);
+  if (res.status === 401 && options.requiresAuth !== false) {
+    const refreshed = await performRefresh();
+    if (refreshed) res = await executeFetch(url, init, options);
+  }
+
+  if (!res.ok) {
+    const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    throw new ApiError({
+      statusCode: body.statusCode ?? res.status,
+      error: body.error ?? res.statusText,
+      message: body.message ?? 'Error de la API',
+      ...(body.details ? { details: body.details } : {}),
+    });
+  }
+  return res;
+}
