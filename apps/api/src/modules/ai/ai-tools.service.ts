@@ -3,6 +3,38 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 
 import type { AiToolDef } from './ai-provider';
+import type { Prisma } from '@storageos/database';
+import type { Permission } from '@storageos/shared';
+
+/**
+ * Quién pregunta: las herramientas respetan lo mismo que el resto del panel —
+ * sus permisos (solo se le ofrecen las herramientas que su rol permite) y su
+ * alcance por local (`facilityScope`: null = todos los locales).
+ */
+export interface AiToolContext {
+  tenantId: string;
+  permissions: readonly Permission[];
+  facilityScope: string[] | null;
+}
+
+/** Permiso necesario para cada herramienta (mismo que el endpoint equivalente). */
+const TOOL_PERMISSIONS: Record<string, Permission> = {
+  get_business_metrics: 'analytics:read',
+  get_occupancy: 'units:read',
+  list_overdue_invoices: 'invoices:read',
+  search_customers: 'customers:read',
+  get_customer_summary: 'customers:read',
+};
+
+/** Facturas visibles para un usuario limitado por local (mismo criterio que `InvoicesService.list`). */
+function invoiceScope(scope: string[] | null): Prisma.InvoiceWhereInput {
+  if (!scope) return {};
+  return { OR: [{ contract: { unit: { facilityId: { in: scope } } } }, { contractId: null }] };
+}
+
+function contractScope(scope: string[] | null): Prisma.ContractWhereInput {
+  return scope ? { unit: { facilityId: { in: scope } } } : {};
+}
 
 function name(
   c: {
@@ -20,13 +52,24 @@ function name(
 /**
  * Herramientas de **solo lectura** que el asistente puede invocar. Todas se
  * ejecutan con el contexto del tenant (`withTenant` → RLS), de modo que nunca
- * pueden filtrar datos de otro tenant.
+ * pueden filtrar datos de otro tenant, y respetan los permisos y el alcance por
+ * local del usuario que pregunta (como el resto del panel).
  */
 @Injectable()
 export class AiToolsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  definitions(): AiToolDef[] {
+  /** Herramientas que se ofrecen al modelo: solo las que el usuario tiene permiso a usar. */
+  definitions(ctx: Pick<AiToolContext, 'permissions'>): AiToolDef[] {
+    return this.allDefinitions().filter((d) => this.allowed(ctx, d.name));
+  }
+
+  private allowed(ctx: Pick<AiToolContext, 'permissions'>, toolName: string): boolean {
+    const required = TOOL_PERMISSIONS[toolName];
+    return !!required && ctx.permissions.includes(required);
+  }
+
+  private allDefinitions(): AiToolDef[] {
     return [
       {
         name: 'get_business_metrics',
@@ -68,38 +111,55 @@ export class AiToolsService {
   }
 
   async execute(
-    tenantId: string,
+    ctx: AiToolContext,
     toolName: string,
     input: Record<string, unknown>,
   ): Promise<string> {
+    // Defensa en profundidad: el modelo podría pedir una herramienta que no se
+    // le ofreció (o una inventada).
+    if (!this.allowed(ctx, toolName)) {
+      return JSON.stringify({ error: `Herramienta no disponible: ${toolName}` });
+    }
+    const { tenantId, facilityScope: scope } = ctx;
     switch (toolName) {
       case 'get_business_metrics':
-        return JSON.stringify(await this.businessMetrics(tenantId));
+        return JSON.stringify(await this.businessMetrics(tenantId, scope));
       case 'get_occupancy':
-        return JSON.stringify(await this.occupancy(tenantId));
+        return JSON.stringify(await this.occupancy(tenantId, scope));
       case 'list_overdue_invoices':
-        return JSON.stringify(await this.overdueInvoices(tenantId));
+        return JSON.stringify(await this.overdueInvoices(tenantId, scope));
       case 'search_customers':
         return JSON.stringify(await this.searchCustomers(tenantId, String(input.query ?? '')));
       case 'get_customer_summary':
-        return JSON.stringify(await this.customerSummary(tenantId, String(input.customerId ?? '')));
+        return JSON.stringify(
+          await this.customerSummary(tenantId, String(input.customerId ?? ''), scope),
+        );
       default:
         return JSON.stringify({ error: `Herramienta desconocida: ${toolName}` });
     }
   }
 
-  private async businessMetrics(tenantId: string) {
+  private async businessMetrics(tenantId: string, scope: string[] | null) {
     return this.prisma.withTenant(async (tx) => {
       const active = await tx.contract.findMany({
-        where: { tenantId, status: { in: ['active', 'ending'] } },
+        where: { tenantId, status: { in: ['active', 'ending'] }, ...contractScope(scope) },
         select: { priceMonthly: true },
       });
       const mrr = active.reduce((s, c) => s + Number(c.priceMonthly), 0);
-      const units = await tx.unit.groupBy({ by: ['status'], where: { tenantId }, _count: true });
+      const units = await tx.unit.groupBy({
+        by: ['status'],
+        where: { tenantId, ...(scope ? { facilityId: { in: scope } } : {}) },
+        _count: true,
+      });
       const total = units.reduce((s, u) => s + u._count, 0);
       const occupied = units.find((u) => u.status === 'occupied')?._count ?? 0;
       const pending = await tx.invoice.findMany({
-        where: { tenantId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+        where: {
+          tenantId,
+          status: { in: ['issued', 'overdue'] },
+          deletedAt: null,
+          ...invoiceScope(scope),
+        },
         select: { total: true, amountPaid: true },
       });
       const pendingTotal = pending.reduce(
@@ -116,15 +176,16 @@ export class AiToolsService {
     }, tenantId);
   }
 
-  private async occupancy(tenantId: string) {
+  private async occupancy(tenantId: string, scope: string[] | null) {
     return this.prisma.withTenant(async (tx) => {
+      const facilityFilter = scope ? { in: scope } : undefined;
       const grouped = await tx.unit.groupBy({
         by: ['facilityId', 'status'],
-        where: { tenantId },
+        where: { tenantId, ...(facilityFilter ? { facilityId: facilityFilter } : {}) },
         _count: true,
       });
       const facilities = await tx.facility.findMany({
-        where: { tenantId, deletedAt: null },
+        where: { tenantId, deletedAt: null, ...(facilityFilter ? { id: facilityFilter } : {}) },
         select: { id: true, name: true },
       });
       const byFacility = facilities.map((f) => {
@@ -146,10 +207,10 @@ export class AiToolsService {
     }, tenantId);
   }
 
-  private async overdueInvoices(tenantId: string) {
+  private async overdueInvoices(tenantId: string, scope: string[] | null) {
     return this.prisma.withTenant(async (tx) => {
       const invoices = await tx.invoice.findMany({
-        where: { tenantId, status: 'overdue', deletedAt: null },
+        where: { tenantId, status: 'overdue', deletedAt: null, ...invoiceScope(scope) },
         select: {
           invoiceNumber: true,
           total: true,
@@ -201,7 +262,7 @@ export class AiToolsService {
     }, tenantId);
   }
 
-  private async customerSummary(tenantId: string, customerId: string) {
+  private async customerSummary(tenantId: string, customerId: string, scope: string[] | null) {
     if (!/^[0-9a-f-]{36}$/i.test(customerId)) return { error: 'customerId no válido' };
     return this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findFirst({
@@ -217,11 +278,22 @@ export class AiToolsService {
       });
       if (!customer) return { error: 'Cliente no encontrado' };
       const contracts = await tx.contract.findMany({
-        where: { tenantId, customerId, status: { in: ['active', 'ending'] } },
+        where: {
+          tenantId,
+          customerId,
+          status: { in: ['active', 'ending'] },
+          ...contractScope(scope),
+        },
         select: { priceMonthly: true, unit: { select: { code: true } } },
       });
       const invoices = await tx.invoice.findMany({
-        where: { tenantId, customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+        where: {
+          tenantId,
+          customerId,
+          status: { in: ['issued', 'overdue'] },
+          deletedAt: null,
+          ...invoiceScope(scope),
+        },
         select: { invoiceNumber: true, total: true, amountPaid: true, status: true },
       });
       const debt = invoices.reduce(

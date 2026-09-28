@@ -16,7 +16,7 @@ import {
   type AiProvider,
   type AiToolResultBlock,
 } from './ai-provider';
-import { AiToolsService } from './ai-tools.service';
+import { type AiToolContext, AiToolsService } from './ai-tools.service';
 import {
   applySuggestedActionsRanking,
   buildSuggestedActionsPrompt,
@@ -30,6 +30,7 @@ import type {
   AiMessageDto,
   ChatInput,
   ChatResultDto,
+  Permission,
   PortalAiChatInput,
   PortalAiChatResultDto,
   SuggestAdCampaignInput,
@@ -112,7 +113,14 @@ export class AiService {
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
   ) {}
 
-  async chat(args: { tenantId: string; userId: string; input: ChatInput }): Promise<ChatResultDto> {
+  async chat(args: {
+    tenantId: string;
+    userId: string;
+    /** Permisos y locales del usuario: acotan las herramientas y sus datos. */
+    permissions: readonly Permission[];
+    facilityScope: string[] | null;
+    input: ChatInput;
+  }): Promise<ChatResultDto> {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
         code: 'ai_not_configured',
@@ -150,7 +158,12 @@ export class AiService {
 
     const toolsUsed = new Set<string>();
     let finalText = '';
-    const toolDefs = this.tools.definitions();
+    const toolCtx: AiToolContext = {
+      tenantId,
+      permissions: args.permissions,
+      facilityScope: args.facilityScope,
+    };
+    const toolDefs = this.tools.definitions(toolCtx);
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const completion = await this.provider.createMessage({
@@ -173,7 +186,7 @@ export class AiService {
       const results: AiToolResultBlock[] = [];
       for (const use of toolUses) {
         toolsUsed.add(use.name);
-        const output = await this.tools.execute(tenantId, use.name, use.input);
+        const output = await this.tools.execute(toolCtx, use.name, use.input);
         results.push({ type: 'tool_result', tool_use_id: use.id, content: output });
       }
       messages.push({ role: 'user', content: results });
