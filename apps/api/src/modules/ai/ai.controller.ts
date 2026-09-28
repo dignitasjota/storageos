@@ -14,6 +14,7 @@ import {
   type AiConversationDto,
   ChatSchema,
   type ChatResultDto,
+  permissionsForRole,
   SuggestReplySchema,
   type SuggestReplyResultDto,
 } from '@storageos/shared';
@@ -40,7 +41,14 @@ export class AiController {
   @Post('chat')
   @HttpCode(HttpStatus.OK)
   chat(@CurrentUser() user: AuthenticatedUser, @Body() body: ChatDto): Promise<ChatResultDto> {
-    return this.ai.chat({ tenantId: user.tenantId, userId: user.sub, input: body });
+    return this.ai.chat({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      // Tokens antiguos sin claim `permissions` → los del rol (como PermissionsGuard).
+      permissions: user.permissions ?? permissionsForRole(user.role),
+      facilityScope: user.facilityScope ?? null,
+      input: body,
+    });
   }
 
   /** Redacta (no envía) una respuesta sugerida para el chat con un inquilino. */

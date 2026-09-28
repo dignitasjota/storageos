@@ -285,6 +285,14 @@ graves que las pasadas anteriores no detectaron.
 - **Tamaño máximo de subidas** (#528): 20 MB validados al registrar
   (`file_too_large`) + borrado de los objetos rechazados.
 
+- **Herramientas del asistente IA sin permisos ni alcance por local**
+  (2026-09-28, encontrado al revisar el asistente): las herramientas solo
+  recibían el `tenantId`, así que un usuario limitado a un local veía por el
+  asistente la ocupación, las facturas vencidas y la deuda de TODOS los locales.
+  Ahora cada herramienta exige el permiso de su endpoint equivalente (solo se
+  ofrecen al modelo las permitidas, y se revalida al ejecutarlas) y filtra por
+  `facilityScope` con el mismo criterio que el panel.
+
 ## ⚖️ Riesgos aceptados (decisión de Jota)
 
 - **CSP con `'unsafe-inline'` en `script-src`**: quitarlo en Next.js exige
