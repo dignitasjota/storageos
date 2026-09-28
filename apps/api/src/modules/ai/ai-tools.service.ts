@@ -24,7 +24,31 @@ const TOOL_PERMISSIONS: Record<string, Permission> = {
   list_overdue_invoices: 'invoices:read',
   search_customers: 'customers:read',
   get_customer_summary: 'customers:read',
+  get_monthly_revenue: 'analytics:read',
+  list_contracts_ending: 'contracts:read',
+  get_unit_availability: 'units:read',
+  get_leads_summary: 'leads:read',
+  list_open_tasks: 'tasks:read',
+  list_open_incidents: 'incidents:read',
+  get_expenses_summary: 'expenses:read',
 };
+
+/** Entidades con local opcional (tareas, incidencias, gastos): las suyas + las generales. */
+function optionalFacilityScope(scope: string[] | null): {
+  OR?: ({ facilityId: { in: string[] } } | { facilityId: null })[];
+} {
+  return scope ? { OR: [{ facilityId: { in: scope } }, { facilityId: null }] } : {};
+}
+
+/** Entero acotado a partir de la entrada del modelo (que puede venir como string o fuera de rango). */
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+const MS_PER_DAY = 86_400_000;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Facturas visibles para un usuario limitado por local (mismo criterio que `InvoicesService.list`). */
 function invoiceScope(scope: string[] | null): Prisma.InvoiceWhereInput {
@@ -107,6 +131,68 @@ export class AiToolsService {
           required: ['customerId'],
         },
       },
+      {
+        name: 'get_monthly_revenue',
+        description:
+          'Ingresos por mes: importe facturado (facturas emitidas) y cobrado (pagos recibidos) de los últimos N meses, incluido el actual.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            months: { type: 'integer', description: 'Meses a incluir (1-12, por defecto 6)' },
+          },
+        },
+      },
+      {
+        name: 'list_contracts_ending',
+        description:
+          'Contratos activos que terminan en los próximos N días: cliente, trastero, fecha de fin, cuota y si se renuevan solos.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            days: { type: 'integer', description: 'Ventana en días (1-180, por defecto 60)' },
+          },
+        },
+      },
+      {
+        name: 'get_unit_availability',
+        description:
+          'Trasteros disponibles por local y tipo, con el precio mensual más bajo («desde») y el total de cada tipo.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'get_leads_summary',
+        description:
+          'Leads (interesados) recibidos en los últimos N días: cuántos por estado y por origen, y cuántos se ganaron.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            days: { type: 'integer', description: 'Ventana en días (1-365, por defecto 30)' },
+          },
+        },
+      },
+      {
+        name: 'list_open_tasks',
+        description:
+          'Tareas abiertas o en curso: título, prioridad, fecha límite y si están vencidas.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'list_open_incidents',
+        description:
+          'Incidencias sin resolver (reportadas o en investigación): título, gravedad y fecha.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'get_expenses_summary',
+        description:
+          'Gastos del negocio en los últimos N meses, incluido el actual: total, por categoría y por local.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            months: { type: 'integer', description: 'Meses a incluir (1-12, por defecto 3)' },
+          },
+        },
+      },
     ];
   }
 
@@ -133,6 +219,26 @@ export class AiToolsService {
       case 'get_customer_summary':
         return JSON.stringify(
           await this.customerSummary(tenantId, String(input.customerId ?? ''), scope),
+        );
+      case 'get_monthly_revenue':
+        return JSON.stringify(
+          await this.monthlyRevenue(tenantId, scope, clampInt(input.months, 1, 12, 6)),
+        );
+      case 'list_contracts_ending':
+        return JSON.stringify(
+          await this.contractsEnding(tenantId, scope, clampInt(input.days, 1, 180, 60)),
+        );
+      case 'get_unit_availability':
+        return JSON.stringify(await this.unitAvailability(tenantId, scope));
+      case 'get_leads_summary':
+        return JSON.stringify(await this.leadsSummary(tenantId, clampInt(input.days, 1, 365, 30)));
+      case 'list_open_tasks':
+        return JSON.stringify(await this.openTasks(tenantId, scope));
+      case 'list_open_incidents':
+        return JSON.stringify(await this.openIncidents(tenantId, scope));
+      case 'get_expenses_summary':
+        return JSON.stringify(
+          await this.expensesSummary(tenantId, scope, clampInt(input.months, 1, 12, 3)),
         );
       default:
         return JSON.stringify({ error: `Herramienta desconocida: ${toolName}` });
@@ -310,6 +416,236 @@ export class AiToolsService {
         })),
         pendingInvoices: invoices.length,
         totalDebt: Math.round(debt * 100) / 100,
+      };
+    }, tenantId);
+  }
+
+  /** Primer día (UTC) del mes, `offset` meses atrás respecto al actual. */
+  private monthStart(offset: number): Date {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+  }
+
+  private async monthlyRevenue(tenantId: string, scope: string[] | null, months: number) {
+    const from = this.monthStart(months - 1);
+    return this.prisma.withTenant(async (tx) => {
+      const [invoices, payments] = await Promise.all([
+        tx.invoice.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: { notIn: ['draft', 'cancelled'] },
+            issueDate: { gte: from },
+            ...invoiceScope(scope),
+          },
+          select: { issueDate: true, total: true },
+        }),
+        tx.payment.findMany({
+          where: {
+            tenantId,
+            status: 'succeeded',
+            paidAt: { gte: from },
+            ...(scope ? { invoice: invoiceScope(scope) } : {}),
+          },
+          select: { paidAt: true, amount: true },
+        }),
+      ]);
+      const buckets = new Map<string, { invoiced: number; collected: number }>();
+      for (let i = months - 1; i >= 0; i--) {
+        buckets.set(this.monthStart(i).toISOString().slice(0, 7), { invoiced: 0, collected: 0 });
+      }
+      for (const inv of invoices) {
+        const b = inv.issueDate ? buckets.get(inv.issueDate.toISOString().slice(0, 7)) : undefined;
+        if (b) b.invoiced += Number(inv.total);
+      }
+      for (const p of payments) {
+        const b = p.paidAt ? buckets.get(p.paidAt.toISOString().slice(0, 7)) : undefined;
+        if (b) b.collected += Number(p.amount);
+      }
+      return {
+        currency: 'EUR',
+        months: [...buckets].map(([month, b]) => ({
+          month,
+          invoiced: round2(b.invoiced),
+          collected: round2(b.collected),
+        })),
+      };
+    }, tenantId);
+  }
+
+  private async contractsEnding(tenantId: string, scope: string[] | null, days: number) {
+    const now = new Date();
+    const until = new Date(now.getTime() + days * MS_PER_DAY);
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.contract.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['active', 'ending'] },
+          endDate: { not: null, gte: now, lte: until },
+          ...contractScope(scope),
+        },
+        select: {
+          contractNumber: true,
+          status: true,
+          endDate: true,
+          autoRenew: true,
+          priceMonthly: true,
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+          customer: {
+            select: { customerType: true, firstName: true, lastName: true, companyName: true },
+          },
+        },
+        orderBy: { endDate: 'asc' },
+        take: 30,
+      });
+      return rows.map((c) => ({
+        contract: c.contractNumber,
+        customer: name(c.customer),
+        unit: c.unit?.code ?? null,
+        facility: c.unit?.facility?.name ?? null,
+        endDate: c.endDate?.toISOString().slice(0, 10) ?? null,
+        monthlyPrice: Number(c.priceMonthly),
+        autoRenew: c.autoRenew,
+        moveOutRequested: c.status === 'ending',
+      }));
+    }, tenantId);
+  }
+
+  private async unitAvailability(tenantId: string, scope: string[] | null) {
+    return this.prisma.withTenant(async (tx) => {
+      const facilityFilter = scope ? { facilityId: { in: scope } } : {};
+      const [all, available, facilities, types] = await Promise.all([
+        tx.unit.groupBy({
+          by: ['facilityId', 'unitTypeId'],
+          where: { tenantId, ...facilityFilter },
+          _count: true,
+        }),
+        tx.unit.groupBy({
+          by: ['facilityId', 'unitTypeId'],
+          where: { tenantId, status: 'available', ...facilityFilter },
+          _count: true,
+          _min: { basePriceMonthly: true },
+        }),
+        tx.facility.findMany({
+          where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+          select: { id: true, name: true },
+        }),
+        tx.unitType.findMany({ where: { tenantId }, select: { id: true, name: true } }),
+      ]);
+      const facilityName = new Map(facilities.map((f) => [f.id, f.name]));
+      const typeName = new Map(types.map((t) => [t.id, t.name]));
+      return all
+        .filter((g) => facilityName.has(g.facilityId))
+        .map((g) => {
+          const av = available.find(
+            (a) => a.facilityId === g.facilityId && a.unitTypeId === g.unitTypeId,
+          );
+          const from = av?._min.basePriceMonthly;
+          return {
+            facility: facilityName.get(g.facilityId),
+            unitType: typeName.get(g.unitTypeId) ?? null,
+            total: g._count,
+            available: av?._count ?? 0,
+            priceFrom: from != null ? Number(from) : null,
+          };
+        });
+    }, tenantId);
+  }
+
+  /** Leads a nivel de empresa (en el panel tampoco se acotan por local). */
+  private async leadsSummary(tenantId: string, days: number) {
+    const since = new Date(Date.now() - days * MS_PER_DAY);
+    return this.prisma.withTenant(async (tx) => {
+      const where = { tenantId, deletedAt: null, createdAt: { gte: since } };
+      const [byStatus, bySource] = await Promise.all([
+        tx.lead.groupBy({ by: ['status'], where, _count: true }),
+        tx.lead.groupBy({ by: ['source'], where, _count: true }),
+      ]);
+      const total = byStatus.reduce((s, r) => s + r._count, 0);
+      const won = byStatus.find((r) => r.status === 'won')?._count ?? 0;
+      return {
+        days,
+        total,
+        won,
+        conversionPct: total > 0 ? Math.round((won / total) * 100) : 0,
+        byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count])),
+        bySource: Object.fromEntries(bySource.map((r) => [r.source, r._count])),
+      };
+    }, tenantId);
+  }
+
+  private async openTasks(tenantId: string, scope: string[] | null) {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.task.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['open', 'in_progress'] },
+          ...optionalFacilityScope(scope),
+        },
+        select: { title: true, status: true, priority: true, dueDate: true },
+        orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
+        take: 30,
+      });
+      return rows.map((t) => {
+        const due = t.dueDate?.toISOString().slice(0, 10) ?? null;
+        return {
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          dueDate: due,
+          overdue: due !== null && due < today,
+        };
+      });
+    }, tenantId);
+  }
+
+  private async openIncidents(tenantId: string, scope: string[] | null) {
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.incident.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['reported', 'investigating'] },
+          ...optionalFacilityScope(scope),
+        },
+        select: { title: true, status: true, severity: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      });
+      return rows.map((i) => ({
+        title: i.title,
+        status: i.status,
+        severity: i.severity,
+        reportedAt: i.createdAt.toISOString().slice(0, 10),
+      }));
+    }, tenantId);
+  }
+
+  private async expensesSummary(tenantId: string, scope: string[] | null, months: number) {
+    const from = this.monthStart(months - 1);
+    return this.prisma.withTenant(async (tx) => {
+      const where = { tenantId, expenseDate: { gte: from }, ...optionalFacilityScope(scope) };
+      const [byCategory, byFacility, facilities] = await Promise.all([
+        tx.expense.groupBy({ by: ['category'], where, _sum: { amount: true } }),
+        tx.expense.groupBy({ by: ['facilityId'], where, _sum: { amount: true } }),
+        tx.facility.findMany({ where: { tenantId }, select: { id: true, name: true } }),
+      ]);
+      const facilityName = new Map(facilities.map((f) => [f.id, f.name]));
+      const total = byCategory.reduce((s, r) => s + Number(r._sum.amount ?? 0), 0);
+      return {
+        currency: 'EUR',
+        from: from.toISOString().slice(0, 10),
+        total: round2(total),
+        byCategory: Object.fromEntries(
+          byCategory.map((r) => [r.category, round2(Number(r._sum.amount ?? 0))]),
+        ),
+        byFacility: byFacility.map((r) => ({
+          facility: r.facilityId ? (facilityName.get(r.facilityId) ?? null) : 'General (sin local)',
+          amount: round2(Number(r._sum.amount ?? 0)),
+        })),
       };
     }, tenantId);
   }

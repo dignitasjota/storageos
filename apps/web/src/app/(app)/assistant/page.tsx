@@ -28,6 +28,9 @@ const SUGGESTIONS = [
   '¿Cuál es la ocupación actual de mis locales?',
   '¿Qué facturas tengo vencidas?',
   'Dame las métricas del negocio (MRR, contratos, pendiente).',
+  '¿Cuánto he facturado y cobrado los últimos 6 meses?',
+  '¿Qué contratos vencen este mes y no se renuevan solos?',
+  '¿Qué tareas e incidencias tengo abiertas?',
   'Redacta un email recordando un pago pendiente.',
 ];
 
