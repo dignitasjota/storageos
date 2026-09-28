@@ -9,11 +9,13 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
   type AiConversationDetailDto,
   type AiConversationDto,
+  type AiPendingActionDto,
   ChatSchema,
   type ChatResultDto,
   permissionsForRole,
@@ -29,9 +31,10 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { AiActionsService } from './ai-actions.service';
 import { AiService } from './ai.service';
 
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
 class ChatDto extends createZodDto(ChatSchema) {}
 class SuggestReplyDto extends createZodDto(SuggestReplySchema) {}
@@ -40,7 +43,10 @@ class SuggestReplyDto extends createZodDto(SuggestReplySchema) {}
 @Controller('ai')
 @RequireFeature('ai_assistant')
 export class AiController {
-  constructor(private readonly ai: AiService) {}
+  constructor(
+    private readonly ai: AiService,
+    private readonly actions: AiActionsService,
+  ) {}
 
   @Post('chat')
   @HttpCode(HttpStatus.OK)
@@ -91,6 +97,37 @@ export class AiController {
     } finally {
       res.end();
     }
+  }
+
+  /** Confirma una acción propuesta por el asistente: se ejecuta con tus permisos actuales. */
+  @Post('actions/:id/confirm')
+  @HttpCode(HttpStatus.OK)
+  confirmAction(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<AiPendingActionDto> {
+    return this.actions.confirm({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      permissions: user.permissions ?? permissionsForRole(user.role),
+      facilityScope: user.facilityScope ?? null,
+      actionId: id,
+      meta: {
+        ...(req.ip ? { ipAddress: req.ip } : {}),
+        ...(req.header('user-agent') ? { userAgent: req.header('user-agent')! } : {}),
+      },
+    });
+  }
+
+  /** Descarta una acción propuesta (no se ejecuta). */
+  @Post('actions/:id/discard')
+  @HttpCode(HttpStatus.OK)
+  discardAction(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<AiPendingActionDto> {
+    return this.actions.discard(user.tenantId, user.sub, id);
   }
 
   /** Redacta (no envía) una respuesta sugerida para el chat con un inquilino. */

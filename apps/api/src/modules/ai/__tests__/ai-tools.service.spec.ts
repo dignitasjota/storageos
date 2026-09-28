@@ -9,7 +9,7 @@ describe('AiToolsService — permisos', () => {
       throw new Error('no debería consultar la BD');
     }),
   } as unknown as PrismaService;
-  const tools = new AiToolsService(prisma);
+  const tools = new AiToolsService(prisma, {} as never);
 
   it('solo ofrece al modelo las herramientas que el rol permite', () => {
     const names = tools

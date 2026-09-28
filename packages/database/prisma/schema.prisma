@@ -477,6 +477,7 @@ model Tenant {
   bankStatementTxs        BankStatementTransaction[]
   aiConversations         AiConversation[]
   aiMessages              AiMessage[]
+  aiPendingActions        AiPendingAction[]
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
@@ -564,6 +565,7 @@ model User {
   aeatCredentialsUploaded  TenantAeatCredential[]    @relation("AeatCredentialUploadedBy")
   apiKeysCreated           ApiKey[]                  @relation("ApiKeyCreatedBy")
   aiConversations          AiConversation[]
+  aiPendingActions         AiPendingAction[]
   facilities               UserFacility[]
   inspectionPhotos         ContractInspectionPhoto[]
   customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
@@ -2067,6 +2069,7 @@ model AiConversation {
   tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages AiMessage[]
+  actions  AiPendingAction[]
 
   @@index([tenantId, userId])
   @@map("ai_conversations")
@@ -2086,10 +2089,38 @@ model AiMessage {
 
   tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actions      AiPendingAction[]
 
   @@index([conversationId])
   @@index([tenantId])
   @@map("ai_messages")
+}
+
+/// Acción que el asistente IA PROPONE y el usuario confirma/descarta desde la UI.
+model AiPendingAction {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  messageId      String?   @map("message_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  /// create_task | payment_reminder | customer_message
+  type           String
+  payload        Json
+  summary        String
+  /// proposed | confirmed | discarded | failed
+  status         String    @default("proposed")
+  result         Json?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      AiMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([tenantId, userId])
+  @@map("ai_pending_actions")
 }
 
 /// Suscripción Web Push del navegador del inquilino (PWA del portal).

@@ -2,9 +2,11 @@ import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../database/prisma.service';
 
+import { ACTION_PERMISSIONS, AiActionsService } from './ai-actions.service';
+
 import type { AiToolDef } from './ai-provider';
 import type { Prisma } from '@storageos/database';
-import type { Permission } from '@storageos/shared';
+import type { AiActionType, Permission } from '@storageos/shared';
 
 /**
  * Quién pregunta: las herramientas respetan lo mismo que el resto del panel —
@@ -15,6 +17,11 @@ export interface AiToolContext {
   tenantId: string;
   permissions: readonly Permission[];
   facilityScope: string[] | null;
+  /** Para las herramientas que PROPONEN acciones (quién y en qué conversación). */
+  userId?: string;
+  conversationId?: string;
+  /** Ids de las acciones propuestas en esta vuelta (las rellena `execute`). */
+  proposedActionIds?: string[];
 }
 
 /** Permiso necesario para cada herramienta (mismo que el endpoint equivalente). */
@@ -31,6 +38,16 @@ const TOOL_PERMISSIONS: Record<string, Permission> = {
   list_open_tasks: 'tasks:read',
   list_open_incidents: 'incidents:read',
   get_expenses_summary: 'expenses:read',
+  propose_create_task: ACTION_PERMISSIONS.create_task,
+  propose_payment_reminder: ACTION_PERMISSIONS.payment_reminder,
+  propose_customer_message: ACTION_PERMISSIONS.customer_message,
+};
+
+/** Herramienta de propuesta → tipo de acción. */
+const PROPOSAL_TOOLS: Record<string, AiActionType> = {
+  propose_create_task: 'create_task',
+  propose_payment_reminder: 'payment_reminder',
+  propose_customer_message: 'customer_message',
 };
 
 /** Entidades con local opcional (tareas, incidencias, gastos): las suyas + las generales. */
@@ -81,7 +98,10 @@ function name(
  */
 @Injectable()
 export class AiToolsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly actions: AiActionsService,
+  ) {}
 
   /** Herramientas que se ofrecen al modelo: solo las que el usuario tiene permiso a usar. */
   definitions(ctx: Pick<AiToolContext, 'permissions'>): AiToolDef[] {
@@ -183,6 +203,44 @@ export class AiToolsService {
         input_schema: { type: 'object', properties: {} },
       },
       {
+        name: 'propose_create_task',
+        description:
+          'PROPONE crear una tarea. No la crea: el usuario debe confirmarla en pantalla. Úsala cuando pida apuntar o programar algo.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Título breve de la tarea' },
+            description: { type: 'string' },
+            dueDate: { type: 'string', description: 'Fecha límite YYYY-MM-DD' },
+            priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+          },
+          required: ['title'],
+        },
+      },
+      {
+        name: 'propose_payment_reminder',
+        description:
+          'PROPONE enviar por email un recordatorio de pago de una factura pendiente. No lo envía: el usuario debe confirmarlo.',
+        input_schema: {
+          type: 'object',
+          properties: { invoiceNumber: { type: 'string', description: 'Número de la factura' } },
+          required: ['invoiceNumber'],
+        },
+      },
+      {
+        name: 'propose_customer_message',
+        description:
+          'PROPONE enviar un mensaje a un inquilino por el chat de su portal. No lo envía: el usuario debe confirmarlo. Busca antes el id del cliente con search_customers.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            customerId: { type: 'string', description: 'UUID del cliente' },
+            body: { type: 'string', description: 'Texto del mensaje, en español' },
+          },
+          required: ['customerId', 'body'],
+        },
+      },
+      {
         name: 'get_expenses_summary',
         description:
           'Gastos del negocio en los últimos N meses, incluido el actual: total, por categoría y por local.',
@@ -207,6 +265,31 @@ export class AiToolsService {
       return JSON.stringify({ error: `Herramienta no disponible: ${toolName}` });
     }
     const { tenantId, facilityScope: scope } = ctx;
+    const actionType = PROPOSAL_TOOLS[toolName];
+    if (actionType) {
+      if (!ctx.userId || !ctx.conversationId) {
+        return JSON.stringify({
+          error: 'Las acciones solo se pueden proponer en una conversación',
+        });
+      }
+      const proposal = await this.actions.propose(
+        {
+          tenantId,
+          userId: ctx.userId,
+          conversationId: ctx.conversationId,
+          facilityScope: scope,
+        },
+        actionType,
+        input,
+      );
+      if (!proposal.ok) return JSON.stringify({ error: proposal.error });
+      ctx.proposedActionIds?.push(proposal.actionId);
+      return JSON.stringify({
+        status: 'pending_confirmation',
+        summary: proposal.summary,
+        note: 'Propuesta registrada. El usuario debe confirmarla en pantalla: no digas que ya está hecha.',
+      });
+    }
     switch (toolName) {
       case 'get_business_metrics':
         return JSON.stringify(await this.businessMetrics(tenantId, scope));
