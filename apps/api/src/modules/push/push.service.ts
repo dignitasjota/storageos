@@ -144,6 +144,36 @@ export class PushService {
     });
   }
 
+  /**
+   * Contrato que vence en ≤30 días (cron `contracts.ending-soon`). Solo se avisa
+   * si sigue activo y sin renovación automática: con la baja ya pedida o con
+   * renovación automática el aviso confundiría al inquilino.
+   */
+  @OnEvent(DOMAIN_EVENTS.contract_ending_soon, { async: true, promisify: true })
+  async onContractEndingSoon(p: DomainEventPayload): Promise<void> {
+    if (!p.customerId) return;
+    const contract = p.scope.contract;
+    if (!contract || typeof contract !== 'object') return;
+    const { status, autoRenew, endDate } = contract as {
+      status?: unknown;
+      autoRenew?: unknown;
+      endDate?: unknown;
+    };
+    if (status !== 'active' || autoRenew === true) return;
+    const unit = nested(p.scope, 'unit', 'code');
+    const when =
+      typeof endDate === 'string' && endDate
+        ? new Date(`${endDate}T00:00:00Z`).toLocaleDateString('es-ES', { timeZone: 'UTC' })
+        : null;
+    await this.sendToCustomer(p.tenantId, p.customerId, {
+      title: 'Tu contrato vence pronto',
+      body: `${unit ? `El alquiler del trastero ${unit}` : 'Tu alquiler'} termina${
+        when ? ` el ${when}` : ' en breve'
+      }. Si quieres seguir, contacta con tu gestor desde el portal.`,
+      url: '/portal/login',
+    });
+  }
+
   // --- Listeners: cerramos el loop cuando el staff resuelve algo del inquilino ---
 
   @OnEvent(DOMAIN_EVENTS.incident_resolved, { async: true, promisify: true })

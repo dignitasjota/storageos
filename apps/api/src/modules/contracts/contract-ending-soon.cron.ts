@@ -86,6 +86,10 @@ export class ContractEndingSoonCron {
             number: c.contractNumber,
             endDate: c.endDate?.toISOString().slice(0, 10) ?? '',
             priceMonthly: Number(c.priceMonthly).toFixed(2),
+            // Para el push al inquilino: solo tiene sentido si no hay baja
+            // pedida ni renovación automática.
+            status: c.status,
+            autoRenew: c.autoRenew,
           },
           unit: { code: c.unit.code },
           facility: { name: c.unit.facility.name },
