@@ -4,10 +4,12 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
 } from '@nestjs/common';
 import {
   type AiConversationDetailDto,
@@ -29,6 +31,8 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 
 import { AiService } from './ai.service';
 
+import type { Response } from 'express';
+
 class ChatDto extends createZodDto(ChatSchema) {}
 class SuggestReplyDto extends createZodDto(SuggestReplySchema) {}
 
@@ -41,14 +45,52 @@ export class AiController {
   @Post('chat')
   @HttpCode(HttpStatus.OK)
   chat(@CurrentUser() user: AuthenticatedUser, @Body() body: ChatDto): Promise<ChatResultDto> {
-    return this.ai.chat({
-      tenantId: user.tenantId,
-      userId: user.sub,
-      // Tokens antiguos sin claim `permissions` → los del rol (como PermissionsGuard).
-      permissions: user.permissions ?? permissionsForRole(user.role),
-      facilityScope: user.facilityScope ?? null,
-      input: body,
-    });
+    return this.ai.chat(chatArgs(user, body));
+  }
+
+  /**
+   * Chat en streaming (Server-Sent Events). Eventos `data: {…}`:
+   * `text` (trozo de respuesta), `tool` (herramienta que se consulta),
+   * `done` (conversationId + mensaje guardado) y `error`. Los errores previos
+   * a abrir el stream (IA no configurada, validación) responden como siempre.
+   */
+  @Post('chat/stream')
+  async chatStream(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ChatDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    this.ai.assertAvailable();
+    res.status(HttpStatus.OK);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    // Nginx (Proxy Manager) no debe retener la respuesta en su buffer.
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const send = (event: Record<string, unknown>) => {
+      if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    try {
+      const result = await this.ai.chatStream(chatArgs(user, body), {
+        onText: (delta) => send({ type: 'text', delta }),
+        onTool: (name) => send({ type: 'tool', name }),
+      });
+      send({ type: 'done', ...result });
+    } catch (err) {
+      const response =
+        err instanceof HttpException
+          ? (err.getResponse() as { code?: string; message?: string })
+          : null;
+      send({
+        type: 'error',
+        code: response?.code ?? 'ai_stream_failed',
+        message: response?.message ?? 'No se pudo completar la respuesta.',
+      });
+    } finally {
+      res.end();
+    }
   }
 
   /** Redacta (no envía) una respuesta sugerida para el chat con un inquilino. */
@@ -82,4 +124,15 @@ export class AiController {
   ): Promise<void> {
     await this.ai.deleteConversation(user.tenantId, user.sub, id);
   }
+}
+
+function chatArgs(user: AuthenticatedUser, body: ChatDto) {
+  return {
+    tenantId: user.tenantId,
+    userId: user.sub,
+    // Tokens antiguos sin claim `permissions` → los del rol (como PermissionsGuard).
+    permissions: user.permissions ?? permissionsForRole(user.role),
+    facilityScope: user.facilityScope ?? null,
+    input: body,
+  };
 }

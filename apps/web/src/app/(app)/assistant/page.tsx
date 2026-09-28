@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Bot, Plus, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -9,11 +10,13 @@ import type { AiMessageDto } from '@storageos/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  aiConversationsKey,
   useAiChat,
   useAiConversation,
   useAiConversations,
   useDeleteConversation,
 } from '@/lib/ai/hooks';
+import { streamAiChat } from '@/lib/ai/stream';
 import { ApiError } from '@/lib/auth/api';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -22,6 +25,13 @@ const TOOL_LABELS: Record<string, string> = {
   list_overdue_invoices: 'facturas vencidas',
   search_customers: 'búsqueda de clientes',
   get_customer_summary: 'resumen de cliente',
+  get_monthly_revenue: 'ingresos por mes',
+  list_contracts_ending: 'contratos que vencen',
+  get_unit_availability: 'disponibilidad de trasteros',
+  get_leads_summary: 'leads',
+  list_open_tasks: 'tareas abiertas',
+  list_open_incidents: 'incidencias abiertas',
+  get_expenses_summary: 'gastos',
 };
 
 const SUGGESTIONS = [
@@ -42,25 +52,66 @@ export default function AssistantPage() {
   const del = useDeleteConversation();
   const [input, setInput] = useState('');
   const [pending, setPending] = useState<string | null>(null);
+  // Respuesta en curso (streaming): texto recibido y herramienta que se consulta.
+  const [streamText, setStreamText] = useState('');
+  const [streamTool, setStreamTool] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const qc = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const messages: AiMessageDto[] = detail.data?.messages ?? [];
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length, pending]);
+  }, [messages.length, pending, streamText]);
 
   async function send(content: string) {
-    if (!content.trim() || chat.isPending) return;
+    if (!content.trim() || sending) return;
     setPending(content);
     setInput('');
+    setStreamText('');
+    setStreamTool(null);
+    setSending(true);
+    const payload = { conversationId: activeId ?? undefined, content };
+    let received = false;
     try {
-      const res = await chat.mutateAsync({ conversationId: activeId ?? undefined, content });
+      const res = await streamAiChat(payload, {
+        onText: (delta) => {
+          received = true;
+          setStreamTool(null);
+          setStreamText((t) => t + delta);
+        },
+        onTool: (name) => {
+          received = true;
+          // El texto previo a una consulta no forma parte de la respuesta final.
+          setStreamText('');
+          setStreamTool(name);
+        },
+      });
       setActiveId(res.conversationId);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: aiConversationsKey }),
+        qc.invalidateQueries({ queryKey: [...aiConversationsKey, res.conversationId] }),
+      ]);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar el mensaje.');
+      if (err instanceof ApiError) {
+        toast.error(err.body.message);
+      } else if (!received) {
+        // El navegador/red no permitió el streaming: respuesta completa de una vez.
+        try {
+          const res = await chat.mutateAsync(payload);
+          setActiveId(res.conversationId);
+        } catch (e) {
+          toast.error(e instanceof ApiError ? e.body.message : 'No se pudo enviar el mensaje.');
+        }
+      } else {
+        toast.error('Se cortó la respuesta. Inténtalo de nuevo.');
+      }
     } finally {
       setPending(null);
+      setStreamText('');
+      setStreamTool(null);
+      setSending(false);
     }
   }
 
@@ -146,9 +197,24 @@ export default function AssistantPage() {
                 {pending && (
                   <>
                     <UserBubble content={pending} />
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Bot className="h-4 w-4 animate-pulse" /> Pensando…
-                    </div>
+                    {streamText ? (
+                      <MessageBubble
+                        message={{
+                          id: 'streaming',
+                          role: 'assistant',
+                          content: streamText,
+                          toolsUsed: [],
+                          createdAt: new Date().toISOString(),
+                        }}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Bot className="h-4 w-4 animate-pulse" />
+                        {streamTool
+                          ? `Consultando ${TOOL_LABELS[streamTool] ?? streamTool}…`
+                          : 'Pensando…'}
+                      </div>
+                    )}
                   </>
                 )}
               </>
@@ -167,9 +233,9 @@ export default function AssistantPage() {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Escribe tu pregunta…"
               className="flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              disabled={chat.isPending}
+              disabled={sending}
             />
-            <Button type="submit" disabled={chat.isPending || !input.trim()}>
+            <Button type="submit" disabled={sending || !input.trim()}>
               <Send className="h-4 w-4" />
             </Button>
           </form>

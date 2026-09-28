@@ -10,7 +10,8 @@ import type {
   SuggestReplyResultDto,
 } from '@storageos/shared';
 
-const listKey = ['ai', 'conversations'] as const;
+export const aiConversationsKey = ['ai', 'conversations'] as const;
+const listKey = aiConversationsKey;
 const detailKey = (id: string) => ['ai', 'conversations', id] as const;
 
 export function useAiConversations() {
