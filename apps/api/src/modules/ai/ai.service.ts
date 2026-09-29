@@ -10,6 +10,7 @@ import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/share
 
 import { PrismaService } from '../database/prisma.service';
 
+import { AiActionsService } from './ai-actions.service';
 import {
   AI_PROVIDER,
   type AiMessageParam,
@@ -28,6 +29,7 @@ import type {
   AiConversationDetailDto,
   AiConversationDto,
   AiMessageDto,
+  AiPendingActionDto,
   ChatInput,
   ChatResultDto,
   Permission,
@@ -43,6 +45,8 @@ const SYSTEM_PROMPT = `Eres el asistente de TrasterOS, un SaaS de gestión de se
 Ayudas al staff a: resumir información, redactar comunicaciones (emails, WhatsApp) y responder preguntas sobre el negocio.
 
 Cuando la pregunta requiera datos reales (ocupación, facturas vencidas, métricas, un cliente concreto), USA las herramientas disponibles; no inventes cifras. Si necesitas el id de un cliente, búscalo primero con search_customers.
+
+Para ACCIONES (crear una tarea, enviar un recordatorio de pago, escribir a un inquilino) usa las herramientas propose_*: solo dejan la acción preparada y el usuario la confirma en pantalla. Nunca digas que ya está hecha; di que la has dejado lista para que la confirme.
 
 Responde en español, de forma concisa y profesional. Usa euros (€) y el formato español. Si no tienes datos suficientes, dilo claramente.`;
 
@@ -124,6 +128,7 @@ export class AiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tools: AiToolsService,
+    private readonly actions: AiActionsService,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
   ) {}
 
@@ -190,6 +195,9 @@ export class AiService {
       tenantId,
       permissions: args.permissions,
       facilityScope: args.facilityScope,
+      userId,
+      conversationId,
+      proposedActionIds: [],
     };
     const toolDefs = this.tools.definitions(toolCtx);
 
@@ -241,7 +249,14 @@ export class AiService {
       return msg;
     }, tenantId);
 
-    return { conversationId, message: this.messageDto(assistant) };
+    // Las acciones propuestas en esta vuelta cuelgan del mensaje del asistente.
+    const actionIds = toolCtx.proposedActionIds ?? [];
+    await this.actions.attachToMessage(tenantId, actionIds, assistant.id);
+    const actions =
+      actionIds.length > 0
+        ? ((await this.actions.listByMessage(tenantId, conversationId)).get(assistant.id) ?? [])
+        : [];
+    return { conversationId, message: this.messageDto(assistant, actions) };
   }
 
   /**
@@ -634,9 +649,10 @@ Datos del inquilino (${custName}):
         message: 'Conversación no encontrada',
       });
     }
+    const actions = await this.actions.listByMessage(tenantId, conv.id);
     return {
       ...this.conversationDto(conv),
-      messages: conv.messages.map((m) => this.messageDto(m)),
+      messages: conv.messages.map((m) => this.messageDto(m, actions.get(m.id) ?? [])),
     };
   }
 
@@ -701,18 +717,22 @@ Datos del inquilino (${custName}):
     };
   }
 
-  private messageDto(m: {
-    id: string;
-    role: string;
-    content: string;
-    toolsUsed: unknown;
-    createdAt: Date;
-  }): AiMessageDto {
+  private messageDto(
+    m: {
+      id: string;
+      role: string;
+      content: string;
+      toolsUsed: unknown;
+      createdAt: Date;
+    },
+    actions: AiPendingActionDto[] = [],
+  ): AiMessageDto {
     return {
       id: m.id,
       role: m.role as 'user' | 'assistant',
       content: m.content,
       toolsUsed: Array.isArray(m.toolsUsed) ? (m.toolsUsed as string[]) : null,
+      ...(actions.length > 0 ? { actions } : {}),
       createdAt: m.createdAt.toISOString(),
     };
   }

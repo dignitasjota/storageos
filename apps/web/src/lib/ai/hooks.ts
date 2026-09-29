@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   AiConversationDetailDto,
   AiConversationDto,
+  AiPendingActionDto,
   ChatInput,
   ChatResultDto,
   SuggestReplyResultDto,
@@ -57,5 +58,15 @@ export function useDeleteConversation() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/ai/conversations/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: listKey }),
+  });
+}
+
+/** Confirmar / descartar una acción propuesta por el asistente. */
+export function useAiActionDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, decision }: { id: string; decision: 'confirm' | 'discard' }) =>
+      apiFetch<AiPendingActionDto>(`/ai/actions/${id}/${decision}`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: aiConversationsKey }),
   });
 }

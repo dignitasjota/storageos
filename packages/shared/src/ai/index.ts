@@ -12,6 +12,26 @@ export interface AiMessageDto {
   content: string;
   /** Herramientas que consultó el asistente para responder (transparencia). */
   toolsUsed: string[] | null;
+  /** Acciones que el asistente propuso en este mensaje (el usuario las confirma o descarta). */
+  actions?: AiPendingActionDto[];
+  createdAt: string;
+}
+
+/** Tipos de acción que el asistente puede proponer (nunca ejecuta sin confirmación). */
+export const AI_ACTION_TYPES = ['create_task', 'payment_reminder', 'customer_message'] as const;
+export type AiActionType = (typeof AI_ACTION_TYPES)[number];
+
+export type AiActionStatus = 'proposed' | 'confirmed' | 'discarded' | 'failed';
+
+export interface AiPendingActionDto {
+  id: string;
+  type: AiActionType;
+  /** Descripción legible de lo que se hará al confirmar. */
+  summary: string;
+  status: AiActionStatus;
+  /** Tras confirmar: enlace al recurso creado o motivo del fallo. */
+  resultLink: string | null;
+  resultError: string | null;
   createdAt: string;
 }
 

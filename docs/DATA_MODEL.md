@@ -342,7 +342,8 @@ Asistente IA para staff. RLS por `tenant_id`; conversaciones **por usuario** (`u
 
 - **`ai_conversations`**: tenant_id, user_id (FK users), title.
 - **`ai_messages`**: conversation_id, role (user/assistant), content, `tools_used` (jsonb, herramientas consultadas para transparencia).
-- El asistente usa herramientas read-only (ocupación, vencidas, métricas, resumen de cliente) ejecutadas con el contexto del tenant. Permiso `ai:use` (owner/manager/staff).
+- El asistente usa herramientas de lectura ejecutadas con el contexto del tenant **y del usuario** (solo las que su rol permite, filtradas por su `facilityScope`, 2026-09-28). Permiso `ai:use` (owner/manager/staff).
+- **`ai_pending_actions`** (2026-09-28, RLS): acciones que el asistente IA propone y el usuario confirma o descarta. conversation_id (CASCADE), message_id (SET NULL), user_id (quien la propuso y la decide), `type` (create_task/payment_reminder/customer_message), `payload` jsonb validado, `summary`, `status` (proposed/confirmed/discarded/failed), `result` jsonb (`link` o `error`), created_at, resolved_at.
 
 ### `bank_statements` + `bank_statement_transactions` (2026-06-22)
 

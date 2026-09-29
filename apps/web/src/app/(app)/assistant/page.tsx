@@ -2,15 +2,17 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot, Plus, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { AiMessageDto } from '@storageos/shared';
+import type { AiMessageDto, AiPendingActionDto } from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   aiConversationsKey,
+  useAiActionDecision,
   useAiChat,
   useAiConversation,
   useAiConversations,
@@ -32,6 +34,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_open_tasks: 'tareas abiertas',
   list_open_incidents: 'incidencias abiertas',
   get_expenses_summary: 'gastos',
+  propose_create_task: 'preparar una tarea',
+  propose_payment_reminder: 'preparar un recordatorio de pago',
+  propose_customer_message: 'preparar un mensaje al inquilino',
 };
 
 const SUGGESTIONS = [
@@ -256,6 +261,9 @@ function MessageBubble({ message }: { message: AiMessageDto }) {
         <div className="whitespace-pre-wrap rounded-lg bg-muted px-3 py-2 text-sm">
           {message.content}
         </div>
+        {message.actions?.map((a) => (
+          <ActionCard key={a.id} action={a} />
+        ))}
         {message.toolsUsed && message.toolsUsed.length > 0 && (
           <p className="flex items-center gap-1 text-xs text-muted-foreground">
             <Wrench className="h-3 w-3" /> Consultó:{' '}
@@ -276,6 +284,60 @@ function UserBubble({ content }: { content: string }) {
       <div className="whitespace-pre-wrap rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground">
         {content}
       </div>
+    </div>
+  );
+}
+
+const ACTION_STATUS: Record<AiPendingActionDto['status'], string> = {
+  proposed: 'Pendiente de tu confirmación',
+  confirmed: 'Hecho',
+  discarded: 'Descartado',
+  failed: 'No se pudo hacer',
+};
+
+/** Acción propuesta por el asistente: no se ejecuta hasta que la confirmas. */
+function ActionCard({ action }: { action: AiPendingActionDto }) {
+  const decide = useAiActionDecision();
+  const run = async (decision: 'confirm' | 'discard') => {
+    try {
+      const res = await decide.mutateAsync({ id: action.id, decision });
+      if (res.status === 'confirmed') toast.success('Hecho.');
+      if (res.status === 'failed')
+        toast.error(res.resultError ?? 'No se pudo completar la acción.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar la acción.');
+    }
+  };
+  return (
+    <div className="space-y-2 rounded-lg border bg-background px-3 py-2 text-sm">
+      <p className="font-medium">{action.summary}</p>
+      <p className="text-xs text-muted-foreground">
+        {ACTION_STATUS[action.status]}
+        {action.status === 'failed' && action.resultError ? ` — ${action.resultError}` : ''}
+        {action.status === 'confirmed' && action.resultLink ? (
+          <>
+            {' · '}
+            <Link href={action.resultLink} className="text-primary hover:underline">
+              Ver
+            </Link>
+          </>
+        ) : null}
+      </p>
+      {action.status === 'proposed' && (
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => void run('confirm')} disabled={decide.isPending}>
+            Confirmar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void run('discard')}
+            disabled={decide.isPending}
+          >
+            Descartar
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
