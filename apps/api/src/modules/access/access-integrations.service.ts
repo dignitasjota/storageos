@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { AccessCredentialsService } from './access-credentials.service';
@@ -24,6 +25,7 @@ export class AccessIntegrationsService {
     private readonly credentials: AccessCredentialsService,
     private readonly communications: CommunicationsService,
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
   ) {}
 
   /**
@@ -45,14 +47,20 @@ export class AccessIntegrationsService {
     entityId?: string;
   }): Promise<void> {
     // Scope de la credencial = los locales y trasteros de los contratos VIVOS
-    // del inquilino. Sin esto (arrays vacíos) un PIN abría CUALQUIER cerradura
-    // de CUALQUIER otro inquilino del tenant (fuga de aislamiento con
-    // `unit_lock`, y en multi-local también con las cancelas). Si no se resuelve
-    // ningún contrato (edge), se deja abierto (no bloquear al inquilino).
-    const { facilityIds, unitIds } = await this.resolveCustomerScope(
+    // del inquilino (sin esto un PIN abría CUALQUIER cerradura del tenant). Si
+    // no tiene ningún contrato vivo NO se emite: un scope vacío significaría
+    // «sin restricción», y un ex-inquilino que paga una deuda antigua recibiría
+    // un PIN que abre todas las puertas.
+    const { facilityIds, unitIds, unitCode, facilityName } = await this.resolveCustomerScope(
       args.tenantId,
       args.customerId,
     );
+    if (facilityIds.length === 0) {
+      this.logger.warn(
+        `${args.source}: el inquilino ${args.customerId} no tiene contratos vivos; no se emite acceso (tenant=${args.tenantId})`,
+      );
+      return;
+    }
     const created = await this.credentials.create({
       tenantId: args.tenantId,
       userId: null,
@@ -82,9 +90,11 @@ export class AccessIntegrationsService {
       variables: {
         customer: args.scope.customer ?? {},
         credential: { secret: created.revealedSecret },
-        unit: args.scope.unit ?? {},
-        facility: args.scope.facility ?? {},
-        tenant: args.scope.tenant ?? {},
+        // Los eventos no siempre traen trastero/local/tenant (el del primer
+        // pago no los trae): se completan con el contrato vivo y el tenant.
+        unit: args.scope.unit?.code ? args.scope.unit : { code: unitCode ?? '' },
+        facility: args.scope.facility?.name ? args.scope.facility : { name: facilityName ?? '' },
+        tenant: { name: await this.tenantName(args.tenantId) },
       },
       customerId: args.customerId,
       // El PIN se emite al firmar (entityId = contrato) o al pagar la 1ª factura
@@ -105,12 +115,23 @@ export class AccessIntegrationsService {
   private async resolveCustomerScope(
     tenantId: string,
     customerId: string,
-  ): Promise<{ facilityIds: string[]; unitIds: string[] }> {
+  ): Promise<{
+    facilityIds: string[];
+    unitIds: string[];
+    unitCode: string | null;
+    facilityName: string | null;
+  }> {
     const contracts = await this.prisma.withTenant(
       (tx) =>
         tx.contract.findMany({
           where: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
-          select: { unitId: true, unit: { select: { facilityId: true } } },
+          orderBy: { startDate: 'desc' },
+          select: {
+            unitId: true,
+            unit: {
+              select: { code: true, facilityId: true, facility: { select: { name: true } } },
+            },
+          },
         }),
       tenantId,
     );
@@ -118,7 +139,42 @@ export class AccessIntegrationsService {
       ...new Set(contracts.map((c) => c.unit?.facilityId).filter((x): x is string => !!x)),
     ];
     const unitIds = [...new Set(contracts.map((c) => c.unitId).filter((x): x is string => !!x))];
-    return { facilityIds, unitIds };
+    const latest = contracts[0]?.unit;
+    return {
+      facilityIds,
+      unitIds,
+      unitCode: latest?.code ?? null,
+      facilityName: latest?.facility?.name ?? null,
+    };
+  }
+
+  private async tenantName(tenantId: string): Promise<string> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    return t?.name ?? '';
+  }
+
+  /**
+   * ¿Tiene el inquilino ya un acceso propio (de cualquier tipo) que no esté
+   * revocado ni caducado? Cuenta también los suspendidos (el staff pudo
+   * cortarlo por seguridad) y las tarjetas/caras; excluye los pases de un
+   * solo uso (pase nocturno).
+   */
+  private async hasOwnCredential(tenantId: string, customerId: string): Promise<boolean> {
+    const count = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.count({
+          where: {
+            customerId,
+            status: { in: ['pending', 'active', 'suspended'] },
+            maxUses: null,
+          },
+        }),
+      tenantId,
+    );
+    return count > 0;
   }
 
   @OnEvent(DOMAIN_EVENTS.contract_signed, { async: true, promisify: true })
@@ -171,10 +227,12 @@ export class AccessIntegrationsService {
         onlyIfReasonStartsWith: 'dunning:',
         meta: {},
       });
-      // 2. Auto-emisión al primer pago: si el inquilino aún no tiene ninguna
-      //    credencial activa (p. ej. modelo "pago primero"), le emite un PIN.
-      const active = await this.credentials.listForCustomer(payload.tenantId, customerId);
-      if (active.length === 0) {
+      // 2. Auto-emisión al primer pago: solo si el inquilino aún no tiene
+      //    NINGÚN acceso propio (p. ej. reserva online «pago primero»). Un
+      //    acceso suspendido por el staff, una tarjeta o una cara cuentan: no se
+      //    le da un PIN nuevo en cada factura pagada. Sin contratos vivos
+      //    tampoco se emite (lo comprueba issueCredential).
+      if (!(await this.hasOwnCredential(payload.tenantId, customerId))) {
         const customer = await this.prisma.withTenant(
           (tx) =>
             tx.customer.findFirst({

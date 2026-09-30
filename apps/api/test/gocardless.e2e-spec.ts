@@ -256,6 +256,18 @@ describe('GoCardless settings + webhook (e2e)', () => {
     expect(after.body.status).toBe('paid');
     const paidOnce = after.body.amountPaid as number;
 
+    // El cobro por pasarela también emite `invoice_paid` (antes solo el manual):
+    // lo prueba la notificación in-app «Pago recibido» al staff.
+    let paidNotif = false;
+    for (let i = 0; i < 15 && !paidNotif; i++) {
+      const notifs = await request(app.getHttpServer()).get('/notifications').set(auth);
+      paidNotif = (notifs.body.items as { type: string; link: string | null }[]).some(
+        (n) => n.type === 'invoice.paid' && n.link === `/invoices/${invoiceId}`,
+      );
+      if (!paidNotif) await new Promise((r) => setTimeout(r, 300));
+    }
+    expect(paidNotif).toBe(true);
+
     // Dedup: reenviar el MISMO evento `EV-pay` (GoCardless reentrega lotes) NO
     // debe volver a sumar al amountPaid.
     const dup = await request(app.getHttpServer())

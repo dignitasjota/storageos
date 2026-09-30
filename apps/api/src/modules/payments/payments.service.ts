@@ -6,10 +6,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
@@ -35,6 +37,7 @@ export class PaymentsService {
     private readonly paymentMethods: PaymentMethodsService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly goCardlessCharge: GoCardlessChargeService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async list(
@@ -269,6 +272,7 @@ export class PaymentsService {
           : chargeResult.status === 'requires_action'
             ? 'pending'
             : 'failed';
+    let invoiceFullyPaid = false;
     const paymentRow = await this.prisma.withTenant(async (tx) => {
       const updated = await tx.payment.update({
         where: { id: reserved.paymentId },
@@ -300,9 +304,11 @@ export class PaymentsService {
             ...(fully ? { status: 'paid', paidAt: new Date() } : {}),
           },
         });
+        invoiceFullyPaid = fully;
       }
       return updated;
     }, args.tenantId);
+    if (invoiceFullyPaid) await this.emitInvoicePaid(args.tenantId, invoice.id);
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -449,6 +455,7 @@ export class PaymentsService {
       );
       return;
     }
+    let invoicePaidNow = false;
     await this.prisma.withTenant(async (tx) => {
       await tx.payment.update({
         where: { id: existing.id },
@@ -468,13 +475,65 @@ export class PaymentsService {
           select: { amountPaid: true, total: true },
         });
         if (isAtLeast(Number(updated.amountPaid), Number(updated.total))) {
-          await tx.invoice.update({
-            where: { id: existing.invoiceId },
+          // Solo la transición a `paid` avisa (un segundo pago sobre una
+          // factura ya pagada no vuelve a emitir el evento).
+          const flipped = await tx.invoice.updateMany({
+            where: { id: existing.invoiceId, status: { not: 'paid' } },
             data: { status: 'paid', paidAt: args.paidAt ?? new Date() },
           });
+          invoicePaidNow = flipped.count > 0;
         }
       }
     }, args.tenantId);
+    if (invoicePaidNow && existing.invoiceId) {
+      await this.emitInvoicePaid(args.tenantId, existing.invoiceId);
+    }
+  }
+
+  /**
+   * Evento `invoice_paid` para los cobros por pasarela (Stripe, GoCardless),
+   * igual que lo emite el cobro manual: reactiva el acceso cortado por impago,
+   * emite el PIN del primer pago, cierra expedientes de impago, push al
+   * inquilino, notificación al staff, webhooks salientes y automatizaciones.
+   * Best-effort: nunca rompe el cobro.
+   */
+  private async emitInvoicePaid(tenantId: string, invoiceId: string): Promise<void> {
+    try {
+      const inv = await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.findFirst({
+            where: { id: invoiceId },
+            select: {
+              invoiceNumber: true,
+              total: true,
+              paidAt: true,
+              customerId: true,
+              customer: { select: { email: true } },
+            },
+          }),
+        tenantId,
+      );
+      if (!inv) return;
+      const payload: DomainEventPayload = {
+        tenantId,
+        entityType: 'invoice',
+        entityId: invoiceId,
+        customerId: inv.customerId,
+        recipientEmail: inv.customer?.email ?? null,
+        scope: {
+          invoice: {
+            number: inv.invoiceNumber,
+            total: Number(inv.total).toFixed(2),
+            paidAt: (inv.paidAt ?? new Date()).toISOString(),
+          },
+        },
+      };
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
+    } catch (err) {
+      this.logger.warn(
+        `invoice_paid no emitido para ${invoiceId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   /**

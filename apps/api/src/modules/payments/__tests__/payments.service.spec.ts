@@ -5,6 +5,7 @@ import type { PrismaService } from '../../database/prisma.service';
 import type { GoCardlessChargeService } from '../gocardless/gocardless-charge.service';
 import type { PaymentGateway } from '../payment-gateway.interface';
 import type { PaymentMethodsService } from '../payment-methods.service';
+import type { EventEmitter2 } from '@nestjs/event-emitter';
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
 const PAYMENT_ID = '019e3d20-bbbb-7c2f-bf37-6511065b9fc5';
@@ -13,7 +14,12 @@ const GATEWAY_PAYMENT_ID = 'pi_3QxTest123';
 
 interface TxMock {
   payment: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock; count: jest.Mock };
-  invoice: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock; update: jest.Mock };
+  invoice: {
+    findFirst: jest.Mock;
+    findUniqueOrThrow: jest.Mock;
+    update: jest.Mock;
+    updateMany: jest.Mock;
+  };
   paymentMethod: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
   $executeRaw: jest.Mock;
 }
@@ -32,6 +38,7 @@ function buildTx(): TxMock {
       findFirst: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     paymentMethod: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn() },
     // Advisory lock (`pg_advisory_xact_lock`) del guard anti-doble-cobro.
@@ -45,6 +52,7 @@ function buildService(
     gateway?: { charge: jest.Mock };
     paymentMethods?: { decryptToken: jest.Mock };
     goCardlessCharge?: { charge: jest.Mock };
+    events?: { emit: jest.Mock };
   } = {},
 ) {
   const prisma = {
@@ -57,6 +65,7 @@ function buildService(
     (deps.paymentMethods ?? null) as unknown as PaymentMethodsService,
     (deps.gateway ?? null) as unknown as PaymentGateway,
     (deps.goCardlessCharge ?? { charge: jest.fn() }) as unknown as GoCardlessChargeService,
+    (deps.events ?? { emit: jest.fn() }) as unknown as EventEmitter2,
   );
 }
 
@@ -101,13 +110,52 @@ describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
         data: expect.objectContaining({ amountPaid: { increment: 80 } }),
       }),
     );
-    // 2º update: como cubre el total, marca la factura pagada.
-    expect(tx.invoice.update).toHaveBeenCalledWith(
+    // 2º: como cubre el total, marca la factura pagada (solo si no lo estaba).
+    expect(tx.invoice.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: INVOICE_ID },
+        where: { id: INVOICE_ID, status: { not: 'paid' } },
         data: expect.objectContaining({ status: 'paid' }),
       }),
     );
+  });
+
+  it('al pasar la factura a pagada emite invoice_paid (y no si ya estaba pagada)', async () => {
+    const tx = buildTx();
+    tx.payment.findFirst.mockResolvedValue(paymentRow({ status: 'processing' }));
+    tx.invoice.update.mockResolvedValue({ amountPaid: 100, total: 100 });
+    tx.invoice.findFirst.mockResolvedValue({
+      invoiceNumber: 'F-2026-0001',
+      total: 100,
+      paidAt: new Date(),
+      customerId: 'cust-1',
+      customer: { email: 'inq@example.com' },
+    });
+    const events = { emit: jest.fn() };
+    const service = buildService(tx, { events });
+
+    await service.syncFromWebhook({
+      tenantId: TENANT,
+      gatewayPaymentId: GATEWAY_PAYMENT_ID,
+      newStatus: 'succeeded',
+    });
+    expect(events.emit).toHaveBeenCalledWith(
+      'domain.invoice_paid',
+      expect.objectContaining({
+        entityId: INVOICE_ID,
+        customerId: 'cust-1',
+        recipientEmail: 'inq@example.com',
+      }),
+    );
+
+    events.emit.mockClear();
+    tx.payment.findFirst.mockResolvedValue(paymentRow({ status: 'processing' }));
+    tx.invoice.updateMany.mockResolvedValue({ count: 0 });
+    await service.syncFromWebhook({
+      tenantId: TENANT,
+      gatewayPaymentId: GATEWAY_PAYMENT_ID,
+      newStatus: 'succeeded',
+    });
+    expect(events.emit).not.toHaveBeenCalled();
   });
 
   it('webhook succeeded duplicado (payment ya succeeded) es no-op: no vuelve a sumar amountPaid', async () => {
