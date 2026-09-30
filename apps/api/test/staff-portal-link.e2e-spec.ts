@@ -3,7 +3,7 @@ import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
-import { deleteAllMessages } from './helpers/mailpit';
+import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -126,5 +126,39 @@ describe('Staff genera magic link del portal (e2e)', () => {
       where: { action: 'portal.sessions_revoked', entityId: customerId },
     });
     expect(audit).toBeTruthy();
+  });
+
+  it('el staff envía por email el acceso al portal y el inquilino entra con él', async () => {
+    const owner = await registerVerifiedUser(app, 'pwelcome');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const email = `pwelcome-${Date.now()}@e2e.local`;
+    const customerId = await createCustomer(app, owner.accessToken, { email });
+
+    const sent = await request(app.getHttpServer())
+      .post(`/customers/${customerId}/portal-link/send-email`)
+      .set(auth)
+      .expect(200);
+    expect(sent.body).toEqual({ sentTo: email });
+
+    const mail = await waitForEmail(email, { subjectIncludes: 'área de clientes' });
+    expect(mail.Text).toContain(`/portal/login?slug=${owner.slug}`);
+    const token = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
+    expect(token).toBeDefined();
+    const consume = await request(app.getHttpServer())
+      .post('/portal/login/consume')
+      .send({ token })
+      .expect(200);
+    expect(consume.body.customerId).toBe(customerId);
+
+    // Sin email → 400; sin autenticación → 401.
+    const noEmail = await createCustomer(app, owner.accessToken, { email: '' });
+    const bad = await request(app.getHttpServer())
+      .post(`/customers/${noEmail}/portal-link/send-email`)
+      .set(auth)
+      .expect(400);
+    expect(bad.body.code).toBe('customer_without_email');
+    await request(app.getHttpServer())
+      .post(`/customers/${customerId}/portal-link/send-email`)
+      .expect(401);
   });
 });

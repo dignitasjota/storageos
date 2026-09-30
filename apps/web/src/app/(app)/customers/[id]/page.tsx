@@ -108,6 +108,7 @@ export default function CustomerDetailPage() {
           <Can permission="customers:write">
             <PortalLinkButton
               customerId={c.id}
+              customerEmail={c.email}
               portalAccessEnabled={c.portalAccessEnabled}
               className="w-full justify-center sm:w-auto"
             />

@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -54,6 +56,7 @@ import {
   useCustomerUnreadSummary,
   useCustomers,
   useDeleteCustomer,
+  useSendPortalAccessEmail,
 } from '@/lib/customers/hooks';
 
 export default function CustomersPage() {
@@ -61,6 +64,9 @@ export default function CustomersPage() {
   const unreadByCustomer = useCustomerUnreadSummary().data?.byCustomer ?? {};
   const create = useCreateCustomer();
   const remove = useDeleteCustomer();
+  const sendAccess = useSendPortalAccessEmail();
+  // Marcada por defecto: al crear, el inquilino recibe por email su acceso al portal.
+  const [sendAccessEmail, setSendAccessEmail] = useState(true);
   // RBAC v2 (PR1): borrar inquilinos es owner-only (`customers:delete`).
   const canDelete = useHasPermission('customers:delete');
   const canWrite = useHasPermission('customers:write');
@@ -85,10 +91,21 @@ export default function CustomersPage() {
 
   async function onSubmit(values: CreateCustomerInput) {
     try {
-      await create.mutateAsync({ ...values, customerType: type });
+      const created = await create.mutateAsync({ ...values, customerType: type });
       toast.success('Inquilino creado.');
       form.reset();
       setOpen(false);
+      if (sendAccessEmail && created.email) {
+        try {
+          const res = await sendAccess.mutateAsync(created.id);
+          toast.success(`Acceso al portal enviado a ${res.sentTo}.`);
+        } catch (err) {
+          toast.error(
+            `No se pudo enviar el acceso al portal: ${err instanceof ApiError ? err.body.message : 'error'}. Puedes reenviarlo desde su ficha.`,
+          );
+        }
+      }
+      setSendAccessEmail(true);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -373,6 +390,18 @@ export default function CustomersPage() {
                         </FormItem>
                       )}
                     />
+                    {form.watch('email') && (
+                      <div className="flex items-start gap-2">
+                        <Checkbox
+                          id="send-access-email"
+                          checked={sendAccessEmail}
+                          onCheckedChange={(v) => setSendAccessEmail(v === true)}
+                        />
+                        <Label htmlFor="send-access-email" className="font-normal leading-snug">
+                          Enviar al inquilino su acceso al portal por email
+                        </Label>
+                      </div>
+                    )}
                     <DialogFooter>
                       <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                         Cancelar

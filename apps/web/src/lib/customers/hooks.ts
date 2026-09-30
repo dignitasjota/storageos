@@ -481,6 +481,16 @@ export function useCreatePortalLink(customerId: string) {
   });
 }
 
+/** Envía al inquilino por email su acceso al portal (bienvenida o reenvío). */
+export function useSendPortalAccessEmail() {
+  return useMutation({
+    mutationFn: (customerId: string) =>
+      apiFetch<{ sentTo: string }>(`/customers/${customerId}/portal-link/send-email`, {
+        method: 'POST',
+      }),
+  });
+}
+
 /** El staff genera un enlace para que el inquilino (re)establezca su contraseña. */
 export function useCreatePasswordResetLink(customerId: string) {
   return useMutation({
