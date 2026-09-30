@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -17,7 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAdminEmailSettings, useSendTestEmail, useUpdateEmailSettings } from '@/lib/admin/hooks';
+import {
+  useAdminEmailSettings,
+  useDeleteBrevoDomain,
+  useSendTestEmail,
+  useUnusedBrevoDomains,
+  useUpdateEmailSettings,
+} from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -184,6 +190,71 @@ export default function AdminEmailPage() {
           </form>
         </CardContent>
       </Card>
+      <UnusedBrevoDomainsCard />
     </div>
+  );
+}
+
+function UnusedBrevoDomainsCard() {
+  const { data, isLoading, error } = useUnusedBrevoDomains();
+  const remove = useDeleteBrevoDomain();
+
+  async function onDelete(domain: string) {
+    if (
+      !window.confirm(
+        `¿Borrar ${domain} de la cuenta de Brevo? Si alguien vuelve a usarlo tendrá que rehacer los DNS.`,
+      )
+    )
+      return;
+    try {
+      await remove.mutateAsync(domain);
+      toast.success(`${domain} borrado de Brevo.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Dominios en Brevo sin uso</CardTitle>
+        <CardDescription>
+          Dominios de tu cuenta de Brevo que ya no usa ningún tenant (los quitaron, los cambiaron
+          por otro o se crearon a mano). La app nunca los borra sola.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : error ? (
+          <p className="text-sm text-muted-foreground">
+            {error instanceof ApiError ? error.body.message : 'No se pudo consultar Brevo.'}
+          </p>
+        ) : !data || data.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay dominios sin uso.</p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {data.map((d) => (
+              <li key={d.domain} className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{d.domain}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {d.authenticated ? 'Autenticado en Brevo' : 'Sin autenticar'}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={remove.isPending}
+                  onClick={() => void onDelete(d.domain)}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" /> Borrar de Brevo
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

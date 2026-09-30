@@ -56,6 +56,7 @@ import type {
   PlatformEmailSettingsDto,
   UpdatePlatformEmailSettingsInput,
   TestEmailResultDto,
+  UnusedBrevoDomainDto,
   AdminTenantHealthDto,
   TenantFeature,
   AdminBroadcastInput,
@@ -1513,6 +1514,27 @@ export function useUpdateEmailSettings() {
         json: input,
       }),
     onSuccess: (data) => qc.setQueryData(['admin', 'email-settings'], data),
+  });
+}
+
+export function useUnusedBrevoDomains() {
+  return useQuery({
+    queryKey: ['admin', 'email-settings', 'brevo-unused'] as const,
+    queryFn: () =>
+      adminApiFetch<UnusedBrevoDomainDto[]>('/admin/email-settings/brevo-domains/unused'),
+    retry: false,
+  });
+}
+
+export function useDeleteBrevoDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (domain: string) =>
+      adminApiFetch<void>(`/admin/email-settings/brevo-domains/${encodeURIComponent(domain)}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['admin', 'email-settings', 'brevo-unused'] }),
   });
 }
 

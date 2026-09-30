@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 import { EmailModule } from '../email/email.module';
+import { EmailDomainsModule } from '../email-domains/email-domains.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { PlatformModule } from '../platform/platform.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
@@ -67,6 +68,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
  */
 @Module({
   imports: [
+    EmailDomainsModule,
     AuthModule,
     PlatformModule,
     TwoFactorModule,
