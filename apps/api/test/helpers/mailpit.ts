@@ -14,6 +14,8 @@ interface MailpitSummary {
 
 interface MailpitMessage {
   ID: string;
+  From: { Address: string; Name: string };
+  ReplyTo: { Address: string; Name: string }[] | null;
   Subject: string;
   HTML: string;
   Text: string;

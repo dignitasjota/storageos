@@ -507,7 +507,7 @@ export class WaitlistService {
       entry.facility.name,
     )}</strong>, que estabas esperando. Contáctanos para reservarlo antes de que lo haga otra persona.</p>`;
     const text = `Hola ${entry.contactName}, se ha liberado un ${entry.unitType.name} en ${entry.facility.name}, que estabas esperando. Contáctanos para reservarlo.`;
-    await this.email.sendRendered({ to: entry.contactEmail, subject, html, text });
+    await this.email.sendRendered({ tenantId, to: entry.contactEmail, subject, html, text });
 
     // Aviso in-app al staff.
     await this.notifications.create(tenantId, {

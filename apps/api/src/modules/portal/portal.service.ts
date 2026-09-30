@@ -284,6 +284,7 @@ export class PortalService {
 
     const link = `${this.portalBaseUrl(tenant)}/portal/consume?token=${tokenId}.${secret}`;
     await this.email.send({
+      tenantId: tenant.id,
       to: input.email,
       subject: `Accede a tu cuenta de ${tenant.name}`,
       template: PortalMagicLinkEmail({
@@ -453,6 +454,7 @@ export class PortalService {
     );
     const link = `${this.portalBaseUrl(tenant)}/portal/reset?token=${tokenId}.${secret}`;
     await this.email.send({
+      tenantId: tenant.id,
       to: input.email,
       subject: `Restablece tu contraseña de ${tenant.name}`,
       template: PortalMagicLinkEmail({ tenantName: tenant.name, link, ttlMinutes: 30 }),

@@ -138,14 +138,22 @@ const envSchemaBase = z.object({
   MINIO_PUBLIC_URL: z.string().url().default('http://localhost:9010'),
 
   // --- Email provider ---
-  /** Selecciona la implementacion. En dev/test = smtp (Mailpit). En prod = resend. */
-  EMAIL_PROVIDER: z.enum(['smtp', 'resend']).default('smtp'),
+  /** Selecciona la implementacion. En dev/test = smtp (Mailpit). En prod = brevo o resend. */
+  EMAIL_PROVIDER: z.enum(['smtp', 'resend', 'brevo']).default('smtp'),
   EMAIL_FROM_NAME: z.string().default('TrasterOS'),
   EMAIL_FROM_ADDRESS: z.string().email().default('no-reply@storageos.local'),
 
   // --- SMTP (provider = smtp / Mailpit en dev) ---
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().positive().default(1026),
+  /** Credenciales del relay (p. ej. Brevo). Vacías = sin autenticación (Mailpit). */
+  SMTP_USER: z.string().default(''),
+  SMTP_PASSWORD: z.string().default(''),
+  /** true = TLS implícito (puerto 465). Con 587 dejar false: se usa STARTTLS. */
+  SMTP_SECURE: z
+    .union([z.literal('true'), z.literal('false')])
+    .default('false')
+    .transform((v) => v === 'true'),
   /** @deprecated alias historico de EMAIL_FROM_ADDRESS. */
   SMTP_FROM: z.string().email().default('no-reply@storageos.local'),
   /** @deprecated alias historico de EMAIL_FROM_NAME. */
@@ -153,6 +161,9 @@ const envSchemaBase = z.object({
 
   // --- Resend (provider = resend) ---
   RESEND_API_KEY: z.string().default(''),
+
+  // --- Brevo (provider = brevo) ---
+  BREVO_API_KEY: z.string().default(''),
 
   // --- WhatsApp (Fase 5: stub; Fase 8: WABA real) ---
   WHATSAPP_PROVIDER: z.enum(['stub', 'meta_waba']).default('stub'),

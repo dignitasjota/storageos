@@ -1,7 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { EmailProvider, type SendEmailArgs, type SendEmailResult } from './email-provider';
+import {
+  EmailProvider,
+  formatAddress,
+  platformFrom,
+  type SendEmailArgs,
+  type SendEmailResult,
+} from './email-provider';
 
 import type { Env } from '../../../config/env.schema';
 
@@ -43,9 +49,7 @@ export class ResendEmailProvider extends EmailProvider {
     if (!apiKey) {
       throw new Error('RESEND_API_KEY no configurada; EMAIL_PROVIDER=resend');
     }
-    const fromName = this.config.get('EMAIL_FROM_NAME', { infer: true });
-    const fromAddress = this.config.get('EMAIL_FROM_ADDRESS', { infer: true });
-    const from = args.from ?? `${fromName} <${fromAddress}>`;
+    const from = formatAddress(args.from ?? platformFrom(this.config));
 
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -56,6 +60,7 @@ export class ResendEmailProvider extends EmailProvider {
       body: JSON.stringify({
         from,
         to: [args.to],
+        ...(args.replyTo ? { reply_to: formatAddress(args.replyTo) } : {}),
         subject: args.subject,
         html: args.html,
         text: args.text,

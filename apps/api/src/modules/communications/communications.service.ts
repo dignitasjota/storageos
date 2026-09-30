@@ -202,6 +202,7 @@ export class CommunicationsService {
       let providerMessageId: string | null = null;
       if (comm.channel === 'email') {
         const res = await this.email.sendRendered({
+          tenantId,
           to: comm.recipient,
           subject: comm.subject ?? '(sin asunto)',
           html: comm.bodyHtml ?? `<pre>${escapeHtml(comm.bodyText)}</pre>`,

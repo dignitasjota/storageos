@@ -2,14 +2,22 @@ import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { createTransport, type Transporter } from 'nodemailer';
 
-import { EmailProvider, type SendEmailArgs, type SendEmailResult } from './email-provider';
+import {
+  EmailProvider,
+  formatAddress,
+  platformFrom,
+  type SendEmailArgs,
+  type SendEmailResult,
+} from './email-provider';
 
 import type { Env } from '../../../config/env.schema';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 /**
  * SMTP via nodemailer. En dev apunta a Mailpit (localhost:1026). Tambien
- * usable como fallback de Resend si se configura un relay propio.
+ * sirve para un relay con autenticación (p. ej. `smtp-relay.brevo.com:587`
+ * con `SMTP_USER`/`SMTP_PASSWORD`): con usuario se exige STARTTLS; sin él
+ * (Mailpit) no se usa TLS.
  *
  * Workaround `family: 4`: Mailpit en dev escucha solo en IPv4 y Node
  * resuelve `localhost` a `::1` por defecto, provocando ECONNREFUSED.
@@ -28,11 +36,14 @@ export class SmtpEmailProvider extends EmailProvider implements OnModuleInit, On
   }
 
   onModuleInit(): void {
+    const user = this.config.get('SMTP_USER', { infer: true });
+    const pass = this.config.get('SMTP_PASSWORD', { infer: true });
+    const secure = this.config.get('SMTP_SECURE', { infer: true });
     const options: SMTPTransport.Options = {
       host: this.config.get('SMTP_HOST', { infer: true }),
       port: this.config.get('SMTP_PORT', { infer: true }),
-      secure: false,
-      ignoreTLS: true,
+      secure,
+      ...(user ? { auth: { user, pass }, requireTLS: !secure } : { ignoreTLS: true }),
     };
     (options as SMTPTransport.Options & { family?: number }).family = 4;
     this.transporter = createTransport(options);
@@ -47,12 +58,11 @@ export class SmtpEmailProvider extends EmailProvider implements OnModuleInit, On
   }
 
   async send(args: SendEmailArgs): Promise<SendEmailResult> {
-    const fromName = this.config.get('EMAIL_FROM_NAME', { infer: true });
-    const fromAddress = this.config.get('EMAIL_FROM_ADDRESS', { infer: true });
-    const from = args.from ?? `${fromName} <${fromAddress}>`;
+    const from = formatAddress(args.from ?? platformFrom(this.config));
     try {
       const result = await this.transporter.sendMail({
         from,
+        ...(args.replyTo ? { replyTo: formatAddress(args.replyTo) } : {}),
         to: args.to,
         subject: args.subject,
         html: args.html,
