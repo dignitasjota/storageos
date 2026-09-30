@@ -16,6 +16,11 @@ interface EmailLayoutProps {
   preview: string;
   heading: string;
   children: ReactNode;
+  /**
+   * Marca de la cabecera y el pie. Los correos que un tenant envía a sus
+   * inquilinos llevan SU nombre (white-label); los de la plataforma, TrasterOS.
+   */
+  brandName?: string;
 }
 
 /**
@@ -24,7 +29,12 @@ interface EmailLayoutProps {
  *
  * Estilos inline (los clientes de email no aceptan stylesheets externas).
  */
-export function EmailLayout({ preview, heading, children }: EmailLayoutProps) {
+export function EmailLayout({
+  preview,
+  heading,
+  children,
+  brandName = 'TrasterOS',
+}: EmailLayoutProps) {
   const year = new Date().getUTCFullYear();
   return (
     <Html lang="es">
@@ -60,7 +70,7 @@ export function EmailLayout({ preview, heading, children }: EmailLayoutProps) {
                 letterSpacing: 0.5,
               }}
             >
-              STORAGEOS
+              {brandName.toUpperCase()}
             </Text>
             <Heading
               as="h1"
@@ -78,7 +88,7 @@ export function EmailLayout({ preview, heading, children }: EmailLayoutProps) {
           <Hr style={{ borderColor: '#e2e8f0', marginTop: 32, marginBottom: 16 }} />
           <Section>
             <Text style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
-              © {year} TrasterOS. Este email se envia automaticamente; no es necesario que
+              © {year} {brandName}. Este email se envia automaticamente; no es necesario que
               respondas.
             </Text>
           </Section>

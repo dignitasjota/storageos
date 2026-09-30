@@ -22,6 +22,9 @@ import type {
   SendCommunicationInput,
 } from '@storageos/shared';
 
+/** Tras este tiempo en `processing`, un envío se considera atascado y se puede reclamar. */
+const STUCK_PROCESSING_MS = 15 * 60_000;
+
 export interface DispatchJobData {
   tenantId: string;
   communicationId: string;
@@ -187,17 +190,27 @@ export class CommunicationsService {
       this.logger.warn(`dispatch: communication ${communicationId} no existe`);
       return;
     }
-    if (comm.status !== 'pending' && comm.status !== 'failed') {
+    // Reclamo ATÓMICO: solo un worker pasa de pending/failed a processing. Sin
+    // esto, un reintento manual mientras BullMQ aún reintentaba (o dos jobs del
+    // mismo envío) podían mandar el correo dos veces. Un envío que se quedó en
+    // `processing` (el worker murió a mitad) se puede reclamar pasado un rato.
+    const claimed = await this.admin.communication.updateMany({
+      where: {
+        id: comm.id,
+        tenantId,
+        OR: [
+          { status: { in: ['pending', 'failed'] } },
+          { status: 'processing', updatedAt: { lt: new Date(Date.now() - STUCK_PROCESSING_MS) } },
+        ],
+      },
+      data: { status: 'processing' },
+    });
+    if (claimed.count === 0) {
       this.logger.warn(
         `dispatch: communication ${communicationId} status=${comm.status}, ignorando`,
       );
       return;
     }
-    // Lock optimista: marcar processing.
-    await this.admin.communication.update({
-      where: { id: comm.id },
-      data: { status: 'processing' },
-    });
     try {
       let providerMessageId: string | null = null;
       // Proveedor real que entregó el email (Brevo/Resend/SMTP, o el de respaldo).
@@ -322,10 +335,12 @@ export class CommunicationsService {
         message: 'No encontrado',
       });
     }
-    if (row.status !== 'failed' && row.status !== 'bounced') {
+    const stuck =
+      row.status === 'processing' && row.updatedAt.getTime() < Date.now() - STUCK_PROCESSING_MS;
+    if (row.status !== 'failed' && row.status !== 'bounced' && !stuck) {
       throw new ConflictException({
         code: 'communication_not_retriable',
-        message: 'Solo failed/bounced son reintentables',
+        message: 'Solo failed/bounced (o atascados en processing) son reintentables',
       });
     }
     await this.prisma.withTenant(

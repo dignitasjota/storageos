@@ -107,17 +107,32 @@ export class SignaturesService {
       });
     }
     const { token, expiresAt } = await this.generateSigningToken(contractId);
-    const signingUrl = `${this.config.get('WEB_BASE_URL', { infer: true })}/sign/${token}`;
+    // Con dominio propio verificado, el enlace va bajo la web del tenant
+    // (el proxy de dominio propio deja pasar /sign), no bajo la plataforma.
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, customDomain: true, customDomainVerifiedAt: true },
+    });
+    const base =
+      tenant?.customDomain && tenant.customDomainVerifiedAt
+        ? `https://${tenant.customDomain}`
+        : this.config.get('WEB_BASE_URL', { infer: true });
+    const signingUrl = `${base}/sign/${token}`;
 
     let emailed = false;
     const email = contract.customer.email;
     if (email) {
+      const tenantName = tenant?.name ?? '';
+      const until = expiresAt.toISOString().slice(0, 10);
       await this.communications.enqueue({
         tenantId,
         channel: 'email',
         recipient: email,
-        subject: 'Firma tu contrato de alquiler',
-        bodyText: `Hola,\n\nYa puedes revisar y firmar tu contrato de alquiler de trastero en el siguiente enlace:\n\n${signingUrl}\n\nEl enlace caduca el ${expiresAt.toISOString().slice(0, 10)}.`,
+        subject: tenantName
+          ? `Firma tu contrato de alquiler con ${tenantName}`
+          : 'Firma tu contrato de alquiler',
+        bodyText: `Hola,\n\nYa puedes revisar y firmar tu contrato de alquiler de trastero en el siguiente enlace:\n\n${signingUrl}\n\nEl enlace caduca el ${until}.${tenantName ? `\n\nUn saludo,\n${tenantName}` : ''}`,
+        bodyHtml: `<p>Hola,</p><p>Ya puedes revisar y firmar tu contrato de alquiler de trastero:</p><p><a href="${signingUrl}" style="display:inline-block;background:#111;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none">Revisar y firmar</a></p><p style="font-size:12px;color:#888">El enlace caduca el ${until}.</p>${tenantName ? `<p>Un saludo,<br>${escapeHtml(tenantName)}</p>` : ''}`,
         source: 'contract.request_signature',
         customerId: contract.customerId,
         contractId,
@@ -644,4 +659,12 @@ export class SignaturesService {
     if (cancelled > 0) this.logger.log(`Bookings impagados expirados: ${cancelled}`);
     return { cancelled };
   }
+}
+
+function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

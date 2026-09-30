@@ -10,15 +10,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  effectiveFeaturesFromList,
-  resolvePlanFeatures,
   type EmailDnsRecordDto,
   type EmailDomainDto,
   type EmailDomainStatus,
-  type TenantFeature,
   type UpsertEmailDomainInput,
 } from '@storageos/shared';
 
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -350,21 +348,7 @@ export class EmailDomainsService {
   }
 
   async hasFeature(tenantId: string): Promise<boolean> {
-    const [subscription, overrides] = await Promise.all([
-      this.admin.tenantSubscription.findUnique({
-        where: { tenantId },
-        include: { plan: { select: { slug: true, tenantFeatures: true } } },
-      }),
-      this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
-        select: { feature: true, enabled: true },
-      }),
-    ]);
-    const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
-    return effectiveFeaturesFromList(
-      base,
-      overrides as { feature: TenantFeature; enabled: boolean }[],
-    ).includes('custom_domain');
+    return tenantHasFeature(this.admin, tenantId, 'custom_domain');
   }
 
   /** El dominio (o un subdominio) de la plataforma no se puede usar. */

@@ -11,6 +11,7 @@ interface PortalMagicLinkEmailProps {
 export function PortalMagicLinkEmail({ tenantName, link, ttlMinutes }: PortalMagicLinkEmailProps) {
   return (
     <EmailLayout
+      brandName={tenantName}
       preview={`Accede a tu cuenta de ${tenantName}`}
       heading={`Accede a tu cuenta de ${tenantName}`}
     >

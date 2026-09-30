@@ -20,6 +20,7 @@ export function PortalWelcomeEmail({
 }: PortalWelcomeEmailProps) {
   return (
     <EmailLayout
+      brandName={tenantName}
       preview={`Tu acceso al área de clientes de ${tenantName}`}
       heading={
         customerName
