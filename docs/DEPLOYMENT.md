@@ -624,6 +624,15 @@ prueba. El cambio se aplica en menos de un minuto en `api` y `worker`.
 (déjala en `brevo`; si la quitas vale `smtp`, que en producción no tiene
 servidor).
 
+**Dominio propio de correo de cada tenant** (funcionalidad «Dominio propio»):
+el tenant indica su dominio en Ajustes → Correo; la app lo da de alta en la
+**misma cuenta Brevo de la plataforma** (`BREVO_API_KEY`) y le muestra los
+registros DNS. Al verificarlo, sus correos a inquilinos salen desde
+`<dirección>@<su-dominio>` y **siempre por Brevo** (aunque en el panel el
+principal sea Resend). Un cron diario verifica los pendientes y avisa si uno
+verificado deja de estarlo (vuelve al remitente de la plataforma). Sin
+`BREVO_API_KEY` la opción responde 503.
+
 **Alternativa por SMTP** (mismo resultado): `EMAIL_PROVIDER=smtp`,
 `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER=<login SMTP de
 Brevo>`, `SMTP_PASSWORD=<clave SMTP>`, `SMTP_SECURE=false`. Sin `SMTP_USER` el

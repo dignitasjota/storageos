@@ -37,7 +37,7 @@ export class RoutingEmailProvider extends EmailProvider {
   }
 
   async send(args: SendEmailArgs): Promise<SendEmailResult> {
-    const order = await this.settings.sendOrder();
+    const order = await this.settings.sendOrder(args.forceProvider);
     let lastError: unknown = null;
     for (const [i, key] of order.entries()) {
       try {

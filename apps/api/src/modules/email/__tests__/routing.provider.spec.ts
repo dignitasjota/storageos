@@ -39,6 +39,13 @@ describe('Orden de proveedores de correo', () => {
     expect(await s.sendOrder()).toEqual(['resend', 'brevo']);
   });
 
+  it('un envío forzado a Brevo va solo por Brevo si tiene clave', async () => {
+    const s = settingsWith(BOTH, { provider: 'resend', fallbackEnabled: true });
+    expect(await s.sendOrder('brevo')).toEqual(['brevo']);
+    const sinClave = settingsWith({ RESEND_API_KEY: 'r' }, null);
+    expect(await sinClave.sendOrder('brevo')).toEqual(['resend']);
+  });
+
   it('sin respaldo solo se intenta el principal', async () => {
     const s = settingsWith(BOTH, { provider: 'brevo', fallbackEnabled: false });
     expect(await s.sendOrder()).toEqual(['brevo']);

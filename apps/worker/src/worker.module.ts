@@ -17,6 +17,7 @@ import { DataRetentionModule } from '../../api/src/modules/data-retention/data-r
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
 import { EmailModule } from '../../api/src/modules/email/email.module';
+import { EmailDomainsModule } from '../../api/src/modules/email-domains/email-domains.module';
 import { FilesModule } from '../../api/src/modules/files/files.module';
 import { IntegrationsModule } from '../../api/src/modules/integrations/integrations.module';
 import { InventoryModule } from '../../api/src/modules/inventory/inventory.module';
@@ -138,6 +139,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     PlanLimitsModule,
     MaintenanceModule,
     NotificationsModule,
+    EmailDomainsModule,
     ReviewsModule,
     // MarketingModule: cron diario de sincronización de gasto (Google Ads/Meta Ads).
     MarketingModule,
