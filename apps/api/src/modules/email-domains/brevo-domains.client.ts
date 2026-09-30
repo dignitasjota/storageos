@@ -46,7 +46,22 @@ export class BrevoDomainsClient {
 
   async create(domain: string): Promise<BrevoDomainState> {
     if (this.stub) return stubState(domain, false);
-    const body = await this.request('POST', '/senders/domains', { name: domain });
+    let body: unknown;
+    try {
+      body = await this.request('POST', '/senders/domains', { name: domain });
+    } catch (err) {
+      // Ya dado de alta en la cuenta Brevo de la plataforma (p. ej. a mano desde
+      // su panel): se adopta tal cual, con su estado y registros. Si tampoco se
+      // puede leer, el error original es el relevante.
+      if (err instanceof BrevoDomainsError && (err.status === 400 || err.status === 409)) {
+        try {
+          return await this.get(domain);
+        } catch {
+          throw err;
+        }
+      }
+      throw err;
+    }
     // Algunas respuestas de alta no traen registros: se piden aparte.
     const records = parseDnsRecords((body as { dns_records?: unknown }).dns_records, domain);
     return records.length > 0 ? { authenticated: false, records } : this.get(domain);
