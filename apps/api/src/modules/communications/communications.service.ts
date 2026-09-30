@@ -200,6 +200,8 @@ export class CommunicationsService {
     });
     try {
       let providerMessageId: string | null = null;
+      // Proveedor real que entregó el email (Brevo/Resend/SMTP, o el de respaldo).
+      let deliveredBy: string | null = null;
       if (comm.channel === 'email') {
         const res = await this.email.sendRendered({
           tenantId,
@@ -210,6 +212,7 @@ export class CommunicationsService {
           tags: { tenantId, communicationId },
         });
         providerMessageId = res.providerMessageId;
+        deliveredBy = res.provider ?? null;
       } else if (comm.channel === 'whatsapp') {
         // Envío por plantilla aprobada (proactivo); si no hay, texto libre.
         const res = await this.whatsapp.send({
@@ -233,6 +236,7 @@ export class CommunicationsService {
         data: {
           status: 'sent',
           providerMessageId,
+          ...(deliveredBy ? { provider: deliveredBy } : {}),
           sentAt: new Date(),
           errorMessage: null,
         },

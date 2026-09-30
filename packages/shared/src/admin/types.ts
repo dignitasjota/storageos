@@ -1246,3 +1246,24 @@ export interface PlatformCouponDto {
 export interface ExtendTrialsBatchResultDto {
   updated: number;
 }
+
+/** Estado del correo saliente de la plataforma (panel super admin). */
+export interface PlatformEmailSettingsDto {
+  /** Proveedor elegido en el panel; null = el de la variable EMAIL_PROVIDER. */
+  provider: 'brevo' | 'resend' | null;
+  fallbackEnabled: boolean;
+  /** Valor de la variable EMAIL_PROVIDER (smtp/brevo/resend). */
+  envProvider: string;
+  /** Qué proveedores tienen su clave de API configurada. */
+  configured: { brevo: boolean; resend: boolean };
+  /** Orden efectivo en el que se intentará enviar ahora mismo. */
+  effectiveOrder: string[];
+  /** Remitente de la plataforma (EMAIL_FROM_ADDRESS). */
+  fromAddress: string;
+}
+
+export interface TestEmailResultDto {
+  /** Proveedor que entregó el correo (puede ser el de respaldo). */
+  provider: string;
+  providerMessageId: string | null;
+}

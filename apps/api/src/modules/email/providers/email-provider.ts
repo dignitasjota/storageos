@@ -33,6 +33,8 @@ export interface SendEmailArgs {
 
 export interface SendEmailResult {
   providerMessageId: string | null;
+  /** Proveedor que entregó el correo (lo rellena el enrutador). */
+  provider?: string;
 }
 
 export const EMAIL_PROVIDER = Symbol('EmailProvider');
