@@ -55,40 +55,125 @@ describe('BrevoDomainsClient.create', () => {
     } as unknown as ConfigService<Env, true>);
   }
 
-  it('si el dominio ya existe en la cuenta de Brevo, lo adopta con su estado', async () => {
+  // Respuesta real de Brevo (2026-09-30) para un dominio ya autenticado en la cuenta.
+  const REAL_EXISTING = {
+    domain: 'guardalobox.es',
+    verified: true,
+    authenticated: true,
+    dns_records: {
+      dkim_record: null,
+      dkim1Record: {
+        type: 'CNAME',
+        value: 'b1.guardalobox-es.dkim.brevo.com',
+        host_name: 'brevo1._domainkey',
+        status: true,
+      },
+      dkim2Record: {
+        type: 'CNAME',
+        value: 'b2.guardalobox-es.dkim.brevo.com',
+        host_name: 'brevo2._domainkey',
+        status: true,
+      },
+      brevo_code: { type: 'TXT', value: 'brevo-code:212cd94', host_name: '@', status: true },
+      dmarc_record: {
+        type: 'TXT',
+        value: 'v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com',
+        host_name: '_dmarc',
+        status: true,
+      },
+    },
+  };
+
+  it('si el dominio ya existe en Brevo lo adopta sin intentar el alta', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(REAL_EXISTING), { status: 200 }));
+    const state = await client().create('guardalobox.es');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('GET');
+    expect(state.authenticated).toBe(true);
+    expect(state.records).toEqual([
+      {
+        label: 'Firma DKIM',
+        type: 'CNAME',
+        host: 'brevo1._domainkey',
+        value: 'b1.guardalobox-es.dkim.brevo.com',
+        ok: true,
+      },
+      {
+        label: 'Firma DKIM',
+        type: 'CNAME',
+        host: 'brevo2._domainkey',
+        value: 'b2.guardalobox-es.dkim.brevo.com',
+        ok: true,
+      },
+      {
+        label: 'Código de verificación de Brevo',
+        type: 'TXT',
+        host: 'guardalobox.es',
+        value: 'brevo-code:212cd94',
+        ok: true,
+      },
+      {
+        label: 'DMARC',
+        type: 'TXT',
+        host: '_dmarc',
+        value: 'v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com',
+        ok: true,
+      },
+    ]);
+  });
+
+  it('si no existe (404) lo da de alta', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ code: 'invalid_parameter', message: 'Domain already exists' }),
-          {
-            status: 400,
-          },
-        ),
+        new Response(JSON.stringify({ message: 'Domain not found' }), { status: 404 }),
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            authenticated: true,
             dns_records: {
-              brevo_code: { type: 'TXT', value: 'brevo-code:1', host_name: '@', status: true },
+              brevo_code: { type: 'TXT', value: 'brevo-code:9', host_name: '@', status: false },
             },
           }),
-          { status: 200 },
+          { status: 201 },
         ),
       );
-    const state = await client().create('garcia.es');
-    expect(state.authenticated).toBe(true);
-    expect(state.records[0]?.value).toBe('brevo-code:1');
-    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.brevo.com/v3/senders/domains/garcia.es');
+    const state = await client().create('nuevo.es');
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('POST');
+    expect(state).toEqual({
+      authenticated: false,
+      records: [
+        {
+          label: 'Código de verificación de Brevo',
+          type: 'TXT',
+          host: 'nuevo.es',
+          value: 'brevo-code:9',
+          ok: false,
+        },
+      ],
+    });
   });
 
-  it('otros errores del alta se propagan', async () => {
+  it('otros errores se propagan (clave inválida) e indican el paso', async () => {
     jest
       .spyOn(global, 'fetch')
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ message: 'Key not found' }), { status: 401 }),
       );
     await expect(client().create('garcia.es')).rejects.toThrow('Key not found');
+
+    jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'not found' }), { status: 404 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'invalid domain' }), { status: 400 }),
+      );
+    await expect(client().create('garcia.es')).rejects.toThrow(
+      'alta del dominio (400): invalid domain',
+    );
   });
 });

@@ -57,21 +57,20 @@ export class BrevoDomainsClient {
       stubDomains.add(domain);
       return stubState(domain, false);
     }
+    // Primero se mira si ya existe en la cuenta (p. ej. creado a mano desde el
+    // panel de Brevo): en ese caso se adopta con su estado y registros. No se
+    // depende del código de error que Brevo devuelve al duplicar un alta.
+    try {
+      return await this.get(domain);
+    } catch (err) {
+      if (!(err instanceof BrevoDomainsError) || !isNotFound(err)) throw err;
+    }
     let body: unknown;
     try {
       body = await this.request('POST', '/senders/domains', { name: domain });
     } catch (err) {
-      // Ya dado de alta en la cuenta Brevo de la plataforma (p. ej. a mano desde
-      // su panel): se adopta tal cual, con su estado y registros. Si tampoco se
-      // puede leer, el error original es el relevante.
-      if (err instanceof BrevoDomainsError && (err.status === 400 || err.status === 409)) {
-        try {
-          return await this.get(domain);
-        } catch {
-          throw err;
-        }
-      }
-      throw err;
+      if (!(err instanceof BrevoDomainsError)) throw err;
+      throw new BrevoDomainsError(`alta del dominio (${err.status}): ${err.message}`, err.status);
     }
     // Algunas respuestas de alta no traen registros: se piden aparte.
     const records = parseDnsRecords((body as { dns_records?: unknown }).dns_records, domain);
@@ -189,6 +188,13 @@ export function parseDnsRecords(raw: unknown, domain: string): EmailDnsRecordDto
     });
   }
   return out;
+}
+
+/** Brevo responde 404 (o 400 «not found» en algunas cuentas) si el dominio no existe. */
+function isNotFound(err: BrevoDomainsError): boolean {
+  return (
+    err.status === 404 || (err.status === 400 && /not\s*found|does not exist/i.test(err.message))
+  );
 }
 
 function stubState(domain: string, authenticated: boolean): BrevoDomainState {
