@@ -637,7 +637,13 @@ verificado deja de estarlo (vuelve al remitente de la plataforma). Sin
   `_trasteros.<dominio>` = `trasteros-verification=<código>`: Brevo solo prueba
   que el dominio apunta a nuestra cuenta, no de qué tenant es. Sin ese TXT no se
   verifica (evita que un tenant use el dominio de otro).
-- Si el dominio ya existía en la cuenta Brevo (p. ej. creado a mano), se adopta.
+- Si el dominio ya existía en la cuenta Brevo (p. ej. creado a mano), se adopta
+  (la app consulta primero si existe; Brevo no avisa de duplicados al crear).
+- Los nombres de los registros se muestran **relativos al dominio**
+  (`_trasteros`, `brevo1._domainkey`, `@` para la raíz), que es lo que piden los
+  paneles DNS: añaden el dominio solos.
+- Con un dominio ya puesto, el tenant no puede cambiarlo desde el formulario:
+  tiene que quitarlo y añadir el nuevo (y volver a poner sus DNS).
 - La app **nunca borra dominios de Brevo** (ni al quitarlos ni al cambiarlos):
   si fue un error, volver a añadirlo no obliga a rehacer los DNS. Los que ya no
   usa ningún tenant aparecen en el panel admin → Comunicación → Correo saliente
