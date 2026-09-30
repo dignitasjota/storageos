@@ -665,6 +665,10 @@ Banderas y modelos transversales que afectan al despliegue, no a una tabla concr
   `from_name?`, `reply_to?`, `status` (`pending|verified|failed`), `dns_records`
   (jsonb normalizado de Brevo), `verified_at`, `last_checked_at`, `last_error`.
   Se usa solo si está `verified` **y** el plan incluye `custom_domain`.
+  `ownership_token` + `ownership_verified_at`: prueba de propiedad por tenant
+  (TXT `_trasteros.<dominio>` = `trasteros-verification=<token>`); `verified`
+  exige Brevo autenticado **y** propiedad probada. Borrar la fila no borra el
+  dominio de Brevo.
 
 ### Flag `ENABLE_WORKERS_IN_API` (Fase 14A.1)
 

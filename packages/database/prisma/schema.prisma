@@ -4208,20 +4208,23 @@ model PlatformEmailSettings {
 
 /// Dominio propio de correo del tenant, autenticado en la cuenta Brevo de la plataforma.
 model TenantEmailDomain {
-  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  tenantId      String    @unique @map("tenant_id") @db.Uuid
-  domain        String    @unique
-  fromLocalPart String    @default("no-reply") @map("from_local_part")
-  fromName      String?   @map("from_name")
-  replyTo       String?   @map("reply_to")
+  id                  String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String    @unique @map("tenant_id") @db.Uuid
+  domain              String    @unique
+  fromLocalPart       String    @default("no-reply") @map("from_local_part")
+  fromName            String?   @map("from_name")
+  replyTo             String?   @map("reply_to")
   /// pending | verified | failed
-  status        String    @default("pending")
-  dnsRecords    Json      @default("[]") @map("dns_records")
-  verifiedAt    DateTime? @map("verified_at") @db.Timestamptz(6)
-  lastCheckedAt DateTime? @map("last_checked_at") @db.Timestamptz(6)
-  lastError     String?   @map("last_error")
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  status              String    @default("pending")
+  dnsRecords          Json      @default("[]") @map("dns_records")
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz(6)
+  lastCheckedAt       DateTime? @map("last_checked_at") @db.Timestamptz(6)
+  lastError           String?   @map("last_error")
+  /// Código del TXT `_trasteros.<dominio>` que prueba que el dominio es del tenant.
+  ownershipToken      String    @map("ownership_token")
+  ownershipVerifiedAt DateTime? @map("ownership_verified_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
