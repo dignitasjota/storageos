@@ -562,3 +562,23 @@ export const UpdateTenantNotesSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
 });
 export type UpdateTenantNotesInput = z.infer<typeof UpdateTenantNotesSchema>;
+
+// --- Correo saliente de la plataforma (Brevo / Resend) ---
+
+/** Proveedores de correo seleccionables desde el panel del super admin. */
+export const PlatformEmailProviders = ['brevo', 'resend'] as const;
+export const PlatformEmailProviderEnum = z.enum(PlatformEmailProviders);
+export type PlatformEmailProvider = z.infer<typeof PlatformEmailProviderEnum>;
+
+export const UpdatePlatformEmailSettingsSchema = z.object({
+  /** null = usar la variable EMAIL_PROVIDER. */
+  provider: PlatformEmailProviderEnum.nullable(),
+  /** Si el proveedor elegido falla, reintentar con el otro. */
+  fallbackEnabled: z.boolean(),
+});
+export type UpdatePlatformEmailSettingsInput = z.infer<typeof UpdatePlatformEmailSettingsSchema>;
+
+export const SendTestEmailSchema = z.object({
+  to: z.string().trim().email(),
+});
+export type SendTestEmailInput = z.infer<typeof SendTestEmailSchema>;

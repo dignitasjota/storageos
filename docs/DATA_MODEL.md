@@ -652,6 +652,15 @@ Estado tras cerrar Fases 1-14 (MVP completo):
 
 Banderas y modelos transversales que afectan al despliegue, no a una tabla concreta.
 
+### Proveedor de correo de la plataforma (2026-09-30)
+
+- **`platform_email_settings`** (singleton global, sin RLS, `REVOKE` al rol de la
+  app): `provider` (`'brevo'|'resend'|NULL`; NULL = variable `EMAIL_PROVIDER`) +
+  `fallback_enabled` (si el principal falla se reintenta con el otro). Las claves
+  siguen en variables de entorno; un proveedor sin clave se salta. El envío lo
+  decide `RoutingEmailProvider` (token `EMAIL_PROVIDER`), con el ajuste cacheado
+  30 s. `communications.provider` guarda el proveedor que entregó realmente.
+
 ### Flag `ENABLE_WORKERS_IN_API` (Fase 14A.1)
 
 Variable de entorno booleana (default `true`).

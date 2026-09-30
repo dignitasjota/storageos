@@ -10,6 +10,7 @@ import { TwoFactorModule } from '../two-factor/two-factor.module';
 
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
+import { AdminEmailSettingsController } from './admin-email-settings.controller';
 import { AdminFinanceController } from './admin-finance.controller';
 import { AdminFinanceService } from './admin-finance.service';
 import { AdminFollowupsController } from './admin-followups.controller';
@@ -87,6 +88,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SuperAdminAuditController,
     AdminSuperAdminsController,
     PlatformAlertsController,
+    AdminEmailSettingsController,
     AdminImpersonationAuditController,
     SupportTicketsAdminController,
     SupportTicketsTenantController,

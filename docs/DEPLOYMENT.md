@@ -614,6 +614,16 @@ sola cuenta de la plataforma sirve para todos los tenants.
    ```
 4. Redeploy y prueba con «¿Olvidaste la contraseña?».
 
+**Brevo y Resend a la vez** (para sumar los cupos gratuitos de ambos): pon
+`BREVO_API_KEY` **y** `RESEND_API_KEY`, y autentica `trasteros.pro` en los dos
+(cada uno usa sus propios registros DKIM; conviven). En el panel de super admin
+→ **Comunicación → Correo saliente** eliges el principal y si, al fallar (p. ej.
+cupo diario agotado), se reintenta con el otro; hay un botón de correo de
+prueba. El cambio se aplica en menos de un minuto en `api` y `worker`.
+`EMAIL_PROVIDER` queda como valor por defecto si en el panel no se elige nada
+(déjala en `brevo`; si la quitas vale `smtp`, que en producción no tiene
+servidor).
+
 **Alternativa por SMTP** (mismo resultado): `EMAIL_PROVIDER=smtp`,
 `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER=<login SMTP de
 Brevo>`, `SMTP_PASSWORD=<clave SMTP>`, `SMTP_SECURE=false`. Sin `SMTP_USER` el

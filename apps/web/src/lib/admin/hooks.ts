@@ -53,6 +53,9 @@ import type {
   TenantLifecycleRunResultDto,
   AdminWeeklyDigestResultDto,
   UpdatePlatformAlertSettingsInput,
+  PlatformEmailSettingsDto,
+  UpdatePlatformEmailSettingsInput,
+  TestEmailResultDto,
   AdminTenantHealthDto,
   TenantFeature,
   AdminBroadcastInput,
@@ -1491,6 +1494,35 @@ export function useUpdatePlatformAlerts() {
         json: input,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'platform-alerts'] }),
+  });
+}
+
+export function useAdminEmailSettings() {
+  return useQuery({
+    queryKey: ['admin', 'email-settings'] as const,
+    queryFn: () => adminApiFetch<PlatformEmailSettingsDto>('/admin/email-settings'),
+  });
+}
+
+export function useUpdateEmailSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformEmailSettingsInput) =>
+      adminApiFetch<PlatformEmailSettingsDto>('/admin/email-settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'email-settings'], data),
+  });
+}
+
+export function useSendTestEmail() {
+  return useMutation({
+    mutationFn: (to: string) =>
+      adminApiFetch<TestEmailResultDto>('/admin/email-settings/test', {
+        method: 'POST',
+        json: { to },
+      }),
   });
 }
 

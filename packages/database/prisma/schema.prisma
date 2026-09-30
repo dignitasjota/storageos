@@ -4194,6 +4194,17 @@ model PlatformDunningSettings {
   @@map("platform_dunning_settings")
 }
 
+/// Proveedor de correo de la plataforma (singleton). `provider` null = variable EMAIL_PROVIDER.
+model PlatformEmailSettings {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  provider        String?
+  fallbackEnabled Boolean  @default(true) @map("fallback_enabled")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_email_settings")
+}
+
 /// Acción de dunning ejecutada sobre un tenant, para idempotencia. La clave
 /// única (tenant, step, period_end) evita repetir el mismo paso en un ciclo de
 /// impago; al pagar cambia el period_end → nuevo ciclo.
