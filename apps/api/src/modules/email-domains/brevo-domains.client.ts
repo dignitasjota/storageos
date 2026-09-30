@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 
 import { BREVO_API_BASE } from '../email/providers/brevo.provider';
 
+import { relativeDnsHost } from './domain-ownership.checker';
+
 import type { Env } from '../../config/env.schema';
 import type { EmailDnsRecordDto } from '@storageos/shared';
 
@@ -182,7 +184,7 @@ export function parseDnsRecords(raw: unknown, domain: string): EmailDnsRecordDto
     out.push({
       label: RECORD_LABELS.find(([re]) => re.test(key))?.[1] ?? key,
       type: r.type.toUpperCase(),
-      host: host === '@' ? domain : host,
+      host: relativeDnsHost(host, domain),
       value: r.value,
       ok: r.status === true,
     });
@@ -204,7 +206,7 @@ function stubState(domain: string, authenticated: boolean): BrevoDomainState {
       {
         label: 'Código de verificación de Brevo',
         type: 'TXT',
-        host: domain,
+        host: '@',
         value: `brevo-code:stub${domain.length}`,
         ok: authenticated,
       },

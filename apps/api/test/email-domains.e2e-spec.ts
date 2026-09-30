@@ -77,7 +77,7 @@ describe('Dominio propio de correo del tenant (e2e)', () => {
     });
     // Primero el TXT de propiedad del tenant (código propio), luego los de Brevo.
     const [own, ...brevoRecords] = created.body.emailDomain.records;
-    expect(own).toMatchObject({ type: 'TXT', host: `_trasteros.${domain}` });
+    expect(own).toMatchObject({ type: 'TXT', host: '_trasteros' });
     expect(own.value).toMatch(/^trasteros-verification=[0-9a-f]{32}$/);
     expect(brevoRecords.length).toBeGreaterThan(0);
 

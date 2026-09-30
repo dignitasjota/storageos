@@ -1,6 +1,6 @@
 import { resolveTxt } from 'node:dns/promises';
 
-import { DomainOwnershipChecker } from '../domain-ownership.checker';
+import { DomainOwnershipChecker, relativeDnsHost } from '../domain-ownership.checker';
 
 jest.mock('node:dns/promises', () => ({ resolveTxt: jest.fn() }));
 const resolveTxtMock = resolveTxt as jest.MockedFunction<typeof resolveTxt>;
@@ -27,5 +27,17 @@ describe('DomainOwnershipChecker', () => {
       Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }),
     );
     await expect(new DomainOwnershipChecker().check('garcia.es', 'abc123')).resolves.toBe(false);
+  });
+});
+
+describe('relativeDnsHost', () => {
+  it('quita el dominio del nombre y usa @ para la raíz', () => {
+    expect(relativeDnsHost('_trasteros.guardalobox.es', 'guardalobox.es')).toBe('_trasteros');
+    expect(relativeDnsHost('brevo1._domainkey.guardalobox.es.', 'guardalobox.es')).toBe(
+      'brevo1._domainkey',
+    );
+    expect(relativeDnsHost('guardalobox.es', 'guardalobox.es')).toBe('@');
+    expect(relativeDnsHost('@', 'guardalobox.es')).toBe('@');
+    expect(relativeDnsHost('_dmarc', 'guardalobox.es')).toBe('_dmarc');
   });
 });

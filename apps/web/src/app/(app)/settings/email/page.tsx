@@ -245,7 +245,9 @@ function DnsRecordsCard({ domain, canVerify }: { domain: EmailDomainDto; canVeri
           <StatusBadge domain={domain} />
         </div>
         <CardDescription>
-          Crea estos registros en el DNS de {domain.domain} y pulsa «Verificar».
+          Crea estos registros en el DNS de {domain.domain} y pulsa «Verificar». El nombre va sin el
+          dominio (tu proveedor lo añade solo); «@» es el propio dominio (en algunos paneles se deja
+          vacío).
           {domain.lastCheckedAt &&
             ` Última comprobación: ${new Date(domain.lastCheckedAt).toLocaleString('es-ES')}.`}
         </CardDescription>

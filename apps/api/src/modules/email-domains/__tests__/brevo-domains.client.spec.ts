@@ -25,7 +25,7 @@ describe('parseDnsRecords (respuesta de Brevo)', () => {
       {
         label: 'Código de verificación de Brevo',
         type: 'TXT',
-        host: 'garcia.es',
+        host: '@',
         value: 'brevo-code:123',
         ok: false,
       },
@@ -110,7 +110,7 @@ describe('BrevoDomainsClient.create', () => {
       {
         label: 'Código de verificación de Brevo',
         type: 'TXT',
-        host: 'guardalobox.es',
+        host: '@',
         value: 'brevo-code:212cd94',
         ok: true,
       },
@@ -148,7 +148,7 @@ describe('BrevoDomainsClient.create', () => {
         {
           label: 'Código de verificación de Brevo',
           type: 'TXT',
-          host: 'nuevo.es',
+          host: '@',
           value: 'brevo-code:9',
           ok: false,
         },
