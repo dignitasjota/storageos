@@ -6,6 +6,18 @@ import { Injectable } from '@nestjs/common';
 export const OWNERSHIP_HOST_PREFIX = '_trasteros';
 export const OWNERSHIP_VALUE_PREFIX = 'trasteros-verification=';
 
+/**
+ * Nombre de un registro relativo al dominio, como lo piden los paneles DNS
+ * (que añaden el dominio solos): `_trasteros.x.es` → `_trasteros`; el propio
+ * dominio → `@`.
+ */
+export function relativeDnsHost(host: string, domain: string): string {
+  const h = host.trim().toLowerCase().replace(/\.$/, '');
+  const d = domain.toLowerCase();
+  if (!h || h === '@' || h === d) return '@';
+  return h.endsWith(`.${d}`) ? h.slice(0, -(d.length + 1)) : h;
+}
+
 export function ownershipHost(domain: string): string {
   return `${OWNERSHIP_HOST_PREFIX}.${domain}`;
 }

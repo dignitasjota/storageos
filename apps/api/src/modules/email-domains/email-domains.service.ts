@@ -30,7 +30,12 @@ import {
   type BrevoDomainState,
   type BrevoDomainSummary,
 } from './brevo-domains.client';
-import { DomainOwnershipChecker, ownershipHost, ownershipValue } from './domain-ownership.checker';
+import {
+  DomainOwnershipChecker,
+  ownershipHost,
+  ownershipValue,
+  relativeDnsHost,
+} from './domain-ownership.checker';
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma, TenantEmailDomain } from '@storageos/database';
@@ -387,11 +392,14 @@ export class EmailDomainsService {
         {
           label: 'Verificación de propiedad (TrasterOS)',
           type: 'TXT',
-          host: ownershipHost(row.domain),
+          host: relativeDnsHost(ownershipHost(row.domain), row.domain),
           value: ownershipValue(row.ownershipToken),
           ok: row.ownershipVerifiedAt !== null,
         },
-        ...((row.dnsRecords as unknown as EmailDnsRecordDto[]) ?? []),
+        ...((row.dnsRecords as unknown as EmailDnsRecordDto[]) ?? []).map((r) => ({
+          ...r,
+          host: relativeDnsHost(r.host, row.domain),
+        })),
       ],
       verifiedAt: row.verifiedAt?.toISOString() ?? null,
       lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
