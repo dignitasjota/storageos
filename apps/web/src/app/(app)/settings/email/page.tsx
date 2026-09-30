@@ -83,13 +83,20 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
     }
   }, [current]);
 
-  const domainChanged = current !== null && form.domain.trim().toLowerCase() !== current.domain;
+  // Con un dominio ya puesto, el dominio no se cambia desde aquí (hay que
+  // quitarlo y poner otro); el resto de campos sí se pueden editar.
+  const domainLocked = current !== null;
+  const dirty =
+    !current ||
+    form.fromLocalPart.trim() !== (current.fromAddress.split('@')[0] ?? '') ||
+    form.fromName.trim() !== (current.fromName ?? '') ||
+    form.replyTo.trim() !== (current.replyTo ?? '');
 
   async function onSave() {
     try {
       await save.mutateAsync(form);
       toast.success(
-        domainChanged || !current
+        !current
           ? 'Dominio guardado. Añade los registros DNS y pulsa «Verificar».'
           : 'Cambios guardados.',
       );
@@ -126,7 +133,7 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
               id="ed-domain"
               placeholder="tu-negocio.com"
               value={form.domain}
-              disabled={!canEdit}
+              disabled={!canEdit || domainLocked}
               onChange={(e) => setForm({ ...form, domain: e.target.value })}
             />
           </div>
@@ -166,15 +173,15 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
             />
           </div>
         </div>
-        {domainChanged && (
-          <p className="text-sm text-amber-700 dark:text-amber-300">
-            Al cambiar de dominio habrá que volver a poner los DNS y verificarlo; mientras tanto los
-            correos salen desde TrasterOS.
+        {domainLocked && canEdit && (
+          <p className="text-sm text-muted-foreground">
+            Para usar otro dominio, quita este y añade el nuevo (habrá que poner sus DNS y
+            verificarlo).
           </p>
         )}
         <div className="flex flex-wrap gap-2">
           {canEdit && (
-            <Button onClick={onSave} disabled={save.isPending || !form.domain.trim()}>
+            <Button onClick={onSave} disabled={save.isPending || !form.domain.trim() || !dirty}>
               {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Guardar
             </Button>
