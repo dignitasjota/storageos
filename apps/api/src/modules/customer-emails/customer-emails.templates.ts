@@ -27,6 +27,16 @@ export type CustomerEmailData =
       endDate: Date;
     }
   | {
+      kind: 'sepa_prenotification';
+      invoiceNumber: string;
+      amount: number;
+      collectionDate: Date;
+      ibanLast4: string;
+      mandateReference: string;
+      creditorName: string;
+      creditorId: string;
+    }
+  | {
       kind: 'move_out_confirmed';
       contractNumber: string;
       unitCode: string;
@@ -114,6 +124,16 @@ function content(data: CustomerEmailData): Content {
           'Si quieres seguir, contacta con nosotros para renovarlo. Si no, recuerda dejar el trastero vacío antes de esa fecha.',
         ],
         cta: 'Ir a mi área de clientes',
+      };
+    case 'sepa_prenotification':
+      return {
+        subject: `Aviso de cargo en tu cuenta: ${eur(data.amount)} el ${day(data.collectionDate)}`,
+        paragraphs: [
+          `El ${day(data.collectionDate)} cargaremos ${eur(data.amount)} en tu cuenta terminada en ${data.ibanLast4}, correspondiente a la factura ${data.invoiceNumber}.`,
+          `Acreedor: ${data.creditorName} (identificador ${data.creditorId}). Referencia del mandato: ${data.mandateReference}.`,
+          'No tienes que hacer nada. Si ves algún error, contacta con nosotros antes de esa fecha.',
+        ],
+        cta: 'Ver mis facturas',
       };
     case 'move_out_confirmed':
       return {

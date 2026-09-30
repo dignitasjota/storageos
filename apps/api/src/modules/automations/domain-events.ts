@@ -31,7 +31,22 @@ export const DOMAIN_EVENTS = {
   unit_available: 'domain.unit_available',
   /** Un cobro automático (auto-charge, reintento, domiciliación) fue rechazado → aviso al inquilino. */
   payment_failed: 'domain.payment_failed',
+  /** Remesa SEPA generada → preaviso de cargo a cada deudor. */
+  sepa_remittance_created: 'domain.sepa_remittance_created',
+  /** Reserva online (booking self-service) creada → aviso al staff. */
+  booking_created: 'domain.booking_created',
 } as const;
+
+export interface SepaRemittanceCreatedPayload {
+  tenantId: string;
+  remittanceId: string;
+}
+
+export interface BookingCreatedPayload {
+  tenantId: string;
+  contractId: string;
+  customerId: string;
+}
 
 /** Payload de `payment_failed` (no es trigger de automations). */
 export interface PaymentFailedPayload {

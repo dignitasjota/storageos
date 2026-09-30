@@ -5,7 +5,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -34,6 +36,7 @@ export class BookingService {
     private readonly contracts: ContractsService,
     private readonly signatures: SignaturesService,
     private readonly referrals: ReferralsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -326,6 +329,11 @@ export class BookingService {
     });
 
     const { token } = await this.signatures.generateSigningToken(contract.id);
+    this.events.emit(DOMAIN_EVENTS.booking_created, {
+      tenantId,
+      contractId: contract.id,
+      customerId,
+    } satisfies BookingCreatedPayload);
     return { contractId: contract.id, signingToken: token };
   }
 }

@@ -1269,6 +1269,24 @@ export interface TestEmailResultDto {
 }
 
 /** Dominio de la cuenta Brevo de la plataforma que ya no usa ningún tenant. */
+/**
+ * Estado del dominio del remitente de la plataforma (`EMAIL_FROM_ADDRESS`) en
+ * cada proveedor: si no está autenticado, el proveedor rechaza los correos
+ * DESPUÉS de aceptarlos y la app no se entera.
+ */
+export type PlatformDomainProviderStatus =
+  | 'authenticated'
+  | 'pending'
+  | 'missing'
+  | 'no_key'
+  | 'error';
+
+export interface PlatformDomainStatusDto {
+  domain: string;
+  brevo: PlatformDomainProviderStatus;
+  resend: PlatformDomainProviderStatus;
+}
+
 export interface UnusedBrevoDomainDto {
   domain: string;
   authenticated: boolean;

@@ -6,7 +6,9 @@ import type {
   CustomerEmailSettingsDto,
   EmailDomainDto,
   EmailDomainResponseDto,
+  StaffEmailSettingsDto,
   UpdateCustomerEmailSettingsInput,
+  UpdateStaffEmailSettingsInput,
   UpsertEmailDomainInput,
 } from '@storageos/shared';
 
@@ -65,5 +67,25 @@ export function useUpdateCustomerEmailSettings() {
     mutationFn: (input: UpdateCustomerEmailSettingsInput) =>
       apiFetch<CustomerEmailSettingsDto>(CUSTOMER_EMAILS_PATH, { method: 'PATCH', json: input }),
     onSuccess: (data) => qc.setQueryData(customerEmailsKey, data),
+  });
+}
+
+const staffEmailsKey = ['settings', 'tenant', 'staff-emails'] as const;
+const STAFF_EMAILS_PATH = '/settings/tenant/staff-emails';
+
+/** Avisos por email al equipo (activados por defecto). */
+export function useStaffEmailSettings() {
+  return useQuery({
+    queryKey: staffEmailsKey,
+    queryFn: () => apiFetch<StaffEmailSettingsDto>(STAFF_EMAILS_PATH),
+  });
+}
+
+export function useUpdateStaffEmailSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateStaffEmailSettingsInput) =>
+      apiFetch<StaffEmailSettingsDto>(STAFF_EMAILS_PATH, { method: 'PATCH', json: input }),
+    onSuccess: (data) => qc.setQueryData(staffEmailsKey, data),
   });
 }

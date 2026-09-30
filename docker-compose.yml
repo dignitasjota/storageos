@@ -75,6 +75,10 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     restart: unless-stopped
+    environment:
+      # Sin DNS inverso del cliente: con Docker Desktop tardaba ~8 s por
+      # conexión SMTP y los e2e con varios correos fallaban por timeout.
+      MP_SMTP_DISABLE_RDNS: 'true'
     ports:
       - '127.0.0.1:1026:1025'
       - '127.0.0.1:8026:8025'

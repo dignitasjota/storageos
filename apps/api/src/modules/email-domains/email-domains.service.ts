@@ -5,12 +5,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   type EmailDnsRecordDto,
+  type PlatformDomainProviderStatus,
+  type PlatformDomainStatusDto,
   type EmailDomainDto,
   type EmailDomainStatus,
   type UpsertEmailDomainInput,
@@ -53,6 +56,8 @@ interface Actor {
  */
 @Injectable()
 export class EmailDomainsService {
+  private readonly logger = new Logger(EmailDomainsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
@@ -197,6 +202,55 @@ export class EmailDomainsService {
    * sola; el super admin los revisa y limpia desde su panel. Se excluyen el
    * dominio de la plataforma y sus subdominios.
    */
+  /**
+   * ¿Está autenticado el dominio del remitente de la plataforma en Brevo y en
+   * Resend? Si no lo está, el proveedor acepta el envío y lo rechaza después
+   * (la app no se entera): se avisa en el panel admin.
+   */
+  async platformDomainStatus(): Promise<PlatformDomainStatusDto> {
+    const domain = (
+      this.config.get('EMAIL_FROM_ADDRESS', { infer: true }).split('@')[1] ?? ''
+    ).toLowerCase();
+    const [brevo, resend] = await Promise.all([
+      this.brevoDomainStatus(domain),
+      this.resendDomainStatus(domain),
+    ]);
+    return { domain, brevo, resend };
+  }
+
+  private async brevoDomainStatus(domain: string): Promise<PlatformDomainProviderStatus> {
+    if (!this.brevo.available) return 'no_key';
+    try {
+      const state = await this.brevo.get(domain);
+      return state.authenticated ? 'authenticated' : 'pending';
+    } catch (err) {
+      if (err instanceof BrevoDomainsError && (err.status === 404 || err.status === 400)) {
+        return 'missing';
+      }
+      this.logger.warn(`Brevo: estado de ${domain}: ${err instanceof Error ? err.message : err}`);
+      return 'error';
+    }
+  }
+
+  private async resendDomainStatus(domain: string): Promise<PlatformDomainProviderStatus> {
+    const key = this.config.get('RESEND_API_KEY', { infer: true });
+    if (!key || process.env.NODE_ENV === 'test') return 'no_key';
+    try {
+      const res = await fetch('https://api.resend.com/domains', {
+        headers: { Authorization: `Bearer ${key}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return 'error';
+      const body = (await res.json()) as { data?: { name?: string; status?: string }[] };
+      const found = (body.data ?? []).find((d) => d.name?.toLowerCase() === domain);
+      if (!found) return 'missing';
+      return found.status === 'verified' ? 'authenticated' : 'pending';
+    } catch (err) {
+      this.logger.warn(`Resend: estado de ${domain}: ${err instanceof Error ? err.message : err}`);
+      return 'error';
+    }
+  }
+
   async listUnusedBrevoDomains(): Promise<BrevoDomainSummary[]> {
     this.assertAvailable();
     const [inBrevo, inUse] = await Promise.all([

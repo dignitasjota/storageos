@@ -3,6 +3,7 @@ import request from 'supertest';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
+import { waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -50,7 +51,8 @@ describe('Remesas SEPA (e2e)', () => {
     expect(settings.body.creditorIbanLast4).toBe('1332');
 
     // Cliente + mandato.
-    const customerId = await createCustomer(app, owner.accessToken);
+    const debtorEmail = `sepa-${Date.now()}@e2e.local`;
+    const customerId = await createCustomer(app, owner.accessToken, { email: debtorEmail });
     const mandate = await request(app.getHttpServer())
       .post('/sepa/mandates')
       .set(auth)
@@ -85,6 +87,11 @@ describe('Remesas SEPA (e2e)', () => {
     expect(remittance.body.itemCount).toBe(1);
     expect(remittance.body.total).toBe(121);
     const remittanceId = remittance.body.id as string;
+
+    // Preaviso de cargo al deudor (normativa SEPA): importe, fecha y mandato.
+    const notice = await waitForEmail(debtorEmail, { subjectIncludes: 'Aviso de cargo' });
+    expect(notice.Subject).toMatch(/121,00\s€ el 30\/06\/2026/);
+    expect(notice.Text).toContain('Referencia del mandato: MND-');
 
     // Descargar XML pain.008 y validar lo esencial.
     const xmlRes = await request(app.getHttpServer())

@@ -111,6 +111,15 @@ describe('Admin: correo saliente (e2e)', () => {
         .expect(200);
     }
 
+    // Estado del dominio del remitente de la plataforma en cada proveedor.
+    const platform = await request(app.getHttpServer())
+      .get('/admin/email-settings/platform-domain')
+      .set(auth)
+      .expect(200);
+    expect(platform.body.domain).toMatch(/\./);
+    expect(platform.body.brevo).toBe('authenticated'); // stub de Brevo en test
+    expect(platform.body.resend).toBe('no_key');
+
     const list = await request(app.getHttpServer())
       .get('/admin/email-settings/brevo-domains/unused')
       .set(auth)

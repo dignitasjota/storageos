@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import {
   isValidCustomDomain,
+  type PlatformDomainStatusDto,
   type PlatformEmailSettingsDto,
   SendTestEmailSchema,
   type TestEmailResultDto,
@@ -59,6 +60,12 @@ export class AdminEmailSettingsController {
    * Dominios de la cuenta Brevo que ya no usa ningún tenant (la app nunca los
    * borra sola). 503 `email_domains_not_available` sin `BREVO_API_KEY`.
    */
+  /** ¿Está autenticado el dominio del remitente de la plataforma en cada proveedor? */
+  @Get('platform-domain')
+  platformDomain(): Promise<PlatformDomainStatusDto> {
+    return this.emailDomains.platformDomainStatus();
+  }
+
   @Get('brevo-domains/unused')
   unusedBrevoDomains(): Promise<UnusedBrevoDomainDto[]> {
     return this.emailDomains.listUnusedBrevoDomains();

@@ -16,6 +16,7 @@ import {
   DOMAIN_EVENTS,
   type DomainEventPayload,
   type PaymentFailedPayload,
+  type SepaRemittanceCreatedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -208,6 +209,51 @@ export class CustomerEmailsService {
         },
         contractId: c.id,
       });
+    });
+  }
+
+  /** Preaviso SEPA: un correo por adeudo de la remesa, a su deudor. */
+  @OnEvent(DOMAIN_EVENTS.sepa_remittance_created, { async: true, promisify: true })
+  async onSepaRemittanceCreated(p: SepaRemittanceCreatedPayload): Promise<void> {
+    await this.safe('sepa_prenotification', p.tenantId, async () => {
+      const remittance = await this.admin.sepaRemittance.findFirst({
+        where: { id: p.remittanceId, tenantId: p.tenantId },
+        select: {
+          collectionDate: true,
+          items: {
+            select: {
+              invoiceId: true,
+              amount: true,
+              invoice: { select: { invoiceNumber: true, contractId: true } },
+              mandate: { select: { customerId: true, reference: true, ibanLast4: true } },
+            },
+          },
+        },
+      });
+      const settings = await this.admin.sepaSettings.findUnique({
+        where: { tenantId: p.tenantId },
+        select: { creditorName: true, creditorId: true },
+      });
+      if (!remittance || !settings) return;
+      for (const item of remittance.items) {
+        await this.safe('sepa_prenotification', p.tenantId, () =>
+          this.send(p.tenantId, 'sepa_prenotification', null, item.mandate.customerId, {
+            data: {
+              kind: 'sepa_prenotification',
+              invoiceNumber: item.invoice.invoiceNumber,
+              // La remesa guarda el importe en céntimos.
+              amount: Number(item.amount) / 100,
+              collectionDate: remittance.collectionDate,
+              ibanLast4: item.mandate.ibanLast4,
+              mandateReference: item.mandate.reference,
+              creditorName: settings.creditorName,
+              creditorId: settings.creditorId,
+            },
+            invoiceId: item.invoiceId,
+            contractId: item.invoice.contractId,
+          }),
+        );
+      }
     });
   }
 
