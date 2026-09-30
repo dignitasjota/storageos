@@ -1,23 +1,30 @@
 'use client';
 
+import {
+  CUSTOMER_EMAIL_KINDS,
+  CUSTOMER_EMAIL_LABELS,
+  type CustomerEmailKind,
+  type EmailDomainDto,
+} from '@storageos/shared';
 import { CheckCircle2, Clock, Copy, Loader2, Trash2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { EmailDomainDto } from '@storageos/shared';
-
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
-import { useHasFeature } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import {
+  useCustomerEmailSettings,
   useEmailDomain,
   useRemoveEmailDomain,
   useSaveEmailDomain,
+  useUpdateCustomerEmailSettings,
   useVerifyEmailDomain,
 } from '@/lib/email-domain/hooks';
 
@@ -58,7 +65,58 @@ export default function EmailSettingsPage() {
       ) : null}
 
       {current && <DnsRecordsCard domain={current} canVerify={hasFeature} />}
+
+      <CustomerEmailsCard />
     </div>
+  );
+}
+
+function CustomerEmailsCard() {
+  const { data } = useCustomerEmailSettings();
+  const update = useUpdateCustomerEmailSettings();
+  const canManage = useHasPermission('settings:manage');
+
+  async function toggle(kind: CustomerEmailKind, on: boolean) {
+    try {
+      await update.mutateAsync({ [kind]: on });
+      toast.success(on ? 'Correo activado.' : 'Correo desactivado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Correos automáticos a tus inquilinos</CardTitle>
+        <CardDescription>
+          Se envían solos, con tu nombre y tu remitente, y quedan en Comunicaciones. Si tienes una
+          automatización para el mismo evento, se envía la tuya en lugar de este.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!data ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : (
+          CUSTOMER_EMAIL_KINDS.map((kind) => (
+            <div key={kind} className="flex items-start gap-3">
+              <Checkbox
+                id={`ce-${kind}`}
+                checked={data[kind]}
+                disabled={!canManage || update.isPending}
+                onCheckedChange={(v) => void toggle(kind, v === true)}
+              />
+              <Label htmlFor={`ce-${kind}`} className="font-normal leading-snug">
+                <span className="font-medium">{CUSTOMER_EMAIL_LABELS[kind].label}</span>
+                <span className="block text-sm text-muted-foreground">
+                  {CUSTOMER_EMAIL_LABELS[kind].description}
+                </span>
+              </Label>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -13,6 +13,7 @@ import { AutomationsModule } from '../../api/src/modules/automations/automations
 import { BillingModule } from '../../api/src/modules/billing/billing.module';
 import { CommunicationsModule } from '../../api/src/modules/communications/communications.module';
 import { ContractsModule } from '../../api/src/modules/contracts/contracts.module';
+import { CustomerEmailsModule } from '../../api/src/modules/customer-emails/customer-emails.module';
 import { DataRetentionModule } from '../../api/src/modules/data-retention/data-retention.module';
 import { DatabaseModule } from '../../api/src/modules/database/database.module';
 import { DunningModule } from '../../api/src/modules/dunning/dunning.module';
@@ -126,6 +127,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     PaymentsModule,
     BillingModule,
     CommunicationsModule,
+    CustomerEmailsModule,
     AutomationsModule,
     ReportsModule,
     DunningModule,

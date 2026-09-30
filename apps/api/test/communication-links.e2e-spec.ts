@@ -43,8 +43,9 @@ describe('Comunicaciones vinculadas a factura/contrato (e2e)', () => {
       .send({ ids: [invoiceId] })
       .expect(200);
 
+    // Solo el recordatorio (la factura también genera el aviso «Nueva factura»).
     const byInvoice = await request(app.getHttpServer())
-      .get(`/communications?invoiceId=${invoiceId}`)
+      .get(`/communications?invoiceId=${invoiceId}&source=bulk.manual_reminder`)
       .set(auth)
       .expect(200);
     const items = (byInvoice.body.items ?? byInvoice.body) as Array<Record<string, unknown>>;

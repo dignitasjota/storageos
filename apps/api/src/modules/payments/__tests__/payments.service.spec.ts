@@ -83,6 +83,29 @@ function paymentRow(overrides: Record<string, unknown> = {}) {
 }
 
 describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
+  it('un cobro que se resuelve rechazado emite payment_failed con un motivo legible', async () => {
+    const tx = buildTx();
+    tx.payment.findFirst.mockResolvedValue(
+      paymentRow({ status: 'processing', customerId: 'cust-1' }),
+    );
+    const events = { emit: jest.fn() };
+    const service = buildService(tx, { events });
+
+    await service.syncFromWebhook({
+      tenantId: TENANT,
+      gatewayPaymentId: GATEWAY_PAYMENT_ID,
+      newStatus: 'failed',
+      failureReason: 'insufficient_funds',
+    });
+    expect(events.emit).toHaveBeenCalledWith('domain.payment_failed', {
+      tenantId: TENANT,
+      invoiceId: INVOICE_ID,
+      customerId: 'cust-1',
+      amount: 80,
+      reason: 'fondos insuficientes',
+    });
+  });
+
   it('primera transicion a succeeded actualiza el payment y suma amountPaid (marca paid si cubre el total)', async () => {
     const tx = buildTx();
     tx.payment.findFirst.mockResolvedValue(paymentRow({ status: 'processing' }));

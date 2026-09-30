@@ -11,7 +11,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type DomainEventPayload,
+  type PaymentFailedPayload,
+} from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
@@ -87,6 +91,11 @@ export class PaymentsService {
     input: ChargeInvoiceInput;
     /** Locales a los que el usuario está restringido; null/undefined = todos. */
     facilityScope?: string[] | null;
+    /**
+     * Cobro en segundo plano (auto-charge, reintentos): si se rechaza se avisa
+     * al inquilino por email. En el portal o desde el panel ya ve el resultado.
+     */
+    notifyCustomerOnFailure?: boolean;
     meta: RequestMeta;
   }): Promise<PaymentDto> {
     const invoice = await this.prisma.withTenant(
@@ -309,6 +318,15 @@ export class PaymentsService {
       return updated;
     }, args.tenantId);
     if (invoiceFullyPaid) await this.emitInvoicePaid(args.tenantId, invoice.id);
+    if (chargeResult.status === 'failed' && args.notifyCustomerOnFailure) {
+      this.emitPaymentFailed({
+        tenantId: args.tenantId,
+        invoiceId: invoice.id,
+        customerId: invoiceCustomerId,
+        amount,
+        reason: chargeResult.failureReason ?? null,
+      });
+    }
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -488,6 +506,24 @@ export class PaymentsService {
     if (invoicePaidNow && existing.invoiceId) {
       await this.emitInvoicePaid(args.tenantId, existing.invoiceId);
     }
+    // Un adeudo o cobro que se resuelve rechazado después (SEPA, 3DS…): el
+    // inquilino no estaba delante, así que se le avisa.
+    if (args.newStatus === 'failed' && existing.invoiceId) {
+      this.emitPaymentFailed({
+        tenantId: args.tenantId,
+        invoiceId: existing.invoiceId,
+        customerId: existing.customerId,
+        amount: Number(existing.amount),
+        reason: args.failureReason ?? null,
+      });
+    }
+  }
+
+  private emitPaymentFailed(p: PaymentFailedPayload): void {
+    this.events.emit(DOMAIN_EVENTS.payment_failed, {
+      ...p,
+      reason: friendlyFailureReason(p.reason),
+    } satisfies PaymentFailedPayload);
   }
 
   /**
@@ -710,4 +746,15 @@ export class PaymentsService {
       createdAt: row.createdAt.toISOString(),
     };
   }
+}
+
+/** Motivo de rechazo legible para el inquilino (códigos de Stripe/GoCardless). */
+function friendlyFailureReason(code: string | null): string | null {
+  if (!code) return null;
+  const c = code.toLowerCase();
+  if (c.includes('insufficient')) return 'fondos insuficientes';
+  if (c.includes('expired')) return 'tarjeta caducada';
+  if (c.includes('declined') || c.includes('refused')) return 'pago rechazado por el banco';
+  if (c.includes('mandate') || c.includes('cancelled')) return 'la domiciliación no está activa';
+  return null;
 }

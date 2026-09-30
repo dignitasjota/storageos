@@ -109,7 +109,7 @@ describe('Asistente IA — acciones con confirmación (e2e)', () => {
     const taskItems = (tasksBefore.body.items ?? tasksBefore.body) as { title: string }[];
     expect(taskItems.some((t) => t.title === 'Llamar al cerrajero')).toBe(false);
     const commsBefore = await request(app.getHttpServer())
-      .get(`/communications?invoiceId=${invoiceId}`)
+      .get(`/communications?invoiceId=${invoiceId}&source=bulk.manual_reminder`)
       .set(auth);
     expect((commsBefore.body.items ?? commsBefore.body) as unknown[]).toHaveLength(0);
 
@@ -135,7 +135,7 @@ describe('Asistente IA — acciones con confirmación (e2e)', () => {
       .set(auth)
       .expect(200);
     const commsAfter = await request(app.getHttpServer())
-      .get(`/communications?invoiceId=${invoiceId}`)
+      .get(`/communications?invoiceId=${invoiceId}&source=bulk.manual_reminder`)
       .set(auth);
     expect((commsAfter.body.items ?? commsAfter.body) as unknown[]).toHaveLength(1);
 
