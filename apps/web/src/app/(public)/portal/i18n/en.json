@@ -17,7 +17,7 @@
       "submitEntering": "Signing in...",
       "submitSendLink": "Send link",
       "submitEnter": "Sign in",
-      "sentTo": "We've sent a link to {email} (if it belongs to a tenant).",
+      "sentTo": "If {email} belongs to a customer, we've sent you a sign-in link. It may take a few minutes; check your spam folder too.",
       "sentExpiry": "The link expires in 30 minutes.",
       "tryAnotherEmail": "Try another email",
       "forgotPrompt": "Forgot your password or don't have one yet?",
@@ -26,7 +26,7 @@
       "genericError": "Error",
       "wrongCredentials": "Wrong email or password",
       "missingFields": "Enter the company and email.",
-      "forgotSuccess": "If the email belongs to a customer, we've sent a link to set your password."
+      "forgotSuccess": "If that email belongs to a customer, we've sent you a link to set or change your password. Check your spam folder too."
     },
     "reset": {
       "title": "New password",

@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
@@ -229,5 +231,18 @@ describe('Portal — login por contraseña (e2e)', () => {
       .post('/portal/login/password')
       .send({ tenantSlug: owner.slug, email, password: 'ClaveStaff1' })
       .expect(401);
+  });
+
+  it('el enlace de acceso llega aunque el email del inquilino esté guardado con mayúsculas', async () => {
+    const owner = await registerVerifiedUser(app, 'portal-case');
+    const email = `case-${Date.now()}@e2e.local`;
+    const customerId = await createCustomer(app, owner.accessToken, { email });
+    // Altas antiguas / importaciones pueden haberlo guardado con mayúsculas.
+    await app
+      .get(PrismaAdminService)
+      .customer.update({ where: { id: customerId }, data: { email: email.toUpperCase() } });
+
+    const token = await magicLogin(owner.slug, email);
+    expect(token).toEqual(expect.any(String));
   });
 });
