@@ -1,8 +1,10 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages, waitForEmail } from './helpers/mailpit';
 import { cleanupSuperAdmins, seedSuperAdmin } from './helpers/super-admin';
+import { cleanupTestTenants, setTenantPlan } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -26,6 +28,7 @@ describe('Admin: correo saliente (e2e)', () => {
 
   beforeAll(async () => {
     await cleanupSuperAdmins();
+    await cleanupTestTenants();
     await db.platformEmailSettings.deleteMany();
     await deleteAllMessages();
     app = await createTestApp();
@@ -36,6 +39,7 @@ describe('Admin: correo saliente (e2e)', () => {
     await db.platformEmailSettings.deleteMany();
     await db.$disconnect();
     await cleanupSuperAdmins();
+    await cleanupTestTenants();
   });
 
   async function loginAs(role: 'superadmin' | 'support') {
@@ -88,6 +92,55 @@ describe('Admin: correo saliente (e2e)', () => {
     await waitForEmail(to, { subjectIncludes: 'Prueba de correo' });
   });
 
+  it('lista los dominios de Brevo que ya no usa ningún tenant y permite borrarlos', async () => {
+    const auth = await loginAs('superadmin');
+    const owner = await registerVerifiedUser(app, 'brevounused');
+    await setTenantPlan(owner.slug, 'pro');
+    const tAuth = { Authorization: `Bearer ${owner.accessToken}` };
+    const stamp = Date.now().toString(36);
+    const oldDomain = `viejo-${stamp}.es`;
+    const newDomain = `nuevo-${stamp}.es`;
+
+    // El tenant da de alta un dominio y luego lo cambia por otro: el viejo
+    // sigue en Brevo (la app nunca lo borra) y ya no lo usa nadie.
+    for (const domain of [oldDomain, newDomain]) {
+      await request(app.getHttpServer())
+        .put('/settings/tenant/email-domain')
+        .set(tAuth)
+        .send({ domain })
+        .expect(200);
+    }
+
+    const list = await request(app.getHttpServer())
+      .get('/admin/email-settings/brevo-domains/unused')
+      .set(auth)
+      .expect(200);
+    const names = (list.body as { domain: string }[]).map((d) => d.domain);
+    expect(names).toContain(oldDomain);
+    expect(names).not.toContain(newDomain);
+
+    // Uno en uso no se puede borrar.
+    const inUse = await request(app.getHttpServer())
+      .delete(`/admin/email-settings/brevo-domains/${newDomain}`)
+      .set(auth);
+    expect(inUse.status).toBe(409);
+    expect(inUse.body.code).toBe('email_domain_in_use');
+
+    await request(app.getHttpServer())
+      .delete(`/admin/email-settings/brevo-domains/${oldDomain}`)
+      .set(auth)
+      .expect(204);
+    const after = await request(app.getHttpServer())
+      .get('/admin/email-settings/brevo-domains/unused')
+      .set(auth);
+    expect((after.body as { domain: string }[]).map((d) => d.domain)).not.toContain(oldDomain);
+
+    await request(app.getHttpServer())
+      .delete('/admin/email-settings/brevo-domains/no%20valido')
+      .set(auth)
+      .expect(400);
+  });
+
   it('el rol support puede ver pero no cambiar ni probar', async () => {
     const auth = await loginAs('support');
     await request(app.getHttpServer()).get('/admin/email-settings').set(auth).expect(200);
@@ -100,6 +153,14 @@ describe('Admin: correo saliente (e2e)', () => {
       .post('/admin/email-settings/test')
       .set(auth)
       .send({ to: 'x@e2e.local' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/admin/email-settings/brevo-domains/unused')
+      .set(auth)
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete('/admin/email-settings/brevo-domains/cualquiera.es')
+      .set(auth)
       .expect(403);
   });
 });

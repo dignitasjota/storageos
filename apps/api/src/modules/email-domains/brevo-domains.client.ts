@@ -11,6 +11,14 @@ export interface BrevoDomainState {
   records: EmailDnsRecordDto[];
 }
 
+export interface BrevoDomainSummary {
+  domain: string;
+  authenticated: boolean;
+}
+
+/** Dominios «creados» en modo simulado (test): permite listar y borrar. */
+const stubDomains = new Set<string>();
+
 export class BrevoDomainsError extends Error {
   constructor(
     message: string,
@@ -45,7 +53,10 @@ export class BrevoDomainsClient {
   }
 
   async create(domain: string): Promise<BrevoDomainState> {
-    if (this.stub) return stubState(domain, false);
+    if (this.stub) {
+      stubDomains.add(domain);
+      return stubState(domain, false);
+    }
     let body: unknown;
     try {
       body = await this.request('POST', '/senders/domains', { name: domain });
@@ -89,6 +100,42 @@ export class BrevoDomainsClient {
       if (!(err instanceof BrevoDomainsError) || err.status !== 400) throw err;
     }
     return this.get(domain);
+  }
+
+  /** Todos los dominios dados de alta en la cuenta Brevo de la plataforma. */
+  async list(): Promise<BrevoDomainSummary[]> {
+    if (this.stub) {
+      return [...stubDomains].map((domain) => ({
+        domain,
+        authenticated: !domain.startsWith('fail'),
+      }));
+    }
+    const body = (await this.request('GET', '/senders/domains')) as {
+      domains?: { domain_name?: unknown; authenticated?: unknown }[];
+    };
+    return (body.domains ?? [])
+      .filter(
+        (d): d is { domain_name: string; authenticated?: unknown } =>
+          typeof d.domain_name === 'string',
+      )
+      .map((d) => ({
+        domain: d.domain_name.toLowerCase(),
+        authenticated: d.authenticated === true,
+      }));
+  }
+
+  /** Borra un dominio de la cuenta Brevo (idempotente: 404 = ya no estaba). */
+  async deleteDomain(domain: string): Promise<void> {
+    if (this.stub) {
+      stubDomains.delete(domain);
+      return;
+    }
+    try {
+      await this.request('DELETE', `/senders/domains/${encodeURIComponent(domain)}`);
+    } catch (err) {
+      if (err instanceof BrevoDomainsError && err.status === 404) return;
+      throw err;
+    }
   }
 
   private async request(method: string, path: string, body?: unknown): Promise<unknown> {

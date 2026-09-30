@@ -1267,3 +1267,9 @@ export interface TestEmailResultDto {
   provider: string;
   providerMessageId: string | null;
 }
+
+/** Dominio de la cuenta Brevo de la plataforma que ya no usa ningún tenant. */
+export interface UnusedBrevoDomainDto {
+  domain: string;
+  authenticated: boolean;
+}

@@ -639,8 +639,9 @@ verificado deja de estarlo (vuelve al remitente de la plataforma). Sin
   verifica (evita que un tenant use el dominio de otro).
 - Si el dominio ya existía en la cuenta Brevo (p. ej. creado a mano), se adopta.
 - La app **nunca borra dominios de Brevo** (ni al quitarlos ni al cambiarlos):
-  si fue un error, volver a añadirlo no obliga a rehacer los DNS. La limpieza de
-  dominios que ya no se usan se hace a mano en el panel de Brevo.
+  si fue un error, volver a añadirlo no obliga a rehacer los DNS. Los que ya no
+  usa ningún tenant aparecen en el panel admin → Comunicación → Correo saliente
+  → «Dominios en Brevo sin uso», con un botón para borrarlos de Brevo.
 
 **Alternativa por SMTP** (mismo resultado): `EMAIL_PROVIDER=smtp`,
 `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER=<login SMTP de

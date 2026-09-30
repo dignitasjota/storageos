@@ -28,6 +28,7 @@ import {
   BrevoDomainsClient,
   BrevoDomainsError,
   type BrevoDomainState,
+  type BrevoDomainSummary,
 } from './brevo-domains.client';
 import { DomainOwnershipChecker, ownershipHost, ownershipValue } from './domain-ownership.checker';
 
@@ -185,6 +186,44 @@ export class EmailDomainsService {
       ipAddress: actor.ipAddress ?? null,
       userAgent: actor.userAgent ?? null,
     });
+  }
+
+  /**
+   * Dominios de la cuenta Brevo de la plataforma que ya no usa ningún tenant
+   * (quitados, cambiados por otro o creados a mano). La app nunca los borra
+   * sola; el super admin los revisa y limpia desde su panel. Se excluyen el
+   * dominio de la plataforma y sus subdominios.
+   */
+  async listUnusedBrevoDomains(): Promise<BrevoDomainSummary[]> {
+    this.assertAvailable();
+    const [inBrevo, inUse] = await Promise.all([
+      this.callBrevo(() => this.brevo.list()),
+      this.admin.tenantEmailDomain.findMany({ select: { domain: true } }),
+    ]);
+    const used = new Set(inUse.map((d) => d.domain));
+    return inBrevo
+      .filter((d) => !used.has(d.domain) && !this.isPlatformDomain(d.domain))
+      .sort((a, b) => a.domain.localeCompare(b.domain));
+  }
+
+  /** Borra de Brevo un dominio sin uso. Nunca uno asignado a un tenant. */
+  async deleteUnusedBrevoDomain(domain: string): Promise<void> {
+    this.assertAvailable();
+    const normalized = domain.trim().toLowerCase();
+    if (this.isPlatformDomain(normalized)) {
+      throw new BadRequestException({
+        code: 'domain_not_allowed',
+        message: 'Es el dominio de la plataforma.',
+      });
+    }
+    const inUse = await this.admin.tenantEmailDomain.findUnique({ where: { domain: normalized } });
+    if (inUse) {
+      throw new ConflictException({
+        code: 'email_domain_in_use',
+        message: 'Ese dominio lo está usando un tenant.',
+      });
+    }
+    await this.callBrevo(() => this.brevo.deleteDomain(normalized));
   }
 
   /**
