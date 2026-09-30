@@ -110,6 +110,7 @@ export class RetentionService {
           : `${input.discountValue} € de descuento`;
       await this.email
         .sendRendered({
+          tenantId,
           to: created.email,
           subject: 'Una oferta para que te quedes con nosotros',
           html: `<p>Hemos visto que ibas a darte de baja del trastero <strong>${escapeHtml(

@@ -596,6 +596,36 @@ los **archivos de MinIO** (documentos, PDFs) usa `scripts/backup.sh` desde el ho
 
 ---
 
+## 10.4. Email con Brevo (recomendado)
+
+La app envía por la **API transaccional de Brevo** (`EMAIL_PROVIDER=brevo`). Una
+sola cuenta de la plataforma sirve para todos los tenants.
+
+1. En Brevo → **Senders, domains & dedicated IPs → Domains**, añade `trasteros.pro`
+   y pon en el DNS los registros que indica (código de verificación, DKIM y
+   DMARC). Pulsa **Authenticate** hasta que salga verificado.
+2. Brevo → **SMTP & API → API keys** → crea una clave.
+3. Variables de Portainer (en `api` **y** `worker`, que es quien envía las colas):
+   ```
+   EMAIL_PROVIDER=brevo
+   BREVO_API_KEY=xkeysib-...
+   EMAIL_FROM_NAME=TrasterOS
+   EMAIL_FROM_ADDRESS=no-reply@trasteros.pro
+   ```
+4. Redeploy y prueba con «¿Olvidaste la contraseña?».
+
+**Alternativa por SMTP** (mismo resultado): `EMAIL_PROVIDER=smtp`,
+`SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER=<login SMTP de
+Brevo>`, `SMTP_PASSWORD=<clave SMTP>`, `SMTP_SECURE=false`. Sin `SMTP_USER` el
+envío SMTP va sin autenticación ni TLS (solo vale para Mailpit en local).
+
+**Remitente de los correos a inquilinos**: los que un tenant envía a sus
+inquilinos (recordatorios, campañas, automatizaciones, enlaces del portal, lista
+de espera, ofertas de retención) salen con **el nombre del tenant** como
+remitente visible, desde `EMAIL_FROM_ADDRESS`, y las respuestas van al email de
+facturación del tenant (o al del propietario). Los correos de cuenta y los
+avisos de la plataforma al tenant salen como `EMAIL_FROM_NAME`.
+
 ## 10.5. Setup de Resend producción
 
 Necesario **antes** del primer envío real desde producción. Sin SPF/DKIM/DMARC, los emails caen en spam o se rechazan.
