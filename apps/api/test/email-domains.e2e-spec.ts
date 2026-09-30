@@ -75,7 +75,11 @@ describe('Dominio propio de correo del tenant (e2e)', () => {
       status: 'pending',
       active: true,
     });
-    expect(created.body.emailDomain.records.length).toBeGreaterThan(0);
+    // Primero el TXT de propiedad del tenant (código propio), luego los de Brevo.
+    const [own, ...brevoRecords] = created.body.emailDomain.records;
+    expect(own).toMatchObject({ type: 'TXT', host: `_trasteros.${domain}` });
+    expect(own.value).toMatch(/^trasteros-verification=[0-9a-f]{32}$/);
+    expect(brevoRecords.length).toBeGreaterThan(0);
 
     // Pendiente de verificar: sigue saliendo desde la plataforma.
     const customerEmail = `inq-${stamp}@e2e.local`;
@@ -140,6 +144,26 @@ describe('Dominio propio de correo del tenant (e2e)', () => {
       .post('/settings/tenant/email-domain/verify')
       .set(bAuth);
     expect(pending.body.emailDomain.status).toBe('pending');
+  });
+
+  it('sin el TXT de propiedad no se verifica aunque Brevo lo autentique', async () => {
+    // Un dominio que ya estuviera autenticado en la cuenta Brevo de la
+    // plataforma no basta: el tenant tiene que probar que es suyo.
+    const owner = await registerVerifiedUser(app, 'maildomainowner');
+    await setTenantPlan(owner.slug, 'pro');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const created = await request(app.getHttpServer())
+      .put('/settings/tenant/email-domain')
+      .set(auth)
+      .send({ domain: `noowner-${stamp}.es` })
+      .expect(200);
+    expect(created.body.emailDomain.status).toBe('pending');
+    const verify = await request(app.getHttpServer())
+      .post('/settings/tenant/email-domain/verify')
+      .set(auth)
+      .expect(200);
+    expect(verify.body.emailDomain.status).toBe('pending');
+    expect(verify.body.emailDomain.records[0].ok).toBe(false);
   });
 
   it('401 sin sesión', async () => {

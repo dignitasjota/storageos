@@ -91,16 +91,6 @@ export class BrevoDomainsClient {
     return this.get(domain);
   }
 
-  async remove(domain: string): Promise<void> {
-    if (this.stub) return;
-    try {
-      await this.request('DELETE', `/senders/domains/${encodeURIComponent(domain)}`);
-    } catch (err) {
-      if (err instanceof BrevoDomainsError && err.status === 404) return;
-      throw err;
-    }
-  }
-
   private async request(method: string, path: string, body?: unknown): Promise<unknown> {
     const apiKey = this.config.get('BREVO_API_KEY', { infer: true });
     if (!apiKey) throw new BrevoDomainsError('BREVO_API_KEY no configurada', 503);

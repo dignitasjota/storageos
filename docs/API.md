@@ -1846,8 +1846,8 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /admin/email-settings` (super admin): proveedor principal (`brevo`/`resend`/null = variable), respaldo, claves configuradas y orden de envío efectivo. `PUT` (rol superadmin, auditado) y `POST /admin/email-settings/test {to}` (502 `email_send_failed` con el mensaje del proveedor si lo rechaza).
 - `GET /settings/tenant/email-domain` (`settings:read`) → `{ emailDomain: EmailDomainDto | null }` (envuelto: un `null` crudo llegaría como body vacío).
 - `PUT /settings/tenant/email-domain {domain, fromLocalPart?, fromName?, replyTo?}` (`settings:manage`, feature `custom_domain` → si no, 403 `feature_not_in_plan`): da de alta el dominio en la cuenta Brevo de la plataforma y devuelve los registros DNS. Errores: 400 `domain_not_allowed` (dominio de la plataforma), 409 `domain_taken`, 400 `email_domain_provider_error`, 503 `email_domains_not_available` (sin `BREVO_API_KEY`).
-- `POST /settings/tenant/email-domain/verify` (`settings:manage` + feature): pide a Brevo que compruebe los DNS; `status` `pending` → `verified` (o `failed` si estaba verificado y se rompe).
-- `DELETE /settings/tenant/email-domain` (`settings:manage`, sin feature: se puede quitar tras bajar de plan) → 204.
+- `POST /settings/tenant/email-domain/verify` (`settings:manage` + feature): pide a Brevo que compruebe los DNS y consulta el TXT de propiedad `_trasteros.<dominio>`; `status` `pending` → `verified` solo con ambos (o `failed` si estaba verificado y se rompe). El primer registro de `records` es siempre el de propiedad. Un dominio que ya existe en la cuenta Brevo se adopta.
+- `DELETE /settings/tenant/email-domain` (`settings:manage`, sin feature: se puede quitar tras bajar de plan) → 204. No borra el dominio de Brevo.
 
 ## Seguridad — cambios de contrato de la auditoría 4 (2026-09-25)
 

@@ -633,6 +633,15 @@ principal sea Resend). Un cron diario verifica los pendientes y avisa si uno
 verificado deja de estarlo (vuelve al remitente de la plataforma). Sin
 `BREVO_API_KEY` la opción responde 503.
 
+- Además de los registros de Brevo, el tenant publica un TXT propio
+  `_trasteros.<dominio>` = `trasteros-verification=<código>`: Brevo solo prueba
+  que el dominio apunta a nuestra cuenta, no de qué tenant es. Sin ese TXT no se
+  verifica (evita que un tenant use el dominio de otro).
+- Si el dominio ya existía en la cuenta Brevo (p. ej. creado a mano), se adopta.
+- La app **nunca borra dominios de Brevo** (ni al quitarlos ni al cambiarlos):
+  si fue un error, volver a añadirlo no obliga a rehacer los DNS. La limpieza de
+  dominios que ya no se usan se hace a mano en el panel de Brevo.
+
 **Alternativa por SMTP** (mismo resultado): `EMAIL_PROVIDER=smtp`,
 `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER=<login SMTP de
 Brevo>`, `SMTP_PASSWORD=<clave SMTP>`, `SMTP_SECURE=false`. Sin `SMTP_USER` el

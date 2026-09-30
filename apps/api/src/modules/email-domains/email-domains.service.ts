@@ -1,9 +1,10 @@
+import { randomBytes } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -28,6 +29,7 @@ import {
   BrevoDomainsError,
   type BrevoDomainState,
 } from './brevo-domains.client';
+import { DomainOwnershipChecker, ownershipHost, ownershipValue } from './domain-ownership.checker';
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma, TenantEmailDomain } from '@storageos/database';
@@ -47,8 +49,6 @@ interface Actor {
  */
 @Injectable()
 export class EmailDomainsService {
-  private readonly logger = new Logger(EmailDomainsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
@@ -56,6 +56,7 @@ export class EmailDomainsService {
     private readonly config: ConfigService<Env, true>,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly ownership: DomainOwnershipChecker,
   ) {}
 
   async get(tenantId: string): Promise<EmailDomainDto | null> {
@@ -98,13 +99,21 @@ export class EmailDomainsService {
     if (current && current.domain === domain) {
       row = await this.admin.tenantEmailDomain.update({ where: { id: current.id }, data: fields });
     } else {
+      // Dominio nuevo: alta en Brevo (o adopción si ya existía en la cuenta) y
+      // código de propiedad nuevo. El dominio anterior NO se borra de Brevo:
+      // si fue un error, volver a él no obliga a rehacer los DNS.
       const state = await this.callBrevo(() => this.brevo.create(domain));
+      const ownershipToken = randomBytes(16).toString('hex');
+      const owned = await this.ownership.check(domain, ownershipToken);
+      const verified = state.authenticated && owned;
       const data = {
         domain,
         ...fields,
-        status: state.authenticated ? 'verified' : 'pending',
+        status: verified ? 'verified' : 'pending',
         dnsRecords: state.records as unknown as Prisma.InputJsonValue,
-        verifiedAt: state.authenticated ? new Date() : null,
+        verifiedAt: verified ? new Date() : null,
+        ownershipToken,
+        ownershipVerifiedAt: owned ? new Date() : null,
         lastCheckedAt: new Date(),
         lastError: null,
       };
@@ -113,14 +122,6 @@ export class EmailDomainsService {
         : await this.admin.tenantEmailDomain.create({
             data: { tenantId: actor.tenantId, ...data },
           });
-      if (current) {
-        // El dominio anterior ya no se usa: se retira de Brevo (best-effort).
-        await this.brevo
-          .remove(current.domain)
-          .catch((err: unknown) =>
-            this.logger.warn(`No se pudo retirar ${current.domain} de Brevo: ${String(err)}`),
-          );
-      }
     }
 
     await this.audit.write({
@@ -171,14 +172,9 @@ export class EmailDomainsService {
       where: { tenantId: actor.tenantId },
     });
     if (!row) return;
+    // Solo se quita de la app: en Brevo se conserva (si fue un error, volver a
+    // añadirlo no obliga a rehacer los DNS). La limpieza en Brevo es manual.
     await this.admin.tenantEmailDomain.delete({ where: { id: row.id } });
-    if (this.brevo.available) {
-      await this.brevo
-        .remove(row.domain)
-        .catch((err: unknown) =>
-          this.logger.warn(`No se pudo retirar ${row.domain} de Brevo: ${String(err)}`),
-        );
-    }
     await this.audit.write({
       tenantId: actor.tenantId,
       userId: actor.userId,
@@ -238,20 +234,26 @@ export class EmailDomainsService {
     return { checked: rows.length, verified, failed };
   }
 
+  /**
+   * Verificado = Brevo autentica el dominio **y** el tenant ha probado que es
+   * suyo (TXT de propiedad). La propiedad, una vez probada, no se vuelve a
+   * exigir mientras no cambie el dominio.
+   */
   private async applyState(
     row: TenantEmailDomain,
     state: BrevoDomainState,
   ): Promise<TenantEmailDomain> {
-    const status: EmailDomainStatus = state.authenticated
-      ? 'verified'
-      : row.status === 'verified'
-        ? 'failed'
-        : 'pending';
+    const owned =
+      row.ownershipVerifiedAt !== null ||
+      (await this.ownership.check(row.domain, row.ownershipToken));
+    const status: EmailDomainStatus =
+      state.authenticated && owned ? 'verified' : row.status === 'verified' ? 'failed' : 'pending';
     return this.admin.tenantEmailDomain.update({
       where: { id: row.id },
       data: {
         status,
         dnsRecords: state.records as unknown as Prisma.InputJsonValue,
+        ownershipVerifiedAt: owned ? (row.ownershipVerifiedAt ?? new Date()) : null,
         verifiedAt: status === 'verified' ? (row.verifiedAt ?? new Date()) : null,
         lastCheckedAt: new Date(),
         lastError: null,
@@ -342,7 +344,16 @@ export class EmailDomainsService {
       fromName: row.fromName,
       replyTo: row.replyTo,
       status: row.status as EmailDomainStatus,
-      records: (row.dnsRecords as unknown as EmailDnsRecordDto[]) ?? [],
+      records: [
+        {
+          label: 'Verificación de propiedad (TrasterOS)',
+          type: 'TXT',
+          host: ownershipHost(row.domain),
+          value: ownershipValue(row.ownershipToken),
+          ok: row.ownershipVerifiedAt !== null,
+        },
+        ...((row.dnsRecords as unknown as EmailDnsRecordDto[]) ?? []),
+      ],
       verifiedAt: row.verifiedAt?.toISOString() ?? null,
       lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
       lastError: row.lastError,

@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 import { BrevoDomainsClient } from './brevo-domains.client';
+import { DomainOwnershipChecker } from './domain-ownership.checker';
 import { EmailDomainsController } from './email-domains.controller';
 import { EmailDomainsCron } from './email-domains.cron';
 import { EmailDomainsService } from './email-domains.service';
@@ -15,6 +16,7 @@ import { EmailDomainsService } from './email-domains.service';
   controllers: [EmailDomainsController],
   providers: [
     BrevoDomainsClient,
+    DomainOwnershipChecker,
     EmailDomainsService,
     ...(WORKERS_ENABLED_IN_API ? [EmailDomainsCron] : []),
   ],
