@@ -17,7 +17,7 @@
       "submitEntering": "Entrando...",
       "submitSendLink": "Enviar enlace",
       "submitEnter": "Entrar",
-      "sentTo": "Hemos enviado un enlace a {email} (si pertenece a algún tenant).",
+      "sentTo": "Si {email} es el email de un cliente, te hemos enviado un enlace para entrar. Puede tardar unos minutos; revisa también la carpeta de spam.",
       "sentExpiry": "El enlace caduca en 30 minutos.",
       "tryAnotherEmail": "Probar con otro email",
       "forgotPrompt": "¿Olvidaste la contraseña o aún no la tienes?",
@@ -26,7 +26,7 @@
       "genericError": "Error",
       "wrongCredentials": "Email o contraseña incorrectos",
       "missingFields": "Indica la empresa y el email.",
-      "forgotSuccess": "Si el email pertenece a algún cliente, te enviamos un enlace para tu contraseña."
+      "forgotSuccess": "Si ese email es el de un cliente, te hemos enviado un enlace para crear o cambiar tu contraseña. Revisa también la carpeta de spam."
     },
     "reset": {
       "title": "Nueva contraseña",

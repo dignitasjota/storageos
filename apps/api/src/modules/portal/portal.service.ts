@@ -269,9 +269,14 @@ export class PortalService {
     });
     if (!tenant || tenant.deletedAt) return; // 204 silencioso para no filtrar.
     const customer = await this.admin.customer.findFirst({
-      where: { tenantId: tenant.id, email: input.email, deletedAt: null },
+      where: { tenantId: tenant.id, email: emailEquals(input.email), deletedAt: null },
     });
-    if (!customer) return;
+    if (!customer) {
+      // Sin el email en el log (no filtrar quién es cliente); basta para
+      // saber por qué no llegó nada.
+      this.logger.log(`[portal-magic-link] ${tenant.slug}: el email no es de ningún inquilino`);
+      return;
+    }
 
     const tokenId = randomBytes(16).toString('hex');
     const secret = randomBytes(24).toString('base64url');
@@ -373,7 +378,7 @@ export class PortalService {
     const candidates = await this.admin.customer.findMany({
       where: {
         tenantId: tenant?.id ?? '00000000-0000-0000-0000-000000000000',
-        email: input.email,
+        email: emailEquals(input.email),
         deletedAt: null,
         portalAccessEnabled: true,
         portalPasswordHash: { not: null },
@@ -439,9 +444,14 @@ export class PortalService {
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
     if (!tenant || tenant.deletedAt) return;
     const customer = await this.admin.customer.findFirst({
-      where: { tenantId: tenant.id, email: input.email, deletedAt: null },
+      where: { tenantId: tenant.id, email: emailEquals(input.email), deletedAt: null },
     });
-    if (!customer) return;
+    if (!customer) {
+      // Sin el email en el log (no filtrar quién es cliente); basta para
+      // saber por qué no llegó nada.
+      this.logger.log(`[portal-password-reset] ${tenant.slug}: el email no es de ningún inquilino`);
+      return;
+    }
 
     const tokenId = randomBytes(16).toString('hex');
     const secret = randomBytes(24).toString('base64url');
@@ -1185,4 +1195,12 @@ export class PortalService {
       });
     }
   }
+}
+
+/**
+ * El email del inquilino se compara sin distinguir mayúsculas: altas antiguas,
+ * importaciones o conversiones de leads pueden haberlo guardado con mayúsculas.
+ */
+function emailEquals(email: string): { equals: string; mode: 'insensitive' } {
+  return { equals: email.trim(), mode: 'insensitive' };
 }
