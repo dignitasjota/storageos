@@ -660,6 +660,11 @@ Banderas y modelos transversales que afectan al despliegue, no a una tabla concr
   siguen en variables de entorno; un proveedor sin clave se salta. El envío lo
   decide `RoutingEmailProvider` (token `EMAIL_PROVIDER`), con el ajuste cacheado
   30 s. `communications.provider` guarda el proveedor que entregó realmente.
+- **`tenant_email_domains`** (RLS, 1 por tenant, `domain` único global porque
+  todos viven en la cuenta Brevo de la plataforma): `from_local_part`,
+  `from_name?`, `reply_to?`, `status` (`pending|verified|failed`), `dns_records`
+  (jsonb normalizado de Brevo), `verified_at`, `last_checked_at`, `last_error`.
+  Se usa solo si está `verified` **y** el plan incluye `custom_domain`.
 
 ### Flag `ENABLE_WORKERS_IN_API` (Fase 14A.1)
 

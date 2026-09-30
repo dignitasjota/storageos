@@ -57,7 +57,10 @@ export class PlatformEmailSettingsService {
    * Orden de proveedores a intentar en un envío. Nunca lanza: si no se puede
    * leer el ajuste, usa el de la variable de entorno.
    */
-  async sendOrder(): Promise<EmailProviderKey[]> {
+  async sendOrder(force?: PlatformEmailProvider): Promise<EmailProviderKey[]> {
+    // Envío que solo puede salir por un proveedor (dominio del tenant en Brevo):
+    // sin respaldo, porque el otro rechazaría el remitente.
+    if (force && this.isConfigured(force)) return [force];
     const stored = await this.stored().catch(() => ({ provider: null, fallbackEnabled: false }));
     return this.computeOrder(stored);
   }

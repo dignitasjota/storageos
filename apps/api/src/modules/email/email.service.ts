@@ -77,6 +77,7 @@ export class EmailService {
       return await this.provider.send({
         ...(sender ? { from: sender.from } : {}),
         ...(sender?.replyTo ? { replyTo: sender.replyTo } : {}),
+        ...(sender?.forceProvider ? { forceProvider: sender.forceProvider } : {}),
         to: args.to,
         subject: args.subject,
         html: args.html,

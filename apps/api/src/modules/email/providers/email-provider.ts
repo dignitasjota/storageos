@@ -29,6 +29,11 @@ export interface SendEmailArgs {
   replyTo?: EmailAddress;
   /** Para tracking en logs/audit (no se manda al proveedor). */
   tags?: Record<string, string>;
+  /**
+   * Proveedor obligatorio para este envío (p. ej. el dominio del tenant solo
+   * está autenticado en Brevo). Si no tiene clave, se sigue el orden normal.
+   */
+  forceProvider?: 'brevo' | 'resend';
 }
 
 export interface SendEmailResult {

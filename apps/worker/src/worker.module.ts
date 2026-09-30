@@ -23,6 +23,7 @@ import { InventoryModule } from '../../api/src/modules/inventory/inventory.modul
 import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance.module';
 import { MarketingModule } from '../../api/src/modules/marketing/marketing.module';
 import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
+import { EmailDomainsModule } from '../../api/src/modules/email-domains/email-domains.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { PlanLimitsModule } from '../../api/src/modules/plan-limits/plan-limits.module';
@@ -138,6 +139,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     PlanLimitsModule,
     MaintenanceModule,
     NotificationsModule,
+    EmailDomainsModule,
     ReviewsModule,
     // MarketingModule: cron diario de sincronización de gasto (Google Ads/Meta Ads).
     MarketingModule,
