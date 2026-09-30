@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import {
+  BadRequestException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -21,6 +22,7 @@ import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
+import { PortalWelcomeEmail } from '../email/templates/portal-welcome';
 import { FilesService } from '../files/files.service';
 import { GoCardlessMandatesService } from '../payments/gocardless/gocardless-mandates.service';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
@@ -209,30 +211,14 @@ export class PortalService {
     userId: string,
     meta: { ipAddress: string | null; userAgent: string | null },
   ): Promise<PortalMagicLinkDto> {
-    const [customer, tenant] = await Promise.all([
-      this.admin.customer.findFirst({
-        where: { id: customerId, tenantId, deletedAt: null },
-        select: { id: true },
-      }),
-      this.admin.tenant.findUnique({
-        where: { id: tenantId },
-        select: { customDomain: true, customDomainVerifiedAt: true },
-      }),
-    ]);
+    const customer = await this.admin.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
     if (!customer) {
       throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
     }
-    const tokenId = randomBytes(16).toString('hex');
-    const secret = randomBytes(24).toString('base64url');
-    const secretHash = await argonHash(secret);
-    await this.storeMagicLink(
-      tokenId,
-      { secretHash, customerId, tenantId },
-      STAFF_MAGIC_LINK_TTL_SECONDS,
-    );
-    const base = this.portalBaseUrl(tenant ?? { customDomain: null, customDomainVerifiedAt: null });
-    const url = `${base}/portal/consume?token=${tokenId}.${secret}`;
-    const expiresAt = new Date(Date.now() + STAFF_MAGIC_LINK_TTL_SECONDS * 1000).toISOString();
+    const { url, expiresAt } = await this.issueStaffMagicLink(tenantId, customerId);
     // Trazabilidad: quién generó un acceso al portal de este inquilino (no se
     // registra el token/secreto, solo el hecho y su caducidad).
     await this.audit.write({
@@ -246,6 +232,93 @@ export class PortalService {
       userAgent: meta.userAgent,
     });
     return { url, expiresAt };
+  }
+
+  /**
+   * Envía al inquilino por email su acceso al portal (bienvenida al darlo de
+   * alta, o reenvío desde su ficha): enlace de un solo uso válido 7 días, con
+   * el remitente del tenant.
+   */
+  async sendAccessEmail(
+    tenantId: string,
+    customerId: string,
+    userId: string,
+    meta: { ipAddress: string | null; userAgent: string | null },
+  ): Promise<{ sentTo: string }> {
+    const [customer, tenant] = await Promise.all([
+      this.admin.customer.findFirst({
+        where: { id: customerId, tenantId, deletedAt: null },
+        select: { email: true, firstName: true, companyName: true, customerType: true },
+      }),
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
+      }),
+    ]);
+    if (!customer || !tenant) {
+      throw new NotFoundException({ code: 'customer_not_found', message: 'Cliente no encontrado' });
+    }
+    if (!customer.email) {
+      throw new BadRequestException({
+        code: 'customer_without_email',
+        message: 'El inquilino no tiene email',
+      });
+    }
+    const { url, expiresAt } = await this.issueStaffMagicLink(tenantId, customerId);
+    const base = this.portalBaseUrl(tenant);
+    const loginUrl =
+      tenant.customDomain && tenant.customDomainVerifiedAt
+        ? `${base}/portal/login`
+        : `${base}/portal/login?slug=${encodeURIComponent(tenant.slug)}`;
+    const customerName =
+      (customer.customerType === 'business' ? customer.companyName : customer.firstName) ?? '';
+    await this.email.send({
+      tenantId,
+      to: customer.email,
+      subject: `Tu acceso al área de clientes de ${tenant.name}`,
+      template: PortalWelcomeEmail({
+        tenantName: tenant.name,
+        customerName,
+        link: url,
+        ttlDays: Math.round(STAFF_MAGIC_LINK_TTL_SECONDS / 86_400),
+        loginUrl,
+      }),
+    });
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'portal.access_email_sent',
+      entityType: 'Customer',
+      entityId: customerId,
+      changes: { expiresAt },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return { sentTo: customer.email };
+  }
+
+  /** Genera el enlace de acceso de larga duración (7 días) que reparte el staff. */
+  private async issueStaffMagicLink(
+    tenantId: string,
+    customerId: string,
+  ): Promise<{ url: string; expiresAt: string }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { customDomain: true, customDomainVerifiedAt: true },
+    });
+    const tokenId = randomBytes(16).toString('hex');
+    const secret = randomBytes(24).toString('base64url');
+    const secretHash = await argonHash(secret);
+    await this.storeMagicLink(
+      tokenId,
+      { secretHash, customerId, tenantId },
+      STAFF_MAGIC_LINK_TTL_SECONDS,
+    );
+    const base = this.portalBaseUrl(tenant ?? { customDomain: null, customDomainVerifiedAt: null });
+    return {
+      url: `${base}/portal/consume?token=${tokenId}.${secret}`,
+      expiresAt: new Date(Date.now() + STAFF_MAGIC_LINK_TTL_SECONDS * 1000).toISOString(),
+    };
   }
 
   /** Lee Y borra el token en un solo paso atomico (single-use). */

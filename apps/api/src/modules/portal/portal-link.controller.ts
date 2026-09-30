@@ -45,6 +45,18 @@ export class PortalLinkController {
     return this.portal.createMagicLinkForCustomer(user.tenantId, customerId, user.sub, meta(req));
   }
 
+  /** Envía al inquilino por email su acceso al portal (bienvenida o reenvío). */
+  @RequirePermission('customers:write')
+  @Post('send-email')
+  @HttpCode(HttpStatus.OK)
+  async sendEmail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('customerId', new ParseUUIDPipe()) customerId: string,
+    @Req() req: Request,
+  ): Promise<{ sentTo: string }> {
+    return this.portal.sendAccessEmail(user.tenantId, customerId, user.sub, meta(req));
+  }
+
   /** Enlace para que el inquilino (re)establezca su contraseña (lo reparte a mano). */
   @RequirePermission('customers:write')
   @Post('password-reset-link')

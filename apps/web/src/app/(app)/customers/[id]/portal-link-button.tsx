@@ -1,6 +1,6 @@
 'use client';
 
-import { Copy, KeyRound, Loader2, Link2, LogOut, ShieldOff } from 'lucide-react';
+import { Copy, KeyRound, Loader2, Link2, LogOut, Mail, ShieldOff } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -29,14 +29,17 @@ import {
   useCreatePortalLink,
   useDisablePortalPassword,
   useRevokePortalSessions,
+  useSendPortalAccessEmail,
 } from '@/lib/customers/hooks';
 
 export function PortalLinkButton({
   customerId,
+  customerEmail = null,
   portalAccessEnabled = false,
   className,
 }: {
   customerId: string;
+  customerEmail?: string | null;
   portalAccessEnabled?: boolean;
   className?: string;
 }) {
@@ -44,12 +47,26 @@ export function PortalLinkButton({
   const createReset = useCreatePasswordResetLink(customerId);
   const disable = useDisablePortalPassword(customerId);
   const revoke = useRevokePortalSessions(customerId);
+  const sendEmail = useSendPortalAccessEmail();
   const [link, setLink] = useState<{ dto: PortalMagicLinkDto; kind: 'access' | 'reset' } | null>(
     null,
   );
 
   const busy =
-    createLink.isPending || createReset.isPending || disable.isPending || revoke.isPending;
+    createLink.isPending ||
+    createReset.isPending ||
+    disable.isPending ||
+    revoke.isPending ||
+    sendEmail.isPending;
+
+  async function emailAccess() {
+    try {
+      const res = await sendEmail.mutateAsync(customerId);
+      toast.success(`Acceso al portal enviado a ${res.sentTo}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar el email.');
+    }
+  }
 
   async function genAccess() {
     try {
@@ -120,6 +137,10 @@ export function PortalLinkButton({
             Contraseña: {portalAccessEnabled ? 'activada' : 'no configurada'}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={!customerEmail} onClick={() => void emailAccess()}>
+            <Mail className="mr-2 h-4 w-4" />{' '}
+            {customerEmail ? 'Enviar acceso por email' : 'Enviar por email (sin email)'}
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => void genAccess()}>
             <Link2 className="mr-2 h-4 w-4" /> Enlace de acceso (un uso)
           </DropdownMenuItem>
