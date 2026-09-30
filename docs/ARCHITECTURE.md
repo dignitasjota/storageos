@@ -59,6 +59,8 @@ Decisiones arquitecturales del proyecto. Cada decisión va con su justificación
 **Por qué:** entregabilidad alta, API moderna, plan gratis razonable para empezar. Brevo como plan B si necesitamos SMS y WhatsApp en el mismo proveedor.
 **Por qué NO autohospedar SMTP:** los IPs nuevos no llegan a inbox, marcado como spam, gestión de blacklists es un trabajo a tiempo completo.
 
+**Actualización (2026-09-30, #550–#558):** en producción se usan **Brevo y Resend a la vez**. Un `RoutingEmailProvider` (bajo el token `EMAIL_PROVIDER`) decide en cada envío según `platform_email_settings` (principal + respaldo, editable por el super admin); `EMAIL_PROVIDER` queda como valor por defecto. Los correos de un tenant a sus inquilinos salen con su nombre (`TenantSenderService`) y, si tiene dominio propio de correo verificado, desde ese dominio **siempre por Brevo** (los dominios de los tenants viven en la cuenta Brevo de la plataforma). Como esa cuenta es compartida, además de los DNS de Brevo se exige un TXT de propiedad por tenant (`_trasteros.<dominio>`), y la app nunca borra dominios de Brevo por su cuenta.
+
 ## ADR-011: UUID v7 como tipo de id
 
 **Decisión:** todos los `id` se generan con la función SQL `uuid_generate_v7()` (plpgsql, sin extensiones externas).
