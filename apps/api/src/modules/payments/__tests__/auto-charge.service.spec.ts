@@ -113,6 +113,7 @@ describe('AutoChargeService.processAutoCharge (job)', () => {
       userId: null,
       invoiceId: INVOICE_ID,
       input: {},
+      notifyCustomerOnFailure: true,
       meta: {},
     });
   });

@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
+  CustomerEmailSettingsDto,
   EmailDomainDto,
   EmailDomainResponseDto,
+  UpdateCustomerEmailSettingsInput,
   UpsertEmailDomainInput,
 } from '@storageos/shared';
 
@@ -43,5 +45,25 @@ export function useRemoveEmailDomain() {
   return useMutation({
     mutationFn: () => apiFetch<void>(PATH, { method: 'DELETE' }),
     onSuccess: () => qc.setQueryData(key, { emailDomain: null }),
+  });
+}
+
+const customerEmailsKey = ['settings', 'tenant', 'customer-emails'] as const;
+const CUSTOMER_EMAILS_PATH = '/settings/tenant/customer-emails';
+
+/** Correos automáticos a los inquilinos (activados por defecto). */
+export function useCustomerEmailSettings() {
+  return useQuery({
+    queryKey: customerEmailsKey,
+    queryFn: () => apiFetch<CustomerEmailSettingsDto>(CUSTOMER_EMAILS_PATH),
+  });
+}
+
+export function useUpdateCustomerEmailSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateCustomerEmailSettingsInput) =>
+      apiFetch<CustomerEmailSettingsDto>(CUSTOMER_EMAILS_PATH, { method: 'PATCH', json: input }),
+    onSuccess: (data) => qc.setQueryData(customerEmailsKey, data),
   });
 }

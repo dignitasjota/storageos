@@ -104,6 +104,7 @@ export class AutoChargeService {
       userId: null,
       invoiceId,
       input: {},
+      notifyCustomerOnFailure: true,
       meta: {},
     });
     this.logger.log(

@@ -29,7 +29,18 @@ export const DOMAIN_EVENTS = {
   unit_change_resolved: 'domain.unit_change_resolved',
   /** Un trastero pasó a `available` (fin de contrato, cambio manual…) → lo oye la lista de espera. */
   unit_available: 'domain.unit_available',
+  /** Un cobro automático (auto-charge, reintento, domiciliación) fue rechazado → aviso al inquilino. */
+  payment_failed: 'domain.payment_failed',
 } as const;
+
+/** Payload de `payment_failed` (no es trigger de automations). */
+export interface PaymentFailedPayload {
+  tenantId: string;
+  invoiceId: string;
+  customerId: string | null;
+  amount: number;
+  reason: string | null;
+}
 
 /** Payload de `unit_available`: solo lo consume `WaitlistService` (no es trigger de automations). */
 export interface UnitAvailablePayload {

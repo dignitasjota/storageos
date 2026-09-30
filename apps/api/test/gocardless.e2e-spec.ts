@@ -5,6 +5,7 @@ import request from 'supertest';
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice, ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
+import { waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -379,4 +380,58 @@ describe('GoCardless settings + webhook (e2e)', () => {
     expect(rest.body.status).toBe('refunded');
     expect(Number(rest.body.amountRefunded)).toBe(121);
   });
+
+  it('adeudo rechazado (webhook failed) → aviso de cobro rechazado al inquilino', async () => {
+    const owner = await registerVerifiedUser(app, 'gocardless-fail');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const webhookSecret = 'whsec_fail_123456';
+    await ensureDefaultSeries(app, owner.accessToken);
+    const email = `gc-fail-${Date.now()}@e2e.local`;
+    const customerId = await createCustomer(app, owner.accessToken, { email });
+    await request(app.getHttpServer()).put('/settings/gocardless').set(auth).send({
+      accessToken: 'sandbox_token_fail_123456',
+      webhookSecret,
+      environment: 'sandbox',
+      enabled: true,
+    });
+    const start = await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/start')
+      .set(auth)
+      .send({ customerId });
+    await request(app.getHttpServer())
+      .post('/settings/gocardless/mandate/complete')
+      .set(auth)
+      .send({ customerId, billingRequestId: start.body.billingRequestId });
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId, {
+      unitPrice: 50,
+    });
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+    const charge = await request(app.getHttpServer())
+      .post(`/payments/invoices/${invoiceId}/charge`)
+      .set(auth)
+      .send({});
+    const gatewayPaymentId = charge.body.gatewayPaymentId as string;
+
+    const body = JSON.stringify({
+      events: [
+        {
+          id: `EV-fail-${owner.tenantId}`,
+          resource_type: 'payments',
+          action: 'failed',
+          links: { payment: gatewayPaymentId },
+          details: { cause: 'insufficient_funds' },
+        },
+      ],
+    });
+    const sig = createHmac('sha256', webhookSecret).update(body).digest('hex');
+    await request(app.getHttpServer())
+      .post(`/webhooks/gocardless/${owner.tenantId}`)
+      .set('Content-Type', 'application/json')
+      .set('Webhook-Signature', sig)
+      .send(body)
+      .expect(200);
+
+    const mail = await waitForEmail(email, { subjectIncludes: 'No hemos podido cobrar' });
+    expect(mail.Text).toMatch(/60,50\s€/);
+  }, 90_000);
 });

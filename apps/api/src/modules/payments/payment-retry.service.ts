@@ -79,6 +79,7 @@ export class PaymentRetryService {
             userId: null,
             invoiceId: inv.id,
             input: {},
+            notifyCustomerOnFailure: true,
             facilityScope: null,
             meta: {},
           });

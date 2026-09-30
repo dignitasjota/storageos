@@ -328,6 +328,8 @@ model Tenant {
   autoIssueRecurring           Boolean               @default(false) @map("auto_issue_recurring")
   /// Informe mensual por email al operador (ocupación/ingresos/morosidad/altas/leads). Opt-in.
   monthlyDigestEnabled         Boolean               @default(false) @map("monthly_digest_enabled")
+  /// Correos automáticos al inquilino que el tenant ha APAGADO (`{kind: false}`); ausente = activado.
+  customerEmailSettings        Json                  @default("{}") @map("customer_email_settings")
   /// Recargo por mora (opt-in): a los `lateFeeGraceDays` de vencimiento se
   /// emite una factura de recargo (% del vencido o € fijo) vía el dunning.
   lateFeeEnabled               Boolean               @default(false) @map("late_fee_enabled")
