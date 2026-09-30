@@ -48,7 +48,6 @@ export const JOB_DUNNING_EXECUTE_ACTION = 'execute-action';
 export const JOB_PAYMENTS_SYNC = 'sync';
 export const JOB_PAYMENTS_AUTO_CHARGE = 'auto-charge';
 export const JOB_VERIFACTU_SEND = 'send-to-aeat';
-export const JOB_EMAIL_SEND = 'send';
 export const JOB_COMMUNICATIONS_DISPATCH = 'dispatch';
 export const JOB_AUTOMATIONS_RUN = 'run';
 export const JOB_REPORTS_GENERATE = 'generate';

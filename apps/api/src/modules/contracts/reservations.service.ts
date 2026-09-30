@@ -15,7 +15,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ContractsService } from './contracts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { UnitAvailablePayload } from '../automations/domain-events';
+import type { DomainEventPayload, UnitAvailablePayload } from '../automations/domain-events';
 import type { Prisma, Reservation, ReservationStatus } from '@storageos/database';
 import type {
   CancelReservationInput,
@@ -205,7 +205,38 @@ export class ReservationsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    if (created.status === 'confirmed') this.emitReservationConfirmed(args.tenantId, created);
     return this.toDto(created);
+  }
+
+  /** `reservation_confirmed` → automatizaciones (la plantilla «Reserva confirmada»). */
+  private emitReservationConfirmed(
+    tenantId: string,
+    r: {
+      id: string;
+      customerId: string | null;
+      validFrom: Date;
+      validUntil: Date;
+      unit: { code: string; facility: { name: string } };
+    },
+  ): void {
+    if (!r.customerId) return;
+    const payload: DomainEventPayload = {
+      tenantId,
+      entityType: 'reservation',
+      entityId: r.id,
+      customerId: r.customerId,
+      recipientEmail: null,
+      scope: {
+        reservation: {
+          validFrom: r.validFrom.toISOString().slice(0, 10),
+          validUntil: r.validUntil.toISOString().slice(0, 10),
+        },
+        unit: { code: r.unit.code },
+        facility: { name: r.unit.facility.name },
+      },
+    };
+    this.eventBus.emit(DOMAIN_EVENTS.reservation_confirmed, payload);
   }
 
   async confirm(args: {
@@ -288,6 +319,7 @@ export class ReservationsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    this.emitReservationConfirmed(args.tenantId, updated);
     return this.toDto(updated);
   }
 

@@ -1,12 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  effectiveFeaturesFromList,
-  resolvePlanFeatures,
-  type TenantFeature,
-} from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
+import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { platformFrom, sanitizeDisplayName, type EmailAddress } from './providers/email-provider';
@@ -101,20 +97,6 @@ export class TenantSenderService {
   }
 
   private async hasCustomDomain(tenantId: string): Promise<boolean> {
-    const [subscription, overrides] = await Promise.all([
-      this.admin.tenantSubscription.findUnique({
-        where: { tenantId },
-        include: { plan: { select: { slug: true, tenantFeatures: true } } },
-      }),
-      this.admin.tenantFeatureOverride.findMany({
-        where: { tenantId },
-        select: { feature: true, enabled: true },
-      }),
-    ]);
-    const base = subscription ? resolvePlanFeatures(subscription.plan) : [];
-    return effectiveFeaturesFromList(
-      base,
-      overrides as { feature: TenantFeature; enabled: boolean }[],
-    ).includes('custom_domain');
+    return tenantHasFeature(this.admin, tenantId, 'custom_domain');
   }
 }

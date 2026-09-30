@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -185,6 +186,14 @@ export class AutomationsService {
       where: { tenantId: payload.tenantId, trigger, isActive: true },
     });
     if (rules.length === 0) return;
+    // Tras bajar a un plan sin automatizaciones, las reglas se conservan pero
+    // no se ejecutan (igual que el FeatureGuard bloquea su gestión).
+    if (!(await tenantHasFeature(this.admin, payload.tenantId, 'automations'))) {
+      this.logger.log(
+        `automations: tenant ${payload.tenantId} sin la funcionalidad; ${trigger} no se ejecuta`,
+      );
+      return;
+    }
     for (const rule of rules) {
       const job: AutomationJobData = {
         tenantId: payload.tenantId,
@@ -204,7 +213,8 @@ export class AutomationsService {
   }
 
   /** Llamado por el worker (BullMQ). */
-  async runJob(job: AutomationJobData): Promise<void> {
+  async runJob(input: AutomationJobData): Promise<void> {
+    let job = input;
     const rule = await this.admin.automationRule.findFirst({
       where: { id: job.ruleId, tenantId: job.tenantId, isActive: true },
     });
@@ -224,6 +234,14 @@ export class AutomationsService {
       },
     });
     try {
+      // Completa destinatario y variables que el evento no trae (los eventos de
+      // factura no llevan el inquilino; ninguno lleva el nombre del tenant).
+      const ctx = await this.enrich(job);
+      if (ctx.skipReason) {
+        await this.markRun(run.id, 'skipped', ctx.skipReason);
+        return;
+      }
+      job = { ...job, ...ctx.job };
       // Sin template no se puede enviar.
       if (!rule.templateId) {
         await this.markRun(run.id, 'skipped', 'rule sin templateId');
@@ -267,6 +285,96 @@ export class AutomationsService {
       await this.markRun(run.id, 'failed', msg);
       throw err;
     }
+  }
+
+  /**
+   * Rellena lo que falte en el job con datos de la BD: email/teléfono y datos
+   * del inquilino, nombre y email del tenant y, para los eventos de factura,
+   * importe pendiente, vencimiento y días de retraso. Lo que ya trae el evento
+   * se respeta. Si la factura ya está pagada o anulada cuando toca enviar (regla
+   * con retraso), el envío se descarta.
+   */
+  private async enrich(
+    job: AutomationJobData,
+  ): Promise<{ job: Partial<AutomationJobData>; skipReason?: string }> {
+    const scope: Record<string, unknown> = { ...job.scope };
+    const out: Partial<AutomationJobData> = {};
+
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: job.tenantId },
+      select: { name: true, billingEmail: true },
+    });
+    scope.tenant = {
+      name: tenant?.name ?? '',
+      contactEmail: tenant?.billingEmail ?? '',
+      ...asRecord(scope.tenant),
+    };
+
+    if (job.customerId) {
+      const c = await this.admin.customer.findFirst({
+        where: { id: job.customerId, tenantId: job.tenantId, deletedAt: null },
+        select: {
+          email: true,
+          phone: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          customerType: true,
+        },
+      });
+      if (c) {
+        out.recipientEmail = job.recipientEmail ?? c.email ?? null;
+        out.recipientPhone = job.recipientPhone ?? c.phone ?? null;
+        const displayName =
+          c.customerType === 'business'
+            ? (c.companyName ?? '')
+            : [c.firstName, c.lastName].filter(Boolean).join(' ');
+        scope.customer = {
+          firstName: c.firstName ?? '',
+          lastName: c.lastName ?? '',
+          displayName,
+          email: c.email ?? '',
+          phone: c.phone ?? '',
+          ...asRecord(scope.customer),
+        };
+      }
+    }
+
+    if (job.entityType === 'invoice') {
+      const inv = await this.admin.invoice.findFirst({
+        where: { id: job.entityId, tenantId: job.tenantId },
+        select: {
+          status: true,
+          invoiceNumber: true,
+          total: true,
+          amountPaid: true,
+          amountRefunded: true,
+          dueDate: true,
+        },
+      });
+      if (!inv) return { job: out, skipReason: 'factura no encontrada' };
+      if (
+        (job.trigger === 'invoice_issued' || job.trigger === 'invoice_overdue') &&
+        (inv.status === 'paid' || inv.status === 'cancelled')
+      ) {
+        return { job: out, skipReason: `factura ${inv.status}` };
+      }
+      const pending = Number(inv.total) - Number(inv.amountPaid) - Number(inv.amountRefunded);
+      const daysOverdue = inv.dueDate
+        ? Math.max(0, Math.floor((Date.now() - inv.dueDate.getTime()) / 86_400_000))
+        : 0;
+      scope.invoice = {
+        ...asRecord(scope.invoice),
+        number: inv.invoiceNumber,
+        total: Number(inv.total).toFixed(2),
+        amountPending: Math.max(0, pending).toFixed(2),
+        dueDate: inv.dueDate ? inv.dueDate.toISOString().slice(0, 10) : '',
+        daysOverdue,
+      };
+    }
+
+    out.scope = scope;
+    return { job: out };
   }
 
   private async markRun(
@@ -336,3 +444,7 @@ export class AutomationsService {
 }
 
 export type { AutomationJobData };
+
+function asRecord(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+}

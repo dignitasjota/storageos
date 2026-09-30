@@ -142,6 +142,9 @@ describe('Staff genera magic link del portal (e2e)', () => {
 
     const mail = await waitForEmail(email, { subjectIncludes: 'área de clientes' });
     expect(mail.Text).toContain(`/portal/login?slug=${owner.slug}`);
+    // Marca del tenant, no la de la plataforma (antes «STORAGEOS» / «© TrasterOS»).
+    expect(mail.HTML).not.toContain('STORAGEOS');
+    expect(mail.HTML).not.toContain('TrasterOS');
     const token = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
     expect(token).toBeDefined();
     const consume = await request(app.getHttpServer())
