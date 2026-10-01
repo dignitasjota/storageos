@@ -87,6 +87,7 @@ export class UnitChangesService {
       title: `Cambio de trastero solicitado — ${customerName(customer)}`,
       body: input.note.slice(0, 140),
       link: '/unit-change-requests',
+      contractId: created.contractId,
     });
     return this.toPortalDto(created);
   }

@@ -468,6 +468,7 @@ export class CollectionsService {
       title: `Expediente de impago abierto`,
       body: `${customerName(created.customer)} · ${(data.debtCents / 100).toFixed(2)} €`,
       link: `/collections/${created.id}`,
+      facilityId: created.facilityId,
     });
     return created;
   }
@@ -844,6 +845,7 @@ export class CollectionsService {
             title: `Impago saldado — expediente cerrado`,
             body: `${customerName(c.customer)}.${overlockNote}`,
             link: `/collections/${c.id}`,
+            facilityId: c.facilityId,
           });
         }
       }, tenantId);
