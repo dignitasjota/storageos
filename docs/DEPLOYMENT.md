@@ -1164,6 +1164,24 @@ desde el panel.
 
 ---
 
+## 21. Facturas de suscripción y exportación para la asesoría
+
+**Datos obligatorios** (art. 6 del Reglamento de facturación): la app pone número, serie, fechas, desglose e IVA; faltan solo los datos que rellena alguien.
+
+1. **Emisor** — panel admin → Facturación SaaS → «Datos del emisor»: razón social, NIF/CIF (se valida el dígito de control), dirección, código postal y población. Sin ellos no se puede activar la facturación (400 `platform_billing_incomplete`).
+2. **Destinatario (cada tenant)** — razón social, NIF y domicilio fiscal: el propio tenant los rellena en Ajustes → Suscripción → «Datos de facturación», o el super admin en la ficha del tenant → Editar. Si al cobrar faltan, la factura se emite igual (el cobro ya está hecho), queda marcada «(incompleta)» y llega una notificación al super admin. La ficha del tenant avisa antes.
+
+**Exportación para la asesoría** — panel admin → Facturación SaaS → «Exportación para la asesoría»:
+
+- En «Negocio propio» se indica el identificador (slug) de la empresa con la que la propia SL alquila trasteros. Sus facturas a inquilinos se suman a las de suscripción.
+- Se elige año y periodo (año, trimestre o mes). Se ve un resumen (facturas, base, IVA, cobrado) y las facturas sin datos obligatorios.
+- Descargas:
+  - **Excel**: dos hojas, facturas y cobros.
+  - **CSV**: uno por tabla, con `;` y coma decimal.
+  - Facturas: una fila por factura y tipo de IVA, con columna «Actividad» (Suscripciones / Negocio propio), tipo, factura rectificada, NIF, cliente, domicilio, base, cuota y totales.
+  - Cobros: fecha, factura, cliente, importe, forma de cobro y referencia. Las devoluciones aparecen en negativo.
+- El asesor configura el formato una vez en el importador de su programa y lo reutiliza cada periodo.
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.

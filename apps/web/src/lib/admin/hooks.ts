@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AccountantExportDto,
   AdminAddonAnalyticsDto,
   AdminTenantNotesDto,
   UpdateTenantNotesInput,
@@ -1699,6 +1700,17 @@ export function useUpdatePlatformBillingSettings() {
       }),
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: ['admin', 'platform-billing', 'settings'] }),
+  });
+}
+
+/** Vista previa de la exportación para la asesoría (suscripciones + negocio propio). */
+export function useAccountantExport(from: string, to: string) {
+  return useQuery({
+    queryKey: ['admin', 'platform-billing', 'accountant-export', from, to] as const,
+    queryFn: () =>
+      adminApiFetch<AccountantExportDto>(
+        `/admin/platform-billing/accountant-export?from=${from}&to=${to}`,
+      ),
   });
 }
 

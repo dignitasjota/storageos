@@ -6,6 +6,7 @@ import {
   FEATURE_LABELS,
   TenantFeatures,
   effectiveFeaturesFromList,
+  missingFiscalData,
   resolvePlanFeatures,
 } from '@storageos/shared';
 
@@ -1814,6 +1815,10 @@ export class AdminTenantsService {
     currency: string;
     timezone: string;
     taxId: string | null;
+    billingLegalName: string | null;
+    billingAddress: string | null;
+    billingCity: string | null;
+    billingPostalCode: string | null;
     createdAt: Date;
     subscription: null | {
       status: string;
@@ -1836,6 +1841,18 @@ export class AdminTenantsService {
       currency: row.currency,
       timezone: row.timezone,
       taxId: row.taxId,
+      billingLegalName: row.billingLegalName,
+      billingAddress: row.billingAddress,
+      billingCity: row.billingCity,
+      billingPostalCode: row.billingPostalCode,
+      billingMissing: missingFiscalData({
+        name: row.billingLegalName ?? row.name,
+        taxId: row.taxId,
+        address: row.billingAddress,
+        city: row.billingCity,
+        postalCode: row.billingPostalCode,
+        country: row.country,
+      }),
       createdAt: row.createdAt.toISOString(),
       userCount: row._count.users,
       customerCount: row._count.customers,

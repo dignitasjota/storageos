@@ -61,7 +61,10 @@ describe('Export de facturas SaaS (e2e)', () => {
       .set(bearer())
       .send({
         legalName: 'TrasterOS SL',
-        taxId: 'B12345678',
+        taxId: 'B12345674',
+        address: 'Calle Mayor 1',
+        city: 'Madrid',
+        postalCode: '28001',
         country: 'ES',
         taxRate: 21,
         seriesPrefix: 'SAAS',

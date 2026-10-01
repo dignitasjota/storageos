@@ -1,6 +1,11 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  missingFiscalData,
+  type TenantBillingDetailsDto,
+  type TenantBillingDetailsInput,
+} from '@storageos/shared';
 import StripeSDK from 'stripe';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -78,8 +83,9 @@ export class PlatformInvoicesService {
   // ---- config del emisor ----
 
   async getSettings(): Promise<PlatformBillingSettingsDto> {
-    let row = await this.admin.platformBillingSettings.findFirst();
-    row ??= await this.admin.platformBillingSettings.create({ data: {} });
+    const include = { ownTenant: { select: { id: true, name: true, slug: true } } } as const;
+    let row = await this.admin.platformBillingSettings.findFirst({ include });
+    row ??= await this.admin.platformBillingSettings.create({ data: {}, include });
     return this.settingsToDto(row);
   }
 
@@ -99,10 +105,101 @@ export class PlatformInvoicesService {
       ...(input.seriesPrefix !== undefined ? { seriesPrefix: input.seriesPrefix } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
     };
-    const row = existing
-      ? await this.admin.platformBillingSettings.update({ where: { id: existing.id }, data })
-      : await this.admin.platformBillingSettings.create({ data });
-    return this.settingsToDto(row);
+
+    // Negocio propio de la SL (para la exportación de la asesoría), por slug.
+    let ownTenantId: string | null | undefined;
+    if (input.ownTenantSlug !== undefined) {
+      if (input.ownTenantSlug === '') {
+        ownTenantId = null;
+      } else {
+        const t = await this.admin.tenant.findFirst({
+          where: { slug: input.ownTenantSlug.toLowerCase(), deletedAt: null },
+          select: { id: true },
+        });
+        if (!t) {
+          throw new BadRequestException({
+            code: 'own_tenant_not_found',
+            message: `No hay ninguna empresa con el identificador «${input.ownTenantSlug}»`,
+          });
+        }
+        ownTenantId = t.id;
+      }
+    }
+
+    // Una factura sin los datos del emisor no es válida: no se puede activar la
+    // facturación con ellos incompletos.
+    const enabling = input.enabled ?? existing?.enabled ?? false;
+    if (enabling) {
+      const missing = missingFiscalData({
+        name: input.legalName ?? existing?.legalName,
+        taxId: input.taxId ?? existing?.taxId,
+        address: input.address !== undefined ? input.address : existing?.address,
+        city: input.city !== undefined ? input.city : existing?.city,
+        postalCode: input.postalCode !== undefined ? input.postalCode : existing?.postalCode,
+        country: input.country ?? existing?.country,
+      });
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          code: 'platform_billing_incomplete',
+          message: `Para emitir facturas faltan datos del emisor: ${missing.join(', ')}`,
+          details: { missing },
+        });
+      }
+    }
+
+    const fullData = { ...data, ...(ownTenantId !== undefined ? { ownTenantId } : {}) };
+    if (existing) {
+      await this.admin.platformBillingSettings.update({
+        where: { id: existing.id },
+        data: fullData,
+      });
+    } else {
+      await this.admin.platformBillingSettings.create({ data: fullData });
+    }
+    return this.getSettings();
+  }
+
+  // ---- datos de facturación del tenant (destinatario) ----
+
+  async getTenantBillingDetails(tenantId: string): Promise<TenantBillingDetailsDto> {
+    const t = await this.admin.tenant.findUnique({ where: { id: tenantId } });
+    if (!t) throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    return {
+      legalName: t.billingLegalName,
+      taxId: t.taxId,
+      address: t.billingAddress,
+      city: t.billingCity,
+      postalCode: t.billingPostalCode,
+      country: t.country,
+      billingEmail: t.billingEmail,
+      missing: missingFiscalData({
+        name: t.billingLegalName,
+        taxId: t.taxId,
+        address: t.billingAddress,
+        city: t.billingCity,
+        postalCode: t.billingPostalCode,
+        country: t.country,
+      }),
+    };
+  }
+
+  async updateTenantBillingDetails(
+    tenantId: string,
+    input: TenantBillingDetailsInput,
+  ): Promise<TenantBillingDetailsDto> {
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: {
+        billingLegalName: input.legalName,
+        taxId: input.taxId,
+        billingAddress: input.address,
+        billingCity: input.city,
+        billingPostalCode: input.postalCode,
+        country: input.country,
+        ...(input.billingEmail !== undefined ? { billingEmail: input.billingEmail || null } : {}),
+      },
+    });
+    return this.getTenantBillingDetails(tenantId);
   }
 
   // ---- facturas ----
@@ -210,6 +307,22 @@ export class PlatformInvoicesService {
     // serie de un año anterior (rompería la secuencia y la coherencia fiscal).
     const series = String(new Date().getUTCFullYear());
     const tenant = payment.tenant;
+    // Destinatario: razón social y domicilio fiscal del tenant (si los tiene).
+    const recipientName = tenant.billingLegalName?.trim() || tenant.name;
+    const recipientAddress = formatAddress(
+      tenant.billingAddress,
+      tenant.billingPostalCode,
+      tenant.billingCity,
+      tenant.country,
+    );
+    const recipientMissing = missingFiscalData({
+      name: recipientName,
+      taxId: tenant.taxId,
+      address: tenant.billingAddress,
+      city: tenant.billingCity,
+      postalCode: tenant.billingPostalCode,
+      country: tenant.country,
+    });
     // Desglose por líneas (plan + add-ons). Se calcula ANTES de la tx (puede
     // consultar Stripe). La cabecera monolínea (base/IVA/total) no cambia.
     const lines = await this.buildLines(payment, taxRate, { total, base, taxAmount });
@@ -229,10 +342,10 @@ export class PlatformInvoicesService {
           number,
           fullNumber,
           tenantId: tenant.id,
-          tenantName: tenant.name,
+          tenantName: recipientName,
           tenantTaxId: tenant.taxId,
           tenantEmail: tenant.billingEmail,
-          tenantAddress: null,
+          tenantAddress: recipientAddress,
           planSlug: payment.planSlug,
           planName: payment.planName,
           // Concepto real del cobro (p. ej. «Add-on: X»); si el pago no lo trae,
@@ -263,6 +376,21 @@ export class PlatformInvoicesService {
       created.pdfUrl = key;
     } catch (err) {
       this.logger.warn(`PDF factura ${created.fullNumber} falló: ${(err as Error).message}`);
+    }
+
+    // El cobro ya se hizo: la factura se emite igualmente, pero se avisa al
+    // super admin para que pida los datos al tenant y la rectifique.
+    if (recipientMissing.length > 0) {
+      await this.admin.superAdminNotification
+        .create({
+          data: {
+            type: 'platform_invoice.incomplete_recipient',
+            title: `Factura ${created.fullNumber} sin datos del cliente`,
+            body: `${tenant.name} no tiene completos sus datos de facturación (${recipientMissing.join(', ')}). Pídeselos para que las próximas facturas salgan completas.`,
+            link: `/admin/tenants/${tenant.id}`,
+          },
+        })
+        .catch(() => undefined);
     }
 
     // Email best-effort al tenant.
@@ -440,6 +568,7 @@ export class PlatformInvoicesService {
       issuedAt: Date;
       tenantName: string;
       tenantTaxId: string | null;
+      tenantAddress: string | null;
       planName: string | null;
       concept: string | null;
       periodStart: Date | null;
@@ -483,6 +612,7 @@ export class PlatformInvoicesService {
       issuedAt: Date;
       tenantName: string;
       tenantTaxId: string | null;
+      tenantAddress: string | null;
       planName: string | null;
       concept: string | null;
       periodStart: Date | null;
@@ -508,7 +638,11 @@ export class PlatformInvoicesService {
       .filter(Boolean)
       .map((l) => esc(String(l)))
       .join('<br>');
-    const client = [inv.tenantName, inv.tenantTaxId ? `NIF: ${inv.tenantTaxId}` : '']
+    const client = [
+      inv.tenantName,
+      inv.tenantTaxId ? `NIF: ${inv.tenantTaxId}` : '',
+      ...(inv.tenantAddress ?? '').split('\n'),
+    ]
       .filter(Boolean)
       .map((l) => esc(String(l)))
       .join('<br>');
@@ -542,7 +676,8 @@ export class PlatformInvoicesService {
       .muted{color:#666}
     </style></head><body>
       <h1>Factura ${esc(inv.fullNumber)}</h1>
-      <div class="muted">Fecha: ${inv.issuedAt.toLocaleDateString('es-ES')}</div>
+      <div class="muted">Fecha de expedición: ${inv.issuedAt.toLocaleDateString('es-ES')}</div>
+      ${period ? `<div class="muted">Periodo facturado: ${esc(period)}</div>` : ''}
       <div class="row">
         <div class="box"><strong>Emisor</strong><br>${issuer || '—'}</div>
         <div class="box"><strong>Cliente</strong><br>${client || '—'}</div>
@@ -585,8 +720,18 @@ export class PlatformInvoicesService {
     taxRate: unknown;
     seriesPrefix: string;
     enabled: boolean;
+    ownTenant?: { id: string; name: string; slug: string } | null;
   }): PlatformBillingSettingsDto {
     return {
+      missing: missingFiscalData({
+        name: r.legalName,
+        taxId: r.taxId,
+        address: r.address,
+        city: r.city,
+        postalCode: r.postalCode,
+        country: r.country,
+      }),
+      ownTenant: r.ownTenant ?? null,
       legalName: r.legalName,
       taxId: r.taxId,
       address: r.address,
@@ -606,6 +751,7 @@ export class PlatformInvoicesService {
     tenantId: string;
     tenantName: string;
     tenantTaxId: string | null;
+    tenantAddress: string | null;
     planName: string | null;
     concept: string | null;
     periodStart: Date | null;
@@ -640,6 +786,7 @@ export class PlatformInvoicesService {
       issuedAt: r.issuedAt.toISOString(),
       hasPdf: Boolean(r.pdfUrl),
       paymentId: r.paymentId,
+      missing: [...(r.tenantTaxId ? [] : ['NIF']), ...(r.tenantAddress ? [] : ['Domicilio'])],
       lines: (r.lines ?? []).map(
         (l): PlatformInvoiceLineDto => ({
           id: l.id,
@@ -655,6 +802,20 @@ export class PlatformInvoicesService {
       ),
     };
   }
+}
+
+/** Domicilio en líneas: calle / CP + población / país (si no es España). */
+export function formatAddress(
+  address: string | null,
+  postalCode: string | null,
+  city: string | null,
+  country: string | null,
+): string | null {
+  if (!address?.trim()) return null;
+  const cityLine = [postalCode, city].filter((v) => v?.trim()).join(' ');
+  return [address.trim(), cityLine, country && country !== 'ES' ? country : '']
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** Fila de detalle para el render (desde Prisma o construida en `issueForPayment`). */

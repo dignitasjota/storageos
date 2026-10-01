@@ -45,7 +45,10 @@ describe('Facturación del SaaS (e2e)', () => {
       .set(auth)
       .send({
         legalName: 'TrasterOS SL',
-        taxId: 'B12345678',
+        taxId: 'B12345674',
+        address: 'Calle Mayor 1',
+        city: 'Madrid',
+        postalCode: '28001',
         country: 'ES',
         taxRate: 21,
         seriesPrefix: 'SAAS',

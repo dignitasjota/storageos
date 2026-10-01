@@ -297,6 +297,13 @@ export default function AdminTenantDetailPage() {
                     </Button>
                   </div>
                 )}
+                {!t.billingExempt && t.billingMissing.length > 0 && (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    Sus facturas de suscripción saldrán incompletas: falta{' '}
+                    {t.billingMissing.join(', ')}. Complétalo en «Editar» o pídeselo al tenant
+                    (Ajustes → Suscripción).
+                  </p>
+                )}
                 {/* Exención de facturación (cuenta interna): fuera de las métricas. */}
                 <BillingExemptControl tenantId={id} exempt={t.billingExempt} />
               </CardContent>

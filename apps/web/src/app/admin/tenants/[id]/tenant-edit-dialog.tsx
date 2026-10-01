@@ -47,6 +47,10 @@ export function TenantEditDialog({
       currency: tenant.currency,
       timezone: tenant.timezone,
       taxId: tenant.taxId,
+      billingLegalName: tenant.billingLegalName,
+      billingAddress: tenant.billingAddress,
+      billingCity: tenant.billingCity,
+      billingPostalCode: tenant.billingPostalCode,
     },
   });
 
@@ -56,6 +60,10 @@ export function TenantEditDialog({
         ...values,
         billingEmail: values.billingEmail?.trim() ? values.billingEmail : null,
         taxId: values.taxId?.trim() ? values.taxId : null,
+        billingLegalName: values.billingLegalName?.trim() || null,
+        billingAddress: values.billingAddress?.trim() || null,
+        billingCity: values.billingCity?.trim() || null,
+        billingPostalCode: values.billingPostalCode?.trim() || null,
       });
       toast.success('Tenant actualizado.');
       onClose();
@@ -67,7 +75,7 @@ export function TenantEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar datos del tenant</DialogTitle>
           <DialogDescription>
@@ -141,12 +149,76 @@ export function TenantEditDialog({
                   <FormItem>
                     <FormLabel>NIF/CIF</FormLabel>
                     <FormControl>
-                      <Input {...field} value={field.value ?? ''} placeholder="B12345678" />
+                      <Input {...field} value={field.value ?? ''} placeholder="B12345674" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+            </div>
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-xs text-muted-foreground">
+                Datos fiscales para sus facturas de suscripción (obligatorios en una factura
+                completa). El tenant también puede rellenarlos en Ajustes → Suscripción.
+              </p>
+              <FormField
+                control={form.control}
+                name="billingLegalName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Razón social</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ''}
+                        placeholder="Trasteros García SL"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="billingAddress"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Domicilio fiscal</FormLabel>
+                    <FormControl>
+                      <Input {...field} value={field.value ?? ''} placeholder="Calle Mayor 1" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="billingPostalCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Código postal</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value ?? ''} placeholder="28001" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="billingCity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Población</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value ?? ''} placeholder="Madrid" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
             <FormField
               control={form.control}

@@ -12,6 +12,8 @@ import type {
   PlatformSepaMandateDto,
   SelfAssignAddonInput,
   SubscriptionPlanDto,
+  TenantBillingDetailsDto,
+  TenantBillingDetailsInput,
   TenantSelfAddonsDto,
   TenantSubscriptionDto,
   TenantSubscriptionPaymentDto,
@@ -164,5 +166,27 @@ export function useCancelSaasSepaMandate() {
   return useMutation({
     mutationFn: () => apiFetch<void>('/settings/saas-billing/sepa-mandate', { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: sepaMandateKey }),
+  });
+}
+
+const billingDetailsKey = ['saas-billing', 'billing-details'] as const;
+
+/** Datos fiscales del tenant para sus facturas de suscripción. */
+export function useSaasBillingDetails() {
+  return useQuery({
+    queryKey: billingDetailsKey,
+    queryFn: () => apiFetch<TenantBillingDetailsDto>('/settings/saas-billing/billing-details'),
+  });
+}
+
+export function useUpdateSaasBillingDetails() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TenantBillingDetailsInput) =>
+      apiFetch<TenantBillingDetailsDto>('/settings/saas-billing/billing-details', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: billingDetailsKey }),
   });
 }

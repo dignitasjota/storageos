@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { adminApiFetchBlob } from '@/lib/admin/api';
 import {
+  useAccountantExport,
   useAdminPlatformBillingSettings,
   useUpdatePlatformBillingSettings,
 } from '@/lib/admin/hooks';
@@ -32,6 +33,7 @@ type Form = {
   taxRate: number;
   seriesPrefix: string;
   enabled: boolean;
+  ownTenantSlug: string;
 };
 
 export default function PlatformBillingPage() {
@@ -52,6 +54,7 @@ export default function PlatformBillingPage() {
         taxRate: data.taxRate,
         seriesPrefix: data.seriesPrefix,
         enabled: data.enabled,
+        ownTenantSlug: data.ownTenant?.slug ?? '',
       });
     }
   }, [data, form]);
@@ -70,6 +73,7 @@ export default function PlatformBillingPage() {
         taxRate: form.taxRate,
         seriesPrefix: form.seriesPrefix,
         enabled: form.enabled,
+        ownTenantSlug: form.ownTenantSlug.trim(),
       });
       toast.success('Datos de facturación guardados.');
     } catch (err) {
@@ -147,6 +151,26 @@ export default function PlatformBillingPage() {
               />
             </div>
           </div>
+          {data && data.missing.length > 0 && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              Faltan datos obligatorios del emisor: {data.missing.join(', ')}. Sin ellos no se puede
+              activar la facturación (una factura sin NIF o domicilio no es válida).
+            </p>
+          )}
+          <div className="space-y-1">
+            <Label>Negocio propio (identificador de la empresa)</Label>
+            <Input
+              value={form.ownTenantSlug}
+              placeholder="p. ej. mis-trasteros"
+              onChange={(e) => set({ ownTenantSlug: e.target.value })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Si esta misma sociedad alquila trasteros con su propia cuenta, indica aquí el
+              identificador de esa empresa: sus facturas a inquilinos se incluirán en la exportación
+              para la asesoría junto a las de suscripción. Déjalo vacío si no aplica.
+              {data?.ownTenant ? ` Ahora: ${data.ownTenant.name}.` : ''}
+            </p>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -163,52 +187,114 @@ export default function PlatformBillingPage() {
         </CardContent>
       </Card>
 
-      <ExportInvoicesCard />
+      <AccountantExportCard />
     </div>
   );
 }
 
-/** Export contable (CSV) de las facturas SaaS emitidas en un año. */
-function ExportInvoicesCard() {
-  const currentYear = new Date().getFullYear();
+const PERIODS: { value: string; label: string }[] = [
+  { value: 'year', label: 'Año completo' },
+  { value: 'q1', label: '1er trimestre' },
+  { value: 'q2', label: '2º trimestre' },
+  { value: 'q3', label: '3er trimestre' },
+  { value: 'q4', label: '4º trimestre' },
+  ...[
+    'Enero',
+    'Febrero',
+    'Marzo',
+    'Abril',
+    'Mayo',
+    'Junio',
+    'Julio',
+    'Agosto',
+    'Septiembre',
+    'Octubre',
+    'Noviembre',
+    'Diciembre',
+  ].map((label, i) => ({ value: `m${i + 1}`, label })),
+];
+
+/** Rango YYYY-MM-DD de un periodo (año, trimestre o mes) de un año. */
+function periodRange(year: number, period: string): { from: string; to: string } {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const lastDay = (m: number) => new Date(Date.UTC(year, m, 0)).getUTCDate();
+  let first = 1;
+  let last = 12;
+  if (period.startsWith('q')) {
+    const q = Number(period.slice(1));
+    first = (q - 1) * 3 + 1;
+    last = first + 2;
+  } else if (period.startsWith('m')) {
+    first = last = Number(period.slice(1));
+  }
+  return { from: `${year}-${pad(first)}-01`, to: `${year}-${pad(last)}-${pad(lastDay(last))}` };
+}
+
+const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+
+/**
+ * Exportación para la asesoría: facturas emitidas y cobros de la sociedad en un
+ * periodo, juntando las suscripciones y el negocio propio.
+ */
+function AccountantExportCard() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
   const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
   const [year, setYear] = useState(String(currentYear));
-  const [busy, setBusy] = useState(false);
+  const [period, setPeriod] = useState(`q${Math.floor(now.getMonth() / 3) + 1}`);
+  const [busy, setBusy] = useState<string | null>(null);
+  const { from, to } = periodRange(Number(year), period);
+  const preview = useAccountantExport(from, to);
 
-  async function onExport() {
-    setBusy(true);
+  async function download(format: 'xlsx' | 'csv', kind?: 'invoices' | 'payments') {
+    setBusy(kind ?? format);
     try {
-      // El endpoint exige el token admin en el header → descarga autenticada
-      // del blob (no se puede abrir con un `<a href>` directo).
-      const blob = await adminApiFetchBlob(`/admin/platform-billing/export?year=${year}`);
+      const qs = `from=${from}&to=${to}&format=${format}${kind ? `&kind=${kind}` : ''}`;
+      const blob = await adminApiFetchBlob(`/admin/platform-billing/accountant-export?${qs}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `facturas-saas-${year}.csv`;
+      const suffix = kind ? `-${kind === 'payments' ? 'cobros' : 'facturas'}` : '';
+      a.download = `asesoria-${from}-a-${to}${suffix}.${format}`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success(`Facturas de ${year} exportadas.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar.');
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
+  const d = preview.data;
+  const totalBase = d?.invoices.reduce((s, r) => s + r.base, 0) ?? 0;
+  const totalVat = d?.invoices.reduce((s, r) => s + r.vat, 0) ?? 0;
+  const collected = d?.payments.reduce((s, r) => s + r.amount, 0) ?? 0;
+  const invoiceCount = new Set(d?.invoices.map((r) => r.invoiceNumber)).size;
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Export contable</CardTitle>
+        <CardTitle className="text-base">Exportación para la asesoría</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Descarga las facturas de suscripción emitidas en un año en CSV (Excel) para tu asesoría.
+          Facturas emitidas y cobros de la sociedad en el periodo: <strong>suscripciones</strong> a
+          los tenants
+          {d?.ownBusinessName ? (
+            <>
+              {' '}
+              y tu <strong>negocio propio</strong> ({d.ownBusinessName})
+            </>
+          ) : null}
+          . Una fila por factura y tipo de IVA, columna «Actividad» para separarlas. El Excel trae
+          dos hojas (facturas y cobros); en CSV va un fichero por tabla, con «;» y coma decimal. Tu
+          asesor configura el formato una vez en su programa y lo reutiliza cada periodo.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <Label className="text-xs">Año</Label>
             <Select value={year} onValueChange={setYear}>
-              <SelectTrigger className="w-32">
+              <SelectTrigger className="w-28">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,8 +306,83 @@ function ExportInvoicesCard() {
               </SelectContent>
             </Select>
           </div>
-          <Button variant="outline" onClick={onExport} disabled={busy}>
-            {busy ? 'Exportando…' : 'Exportar CSV'}
+          <div className="space-y-1">
+            <Label className="text-xs">Periodo</Label>
+            <Select value={period} onValueChange={setPeriod}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERIODS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {preview.isLoading ? (
+          <p className="text-xs text-muted-foreground">Calculando…</p>
+        ) : d ? (
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <div>
+              <div className="text-xs text-muted-foreground">Facturas</div>
+              <div className="font-medium">{invoiceCount}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Base imponible</div>
+              <div className="font-medium">{eur(totalBase)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">IVA repercutido</div>
+              <div className="font-medium">{eur(totalVat)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Cobrado</div>
+              <div className="font-medium">{eur(collected)}</div>
+            </div>
+          </div>
+        ) : null}
+
+        {d && d.warnings.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <p className="font-medium">
+              {d.warnings.length} factura(s) sin datos obligatorios del cliente:
+            </p>
+            <ul className="mt-1 list-disc pl-4">
+              {d.warnings.slice(0, 8).map((w) => (
+                <li key={`${w.source}-${w.invoiceNumber}`}>
+                  {w.invoiceNumber} — falta {w.missing.join(' y ')}
+                </li>
+              ))}
+            </ul>
+            {d.warnings.length > 8 && <p>… y {d.warnings.length - 8} más.</p>}
+            <p className="mt-1">
+              Completa los datos del cliente; si la factura ya se envió, puede requerir una
+              rectificativa (consúltalo con tu asesor).
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void download('xlsx')} disabled={busy !== null}>
+            {busy === 'xlsx' ? 'Exportando…' : 'Descargar Excel'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void download('csv', 'invoices')}
+            disabled={busy !== null}
+          >
+            CSV de facturas
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void download('csv', 'payments')}
+            disabled={busy !== null}
+          >
+            CSV de cobros
           </Button>
         </div>
       </CardContent>

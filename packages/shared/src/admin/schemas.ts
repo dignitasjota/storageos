@@ -149,6 +149,10 @@ export const AdminUpdateTenantSchema = z
     currency: z.string().trim().length(3).toUpperCase().optional(),
     timezone: z.string().trim().min(1).max(64).optional(),
     taxId: z.string().trim().max(40).nullable().optional(),
+    billingLegalName: z.string().trim().max(200).nullable().optional(),
+    billingAddress: z.string().trim().max(300).nullable().optional(),
+    billingCity: z.string().trim().max(120).nullable().optional(),
+    billingPostalCode: z.string().trim().max(20).nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nada que actualizar' });
 export type AdminUpdateTenantInput = z.infer<typeof AdminUpdateTenantSchema>;
@@ -468,6 +472,11 @@ export const UpdatePlatformBillingSettingsSchema = z.object({
   taxRate: z.number().min(0).max(100).default(21),
   seriesPrefix: z.string().trim().min(1).max(20).default('SAAS'),
   enabled: z.boolean().default(false),
+  /**
+   * Slug del tenant del negocio propio de la SL (sus facturas entran en la
+   * exportación para la asesoría). Omitido = no cambia; '' = quitarlo.
+   */
+  ownTenantSlug: z.string().trim().max(100).optional(),
 });
 export type UpdatePlatformBillingSettingsInput = z.infer<
   typeof UpdatePlatformBillingSettingsSchema
