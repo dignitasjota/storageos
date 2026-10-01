@@ -10,6 +10,7 @@ import {
   Put,
 } from '@nestjs/common';
 import {
+  type HoldedSeriesListDto,
   type HoldedSettingsDto,
   type HoldedTestResultDto,
   UpdateHoldedSettingsSchema,
@@ -47,6 +48,13 @@ export class HoldedController {
     @Body() body: UpdateHoldedSettingsBody,
   ): Promise<HoldedSettingsDto> {
     return this.settings.update(user.tenantId, body);
+  }
+
+  /** Series de facturas y rectificativas de la cuenta de Holded (para elegirlas). */
+  @RequirePermission('billing:configure')
+  @Get('series')
+  series(@CurrentUser() user: AuthenticatedUser): Promise<HoldedSeriesListDto> {
+    return this.settings.listSeries(user.tenantId);
   }
 
   @RequirePermission('invoices:manage')

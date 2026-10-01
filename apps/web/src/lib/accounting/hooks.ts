@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  HoldedSeriesListDto,
   HoldedSettingsDto,
   HoldedTestResultDto,
   UpdateHoldedSettingsInput,
@@ -14,6 +15,16 @@ export function useHoldedSettings() {
   return useQuery({
     queryKey: holdedKey,
     queryFn: () => apiFetch<HoldedSettingsDto>('/settings/holded'),
+  });
+}
+
+/** Series de la cuenta de Holded del tenant (solo si ya hay API key). */
+export function useHoldedSeries(enabled: boolean) {
+  return useQuery({
+    queryKey: [...holdedKey, 'series'],
+    queryFn: () => apiFetch<HoldedSeriesListDto>('/settings/holded/series'),
+    enabled,
+    retry: false,
   });
 }
 

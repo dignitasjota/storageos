@@ -278,7 +278,8 @@ access-devices) con el principio **configuración (owner) vs operación
 Redsys); configuración de integraciones (series, PUT de Holded/Redsys, upload/revoke
 de credenciales AEAT) → `billing:configure` (owner-only, `manager` pierde crear/editar
 series); operaciones y lecturas de billing (resend/refresh AEAT + GET de credenciales AEAT
-history/me, Holded test/backfill/sync) → `invoices:manage` (owner+manager); lecturas
+history/me, Holded test/backfill/sync) → `invoices:manage` (owner+manager; `GET /settings/holded/series`,
+que lista las series de la cuenta de Holded para elegirlas, → `billing:configure`); lecturas
 de settings de pasarela (GET de Holded/Redsys) → `settings:read`; accesos →
 `access:read` (GET + device ping) y `access:manage`
 (mutaciones de credenciales y devices, owner+manager; `staff` no gestiona accesos).

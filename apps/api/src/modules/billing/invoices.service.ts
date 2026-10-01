@@ -17,7 +17,11 @@ import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { AuditService } from '../auth/audit.service';
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type DomainEventPayload,
+  type InvoiceCancelledPayload,
+} from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -834,6 +838,10 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    this.events.emit(DOMAIN_EVENTS.invoice_cancelled, {
+      tenantId: args.tenantId,
+      invoiceId: updated.id,
+    } satisfies InvoiceCancelledPayload);
     return this.toDto(updated);
   }
 
