@@ -33,6 +33,11 @@ interface StaffMessage {
   /** Ruta del panel (se prefija con WEB_BASE_URL). */
   path: string;
   cta: string;
+  /**
+   * Local del aviso: solo lo reciben quienes ven todos los locales y quienes
+   * tienen ese local asignado. Null = de toda la empresa.
+   */
+  facilityId: string | null;
 }
 
 /**
@@ -104,6 +109,7 @@ export class StaffEmailsService {
           email: true,
           phone: true,
           message: true,
+          preferredFacilityId: true,
         },
       });
       if (!lead || !PUBLIC_LEAD_SOURCES.has(lead.source)) return;
@@ -119,6 +125,7 @@ export class StaffEmailsService {
         ],
         path: '/leads',
         cta: 'Ver contactos',
+        facilityId: lead.preferredFacilityId,
       });
     });
   }
@@ -139,6 +146,7 @@ export class StaffEmailsService {
         ],
         path: `/contracts/${c.id}`,
         cta: 'Ver el contrato',
+        facilityId: c.unit.facilityId,
       });
     });
   }
@@ -157,6 +165,7 @@ export class StaffEmailsService {
         ],
         path: `/contracts/${c.id}`,
         cta: 'Ver el contrato',
+        facilityId: c.unit.facilityId,
       });
     });
   }
@@ -180,6 +189,7 @@ export class StaffEmailsService {
               phone: true,
             },
           },
+          facilityId: true,
           facility: { select: { name: true } },
         },
       });
@@ -194,6 +204,7 @@ export class StaffEmailsService {
         ],
         path: '/incidents',
         cta: 'Ver incidencias',
+        facilityId: inc.facilityId,
       });
     });
   }
@@ -211,6 +222,15 @@ export class StaffEmailsService {
           role: { in: ['owner', 'manager'] },
           isActive: true,
           emailVerifiedAt: { not: null },
+          // Un usuario restringido a ciertos locales solo recibe los suyos.
+          ...(msg.facilityId
+            ? {
+                OR: [
+                  { facilities: { none: {} } },
+                  { facilities: { some: { facilityId: msg.facilityId } } },
+                ],
+              }
+            : {}),
         },
         select: { email: true },
       }),
@@ -247,7 +267,7 @@ ${lines.map((l) => `<p style="font-size:15px;line-height:22px;margin:6px 0">${es
         priceMonthly: true,
         startDate: true,
         endDate: true,
-        unit: { select: { code: true, facility: { select: { name: true } } } },
+        unit: { select: { code: true, facilityId: true, facility: { select: { name: true } } } },
         customer: {
           select: {
             firstName: true,

@@ -115,6 +115,8 @@ export class UnitRequestsService {
       title: `Trastero adicional solicitado — ${customerName(customer)}`,
       body: (input.note ?? created.unit?.code ?? created.unitType?.name ?? '').slice(0, 140),
       link: '/unit-requests',
+      facilityId: created.facilityId,
+      unitId: created.unitId,
     });
     return this.toPortalDto(created);
   }

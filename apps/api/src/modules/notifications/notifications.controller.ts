@@ -16,6 +16,11 @@ import type { NotificationListDto } from '@storageos/shared';
 // roles base (no cambia el acceso de nadie hoy), pero hace el permiso
 // exigible para un rol personalizado que no lo incluya — mismo criterio ya
 // aplicado a `AnalyticsController`.
+const viewer = (u: AuthenticatedUser) => ({
+  userId: u.sub,
+  facilityScope: u.facilityScope ?? null,
+});
+
 @RequirePermission('notifications:read')
 @Controller('notifications')
 export class NotificationsController {
@@ -23,7 +28,7 @@ export class NotificationsController {
 
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<NotificationListDto> {
-    return this.notifications.list(user.tenantId);
+    return this.notifications.list(user.tenantId, viewer(user));
   }
 
   @Post(':id/read')
@@ -32,12 +37,12 @@ export class NotificationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.notifications.markRead(user.tenantId, id);
+    await this.notifications.markRead(user.tenantId, viewer(user), id);
   }
 
   @Post('read-all')
   @HttpCode(HttpStatus.NO_CONTENT)
   async markAllRead(@CurrentUser() user: AuthenticatedUser): Promise<void> {
-    await this.notifications.markAllRead(user.tenantId);
+    await this.notifications.markAllRead(user.tenantId, viewer(user));
   }
 }

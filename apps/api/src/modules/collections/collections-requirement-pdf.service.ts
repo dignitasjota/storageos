@@ -156,10 +156,16 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
         },
       });
       if (!row) {
-        throw new NotFoundException({ code: 'case_not_found', message: 'Expediente no encontrado' });
+        throw new NotFoundException({
+          code: 'case_not_found',
+          message: 'Expediente no encontrado',
+        });
       }
       if (facilityScope && row.facilityId && !facilityScope.includes(row.facilityId)) {
-        throw new NotFoundException({ code: 'case_not_found', message: 'Expediente no encontrado' });
+        throw new NotFoundException({
+          code: 'case_not_found',
+          message: 'Expediente no encontrado',
+        });
       }
 
       const [tenant, invoices] = await Promise.all([
@@ -234,4 +240,3 @@ export class CollectionsRequirementPdfService implements OnModuleDestroy {
     });
   }
 }
-

@@ -18,11 +18,7 @@ import { CollectionsService } from './collections.service';
 @Module({
   imports: [AuthModule, BillingModule, NotificationsModule],
   controllers: [CollectionsController],
-  providers: [
-    CollectionsService,
-    CollectionsListenersService,
-    CollectionsRequirementPdfService,
-  ],
+  providers: [CollectionsService, CollectionsListenersService, CollectionsRequirementPdfService],
   exports: [CollectionsService],
 })
 export class CollectionsModule {}

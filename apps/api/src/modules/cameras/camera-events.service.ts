@@ -60,7 +60,8 @@ export class CameraEventsService {
    * tenant). Guarda el snapshot en MinIO (bucket privado) e inserta el evento.
    */
   async ingest(token: string | undefined, input: IngestCameraEventInput): Promise<{ id: string }> {
-    if (!token) throw new UnauthorizedException({ code: 'missing_token', message: 'Falta el token' });
+    if (!token)
+      throw new UnauthorizedException({ code: 'missing_token', message: 'Falta el token' });
     const device = await this.admin.cameraDevice.findUnique({
       where: { ingestTokenHash: hashIngestToken(token) },
       select: { id: true, tenantId: true, facilityId: true, name: true, isActive: true },
@@ -75,7 +76,12 @@ export class CameraEventsService {
         const body = Buffer.from(input.imageBase64, 'base64');
         const mime = input.imageMimeType ?? 'image/jpeg';
         const key = this.files.buildCameraSnapshotKey(device.tenantId, device.id, mime);
-        snapshotKey = await this.files.putObject({ bucket: 'uploads', key, body, contentType: mime });
+        snapshotKey = await this.files.putObject({
+          bucket: 'uploads',
+          key,
+          body,
+          contentType: mime,
+        });
       } catch (err) {
         // El snapshot es best-effort: el evento se registra igual sin imagen.
         this.logger.warn(
@@ -110,6 +116,7 @@ export class CameraEventsService {
           title: `Alarma: ${input.eventType}`,
           body: `${device.name}`,
           link: `/cameras?facilityId=${device.facilityId}`,
+          facilityId: device.facilityId,
         });
       } catch {
         /* best-effort */
@@ -119,11 +126,7 @@ export class CameraEventsService {
   }
 
   /** Listado de eventos para el staff (con URL firmada del snapshot). */
-  async list(
-    tenantId: string,
-    filters: EventFilters,
-    limit = 100,
-  ): Promise<CameraEventDto[]> {
+  async list(tenantId: string, filters: EventFilters, limit = 100): Promise<CameraEventDto[]> {
     const facFilter = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (facFilter === null) return [];
     const where: Prisma.CameraEventWhereInput = {};
@@ -167,13 +170,16 @@ export class CameraEventsService {
         severity: args.input.severity ?? (isAlarm ? 'high' : 'medium'),
         facilityId: event.device.facilityId,
         occurredAt: event.occurredAt.toISOString(),
-        metadata: { source: 'camera', cameraEventId: event.id, cameraDeviceId: event.cameraDeviceId },
+        metadata: {
+          source: 'camera',
+          cameraEventId: event.id,
+          cameraDeviceId: event.cameraDeviceId,
+        },
       },
       meta: args.meta,
     });
     await this.prisma.withTenant(
-      (tx) =>
-        tx.cameraEvent.update({ where: { id: event.id }, data: { incidentId: incident.id } }),
+      (tx) => tx.cameraEvent.update({ where: { id: event.id }, data: { incidentId: incident.id } }),
       args.tenantId,
     );
     return incident;
@@ -192,7 +198,10 @@ export class CameraEventsService {
       args.tenantId,
     );
     if (!incident) {
-      throw new NotFoundException({ code: 'incident_not_found', message: 'Incidencia no encontrada' });
+      throw new NotFoundException({
+        code: 'incident_not_found',
+        message: 'Incidencia no encontrada',
+      });
     }
     const updated = await this.prisma.withTenant(
       (tx) =>
@@ -234,7 +243,8 @@ export class CameraEventsService {
       (tx) => tx.cameraEvent.findFirst({ where: { id: eventId }, include: EVENT_INCLUDE }),
       tenantId,
     );
-    if (!row) throw new NotFoundException({ code: 'event_not_found', message: 'Evento no encontrado' });
+    if (!row)
+      throw new NotFoundException({ code: 'event_not_found', message: 'Evento no encontrado' });
     assertFacilityAllowed(facilityScope, row.device.facilityId);
     return row;
   }

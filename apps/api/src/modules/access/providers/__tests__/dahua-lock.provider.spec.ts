@@ -4,7 +4,6 @@ import { DahuaLockProvider } from '../dahua-lock.provider';
 
 import type { AddressInfo } from 'node:net';
 
-
 describe('DahuaLockProvider', () => {
   const provider = new DahuaLockProvider();
 

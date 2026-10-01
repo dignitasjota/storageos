@@ -171,6 +171,7 @@ export class AccessVerifyService {
           `Varios PIN incorrectos seguidos. El teclado queda bloqueado ${this.rateLimit.lockoutMinutes} min; ` +
           'los inquilinos pueden seguir abriendo desde el portal. Revisa el registro y las cámaras.',
         link: '/access/logs',
+        facilityId: device.facilityId,
       });
     } catch (err) {
       this.logger.warn(`[access] aviso de bloqueo no enviado: ${String(err)}`);

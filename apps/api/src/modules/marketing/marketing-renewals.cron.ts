@@ -36,7 +36,7 @@ export class MarketingRenewalsCron {
 
       const due = await this.admin.marketingChannel.findMany({
         where: { deletedAt: null, status: 'active', renewsOn: { gte: target, lt: targetEnd } },
-        select: { id: true, tenantId: true, name: true },
+        select: { id: true, tenantId: true, name: true, facilityId: true },
       });
 
       for (const c of due) {
@@ -46,6 +46,7 @@ export class MarketingRenewalsCron {
             title: `«${c.name}» renueva en 7 días`,
             body: 'Revisa el canal antes de que se renueve automáticamente.',
             link: '/marketing/channels',
+            facilityId: c.facilityId,
           });
         } catch (err) {
           this.logger.warn(

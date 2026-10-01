@@ -52,7 +52,15 @@ export class EmailEventsService {
   private async applyOne(e: DeliveryEvent): Promise<boolean> {
     const comm = await this.admin.communication.findFirst({
       where: { providerMessageId: { in: messageIdVariants(e.messageId) }, channel: 'email' },
-      select: { id: true, tenantId: true, recipient: true, customerId: true, leadId: true },
+      select: {
+        id: true,
+        tenantId: true,
+        recipient: true,
+        customerId: true,
+        leadId: true,
+        contractId: true,
+        invoiceId: true,
+      },
     });
     const recipient = e.recipient ?? comm?.recipient ?? null;
 
@@ -98,6 +106,8 @@ export class EmailEventsService {
         title: `No se pudo entregar un correo a ${comm.recipient}`,
         ...(e.reason ? { body: e.reason } : {}),
         link: comm.customerId ? `/customers/${comm.customerId}` : '/communications',
+        contractId: comm.contractId,
+        invoiceId: comm.invoiceId,
       });
     }
     return true;

@@ -491,6 +491,7 @@ model Tenant {
   aiPendingActions        AiPendingAction[]
   emailDomain             TenantEmailDomain?
   emailSuppressions       EmailSuppression[]
+  notificationReads       NotificationRead[]
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
@@ -581,6 +582,7 @@ model User {
   aiConversations          AiConversation[]
   aiPendingActions         AiPendingAction[]
   facilities               UserFacility[]
+  notificationReads        NotificationRead[]
   inspectionPhotos         ContractInspectionPhoto[]
   customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
   customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
@@ -909,6 +911,7 @@ model Facility {
   recurringExpenses    RecurringExpense[]
   marketingChannels    MarketingChannel[]
   invoices             Invoice[]            @relation("InvoiceFacility")
+  notifications        Notification[]
 
   @@unique([tenantId, publicSlug])
   @@index([tenantId])
@@ -3529,14 +3532,36 @@ model Notification {
   body      String?
   /// Ruta del panel a la que lleva (e.g. "/leads", "/invoices/<id>").
   link      String?
+  /// Obsoleto: el leído es por usuario (`notification_reads`). Se conserva el dato.
   readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  /// Local al que se refiere (null = toda la empresa).
+  facilityId String?   @map("facility_id") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility Facility?          @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  reads    NotificationRead[]
 
   @@index([tenantId, readAt])
+  @@index([tenantId, facilityId], map: "notifications_tenant_facility_idx")
   @@index([tenantId, createdAt])
   @@map("notifications")
+}
+
+/// Notificación leída por un usuario del panel (el leído es por usuario).
+model NotificationRead {
+  notificationId String   @map("notification_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  readAt         DateTime @default(now()) @map("read_at") @db.Timestamptz(6)
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([tenantId, userId], map: "notification_reads_tenant_user_idx")
+  @@map("notification_reads")
 }
 
 /// Valoracion (NPS) del inquilino. Se solicita por enlace publico con token

@@ -160,6 +160,7 @@ export class WaitlistService {
           title: 'Nueva alta en la lista de espera',
           body: `${created.contactName} se ha apuntado a ${created.unitType.name} en ${created.facility.name} desde la web.`,
           link: '/waitlist',
+          facilityId: created.facilityId,
         });
       } catch (err) {
         this.logger.warn(`[waitlist] aviso al staff falló: ${(err as Error).message}`);
@@ -318,6 +319,7 @@ export class WaitlistService {
           title: 'Nueva alta en la lista de espera',
           body: `${name} (inquilino) se ha apuntado a ${created.unitType.name} en ${created.facility.name} desde el portal.`,
           link: '/waitlist',
+          facilityId: created.facilityId,
         });
       } catch (err) {
         this.logger.warn(`[waitlist] aviso al staff falló: ${(err as Error).message}`);
@@ -525,6 +527,7 @@ export class WaitlistService {
       title: 'Lista de espera: hay una coincidencia',
       body: `${entry.contactName} esperaba un ${entry.unitType.name} en ${entry.facility.name}. Se le ha avisado.`,
       link: '/waitlist',
+      facilityId: entry.facilityId,
     });
   }
 
