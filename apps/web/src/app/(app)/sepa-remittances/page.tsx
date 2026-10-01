@@ -1,11 +1,15 @@
 'use client';
 
+import {
+  daysUntilCollection,
+  earliestCollectionDate,
+  type RemittancePreviewDto,
+  type SepaRemittanceDto,
+} from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { CheckCircle2, Download, FileText, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-
-import type { RemittancePreviewDto, SepaRemittanceDto } from '@storageos/shared';
 
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -174,6 +178,9 @@ function CreateRemittanceDialog() {
     });
   }
 
+  const daysLeft = collectionDate ? daysUntilCollection(collectionDate) : 0;
+  const shortNotice = Boolean(collectionDate) && data !== null && daysLeft < data.prenoticeDays;
+
   const selectedTotal =
     data?.eligible.filter((e) => selected.has(e.invoiceId)).reduce((s, e) => s + e.amount, 0) ?? 0;
 
@@ -225,6 +232,28 @@ function CreateRemittanceDialog() {
               />
             </div>
           </div>
+          {shortNotice && data && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              <p>
+                {daysLeft < 0
+                  ? 'Esa fecha ya ha pasado.'
+                  : `Con esta fecha, tus inquilinos recibirán el aviso del cargo solo ${daysLeft} día(s) antes.`}{' '}
+                Tu plazo de preaviso es de {data.prenoticeDays} días (Ajustes → Facturación); la
+                normativa SEPA exige 14 salvo que tus contratos pacten otro plazo, y un cargo sin
+                preaviso suficiente puede ser devuelto.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => setCollectionDate(earliestCollectionDate(data.prenoticeDays))}
+              >
+                Usar la primera fecha válida (
+                {formatDay(earliestCollectionDate(data.prenoticeDays))})
+              </Button>
+            </div>
+          )}
 
           {preview.isPending ? (
             <p className="py-4 text-center text-sm text-muted-foreground">Calculando facturas…</p>
@@ -297,4 +326,9 @@ function CreateRemittanceDialog() {
       </DialogContent>
     </Dialog>
   );
+}
+
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
 }

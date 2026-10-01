@@ -357,7 +357,7 @@ Conciliación bancaria (Norma 43). RLS por `tenant_id`.
 
 Remesas SEPA (adeudos directos, fichero pain.008). RLS por `tenant_id`.
 
-- **`sepa_settings`** (acreedor, única por tenant): creditor_name, creditor_id (identificador del acreedor SEPA), creditor_iban_encrypted (AES-GCM), creditor_bic, enabled.
+- **`sepa_settings`** (acreedor, única por tenant): creditor_name, creditor_id (identificador del acreedor SEPA), creditor_iban_encrypted (AES-GCM), creditor_bic, enabled, `prenotice_days` (días de preaviso de los cargos, 14 por defecto = reglamento SEPA; 2026-10-01).
 - **`sepa_mandates`** (por cliente): reference (única autogenerada), iban_encrypted + iban_last4, bic, signed_at, sequence_type (FRST→RCUR), status (active/cancelled). Índice parcial **único mandato activo por cliente**.
 - **`sepa_remittances`** (lote): message_id, collection_date, status (generated/confirmed/cancelled), item_count, total_amount (céntimos), xml.
 - **`sepa_remittance_items`** (por factura): invoice_id (**único** → una factura por remesa), mandate_id (FK), amount (céntimos), sequence_type, end_to_end_id.

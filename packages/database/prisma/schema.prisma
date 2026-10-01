@@ -1930,6 +1930,8 @@ model SepaSettings {
   creditorId            String   @map("creditor_id")
   creditorIbanEncrypted String   @map("creditor_iban_encrypted")
   creditorBic           String?  @map("creditor_bic")
+  /// Días de preaviso de los adeudos pactados con los inquilinos (14 = reglamento SEPA).
+  prenoticeDays         Int      @default(14) @map("prenotice_days")
   enabled               Boolean  @default(false)
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

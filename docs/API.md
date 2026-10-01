@@ -1783,7 +1783,7 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 
 ### Remesas SEPA (`/sepa/...`)
 
-- `GET /sepa/settings` (`settings:read`) + `PUT /sepa/settings` (`billing:configure`): config del acreedor (nombre, identificador, IBAN cifrado, BIC, enabled). El IBAN es opcional al actualizar (conserva el actual).
+- `GET /sepa/settings` (`settings:read`) + `PUT /sepa/settings` (`billing:configure`): config del acreedor (nombre, identificador, IBAN cifrado, BIC, `prenoticeDays` 1-30 —días de preaviso de los cargos, 14 por defecto—, enabled). El IBAN es opcional al actualizar (conserva el actual). La previsualización de remesa devuelve `prenoticeDays` para que la web avise si la fecha de cargo no respeta el plazo (y proponga la primera válida).
 - `GET /sepa/mandates?customerId=` (`payments:read`) + `POST /sepa/mandates` (`payments:charge`) + `DELETE /sepa/mandates/:id` (`payments:charge`): mandatos por cliente (IBAN validado mod-97 + fecha de firma; crear cancela el activo previo).
 - `POST /sepa/remittances/preview` (`invoices:manage`): facturas domiciliables (issued/overdue, cliente con mandato activo, sin remesa) + `withoutMandate`.
 - `POST /sepa/remittances` (`invoices:manage`): genera el XML pain.008 + items (facturas quedan "en remesa", no pagadas aún). `GET /sepa/remittances` (`payments:read`).

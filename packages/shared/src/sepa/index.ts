@@ -43,6 +43,11 @@ export const UpdateSepaSettingsSchema = z.object({
   /** Opcional al actualizar: si se omite, se conserva el IBAN ya guardado. */
   creditorIban: ibanSchema.optional(),
   creditorBic: bicSchema,
+  /**
+   * Días de preaviso de los adeudos. El reglamento SEPA exige 14 salvo que el
+   * contrato con el deudor pacte otro plazo (mínimo habitual: 2).
+   */
+  prenoticeDays: z.number().int().min(1).max(30).default(14),
   enabled: z.boolean().default(false),
 });
 export type UpdateSepaSettingsInput = z.infer<typeof UpdateSepaSettingsSchema>;
@@ -53,6 +58,7 @@ export interface SepaSettingsDto {
   creditorId: string;
   creditorIbanLast4: string | null;
   creditorBic: string | null;
+  prenoticeDays: number;
   enabled: boolean;
 }
 
@@ -109,6 +115,8 @@ export interface RemittancePreviewDto {
   total: number;
   /** Facturas domiciliables pero sin mandato activo (no se pueden incluir). */
   withoutMandate: { invoiceId: string; invoiceNumber: string; customerName: string }[];
+  /** Plazo de preaviso configurado (días): la fecha de cargo debería respetarlo. */
+  prenoticeDays: number;
 }
 
 export interface SepaRemittanceDto {
@@ -121,4 +129,22 @@ export interface SepaRemittanceDto {
   total: number;
   createdAt: string;
   confirmedAt: string | null;
+}
+
+/**
+ * Primera fecha de cargo (YYYY-MM-DD) que respeta el preaviso si se genera la
+ * remesa hoy: el inquilino recibe el aviso hoy y el cargo llega `days` días
+ * después.
+ */
+export function earliestCollectionDate(days: number, today: Date = new Date()): string {
+  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Días naturales que faltan hasta la fecha de cargo (negativo si ya pasó). */
+export function daysUntilCollection(collectionDate: string, today: Date = new Date()): number {
+  const t = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const c = Date.parse(`${collectionDate}T00:00:00Z`);
+  return Math.round((c - t) / 86_400_000);
 }
