@@ -1271,6 +1271,31 @@ export interface PlatformEmailSettingsDto {
   };
 }
 
+/** Remitente guardado (null = no fijado en este nivel). */
+export interface PlatformSenderDto {
+  name: string | null;
+  email: string | null;
+  replyTo: string | null;
+}
+
+/** Remitente que se usará de verdad tras aplicar la herencia. */
+export interface EffectivePlatformSenderDto {
+  name: string;
+  email: string;
+  replyTo: string | null;
+}
+
+export interface PlatformSendersDto {
+  /** Valores de las variables EMAIL_FROM_NAME / EMAIL_FROM_ADDRESS. */
+  env: { name: string; email: string };
+  default: PlatformSenderDto;
+  categories: Record<'account' | 'billing' | 'admin_messages' | 'staff_notices', PlatformSenderDto>;
+  effective: Record<
+    'default' | 'account' | 'billing' | 'admin_messages' | 'staff_notices',
+    EffectivePlatformSenderDto
+  >;
+}
+
 export interface TestEmailResultDto {
   /** Proveedor que entregó el correo (puede ser el de respaldo). */
   provider: string;

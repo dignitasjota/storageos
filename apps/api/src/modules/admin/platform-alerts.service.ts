@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
 import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
 
 import type {
@@ -21,6 +22,7 @@ export class PlatformAlertsService {
   constructor(
     private readonly admin: PrismaAdminService,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    private readonly platformEmail: PlatformEmailSettingsService,
   ) {}
 
   /** Devuelve la config (singleton); la crea con defaults si no existe. */
@@ -95,6 +97,7 @@ export class PlatformAlertsService {
 
     const { html, text } = this.renderDigest(pastDue, trialExpiring);
     await this.email.send({
+      ...(await this.platformEmail.platformSender()),
       to: settings.alertEmail,
       subject: `[TrasterOS] Alerta de plataforma: ${pastDue.length} pago(s) fallido(s), ${trialExpiring.length} trial(es) por expirar`,
       html,

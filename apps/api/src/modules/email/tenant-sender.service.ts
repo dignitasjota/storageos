@@ -5,6 +5,7 @@ import { TtlCache } from '../../common/cache/ttl-cache';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { PlatformEmailSettingsService } from './platform-email-settings.service';
 import { platformFrom, sanitizeDisplayName, type EmailAddress } from './providers/email-provider';
 
 import type { Env } from '../../config/env.schema';
@@ -36,6 +37,7 @@ export class TenantSenderService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly config: ConfigService<Env, true>,
+    private readonly platformSettings: PlatformEmailSettingsService,
   ) {}
 
   async resolve(tenantId: string): Promise<TenantSender> {
@@ -50,7 +52,8 @@ export class TenantSenderService {
   }
 
   private async load(tenantId: string): Promise<TenantSender> {
-    const platform = platformFrom(this.config);
+    // Dirección común de la plataforma (panel admin → Correo saliente).
+    const platform = (await this.platformSettings.platformSender()).from;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: {

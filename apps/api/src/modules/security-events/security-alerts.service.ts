@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
 import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
 
 import type { Env } from '../../config/env.schema';
@@ -41,6 +42,7 @@ export class SecurityAlertsService {
   constructor(
     private readonly admin: PrismaAdminService,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    private readonly platformEmail: PlatformEmailSettingsService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -175,6 +177,7 @@ export class SecurityAlertsService {
     ].join('\n');
 
     await this.email.send({
+      ...(await this.platformEmail.platformSender()),
       to,
       subject,
       html,

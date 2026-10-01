@@ -17,11 +17,13 @@ import {
 import {
   isValidCustomDomain,
   type PlatformDomainStatusDto,
+  type PlatformSendersDto,
   type PlatformEmailSettingsDto,
   SendTestEmailSchema,
   type TestEmailResultDto,
   type UnusedBrevoDomainDto,
   UpdatePlatformEmailSettingsSchema,
+  UpdatePlatformSendersSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -39,6 +41,7 @@ import type { Request } from 'express';
 
 class UpdatePlatformEmailSettingsDto extends createZodDto(UpdatePlatformEmailSettingsSchema) {}
 class SendTestEmailDto extends createZodDto(SendTestEmailSchema) {}
+class UpdatePlatformSendersDto extends createZodDto(UpdatePlatformSendersSchema) {}
 
 /**
  * Correo saliente de la plataforma: qué proveedor (Brevo / Resend) envía y si se
@@ -60,10 +63,37 @@ export class AdminEmailSettingsController {
    * Dominios de la cuenta Brevo que ya no usa ningún tenant (la app nunca los
    * borra sola). 503 `email_domains_not_available` sin `BREVO_API_KEY`.
    */
-  /** ¿Está autenticado el dominio del remitente de la plataforma en cada proveedor? */
+  /** ¿Están autenticados en cada proveedor los dominios de los remitentes de la plataforma? */
   @Get('platform-domain')
-  platformDomain(): Promise<PlatformDomainStatusDto> {
-    return this.emailDomains.platformDomainStatus();
+  async platformDomain(): Promise<PlatformDomainStatusDto[]> {
+    const senders = await this.settings.getSenders();
+    const domains = Object.values(senders.effective).map((s) => s.email.split('@')[1] ?? '');
+    return this.emailDomains.platformDomainStatus(domains);
+  }
+
+  /** Remitentes de los correos de la plataforma (común y por tipo de correo). */
+  @Get('senders')
+  senders(): Promise<PlatformSendersDto> {
+    return this.settings.getSenders();
+  }
+
+  @RequireSuperadmin()
+  @Put('senders')
+  async updateSenders(
+    @Body() body: UpdatePlatformSendersDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ): Promise<PlatformSendersDto> {
+    const result = await this.settings.updateSenders(body);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.email_senders.updated',
+      targetType: 'platform_email_settings',
+      changes: { senders: body },
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
+    return result;
   }
 
   @Get('brevo-domains/unused')
@@ -127,6 +157,7 @@ export class AdminEmailSettingsController {
     let res;
     try {
       res = await this.email.send({
+        ...(await this.settings.platformSender()),
         to: body.to,
         subject: 'Prueba de correo de TrasterOS',
         html: `<p>${text}</p>`,

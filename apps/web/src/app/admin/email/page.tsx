@@ -1,6 +1,11 @@
 'use client';
 
-import { CheckCircle2, Loader2, Trash2, XCircle } from 'lucide-react';
+import {
+  PLATFORM_SENDER_CATEGORIES,
+  PLATFORM_SENDER_LABELS,
+  type PlatformSenderCategory,
+} from '@storageos/shared';
+import { CheckCircle2, ChevronDown, Loader2, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -19,6 +24,8 @@ import {
 } from '@/components/ui/select';
 import {
   usePlatformDomainStatus,
+  usePlatformSenders,
+  useUpdatePlatformSenders,
   useAdminEmailSettings,
   useDeleteBrevoDomain,
   useSendTestEmail,
@@ -118,9 +125,10 @@ export default function AdminEmailPage() {
             >
               <div className="min-w-0">
                 <span className="font-medium">{PROVIDER_LABELS[p]}</span>
-                {data.configured[p] && platformDomain.data && (
-                  <DomainLine domain={platformDomain.data.domain} status={platformDomain.data[p]} />
-                )}
+                {data.configured[p] &&
+                  platformDomain.data?.map((d) => (
+                    <DomainLine key={d.domain} domain={d.domain} status={d[p]} />
+                  ))}
               </div>
               {data.configured[p] ? (
                 <Badge variant="secondary" className="gap-1">
@@ -139,6 +147,8 @@ export default function AdminEmailPage() {
           </p>
         </CardContent>
       </Card>
+
+      <PlatformSendersCard />
 
       <Card>
         <CardHeader>
@@ -341,5 +351,156 @@ function WebhookRow({
       <code className="block break-all rounded bg-muted px-2 py-1 text-xs">{url}</code>
       <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
+  );
+}
+
+type SenderForm = { name: string; email: string; replyTo: string };
+type SenderKey = 'default' | PlatformSenderCategory;
+
+/**
+ * Remitente de los correos de la plataforma a los tenants: uno común y, si se
+ * quiere, otro por tipo de correo. Lo que se deje vacío hereda del común y, si
+ * tampoco, de las variables EMAIL_FROM_* de Portainer.
+ */
+function PlatformSendersCard() {
+  const { data } = usePlatformSenders();
+  const update = useUpdatePlatformSenders();
+  const [form, setForm] = useState<Record<SenderKey, SenderForm> | null>(null);
+  const [open, setOpen] = useState<PlatformSenderCategory | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    const f = (s: { name: string | null; email: string | null; replyTo: string | null }) => ({
+      name: s.name ?? '',
+      email: s.email ?? '',
+      replyTo: s.replyTo ?? '',
+    });
+    setForm({
+      default: f(data.default),
+      account: f(data.categories.account),
+      billing: f(data.categories.billing),
+      admin_messages: f(data.categories.admin_messages),
+      staff_notices: f(data.categories.staff_notices),
+    });
+  }, [data]);
+
+  if (!data || !form) return null;
+
+  const set = (key: SenderKey, field: keyof SenderForm, value: string) =>
+    setForm({ ...form, [key]: { ...form[key], [field]: value } });
+
+  async function onSave() {
+    if (!form) return;
+    try {
+      await update.mutateAsync(form);
+      toast.success('Remitentes guardados. Se aplican en menos de un minuto.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  const fields = (
+    key: SenderKey,
+    placeholder: { name: string; email: string; replyTo: string },
+  ) => (
+    <div className="grid gap-3 sm:grid-cols-3">
+      <div className="space-y-1.5">
+        <Label htmlFor={`ps-${key}-name`}>Nombre</Label>
+        <Input
+          id={`ps-${key}-name`}
+          value={form[key].name}
+          placeholder={placeholder.name}
+          onChange={(e) => set(key, 'name', e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`ps-${key}-email`}>Dirección</Label>
+        <Input
+          id={`ps-${key}-email`}
+          type="email"
+          value={form[key].email}
+          placeholder={placeholder.email}
+          onChange={(e) => set(key, 'email', e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`ps-${key}-reply`}>Las respuestas van a</Label>
+        <Input
+          id={`ps-${key}-reply`}
+          type="email"
+          value={form[key].replyTo}
+          placeholder={placeholder.replyTo}
+          onChange={(e) => set(key, 'replyTo', e.target.value)}
+        />
+      </div>
+    </div>
+  );
+
+  const common = data.effective.default;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Remitente de la plataforma</CardTitle>
+        <CardDescription>
+          Con qué nombre y dirección llegan a los tenants los correos de TrasterOS, y adónde van sus
+          respuestas. Lo que dejes vacío usa el remitente común; si tampoco, las variables de
+          Portainer ({data.env.name} &lt;{data.env.email}&gt;). La dirección debe ser de un dominio
+          autenticado en tu proveedor.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Común (para todo)</p>
+          {fields('default', {
+            name: data.env.name,
+            email: data.env.email,
+            replyTo: 'Sin dirección de respuesta',
+          })}
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Por tipo de correo (opcional)</p>
+          <ul className="divide-y rounded-lg border">
+            {PLATFORM_SENDER_CATEGORIES.map((cat) => {
+              const eff = data.effective[cat];
+              return (
+                <li key={cat} className="space-y-3 px-3 py-2">
+                  <button
+                    type="button"
+                    className="flex w-full items-start justify-between gap-2 text-left"
+                    onClick={() => setOpen(open === cat ? null : cat)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">
+                        {PLATFORM_SENDER_LABELS[cat].label}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {PLATFORM_SENDER_LABELS[cat].description}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        Sale como: {eff.name} &lt;{eff.email}&gt;
+                        {eff.replyTo ? ` · respuestas a ${eff.replyTo}` : ''}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className={`mt-1 h-4 w-4 shrink-0 transition-transform ${open === cat ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {open === cat &&
+                    fields(cat, {
+                      name: common.name,
+                      email: common.email,
+                      replyTo: common.replyTo ?? 'Sin dirección de respuesta',
+                    })}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <Button onClick={() => void onSave()} disabled={update.isPending}>
+          {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Guardar remitentes
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

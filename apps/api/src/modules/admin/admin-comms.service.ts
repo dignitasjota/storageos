@@ -86,7 +86,7 @@ export class AdminCommsService {
     let failed = 0;
     for (const to of recipients) {
       try {
-        await this.email.sendRendered({ to, subject, html, text });
+        await this.email.sendRendered({ to, category: 'admin_messages', subject, html, text });
         sent += 1;
       } catch {
         failed += 1;
@@ -102,7 +102,7 @@ export class AdminCommsService {
     await this.emailQueue.addBulk(
       recipients.map((to) => ({
         name: JOB_EMAIL_SEND,
-        data: { to, subject, html, text },
+        data: { to, category: 'admin_messages', subject, html, text },
       })),
     );
   }
