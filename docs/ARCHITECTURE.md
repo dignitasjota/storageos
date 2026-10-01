@@ -149,6 +149,7 @@ Cada refresh **rota** la sesión actual (la marca `revokedReason: rotated`) y cr
 - **La copia sigue la vida de la factura** (`HoldedSyncService`, best-effort sobre eventos): emisión, cobros, rectificativas (credit notes en su serie), simplificadas (contacto genérico) y anulaciones (`domain.invoice_cancelled`). Cliente HTTP propio sobre la API v2 (`Bearer`); la v1 ya no acepta las claves nuevas.
 - **Facturas de suscripción completas**: el emisor no puede activar la facturación sin sus datos fiscales; el tenant rellena los suyos; si faltan al cobrar, la factura se emite igual y queda marcada.
 - **Asesoría**: formato estándar (`AccountantExportService`, Excel o CSV) que junta las dos actividades de la SL —suscripciones y negocio propio— por factura y tipo de IVA, más cobros. No se integra con programas contables concretos.
+- **Rectificativas de suscripción** (#577): serie propia (`SAAS-R-<año>`), por sustitución (corrige los datos del cliente con los mismos importes) o por diferencias (abono parcial o total); la factura original nunca se modifica, solo cambia de estado (`rectified`/`cancelled`).
 - Las facturas de suscripción **aún no** se registran en Veri\*Factu (obligatorio para sociedades desde el 1-1-2027).
 
 ## ADR-019: Email transaccional con nodemailer + React Email
@@ -274,6 +275,10 @@ Piezas reutilizables introducidas en la cuarta auditoría (detalle y PRs en
   y borra el objeto rechazado.
 - **Riesgos aceptados**: CSP con `'unsafe-inline'` (ver abajo) y la ventana de
   DNS rebinding en cerraduras/Dahua (IP validada + sin redirects).
+
+## Ficheros: URLs firmadas para el navegador (#578)
+
+`FilesService` usa dos clientes S3: uno **interno** (`MINIO_ENDPOINT`, p. ej. `minio:9000` en Docker) para las operaciones del servidor, y otro que **solo firma** con `MINIO_PUBLIC_URL` para las URLs que usa el navegador (subidas directas y descargas de buckets privados). La firma S3 incluye el host, así que una URL firmada con el host interno no sirve fuera de Docker. Cualquier `getSignedUrl` nuevo debe usar el cliente de firma.
 
 ## Piezas reutilizables añadidas en 2026-09 (#536, #540)
 
