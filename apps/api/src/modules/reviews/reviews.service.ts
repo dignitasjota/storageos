@@ -162,6 +162,7 @@ export class ReviewsService {
     input: RequestReviewInput;
   }): Promise<RequestReviewResultDto> {
     const { tenantId, input } = args;
+    if (input.channel === 'whatsapp') this.communications.assertWhatsappAvailable();
     const customer = await this.admin.customer.findFirst({
       where: { id: input.customerId, tenantId, deletedAt: null },
       select: {

@@ -46,6 +46,15 @@ describe('Communications + Templates + Automations + Leads + Widget (e2e)', () =
     expect(codes).toContain('contract_signed_email');
   });
 
+  it('canales disponibles (WhatsApp simulado en tests)', async () => {
+    const owner = await registerVerifiedUser(app, 'comms-chan');
+    const res = await request(app.getHttpServer())
+      .get('/communications/channels')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    expect(res.body).toEqual({ email: true, whatsapp: true });
+  });
+
   it('crea plantilla custom, hace preview con variables, y envia comm manual', async () => {
     const owner = await registerVerifiedUser(app, 'comms-send');
 

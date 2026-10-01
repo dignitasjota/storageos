@@ -46,6 +46,10 @@ export class MetaWabaProvider extends WhatsAppProvider {
     return 'meta_waba';
   }
 
+  get available(): boolean {
+    return !!this.phoneNumberId && !!this.accessToken;
+  }
+
   async send(args: SendWhatsAppArgs): Promise<SendWhatsAppResult> {
     if (!this.phoneNumberId || !this.accessToken) {
       throw new Error(

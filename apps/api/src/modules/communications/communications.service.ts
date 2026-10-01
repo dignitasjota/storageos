@@ -1,5 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 
@@ -402,6 +409,13 @@ export class CommunicationsService {
             ? { templateVariables: comm.whatsappTemplateParams as Record<string, string> }
             : {}),
         });
+        if (res.skipped) {
+          await this.admin.communication.update({
+            where: { id: comm.id },
+            data: { status: 'skipped', errorMessage: res.skipped },
+          });
+          return;
+        }
         providerMessageId = res.providerMessageId;
       } else if (comm.channel === 'sms') {
         // Sin provider SMS en Fase 5: marcar failed con mensaje claro.
@@ -651,10 +665,30 @@ export class CommunicationsService {
     return this.toDto(created);
   }
 
+  /** ¿Se puede enviar por WhatsApp? (simulador en producción = no). */
+  get whatsappAvailable(): boolean {
+    return this.whatsapp.available;
+  }
+
+  /**
+   * Rechaza crear un envío por WhatsApp que no podría salir. Para las entradas
+   * que crea el usuario (envío manual, automatizaciones, valoraciones); los
+   * envíos ya creados se omiten al despachar.
+   */
+  assertWhatsappAvailable(): void {
+    if (!this.whatsapp.available) {
+      throw new BadRequestException({
+        code: 'whatsapp_not_available',
+        message: 'WhatsApp no está configurado en la plataforma: usa email.',
+      });
+    }
+  }
+
   async sendManual(args: {
     tenantId: string;
     input: SendCommunicationInput;
   }): Promise<CommunicationDto> {
+    if (args.input.channel === 'whatsapp') this.assertWhatsappAvailable();
     const body: SendArgs = {
       tenantId: args.tenantId,
       channel: args.input.channel,
