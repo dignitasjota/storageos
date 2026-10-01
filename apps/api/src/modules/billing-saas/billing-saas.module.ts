@@ -17,6 +17,7 @@ import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformDunningController } from './platform-dunning.controller';
 import { PlatformDunningCron } from './platform-dunning.cron';
 import { PlatformDunningService } from './platform-dunning.service';
+import { PlatformHoldedService } from './platform-holded.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
@@ -82,6 +83,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SaasAddonsService,
     PlatformInvoicesService,
     AccountantExportService,
+    PlatformHoldedService,
     PlatformCouponsService,
     PlatformDunningService,
     PlatformDunningCron,

@@ -1182,6 +1182,13 @@ desde el panel.
   - Cobros: fecha, factura, cliente, importe, forma de cobro y referencia. Las devoluciones aparecen en negativo.
 - El asesor configura el formato una vez en el importador de su programa y lo reutiliza cada periodo.
 
+**Copia en Holded de las facturas de suscripción (opcional)** — panel admin → Facturación SaaS → «Copia en Holded». Viene desactivada; no envía nada hasta que la actives.
+
+1. En Holded, crea una serie de facturas solo para las suscripciones (p. ej. `SUS-`), distinta de la de tu negocio de trasteros, y márcala **«No enviar a Verifactu»**.
+2. Pega la API key (`pat_…`), guarda, elige esa serie y activa. La app comprueba la marca contra Holded: una serie que se envía a Verifactu no se puede elegir.
+3. Cada factura de suscripción nueva se copia a Holded aprobada y con su cobro. El número legal va en la descripción.
+4. Las facturas emitidas antes de activarla se envían con «Enviar pendientes».
+
 ## 14. Pendiente (Fase 8D)
 
 - Pipeline CI/CD con GitHub Actions construyendo imágenes a GHCR y desplegando vía SSH.

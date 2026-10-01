@@ -18,6 +18,10 @@ import {
   ACCOUNTANT_PAYMENT_COLUMNS,
   AccountantExportQuerySchema,
   IssuePlatformInvoiceSchema,
+  UpdatePlatformHoldedSettingsSchema,
+  type HoldedSeriesListDto,
+  type HoldedTestResultDto,
+  type PlatformHoldedSettingsDto,
   toAccountantCsv,
   UpdatePlatformBillingSettingsSchema,
   type PlatformBillingSettingsDto,
@@ -30,12 +34,14 @@ import { AdminGuard } from '../admin/admin.guard';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { AccountantExportService } from './accountant-export.service';
+import { PlatformHoldedService } from './platform-holded.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
 
 import type { Response } from 'express';
 
 class UpdateSettingsDto extends createZodDto(UpdatePlatformBillingSettingsSchema) {}
 class IssueDto extends createZodDto(IssuePlatformInvoiceSchema) {}
+class UpdateHoldedDto extends createZodDto(UpdatePlatformHoldedSettingsSchema) {}
 
 /** Facturación del SaaS (TrasterOS → tenant). Solo super admin. */
 @Public()
@@ -45,7 +51,41 @@ export class PlatformInvoicesController {
   constructor(
     private readonly service: PlatformInvoicesService,
     private readonly accountant: AccountantExportService,
+    private readonly holded: PlatformHoldedService,
   ) {}
+
+  // ---- copia contable en Holded (desactivada hasta contratarlo) ----
+
+  @Get('platform-billing/holded')
+  getHolded(): Promise<PlatformHoldedSettingsDto> {
+    return this.holded.getSettings();
+  }
+
+  @Put('platform-billing/holded')
+  @RequireSuperadmin()
+  updateHolded(@Body() body: UpdateHoldedDto): Promise<PlatformHoldedSettingsDto> {
+    return this.holded.updateSettings(body);
+  }
+
+  @Get('platform-billing/holded/series')
+  @RequireSuperadmin()
+  holdedSeries(): Promise<HoldedSeriesListDto> {
+    return this.holded.listSeries();
+  }
+
+  @Post('platform-billing/holded/test')
+  @HttpCode(HttpStatus.OK)
+  @RequireSuperadmin()
+  testHolded(): Promise<HoldedTestResultDto> {
+    return this.holded.test();
+  }
+
+  @Post('platform-billing/holded/backfill')
+  @HttpCode(HttpStatus.OK)
+  @RequireSuperadmin()
+  backfillHolded(): Promise<{ synced: number }> {
+    return this.holded.backfill();
+  }
 
   @Get('platform-billing/settings')
   getSettings(): Promise<PlatformBillingSettingsDto> {

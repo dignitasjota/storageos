@@ -5,6 +5,10 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AccountantExportDto,
+  HoldedSeriesListDto,
+  HoldedTestResultDto,
+  PlatformHoldedSettingsDto,
+  UpdatePlatformHoldedSettingsInput,
   AdminAddonAnalyticsDto,
   AdminTenantNotesDto,
   UpdateTenantNotesInput,
@@ -1700,6 +1704,55 @@ export function useUpdatePlatformBillingSettings() {
       }),
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: ['admin', 'platform-billing', 'settings'] }),
+  });
+}
+
+const platformHoldedKey = ['admin', 'platform-billing', 'holded'] as const;
+
+/** Copia en Holded de las facturas de suscripción. */
+export function usePlatformHolded() {
+  return useQuery({
+    queryKey: platformHoldedKey,
+    queryFn: () => adminApiFetch<PlatformHoldedSettingsDto>('/admin/platform-billing/holded'),
+  });
+}
+
+export function usePlatformHoldedSeries(enabled: boolean) {
+  return useQuery({
+    queryKey: [...platformHoldedKey, 'series'],
+    queryFn: () => adminApiFetch<HoldedSeriesListDto>('/admin/platform-billing/holded/series'),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useUpdatePlatformHolded() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformHoldedSettingsInput) =>
+      adminApiFetch<PlatformHoldedSettingsDto>('/admin/platform-billing/holded', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: platformHoldedKey }),
+  });
+}
+
+export function useTestPlatformHolded() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<HoldedTestResultDto>('/admin/platform-billing/holded/test', { method: 'POST' }),
+  });
+}
+
+export function useBackfillPlatformHolded() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<{ synced: number }>('/admin/platform-billing/holded/backfill', {
+        method: 'POST',
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: platformHoldedKey }),
   });
 }
 
