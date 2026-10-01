@@ -49,6 +49,7 @@ describe('Remesas SEPA (e2e)', () => {
     expect(settings.status).toBe(200);
     expect(settings.body.configured).toBe(true);
     expect(settings.body.creditorIbanLast4).toBe('1332');
+    expect(settings.body.prenoticeDays).toBe(14); // por defecto, el del reglamento SEPA
 
     // Cliente + mandato.
     const debtorEmail = `sepa-${Date.now()}@e2e.local`;
@@ -76,6 +77,23 @@ describe('Remesas SEPA (e2e)', () => {
     expect(preview.body.eligible[0].amount).toBe(121);
     expect(preview.body.eligible[0].sequenceType).toBe('FRST');
     expect(preview.body.total).toBe(121);
+    expect(preview.body.prenoticeDays).toBe(14);
+
+    // Plazo pactado en los contratos más corto → la previsualización lo refleja.
+    const shorter = await request(app.getHttpServer()).put('/sepa/settings').set(auth).send({
+      creditorName: 'Trasteros SL',
+      creditorId: 'ES12ZZZB12345678',
+      prenoticeDays: 5,
+      enabled: true,
+    });
+    expect(shorter.body.prenoticeDays).toBe(5);
+    const preview2 = await request(app.getHttpServer()).post('/sepa/remittances/preview').set(auth);
+    expect(preview2.body.prenoticeDays).toBe(5);
+    await request(app.getHttpServer())
+      .put('/sepa/settings')
+      .set(auth)
+      .send({ creditorName: 'Trasteros SL', creditorId: 'ES12ZZZB12345678', prenoticeDays: 0 })
+      .expect(400);
 
     // Crear remesa.
     const remittance = await request(app.getHttpServer())

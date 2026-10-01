@@ -570,6 +570,7 @@ function SepaSettingsCard() {
   const [creditorId, setCreditorId] = useState('');
   const [creditorIban, setCreditorIban] = useState('');
   const [creditorBic, setCreditorBic] = useState('');
+  const [prenoticeDays, setPrenoticeDays] = useState(14);
   const [loaded, setLoaded] = useState(false);
 
   if (!canConfigure || settings.isLoading || !settings.data) return null;
@@ -578,6 +579,7 @@ function SepaSettingsCard() {
     setCreditorName(s.creditorName);
     setCreditorId(s.creditorId);
     setCreditorBic(s.creditorBic ?? '');
+    setPrenoticeDays(s.prenoticeDays);
     setLoaded(true);
   }
 
@@ -597,6 +599,7 @@ function SepaSettingsCard() {
         // El IBAN solo se envía si se reescribe; si no, el backend conserva el actual.
         ...(creditorIban.trim() ? { creditorIban: creditorIban.trim() } : {}),
         creditorBic,
+        prenoticeDays,
         enabled,
       });
       toast.success('Ajustes SEPA guardados.');
@@ -657,6 +660,25 @@ function SepaSettingsCard() {
               onChange={(e) => setCreditorBic(e.target.value)}
               placeholder="CAIXESBBXXX"
             />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="sepa-prenotice">
+              Preaviso de los cargos (días)
+            </label>
+            <Input
+              id="sepa-prenotice"
+              type="number"
+              min={1}
+              max={30}
+              value={prenoticeDays}
+              onChange={(e) =>
+                setPrenoticeDays(Math.min(30, Math.max(1, Number(e.target.value) || 14)))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              La normativa SEPA exige 14 días salvo que tus contratos pacten otro plazo. Al generar
+              una remesa te avisamos si la fecha de cargo no lo respeta.
+            </p>
           </div>
         </div>
         <div className="flex gap-2">

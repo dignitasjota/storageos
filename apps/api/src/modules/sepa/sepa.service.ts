@@ -64,6 +64,7 @@ export class SepaService {
         creditorId: '',
         creditorIbanLast4: null,
         creditorBic: null,
+        prenoticeDays: 14,
         enabled: false,
       };
     }
@@ -74,6 +75,7 @@ export class SepaService {
       creditorId: s.creditorId,
       creditorIbanLast4: iban.slice(-4),
       creditorBic: s.creditorBic,
+      prenoticeDays: s.prenoticeDays,
       enabled: s.enabled,
     };
   }
@@ -98,6 +100,7 @@ export class SepaService {
       creditorId: input.creditorId,
       creditorIbanEncrypted,
       creditorBic: input.creditorBic || null,
+      prenoticeDays: input.prenoticeDays,
       enabled: input.enabled,
     };
     await this.prisma.withTenant(
@@ -264,7 +267,11 @@ export class SepaService {
     }
     // Suma en céntimos enteros (sumar decimales acumula drift antes del redondeo).
     const total = eligible.reduce((s, e) => s + toCents(e.amount), 0) / 100;
-    return { eligible, total, withoutMandate };
+    const settings = await this.prisma.withTenant(
+      (tx) => tx.sepaSettings.findUnique({ where: { tenantId }, select: { prenoticeDays: true } }),
+      tenantId,
+    );
+    return { eligible, total, withoutMandate, prenoticeDays: settings?.prenoticeDays ?? 14 };
   }
 
   async createRemittance(args: {
