@@ -84,7 +84,10 @@ describe('Automatizaciones: datos completos de los eventos (e2e)', () => {
     const mail = await waitForEmail(s.email, { subjectIncludes: 'disponible' });
     expect(mail.Text).toContain('Hola Lucía');
     expect(mail.Text).toContain(`El equipo de ${s.tenantName}`);
-    expect(mail.Text).toMatch(/Vencimiento: \d{4}-\d{2}-\d{2}/);
+    // Importe y fecha legibles, no en formato técnico.
+    expect(mail.Text).toMatch(/Vencimiento: \d{1,2} de [a-z]+ de \d{4}/);
+    expect(mail.Text).toMatch(/\d+,\d{2}\s€/);
+    expect(mail.Text).not.toContain('EUR');
   });
 
   it('reserva confirmada → dispara la automatización «Reserva confirmada»', async () => {

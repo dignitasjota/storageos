@@ -39,10 +39,10 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     name: 'Bienvenida al inquilino',
     subject: 'Bienvenido a {{tenant.name}}',
     bodyText:
-      'Hola {{customer.firstName}},\n\nBienvenido a {{tenant.name}}. Tu cuenta ya esta lista.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
+      'Hola {{customer.firstName}},\n\nBienvenido a {{tenant.name}}. Tu cuenta ya está lista.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
     bodyHtml: wrapHtml(
       'Bienvenido a {{tenant.name}}',
-      '<p>Hola {{customer.firstName}},</p><p>Bienvenido a {{tenant.name}}. Tu cuenta ya esta lista.</p>',
+      '<p>Hola {{customer.firstName}},</p><p>Bienvenido a {{tenant.name}}. Tu cuenta ya está lista.</p>',
     ),
     locale: 'es-ES',
     variables: ['customer.firstName', 'customer.displayName', 'tenant.name'],
@@ -53,12 +53,12 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     kind: 'transactional',
     channel: 'email',
     name: 'Contrato firmado',
-    subject: 'Tu contrato {{contract.number}} esta activo',
+    subject: 'Tu contrato {{contract.number}} está activo',
     bodyText:
-      'Hola {{customer.firstName}},\n\nTu contrato {{contract.number}} para el trastero {{unit.code}} de {{facility.name}} ha quedado firmado y activo.\n\nCuota mensual: {{contract.priceMonthly}} EUR.\n\nGracias,\nEl equipo de {{tenant.name}}',
+      'Hola {{customer.firstName}},\n\nTu contrato {{contract.number}} para el trastero {{unit.code}} de {{facility.name}} ha quedado firmado y activo.\n\nCuota mensual: {{contract.priceMonthly}}.\n\nGracias,\nEl equipo de {{tenant.name}}',
     bodyHtml: wrapHtml(
       'Contrato firmado',
-      '<p>Hola {{customer.firstName}},</p><p>Tu contrato <strong>{{contract.number}}</strong> para el trastero {{unit.code}} de {{facility.name}} ha quedado <strong>firmado y activo</strong>.</p><p>Cuota mensual: <strong>{{contract.priceMonthly}} EUR</strong>.</p>',
+      '<p>Hola {{customer.firstName}},</p><p>Tu contrato <strong>{{contract.number}}</strong> para el trastero {{unit.code}} de {{facility.name}} ha quedado <strong>firmado y activo</strong>.</p><p>Cuota mensual: <strong>{{contract.priceMonthly}}</strong>.</p>',
     ),
     locale: 'es-ES',
     variables: [
@@ -94,10 +94,10 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     name: 'Factura emitida',
     subject: 'Factura {{invoice.number}} disponible',
     bodyText:
-      'Hola {{customer.firstName}},\n\nYa puedes ver tu factura {{invoice.number}} por {{invoice.total}} EUR. Vencimiento: {{invoice.dueDate}}.\n\nGracias,\nEl equipo de {{tenant.name}}',
+      'Hola {{customer.firstName}},\n\nYa puedes ver tu factura {{invoice.number}} por {{invoice.total}}. Vencimiento: {{invoice.dueDate}}.\n\nGracias,\nEl equipo de {{tenant.name}}',
     bodyHtml: wrapHtml(
-      'Tu factura esta lista',
-      '<p>Hola {{customer.firstName}},</p><p>Ya puedes ver tu factura <strong>{{invoice.number}}</strong> por <strong>{{invoice.total}} EUR</strong>.</p><p>Vencimiento: {{invoice.dueDate}}.</p>',
+      'Tu factura está lista',
+      '<p>Hola {{customer.firstName}},</p><p>Ya puedes ver tu factura <strong>{{invoice.number}}</strong> por <strong>{{invoice.total}}</strong>.</p><p>Vencimiento: {{invoice.dueDate}}.</p>',
     ),
     locale: 'es-ES',
     variables: [
@@ -116,10 +116,34 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     name: 'Recordatorio de pago',
     subject: 'Recordatorio: factura {{invoice.number}} pendiente',
     bodyText:
-      'Hola {{customer.firstName}},\n\nTienes pendiente la factura {{invoice.number}} ({{invoice.amountPending}} EUR). Llevamos {{invoice.daysOverdue}} dias de demora.\n\nPor favor, regulariza el pago lo antes posible.\n\nGracias,\nEl equipo de {{tenant.name}}',
+      'Hola {{customer.firstName}},\n\nLa factura {{invoice.number}} venció el {{invoice.dueDate}} y tiene {{invoice.amountPending}} pendientes. Puede que se te haya pasado: puedes pagarla ahora desde tu área de clientes:\n\n{{portal.url}}\n\nSi ya la has pagado, ignora este mensaje.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
     bodyHtml: wrapHtml(
       'Factura pendiente',
-      '<p>Hola {{customer.firstName}},</p><p>Tienes pendiente la factura <strong>{{invoice.number}}</strong> ({{invoice.amountPending}} EUR). Llevamos <strong>{{invoice.daysOverdue}} dias</strong> de demora.</p><p>Por favor, regulariza el pago lo antes posible.</p>',
+      '<p>Hola {{customer.firstName}},</p><p>La factura <strong>{{invoice.number}}</strong> venció el {{invoice.dueDate}} y tiene <strong>{{invoice.amountPending}}</strong> pendientes. Puede que se te haya pasado: puedes pagarla ahora desde tu área de clientes.</p><p><a href="{{portal.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Pagar ahora</a></p><p>Si ya la has pagado, ignora este mensaje.</p>',
+    ),
+    locale: 'es-ES',
+    variables: [
+      'customer.firstName',
+      'invoice.number',
+      'invoice.amountPending',
+      'invoice.dueDate',
+      'invoice.daysOverdue',
+      'portal.url',
+      'tenant.name',
+    ],
+    trigger: 'invoice_overdue',
+  },
+  {
+    code: 'invoice_overdue_final_email',
+    kind: 'transactional',
+    channel: 'email',
+    name: 'Segundo aviso de pago',
+    subject: 'Segundo aviso: factura {{invoice.number}} pendiente',
+    bodyText:
+      'Hola {{customer.firstName}},\n\nLa factura {{invoice.number}} lleva {{invoice.daysOverdue}} días vencida y sigue teniendo {{invoice.amountPending}} pendientes.\n\nSi no se regulariza en los próximos días, tendremos que suspender el acceso a tu trastero hasta que se pague. Puedes pagarla ahora desde tu área de clientes:\n\n{{portal.url}}\n\nSi tienes algún problema para pagar, responde a este correo y lo hablamos.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
+    bodyHtml: wrapHtml(
+      'Segundo aviso de pago',
+      '<p>Hola {{customer.firstName}},</p><p>La factura <strong>{{invoice.number}}</strong> lleva <strong>{{invoice.daysOverdue}} días</strong> vencida y sigue teniendo <strong>{{invoice.amountPending}}</strong> pendientes.</p><p>Si no se regulariza en los próximos días, tendremos que suspender el acceso a tu trastero hasta que se pague.</p><p><a href="{{portal.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Pagar ahora</a></p><p>Si tienes algún problema para pagar, responde a este correo y lo hablamos.</p>',
     ),
     locale: 'es-ES',
     variables: [
@@ -127,6 +151,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
       'invoice.number',
       'invoice.amountPending',
       'invoice.daysOverdue',
+      'portal.url',
       'tenant.name',
     ],
     trigger: 'invoice_overdue',
@@ -199,10 +224,10 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     name: 'Solicitud de valoración (NPS)',
     subject: '¿Qué tal tu experiencia con {{tenant.name}}?',
     bodyText:
-      'Hola {{customer.firstName}},\n\nNos encantaria conocer tu opinion sobre {{tenant.name}}. Solo te llevara un minuto:\n\n{{review.url}}\n\nGracias,\nEl equipo de {{tenant.name}}',
+      'Hola {{customer.firstName}},\n\nNos encantaría conocer tu opinión sobre {{tenant.name}}. Solo te llevará un minuto:\n\n{{review.url}}\n\nGracias,\nEl equipo de {{tenant.name}}',
     bodyHtml: wrapHtml(
-      '¿Que tal tu experiencia?',
-      '<p>Hola {{customer.firstName}},</p><p>Nos encantaria conocer tu opinion sobre <strong>{{tenant.name}}</strong>. Solo te llevara un minuto:</p><p><a href="{{review.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Dejar mi valoracion</a></p>',
+      '¿Qué tal tu experiencia?',
+      '<p>Hola {{customer.firstName}},</p><p>Nos encantaría conocer tu opinión sobre <strong>{{tenant.name}}</strong>. Solo te llevará un minuto:</p><p><a href="{{review.url}}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Dejar mi valoración</a></p>',
     ),
     locale: 'es-ES',
     variables: ['customer.firstName', 'customer.displayName', 'review.url', 'tenant.name'],

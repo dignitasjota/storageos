@@ -1,10 +1,14 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
+import { formatDateLong, formatEur } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
+import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AccessIntegrationsService } from '../access/access-integrations.service';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
@@ -18,6 +22,7 @@ import {
   QUEUE_DUNNING,
 } from '../queues/queues.module';
 
+import type { Env } from '../../config/env.schema';
 import type { CustomerType, DunningActionType, Prisma } from '@storageos/database';
 
 export interface ProcessInvoiceJobData {
@@ -66,6 +71,7 @@ export class DunningService {
     private readonly communications: CommunicationsService,
     private readonly events: EventEmitter2,
     private readonly invoices: InvoicesService,
+    private readonly config: ConfigService<Env, true>,
     @Optional() private readonly access: AccessIntegrationsService | null = null,
     @Optional() private readonly collections: CollectionsService | null = null,
   ) {}
@@ -153,7 +159,9 @@ export class DunningService {
     const base = invoice.dueDate;
     const calendar: Array<{ daysAfter: number; type: DunningActionType }> = [
       { daysAfter: 1, type: 'email_reminder' },
-      { daysAfter: 7, type: 'email_reminder' },
+      // Segundo aviso: tipo propio (el índice único es por tipo; con el mismo
+      // tipo que el primero no se llegaba a programar nunca).
+      { daysAfter: 7, type: 'email_reminder_final' },
       { daysAfter: 14, type: 'access_block' },
       { daysAfter: 30, type: 'legal_notice' },
     ];
@@ -256,8 +264,13 @@ export class DunningService {
     //   - legal_notice: alerta al admin via audit; sin efecto automatico.
     let result: Record<string, string | boolean> = { action: action.actionType };
     try {
-      if (action.actionType === 'email_reminder') {
-        const sent = await this.sendReminderEmail(action.tenantId, action.invoiceId, invoice);
+      if (action.actionType === 'email_reminder' || action.actionType === 'email_reminder_final') {
+        const sent = await this.sendReminderEmail(
+          action.tenantId,
+          action.invoiceId,
+          invoice,
+          action.actionType === 'email_reminder_final' ? 'final' : 'first',
+        );
         result = { ...result, emailEnqueued: sent };
       }
       if (action.actionType === 'access_block' && invoice.customerId && this.access) {
@@ -345,6 +358,7 @@ export class DunningService {
         customerType: CustomerType;
       } | null;
     },
+    stage: 'first' | 'final' = 'first',
   ): Promise<boolean> {
     const customer = invoice.customer;
     if (!invoice.customerId || !customer?.email) {
@@ -361,8 +375,16 @@ export class DunningService {
     const daysOverdue = invoice.dueDate ? this.daysBetween(invoice.dueDate, new Date()) : 0;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true },
+      select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
     });
+    // El primer aviso lo sustituye una automatización propia de «factura
+    // vencida» si el tenant la tiene activa (si no, el inquilino recibiría dos).
+    if (stage === 'first' && (await this.hasOverdueAutomation(tenantId))) {
+      this.logger.log(
+        `dunning.email_reminder: ${invoice.invoiceNumber} lo cubre una automatización del tenant`,
+      );
+      return false;
+    }
 
     await this.communications.enqueue({
       tenantId,
@@ -370,7 +392,7 @@ export class DunningService {
       recipient: customer.email,
       invoiceId,
       contractId: invoice.contractId,
-      templateCode: 'invoice_overdue_email',
+      templateCode: stage === 'final' ? 'invoice_overdue_final_email' : 'invoice_overdue_email',
       trigger: 'invoice_overdue',
       variables: {
         customer: {
@@ -379,20 +401,32 @@ export class DunningService {
         },
         invoice: {
           number: invoice.invoiceNumber,
-          total: Number(invoice.total).toFixed(2),
-          amountPending: amountPending.toFixed(2),
-          dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
+          total: formatEur(invoice.total),
+          amountPending: formatEur(amountPending),
+          dueDate: invoice.dueDate ? formatDateLong(invoice.dueDate) : '',
           daysOverdue,
+        },
+        portal: {
+          url: tenant
+            ? tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant)
+            : '',
         },
         tenant: { name: tenant?.name ?? '' },
       },
       customerId: invoice.customerId,
-      source: 'dunning.email_reminder',
+      source: stage === 'final' ? 'dunning.email_reminder_final' : 'dunning.email_reminder',
     });
     this.logger.log(
       `dunning.email_reminder: recordatorio encolado para invoice ${invoiceId} -> ${customer.email}`,
     );
     return true;
+  }
+
+  private async hasOverdueAutomation(tenantId: string): Promise<boolean> {
+    const rules = await this.admin.automationRule.count({
+      where: { tenantId, trigger: 'invoice_overdue', isActive: true, actionType: 'send_email' },
+    });
+    return rules > 0 && (await tenantHasFeature(this.admin, tenantId, 'automations'));
   }
 
   private customerDisplayName(c: {

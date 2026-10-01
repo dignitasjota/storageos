@@ -4,7 +4,7 @@ import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { BUILTIN_TEMPLATES } from './builtin-templates';
-import { renderTemplate } from './template-engine';
+import { renderTemplate, renderText } from './template-engine';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { MessageTemplate, Prisma } from '@storageos/database';
@@ -175,8 +175,8 @@ export class MessageTemplatesService {
   } {
     const scope = input.variables;
     return {
-      subject: renderTemplate(input.subject ?? '', scope),
-      bodyText: renderTemplate(input.bodyText ?? '', scope),
+      subject: renderText(input.subject ?? '', scope),
+      bodyText: renderText(input.bodyText ?? '', scope),
       bodyHtml: renderTemplate(input.bodyHtml ?? '', scope),
     };
   }

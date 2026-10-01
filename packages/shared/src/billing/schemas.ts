@@ -157,6 +157,7 @@ export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSch
 
 export const DunningActionTypeEnum = z.enum([
   'email_reminder',
+  'email_reminder_final',
   'sms_reminder',
   'late_fee',
   'access_block',
