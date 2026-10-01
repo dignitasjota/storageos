@@ -488,6 +488,7 @@ model Tenant {
   aiMessages              AiMessage[]
   aiPendingActions        AiPendingAction[]
   emailDomain             TenantEmailDomain?
+  emailSuppressions       EmailSuppression[]
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
@@ -4248,6 +4249,25 @@ model PlatformDunningSettings {
 }
 
 /// Proveedor de correo de la plataforma (singleton). `provider` null = variable EMAIL_PROVIDER.
+/// Lista de supresión de correo (global, sin RLS). tenantId null + scope `all`:
+/// rebote permanente, no se envía nada desde ningún tenant. tenantId + scope
+/// `marketing`: queja de spam, ese tenant no envía comunicaciones comerciales.
+model EmailSuppression {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  scope     String
+  reason    String
+  provider  String?
+  detail    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@map("email_suppressions")
+}
+
 model PlatformEmailSettings {
   id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   provider        String?

@@ -10,6 +10,7 @@ import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
 import { CustomerDocumentsTab } from './documents-tab';
+import { EmailStatusCard } from './email-status-card';
 import { FollowupsCard } from './followups-card';
 import { MarketingPreferenceCard } from './marketing-preference-card';
 import { CustomerPaymentHistoryTab } from './payment-history-tab';
@@ -230,6 +231,7 @@ export default function CustomerDetailPage() {
               </div>
             </CardContent>
           </Card>
+          <EmailStatusCard customerId={c.id} />
           <MarketingPreferenceCard customerId={c.id} optOutAt={c.marketingOptOutAt} />
         </TabsContent>
       </Tabs>

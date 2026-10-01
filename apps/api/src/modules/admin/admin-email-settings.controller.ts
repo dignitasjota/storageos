@@ -8,13 +8,17 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  NotFoundException,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import {
+  type EmailSuppressionDto,
   isValidCustomDomain,
   type PlatformDomainStatusDto,
   type PlatformSendersDto,
@@ -28,6 +32,7 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
 import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
 import { EmailDomainsService } from '../email-domains/email-domains.service';
@@ -57,6 +62,7 @@ export class AdminEmailSettingsController {
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
     private readonly audit: SuperAdminAuditService,
     private readonly emailDomains: EmailDomainsService,
+    private readonly suppressions: EmailSuppressionsService,
   ) {}
 
   /**
@@ -94,6 +100,41 @@ export class AdminEmailSettingsController {
       userAgent: req.header('user-agent') ?? null,
     });
     return result;
+  }
+
+  /** Lista de supresión: direcciones que rebotan o marcaron spam. */
+  @Get('suppressions')
+  suppressionList(
+    @Query('search') search?: string,
+    @Query('cursor') cursor?: string,
+  ): Promise<{ items: EmailSuppressionDto[]; nextCursor: string | null }> {
+    return this.suppressions.list({
+      ...(search ? { search } : {}),
+      ...(cursor ? { cursor } : {}),
+    });
+  }
+
+  /** Quita una dirección de la lista (p. ej. el buzón vuelve a funcionar). */
+  @RequireSuperadmin()
+  @Delete('suppressions/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeSuppression(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    const removed = await this.suppressions.remove(id);
+    if (!removed) {
+      throw new NotFoundException({ code: 'suppression_not_found', message: 'No encontrada' });
+    }
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.email_suppression.removed',
+      targetType: 'email_suppression',
+      changes: { id },
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
   }
 
   @Get('brevo-domains/unused')

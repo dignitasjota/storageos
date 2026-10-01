@@ -3,6 +3,7 @@ import { Global, Module } from '@nestjs/common';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 
 import { EmailSendProcessor } from './email-send.processor';
+import { EmailSuppressionsService } from './email-suppressions.service';
 import { EmailService } from './email.service';
 import { PlatformEmailSettingsService } from './platform-email-settings.service';
 import { BrevoEmailProvider } from './providers/brevo.provider';
@@ -28,11 +29,18 @@ import { TenantSenderService } from './tenant-sender.service';
     RoutingEmailProvider,
     { provide: EMAIL_PROVIDER, useExisting: RoutingEmailProvider },
     EmailService,
+    EmailSuppressionsService,
     TenantSenderService,
     // Solo procesa jobs cuando los workers corren en este proceso (worker en
     // prod; API en dev/test). El `EmailService` sigue disponible siempre.
     ...(WORKERS_ENABLED_IN_API ? [EmailSendProcessor] : []),
   ],
-  exports: [EmailService, TenantSenderService, PlatformEmailSettingsService, EMAIL_PROVIDER],
+  exports: [
+    EmailService,
+    EmailSuppressionsService,
+    TenantSenderService,
+    PlatformEmailSettingsService,
+    EMAIL_PROVIDER,
+  ],
 })
 export class EmailModule {}

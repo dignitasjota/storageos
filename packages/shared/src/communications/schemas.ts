@@ -160,6 +160,24 @@ export type UpdateLeadInput = z.infer<typeof UpdateLeadSchema>;
 export const SetLeadMarketingSchema = z.object({ consent: z.boolean() });
 export type SetLeadMarketingInput = z.infer<typeof SetLeadMarketingSchema>;
 
+/**
+ * Dirección en la lista de supresión de correo. `scope: 'all'` (rebote
+ * permanente…, global): no se le envía nada. `scope: 'marketing'` (queja de
+ * spam, por tenant): no recibe comunicaciones comerciales de ese tenant.
+ */
+export interface EmailSuppressionDto {
+  id: string;
+  email: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  scope: 'all' | 'marketing';
+  reason: string;
+  reasonLabel: string;
+  provider: string | null;
+  detail: string | null;
+  createdAt: string;
+}
+
 /** Página pública de baja de comunicaciones comerciales. */
 export interface UnsubscribeInfoDto {
   tenantName: string;

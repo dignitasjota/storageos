@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import { messageIdVariants, type DeliveryEvent } from './email-events.parse';
@@ -20,6 +21,9 @@ const SUPER_ADMIN_DEDUP_MS = 24 * 60 * 60 * 1000;
  *   en ambos casos se avisa al equipo del tenant (notificación in-app).
  * - Rechazos de correos que no están en Comunicaciones (los de la plataforma,
  *   los de acceso al portal…) → aviso al super admin (deduplicado por motivo).
+ * - Lista de supresión: un rebote permanente (o dirección inválida/bloqueada)
+ *   bloquea la dirección para todo; una queja de spam da de baja comercial al
+ *   destinatario en ese tenant.
  */
 @Injectable()
 export class EmailEventsService {
@@ -28,6 +32,7 @@ export class EmailEventsService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly notifications: NotificationsService,
+    private readonly suppressions: EmailSuppressionsService,
   ) {}
 
   async apply(events: DeliveryEvent[]): Promise<{ matched: number }> {
@@ -47,8 +52,25 @@ export class EmailEventsService {
   private async applyOne(e: DeliveryEvent): Promise<boolean> {
     const comm = await this.admin.communication.findFirst({
       where: { providerMessageId: { in: messageIdVariants(e.messageId) }, channel: 'email' },
-      select: { id: true, tenantId: true, recipient: true, customerId: true },
+      select: { id: true, tenantId: true, recipient: true, customerId: true, leadId: true },
     });
+    const recipient = e.recipient ?? comm?.recipient ?? null;
+
+    if (e.outcome === 'complained') {
+      await this.applyComplaint(e, comm, recipient);
+      return !!comm;
+    }
+    if (e.suppressReason && recipient) {
+      await this.suppressions.suppress({
+        email: recipient,
+        tenantId: null,
+        scope: 'all',
+        reason: e.suppressReason,
+        provider: e.provider,
+        detail: e.reason,
+      });
+    }
+
     if (!comm) {
       if (e.outcome !== 'delivered') await this.notifySuperAdmin(e);
       return false;
@@ -79,6 +101,46 @@ export class EmailEventsService {
       });
     }
     return true;
+  }
+
+  /**
+   * Queja de spam: el destinatario no recibe más comunicaciones comerciales de
+   * ese tenant (los correos necesarios —facturas, accesos— siguen saliendo).
+   */
+  private async applyComplaint(
+    e: DeliveryEvent,
+    comm: { tenantId: string; customerId: string | null; leadId: string | null } | null,
+    recipient: string | null,
+  ): Promise<void> {
+    if (!recipient) return;
+    await this.suppressions.suppress({
+      email: recipient,
+      tenantId: comm?.tenantId ?? null,
+      scope: 'marketing',
+      reason: 'complaint',
+      provider: e.provider,
+      detail: e.reason,
+    });
+    if (!comm) return;
+    const now = new Date();
+    if (comm.customerId) {
+      await this.admin.customer.updateMany({
+        where: { id: comm.customerId, marketingOptOutAt: null },
+        data: { marketingOptOutAt: now },
+      });
+    }
+    if (comm.leadId) {
+      await this.admin.lead.updateMany({
+        where: { id: comm.leadId, marketingOptOutAt: null },
+        data: { marketingOptOutAt: now },
+      });
+    }
+    await this.notifications.create(comm.tenantId, {
+      type: 'communication.complaint',
+      title: `${recipient} marcó un correo como spam`,
+      body: 'Ya no recibirá campañas ni ofertas. Los correos de su contrato siguen saliendo.',
+      link: comm.customerId ? `/customers/${comm.customerId}` : '/communications',
+    });
   }
 
   private async notifySuperAdmin(e: DeliveryEvent): Promise<void> {

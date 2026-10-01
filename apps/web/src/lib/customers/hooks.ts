@@ -26,6 +26,7 @@ import type {
   CustomerDocumentDto,
   CustomerDocumentUploadDto,
   CustomerDto,
+  EmailSuppressionDto,
   CustomerInteractionDto,
   CustomerMessageDto,
   CustomerUnreadSummaryDto,
@@ -123,6 +124,25 @@ export function useSetCustomerMarketing() {
         method: 'POST',
         json: { subscribed: args.subscribed },
       }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}
+
+/** Bloqueos de correo del email del inquilino (rebote permanente, spam). */
+export function useCustomerEmailStatus(id: string) {
+  return useQuery({
+    queryKey: ['customers', id, 'email-status'] as const,
+    queryFn: () => apiFetch<EmailSuppressionDto[]>(`/customers/${id}/email-status`),
+  });
+}
+
+export function useClearCustomerEmailBlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ removed: number }>(`/customers/${id}/email-status/clear`, { method: 'POST' }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['customers'] });
     },
