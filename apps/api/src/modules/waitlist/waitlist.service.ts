@@ -4,9 +4,9 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
-import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -47,7 +47,7 @@ export class WaitlistService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
-    private readonly email: EmailService,
+    private readonly communications: CommunicationsService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -507,7 +507,17 @@ export class WaitlistService {
       entry.facility.name,
     )}</strong>, que estabas esperando. Contáctanos para reservarlo antes de que lo haga otra persona.</p>`;
     const text = `Hola ${entry.contactName}, se ha liberado un ${entry.unitType.name} en ${entry.facility.name}, que estabas esperando. Contáctanos para reservarlo.`;
-    await this.email.sendRendered({ tenantId, to: entry.contactEmail, subject, html, text });
+    // Por el outbox: queda en Comunicaciones (y en la ficha del inquilino).
+    await this.communications.enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: entry.contactEmail,
+      subject,
+      bodyText: text,
+      bodyHtml: html,
+      ...(entry.customerId ? { customerId: entry.customerId } : {}),
+      source: 'waitlist.match',
+    });
 
     // Aviso in-app al staff.
     await this.notifications.create(tenantId, {

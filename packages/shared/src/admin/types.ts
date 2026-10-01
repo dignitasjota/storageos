@@ -1260,6 +1260,15 @@ export interface PlatformEmailSettingsDto {
   effectiveOrder: string[];
   /** Remitente de la plataforma (EMAIL_FROM_ADDRESS). */
   fromAddress: string;
+  /**
+   * Avisos de entrega (entregado / rebote / error): URL que hay que poner en
+   * cada proveedor y si su secreto está configurado. La de Brevo se muestra sin
+   * el token (va en `?token=<EMAIL_WEBHOOK_TOKEN>`).
+   */
+  deliveryWebhooks: {
+    brevo: { url: string; configured: boolean };
+    resend: { url: string; configured: boolean };
+  };
 }
 
 export interface TestEmailResultDto {

@@ -47,3 +47,8 @@ process.env.LOG_PRETTY = 'false';
 // (el ConfigModule tiene `cache: true`, así que deben estar antes de compilar).
 process.env.WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'verify-token-e2e';
 process.env.EMAIL_INBOUND_SECRET = process.env.EMAIL_INBOUND_SECRET || 'email-inbound-secret-e2e';
+// Avisos de entrega de Brevo (token en la URL) y Resend (firma Svix).
+process.env.EMAIL_WEBHOOK_TOKEN = process.env.EMAIL_WEBHOOK_TOKEN || 'email-webhook-token-e2e';
+process.env.RESEND_WEBHOOK_SECRET =
+  process.env.RESEND_WEBHOOK_SECRET ||
+  `whsec_${Buffer.from('resend-webhook-e2e').toString('base64')}`;

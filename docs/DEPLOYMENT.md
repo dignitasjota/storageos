@@ -649,6 +649,23 @@ verificado deja de estarlo (vuelve al remitente de la plataforma). Sin
   usa ningún tenant aparecen en el panel admin → Comunicación → Correo saliente
   → «Dominios en Brevo sin uso», con un botón para borrarlos de Brevo.
 
+**Avisos de entrega (recomendado).** Brevo y Resend aceptan un correo y pueden
+rechazarlo o rebotarlo después (p. ej. remitente sin autenticar): sin estos
+avisos la app lo da por enviado. Con ellos, cada comunicación pasa a
+«entregada», «rebotada» o «fallida», el tenant recibe un aviso en la app y los
+rechazos de correos de la plataforma llegan al super admin. Las URLs están en el
+panel admin → Correo saliente → «Avisos de entrega».
+
+- **Brevo** → Transactional → Settings → Webhook → URL
+  `https://api.trasteros.pro/webhooks/email-events/brevo?token=<EMAIL_WEBHOOK_TOKEN>`,
+  eventos Delivered, Hard bounce, Invalid email, Blocked y Error. En Portainer,
+  `EMAIL_WEBHOOK_TOKEN` = un valor aleatorio largo (el mismo de la URL).
+- **Resend** → Webhooks → Add endpoint
+  `https://api.trasteros.pro/webhooks/email-events/resend`, eventos
+  `email.delivered`, `email.bounced`, `email.failed`; su «Signing secret»
+  (`whsec_…`) va en `RESEND_WEBHOOK_SECRET`.
+- Sin la variable, el endpoint responde 404 (el aviso queda desactivado).
+
 **Alternativa por SMTP** (mismo resultado): `EMAIL_PROVIDER=smtp`,
 `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER=<login SMTP de
 Brevo>`, `SMTP_PASSWORD=<clave SMTP>`, `SMTP_SECURE=false`. Sin `SMTP_USER` el

@@ -208,6 +208,30 @@ export default function AdminEmailPage() {
           </form>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Avisos de entrega</CardTitle>
+          <CardDescription>
+            Brevo y Resend aceptan un correo y pueden rechazarlo o rebotarlo después. Con este aviso
+            configurado, Comunicaciones muestra si se entregó o rebotó y el tenant recibe un aviso;
+            los rechazos de correos de la plataforma te llegan a ti.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <WebhookRow
+            name="Brevo"
+            configured={data.deliveryWebhooks.brevo.configured}
+            url={`${data.deliveryWebhooks.brevo.url}?token=<EMAIL_WEBHOOK_TOKEN>`}
+            hint="Transactional → Settings → Webhook. Eventos: Delivered, Hard bounce, Invalid email, Blocked, Error. Variable: EMAIL_WEBHOOK_TOKEN (pon un valor aleatorio largo y úsalo en la URL)."
+          />
+          <WebhookRow
+            name="Resend"
+            configured={data.deliveryWebhooks.resend.configured}
+            url={data.deliveryWebhooks.resend.url}
+            hint="Webhooks → Add endpoint. Eventos: email.delivered, email.bounced, email.failed. Variable: RESEND_WEBHOOK_SECRET con su «Signing secret»."
+          />
+        </CardContent>
+      </Card>
       <UnusedBrevoDomainsCard />
     </div>
   );
@@ -286,5 +310,36 @@ function DomainLine({ domain, status }: { domain: string; status: string }) {
       {domain}: {s.label}
       {!s.ok && status !== 'error' && ' — los correos enviados por aquí se rechazarán'}
     </p>
+  );
+}
+
+function WebhookRow({
+  name,
+  configured,
+  url,
+  hint,
+}: {
+  name: string;
+  configured: boolean;
+  url: string;
+  hint: string;
+}) {
+  return (
+    <div className="space-y-1.5 rounded-lg border px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{name}</span>
+        {configured ? (
+          <Badge variant="secondary" className="gap-1">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Configurado
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="gap-1 text-muted-foreground">
+            <XCircle className="h-3.5 w-3.5" /> Sin configurar
+          </Badge>
+        )}
+      </div>
+      <code className="block break-all rounded bg-muted px-2 py-1 text-xs">{url}</code>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
   );
 }
