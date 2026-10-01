@@ -4,6 +4,7 @@ import { apiFetch } from '../auth/api';
 
 import type {
   AutomationRuleDto,
+  AutomationRunDto,
   CommunicationDto,
   ConvertLeadInput,
   CreateAutomationRuleInput,
@@ -134,6 +135,25 @@ export function useUpdateAutomation(id: string) {
     mutationFn: (input: UpdateAutomationRuleInput) =>
       apiFetch<AutomationRuleDto>(`/automations/${id}`, { method: 'PATCH', json: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: automationsKey }),
+  });
+}
+
+/** Editar cualquier regla (el id va en la llamada, útil en listas). */
+export function useEditAutomation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateAutomationRuleInput }) =>
+      apiFetch<AutomationRuleDto>(`/automations/${id}`, { method: 'PATCH', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: automationsKey }),
+  });
+}
+
+/** Últimas ejecuciones de las reglas (qué se envió, qué se descartó y por qué). */
+export function useAutomationRuns() {
+  return useQuery({
+    queryKey: [...automationsKey, 'runs'] as const,
+    queryFn: () => apiFetch<AutomationRunDto[]>('/automations/runs'),
+    refetchInterval: 30_000,
   });
 }
 

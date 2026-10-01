@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
@@ -16,6 +16,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { AutomationRule, Prisma } from '@storageos/database';
 import type {
   AutomationRuleDto,
+  AutomationRunDto,
   AutomationTriggerValue,
   CreateAutomationRuleInput,
   UpdateAutomationRuleInput,
@@ -68,6 +69,7 @@ export class AutomationsService {
     input: CreateAutomationRuleInput;
     meta: RequestMeta;
   }): Promise<AutomationRuleDto> {
+    await this.assertAction(args.tenantId, args.input.actionType, args.input.templateId ?? null);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.automationRule.create({
@@ -96,7 +98,14 @@ export class AutomationsService {
     input: UpdateAutomationRuleInput;
     meta: RequestMeta;
   }): Promise<AutomationRuleDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    const current = await this.findOrThrow(args.tenantId, args.id);
+    if (args.input.actionType !== undefined || args.input.templateId !== undefined) {
+      await this.assertAction(
+        args.tenantId,
+        args.input.actionType ?? current.actionType,
+        args.input.templateId !== undefined ? args.input.templateId : current.templateId,
+      );
+    }
     const data: Prisma.AutomationRuleUncheckedUpdateInput = {};
     if (args.input.name !== undefined) data.name = args.input.name;
     if (args.input.trigger !== undefined) data.trigger = args.input.trigger;
@@ -424,6 +433,77 @@ export class AutomationsService {
       ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
       ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
     });
+  }
+
+  /** Últimas ejecuciones de las reglas (todas o de una), para ver qué se envió y qué se descartó. */
+  async listRuns(tenantId: string, ruleId?: string): Promise<AutomationRunDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.automationRun.findMany({
+          where: ruleId ? { ruleId } : {},
+          orderBy: { startedAt: 'desc' },
+          take: 50,
+          include: { rule: { select: { name: true } } },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      ruleId: r.ruleId,
+      ruleName: r.rule.name,
+      trigger: r.trigger,
+      status: r.status,
+      entityType: r.entityType,
+      entityId: r.entityId,
+      communicationId: r.communicationId,
+      errorMessage: r.errorMessage,
+      startedAt: r.startedAt.toISOString(),
+      finishedAt: r.finishedAt?.toISOString() ?? null,
+    }));
+  }
+
+  /**
+   * La plantilla debe ser del tenant y del mismo canal que la acción; el SMS
+   * aún no tiene proveedor (fallaría siempre).
+   */
+  private async assertAction(
+    tenantId: string,
+    actionType: string,
+    templateId: string | null,
+  ): Promise<void> {
+    if (actionType === 'send_sms') {
+      throw new BadRequestException({
+        code: 'sms_not_available',
+        message: 'El envío por SMS aún no está disponible',
+      });
+    }
+    if (!templateId) {
+      throw new BadRequestException({
+        code: 'template_required',
+        message: 'Elige la plantilla del mensaje',
+      });
+    }
+    const tpl = await this.prisma.withTenant(
+      (tx) =>
+        tx.messageTemplate.findFirst({ where: { id: templateId }, select: { channel: true } }),
+      tenantId,
+    );
+    if (!tpl) {
+      throw new BadRequestException({
+        code: 'template_not_found',
+        message: 'Plantilla no encontrada',
+      });
+    }
+    const expected = actionType === 'send_whatsapp' ? 'whatsapp' : 'email';
+    if (tpl.channel !== expected) {
+      throw new BadRequestException({
+        code: 'template_channel_mismatch',
+        message:
+          expected === 'email'
+            ? 'La plantilla elegida no es de email'
+            : 'La plantilla elegida no es de WhatsApp',
+      });
+    }
   }
 
   private toDto(r: AutomationRule & { template?: { name: string } | null }): AutomationRuleDto {

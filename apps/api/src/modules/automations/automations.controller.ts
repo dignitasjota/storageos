@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,10 +10,12 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
   type AutomationRuleDto,
+  type AutomationRunDto,
   CreateAutomationRuleSchema,
   UpdateAutomationRuleSchema,
 } from '@storageos/shared';
@@ -42,6 +45,8 @@ function extractMeta(req: Request): RequestMeta {
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Controller('automations')
 @RequireFeature('automations')
 export class AutomationsController {
@@ -51,6 +56,19 @@ export class AutomationsController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<AutomationRuleDto[]> {
     return this.service.list(user.tenantId);
+  }
+
+  /** Últimas 50 ejecuciones (de todas las reglas o de una con `?ruleId=`). */
+  @RequirePermission('automations:read')
+  @Get('runs')
+  runs(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('ruleId') ruleId?: string,
+  ): Promise<AutomationRunDto[]> {
+    if (ruleId && !UUID_RE.test(ruleId)) {
+      throw new BadRequestException({ code: 'invalid_rule_id', message: 'ruleId no válido' });
+    }
+    return this.service.listRuns(user.tenantId, ruleId);
   }
 
   @Post()
