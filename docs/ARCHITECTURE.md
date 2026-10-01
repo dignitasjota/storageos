@@ -61,6 +61,12 @@ Decisiones arquitecturales del proyecto. Cada decisión va con su justificación
 
 **Actualización (2026-09-30, #550–#558):** en producción se usan **Brevo y Resend a la vez**. Un `RoutingEmailProvider` (bajo el token `EMAIL_PROVIDER`) decide en cada envío según `platform_email_settings` (principal + respaldo, editable por el super admin); `EMAIL_PROVIDER` queda como valor por defecto. Los correos de un tenant a sus inquilinos salen con su nombre (`TenantSenderService`) y, si tiene dominio propio de correo verificado, desde ese dominio **siempre por Brevo** (los dominios de los tenants viven en la cuenta Brevo de la plataforma). Como esa cuenta es compartida, además de los DNS de Brevo se exige un TXT de propiedad por tenant (`_trasteros.<dominio>`), y la app nunca borra dominios de Brevo por su cuenta.
 
+**Actualización (2026-10-01, #562–#570):**
+
+- **Tres remitentes**: tenant → inquilino (`TenantSenderService`: nombre del tenant, su dominio si está verificado); plataforma → tenant (`PlatformEmailSettingsService.platformSender(category)`: común y por tipo `account`/`billing`/`admin_messages`/`staff_notices`, con dirección de respuesta, herencia tipo → común → `EMAIL_FROM_*`); correos internos al super admin (remitente común).
+- **Correos por defecto antes que automatizaciones**: los transaccionales al inquilino (`CustomerEmailsModule`) salen siempre, activables uno a uno por el tenant; una automatización activa del mismo evento los sustituye. Las automatizaciones completan los datos al ejecutarse (`enrich`), no en el evento.
+- **El proveedor puede rechazar después de aceptar**: los avisos de entrega (`EmailEventsModule`, webhooks de Brevo con token y de Resend con firma Svix) actualizan cada comunicación a `delivered`/`bounced`/`failed`; lo que no está en Comunicaciones avisa al super admin. Los correos con enlaces de acceso al portal no se guardan en el historial a propósito.
+
 ## ADR-011: UUID v7 como tipo de id
 
 **Decisión:** todos los `id` se generan con la función SQL `uuid_generate_v7()` (plpgsql, sin extensiones externas).
