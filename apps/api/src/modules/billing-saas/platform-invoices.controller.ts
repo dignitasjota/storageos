@@ -18,6 +18,7 @@ import {
   ACCOUNTANT_PAYMENT_COLUMNS,
   AccountantExportQuerySchema,
   IssuePlatformInvoiceSchema,
+  RectifyPlatformInvoiceSchema,
   UpdatePlatformHoldedSettingsSchema,
   type HoldedSeriesListDto,
   type HoldedTestResultDto,
@@ -41,6 +42,7 @@ import type { Response } from 'express';
 
 class UpdateSettingsDto extends createZodDto(UpdatePlatformBillingSettingsSchema) {}
 class IssueDto extends createZodDto(IssuePlatformInvoiceSchema) {}
+class RectifyDto extends createZodDto(RectifyPlatformInvoiceSchema) {}
 class UpdateHoldedDto extends createZodDto(UpdatePlatformHoldedSettingsSchema) {}
 
 /** Facturación del SaaS (TrasterOS → tenant). Solo super admin. */
@@ -175,6 +177,16 @@ export class PlatformInvoicesController {
   @Post('platform-invoices/issue')
   issue(@Body() body: IssueDto): Promise<PlatformInvoiceDto> {
     return this.service.issueForPayment(body.paymentId);
+  }
+
+  /** Rectificativa de una factura de suscripción (sustitución o abono). */
+  @Post('platform-invoices/:id/rectify')
+  @RequireSuperadmin()
+  rectify(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: RectifyDto,
+  ): Promise<PlatformInvoiceDto> {
+    return this.service.rectify(id, body);
   }
 
   @Get('platform-invoices/:id/pdf')

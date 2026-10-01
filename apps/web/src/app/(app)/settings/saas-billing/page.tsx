@@ -510,8 +510,24 @@ function SaasInvoicesSection() {
                     <div>
                       <span className="font-medium">{f.fullNumber}</span>
                       <span className="ml-2 text-muted-foreground">{date(f.issuedAt)}</span>
-                      {f.lines.length <= 1 && f.concept && (
-                        <div className="text-xs text-muted-foreground">{f.concept}</div>
+                      {f.invoiceType !== 'F1' && f.rectifies ? (
+                        <div className="text-xs text-muted-foreground">
+                          Factura rectificativa de {f.rectifies.fullNumber}
+                          {f.rectificationReason ? ` — ${f.rectificationReason}` : ''}
+                        </div>
+                      ) : (
+                        f.lines.length <= 1 &&
+                        f.concept && (
+                          <div className="text-xs text-muted-foreground">{f.concept}</div>
+                        )
+                      )}
+                      {f.status === 'rectified' && (
+                        <div className="text-xs text-amber-700 dark:text-amber-400">
+                          Sustituida por una rectificativa
+                        </div>
+                      )}
+                      {f.status === 'cancelled' && (
+                        <div className="text-xs text-red-700 dark:text-red-400">Abonada</div>
                       )}
                     </div>
                     <div className="flex items-center gap-3">

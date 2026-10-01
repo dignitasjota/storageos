@@ -22,6 +22,7 @@ const STATUS_LABELS: Record<string, string> = {
   paid: 'Cobrada',
   overdue: 'Vencida',
   cancelled: 'Anulada',
+  rectified: 'Rectificada (sustituida)',
   refunded: 'Reembolsada',
   partially_refunded: 'Reembolsada parcialmente',
 };
@@ -107,7 +108,7 @@ export class AccountantExportService {
   ): Promise<void> {
     const rows = await this.admin.platformInvoice.findMany({
       where: { issuedAt: { gte: fromD, lte: toD } },
-      include: { lines: true },
+      include: { lines: true, rectifiesInvoice: { select: { fullNumber: true } } },
       orderBy: [{ issuedAt: 'asc' }, { number: 'asc' }],
     });
     for (const inv of rows) {
@@ -132,8 +133,8 @@ export class AccountantExportService {
           source: 'subscriptions',
           invoiceNumber: inv.fullNumber,
           issueDate: ddmmyyyy(inv.issuedAt),
-          invoiceType: 'F1',
-          rectifies: null,
+          invoiceType: inv.invoiceType,
+          rectifies: inv.rectifiesInvoice?.fullNumber ?? null,
           customerNif: inv.tenantTaxId,
           customerName: inv.tenantName,
           customerAddress: oneLine(inv.tenantAddress),

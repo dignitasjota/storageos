@@ -1,8 +1,10 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@storageos/database';
 import {
   missingFiscalData,
+  type RectifyPlatformInvoiceInput,
   type TenantBillingDetailsDto,
   type TenantBillingDetailsInput,
 } from '@storageos/shared';
@@ -36,6 +38,38 @@ interface LineData {
   taxAmount: number;
   total: number;
   position: number;
+}
+
+/** Relaciones que necesita el DTO de una factura de plataforma. */
+const INVOICE_INCLUDE = {
+  lines: { orderBy: { position: 'asc' } },
+  rectifiesInvoice: { select: { id: true, fullNumber: true } },
+  rectifications: {
+    select: { id: true, fullNumber: true, correctionMethod: true, total: true },
+    orderBy: { issuedAt: 'asc' },
+  },
+} satisfies Prisma.PlatformInvoiceInclude;
+
+/** Datos que pinta el PDF de una factura (o rectificativa) de plataforma. */
+interface RenderInvoice {
+  fullNumber: string;
+  issuedAt: Date;
+  tenantName: string;
+  tenantTaxId: string | null;
+  tenantAddress: string | null;
+  planName: string | null;
+  concept: string | null;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+  baseAmount: unknown;
+  taxRate: unknown;
+  taxAmount: unknown;
+  total: unknown;
+  lines?: LineRow[];
+  invoiceType?: string;
+  rectifies?: { fullNumber: string; issuedAt: Date } | null;
+  rectificationReason?: string | null;
+  correctionMethod?: string | null;
 }
 
 // Puppeteer ESM-only (ADR-023): dynamic import + type-only.
@@ -211,7 +245,7 @@ export class PlatformInvoicesService {
     const rows = await this.admin.platformInvoice.findMany({
       where: { tenantId },
       orderBy: { issuedAt: 'desc' },
-      include: { lines: { orderBy: { position: 'asc' } } },
+      include: INVOICE_INCLUDE,
     });
     return rows.map((r) => this.invoiceToDto(r));
   }
@@ -224,7 +258,7 @@ export class PlatformInvoicesService {
     const rows = await this.admin.platformInvoice.findMany({
       where: Object.keys(issuedAt).length ? { issuedAt } : {},
       orderBy: { issuedAt: 'asc' },
-      include: { lines: { orderBy: { position: 'asc' } } },
+      include: INVOICE_INCLUDE,
     });
     return rows.map((r) => this.invoiceToDto(r));
   }
@@ -276,7 +310,7 @@ export class PlatformInvoicesService {
   async issueForPayment(paymentId: string): Promise<PlatformInvoiceDto> {
     const existing = await this.admin.platformInvoice.findUnique({
       where: { paymentId },
-      include: { lines: { orderBy: { position: 'asc' } } },
+      include: INVOICE_INCLUDE,
     });
     if (existing) return this.invoiceToDto(existing);
 
@@ -389,7 +423,7 @@ export class PlatformInvoicesService {
           data: {
             type: 'platform_invoice.incomplete_recipient',
             title: `Factura ${created.fullNumber} sin datos del cliente`,
-            body: `${tenant.name} no tiene completos sus datos de facturación (${recipientMissing.join(', ')}). Pídeselos para que las próximas facturas salgan completas.`,
+            body: `${tenant.name} no tiene completos sus datos de facturación (${recipientMissing.join(', ')}). Pídeselos y, cuando los tenga, rectifica esta factura por sustitución desde su ficha.`,
             link: `/admin/tenants/${tenant.id}`,
           },
         })
@@ -406,7 +440,7 @@ export class PlatformInvoicesService {
 
     const finalRow = await this.admin.platformInvoice.findUnique({
       where: { id: created.id },
-      include: { lines: { orderBy: { position: 'asc' } } },
+      include: INVOICE_INCLUDE,
     });
     return this.invoiceToDto(finalRow ?? created);
   }
@@ -545,14 +579,246 @@ export class PlatformInvoicesService {
     await this.sendEmail(inv, settings);
   }
 
+  // ---- rectificativas ----
+
+  /**
+   * Rectifica una factura de suscripción en la serie de rectificativas:
+   * - `substitution`: la sustituye con los mismos importes y los datos fiscales
+   *   actuales del tenant (corrige razón social, NIF o domicilio);
+   * - `differences`: abono en negativo, total (anula la factura) o parcial.
+   */
+  async rectify(id: string, input: RectifyPlatformInvoiceInput): Promise<PlatformInvoiceDto> {
+    const original = await this.admin.platformInvoice.findUnique({
+      where: { id },
+      include: { ...INVOICE_INCLUDE, tenant: true },
+    });
+    if (!original) {
+      throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    if (original.invoiceType !== 'F1') {
+      throw new BadRequestException({
+        code: 'invoice_not_rectifiable',
+        message: 'Una rectificativa no se puede rectificar: rectifica la factura original',
+      });
+    }
+    if (original.status === 'cancelled') {
+      throw new BadRequestException({
+        code: 'invoice_already_cancelled',
+        message: 'Esta factura ya está abonada por completo',
+      });
+    }
+    const settings = await this.getSettings();
+    if (settings.missing.length > 0) {
+      throw new BadRequestException({
+        code: 'platform_billing_incomplete',
+        message: `Faltan datos del emisor: ${settings.missing.join(', ')}`,
+      });
+    }
+
+    const total = Number(original.total);
+    const credited = original.rectifications
+      .filter((r) => r.correctionMethod === 'differences')
+      .reduce((acc, r) => acc - Number(r.total), 0);
+    const remaining = round2(total - credited);
+    const taxRate = Number(original.taxRate);
+    const tenant = original.tenant;
+    const current = {
+      name: tenant.billingLegalName?.trim() || tenant.name,
+      taxId: tenant.taxId,
+      address: formatAddress(
+        tenant.billingAddress,
+        tenant.billingPostalCode,
+        tenant.billingCity,
+        tenant.country,
+      ),
+    };
+    const currentMissing = missingFiscalData({
+      name: current.name,
+      taxId: tenant.taxId,
+      address: tenant.billingAddress,
+      city: tenant.billingCity,
+      postalCode: tenant.billingPostalCode,
+      country: tenant.country,
+    });
+
+    let recipient: { name: string; taxId: string | null; address: string | null };
+    let header: { base: number; taxAmount: number; total: number };
+    let lines: LineData[];
+    let originalStatus: string | null = null;
+
+    if (input.method === 'substitution') {
+      if (original.rectifications.some((r) => r.correctionMethod === 'substitution')) {
+        throw new BadRequestException({
+          code: 'invoice_already_substituted',
+          message: 'Esta factura ya tiene una rectificativa que la sustituye',
+        });
+      }
+      if (credited > 0) {
+        throw new BadRequestException({
+          code: 'invoice_partially_credited',
+          message: 'La factura tiene abonos: no se puede sustituir',
+        });
+      }
+      if (currentMissing.length > 0) {
+        throw new BadRequestException({
+          code: 'tenant_billing_incomplete',
+          message: `El tenant aún no tiene completos sus datos de facturación: ${currentMissing.join(', ')}`,
+          details: { missing: currentMissing },
+        });
+      }
+      recipient = current;
+      header = { base: Number(original.baseAmount), taxAmount: Number(original.taxAmount), total };
+      lines =
+        original.lines.length > 0
+          ? original.lines.map((l, i) => ({
+              kind: l.kind,
+              description: l.description,
+              quantity: l.quantity,
+              unitAmount: Number(l.unitAmount),
+              baseAmount: Number(l.baseAmount),
+              taxRate: Number(l.taxRate),
+              taxAmount: Number(l.taxAmount),
+              total: Number(l.total),
+              position: i,
+            }))
+          : [
+              {
+                kind: 'plan',
+                description: original.concept ?? `Suscripción ${original.planName ?? ''}`.trim(),
+                quantity: 1,
+                unitAmount: header.base,
+                baseAmount: header.base,
+                taxRate,
+                taxAmount: header.taxAmount,
+                total,
+                position: 0,
+              },
+            ];
+      originalStatus = 'rectified';
+    } else {
+      const gross = round2(input.amount ?? remaining);
+      if (gross <= 0 || gross > remaining + 0.005) {
+        throw new BadRequestException({
+          code: 'credit_exceeds_invoice',
+          message: `Como máximo se pueden abonar ${eur(remaining)} de esta factura`,
+        });
+      }
+      const base = round2(gross / (1 + taxRate / 100));
+      header = { base: -base, taxAmount: -round2(gross - base), total: -gross };
+      recipient =
+        currentMissing.length === 0
+          ? current
+          : {
+              name: original.tenantName,
+              taxId: original.tenantTaxId,
+              address: original.tenantAddress,
+            };
+      lines = [
+        {
+          kind: 'adjustment',
+          description: `Abono de la factura ${original.fullNumber}`,
+          quantity: 1,
+          unitAmount: header.base,
+          baseAmount: header.base,
+          taxRate,
+          taxAmount: header.taxAmount,
+          total: header.total,
+          position: 0,
+        },
+      ];
+      if (remaining - gross < 0.005) originalStatus = 'cancelled';
+    }
+
+    // Serie propia de rectificativas por año de emisión.
+    const year = String(new Date().getUTCFullYear());
+    const series = `R${year}`;
+    const created = await this.admin.$transaction(async (tx) => {
+      // Serializa la numeración de la serie (dos rectificativas a la vez).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`platform_invoice:${series}`}))`;
+      const last = await tx.platformInvoice.findFirst({
+        where: { series },
+        orderBy: { number: 'desc' },
+        select: { number: true },
+      });
+      const number = (last?.number ?? 0) + 1;
+      const fullNumber = `${settings.seriesPrefix}-R-${year}-${String(number).padStart(4, '0')}`;
+      const invoice = await tx.platformInvoice.create({
+        data: {
+          series,
+          number,
+          fullNumber,
+          invoiceType: input.rectificationType,
+          rectifiesInvoiceId: original.id,
+          rectificationReason: input.reason,
+          correctionMethod: input.method,
+          tenantId: original.tenantId,
+          tenantName: recipient.name,
+          tenantTaxId: recipient.taxId,
+          tenantEmail: tenant.billingEmail ?? original.tenantEmail,
+          tenantAddress: recipient.address,
+          planSlug: original.planSlug,
+          planName: original.planName,
+          concept: original.concept,
+          periodStart: original.periodStart,
+          periodEnd: original.periodEnd,
+          baseAmount: header.base,
+          taxRate,
+          taxAmount: header.taxAmount,
+          total: header.total,
+          currency: original.currency,
+        },
+      });
+      await tx.platformInvoiceLine.createMany({
+        data: lines.map((l) => ({ ...l, platformInvoiceId: invoice.id })),
+      });
+      if (originalStatus) {
+        await tx.platformInvoice.update({
+          where: { id: original.id },
+          data: { status: originalStatus },
+        });
+      }
+      return invoice;
+    });
+
+    try {
+      const key = await this.renderPdf(created.id, settings, {
+        ...created,
+        lines,
+        rectifies: { fullNumber: original.fullNumber, issuedAt: original.issuedAt },
+      });
+      await this.admin.platformInvoice.update({ where: { id: created.id }, data: { pdfUrl: key } });
+    } catch (err) {
+      this.logger.warn(`PDF rectificativa ${created.fullNumber} falló: ${(err as Error).message}`);
+    }
+    await this.sendEmail(created, settings).catch((err) =>
+      this.logger.warn(
+        `Email rectificativa ${created.fullNumber} falló: ${(err as Error).message}`,
+      ),
+    );
+
+    const row = await this.admin.platformInvoice.findUniqueOrThrow({
+      where: { id: created.id },
+      include: INVOICE_INCLUDE,
+    });
+    return this.invoiceToDto(row);
+  }
+
   // ---- helpers ----
 
   private async sendEmail(
-    inv: { fullNumber: string; tenantEmail: string | null; total: unknown; currency: string },
+    inv: {
+      fullNumber: string;
+      tenantEmail: string | null;
+      total: unknown;
+      currency: string;
+      invoiceType?: string;
+    },
     settings: PlatformBillingSettingsDto,
   ): Promise<void> {
     if (!inv.tenantEmail) return;
-    const html = `<p>Tu factura <strong>${esc(inv.fullNumber)}</strong> por ${eur(
+    const isRect = !!inv.invoiceType && inv.invoiceType !== 'F1';
+    const title = isRect ? 'Factura rectificativa' : 'Factura';
+    const html = `<p>Tu ${title.toLowerCase()} <strong>${esc(inv.fullNumber)}</strong> por ${eur(
       Number(inv.total),
     )} ya está disponible.</p><p>Puedes descargarla desde tu panel, en <strong>Ajustes → Suscripción → Facturas y pagos</strong>. Gracias por confiar en ${esc(
       settings.legalName || 'TrasterOS',
@@ -560,31 +826,16 @@ export class PlatformInvoicesService {
     await this.email.sendRendered({
       to: inv.tenantEmail,
       kind: 'saas_invoice',
-      subject: `Factura ${inv.fullNumber}`,
+      subject: `${title} ${inv.fullNumber}`,
       html,
-      text: `Factura ${inv.fullNumber} por ${eur(Number(inv.total))}.`,
+      text: `${title} ${inv.fullNumber} por ${eur(Number(inv.total))}.`,
     });
   }
 
   private async renderPdf(
     id: string,
     settings: PlatformBillingSettingsDto,
-    inv: {
-      fullNumber: string;
-      issuedAt: Date;
-      tenantName: string;
-      tenantTaxId: string | null;
-      tenantAddress: string | null;
-      planName: string | null;
-      concept: string | null;
-      periodStart: Date | null;
-      periodEnd: Date | null;
-      baseAmount: unknown;
-      taxRate: unknown;
-      taxAmount: unknown;
-      total: unknown;
-      lines?: LineRow[];
-    },
+    inv: RenderInvoice,
   ): Promise<string> {
     const html = this.renderHtml(settings, inv);
     const browser = await this.getBrowser();
@@ -611,25 +862,7 @@ export class PlatformInvoicesService {
     }
   }
 
-  private renderHtml(
-    s: PlatformBillingSettingsDto,
-    inv: {
-      fullNumber: string;
-      issuedAt: Date;
-      tenantName: string;
-      tenantTaxId: string | null;
-      tenantAddress: string | null;
-      planName: string | null;
-      concept: string | null;
-      periodStart: Date | null;
-      periodEnd: Date | null;
-      baseAmount: unknown;
-      taxRate: unknown;
-      taxAmount: unknown;
-      total: unknown;
-      lines?: LineRow[];
-    },
-  ): string {
+  private renderHtml(s: PlatformBillingSettingsDto, inv: RenderInvoice): string {
     const period =
       inv.periodStart && inv.periodEnd
         ? `${inv.periodStart.toLocaleDateString('es-ES')} – ${inv.periodEnd.toLocaleDateString('es-ES')}`
@@ -668,6 +901,20 @@ export class PlatformInvoicesService {
         : `<tr><td>${esc(inv.concept ?? `Suscripción ${inv.planName ?? 'TrasterOS'}`)}${
             period ? ` · ${esc(period)}` : ''
           }</td><td class="n">${eur(Number(inv.baseAmount))}</td></tr>`;
+    const isRect = !!inv.invoiceType && inv.invoiceType !== 'F1';
+    const rectBlock = isRect
+      ? `<div class="muted">Tipo: ${esc(inv.invoiceType ?? '')} · ${
+          inv.correctionMethod === 'substitution' ? 'Por sustitución' : 'Por diferencias'
+        }${
+          inv.rectifies
+            ? ` · Rectifica la factura ${esc(inv.rectifies.fullNumber)} de ${inv.rectifies.issuedAt.toLocaleDateString('es-ES')}`
+            : ''
+        }</div>${
+          inv.rectificationReason
+            ? `<div class="muted">Motivo: ${esc(inv.rectificationReason)}</div>`
+            : ''
+        }`
+      : '';
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
       body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px}
       h1{font-size:20px;margin:0 0 4px}
@@ -681,7 +928,8 @@ export class PlatformInvoicesService {
       .totals .grand{font-weight:bold;font-size:14px;border-top:2px solid #111;margin-top:4px;padding-top:8px}
       .muted{color:#666}
     </style></head><body>
-      <h1>Factura ${esc(inv.fullNumber)}</h1>
+      <h1>${isRect ? 'Factura rectificativa' : 'Factura'} ${esc(inv.fullNumber)}</h1>
+      ${rectBlock}
       <div class="muted">Fecha de expedición: ${inv.issuedAt.toLocaleDateString('es-ES')}</div>
       ${period ? `<div class="muted">Periodo facturado: ${esc(period)}</div>` : ''}
       <div class="row">
@@ -771,6 +1019,16 @@ export class PlatformInvoicesService {
     issuedAt: Date;
     pdfUrl: string | null;
     paymentId: string | null;
+    invoiceType: string;
+    rectificationReason: string | null;
+    correctionMethod: string | null;
+    rectifiesInvoice?: { id: string; fullNumber: string } | null;
+    rectifications?: {
+      id: string;
+      fullNumber: string;
+      correctionMethod: string | null;
+      total: unknown;
+    }[];
     lines?: Array<LineRow & { id: string }>;
   }): PlatformInvoiceDto {
     return {
@@ -793,6 +1051,16 @@ export class PlatformInvoicesService {
       hasPdf: Boolean(r.pdfUrl),
       paymentId: r.paymentId,
       missing: [...(r.tenantTaxId ? [] : ['NIF']), ...(r.tenantAddress ? [] : ['Domicilio'])],
+      invoiceType: r.invoiceType,
+      rectifies: r.rectifiesInvoice ?? null,
+      rectificationReason: r.rectificationReason,
+      correctionMethod: r.correctionMethod,
+      rectifiedBy: (r.rectifications ?? []).map((x) => ({
+        id: x.id,
+        fullNumber: x.fullNumber,
+        correctionMethod: x.correctionMethod,
+        total: Number(x.total),
+      })),
       lines: (r.lines ?? []).map(
         (l): PlatformInvoiceLineDto => ({
           id: l.id,
