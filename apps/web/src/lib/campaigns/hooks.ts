@@ -36,8 +36,7 @@ export function useUpdateWinbackSettings() {
 
 export function useRunWinback() {
   return useMutation({
-    mutationFn: () =>
-      apiFetch<WinbackRunResultDto>('/campaigns/winback/run', { method: 'POST' }),
+    mutationFn: () => apiFetch<WinbackRunResultDto>('/campaigns/winback/run', { method: 'POST' }),
   });
 }
 
@@ -45,6 +44,9 @@ export function useCampaigns() {
   return useQuery({
     queryKey: campaignsKey,
     queryFn: () => apiFetch<CampaignDto[]>('/campaigns'),
+    // Mientras alguna se está enviando (en segundo plano), refresca cada 3 s.
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((c) => c.status === 'sending') ? 3000 : false,
   });
 }
 

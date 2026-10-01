@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 
+import { CampaignsResumeCron } from './campaigns-resume.cron';
 import { CampaignsController } from './campaigns.controller';
 import { CampaignsService } from './campaigns.service';
 import { WinbackCron } from './winback.cron';
@@ -17,7 +18,7 @@ import { WinbackService } from './winback.service';
 @Module({
   imports: [AuthModule],
   controllers: [CampaignsController],
-  providers: [CampaignsService, WinbackService, WinbackCron],
+  providers: [CampaignsService, CampaignsResumeCron, WinbackService, WinbackCron],
   exports: [CampaignsService, WinbackService],
 })
 export class CampaignsModule {}

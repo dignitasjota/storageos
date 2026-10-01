@@ -1,7 +1,9 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
+import { respondThenRun } from '../../common/security/respond-then-run';
 import { CommunicationsService } from '../communications/communications.service';
 import { TEMPLATE_VARIABLES_BY_TRIGGER, renderText } from '../communications/template-engine';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -40,6 +42,7 @@ export class CampaignsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
+    private readonly admin: PrismaAdminService,
   ) {}
 
   private toDto(c: CampaignRow): CampaignDto {
@@ -221,66 +224,131 @@ export class CampaignsService {
   }
 
   /** Envía la campaña: encola una `communication` por destinatario (outbox). */
+  /**
+   * Envía una campaña en segundo plano: reclama el borrador (→ `sending`) de
+   * forma atómica —un doble clic no la envía dos veces— y responde ya. El
+   * envío (resolver la audiencia y encolar un correo por destinatario) sigue
+   * en `deliver`; con audiencias grandes, hacerlo dentro de la petición podía
+   * cortarse a medias y dejar la campaña en «enviando».
+   */
   async send(tenantId: string, id: string): Promise<CampaignDto> {
-    const campaign = await this.findOrThrow(tenantId, id);
-    if (campaign.status !== 'draft') {
+    await this.findOrThrow(tenantId, id);
+    const claimed = await this.prisma.withTenant(
+      (tx) =>
+        tx.campaign.updateMany({ where: { id, status: 'draft' }, data: { status: 'sending' } }),
+      tenantId,
+    );
+    if (claimed.count === 0) {
       throw new ConflictException({
         code: 'campaign_not_sendable',
         message: 'Solo se puede enviar una campaña en borrador',
       });
     }
+    respondThenRun(this.logger, `campaign ${id}`, () => this.deliver(tenantId, id));
+    return this.toDto(await this.findOrThrow(tenantId, id));
+  }
+
+  /**
+   * Encola un correo por destinatario. Reanudable: si se cortó (reinicio del
+   * API), al retomarla no repite a quien ya tiene su correo encolado. Va
+   * renovando `updatedAt` para que el cron no la retome mientras avanza.
+   */
+  async deliver(tenantId: string, id: string): Promise<void> {
+    const campaign = await this.findOrThrow(tenantId, id);
+    if (campaign.status !== 'sending') return;
+    const source = `campaign:${id}`;
     const name = await this.tenantName(tenantId);
     const recipients = await this.resolveRecipients(
       tenantId,
       campaign.segment as CampaignSegmentInput,
       name,
     );
+    await this.touch(tenantId, id, { audienceCount: recipients.length });
 
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.campaign.update({
-          where: { id },
-          data: { status: 'sending', audienceCount: recipients.length },
-        }),
-      tenantId,
+    const already = new Set(
+      (
+        await this.admin.communication.findMany({
+          where: { tenantId, source },
+          select: { recipient: true },
+        })
+      ).map((c) => c.recipient.toLowerCase()),
     );
-
-    let sent = 0;
     const scheduledFor = campaign.scheduledFor ?? undefined;
+    let processed = 0;
     for (const r of recipients) {
+      processed += 1;
+      if (already.has(r.email.toLowerCase())) continue;
       try {
-        const subject = renderText(campaign.subject, r.scope, MANUAL_WHITELIST);
-        const bodyText = renderText(campaign.bodyText, r.scope, MANUAL_WHITELIST);
         await this.communications.enqueue({
           tenantId,
           channel: 'email',
           recipient: r.email,
-          subject,
-          bodyText,
+          subject: renderText(campaign.subject, r.scope, MANUAL_WHITELIST),
+          bodyText: renderText(campaign.bodyText, r.scope, MANUAL_WHITELIST),
           ...(r.customerId ? { customerId: r.customerId } : {}),
           ...(r.leadId ? { leadId: r.leadId } : {}),
-          source: `campaign:${id}`,
+          source,
           marketing: true,
           ...(scheduledFor ? { scheduledFor } : {}),
         });
-        sent += 1;
+        already.add(r.email.toLowerCase());
       } catch (err) {
         this.logger.warn(
           `[campaigns] destinatario ${r.email} falló: ${err instanceof Error ? err.message : err}`,
         );
       }
+      if (processed % 100 === 0) await this.touch(tenantId, id, { sentCount: already.size });
     }
 
-    const updated = await this.prisma.withTenant(
+    const sent = await this.admin.communication.count({ where: { tenantId, source } });
+    await this.prisma.withTenant(
       (tx) =>
-        tx.campaign.update({
-          where: { id },
+        tx.campaign.updateMany({
+          where: { id, status: 'sending' },
           data: { status: 'sent', sentCount: sent, sentAt: new Date() },
         }),
       tenantId,
     );
     this.logger.log(`[campaigns] ${id} enviada: ${sent}/${recipients.length}`);
-    return this.toDto(updated);
+  }
+
+  /**
+   * Retoma las campañas que llevan un rato «enviando» sin avanzar (el API se
+   * reinició a medias). Cada una se reclama de forma atómica renovando su
+   * `updatedAt`, así que con varias réplicas solo una la retoma.
+   */
+  async resumeStale(staleMinutes = 10): Promise<number> {
+    const cutoff = new Date(Date.now() - staleMinutes * 60_000);
+    const stale = await this.admin.campaign.findMany({
+      where: { status: 'sending', updatedAt: { lt: cutoff } },
+      select: { id: true, tenantId: true },
+      take: 20,
+    });
+    let resumed = 0;
+    for (const c of stale) {
+      const claim = await this.admin.campaign.updateMany({
+        where: { id: c.id, status: 'sending', updatedAt: { lt: cutoff } },
+        data: { status: 'sending' },
+      });
+      if (claim.count === 0) continue;
+      resumed += 1;
+      this.logger.warn(`[campaigns] retomando ${c.id} (estaba atascada en «enviando»)`);
+      await this.deliver(c.tenantId, c.id).catch((err: unknown) =>
+        this.logger.error(`[campaigns] ${c.id} no se pudo retomar: ${String(err)}`),
+      );
+    }
+    return resumed;
+  }
+
+  private async touch(
+    tenantId: string,
+    id: string,
+    data: { audienceCount?: number; sentCount?: number },
+  ): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) => tx.campaign.updateMany({ where: { id, status: 'sending' }, data }),
+      tenantId,
+    );
   }
 
   private async findOrThrow(tenantId: string, id: string): Promise<CampaignRow> {
