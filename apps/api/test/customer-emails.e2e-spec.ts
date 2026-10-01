@@ -79,10 +79,23 @@ describe('Correos por defecto al inquilino (e2e)', () => {
 
   it('factura emitida y pago recibido llegan al inquilino, con la marca del tenant', async () => {
     const s = await setup('ceinv');
+    // IBAN para transferencias: no válido → 400; válido → sale en el correo.
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/billing')
+      .set(s.auth)
+      .send({ transferIban: 'ES00 1234' })
+      .expect(400);
+    const billing = await request(app.getHttpServer())
+      .patch('/settings/tenant/billing')
+      .set(s.auth)
+      .send({ transferIban: 'es91 2100 0418 4502 0005 1332' })
+      .expect(200);
+    expect(billing.body.transferIban).toBe('ES9121000418450200051332');
     const inv = await issue(s.owner.accessToken, s.customerId);
 
     const issued = await waitForEmail(s.email, { subjectIncludes: 'Nueva factura' });
     expect(issued.Text).toContain('Hola Lucía,');
+    expect(issued.Text).toContain('IBAN: ES91 2100 0418 4502 0005 1332');
     expect(issued.Text).toContain(`/portal/login?slug=${s.owner.slug}`);
     expect(issued.Text).toContain(s.tenantName);
     expect(issued.HTML).not.toMatch(/TrasterOS|STORAGEOS/);

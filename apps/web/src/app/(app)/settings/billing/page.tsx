@@ -137,6 +137,7 @@ export default function BillingSettingsPage() {
       </div>
 
       <AutoChargeCard />
+      <TransferIbanCard />
       <AutoChargeRetryCard />
       <AutoIssueCard />
       <LateFeeCard />
@@ -315,6 +316,64 @@ function AutoChargeCard() {
   );
 }
 
+/** IBAN para que los inquilinos paguen por transferencia (sale en el correo de la factura). */
+function TransferIbanCard() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  const update = useUpdateTenantBillingSettings();
+  const [iban, setIban] = useState('');
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (settings.data && !ready) {
+      setIban(settings.data.transferIban ?? '');
+      setReady(true);
+    }
+  }, [settings.data, ready]);
+
+  if (!canConfigure || !settings.data) return null;
+  const saved = settings.data.transferIban ?? '';
+  const changed = iban.replace(/\s+/g, '').toUpperCase() !== saved;
+
+  async function save() {
+    try {
+      const res = await update.mutateAsync({ transferIban: iban.trim() });
+      setIban(res.transferIban ?? '');
+      toast.success(res.transferIban ? 'IBAN guardado.' : 'IBAN quitado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'IBAN no válido');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>IBAN para transferencias</CardTitle>
+        <CardDescription>
+          Sale en el correo de cada factura a los inquilinos que no tienen cobro automático ni
+          domiciliación, junto al número de factura para que lo pongan en el concepto. Déjalo vacío
+          si no aceptas transferencias.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="flex-1 space-y-1.5">
+          <Label htmlFor="transfer-iban">IBAN</Label>
+          <Input
+            id="transfer-iban"
+            value={iban}
+            onChange={(e) => setIban(e.target.value)}
+            placeholder="ES00 0000 0000 0000 0000 0000"
+            className="font-mono text-base sm:text-sm"
+          />
+        </div>
+        <Button onClick={() => void save()} disabled={!changed || update.isPending}>
+          {update.isPending ? 'Guardando…' : 'Guardar'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Reintentos de cobro automático de las facturas vencidas (smart retry). */
 function AutoChargeRetryCard() {
   const canConfigure = useHasPermission('billing:configure');
@@ -479,7 +538,7 @@ function LateFeeCard() {
   if (!canConfigure || settings.isLoading || !settings.data) return null;
   const s = settings.data;
 
-  async function save(patch: Partial<typeof s>) {
+  async function save(patch: Partial<Omit<typeof s, 'transferIban'>>) {
     try {
       await update.mutateAsync(patch);
       toast.success('Recargo por mora actualizado.');

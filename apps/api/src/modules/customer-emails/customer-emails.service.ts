@@ -21,7 +21,11 @@ import {
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { renderCustomerEmail, type CustomerEmailData } from './customer-emails.templates';
+import {
+  renderCustomerEmail,
+  type CustomerEmailData,
+  type InvoicePaymentHint,
+} from './customer-emails.templates';
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
@@ -111,6 +115,7 @@ export class CustomerEmailsService {
           invoiceNumber: inv.invoiceNumber,
           total: Number(inv.total),
           dueDate: inv.dueDate,
+          payment: await this.paymentHint(p.tenantId, inv.customerId),
         },
         invoiceId: p.entityId,
         contractId: inv.contractId,
@@ -322,6 +327,41 @@ export class CustomerEmailsService {
     if (!c?.email) return null;
     const name = (c.customerType === 'business' ? c.companyName : c.firstName) ?? '';
     return { customerId, email: c.email, name };
+  }
+
+  /**
+   * Cómo se pagará: cobro automático al emitir (si el tenant lo tiene y el
+   * inquilino tiene tarjeta o domiciliación por pasarela), remesa SEPA (mandato
+   * activo) o a mano (área de clientes + IBAN para transferencias si lo hay).
+   */
+  private async paymentHint(tenantId: string, customerId: string): Promise<InvoicePaymentHint> {
+    const [tenant, pm, mandate] = await Promise.all([
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { autoChargeOnIssue: true, transferIban: true },
+      }),
+      this.admin.paymentMethod.findFirst({
+        where: {
+          tenantId,
+          customerId,
+          isDefault: true,
+          deletedAt: null,
+          type: { in: ['card', 'sepa_debit'] },
+        },
+        select: { type: true, brand: true, last4: true },
+      }),
+      this.admin.sepaMandate.findFirst({
+        where: { tenantId, customerId, status: 'active' },
+        select: { ibanLast4: true },
+      }),
+    ]);
+    if (tenant?.autoChargeOnIssue && pm) {
+      return pm.type === 'card'
+        ? { via: 'auto_card', brand: pm.brand, last4: pm.last4 }
+        : { via: 'auto_debit', last4: pm.last4 };
+    }
+    if (mandate) return { via: 'sepa_remittance', last4: mandate.ibanLast4 };
+    return { via: 'manual', transferIban: tenant?.transferIban ?? null };
   }
 
   private invoice(tenantId: string, invoiceId: string) {

@@ -134,6 +134,7 @@ export class TenantSettingsService {
     autoChargeRetryEnabled: boolean;
     autoChargeRetryMax: number;
     autoChargeRetryIntervalDays: number;
+    transferIban: string | null;
   }): TenantBillingSettingsResponse {
     return {
       autoChargeOnIssue: tenant.autoChargeOnIssue,
@@ -145,6 +146,7 @@ export class TenantSettingsService {
       autoChargeRetryEnabled: tenant.autoChargeRetryEnabled,
       autoChargeRetryMax: tenant.autoChargeRetryMax,
       autoChargeRetryIntervalDays: tenant.autoChargeRetryIntervalDays,
+      transferIban: tenant.transferIban,
     };
   }
 
@@ -179,12 +181,16 @@ export class TenantSettingsService {
     if (input.autoChargeRetryMax !== undefined) data.autoChargeRetryMax = input.autoChargeRetryMax;
     if (input.autoChargeRetryIntervalDays !== undefined)
       data.autoChargeRetryIntervalDays = input.autoChargeRetryIntervalDays;
+    const transferIban = input.transferIban === undefined ? undefined : input.transferIban || null;
 
-    if (Object.keys(data).length === 0) {
+    if (Object.keys(data).length === 0 && transferIban === undefined) {
       return this.billingDto(tenant);
     }
 
-    const updated = await this.admin.tenant.update({ where: { id: args.tenantId }, data });
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: { ...data, ...(transferIban !== undefined ? { transferIban } : {}) },
+    });
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -192,7 +198,7 @@ export class TenantSettingsService {
       action: 'tenant.billing.settings_changed',
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: data,
+      changes: { ...data, ...(transferIban !== undefined ? { transferIban } : {}) },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
