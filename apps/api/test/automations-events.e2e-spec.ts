@@ -122,4 +122,73 @@ describe('Automatizaciones: datos completos de los eventos (e2e)', () => {
       waitForEmail(s.email, { subjectIncludes: 'disponible', timeoutMs: 3000 }),
     ).rejects.toThrow();
   });
+
+  it('editor: valida acción y plantilla, y lista las ejecuciones', async () => {
+    const s = await setup('autoedit');
+    const tpls = await request(app.getHttpServer()).get('/message-templates').set(s.auth);
+    const emailTpl = (tpls.body as { id: string; code: string }[]).find(
+      (t) => t.code === 'invoice_issued_email',
+    )!;
+    const base = { name: 'x', trigger: 'invoice_issued' };
+
+    const sms = await request(app.getHttpServer())
+      .post('/automations')
+      .set(s.auth)
+      .send({ ...base, actionType: 'send_sms', templateId: emailTpl.id })
+      .expect(400);
+    expect(sms.body.code).toBe('sms_not_available');
+    const noTpl = await request(app.getHttpServer())
+      .post('/automations')
+      .set(s.auth)
+      .send({ ...base, actionType: 'send_email' })
+      .expect(400);
+    expect(noTpl.body.code).toBe('template_required');
+    const wrongChannel = await request(app.getHttpServer())
+      .post('/automations')
+      .set(s.auth)
+      .send({ ...base, actionType: 'send_whatsapp', templateId: emailTpl.id })
+      .expect(400);
+    expect(wrongChannel.body.code).toBe('template_channel_mismatch');
+
+    // Plantilla de OTRO tenant → no existe para este.
+    const other = await setup('autoother');
+    const otherTpls = await request(app.getHttpServer()).get('/message-templates').set(other.auth);
+    const foreign = (otherTpls.body as { id: string; code: string }[]).find(
+      (t) => t.code === 'invoice_issued_email',
+    )!;
+    const cross = await request(app.getHttpServer())
+      .post('/automations')
+      .set(s.auth)
+      .send({ ...base, actionType: 'send_email', templateId: foreign.id })
+      .expect(400);
+    expect(cross.body.code).toBe('template_not_found');
+
+    // Regla válida → al emitir una factura, aparece una ejecución enviada.
+    const rule = await request(app.getHttpServer())
+      .post('/automations')
+      .set(s.auth)
+      .send({ ...base, name: 'Aviso factura', actionType: 'send_email', templateId: emailTpl.id })
+      .expect(201);
+    await issueInvoice(s.token, s.customerId);
+    let runs: { ruleId: string; status: string }[] = [];
+    for (let i = 0; i < 30; i++) {
+      const res = await request(app.getHttpServer())
+        .get('/automations/runs')
+        .set(s.auth)
+        .expect(200);
+      runs = res.body;
+      if (runs.some((r) => r.ruleId === rule.body.id && r.status === 'succeeded')) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(runs.some((r) => r.ruleId === rule.body.id && r.status === 'succeeded')).toBe(true);
+    await request(app.getHttpServer()).get('/automations/runs?ruleId=nope').set(s.auth).expect(400);
+
+    // Desactivar por PATCH sin tocar la plantilla.
+    const off = await request(app.getHttpServer())
+      .patch(`/automations/${rule.body.id}`)
+      .set(s.auth)
+      .send({ isActive: false })
+      .expect(200);
+    expect(off.body.isActive).toBe(false);
+  }, 90_000);
 });
