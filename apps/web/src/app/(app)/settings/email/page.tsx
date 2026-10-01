@@ -4,6 +4,9 @@ import {
   CUSTOMER_EMAIL_KINDS,
   CUSTOMER_EMAIL_LABELS,
   type CustomerEmailKind,
+  STAFF_EMAIL_KINDS,
+  STAFF_EMAIL_LABELS,
+  type StaffEmailKind,
   type EmailDomainDto,
 } from '@storageos/shared';
 import { CheckCircle2, Clock, Copy, Loader2, Trash2, XCircle } from 'lucide-react';
@@ -24,7 +27,9 @@ import {
   useEmailDomain,
   useRemoveEmailDomain,
   useSaveEmailDomain,
+  useStaffEmailSettings,
   useUpdateCustomerEmailSettings,
+  useUpdateStaffEmailSettings,
   useVerifyEmailDomain,
 } from '@/lib/email-domain/hooks';
 
@@ -67,6 +72,7 @@ export default function EmailSettingsPage() {
       {current && <DnsRecordsCard domain={current} canVerify={hasFeature} />}
 
       <CustomerEmailsCard />
+      <StaffEmailsCard />
     </div>
   );
 }
@@ -368,5 +374,53 @@ function CopyValue({ value, onCopy }: { value: string; onCopy: (v: string) => vo
         <Copy className="h-3.5 w-3.5" />
       </Button>
     </div>
+  );
+}
+
+function StaffEmailsCard() {
+  const { data } = useStaffEmailSettings();
+  const update = useUpdateStaffEmailSettings();
+  const canManage = useHasPermission('settings:manage');
+
+  async function toggle(kind: StaffEmailKind, on: boolean) {
+    try {
+      await update.mutateAsync({ [kind]: on });
+      toast.success(on ? 'Aviso activado.' : 'Aviso desactivado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Avisos a tu equipo por email</CardTitle>
+        <CardDescription>
+          Los reciben los propietarios y gestores, además del aviso dentro de la app.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!data ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : (
+          STAFF_EMAIL_KINDS.map((kind) => (
+            <div key={kind} className="flex items-start gap-3">
+              <Checkbox
+                id={`se-${kind}`}
+                checked={data[kind]}
+                disabled={!canManage || update.isPending}
+                onCheckedChange={(v) => void toggle(kind, v === true)}
+              />
+              <Label htmlFor={`se-${kind}`} className="font-normal leading-snug">
+                <span className="font-medium">{STAFF_EMAIL_LABELS[kind].label}</span>
+                <span className="block text-sm text-muted-foreground">
+                  {STAFF_EMAIL_LABELS[kind].description}
+                </span>
+              </Label>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }

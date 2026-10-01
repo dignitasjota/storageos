@@ -55,8 +55,28 @@ describe('resolveCustomerEmailSettings', () => {
       contract_signed: true,
       contract_ending_soon: true,
       move_out_confirmed: true,
+      sepa_prenotification: true,
     });
     expect(resolveCustomerEmailSettings({ invoice_issued: false }).invoice_issued).toBe(false);
     expect(resolveCustomerEmailSettings(null).payment_received).toBe(true);
+  });
+});
+
+describe('renderCustomerEmail — preaviso SEPA', () => {
+  it('incluye importe, fecha de cargo, últimos dígitos de la cuenta, acreedor y mandato', () => {
+    const r = renderCustomerEmail(base, {
+      kind: 'sepa_prenotification',
+      invoiceNumber: 'FA-9',
+      amount: 60.5,
+      collectionDate: new Date('2026-11-05T00:00:00Z'),
+      ibanLast4: '4321',
+      mandateReference: 'MND-ABC',
+      creditorName: 'Trasteros García SL',
+      creditorId: 'ES12ZZZB12345678',
+    });
+    expect(r.subject).toMatch(/60,50\s€ el 05\/11\/2026/);
+    expect(r.text).toContain('terminada en 4321');
+    expect(r.text).toContain('ES12ZZZB12345678');
+    expect(r.text).toContain('MND-ABC');
   });
 });

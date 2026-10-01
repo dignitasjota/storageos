@@ -56,6 +56,7 @@ import type {
   PlatformEmailSettingsDto,
   UpdatePlatformEmailSettingsInput,
   TestEmailResultDto,
+  PlatformDomainStatusDto,
   UnusedBrevoDomainDto,
   AdminTenantHealthDto,
   TenantFeature,
@@ -1514,6 +1515,15 @@ export function useUpdateEmailSettings() {
         json: input,
       }),
     onSuccess: (data) => qc.setQueryData(['admin', 'email-settings'], data),
+  });
+}
+
+/** ¿Está autenticado el dominio del remitente de la plataforma en Brevo/Resend? */
+export function usePlatformDomainStatus() {
+  return useQuery({
+    queryKey: ['admin', 'email-settings', 'platform-domain'] as const,
+    queryFn: () => adminApiFetch<PlatformDomainStatusDto>('/admin/email-settings/platform-domain'),
+    retry: false,
   });
 }
 

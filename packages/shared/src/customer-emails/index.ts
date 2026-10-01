@@ -11,6 +11,7 @@ export const CUSTOMER_EMAIL_KINDS = [
   'contract_signed',
   'contract_ending_soon',
   'move_out_confirmed',
+  'sepa_prenotification',
 ] as const;
 export type CustomerEmailKind = (typeof CUSTOMER_EMAIL_KINDS)[number];
 
@@ -43,6 +44,11 @@ export const CUSTOMER_EMAIL_LABELS: Record<
     label: 'Baja solicitada',
     description: 'Confirmación de la fecha de baja que ha pedido el inquilino.',
   },
+  sepa_prenotification: {
+    label: 'Preaviso de domiciliación',
+    description:
+      'Al generar una remesa SEPA: importe, fecha de cargo, cuenta y mandato (lo exige la normativa SEPA).',
+  },
 };
 
 export type CustomerEmailSettingsDto = Record<CustomerEmailKind, boolean>;
@@ -63,4 +69,51 @@ export function resolveCustomerEmailSettings(raw: unknown): CustomerEmailSetting
   return Object.fromEntries(
     CUSTOMER_EMAIL_KINDS.map((k) => [k, stored[k] !== false]),
   ) as CustomerEmailSettingsDto;
+}
+
+/** Avisos por email al equipo del tenant (propietarios y gestores). */
+export const STAFF_EMAIL_KINDS = [
+  'new_lead',
+  'new_booking',
+  'move_out_requested',
+  'portal_incident',
+] as const;
+export type StaffEmailKind = (typeof STAFF_EMAIL_KINDS)[number];
+
+export const STAFF_EMAIL_LABELS: Record<StaffEmailKind, { label: string; description: string }> = {
+  new_lead: {
+    label: 'Contacto nuevo desde la web',
+    description: 'Alguien deja sus datos en tu web o en el formulario embebido.',
+  },
+  new_booking: {
+    label: 'Reserva online',
+    description: 'Un cliente reserva un trastero desde tu web (queda pendiente de firma y pago).',
+  },
+  move_out_requested: {
+    label: 'Baja solicitada',
+    description: 'Un inquilino pide la baja desde su área de clientes.',
+  },
+  portal_incident: {
+    label: 'Incidencia de un inquilino',
+    description: 'Un inquilino reporta una incidencia desde su área de clientes.',
+  },
+};
+
+export type StaffEmailSettingsDto = Record<StaffEmailKind, boolean>;
+
+export const UpdateStaffEmailSettingsSchema = z
+  .object(
+    Object.fromEntries(STAFF_EMAIL_KINDS.map((k) => [k, z.boolean().optional()])) as Record<
+      StaffEmailKind,
+      z.ZodOptional<z.ZodBoolean>
+    >,
+  )
+  .strict();
+export type UpdateStaffEmailSettingsInput = z.infer<typeof UpdateStaffEmailSettingsSchema>;
+
+export function resolveStaffEmailSettings(raw: unknown): StaffEmailSettingsDto {
+  const stored = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return Object.fromEntries(
+    STAFF_EMAIL_KINDS.map((k) => [k, stored[k] !== false]),
+  ) as StaffEmailSettingsDto;
 }

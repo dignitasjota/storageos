@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { subtractAmounts, toCents } from '../../common/money';
+import { DOMAIN_EVENTS, type SepaRemittanceCreatedPayload } from '../automations/domain-events';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -43,6 +45,7 @@ export class SepaService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly invoices: InvoicesService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -369,6 +372,11 @@ export class SepaService {
         }),
       tenantId,
     );
+    // Preaviso de cargo a cada deudor (lo envía CustomerEmailsService).
+    this.events.emit(DOMAIN_EVENTS.sepa_remittance_created, {
+      tenantId,
+      remittanceId: created.id,
+    } satisfies SepaRemittanceCreatedPayload);
     return this.toDto(created);
   }
 

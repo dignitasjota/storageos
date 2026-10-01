@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  usePlatformDomainStatus,
   useAdminEmailSettings,
   useDeleteBrevoDomain,
   useSendTestEmail,
@@ -25,6 +26,14 @@ import {
   useUpdateEmailSettings,
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+
+const DOMAIN_STATUS: Record<string, { label: string; ok: boolean }> = {
+  authenticated: { label: 'autenticado', ok: true },
+  pending: { label: 'pendiente de verificar los DNS', ok: false },
+  missing: { label: 'no está dado de alta', ok: false },
+  no_key: { label: '', ok: true },
+  error: { label: 'no se pudo comprobar', ok: false },
+};
 
 const PROVIDER_LABELS: Record<string, string> = {
   brevo: 'Brevo',
@@ -36,6 +45,7 @@ type Choice = 'env' | 'brevo' | 'resend';
 
 export default function AdminEmailPage() {
   const { data, isLoading } = useAdminEmailSettings();
+  const platformDomain = usePlatformDomainStatus();
   const update = useUpdateEmailSettings();
   const sendTest = useSendTestEmail();
 
@@ -102,8 +112,16 @@ export default function AdminEmailPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {(['brevo', 'resend'] as const).map((p) => (
-            <div key={p} className="flex items-center justify-between rounded-lg border px-3 py-2">
-              <span className="font-medium">{PROVIDER_LABELS[p]}</span>
+            <div
+              key={p}
+              className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+            >
+              <div className="min-w-0">
+                <span className="font-medium">{PROVIDER_LABELS[p]}</span>
+                {data.configured[p] && platformDomain.data && (
+                  <DomainLine domain={platformDomain.data.domain} status={platformDomain.data[p]} />
+                )}
+              </div>
               {data.configured[p] ? (
                 <Badge variant="secondary" className="gap-1">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Configurado
@@ -256,5 +274,17 @@ function UnusedBrevoDomainsCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Si el dominio del remitente no está autenticado, el proveedor rechaza los correos después de aceptarlos. */
+function DomainLine({ domain, status }: { domain: string; status: string }) {
+  const s = DOMAIN_STATUS[status];
+  if (!s || !s.label) return null;
+  return (
+    <p className={`text-xs ${s.ok ? 'text-muted-foreground' : 'text-destructive'}`}>
+      {domain}: {s.label}
+      {!s.ok && status !== 'error' && ' — los correos enviados por aquí se rechazarán'}
+    </p>
   );
 }
