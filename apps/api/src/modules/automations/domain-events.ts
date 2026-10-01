@@ -18,6 +18,8 @@ export const DOMAIN_EVENTS = {
   invoice_issued: 'domain.invoice_issued',
   invoice_overdue: 'domain.invoice_overdue',
   invoice_paid: 'domain.invoice_paid',
+  /** Factura anulada (solo la oye la copia contable de Holded; no es trigger). */
+  invoice_cancelled: 'domain.invoice_cancelled',
   invoice_rectified: 'domain.invoice_rectified',
   reservation_confirmed: 'domain.reservation_confirmed',
   lead_created: 'domain.lead_created',
@@ -36,6 +38,11 @@ export const DOMAIN_EVENTS = {
   /** Reserva online (booking self-service) creada → aviso al staff. */
   booking_created: 'domain.booking_created',
 } as const;
+
+export interface InvoiceCancelledPayload {
+  tenantId: string;
+  invoiceId: string;
+}
 
 export interface SepaRemittanceCreatedPayload {
   tenantId: string;

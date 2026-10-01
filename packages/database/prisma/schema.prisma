@@ -1564,6 +1564,8 @@ model Invoice {
   aeatCsv             String?           @map("aeat_csv")
   /// Id del documento en Holded si se ha exportado (integración contable).
   holdedDocumentId    String?           @map("holded_document_id")
+  /// Factura anulada que ya se canceló también en Holded.
+  holdedCancelledAt   DateTime?         @map("holded_cancelled_at") @db.Timestamptz(6)
   paidAt              DateTime?         @map("paid_at") @db.Timestamptz(6)
   cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
@@ -1647,6 +1649,8 @@ model Payment {
   gatewayResponse  Json?                  @map("gateway_response")
   paidAt           DateTime?              @map("paid_at") @db.Timestamptz(6)
   refundedAt       DateTime?              @map("refunded_at") @db.Timestamptz(6)
+  /// Cobro ya copiado a Holded (la integración no lo envía dos veces).
+  holdedSyncedAt   DateTime?              @map("holded_synced_at") @db.Timestamptz(6)
   refundedAmount   Decimal                @default(0) @map("refunded_amount") @db.Decimal(12, 2)
   failureReason    String?                @map("failure_reason")
   notes            String?
@@ -3435,6 +3439,10 @@ model HoldedSettings {
   tenantId        String    @unique @map("tenant_id") @db.Uuid
   apiKeyEncrypted String    @map("api_key_encrypted")
   enabled         Boolean   @default(false)
+  /// Serie de facturas de Holded (debe estar excluida de Veri*Factu).
+  invoiceSeriesId    String?   @map("invoice_series_id")
+  /// Serie de rectificativas de Holded (también excluida de Veri*Factu).
+  creditNoteSeriesId String?   @map("credit_note_series_id")
   lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(6)
   lastError       String?   @map("last_error")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
