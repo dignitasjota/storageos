@@ -17,12 +17,11 @@ export interface BuiltinTemplate {
   trigger?: AutomationTriggerValue;
 }
 
+/** Al enviar se mete en la carcasa del tenant (logo, color y pie con su nombre). */
 const wrapHtml = (title: string, body: string) =>
   `<!DOCTYPE html><html lang="es"><body style="font-family:Inter,system-ui,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;">
 <h2 style="margin-top:0">${title}</h2>
 ${body}
-<hr style="margin:24px 0;border:none;border-top:1px solid #eee" />
-<p style="font-size:12px;color:#888;">Enviado por {{tenant.name}}.</p>
 </body></html>`;
 
 /**

@@ -282,7 +282,14 @@ export class CustomerEmailsService {
     if (!recipient) return;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
+      select: {
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        portalLogoUrl: true,
+        portalBrandColor: true,
+      },
     });
     if (!tenant) return;
 
@@ -290,6 +297,8 @@ export class CustomerEmailsService {
       {
         tenantName: tenant.name,
         customerName: recipient.name,
+        logoUrl: tenant.portalLogoUrl,
+        brandColor: tenant.portalBrandColor,
         portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
       },
       args.data,

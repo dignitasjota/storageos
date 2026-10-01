@@ -1,3 +1,5 @@
+import { brandButton, tenantEmailShell } from '../../common/tenant-email-layout';
+
 /** Datos comunes a todos los correos al inquilino. */
 export interface CustomerEmailBase {
   tenantName: string;
@@ -5,6 +7,9 @@ export interface CustomerEmailBase {
   customerName: string;
   /** Login del área de clientes del tenant. */
   portalUrl: string;
+  /** Marca del tenant (Ajustes → Marca del portal). */
+  logoUrl?: string | null;
+  brandColor?: string | null;
 }
 
 /**
@@ -217,13 +222,17 @@ export function renderCustomerEmail(
     `${c.cta}: ${base.portalUrl}`,
     `Un saludo,\n${base.tenantName}`,
   ].join('\n\n');
-  const html = `<!DOCTYPE html><html lang="es"><body style="margin:0;padding:24px 0;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a">
-<div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:32px">
-<p style="margin:0 0 16px;font-size:14px;font-weight:600;color:#2563eb">${escapeHtml(base.tenantName)}</p>
-<p style="font-size:15px;line-height:24px">${escapeHtml(greeting)}</p>
+  const brand = {
+    name: base.tenantName,
+    logoUrl: base.logoUrl ?? null,
+    brandColor: base.brandColor ?? null,
+  };
+  const html = tenantEmailShell(
+    brand,
+    `<p style="font-size:15px;line-height:24px">${escapeHtml(greeting)}</p>
 ${paragraphs.map((p) => `<p style="font-size:15px;line-height:24px">${escapeHtml(p)}</p>`).join('\n')}
-<p style="margin:24px 0;text-align:center"><a href="${escapeHtml(base.portalUrl)}" style="display:inline-block;background:#111;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-size:14px">${escapeHtml(c.cta)}</a></p>
-<p style="font-size:15px;line-height:24px">Un saludo,<br>${escapeHtml(base.tenantName)}</p>
-</div></body></html>`;
+${brandButton(brand, base.portalUrl, c.cta)}
+<p style="font-size:15px;line-height:24px">Un saludo,<br>${escapeHtml(base.tenantName)}</p>`,
+  );
   return { subject: c.subject, text, html };
 }

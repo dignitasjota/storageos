@@ -16,6 +16,13 @@ import {
   buildUnsubscribeToken,
   unsubscribeKey,
 } from '../../common/marketing/unsubscribe-token';
+import {
+  extractBody,
+  TENANT_SHELL_MARK,
+  type TenantEmailBrand,
+  tenantEmailShell,
+  textToHtml,
+} from '../../common/tenant-email-layout';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
@@ -364,12 +371,17 @@ export class CommunicationsService {
       let deliveredBy: string | null = null;
       if (comm.channel === 'email') {
         const sealed = comm.secretsEncrypted;
-        let html = this.unseal(
-          tenantId,
-          sealed,
-          comm.bodyHtml ?? `<pre>${escapeHtml(comm.bodyText)}</pre>`,
-        );
         let text = this.unseal(tenantId, sealed, comm.bodyText);
+        const rawHtml = comm.bodyHtml ? this.unseal(tenantId, sealed, comm.bodyHtml) : null;
+        // Con la marca del tenant (logo y color). Lo que ya la lleva (correos
+        // por defecto al inquilino) no se vuelve a envolver.
+        let html =
+          rawHtml && rawHtml.includes(TENANT_SHELL_MARK)
+            ? rawHtml
+            : tenantEmailShell(
+                await this.tenantBrand(tenantId),
+                rawHtml ? extractBody(rawHtml) : textToHtml(text),
+              );
         let headers: Record<string, string> | undefined;
         if (comm.isMarketing) {
           const unsub = await this.unsubscribeParts(comm);
@@ -665,6 +677,18 @@ export class CommunicationsService {
     return this.toDto(created);
   }
 
+  private async tenantBrand(tenantId: string): Promise<TenantEmailBrand> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, portalLogoUrl: true, portalBrandColor: true },
+    });
+    return {
+      name: t?.name ?? '',
+      logoUrl: t?.portalLogoUrl ?? null,
+      brandColor: t?.portalBrandColor ?? null,
+    };
+  }
+
   /** ¿Se puede enviar por WhatsApp? (simulador en producción = no). */
   get whatsappAvailable(): boolean {
     return this.whatsapp.available;
@@ -773,14 +797,6 @@ function linkFields(r: Prisma.CommunicationGetPayload<{ include: typeof LIST_INC
     // Un borrador lleva un número provisional `DRAFT-…`: no se muestra.
     invoiceNumber: r.invoice && r.invoice.status !== 'draft' ? r.invoice.invoiceNumber : null,
   };
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function customerDisplay(c: {
