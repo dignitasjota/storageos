@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  PLATFORM_EMAIL_KIND_INFO,
+  PLATFORM_EMAIL_KINDS,
+  renderSenderName,
+  type PlatformEmailKind,
+} from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -25,6 +31,7 @@ type SenderKey = 'default' | PlatformSenderCategory;
 const SENDER_KEYS: SenderKey[] = [
   'default',
   'account',
+  'subscription',
   'billing',
   'admin_messages',
   'staff_notices',
@@ -34,7 +41,16 @@ interface StoredSettings {
   provider: PlatformEmailProvider | null;
   fallbackEnabled: boolean;
   senders: Partial<Record<SenderKey, PlatformSenderDto>>;
+  /** Texto de `{tipo}` cambiado por correo (ausente = el de por defecto). */
+  tipoLabels: Partial<Record<PlatformEmailKind, string>>;
 }
+
+const EMPTY_STORED: StoredSettings = {
+  provider: null,
+  fallbackEnabled: true,
+  senders: {},
+  tipoLabels: {},
+};
 
 /** Remitente y dirección de respuesta de un correo de la plataforma. */
 export interface PlatformSender {
@@ -82,7 +98,8 @@ export class PlatformEmailSettingsService {
   // -------------------------------------------------------------------------
 
   async getSenders(): Promise<PlatformSendersDto> {
-    return this.sendersDto((await this.stored()).senders);
+    const stored = await this.stored();
+    return this.sendersDto(stored.senders, stored.tipoLabels);
   }
 
   async updateSenders(input: UpdatePlatformSendersInput): Promise<PlatformSendersDto> {
@@ -98,28 +115,44 @@ export class PlatformEmailSettingsService {
       if (clean.name || clean.email || clean.replyTo) senders[key] = clean;
     }
     const current = await this.admin.platformEmailSettings.findFirst();
-    const data = { senders: senders as Prisma.InputJsonValue };
+    // Textos de {tipo}: solo cambian los que llegan (null = volver al de por defecto).
+    const tipoLabels = { ...parseTipoLabels(current?.tipoLabels) };
+    for (const [k, v] of Object.entries(input.tipoLabels ?? {})) {
+      if (!(PLATFORM_EMAIL_KINDS as readonly string[]).includes(k)) continue;
+      const kind = k as PlatformEmailKind;
+      if (v === null || v === undefined) delete tipoLabels[kind];
+      else tipoLabels[kind] = sanitizeDisplayName(v);
+    }
+    const data = {
+      senders: senders as Prisma.InputJsonValue,
+      tipoLabels: tipoLabels as Prisma.InputJsonValue,
+    };
     if (current) {
       await this.admin.platformEmailSettings.update({ where: { id: current.id }, data });
     } else {
       await this.admin.platformEmailSettings.create({ data });
     }
     this.cache.clear();
-    return this.sendersDto(senders);
+    return this.sendersDto(senders, tipoLabels);
   }
 
   /**
-   * Remitente de un correo de la plataforma: lo del tipo de correo, si no lo
-   * común, si no las variables `EMAIL_FROM_*` (campo a campo). Nunca lanza.
+   * Remitente de un correo de la plataforma. El correo concreto (`kind`)
+   * decide el tipo y el texto de `{tipo}` del nombre; sin él se usa `category`
+   * (o el común) y la variable desaparece del nombre. Campo a campo: lo del
+   * tipo, si no lo común, si no las variables `EMAIL_FROM_*`. Nunca lanza.
    */
-  async platformSender(category?: PlatformSenderCategory): Promise<PlatformSender> {
-    const stored = await this.stored().catch(
-      (): StoredSettings => ({ provider: null, fallbackEnabled: true, senders: {} }),
-    );
-    const e = this.effective(stored.senders, category ?? 'default');
+  async platformSender(
+    category?: PlatformSenderCategory,
+    kind?: PlatformEmailKind,
+  ): Promise<PlatformSender> {
+    const stored = await this.stored().catch((): StoredSettings => EMPTY_STORED);
+    const key: SenderKey = kind ? PLATFORM_EMAIL_KIND_INFO[kind].category : (category ?? 'default');
+    const e = this.effective(stored.senders, key);
+    const name = renderSenderName(e.name, kind ? tipoFor(stored.tipoLabels, kind) : '');
     return {
-      from: { email: e.email, ...(e.name ? { name: e.name } : {}) },
-      ...(e.replyTo ? { replyTo: { email: e.replyTo, ...(e.name ? { name: e.name } : {}) } } : {}),
+      from: { email: e.email, ...(name ? { name } : {}) },
+      ...(e.replyTo ? { replyTo: { email: e.replyTo, ...(name ? { name } : {}) } } : {}),
     };
   }
 
@@ -137,14 +170,33 @@ export class PlatformEmailSettingsService {
     };
   }
 
-  private sendersDto(senders: Partial<Record<SenderKey, PlatformSenderDto>>): PlatformSendersDto {
+  private sendersDto(
+    senders: Partial<Record<SenderKey, PlatformSenderDto>>,
+    tipoLabels: Partial<Record<PlatformEmailKind, string>>,
+  ): PlatformSendersDto {
     const empty: PlatformSenderDto = { name: null, email: null, replyTo: null };
     const env = platformFrom(this.config);
+    const kinds = Object.fromEntries(
+      PLATFORM_EMAIL_KINDS.map((kind) => {
+        const e = this.effective(senders, PLATFORM_EMAIL_KIND_INFO[kind].category);
+        const tipo = tipoFor(tipoLabels, kind);
+        return [
+          kind,
+          {
+            tipo,
+            isDefault: tipoLabels[kind] === undefined,
+            fromName: renderSenderName(e.name, tipo),
+            fromEmail: e.email,
+          },
+        ];
+      }),
+    ) as PlatformSendersDto['kinds'];
     return {
       env: { name: env.name ?? '', email: env.email },
       default: senders.default ?? empty,
       categories: {
         account: senders.account ?? empty,
+        subscription: senders.subscription ?? empty,
         billing: senders.billing ?? empty,
         admin_messages: senders.admin_messages ?? empty,
         staff_notices: senders.staff_notices ?? empty,
@@ -152,10 +204,12 @@ export class PlatformEmailSettingsService {
       effective: {
         default: this.effective(senders, 'default'),
         account: this.effective(senders, 'account'),
+        subscription: this.effective(senders, 'subscription'),
         billing: this.effective(senders, 'billing'),
         admin_messages: this.effective(senders, 'admin_messages'),
         staff_notices: this.effective(senders, 'staff_notices'),
       },
+      kinds,
     };
   }
 
@@ -168,7 +222,7 @@ export class PlatformEmailSettingsService {
     // sin respaldo, porque el otro rechazaría el remitente.
     if (force && this.isConfigured(force)) return [force];
     const stored = await this.stored().catch(
-      (): StoredSettings => ({ provider: null, fallbackEnabled: false, senders: {} }),
+      (): StoredSettings => ({ ...EMPTY_STORED, fallbackEnabled: false }),
     );
     return this.computeOrder(stored);
   }
@@ -207,6 +261,7 @@ export class PlatformEmailSettingsService {
         provider: (row?.provider as PlatformEmailProvider | null | undefined) ?? null,
         fallbackEnabled: row?.fallbackEnabled ?? true,
         senders: parseSenders(row?.senders),
+        tipoLabels: parseTipoLabels(row?.tipoLabels),
       };
     });
   }
@@ -248,4 +303,22 @@ function parseSenders(raw: unknown): Partial<Record<SenderKey, PlatformSenderDto
     out[key] = { name: str(r.name), email: str(r.email), replyTo: str(r.replyTo) };
   }
   return out;
+}
+
+function parseTipoLabels(raw: unknown): Partial<Record<PlatformEmailKind, string>> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Partial<Record<PlatformEmailKind, string>> = {};
+  for (const kind of PLATFORM_EMAIL_KINDS) {
+    const v = (raw as Record<string, unknown>)[kind];
+    if (typeof v === 'string') out[kind] = v;
+  }
+  return out;
+}
+
+/** Texto de `{tipo}` de un correo: el cambiado o el de por defecto. */
+function tipoFor(
+  labels: Partial<Record<PlatformEmailKind, string>>,
+  kind: PlatformEmailKind,
+): string {
+  return labels[kind] ?? PLATFORM_EMAIL_KIND_INFO[kind].defaultTipo;
 }

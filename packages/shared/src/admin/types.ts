@@ -1,6 +1,8 @@
 import type { TenantFeature } from '../features';
 import type {
   PlatformCouponDiscountTypeValue,
+  PlatformEmailKind,
+  PlatformSenderCategory,
   SecurityEventTypeValue,
   SuperAdminRoleValue,
   SupportTicketPriorityValue,
@@ -1289,10 +1291,15 @@ export interface PlatformSendersDto {
   /** Valores de las variables EMAIL_FROM_NAME / EMAIL_FROM_ADDRESS. */
   env: { name: string; email: string };
   default: PlatformSenderDto;
-  categories: Record<'account' | 'billing' | 'admin_messages' | 'staff_notices', PlatformSenderDto>;
-  effective: Record<
-    'default' | 'account' | 'billing' | 'admin_messages' | 'staff_notices',
-    EffectivePlatformSenderDto
+  categories: Record<PlatformSenderCategory, PlatformSenderDto>;
+  effective: Record<'default' | PlatformSenderCategory, EffectivePlatformSenderDto>;
+  /**
+   * Por correo concreto: texto de `{tipo}` (cambiado o por defecto) y el
+   * remitente con el que sale de verdad.
+   */
+  kinds: Record<
+    PlatformEmailKind,
+    { tipo: string; isDefault: boolean; fromName: string; fromEmail: string }
   >;
 }
 

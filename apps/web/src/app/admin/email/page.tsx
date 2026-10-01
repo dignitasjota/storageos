@@ -1,8 +1,12 @@
 'use client';
 
 import {
+  PLATFORM_EMAIL_KIND_INFO,
+  PLATFORM_EMAIL_KINDS,
   PLATFORM_SENDER_CATEGORIES,
   PLATFORM_SENDER_LABELS,
+  renderSenderName,
+  type PlatformEmailKind,
   type PlatformSenderCategory,
 } from '@storageos/shared';
 import { CheckCircle2, ChevronDown, Loader2, Trash2, XCircle } from 'lucide-react';
@@ -356,16 +360,22 @@ function WebhookRow({
 
 type SenderForm = { name: string; email: string; replyTo: string };
 type SenderKey = 'default' | PlatformSenderCategory;
+type TipoForm = Record<PlatformEmailKind, { value: string; isDefault: boolean }>;
+
+/** Por encima de esto los clientes de correo cortan el nombre en el móvil. */
+const LONG_SENDER_NAME = 40;
 
 /**
  * Remitente de los correos de la plataforma a los tenants: uno común y, si se
  * quiere, otro por tipo de correo. Lo que se deje vacío hereda del común y, si
- * tampoco, de las variables EMAIL_FROM_* de Portainer.
+ * tampoco, de las variables EMAIL_FROM_* de Portainer. El nombre admite
+ * `{tipo}`, que se sustituye por el texto de cada correo concreto.
  */
 function PlatformSendersCard() {
   const { data } = usePlatformSenders();
   const update = useUpdatePlatformSenders();
   const [form, setForm] = useState<Record<SenderKey, SenderForm> | null>(null);
+  const [tipos, setTipos] = useState<TipoForm | null>(null);
   const [open, setOpen] = useState<PlatformSenderCategory | null>(null);
 
   useEffect(() => {
@@ -378,21 +388,48 @@ function PlatformSendersCard() {
     setForm({
       default: f(data.default),
       account: f(data.categories.account),
+      subscription: f(data.categories.subscription),
       billing: f(data.categories.billing),
       admin_messages: f(data.categories.admin_messages),
       staff_notices: f(data.categories.staff_notices),
     });
+    setTipos(
+      Object.fromEntries(
+        PLATFORM_EMAIL_KINDS.map((k) => [
+          k,
+          { value: data.kinds[k].tipo, isDefault: data.kinds[k].isDefault },
+        ]),
+      ) as TipoForm,
+    );
   }, [data]);
 
-  if (!data || !form) return null;
+  if (!data || !form || !tipos) return null;
 
   const set = (key: SenderKey, field: keyof SenderForm, value: string) =>
     setForm({ ...form, [key]: { ...form[key], [field]: value } });
+  const setTipo = (kind: PlatformEmailKind, value: string) =>
+    setTipos({ ...tipos, [kind]: { value, isDefault: false } });
+  const resetTipo = (kind: PlatformEmailKind) =>
+    setTipos({
+      ...tipos,
+      [kind]: { value: PLATFORM_EMAIL_KIND_INFO[kind].defaultTipo, isDefault: true },
+    });
+
+  /** Vista previa con lo que hay escrito (antes de guardar). */
+  const preview = (kind: PlatformEmailKind) => {
+    const cat = PLATFORM_EMAIL_KIND_INFO[kind].category;
+    const template = form[cat].name.trim() || form.default.name.trim() || data.env.name;
+    const email = form[cat].email.trim() || form.default.email.trim() || data.env.email;
+    return { name: renderSenderName(template, tipos[kind].value), email };
+  };
 
   async function onSave() {
-    if (!form) return;
+    if (!form || !tipos) return;
+    const tipoLabels = Object.fromEntries(
+      PLATFORM_EMAIL_KINDS.map((k) => [k, tipos[k].isDefault ? null : tipos[k].value]),
+    ) as Record<PlatformEmailKind, string | null>;
     try {
-      await update.mutateAsync(form);
+      await update.mutateAsync({ ...form, tipoLabels });
       toast.success('Remitentes guardados. Se aplican en menos de un minuto.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -436,6 +473,57 @@ function PlatformSendersCard() {
     </div>
   );
 
+  /** Correos concretos de un tipo: texto de {tipo} editable + cómo sale. */
+  const kindRows = (cat: PlatformSenderCategory) => (
+    <div className="space-y-2 rounded-md bg-muted/40 p-3">
+      <p className="text-xs font-medium text-muted-foreground">
+        Texto de {'{tipo}'} en cada correo
+      </p>
+      {PLATFORM_EMAIL_KINDS.filter((k) => PLATFORM_EMAIL_KIND_INFO[k].category === cat).map(
+        (kind) => {
+          const p = preview(kind);
+          return (
+            <div key={kind} className="grid gap-2 sm:grid-cols-[180px_200px_1fr] sm:items-center">
+              <Label htmlFor={`tipo-${kind}`} className="text-sm font-normal">
+                {PLATFORM_EMAIL_KIND_INFO[kind].label}
+              </Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  id={`tipo-${kind}`}
+                  value={tipos[kind].value}
+                  maxLength={30}
+                  onChange={(e) => setTipo(kind, e.target.value)}
+                />
+                {!tipos[kind].isDefault && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    title="Volver al texto por defecto"
+                    onClick={() => resetTipo(kind)}
+                  >
+                    Restablecer
+                  </Button>
+                )}
+              </div>
+              <p
+                className={`min-w-0 truncate text-xs ${
+                  p.name.length > LONG_SENDER_NAME
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-muted-foreground'
+                }`}
+                title={`${p.name} <${p.email}>`}
+              >
+                Sale como: {p.name} &lt;{p.email}&gt;
+                {p.name.length > LONG_SENDER_NAME && ' (largo: se cortará en el móvil)'}
+              </p>
+            </div>
+          );
+        },
+      )}
+    </div>
+  );
+
   const common = data.effective.default;
   return (
     <Card>
@@ -445,7 +533,9 @@ function PlatformSendersCard() {
           Con qué nombre y dirección llegan a los tenants los correos de TrasterOS, y adónde van sus
           respuestas. Lo que dejes vacío usa el remitente común; si tampoco, las variables de
           Portainer ({data.env.name} &lt;{data.env.email}&gt;). La dirección debe ser de un dominio
-          autenticado en tu proveedor.
+          autenticado en tu proveedor. En el nombre puedes usar <code>{'{tipo}'}</code>: se
+          sustituye por el texto de cada correo (p. ej. «TrasterOS · {'{tipo}'}» → «TrasterOS ·
+          Factura»).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -477,7 +567,7 @@ function PlatformSendersCard() {
                         {PLATFORM_SENDER_LABELS[cat].description}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        Sale como: {eff.name} &lt;{eff.email}&gt;
+                        Dirección: {eff.email}
                         {eff.replyTo ? ` · respuestas a ${eff.replyTo}` : ''}
                       </span>
                     </span>
@@ -485,12 +575,16 @@ function PlatformSendersCard() {
                       className={`mt-1 h-4 w-4 shrink-0 transition-transform ${open === cat ? 'rotate-180' : ''}`}
                     />
                   </button>
-                  {open === cat &&
-                    fields(cat, {
-                      name: common.name,
-                      email: common.email,
-                      replyTo: common.replyTo ?? 'Sin dirección de respuesta',
-                    })}
+                  {open === cat && (
+                    <>
+                      {fields(cat, {
+                        name: common.name,
+                        email: common.email,
+                        replyTo: common.replyTo ?? 'Sin dirección de respuesta',
+                      })}
+                      {kindRows(cat)}
+                    </>
+                  )}
                 </li>
               );
             })}

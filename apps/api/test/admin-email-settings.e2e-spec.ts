@@ -158,15 +158,31 @@ describe('Admin: correo saliente (e2e)', () => {
         .put('/admin/email-settings/senders')
         .set(auth)
         .send({
-          default: { name: 'Equipo TrasterOS', replyTo: 'soporte@trasteros-e2e.local' },
+          default: { name: 'Equipo TrasterOS · {tipo}', replyTo: 'soporte@trasteros-e2e.local' },
           account: { email: 'cuentas@trasteros-e2e.local' },
+          subscription: { email: 'bienvenida@trasteros-e2e.local' },
           billing: { email: 'facturacion@trasteros-e2e.local', replyTo: '' },
+          tipoLabels: { password_reset: 'Recuperar acceso', welcome: '' },
         })
         .expect(200);
       expect(saved.body.effective.account).toEqual({
-        name: 'Equipo TrasterOS',
+        name: 'Equipo TrasterOS · {tipo}',
         email: 'cuentas@trasteros-e2e.local',
         replyTo: 'soporte@trasteros-e2e.local',
+      });
+      expect(saved.body.kinds.password_reset).toMatchObject({
+        tipo: 'Recuperar acceso',
+        isDefault: false,
+        fromName: 'Equipo TrasterOS · Recuperar acceso',
+      });
+      expect(saved.body.kinds.welcome).toMatchObject({
+        fromName: 'Equipo TrasterOS',
+        fromEmail: 'bienvenida@trasteros-e2e.local',
+      });
+      expect(saved.body.kinds.saas_invoice).toMatchObject({
+        tipo: 'Factura',
+        isDefault: true,
+        fromEmail: 'facturacion@trasteros-e2e.local',
       });
       expect(saved.body.effective.billing.replyTo).toBe('soporte@trasteros-e2e.local');
       expect(saved.body.categories.admin_messages).toEqual({
@@ -192,7 +208,7 @@ describe('Admin: correo saliente (e2e)', () => {
         .expect(204);
       const mail = await waitForEmail(owner.email, { subjectIncludes: 'Restablece' });
       expect(mail.From.Address).toBe('cuentas@trasteros-e2e.local');
-      expect(mail.From.Name).toBe('Equipo TrasterOS');
+      expect(mail.From.Name).toBe('Equipo TrasterOS · Recuperar acceso');
       expect(mail.ReplyTo?.[0]?.Address).toBe('soporte@trasteros-e2e.local');
 
       await request(app.getHttpServer())
@@ -200,11 +216,30 @@ describe('Admin: correo saliente (e2e)', () => {
         .set(auth)
         .send({ default: { email: 'no es un email' } })
         .expect(400);
-    } finally {
       await request(app.getHttpServer())
         .put('/admin/email-settings/senders')
         .set(auth)
-        .send({ default: {} });
+        .send({ default: {}, tipoLabels: { no_existe: 'x' } })
+        .expect(400);
+    } finally {
+      const reset = Object.fromEntries(
+        [
+          'verify_email',
+          'password_reset',
+          'invitation',
+          'welcome',
+          'trial_ending',
+          'saas_invoice',
+          'payment_pending',
+          'admin_message',
+          'staff_notice',
+          'monthly_report',
+        ].map((k) => [k, null]),
+      );
+      await request(app.getHttpServer())
+        .put('/admin/email-settings/senders')
+        .set(auth)
+        .send({ default: {}, tipoLabels: reset });
     }
   }, 90_000);
 

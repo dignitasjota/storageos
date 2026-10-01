@@ -10,7 +10,7 @@ import {
 } from './providers/email-provider';
 import { TenantSenderService } from './tenant-sender.service';
 
-import type { PlatformSenderCategory } from '@storageos/shared';
+import type { PlatformEmailKind, PlatformSenderCategory } from '@storageos/shared';
 import type { ReactElement } from 'react';
 
 export interface SendMailTemplateArgs {
@@ -26,6 +26,11 @@ export interface SendMailTemplateArgs {
    * dirección de respuesta (panel admin → Correo saliente). Sin él, el común.
    */
   category?: PlatformSenderCategory;
+  /**
+   * Correo concreto de la plataforma: fija el tipo (remitente) y el texto de
+   * `{tipo}` del nombre. Tiene prioridad sobre `category`.
+   */
+  kind?: PlatformEmailKind;
   subject: string;
   template: ReactElement;
   tags?: Record<string, string>;
@@ -44,6 +49,11 @@ export interface SendMailRenderedArgs {
    * dirección de respuesta (panel admin → Correo saliente). Sin él, el común.
    */
   category?: PlatformSenderCategory;
+  /**
+   * Correo concreto de la plataforma: fija el tipo (remitente) y el texto de
+   * `{tipo}` del nombre. Tiene prioridad sobre `category`.
+   */
+  kind?: PlatformEmailKind;
   subject: string;
   html: string;
   text: string;
@@ -82,6 +92,7 @@ export class EmailService {
       text,
       ...(args.tenantId ? { tenantId: args.tenantId } : {}),
       ...(args.category ? { category: args.category } : {}),
+      ...(args.kind ? { kind: args.kind } : {}),
       ...(args.tags ? { tags: args.tags } : {}),
     });
   }
@@ -90,7 +101,7 @@ export class EmailService {
     const sender: { from: EmailAddress; replyTo?: EmailAddress; forceProvider?: 'brevo' } =
       args.tenantId
         ? await this.senders.resolve(args.tenantId)
-        : await this.platform.platformSender(args.category);
+        : await this.platform.platformSender(args.category, args.kind);
     try {
       return await this.provider.send({
         from: sender.from,

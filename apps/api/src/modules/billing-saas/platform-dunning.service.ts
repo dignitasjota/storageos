@@ -177,7 +177,7 @@ export class PlatformDunningService {
     const body = `${intro}${cta}`;
     await this.email.sendRendered({
       to,
-      category: 'billing',
+      kind: 'payment_pending',
       subject,
       html: body,
       text: `${intro.replace(/<[^>]+>/g, '')}\n\nRegulariza tu pago: ${link}`,

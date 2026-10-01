@@ -165,7 +165,13 @@ export class TenantLifecycleEmailsService {
     await this.emailQueue.addBulk(
       recipients.map((to) => ({
         name: JOB_EMAIL_SEND,
-        data: { to, category: 'billing', subject: tmpl.subject, html: tmpl.html, text: tmpl.text },
+        data: {
+          to,
+          kind: lifecycleKind(type),
+          subject: tmpl.subject,
+          html: tmpl.html,
+          text: tmpl.text,
+        },
       })),
     );
     return true;
@@ -251,4 +257,11 @@ export class TenantLifecycleEmailsService {
     ].join('\n');
     return { subject: 'No hemos podido cobrar tu suscripción a TrasterOS', ...renderEmail(body) };
   }
+}
+
+/** Correo de la plataforma de cada aviso del ciclo de vida (remitente y `{tipo}`). */
+function lifecycleKind(type: string): 'welcome' | 'trial_ending' | 'payment_pending' {
+  if (type === 'welcome') return 'welcome';
+  if (type === 'past_due') return 'payment_pending';
+  return 'trial_ending';
 }

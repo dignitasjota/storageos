@@ -425,7 +425,7 @@ export class PlatformInvoicesService {
     )}.</p>`;
     await this.email.sendRendered({
       to: inv.tenantEmail,
-      category: 'billing',
+      kind: 'saas_invoice',
       subject: `Factura ${inv.fullNumber}`,
       html,
       text: `Factura ${inv.fullNumber} por ${eur(Number(inv.total))}.`,
