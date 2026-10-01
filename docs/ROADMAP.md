@@ -499,6 +499,20 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 - ~~**Bizum en la reserva/firma**~~ ✅ (#542) — «Pagar con Bizum» en `/sign` si el TPV lo tiene activo.
 - ~~**Revertir el descuento de retención tras N meses**~~ ✅ ya estaba implementado (`RetentionDiscountExpiryCron`).
 
+**Correo saliente y notificaciones (2026-09-28 → 2026-10-01, #550–#570):**
+
+- ~~**Brevo + Resend a la vez**~~ ✅ (#550/#551) — principal y respaldo elegibles desde el panel admin.
+- ~~**Dominio propio de correo del tenant**~~ ✅ (#552–#558) — en la cuenta Brevo de la plataforma, con TXT de propiedad por tenant y registros DNS relativos.
+- ~~**Acceso al portal por email al dar de alta un inquilino**~~ ✅ (#561).
+- ~~**Cobros por pasarela emiten `invoice_paid`**~~ ✅ (#562) — reactivación del acceso, PIN de la reserva con tarjeta, cierre de expedientes; PIN automático solo con contrato vivo.
+- ~~**Marca del tenant en sus correos + automatizaciones con datos completos + outbox atómico**~~ ✅ (#563).
+- ~~**Correos automáticos al inquilino activados por defecto**~~ ✅ (#564) — factura emitida, pago recibido, cobro rechazado, contrato firmado, fin de contrato, baja.
+- ~~**Preaviso SEPA + avisos al equipo por email + estado del dominio de la plataforma**~~ ✅ (#565); aviso del plazo de preaviso al crear la remesa (#569).
+- ~~**Editor de automatizaciones**~~ ✅ (#566) — la página era solo de lectura.
+- ~~**Avisos de entrega de Brevo/Resend**~~ ✅ (#567) — rebotes y rechazos visibles en Comunicaciones; lista de espera y retención en el historial.
+- ~~**Remitente de la plataforma configurable por tipo de correo, con dirección de respuesta**~~ ✅ (#568).
+- Pendiente (menor): adjuntar el PDF del contrato firmado al correo (hoy va un enlace al área de clientes).
+
 ### Prioridad recomendada
 
 | #        | Iniciativa                                   | Por qué                                                                       |
