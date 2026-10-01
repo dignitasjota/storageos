@@ -62,7 +62,11 @@ export default function CampaignsPage() {
     if (!confirm('¿Enviar la campaña ahora a toda la audiencia?')) return;
     try {
       const res = await send.mutateAsync(id);
-      toast.success(`Campaña enviada a ${res.sentCount} destinatarios.`);
+      toast.success(
+        res.status === 'sent'
+          ? `Campaña enviada a ${res.sentCount} destinatarios.`
+          : 'Enviando la campaña… El estado se actualiza solo.',
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }

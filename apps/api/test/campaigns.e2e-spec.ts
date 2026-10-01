@@ -1,5 +1,9 @@
 import request from 'supertest';
 
+import { CampaignsService } from '../src/modules/campaigns/campaigns.service';
+import { CommunicationsService } from '../src/modules/communications/communications.service';
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -96,10 +100,13 @@ describe('Campaigns segmentadas (e2e)', () => {
     const id = create.body.id as string;
 
     // Enviar.
+    // Enviar: responde ya («enviando») y termina en segundo plano.
     const send = await request(app.getHttpServer()).post(`/campaigns/${id}/send`).set(auth);
     expect(send.status).toBe(200);
-    expect(send.body.status).toBe('sent');
-    expect(send.body.sentCount).toBe(1);
+    expect(['sending', 'sent']).toContain(send.body.status);
+    const done = await waitForCampaign(auth, id);
+    expect(done.status).toBe('sent');
+    expect(done.sentCount).toBe(1);
 
     // El envío llegó al outbox con el subject renderizado.
     const comms = await request(app.getHttpServer())
@@ -115,4 +122,74 @@ describe('Campaigns segmentadas (e2e)', () => {
     expect(resend.status).toBe(409);
     expect(resend.body.code).toBe('campaign_not_sendable');
   });
+
+  it('una campaña atascada en «enviando» se retoma sin duplicar envíos', async () => {
+    const owner = await registerVerifiedUser(app, 'campresume');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    for (const n of [1, 2]) {
+      await request(app.getHttpServer())
+        .post('/customers')
+        .set(auth)
+        .send({
+          customerType: 'individual',
+          firstName: `Res${n}`,
+          lastName: 'Ume',
+          email: `resume${n}-${Date.now()}@e2e.local`,
+          country: 'ES',
+          tags: ['resume'],
+        })
+        .expect(201);
+    }
+    const create = await request(app.getHttpServer())
+      .post('/campaigns')
+      .set(auth)
+      .send({
+        name: 'Retomada',
+        subject: 'Hola',
+        bodyText: 'Cuerpo',
+        segment: { audience: 'customers', tag: 'resume' },
+      })
+      .expect(201);
+    const id = create.body.id as string;
+
+    // Simula un corte: ya iba «enviando», con un destinatario encolado, y
+    // lleva un rato sin avanzar.
+    const admin = app.get(PrismaAdminService);
+    const tenantId = (await admin.campaign.findUniqueOrThrow({ where: { id } })).tenantId;
+    const first = await admin.customer.findFirstOrThrow({
+      where: { tenantId, firstName: 'Res1' },
+    });
+    await app.get(CommunicationsService).enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: first.email!,
+      subject: 'Hola',
+      bodyText: 'Cuerpo',
+      customerId: first.id,
+      source: `campaign:${id}`,
+      marketing: true,
+    });
+    await admin.$executeRaw`UPDATE campaigns SET status = 'sending', updated_at = now() - interval '1 hour' WHERE id = ${id}::uuid`;
+
+    expect(await app.get(CampaignsService).resumeStale()).toBeGreaterThanOrEqual(1);
+    const done = await waitForCampaign(auth, id);
+    expect(done.status).toBe('sent');
+    expect(done.sentCount).toBe(2);
+    const comms = await request(app.getHttpServer())
+      .get(`/communications?source=campaign:${id}`)
+      .set(auth);
+    expect(comms.body).toHaveLength(2);
+  });
+
+  async function waitForCampaign(
+    auth: Record<string, string>,
+    id: string,
+  ): Promise<{ status: string; sentCount: number }> {
+    for (let i = 0; i < 50; i++) {
+      const res = await request(app.getHttpServer()).get(`/campaigns/${id}`).set(auth);
+      if (res.body.status !== 'sending') return res.body;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    throw new Error('la campaña no terminó de enviarse');
+  }
 });

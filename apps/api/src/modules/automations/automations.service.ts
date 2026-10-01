@@ -348,23 +348,27 @@ export class AutomationsService {
           customerType: true,
         },
       });
-      if (c) {
-        out.recipientEmail = job.recipientEmail ?? c.email ?? null;
-        out.recipientPhone = job.recipientPhone ?? c.phone ?? null;
-        const displayName =
-          c.customerType === 'business'
-            ? (c.companyName ?? '')
-            : [c.firstName, c.lastName].filter(Boolean).join(' ');
-        scope.customer = {
-          firstName: c.firstName ?? '',
-          lastName: c.lastName ?? '',
-          displayName,
-          email: c.email ?? '',
-          phone: c.phone ?? '',
-          ...asRecord(scope.customer),
-        };
-      }
+      // Inquilino borrado (o anonimizado) entre el evento y el envío.
+      if (!c) return { job: out, skipReason: 'inquilino eliminado' };
+      out.recipientEmail = job.recipientEmail ?? c.email ?? null;
+      out.recipientPhone = job.recipientPhone ?? c.phone ?? null;
+      const displayName =
+        c.customerType === 'business'
+          ? (c.companyName ?? '')
+          : [c.firstName, c.lastName].filter(Boolean).join(' ');
+      scope.customer = {
+        firstName: c.firstName ?? '',
+        lastName: c.lastName ?? '',
+        displayName,
+        email: c.email ?? '',
+        phone: c.phone ?? '',
+        ...asRecord(scope.customer),
+      };
     }
+
+    // Con retraso, el aviso puede haber dejado de tener sentido.
+    const stale = await this.staleReason(job);
+    if (stale) return { job: out, skipReason: stale };
 
     if (job.entityType === 'invoice') {
       const inv = await this.admin.invoice.findFirst({
@@ -401,6 +405,51 @@ export class AutomationsService {
 
     out.scope = humanizeScope(scope);
     return { job: out };
+  }
+
+  /**
+   * ¿Sigue aplicando el aviso cuando toca enviarlo? (Las facturas pagadas o
+   * anuladas se comprueban más abajo, junto con sus datos.)
+   */
+  private async staleReason(job: AutomationJobData): Promise<string | null> {
+    const where = { id: job.entityId, tenantId: job.tenantId };
+    if (job.entityType === 'contract') {
+      const c = await this.admin.contract.findFirst({
+        where,
+        select: { status: true, endDate: true, deletedAt: true },
+      });
+      if (!c || c.deletedAt) return 'contrato eliminado';
+      if (job.trigger === 'contract_signed' && c.status === 'cancelled') {
+        return 'contrato cancelado';
+      }
+      if (job.trigger === 'contract_ending_soon') {
+        if (c.status !== 'active' && c.status !== 'ending') return `contrato ${c.status}`;
+        // Renovado: ya no vence pronto.
+        if (!c.endDate || c.endDate.getTime() > Date.now() + 45 * 86_400_000) {
+          return 'contrato renovado';
+        }
+      }
+    }
+    if (job.entityType === 'reservation' && job.trigger === 'reservation_confirmed') {
+      const r = await this.admin.reservation.findFirst({ where, select: { status: true } });
+      if (!r) return 'reserva eliminada';
+      if (r.status === 'cancelled' || r.status === 'expired') return `reserva ${r.status}`;
+    }
+    if (job.entityType === 'lead' && job.trigger === 'lead_created') {
+      const l = await this.admin.lead.findFirst({
+        where,
+        select: { status: true, deletedAt: true },
+      });
+      if (!l || l.deletedAt) return 'contacto eliminado';
+      if (l.status === 'won' || l.status === 'lost') return `contacto ${l.status}`;
+    }
+    if (job.entityType === 'invoice' && job.trigger === 'invoice_paid') {
+      const i = await this.admin.invoice.findFirst({ where, select: { status: true } });
+      if (!i || (i.status !== 'paid' && i.status !== 'partially_refunded')) {
+        return 'el cobro se revirtió';
+      }
+    }
+    return null;
   }
 
   private async markRun(
