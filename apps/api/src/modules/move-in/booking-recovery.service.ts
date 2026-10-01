@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { formatDateLong, formatEur } from '../../common/format';
+import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+
+import { SignaturesService } from './signatures.service';
 
 import type { Env } from '../../config/env.schema';
 
@@ -11,6 +15,11 @@ import type { Env } from '../../config/env.schema';
 const MIN_AGE_MS = 60 * 60 * 1000; // 1 h
 /** Ventana máxima: pasado esto el lead ya no es «reciente» y no se recuerda. */
 const MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72 h
+
+/** Reserva enviada sin terminar: se recuerda pasadas 12 h… */
+const BOOKING_MIN_AGE_MS = 12 * 60 * 60 * 1000;
+/** …y solo si quedan al menos 6 h antes de que se libere el trastero. */
+const BOOKING_MIN_LEFT_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Recuperación de reservas abandonadas: el booking self-service captura el email
@@ -28,6 +37,7 @@ export class BookingRecoveryService {
     private readonly prisma: PrismaService,
     private readonly communications: CommunicationsService,
     private readonly config: ConfigService<Env, true>,
+    private readonly signatures: SignaturesService,
   ) {}
 
   /** Cross-tenant: recuerda a todos los leads de booking abandonados pendientes. */
@@ -59,7 +69,128 @@ export class BookingRecoveryService {
         );
       }
     }
-    return { reminded };
+    const bookings = await this.remindPendingBookings(now);
+    return { reminded: reminded + bookings };
+  }
+
+  /**
+   * Reservas online ENVIADAS pero sin terminar: el trastero queda retenido
+   * (`firstPaymentDeadline`, 72 h) y luego se libera solo. Se recuerda una vez:
+   * - sin firmar → enlace de firma nuevo;
+   * - firmada pero sin pagar la primera factura → enlace al área de clientes.
+   */
+  private async remindPendingBookings(now: Date): Promise<number> {
+    const contracts = await this.admin.contract.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ['draft', 'active'] },
+        bookingReminderSentAt: null,
+        firstPaymentDeadline: { gt: new Date(now.getTime() + BOOKING_MIN_LEFT_MS) },
+        createdAt: { lte: new Date(now.getTime() - BOOKING_MIN_AGE_MS) },
+        customer: { email: { not: null }, deletedAt: null },
+      },
+      select: { id: true, tenantId: true },
+      take: 500,
+    });
+    let reminded = 0;
+    for (const c of contracts) {
+      try {
+        if (await this.remindBooking(c.tenantId, c.id)) reminded += 1;
+      } catch (err) {
+        this.logger.warn(
+          `[booking-recovery] contrato ${c.id} falló: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return reminded;
+  }
+
+  private async remindBooking(tenantId: string, contractId: string): Promise<boolean> {
+    const contract = await this.admin.contract.findFirst({
+      where: { id: contractId, tenantId },
+      select: {
+        status: true,
+        signedAt: true,
+        firstPaymentDeadline: true,
+        customer: { select: { email: true, firstName: true } },
+        unit: { select: { code: true, facility: { select: { name: true } } } },
+        invoices: {
+          where: { status: { in: ['issued', 'overdue'] } },
+          select: { total: true, amountPaid: true },
+          take: 1,
+        },
+      },
+    });
+    if (!contract?.customer.email || !contract.firstPaymentDeadline) return false;
+    const signed = contract.status === 'active' && !!contract.signedAt;
+    const unpaid = contract.invoices[0];
+    // Firmada y sin factura pendiente: ya está pagada, nada que recordar.
+    if (signed && !unpaid) return false;
+
+    // Se marca ANTES de enviar: con varias réplicas, solo una lo envía.
+    const { count } = await this.admin.contract.updateMany({
+      where: { id: contractId, bookingReminderSentAt: null },
+      data: { bookingReminderSentAt: new Date() },
+    });
+    if (count === 0) return false;
+
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
+    });
+    if (!tenant) return false;
+    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
+    const deadline = formatDateLong(contract.firstPaymentDeadline);
+    const hour = new Intl.DateTimeFormat('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Europe/Madrid',
+    }).format(contract.firstPaymentDeadline);
+    const unit = `${contract.unit.code} (${contract.unit.facility.name})`;
+    const hi = contract.customer.firstName?.trim()
+      ? `Hola ${contract.customer.firstName.trim()},`
+      : 'Hola,';
+
+    let step: string;
+    let url: string;
+    let cta: string;
+    if (!signed) {
+      const { token } = await this.signatures.generateSigningToken(contractId);
+      const base =
+        tenant.customDomain && tenant.customDomainVerifiedAt
+          ? `https://${tenant.customDomain}`
+          : webBase;
+      url = `${base}/sign/${token}`;
+      cta = 'Firmar el contrato';
+      step = 'Solo te falta firmar el contrato y pagar la primera cuota.';
+    } else {
+      url = tenantPortalLoginUrl(webBase, tenant);
+      cta = 'Pagar ahora';
+      const pending = Number(unpaid!.total) - Number(unpaid!.amountPaid);
+      step = `Ya has firmado; solo te falta pagar la primera factura (${formatEur(pending)}) para activar tu acceso.`;
+    }
+    const subject = `Tu trastero ${contract.unit.code} sigue reservado`;
+    const keep = `Lo tenemos reservado para ti hasta el ${deadline} a las ${hour}; después se libera para otros clientes.`;
+    const bodyText = `${hi}\n\nTu trastero ${unit} está reservado a tu nombre. ${step}\n\n${keep}\n\n${cta}: ${url}\n\nSi tienes cualquier duda, responde a este correo.\n\nUn saludo,\nEl equipo de ${tenant.name}`;
+    const esc = (v: string) =>
+      v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const bodyHtml =
+      `<p>${esc(hi)}</p><p>Tu trastero <strong>${esc(unit)}</strong> está reservado a tu nombre. ${esc(step)}</p>` +
+      `<p>${esc(keep)}</p>` +
+      `<p><a href="${esc(url)}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">${esc(cta)}</a></p>` +
+      `<p>Si tienes cualquier duda, responde a este correo.</p>`;
+
+    await this.communications.enqueue({
+      tenantId,
+      channel: 'email',
+      recipient: contract.customer.email,
+      subject,
+      bodyText,
+      bodyHtml,
+      contractId,
+      source: signed ? 'booking_recovery.unpaid' : 'booking_recovery.unsigned',
+    });
+    return true;
   }
 
   /**
