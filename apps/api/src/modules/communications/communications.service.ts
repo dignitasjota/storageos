@@ -26,7 +26,7 @@ import { BUILTIN_TEMPLATES } from './builtin-templates';
 import { MessageTemplatesService } from './message-templates.service';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './providers/whatsapp-provider';
 import { extractSecrets, fillSecrets, maskSecrets } from './secret-vars';
-import { renderTemplate, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
+import { renderTemplate, renderText, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
 import { buildWhatsappTemplateParams } from './whatsapp-template.util';
 
 import type { Env } from '../../config/env.schema';
@@ -251,8 +251,8 @@ export class CommunicationsService {
       const allowed = args.trigger
         ? (TEMPLATE_VARIABLES_BY_TRIGGER[args.trigger] ?? undefined)
         : undefined;
-      subject = renderTemplate(src.subject ?? '', renderVars, allowed);
-      bodyText = renderTemplate(src.bodyText, renderVars, allowed);
+      subject = renderText(src.subject ?? '', renderVars, allowed);
+      bodyText = renderText(src.bodyText, renderVars, allowed);
       bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, renderVars, allowed) : null;
 
       if (args.channel === 'whatsapp' && src.whatsappTemplateName) {
@@ -632,8 +632,8 @@ export class CommunicationsService {
       const allowed = args.trigger
         ? (TEMPLATE_VARIABLES_BY_TRIGGER[args.trigger] ?? undefined)
         : undefined;
-      subject = renderTemplate(src.subject ?? '', renderVars, allowed);
-      bodyText = renderTemplate(src.bodyText, renderVars, allowed);
+      subject = renderText(src.subject ?? '', renderVars, allowed);
+      bodyText = renderText(src.bodyText, renderVars, allowed);
       bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, renderVars, allowed) : null;
     }
     if (args.channel === 'email') provider = this.email.providerName;

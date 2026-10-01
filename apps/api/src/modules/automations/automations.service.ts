@@ -1,8 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
+import { formatDateLong, formatEur } from '../../common/format';
+import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -12,6 +15,7 @@ import { JOB_AUTOMATIONS_RUN, QUEUE_AUTOMATIONS } from '../queues/queues.module'
 
 import { DOMAIN_EVENTS, type DomainEventPayload } from './domain-events';
 
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type { AutomationRule, Prisma } from '@storageos/database';
 import type {
@@ -45,6 +49,7 @@ export class AutomationsService {
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
     @InjectQueue(QUEUE_AUTOMATIONS) private readonly queue: Queue,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   // -----------------------------------------------------------------
@@ -311,8 +316,20 @@ export class AutomationsService {
 
     const tenant = await this.admin.tenant.findUnique({
       where: { id: job.tenantId },
-      select: { name: true, billingEmail: true },
+      select: {
+        name: true,
+        billingEmail: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+      },
     });
+    if (tenant) {
+      // Enlace al área de clientes (ver y pagar facturas).
+      scope.portal = {
+        url: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+      };
+    }
     scope.tenant = {
       name: tenant?.name ?? '',
       contactEmail: tenant?.billingEmail ?? '',
@@ -375,14 +392,14 @@ export class AutomationsService {
       scope.invoice = {
         ...asRecord(scope.invoice),
         number: inv.invoiceNumber,
-        total: Number(inv.total).toFixed(2),
-        amountPending: Math.max(0, pending).toFixed(2),
-        dueDate: inv.dueDate ? inv.dueDate.toISOString().slice(0, 10) : '',
+        total: Number(inv.total),
+        amountPending: Math.max(0, pending),
+        dueDate: inv.dueDate ?? '',
         daysOverdue,
       };
     }
 
-    out.scope = scope;
+    out.scope = humanizeScope(scope);
     return { job: out };
   }
 
@@ -528,4 +545,50 @@ export type { AutomationJobData };
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+}
+
+/** Campos de importe y fecha de las plantillas: se muestran legibles. */
+const MONEY_FIELDS: Record<string, readonly string[]> = {
+  contract: ['priceMonthly', 'depositAmount'],
+  invoice: ['total', 'amountPending'],
+};
+const DATE_FIELDS: Record<string, readonly string[]> = {
+  contract: ['startDate', 'endDate'],
+  invoice: ['dueDate', 'paidAt'],
+  reservation: ['validFrom', 'validUntil'],
+};
+
+/**
+ * Los eventos traen importes y fechas en formato técnico (`121.00`,
+ * `2026-10-01`) porque también alimentan los webhooks salientes; para el
+ * correo se pasan a «121,00 €» y «1 de octubre de 2026».
+ */
+export function humanizeScope(scope: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...scope };
+  const apply = (fields: Record<string, readonly string[]>, fmt: (v: unknown) => string | null) => {
+    for (const [entity, keys] of Object.entries(fields)) {
+      const obj = out[entity];
+      if (!obj || typeof obj !== 'object') continue;
+      const copy: Record<string, unknown> = { ...(obj as Record<string, unknown>) };
+      for (const k of keys) {
+        const v = fmt(copy[k]);
+        if (v !== null) copy[k] = v;
+      }
+      out[entity] = copy;
+    }
+  };
+  apply(MONEY_FIELDS, (v) => {
+    if (typeof v === 'number') return formatEur(v);
+    if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) return formatEur(v.trim());
+    return null;
+  });
+  apply(DATE_FIELDS, (v) => {
+    if (v instanceof Date) return formatDateLong(v);
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : formatDateLong(d);
+    }
+    return null;
+  });
+  return out;
 }

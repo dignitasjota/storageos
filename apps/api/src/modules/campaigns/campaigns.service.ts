@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { CommunicationsService } from '../communications/communications.service';
-import { TEMPLATE_VARIABLES_BY_TRIGGER, renderTemplate } from '../communications/template-engine';
+import { TEMPLATE_VARIABLES_BY_TRIGGER, renderText } from '../communications/template-engine';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -249,8 +249,8 @@ export class CampaignsService {
     const scheduledFor = campaign.scheduledFor ?? undefined;
     for (const r of recipients) {
       try {
-        const subject = renderTemplate(campaign.subject, r.scope, MANUAL_WHITELIST);
-        const bodyText = renderTemplate(campaign.bodyText, r.scope, MANUAL_WHITELIST);
+        const subject = renderText(campaign.subject, r.scope, MANUAL_WHITELIST);
+        const bodyText = renderText(campaign.bodyText, r.scope, MANUAL_WHITELIST);
         await this.communications.enqueue({
           tenantId,
           channel: 'email',

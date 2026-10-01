@@ -224,6 +224,8 @@ enum PaymentGatewayProvider {
 
 enum DunningActionType {
   email_reminder
+  /// Segundo recordatorio (día 7): más firme, avisa de la suspensión del acceso.
+  email_reminder_final
   sms_reminder
   late_fee
   access_block

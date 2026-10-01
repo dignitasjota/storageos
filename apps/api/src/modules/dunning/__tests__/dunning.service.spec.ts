@@ -5,11 +5,13 @@ import {
 } from '../../queues/queues.module';
 import { DunningService } from '../dunning.service';
 
+import type { Env } from '../../../config/env.schema';
 import type { AccessIntegrationsService } from '../../access/access-integrations.service';
 import type { AuditService } from '../../auth/audit.service';
 import type { InvoicesService } from '../../billing/invoices.service';
 import type { CommunicationsService } from '../../communications/communications.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
+import type { ConfigService } from '@nestjs/config';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Queue } from 'bullmq';
 
@@ -22,6 +24,7 @@ interface AdminMock {
   dunningAction: { findUnique: jest.Mock; update: jest.Mock; findMany?: jest.Mock };
   invoice: { findUnique: jest.Mock; findMany?: jest.Mock; updateMany?: jest.Mock };
   tenant: { findUnique: jest.Mock };
+  automationRule?: { count: jest.Mock };
 }
 
 function buildService(
@@ -40,6 +43,7 @@ function buildService(
     communications as unknown as CommunicationsService,
     events as unknown as EventEmitter2,
     invoices,
+    { get: () => 'http://localhost:3000' } as unknown as ConfigService<Env, true>,
     null as unknown as AccessIntegrationsService,
   );
 }
@@ -78,7 +82,15 @@ describe('DunningService.executeAction (email_reminder)', () => {
         update: jest.fn().mockResolvedValue(undefined),
       },
       invoice: { findUnique: jest.fn().mockResolvedValue(overdueInvoice()) },
-      tenant: { findUnique: jest.fn().mockResolvedValue({ name: 'Trasteros SL' }) },
+      tenant: {
+        findUnique: jest.fn().mockResolvedValue({
+          name: 'Trasteros SL',
+          slug: 'trasteros-sl',
+          customDomain: null,
+          customDomainVerifiedAt: null,
+        }),
+      },
+      automationRule: { count: jest.fn().mockResolvedValue(0) },
     };
     const communications = { enqueue: jest.fn().mockResolvedValue(undefined) };
     const service = buildService(admin, communications);
@@ -99,8 +111,9 @@ describe('DunningService.executeAction (email_reminder)', () => {
       customerId: CUSTOMER_ID,
       source: 'dunning.email_reminder',
     });
-    // amountPending = total(100) - amountPaid(20) - amountRefunded(0) = 80.00
-    expect(args.variables.invoice.amountPending).toBe('80.00');
+    // amountPending = total(100) - amountPaid(20) - amountRefunded(0) = 80,00 €
+    expect(args.variables.invoice.amountPending.replace(/\s/g, ' ')).toBe('80,00 €');
+    expect(args.variables.portal.url).toBe('http://localhost:3000/portal/login?slug=trasteros-sl');
     expect(args.variables.invoice.number).toBe('A-2026-00042');
     expect(args.variables.customer.displayName).toBe('Ana García');
     expect(args.variables.tenant.name).toBe('Trasteros SL');

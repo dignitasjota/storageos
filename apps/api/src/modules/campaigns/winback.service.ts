@@ -8,7 +8,7 @@ import {
 } from '@storageos/shared';
 
 import { CommunicationsService } from '../communications/communications.service';
-import { TEMPLATE_VARIABLES_BY_TRIGGER, renderTemplate } from '../communications/template-engine';
+import { TEMPLATE_VARIABLES_BY_TRIGGER, renderText } from '../communications/template-engine';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -167,8 +167,8 @@ export class WinbackService {
           tenantId,
           channel: 'email',
           recipient: c.email,
-          subject: renderTemplate(subjectTpl, scope, MANUAL_WHITELIST),
-          bodyText: renderTemplate(bodyTpl, scope, MANUAL_WHITELIST),
+          subject: renderText(subjectTpl, scope, MANUAL_WHITELIST),
+          bodyText: renderText(bodyTpl, scope, MANUAL_WHITELIST),
           customerId: c.id,
           source: 'winback.auto',
           marketing: true,

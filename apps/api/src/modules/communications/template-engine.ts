@@ -59,6 +59,7 @@ export const TEMPLATE_VARIABLES_BY_TRIGGER: Record<
     'invoice.total',
     'invoice.dueDate',
     'invoice.pdfUrl',
+    'portal.url',
     'tenant.name',
   ],
   invoice_overdue: [
@@ -69,6 +70,7 @@ export const TEMPLATE_VARIABLES_BY_TRIGGER: Record<
     'invoice.amountPending',
     'invoice.dueDate',
     'invoice.daysOverdue',
+    'portal.url',
     'tenant.name',
   ],
   invoice_paid: [
@@ -77,6 +79,7 @@ export const TEMPLATE_VARIABLES_BY_TRIGGER: Record<
     'invoice.number',
     'invoice.total',
     'invoice.paidAt',
+    'portal.url',
     'tenant.name',
   ],
   reservation_confirmed: [
@@ -133,6 +136,22 @@ export function renderTemplate(
 ): string {
   if (!template) return '';
   const compile = Handlebars.compile(template, { noEscape: false, strict: false });
+  const safeScope = allowedKeys ? pickAllowed(scope, allowedKeys) : scope;
+  return compile(safeScope);
+}
+
+/**
+ * Igual que `renderTemplate` pero SIN escapar HTML: para el asunto y el cuerpo
+ * de texto plano (si no, un enlace salía como `slug&#x3D;…` y «García & Hijos»
+ * como «García &amp; Hijos»). El HTML se sigue renderizando escapado.
+ */
+export function renderText(
+  template: string,
+  scope: Record<string, unknown>,
+  allowedKeys?: readonly string[],
+): string {
+  if (!template) return '';
+  const compile = Handlebars.compile(template, { noEscape: true, strict: false });
   const safeScope = allowedKeys ? pickAllowed(scope, allowedKeys) : scope;
   return compile(safeScope);
 }

@@ -48,13 +48,14 @@ describe('Lista de supresión de correo (e2e)', () => {
   ): Promise<Comm> {
     const inv = await createDraftInvoice(app, token, customerId);
     await request(app.getHttpServer()).post(`/invoices/${inv}/issue`).set(auth).expect(200);
-    for (let i = 0; i < 60; i++) {
+    // Hasta 30 s: con varias suites a la vez el outbox puede tardar.
+    for (let i = 0; i < 100; i++) {
       const res = await request(app.getHttpServer())
         .get(`/communications?invoiceId=${inv}&source=customer_email.invoice_issued`)
         .set(auth);
       const comm = (res.body as Comm[])[0];
       if (comm && ['sent', 'skipped', 'failed'].includes(comm.status)) return comm;
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 300));
     }
     throw new Error('el aviso de la factura no llegó a un estado final');
   }
