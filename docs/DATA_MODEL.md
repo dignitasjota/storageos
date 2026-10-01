@@ -611,6 +611,14 @@ recordManualPayment` (provider `'sepa'`, mismo candado/dedup/extensión de
 - Endpoints admin-only (`AdminGuard`); mandato con endpoints self-service del
   tenant en `/settings/saas-billing/sepa-mandate`.
 
+### Contabilidad: Holded y asesoría (2026-10-01, #573–#575)
+
+- `holded_settings.invoice_series_id` / `credit_note_series_id` (TEXT): series de Holded marcadas «No enviar a Verifactu» donde se copian las facturas y las rectificativas del tenant.
+- `payments.holded_synced_at` (TIMESTAMPTZ): cobro ya copiado a Holded. `invoices.holded_cancelled_at` (TIMESTAMPTZ): anulación ya copiada.
+- `tenants.billing_legal_name` / `billing_address` / `billing_city` / `billing_postal_code` (TEXT): datos fiscales del tenant como destinatario de sus facturas de suscripción (junto a `tax_id` y `country`). La factura (`platform_invoices.tenant_name` / `tenant_address`) guarda una copia al emitirse.
+- `platform_billing_settings.own_tenant_id` (UUID, FK `tenants` SET NULL): negocio propio de la SL emisora, incluido en la exportación para la asesoría.
+- `platform_billing_settings.holded_enabled` / `holded_api_key_encrypted` (AES-GCM) / `holded_invoice_series_id` / `holded_last_sync_at` / `holded_last_error` y `platform_invoices.holded_document_id`: copia en Holded de las facturas de suscripción (desactivada por defecto).
+
 ## 14.9. Seguridad — columnas y permisos (auditoría 4, 2026-09-25)
 
 - `customers.portal_session_version` (INT, default 0, #521): versión de sesión

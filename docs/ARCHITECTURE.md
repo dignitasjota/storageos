@@ -142,6 +142,15 @@ Cada refresh **rota** la sesión actual (la marca `revokedReason: rotated`) y cr
 
 **Detalle completo:** ADR independiente en `docs/adr/008-verifactu-real-client.md`.
 
+**Actualización (2026-10-01, #573–#575) — contabilidad con Holded y la asesoría:**
+
+- **Un solo emisor fiscal**: la app numera, emite y registra en Veri\*Factu. Holded (del tenant o de la plataforma) recibe una **copia contable** y nunca vuelve a registrar: la copia va siempre a una serie de Holded marcada «No enviar a Verifactu», comprobada contra Holded al guardarla; sin serie válida no se envía nada.
+- **El número legal viaja en la descripción** del documento de Holded: su API no permite fijar a la vez el número y la serie.
+- **La copia sigue la vida de la factura** (`HoldedSyncService`, best-effort sobre eventos): emisión, cobros, rectificativas (credit notes en su serie), simplificadas (contacto genérico) y anulaciones (`domain.invoice_cancelled`). Cliente HTTP propio sobre la API v2 (`Bearer`); la v1 ya no acepta las claves nuevas.
+- **Facturas de suscripción completas**: el emisor no puede activar la facturación sin sus datos fiscales; el tenant rellena los suyos; si faltan al cobrar, la factura se emite igual y queda marcada.
+- **Asesoría**: formato estándar (`AccountantExportService`, Excel o CSV) que junta las dos actividades de la SL —suscripciones y negocio propio— por factura y tipo de IVA, más cobros. No se integra con programas contables concretos.
+- Las facturas de suscripción **aún no** se registran en Veri\*Factu (obligatorio para sociedades desde el 1-1-2027).
+
 ## ADR-019: Email transaccional con nodemailer + React Email
 
 **Decisión:** en backend usamos `nodemailer` para enviar y `@react-email/components` para componer las plantillas. En dev apuntamos a **Mailpit** (`localhost:1026`); en prod apuntaremos a Resend o Brevo vía SMTP relay (no autohospedamos SMTP, ver ADR-010).
