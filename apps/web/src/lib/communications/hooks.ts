@@ -24,6 +24,15 @@ import type {
 export const communicationsKey = (params?: Record<string, string | undefined>) =>
   ['communications', params ?? {}] as const;
 
+/** Canales que pueden enviar ahora mismo (WhatsApp sin configurar = no). */
+export function useCommunicationChannels() {
+  return useQuery({
+    queryKey: ['communications', 'channels'] as const,
+    queryFn: () => apiFetch<{ email: boolean; whatsapp: boolean }>('/communications/channels'),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useCommunications(params?: {
   status?: string;
   channel?: string;

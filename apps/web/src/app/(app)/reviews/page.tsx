@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { useCommunicationChannels } from '@/lib/communications/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
 import {
   useRequestReview,
@@ -232,6 +233,7 @@ function RequestReviewDialog() {
   const [search, setSearch] = useState('');
   const customers = useCustomers(search);
   const request = useRequestReview();
+  const whatsappOn = useCommunicationChannels().data?.whatsapp ?? true;
 
   async function submit() {
     if (!customerId) {
@@ -289,7 +291,9 @@ function RequestReviewDialog() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="email">Email</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="whatsapp" disabled={!whatsappOn}>
+                  WhatsApp{whatsappOn ? '' : ' (no configurado)'}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>

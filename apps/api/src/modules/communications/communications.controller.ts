@@ -64,6 +64,13 @@ export class CommunicationsController {
     return this.service.list(user.tenantId, filters);
   }
 
+  /** Canales que pueden enviar ahora mismo (para habilitar opciones en la UI). */
+  @RequirePermission('communications:read')
+  @Get('channels')
+  channels(): { email: boolean; whatsapp: boolean } {
+    return { email: true, whatsapp: this.service.whatsappAvailable };
+  }
+
   @RequirePermission('communications:read')
   @Get(':id')
   detail(

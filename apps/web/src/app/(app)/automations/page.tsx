@@ -42,6 +42,7 @@ import {
   useDeleteAutomation,
   useEditAutomation,
   useMessageTemplates,
+  useCommunicationChannels,
 } from '@/lib/communications/hooks';
 
 /** Disparadores que se emiten de verdad (`review_request` no tiene emisor). */
@@ -255,6 +256,7 @@ function RuleDialog({ rule, onClose }: { rule: AutomationRuleDto | null; onClose
   const [isActive, setIsActive] = useState(rule?.isActive ?? true);
 
   const channel = action === 'send_whatsapp' ? 'whatsapp' : 'email';
+  const whatsappOn = useCommunicationChannels().data?.whatsapp ?? true;
   const options = useMemo(
     () => (templates.data ?? []).filter((t) => t.channel === channel && t.isActive),
     [templates.data, channel],
@@ -334,9 +336,16 @@ function RuleDialog({ rule, onClose }: { rule: AutomationRuleDto | null; onClose
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="send_email">Email</SelectItem>
-                <SelectItem value="send_whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="send_whatsapp" disabled={!whatsappOn}>
+                  WhatsApp{whatsappOn ? '' : ' (no configurado)'}
+                </SelectItem>
               </SelectContent>
             </Select>
+            {!whatsappOn && action === 'send_whatsapp' && (
+              <p className="text-xs text-destructive">
+                WhatsApp no está configurado en la plataforma: estos mensajes no saldrán. Usa email.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ar-template">Plantilla</Label>

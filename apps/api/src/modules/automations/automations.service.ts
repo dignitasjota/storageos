@@ -477,6 +477,7 @@ export class AutomationsService {
         message: 'El envío por SMS aún no está disponible',
       });
     }
+    if (actionType === 'send_whatsapp') this.communications.assertWhatsappAvailable();
     if (!templateId) {
       throw new BadRequestException({
         code: 'template_required',
