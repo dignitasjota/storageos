@@ -116,9 +116,10 @@ describe('Admin: correo saliente (e2e)', () => {
       .get('/admin/email-settings/platform-domain')
       .set(auth)
       .expect(200);
-    expect(platform.body.domain).toMatch(/\./);
-    expect(platform.body.brevo).toBe('authenticated'); // stub de Brevo en test
-    expect(platform.body.resend).toBe('no_key');
+    const first = (platform.body as { domain: string; brevo: string; resend: string }[])[0]!;
+    expect(first.domain).toMatch(/\./);
+    expect(first.brevo).toBe('authenticated'); // stub de Brevo en test
+    expect(first.resend).toBe('no_key');
 
     const list = await request(app.getHttpServer())
       .get('/admin/email-settings/brevo-domains/unused')
@@ -150,6 +151,63 @@ describe('Admin: correo saliente (e2e)', () => {
       .expect(400);
   });
 
+  it('remitentes por tipo: herencia y aplicados a un correo real de la plataforma', async () => {
+    const auth = await loginAs('superadmin');
+    try {
+      const saved = await request(app.getHttpServer())
+        .put('/admin/email-settings/senders')
+        .set(auth)
+        .send({
+          default: { name: 'Equipo TrasterOS', replyTo: 'soporte@trasteros-e2e.local' },
+          account: { email: 'cuentas@trasteros-e2e.local' },
+          billing: { email: 'facturacion@trasteros-e2e.local', replyTo: '' },
+        })
+        .expect(200);
+      expect(saved.body.effective.account).toEqual({
+        name: 'Equipo TrasterOS',
+        email: 'cuentas@trasteros-e2e.local',
+        replyTo: 'soporte@trasteros-e2e.local',
+      });
+      expect(saved.body.effective.billing.replyTo).toBe('soporte@trasteros-e2e.local');
+      expect(saved.body.categories.admin_messages).toEqual({
+        name: null,
+        email: null,
+        replyTo: null,
+      });
+
+      // Dominios a comprobar: uno por dirección distinta.
+      const domains = await request(app.getHttpServer())
+        .get('/admin/email-settings/platform-domain')
+        .set(auth)
+        .expect(200);
+      expect((domains.body as { domain: string }[]).map((d) => d.domain)).toContain(
+        'trasteros-e2e.local',
+      );
+
+      // Un correo de tipo «cuenta» sale con su remitente y respuesta.
+      const owner = await registerVerifiedUser(app, 'senders');
+      await request(app.getHttpServer())
+        .post('/auth/password/forgot')
+        .send({ tenantSlug: owner.slug, email: owner.email })
+        .expect(204);
+      const mail = await waitForEmail(owner.email, { subjectIncludes: 'Restablece' });
+      expect(mail.From.Address).toBe('cuentas@trasteros-e2e.local');
+      expect(mail.From.Name).toBe('Equipo TrasterOS');
+      expect(mail.ReplyTo?.[0]?.Address).toBe('soporte@trasteros-e2e.local');
+
+      await request(app.getHttpServer())
+        .put('/admin/email-settings/senders')
+        .set(auth)
+        .send({ default: { email: 'no es un email' } })
+        .expect(400);
+    } finally {
+      await request(app.getHttpServer())
+        .put('/admin/email-settings/senders')
+        .set(auth)
+        .send({ default: {} });
+    }
+  }, 90_000);
+
   it('el rol support puede ver pero no cambiar ni probar', async () => {
     const auth = await loginAs('support');
     await request(app.getHttpServer()).get('/admin/email-settings').set(auth).expect(200);
@@ -170,6 +228,12 @@ describe('Admin: correo saliente (e2e)', () => {
     await request(app.getHttpServer())
       .delete('/admin/email-settings/brevo-domains/cualquiera.es')
       .set(auth)
+      .expect(403);
+    await request(app.getHttpServer()).get('/admin/email-settings/senders').set(auth).expect(200);
+    await request(app.getHttpServer())
+      .put('/admin/email-settings/senders')
+      .set(auth)
+      .send({ default: {} })
       .expect(403);
   });
 });

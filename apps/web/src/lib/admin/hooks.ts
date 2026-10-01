@@ -55,8 +55,10 @@ import type {
   UpdatePlatformAlertSettingsInput,
   PlatformEmailSettingsDto,
   UpdatePlatformEmailSettingsInput,
+  UpdatePlatformSendersInput,
   TestEmailResultDto,
   PlatformDomainStatusDto,
+  PlatformSendersDto,
   UnusedBrevoDomainDto,
   AdminTenantHealthDto,
   TenantFeature,
@@ -1518,11 +1520,35 @@ export function useUpdateEmailSettings() {
   });
 }
 
-/** ¿Está autenticado el dominio del remitente de la plataforma en Brevo/Resend? */
+/** Remitentes de los correos de la plataforma (común y por tipo). */
+export function usePlatformSenders() {
+  return useQuery({
+    queryKey: ['admin', 'email-settings', 'senders'] as const,
+    queryFn: () => adminApiFetch<PlatformSendersDto>('/admin/email-settings/senders'),
+  });
+}
+
+export function useUpdatePlatformSenders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformSendersInput) =>
+      adminApiFetch<PlatformSendersDto>('/admin/email-settings/senders', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(['admin', 'email-settings', 'senders'], data);
+      void qc.invalidateQueries({ queryKey: ['admin', 'email-settings'] });
+    },
+  });
+}
+
+/** ¿Están autenticados los dominios de los remitentes de la plataforma en Brevo/Resend? */
 export function usePlatformDomainStatus() {
   return useQuery({
     queryKey: ['admin', 'email-settings', 'platform-domain'] as const,
-    queryFn: () => adminApiFetch<PlatformDomainStatusDto>('/admin/email-settings/platform-domain'),
+    queryFn: () =>
+      adminApiFetch<PlatformDomainStatusDto[]>('/admin/email-settings/platform-domain'),
     retry: false,
   });
 }

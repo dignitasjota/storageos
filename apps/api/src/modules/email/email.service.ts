@@ -1,13 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { render } from '@react-email/render';
 
+import { PlatformEmailSettingsService } from './platform-email-settings.service';
 import {
   EMAIL_PROVIDER,
+  type EmailAddress,
   type EmailProvider,
   type SendEmailResult,
 } from './providers/email-provider';
 import { TenantSenderService } from './tenant-sender.service';
 
+import type { PlatformSenderCategory } from '@storageos/shared';
 import type { ReactElement } from 'react';
 
 export interface SendMailTemplateArgs {
@@ -18,6 +21,11 @@ export interface SendMailTemplateArgs {
    * de la plataforma (emails de cuenta, avisos al tenant, etc.).
    */
   tenantId?: string;
+  /**
+   * Tipo de correo de la plataforma (sin `tenantId`): elige su remitente y su
+   * dirección de respuesta (panel admin → Correo saliente). Sin él, el común.
+   */
+  category?: PlatformSenderCategory;
   subject: string;
   template: ReactElement;
   tags?: Record<string, string>;
@@ -31,6 +39,11 @@ export interface SendMailRenderedArgs {
    * de la plataforma (emails de cuenta, avisos al tenant, etc.).
    */
   tenantId?: string;
+  /**
+   * Tipo de correo de la plataforma (sin `tenantId`): elige su remitente y su
+   * dirección de respuesta (panel admin → Correo saliente). Sin él, el común.
+   */
+  category?: PlatformSenderCategory;
   subject: string;
   html: string;
   text: string;
@@ -52,6 +65,7 @@ export class EmailService {
   constructor(
     @Inject(EMAIL_PROVIDER) private readonly provider: EmailProvider,
     private readonly senders: TenantSenderService,
+    private readonly platform: PlatformEmailSettingsService,
   ) {}
 
   get providerName(): string {
@@ -67,17 +81,21 @@ export class EmailService {
       html,
       text,
       ...(args.tenantId ? { tenantId: args.tenantId } : {}),
+      ...(args.category ? { category: args.category } : {}),
       ...(args.tags ? { tags: args.tags } : {}),
     });
   }
 
   async sendRendered(args: SendMailRenderedArgs): Promise<SendEmailResult> {
-    const sender = args.tenantId ? await this.senders.resolve(args.tenantId) : null;
+    const sender: { from: EmailAddress; replyTo?: EmailAddress; forceProvider?: 'brevo' } =
+      args.tenantId
+        ? await this.senders.resolve(args.tenantId)
+        : await this.platform.platformSender(args.category);
     try {
       return await this.provider.send({
-        ...(sender ? { from: sender.from } : {}),
-        ...(sender?.replyTo ? { replyTo: sender.replyTo } : {}),
-        ...(sender?.forceProvider ? { forceProvider: sender.forceProvider } : {}),
+        from: sender.from,
+        ...(sender.replyTo ? { replyTo: sender.replyTo } : {}),
+        ...(sender.forceProvider ? { forceProvider: sender.forceProvider } : {}),
         to: args.to,
         subject: args.subject,
         html: args.html,

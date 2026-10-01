@@ -233,7 +233,7 @@ ${lines.map((l) => `<p style="font-size:15px;line-height:22px;margin:6px 0">${es
     await this.emailQueue.addBulk(
       to.map((address) => ({
         name: JOB_EMAIL_SEND,
-        data: { to: address, subject: msg.subject, html, text },
+        data: { to: address, category: 'staff_notices', subject: msg.subject, html, text },
       })),
     );
   }

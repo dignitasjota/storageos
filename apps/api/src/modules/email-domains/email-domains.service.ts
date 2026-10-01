@@ -203,19 +203,24 @@ export class EmailDomainsService {
    * dominio de la plataforma y sus subdominios.
    */
   /**
-   * ¿Está autenticado el dominio del remitente de la plataforma en Brevo y en
-   * Resend? Si no lo está, el proveedor acepta el envío y lo rechaza después
+   * ¿Están autenticados los dominios de los remitentes de la plataforma en
+   * Brevo y en Resend? Si no lo está, el proveedor acepta el envío y lo rechaza después
    * (la app no se entera): se avisa en el panel admin.
    */
-  async platformDomainStatus(): Promise<PlatformDomainStatusDto> {
-    const domain = (
-      this.config.get('EMAIL_FROM_ADDRESS', { infer: true }).split('@')[1] ?? ''
-    ).toLowerCase();
-    const [brevo, resend] = await Promise.all([
-      this.brevoDomainStatus(domain),
-      this.resendDomainStatus(domain),
-    ]);
-    return { domain, brevo, resend };
+  async platformDomainStatus(domains?: string[]): Promise<PlatformDomainStatusDto[]> {
+    const list = domains?.length
+      ? domains
+      : [this.config.get('EMAIL_FROM_ADDRESS', { infer: true }).split('@')[1] ?? ''];
+    const unique = [...new Set(list.map((d) => d.toLowerCase()).filter(Boolean))];
+    return Promise.all(
+      unique.map(async (domain) => {
+        const [brevo, resend] = await Promise.all([
+          this.brevoDomainStatus(domain),
+          this.resendDomainStatus(domain),
+        ]);
+        return { domain, brevo, resend };
+      }),
+    );
   }
 
   private async brevoDomainStatus(domain: string): Promise<PlatformDomainProviderStatus> {

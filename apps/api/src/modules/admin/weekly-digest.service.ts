@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
+import { PlatformEmailSettingsService } from '../email/platform-email-settings.service';
 import { EMAIL_PROVIDER, type EmailProvider } from '../email/providers/email-provider';
 
 import { AdminMetricsService } from './admin-metrics.service';
@@ -43,6 +44,7 @@ export class WeeklyDigestService {
     private readonly tenants: AdminTenantsService,
     private readonly alerts: PlatformAlertsService,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
+    private readonly platformEmail: PlatformEmailSettingsService,
   ) {}
 
   /**
@@ -67,6 +69,7 @@ export class WeeklyDigestService {
     const { html, text } = this.render(overview, lastMovement, atRisk);
 
     await this.email.send({
+      ...(await this.platformEmail.platformSender()),
       to: settings.alertEmail,
       subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
       html,

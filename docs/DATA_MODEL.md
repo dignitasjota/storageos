@@ -662,6 +662,7 @@ Banderas y modelos transversales que afectan al despliegue, no a una tabla concr
   30 s. `communications.provider` guarda el proveedor que entregó realmente.
 - **`tenants.staff_email_settings`** (jsonb, default `{}`): avisos por email al equipo que el tenant ha apagado; ausente = activado.
 - **`tenants.customer_email_settings`** (jsonb, default `{}`): correos automáticos al inquilino que el tenant ha apagado (`{"invoice_issued": false}`); una clave ausente = activado.
+- **`platform_email_settings.senders`** (jsonb, default `{}`): remitentes de la plataforma `{ default?, account?, billing?, admin_messages?, staff_notices? }`, cada uno `{ name?, email?, replyTo? }`; vacío = variables `EMAIL_FROM_*`.
 - **`tenant_email_domains`** (RLS, 1 por tenant, `domain` único global porque
   todos viven en la cuenta Brevo de la plataforma): `from_local_part`,
   `from_name?`, `reply_to?`, `status` (`pending|verified|failed`), `dns_records`

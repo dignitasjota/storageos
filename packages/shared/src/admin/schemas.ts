@@ -578,6 +578,67 @@ export const UpdatePlatformEmailSettingsSchema = z.object({
 });
 export type UpdatePlatformEmailSettingsInput = z.infer<typeof UpdatePlatformEmailSettingsSchema>;
 
+/**
+ * Tipos de correo de la plataforma a los tenants, cada uno con su remitente
+ * opcional (si no, el común; si no, las variables EMAIL_FROM_*).
+ */
+export const PLATFORM_SENDER_CATEGORIES = [
+  'account',
+  'billing',
+  'admin_messages',
+  'staff_notices',
+] as const;
+export type PlatformSenderCategory = (typeof PLATFORM_SENDER_CATEGORIES)[number];
+
+export const PLATFORM_SENDER_LABELS: Record<
+  PlatformSenderCategory,
+  { label: string; description: string }
+> = {
+  account: {
+    label: 'Cuenta',
+    description: 'Verificación del email, recuperar contraseña e invitaciones a usuarios.',
+  },
+  billing: {
+    label: 'Suscripción y facturación',
+    description: 'Bienvenida, fin de la prueba, impagos de la cuota y facturas de la suscripción.',
+  },
+  admin_messages: {
+    label: 'Mensajes del administrador',
+    description: 'Los emails y anuncios que envías desde este panel.',
+  },
+  staff_notices: {
+    label: 'Avisos al equipo del tenant',
+    description: 'Contacto nuevo, reserva online, baja, incidencia e informe mensual.',
+  },
+};
+
+const optionalEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email('Email no válido')
+  .max(254)
+  .or(z.literal(''))
+  .optional();
+
+export const PlatformSenderSchema = z.object({
+  name: z.string().trim().max(70).optional(),
+  email: optionalEmail,
+  replyTo: optionalEmail,
+});
+export type PlatformSenderInput = z.infer<typeof PlatformSenderSchema>;
+
+export const UpdatePlatformSendersSchema = z
+  .object({
+    default: PlatformSenderSchema,
+    account: PlatformSenderSchema.optional(),
+    billing: PlatformSenderSchema.optional(),
+    admin_messages: PlatformSenderSchema.optional(),
+    staff_notices: PlatformSenderSchema.optional(),
+  })
+  .strict();
+export type UpdatePlatformSendersInput = z.infer<typeof UpdatePlatformSendersSchema>;
+
 export const SendTestEmailSchema = z.object({
   to: z.string().trim().email(),
 });

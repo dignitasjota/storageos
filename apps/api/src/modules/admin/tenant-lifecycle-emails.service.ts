@@ -165,7 +165,7 @@ export class TenantLifecycleEmailsService {
     await this.emailQueue.addBulk(
       recipients.map((to) => ({
         name: JOB_EMAIL_SEND,
-        data: { to, subject: tmpl.subject, html: tmpl.html, text: tmpl.text },
+        data: { to, category: 'billing', subject: tmpl.subject, html: tmpl.html, text: tmpl.text },
       })),
     );
     return true;
