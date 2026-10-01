@@ -62,6 +62,14 @@ export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export class FilesService implements OnModuleInit {
   private readonly logger = new Logger(FilesService.name);
   private readonly s3: S3Client;
+  /**
+   * Cliente SOLO para firmar URLs que usará el navegador. La firma incluye el
+   * host: firmar con el endpoint interno (`minio:9000` en Docker) da URLs que el
+   * navegador no alcanza (y la CSP bloquea por ser `http:`). Por eso se firma con
+   * la URL pública de MinIO (`MINIO_PUBLIC_URL`, servida por el proxy, que
+   * reenvía el `Host` original). En local ambas URLs coinciden.
+   */
+  private readonly presigner: S3Client;
   private readonly publicUrl: string;
   private readonly bucketMap: Record<PresignArgs['bucket'], string>;
 
@@ -76,7 +84,16 @@ export class FilesService implements OnModuleInit {
       },
       forcePathStyle: true, // MinIO requiere path-style (no virtual-hosted).
     });
-    this.publicUrl = config.get('MINIO_PUBLIC_URL', { infer: true });
+    this.publicUrl = config.get('MINIO_PUBLIC_URL', { infer: true }).replace(/\/+$/, '');
+    this.presigner = new S3Client({
+      region: 'us-east-1',
+      endpoint: this.publicUrl,
+      credentials: {
+        accessKeyId: config.get('MINIO_ACCESS_KEY', { infer: true }),
+        secretAccessKey: config.get('MINIO_SECRET_KEY', { infer: true }),
+      },
+      forcePathStyle: true,
+    });
     this.bucketMap = {
       uploads: config.get('MINIO_BUCKET_UPLOADS', { infer: true }),
       invoices: config.get('MINIO_BUCKET_INVOICES', { infer: true }),
@@ -152,7 +169,7 @@ export class FilesService implements OnModuleInit {
         ? { ContentLength: undefined } // se valida en el cliente; MinIO no soporta size en presign
         : {}),
     });
-    const uploadUrl = await getSignedUrl(this.s3, cmd, { expiresIn });
+    const uploadUrl = await getSignedUrl(this.presigner, cmd, { expiresIn });
     return { uploadUrl, expiresIn };
   }
 
@@ -188,7 +205,7 @@ export class FilesService implements OnModuleInit {
     expiresIn = 300,
   ): Promise<string> {
     const cmd = new GetObjectCommand({ Bucket: this.bucketMap[bucket], Key: key });
-    return getSignedUrl(this.s3, cmd, { expiresIn });
+    return getSignedUrl(this.presigner, cmd, { expiresIn });
   }
 
   /** Genera una key para una foto de inspección de contrato (check-in/check-out). */

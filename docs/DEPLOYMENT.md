@@ -1082,6 +1082,8 @@ propio** (NPM emite un cert por hostname, no wildcard):
 
 Tras cambiarlas: **reiniciar api y worker** (las leen en runtime).
 
+> **`MINIO_PUBLIC_URL` es también la URL con la que se firman las subidas y descargas del navegador** (planos, fotos, documentos, PDFs privados). Debe ser **https**, apuntar a la raíz de MinIO (Proxy Host en NPM, p. ej. `files.trasteros.pro` → `minio:9000`, sin ruta extra) y el proxy debe reenviar el `Host` original (NPM lo hace por defecto). Si falta o apunta a otro sitio, el navegador intenta subir a `http://minio:9000/…` y la CSP lo bloquea («violates … connect-src»).
+
 ### 19.3 ⚠️ Gotcha 1 — `NEXT_PUBLIC_*` se hornean en el bundle en `next build`
 
 Las `NEXT_PUBLIC_*` son **build-args del Dockerfile del web** (quedan inline en
