@@ -45,5 +45,27 @@ export interface HoldedTestResultDto {
   message: string;
 }
 
+/** Copia en Holded de las facturas de suscripción de la plataforma (super admin). */
+export const UpdatePlatformHoldedSettingsSchema = z.object({
+  /** API key de Holded. Omitida = se conserva la actual. */
+  apiKey: z.string().trim().min(10).max(200).optional(),
+  enabled: z.boolean(),
+  /** Serie «No enviar a Verifactu». Omitido = no cambia; null = quitarla. */
+  invoiceSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
+});
+export type UpdatePlatformHoldedSettingsInput = z.infer<typeof UpdatePlatformHoldedSettingsSchema>;
+
+export interface PlatformHoldedSettingsDto {
+  enabled: boolean;
+  hasApiKey: boolean;
+  invoiceSeriesId: string | null;
+  /** Activa, con clave y serie: las facturas de suscripción se copian a Holded. */
+  ready: boolean;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  /** Facturas de suscripción aún sin copiar a Holded. */
+  pendingCount: number;
+}
+
 export * from './billing-details';
 export * from './accountant-export';

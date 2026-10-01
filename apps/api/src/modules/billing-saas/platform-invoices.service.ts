@@ -13,6 +13,8 @@ import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 
+import { PlatformHoldedService } from './platform-holded.service';
+
 import type { Env } from '../../config/env.schema';
 import type {
   PlatformBillingSettingsDto,
@@ -65,6 +67,7 @@ export class PlatformInvoicesService {
     private readonly files: FilesService,
     private readonly email: EmailService,
     private readonly stripeGateway: StripeGateway,
+    private readonly holded: PlatformHoldedService,
     config: ConfigService<Env, true>,
   ) {
     this.stripe = stripeGateway.getClient();
@@ -392,6 +395,9 @@ export class PlatformInvoicesService {
         })
         .catch(() => undefined);
     }
+
+    // Copia contable en Holded (best-effort; no-op si no está activa).
+    await this.holded.pushBestEffort(created.id);
 
     // Email best-effort al tenant.
     await this.sendEmail(created, settings).catch((err) =>
