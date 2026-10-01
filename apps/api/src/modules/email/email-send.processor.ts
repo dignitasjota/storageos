@@ -6,12 +6,14 @@ import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
 import { EmailService } from './email.service';
 
-import type { PlatformSenderCategory } from '@storageos/shared';
+import type { PlatformEmailKind, PlatformSenderCategory } from '@storageos/shared';
 
 export interface EmailSendJobData {
   to: string;
   /** Tipo de correo de la plataforma → su remitente (panel admin → Correo saliente). */
   category?: PlatformSenderCategory;
+  /** Correo concreto → tipo de remitente y texto de `{tipo}` del nombre. */
+  kind?: PlatformEmailKind;
   subject: string;
   html: string;
   text: string;
@@ -35,7 +37,14 @@ export class EmailSendProcessor extends WorkerHost {
       this.logger.warn(`Job desconocido en ${QUEUE_EMAIL}: ${job.name}`);
       return;
     }
-    const { to, category, subject, html, text } = job.data;
-    await this.email.sendRendered({ to, ...(category ? { category } : {}), subject, html, text });
+    const { to, category, kind, subject, html, text } = job.data;
+    await this.email.sendRendered({
+      to,
+      ...(category ? { category } : {}),
+      ...(kind ? { kind } : {}),
+      subject,
+      html,
+      text,
+    });
   }
 }

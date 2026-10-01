@@ -97,7 +97,7 @@ export class TenantMonthlyDigestService {
     await this.emailQueue.addBulk(
       recipients.map((to) => ({
         name: JOB_EMAIL_SEND,
-        data: { to, category: 'staff_notices', subject: `Tu resumen de ${monthLabel}`, html, text },
+        data: { to, kind: 'monthly_report', subject: `Tu resumen de ${monthLabel}`, html, text },
       })),
     );
     return { sent: true, recipients: recipients.length };

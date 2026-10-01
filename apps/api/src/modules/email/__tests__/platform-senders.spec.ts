@@ -3,10 +3,12 @@ import { PlatformEmailSettingsService } from '../platform-email-settings.service
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { ConfigService } from '@nestjs/config';
 
-function build(senders: unknown) {
+function build(senders: unknown, tipoLabels: unknown = {}) {
   const admin = {
     platformEmailSettings: {
-      findFirst: jest.fn().mockResolvedValue({ provider: null, fallbackEnabled: true, senders }),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ provider: null, fallbackEnabled: true, senders, tipoLabels }),
     },
   } as unknown as PrismaAdminService;
   const env: Record<string, string> = {
@@ -58,5 +60,38 @@ describe('PlatformEmailSettingsService.platformSender', () => {
       replyTo: null,
     });
     expect(dto.default).toEqual({ name: null, email: null, replyTo: null });
+  });
+
+  it('{tipo} se sustituye por el texto del correo concreto (cambiado o por defecto)', async () => {
+    const svc = build(
+      {
+        default: { name: 'TrasterOS · {tipo}', email: 'hola@trasteros.pro' },
+        subscription: { email: 'bienvenida@trasteros.pro' },
+      },
+      { saas_invoice: 'Facturas', welcome: '' },
+    );
+    expect((await svc.platformSender(undefined, 'password_reset')).from).toEqual({
+      name: 'TrasterOS · Contraseña',
+      email: 'hola@trasteros.pro',
+    });
+    expect((await svc.platformSender(undefined, 'saas_invoice')).from.name).toBe(
+      'TrasterOS · Facturas',
+    );
+    // Texto vacío → la variable y el separador desaparecen; el tipo «Suscripción» usa su dirección.
+    expect((await svc.platformSender(undefined, 'welcome')).from).toEqual({
+      name: 'TrasterOS',
+      email: 'bienvenida@trasteros.pro',
+    });
+    // Sin correo concreto (alertas internas) la variable no aparece.
+    expect((await svc.platformSender()).from.name).toBe('TrasterOS');
+
+    const dto = await svc.getSenders();
+    expect(dto.kinds.trial_ending).toEqual({
+      tipo: 'Prueba gratuita',
+      isDefault: true,
+      fromName: 'TrasterOS · Prueba gratuita',
+      fromEmail: 'bienvenida@trasteros.pro',
+    });
+    expect(dto.kinds.saas_invoice.isDefault).toBe(false);
   });
 });

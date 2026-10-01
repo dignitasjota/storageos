@@ -4206,9 +4206,11 @@ model PlatformEmailSettings {
   id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   provider        String?
   fallbackEnabled Boolean  @default(true) @map("fallback_enabled")
-  /// Remitentes de la plataforma: `{ default?, account?, billing?, admin_messages?, staff_notices? }`,
+  /// Remitentes de la plataforma: `{ default?, account?, subscription?, billing?, admin_messages?, staff_notices? }`,
   /// cada uno `{ name?, email?, replyTo? }`. Vacío = variables EMAIL_FROM_*.
   senders         Json     @default("{}")
+  /// Texto de `{tipo}` en el nombre del remitente, por correo concreto (solo los cambiados).
+  tipoLabels      Json     @default("{}") @map("tipo_labels")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

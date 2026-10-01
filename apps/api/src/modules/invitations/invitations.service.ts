@@ -404,7 +404,7 @@ export class InvitationsService {
     try {
       await this.email.send({
         to: record.email,
-        category: 'account',
+        kind: 'invitation',
         subject: `${inviterName} te ha invitado a ${tenantName} en TrasterOS`,
         template: InvitationEmail({
           recipientName: recipientName ?? record.email,

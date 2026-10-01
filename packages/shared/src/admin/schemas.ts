@@ -584,6 +584,7 @@ export type UpdatePlatformEmailSettingsInput = z.infer<typeof UpdatePlatformEmai
  */
 export const PLATFORM_SENDER_CATEGORIES = [
   'account',
+  'subscription',
   'billing',
   'admin_messages',
   'staff_notices',
@@ -598,9 +599,13 @@ export const PLATFORM_SENDER_LABELS: Record<
     label: 'Cuenta',
     description: 'Verificación del email, recuperar contraseña e invitaciones a usuarios.',
   },
+  subscription: {
+    label: 'Suscripción',
+    description: 'Bienvenida y avisos de fin de la prueba gratuita.',
+  },
   billing: {
-    label: 'Suscripción y facturación',
-    description: 'Bienvenida, fin de la prueba, impagos de la cuota y facturas de la suscripción.',
+    label: 'Facturación',
+    description: 'Facturas de la suscripción y avisos de pago pendiente o suspensión.',
   },
   admin_messages: {
     label: 'Mensajes del administrador',
@@ -612,6 +617,82 @@ export const PLATFORM_SENDER_LABELS: Record<
   },
 };
 
+/**
+ * Cada correo concreto de la plataforma: a qué tipo (remitente) pertenece y el
+ * texto por defecto de la variable `{tipo}` del nombre del remitente
+ * (p. ej. «TrasterOS · {tipo}» → «TrasterOS · Factura»).
+ */
+export const PLATFORM_EMAIL_KINDS = [
+  'verify_email',
+  'password_reset',
+  'invitation',
+  'welcome',
+  'trial_ending',
+  'saas_invoice',
+  'payment_pending',
+  'admin_message',
+  'staff_notice',
+  'monthly_report',
+] as const;
+export type PlatformEmailKind = (typeof PLATFORM_EMAIL_KINDS)[number];
+
+export const PLATFORM_EMAIL_KIND_INFO: Record<
+  PlatformEmailKind,
+  { category: PlatformSenderCategory; label: string; defaultTipo: string }
+> = {
+  verify_email: { category: 'account', label: 'Verificar email', defaultTipo: 'Verificación' },
+  password_reset: {
+    category: 'account',
+    label: 'Recuperar contraseña',
+    defaultTipo: 'Contraseña',
+  },
+  invitation: { category: 'account', label: 'Invitación a un usuario', defaultTipo: 'Invitación' },
+  welcome: { category: 'subscription', label: 'Bienvenida', defaultTipo: 'Bienvenida' },
+  trial_ending: {
+    category: 'subscription',
+    label: 'Fin de la prueba',
+    defaultTipo: 'Prueba gratuita',
+  },
+  saas_invoice: { category: 'billing', label: 'Factura de la suscripción', defaultTipo: 'Factura' },
+  payment_pending: {
+    category: 'billing',
+    label: 'Pago pendiente / suspensión',
+    defaultTipo: 'Aviso de pago',
+  },
+  admin_message: {
+    category: 'admin_messages',
+    label: 'Email directo y anuncios',
+    defaultTipo: 'Comunicado',
+  },
+  staff_notice: {
+    category: 'staff_notices',
+    label: 'Contacto, reserva, baja o incidencia',
+    defaultTipo: 'Aviso',
+  },
+  monthly_report: {
+    category: 'staff_notices',
+    label: 'Informe mensual',
+    defaultTipo: 'Informe mensual',
+  },
+};
+
+/** Variable del nombre del remitente que se sustituye por el texto del correo. */
+export const SENDER_TIPO_TOKEN = '{tipo}';
+
+/**
+ * Nombre del remitente con `{tipo}` sustituido. Con el texto vacío se quita la
+ * variable y los separadores que queden sueltos («TrasterOS · {tipo}» →
+ * «TrasterOS»).
+ */
+export function renderSenderName(template: string, tipo: string): string {
+  const replaced = template.replace(/\{tipo\}/gi, tipo.trim());
+  return replaced
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s·|:\-–—,]+|[\s·|:\-–—,]+$/g, '')
+    .replace(/([·|:\-–—,])\s*(?=[·|:\-–—,])/g, '')
+    .trim();
+}
+
 const optionalEmail = z
   .string()
   .trim()
@@ -622,6 +703,7 @@ const optionalEmail = z
   .optional();
 
 export const PlatformSenderSchema = z.object({
+  /** Puede incluir `{tipo}`: se sustituye por el texto de cada correo. */
   name: z.string().trim().max(70).optional(),
   email: optionalEmail,
   replyTo: optionalEmail,
@@ -632,9 +714,22 @@ export const UpdatePlatformSendersSchema = z
   .object({
     default: PlatformSenderSchema,
     account: PlatformSenderSchema.optional(),
+    subscription: PlatformSenderSchema.optional(),
     billing: PlatformSenderSchema.optional(),
     admin_messages: PlatformSenderSchema.optional(),
     staff_notices: PlatformSenderSchema.optional(),
+    /**
+     * Texto de `{tipo}` por correo. `null` (o ausente) = el de por defecto;
+     * `''` = vacío (la variable desaparece del nombre).
+     */
+    tipoLabels: z
+      .object(
+        Object.fromEntries(
+          PLATFORM_EMAIL_KINDS.map((k) => [k, z.string().trim().max(30).nullable().optional()]),
+        ) as Record<PlatformEmailKind, z.ZodOptional<z.ZodNullable<z.ZodString>>>,
+      )
+      .strict()
+      .optional(),
   })
   .strict();
 export type UpdatePlatformSendersInput = z.infer<typeof UpdatePlatformSendersSchema>;
