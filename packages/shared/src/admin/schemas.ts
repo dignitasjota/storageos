@@ -487,6 +487,22 @@ export const IssuePlatformInvoiceSchema = z.object({
   paymentId: z.string().uuid(),
 });
 
+/**
+ * Rectificar una factura de suscripción (va a una serie propia de rectificativas).
+ * - `substitution`: la sustituye con los mismos importes y los datos fiscales
+ *   actuales del tenant (corrige razón social, NIF o domicilio).
+ * - `differences`: abono en negativo; `amount` (IVA incluido) para uno parcial,
+ *   omitido = abono total (anula la factura).
+ */
+export const RectifyPlatformInvoiceSchema = z.object({
+  method: z.enum(['substitution', 'differences']),
+  /** R4 «resto de causas» (habitual) o R1 «error fundado en derecho / art. 80 LIVA». */
+  rectificationType: z.enum(['R1', 'R4']).default('R4'),
+  reason: z.string().trim().min(3, 'Indica el motivo').max(500),
+  amount: z.number().positive().max(1_000_000).optional(),
+});
+export type RectifyPlatformInvoiceInput = z.infer<typeof RectifyPlatformInvoiceSchema>;
+
 /** Config del dunning del SaaS. */
 export const UpdatePlatformDunningSettingsSchema = z
   .object({

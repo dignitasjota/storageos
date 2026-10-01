@@ -839,6 +839,15 @@ export interface PlatformInvoiceDto {
   paymentId: string | null;
   /** Datos obligatorios del destinatario que faltaban al emitirla (vacío = completa). */
   missing: string[];
+  /** 'F1' o 'R1'/'R4' (rectificativa). */
+  invoiceType: string;
+  /** Factura que rectifica (solo rectificativas). */
+  rectifies: { id: string; fullNumber: string } | null;
+  rectificationReason: string | null;
+  /** 'substitution' | 'differences' (solo rectificativas). */
+  correctionMethod: string | null;
+  /** Rectificativas emitidas sobre esta factura. */
+  rectifiedBy: { id: string; fullNumber: string; correctionMethod: string | null; total: number }[];
   /** Desglose por líneas (plan + add-ons); vacío en facturas antiguas monolínea. */
   lines: PlatformInvoiceLineDto[];
 }

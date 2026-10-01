@@ -5,6 +5,7 @@ import { useAdminAuthStore } from './auth-store';
 
 import type {
   AccountantExportDto,
+  RectifyPlatformInvoiceInput,
   HoldedSeriesListDto,
   HoldedTestResultDto,
   PlatformHoldedSettingsDto,
@@ -1773,6 +1774,20 @@ export function useAdminTenantPlatformInvoices(tenantId: string, enabled = true)
     queryFn: () =>
       adminApiFetch<PlatformInvoiceDto[]>(`/admin/tenants/${tenantId}/platform-invoices`),
     enabled,
+  });
+}
+
+/** Rectificativa de una factura de suscripción (sustitución o abono). */
+export function useRectifyPlatformInvoice(tenantId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: RectifyPlatformInvoiceInput }) =>
+      adminApiFetch<PlatformInvoiceDto>(`/admin/platform-invoices/${id}/rectify`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] }),
   });
 }
 

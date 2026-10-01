@@ -37,7 +37,7 @@ export class PlatformHoldedService {
     const hasApiKey = !!row?.holdedApiKeyEncrypted;
     const enabled = row?.holdedEnabled ?? false;
     const pendingCount = await this.admin.platformInvoice.count({
-      where: { holdedDocumentId: null },
+      where: { holdedDocumentId: null, invoiceType: 'F1' },
     });
     return {
       enabled,
@@ -145,7 +145,7 @@ export class PlatformHoldedService {
       });
     }
     const pending = await this.admin.platformInvoice.findMany({
-      where: { holdedDocumentId: null },
+      where: { holdedDocumentId: null, invoiceType: 'F1' },
       select: { id: true },
       orderBy: { issuedAt: 'asc' },
       take: 50,
@@ -173,7 +173,9 @@ export class PlatformHoldedService {
       where: { id: invoiceId },
       include: { lines: { orderBy: { position: 'asc' } } },
     });
-    if (!inv || inv.holdedDocumentId) return;
+    // Las rectificativas de suscripción aún no se copian (necesitan una serie
+    // de rectificativas en Holded): se contabilizan desde la exportación.
+    if (!inv || inv.holdedDocumentId || inv.invoiceType !== 'F1') return;
     const { client } = cfg;
 
     const contactId =

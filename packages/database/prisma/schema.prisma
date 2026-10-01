@@ -4026,13 +4026,22 @@ model PlatformInvoice {
   paymentId     String?   @unique @map("payment_id") @db.Uuid
   /// Id del documento en Holded si se ha copiado (copia contable de la plataforma).
   holdedDocumentId String? @map("holded_document_id")
+  /// 'F1' (factura) o 'R1'/'R4' (rectificativa, en su propia serie).
+  invoiceType         String    @default("F1") @map("invoice_type")
+  rectifiesInvoiceId  String?   @map("rectifies_invoice_id") @db.Uuid
+  rectificationReason String?   @map("rectification_reason")
+  /// 'substitution' | 'differences' (solo rectificativas).
+  correctionMethod    String?   @map("correction_method")
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant  Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payment TenantSubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   lines   PlatformInvoiceLine[]
+  rectifiesInvoice PlatformInvoice?  @relation("PlatformInvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
+  rectifications   PlatformInvoice[] @relation("PlatformInvoiceRectification")
 
   @@unique([series, number])
+  @@index([rectifiesInvoiceId])
   @@index([tenantId, issuedAt(sort: Desc)])
   @@map("platform_invoices")
 }

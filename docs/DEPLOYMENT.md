@@ -1171,6 +1171,12 @@ desde el panel.
 1. **Emisor** — panel admin → Facturación SaaS → «Datos del emisor»: razón social, NIF/CIF (se valida el dígito de control), dirección, código postal y población. Sin ellos no se puede activar la facturación (400 `platform_billing_incomplete`).
 2. **Destinatario (cada tenant)** — razón social, NIF y domicilio fiscal: el propio tenant los rellena en Ajustes → Suscripción → «Datos de facturación», o el super admin en la ficha del tenant → Editar. Si al cobrar faltan, la factura se emite igual (el cobro ya está hecho), queda marcada «(incompleta)» y llega una notificación al super admin. La ficha del tenant avisa antes.
 
+**Rectificar una factura de suscripción** — ficha del tenant → Pagos → «Facturas de suscripción» → «Rectificar»:
+
+- **Datos del cliente** (sustitución): emite una rectificativa con los mismos importes y los datos fiscales **actuales** del tenant (complétalos antes); la original queda «Sustituida». Una sola sustitución por factura.
+- **Importe** (abono): rectificativa en negativo, parcial o total; si se abona todo, la original queda «Abonada». El reembolso del dinero, si procede, se hace aparte.
+- Serie propia (`SAAS-R-<año>-0001`), tipo R4 por defecto (R1 si es un error fundado en derecho), motivo obligatorio; se envía al tenant por email y aparece en su panel y en la exportación de la asesoría con la factura que rectifica. Aún no se copian a Holded.
+
 **Exportación para la asesoría** — panel admin → Facturación SaaS → «Exportación para la asesoría»:
 
 - En «Negocio propio» se indica el identificador (slug) de la empresa con la que la propia SL alquila trasteros. Sus facturas a inquilinos se suman a las de suscripción.
