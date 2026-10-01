@@ -29,6 +29,7 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
           phone: fd.get('phone') || '',
           message: fd.get('message') || '',
           hp: fd.get('company') || '', // honeypot
+          acceptsMarketing: fd.get('marketing') === 'on',
         }),
       });
       if (!res.ok) throw new Error('fail');
@@ -114,6 +115,10 @@ export function ContactForm({ slug, brand }: { slug: string; brand: string }) {
           className="w-full rounded-md border bg-background px-3 py-2 text-base"
         />
       </div>
+      <label className="flex items-start gap-2 text-sm text-muted-foreground">
+        <input type="checkbox" name="marketing" className="mt-1 size-4" />
+        <span>{t('marketingConsent')}</span>
+      </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <button
         type="submit"

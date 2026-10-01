@@ -105,7 +105,8 @@
       "emailLabel": "Email",
       "phoneLabel": "Phone (optional)",
       "messageLabel": "Message",
-      "privacyNotice": "We only use your details to reply to your enquiry."
+      "privacyNotice": "We only use your details to reply to your enquiry.",
+      "marketingConsent": "I'd like to receive offers and news by email (you can unsubscribe at any time)."
     },
     "calculator": {
       "title": "What size do you need?",

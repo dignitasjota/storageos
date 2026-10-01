@@ -106,6 +106,8 @@ export class WinbackService {
           where: {
             deletedAt: null,
             email: { not: null },
+            // Es una comunicación comercial: no a quien se dio de baja.
+            marketingOptOutAt: null,
             // Ex-cliente: tuvo un contrato terminado y no tiene ninguno vivo.
             contracts: { some: { status: { in: ['ended', 'cancelled'] }, deletedAt: null } },
             AND: [
@@ -169,6 +171,7 @@ export class WinbackService {
           bodyText: renderTemplate(bodyTpl, scope, MANUAL_WHITELIST),
           customerId: c.id,
           source: 'winback.auto',
+          marketing: true,
         });
         sent += 1;
       } catch (err) {

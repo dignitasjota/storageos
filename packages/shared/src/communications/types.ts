@@ -12,6 +12,9 @@ import type {
 
 export interface LeadDto {
   id: string;
+  /** Consentimiento expreso para comunicaciones comerciales (null = no lo dio). */
+  marketingConsentAt: string | null;
+  marketingOptOutAt: string | null;
   status: LeadStatusValue;
   source: LeadSourceValue;
   firstName: string | null;

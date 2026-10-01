@@ -217,6 +217,19 @@ export function useTransitionLead() {
   });
 }
 
+/** Consentimiento comercial del lead (false = se da de baja). */
+export function useSetLeadMarketing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; consent: boolean }) =>
+      apiFetch<LeadDto>(`/leads/${args.id}/marketing`, {
+        method: 'POST',
+        json: { consent: args.consent },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
+  });
+}
+
 export function useConvertLead() {
   const qc = useQueryClient();
   return useMutation({

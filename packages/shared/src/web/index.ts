@@ -150,6 +150,8 @@ export const PublicContactSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   phone: z.string().trim().max(40).optional().or(z.literal('')),
   message: z.string().trim().max(2000).optional().or(z.literal('')),
+  /** Casilla opcional: acepta recibir comunicaciones comerciales. */
+  acceptsMarketing: z.boolean().optional(),
   /** Honeypot anti-bot: debe llegar vacío. */
   hp: z.string().max(0).optional().or(z.literal('')),
 });

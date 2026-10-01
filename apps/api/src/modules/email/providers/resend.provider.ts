@@ -64,6 +64,7 @@ export class ResendEmailProvider extends EmailProvider {
         subject: args.subject,
         html: args.html,
         text: args.text,
+        ...(args.headers && Object.keys(args.headers).length > 0 ? { headers: args.headers } : {}),
         tags: args.tags
           ? Object.entries(args.tags).map(([name, value]) => ({ name, value }))
           : undefined,

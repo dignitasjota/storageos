@@ -105,7 +105,8 @@
       "emailLabel": "Email",
       "phoneLabel": "Teléfono (opcional)",
       "messageLabel": "Mensaje",
-      "privacyNotice": "Tus datos se usan solo para responder a tu consulta."
+      "privacyNotice": "Tus datos se usan solo para responder a tu consulta.",
+      "marketingConsent": "Quiero recibir ofertas y novedades por email (puedes darte de baja cuando quieras)."
     },
     "calculator": {
       "title": "¿Qué trastero necesitas?",

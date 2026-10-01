@@ -16,6 +16,7 @@ import {
   CreateCustomerSchema,
   type CustomerDto,
   SetKycVerifiedSchema,
+  SetMarketingPreferenceSchema,
   UpdateCustomerSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -34,6 +35,7 @@ import type { Request } from 'express';
 class CreateCustomerDto extends createZodDto(CreateCustomerSchema) {}
 class UpdateCustomerDto extends createZodDto(UpdateCustomerSchema) {}
 class SetKycVerifiedDto extends createZodDto(SetKycVerifiedSchema) {}
+class SetMarketingPreferenceDto extends createZodDto(SetMarketingPreferenceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -110,6 +112,25 @@ export class CustomersController {
       tenantId: user.tenantId,
       userId: user.sub,
       customerId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Comunicaciones comerciales del cliente (false = se da de baja). */
+  @RequirePermission('customers:write')
+  @Post(':id/marketing')
+  @HttpCode(HttpStatus.OK)
+  setMarketing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetMarketingPreferenceDto,
+    @Req() req: Request,
+  ): Promise<CustomerDto> {
+    return this.customers.setMarketing({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      customerId: id,
+      subscribed: input.subscribed,
       meta: extractMeta(req),
     });
   }

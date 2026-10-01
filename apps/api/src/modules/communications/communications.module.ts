@@ -12,6 +12,8 @@ import { MessageTemplatesService } from './message-templates.service';
 import { MetaWabaProvider } from './providers/meta-waba.provider';
 import { WHATSAPP_PROVIDER } from './providers/whatsapp-provider';
 import { WhatsAppStubProvider } from './providers/whatsapp-stub.provider';
+import { UnsubscribePublicController } from './unsubscribe-public.controller';
+import { UnsubscribeService } from './unsubscribe.service';
 
 import type { Env } from '../../config/env.schema';
 
@@ -27,8 +29,9 @@ import type { Env } from '../../config/env.schema';
 @Global()
 @Module({
   imports: [AuthModule],
-  controllers: [CommunicationsController, MessageTemplatesController],
+  controllers: [CommunicationsController, MessageTemplatesController, UnsubscribePublicController],
   providers: [
+    UnsubscribeService,
     CommunicationsService,
     MessageTemplatesService,
     WhatsAppStubProvider,

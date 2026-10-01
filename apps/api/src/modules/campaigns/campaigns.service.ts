@@ -77,6 +77,9 @@ export class CampaignsService {
         tenantId,
         deletedAt: null,
         email: { not: null },
+        // Aún no son clientes: solo con consentimiento expreso y sin baja (LSSI art. 21).
+        marketingConsentAt: { not: null },
+        marketingOptOutAt: null,
         ...(segment.leadStatus ? { status: segment.leadStatus } : {}),
         ...(segment.leadSource ? { source: segment.leadSource } : {}),
       };
@@ -111,6 +114,8 @@ export class CampaignsService {
       tenantId,
       deletedAt: null,
       email: { not: null },
+      // Clientes: mientras no se den de baja.
+      marketingOptOutAt: null,
     };
     const activeContract: Prisma.ContractListRelationFilter = {
       some: { status: { in: ['active', 'ending'] }, deletedAt: null },
@@ -255,6 +260,7 @@ export class CampaignsService {
           ...(r.customerId ? { customerId: r.customerId } : {}),
           ...(r.leadId ? { leadId: r.leadId } : {}),
           source: `campaign:${id}`,
+          marketing: true,
           ...(scheduledFor ? { scheduledFor } : {}),
         });
         sent += 1;

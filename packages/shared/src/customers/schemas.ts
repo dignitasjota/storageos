@@ -66,6 +66,13 @@ export const UpdateCustomerSchema = z
   });
 export type UpdateCustomerInput = z.infer<typeof UpdateCustomerSchema>;
 
+/**
+ * Comunicaciones comerciales de un cliente. `subscribed: false` = se da de baja.
+ * Volver a darle de alta solo si el cliente lo pide (consentimiento).
+ */
+export const SetMarketingPreferenceSchema = z.object({ subscribed: z.boolean() });
+export type SetMarketingPreferenceInput = z.infer<typeof SetMarketingPreferenceSchema>;
+
 export const SetKycVerifiedSchema = z.object({
   verified: z.boolean(),
   notes: optionalText(500),

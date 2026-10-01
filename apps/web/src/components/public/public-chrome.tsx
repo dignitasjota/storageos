@@ -36,7 +36,8 @@ export function PublicChrome({
     pathname?.startsWith('/portal') ||
     pathname?.startsWith('/s/') ||
     pathname?.startsWith('/book/') ||
-    pathname?.startsWith('/sign/');
+    pathname?.startsWith('/sign/') ||
+    pathname?.startsWith('/unsubscribe/');
   if (bare) {
     return <main className="flex min-h-screen flex-col">{children}</main>;
   }
