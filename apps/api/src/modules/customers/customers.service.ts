@@ -263,6 +263,39 @@ export class CustomersService {
     return this.toDto(updated);
   }
 
+  /**
+   * Comunicaciones comerciales del cliente. `subscribed: false` = se da de baja
+   * (p. ej. lo pide por teléfono); `true` = vuelve a recibirlas (solo si lo pide).
+   */
+  async setMarketing(args: {
+    tenantId: string;
+    userId: string;
+    customerId: string;
+    subscribed: boolean;
+    meta: RequestMeta;
+  }): Promise<CustomerDto> {
+    await this.findOrThrow(args.tenantId, args.customerId);
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.update({
+          where: { id: args.customerId },
+          data: { marketingOptOutAt: args.subscribed ? null : new Date() },
+          include: { _count: { select: { contracts: true, reservations: true } } },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: args.subscribed ? 'customer.marketing_resubscribed' : 'customer.marketing_opted_out',
+      entityType: 'Customer',
+      entityId: args.customerId,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
   private async findOrThrow(tenantId: string, customerId: string): Promise<CustomerWithCounts> {
     const row = await this.prisma.withTenant(
       (tx) =>
@@ -291,6 +324,7 @@ export class CustomersService {
   private toDto(row: CustomerWithCounts): CustomerDto {
     return {
       id: row.id,
+      marketingOptOutAt: row.marketingOptOutAt?.toISOString() ?? null,
       customerType: row.customerType,
       firstName: row.firstName,
       lastName: row.lastName,

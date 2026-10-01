@@ -67,6 +67,7 @@ export class SmtpEmailProvider extends EmailProvider implements OnModuleInit, On
         subject: args.subject,
         html: args.html,
         text: args.text,
+        ...(args.headers ? { headers: args.headers } : {}),
       });
       return { providerMessageId: result.messageId ?? null };
     } catch (err) {

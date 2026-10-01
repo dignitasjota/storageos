@@ -1076,6 +1076,8 @@ model Customer {
   portalPasswordHash    String?      @map("portal_password_hash")
   /// Se incrementa para revocar todas las sesiones vivas del portal (va en el JWT como `sv`).
   portalSessionVersion  Int          @default(0) @map("portal_session_version")
+  /// Se dio de baja de las comunicaciones comerciales (campañas, win-back).
+  marketingOptOutAt     DateTime?    @map("marketing_opt_out_at") @db.Timestamptz(6)
   kycVerified           Boolean      @default(false) @map("kyc_verified")
   kycVerifiedAt         DateTime?    @map("kyc_verified_at") @db.Timestamptz(6)
   /// Codigo de referido que este cliente comparte (unico por tenant).
@@ -2440,6 +2442,9 @@ model Lead {
   utmMedium               String?    @map("utm_medium")
   utmCampaign             String?    @map("utm_campaign")
   metadata                Json       @default("{}")
+  /// Consentimiento expreso para recibir comunicaciones comerciales.
+  marketingConsentAt      DateTime?  @map("marketing_consent_at") @db.Timestamptz(6)
+  marketingOptOutAt       DateTime?  @map("marketing_opt_out_at") @db.Timestamptz(6)
   assignedToUserId        String?    @map("assigned_to_user_id") @db.Uuid
   contactedAt             DateTime?  @map("contacted_at") @db.Timestamptz(6)
   qualifiedAt             DateTime?  @map("qualified_at") @db.Timestamptz(6)
@@ -2546,6 +2551,8 @@ model Communication {
   /// Datos sensibles del envío (p. ej. el PIN de acceso), cifrados. El cuerpo
   /// guardado lleva una marca en su lugar; solo se ponen al enviar.
   secretsEncrypted         String?                @map("secrets_encrypted")
+  /// Envío comercial (campaña, win-back): lleva baja y se omite si el destinatario se dio de baja.
+  isMarketing              Boolean                @default(false) @map("is_marketing")
   errorMessage             String?                @map("error_message")
   retryCount               Int                    @default(0) @map("retry_count")
   scheduledFor             DateTime?              @map("scheduled_for") @db.Timestamptz(6)

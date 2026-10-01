@@ -42,6 +42,13 @@ async function fetchMessage(id: string): Promise<MailpitMessage> {
   return (await res.json()) as MailpitMessage;
 }
 
+/** Cabeceras de un mensaje (nombre → valores). */
+export async function getMessageHeaders(id: string): Promise<Record<string, string[]>> {
+  const res = await fetch(`${MAILPIT_API}/message/${id}/headers`);
+  if (!res.ok) throw new Error(`Mailpit GET /message/${id}/headers devolvio ${res.status}`);
+  return (await res.json()) as Record<string, string[]>;
+}
+
 /**
  * Espera (poll cada 100ms, hasta 5s) a que llegue un email al destinatario.
  * Devuelve el mensaje completo con HTML + Text. Lanza si no llega.

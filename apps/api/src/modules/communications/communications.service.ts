@@ -1,8 +1,14 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import {
+  appendUnsubscribeFooter,
+  buildUnsubscribeToken,
+  unsubscribeKey,
+} from '../../common/marketing/unsubscribe-token';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -15,6 +21,7 @@ import { extractSecrets, fillSecrets, maskSecrets } from './secret-vars';
 import { renderTemplate, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
 import { buildWhatsappTemplateParams } from './whatsapp-template.util';
 
+import type { Env } from '../../config/env.schema';
 import type { Communication, Prisma } from '@storageos/database';
 import type {
   AutomationTriggerValue,
@@ -69,6 +76,11 @@ export interface SendArgs {
    * el correo los lleva, pero el historial guarda `••••` y el valor va cifrado.
    */
   secretVariables?: string[];
+  /**
+   * Comunicación comercial (campaña, win-back): lleva enlace y cabecera de baja
+   * y se omite si el destinatario se ha dado de baja (LSSI art. 21).
+   */
+  marketing?: boolean;
 }
 
 /**
@@ -94,7 +106,68 @@ export class CommunicationsService {
     @Inject(WHATSAPP_PROVIDER) private readonly whatsapp: WhatsAppProvider,
     @InjectQueue(QUEUE_COMMUNICATIONS) private readonly queue: Queue,
     private readonly crypto: CryptoService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * ¿Puede recibir este correo comercial? Un cliente, mientras no se dé de baja;
+   * un lead, solo con consentimiento y sin baja.
+   */
+  private async marketingBlocked(comm: Communication): Promise<string | null> {
+    if (comm.customerId) {
+      const c = await this.admin.customer.findFirst({
+        where: { id: comm.customerId, tenantId: comm.tenantId },
+        select: { marketingOptOutAt: true },
+      });
+      return c?.marketingOptOutAt
+        ? 'El destinatario se ha dado de baja de las comunicaciones comerciales'
+        : null;
+    }
+    if (comm.leadId) {
+      const l = await this.admin.lead.findFirst({
+        where: { id: comm.leadId, tenantId: comm.tenantId },
+        select: { marketingConsentAt: true, marketingOptOutAt: true },
+      });
+      if (!l?.marketingConsentAt) return 'El contacto no ha dado su consentimiento comercial';
+      if (l.marketingOptOutAt) {
+        return 'El destinatario se ha dado de baja de las comunicaciones comerciales';
+      }
+      return null;
+    }
+    return 'Comunicación comercial sin cliente ni contacto asociado';
+  }
+
+  /** Pie y cabeceras de baja de un correo comercial. */
+  private async unsubscribeParts(comm: Communication): Promise<{
+    url: string;
+    headers: Record<string, string>;
+    tenantName: string;
+  } | null> {
+    const kind = comm.customerId ? 'c' : comm.leadId ? 'l' : null;
+    const id = comm.customerId ?? comm.leadId;
+    if (!kind || !id) return null;
+    const token = buildUnsubscribeToken(
+      unsubscribeKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true })),
+      kind,
+      id,
+    );
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: comm.tenantId },
+      select: { name: true },
+    });
+    const web = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    const api = this.config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    // Baja en un clic (RFC 8058): el cliente de correo hace POST a la URL de la API.
+    const oneClick = `${api}/v1/public/unsubscribe/${encodeURIComponent(token)}`;
+    return {
+      url: `${web}/unsubscribe/${encodeURIComponent(token)}`,
+      tenantName: tenant?.name ?? '',
+      headers: {
+        'List-Unsubscribe': `<${oneClick}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    };
+  }
 
   /**
    * Variables para renderizar y para guardar, y los valores sensibles cifrados
@@ -209,6 +282,7 @@ export class CommunicationsService {
       provider,
       source: args.source ?? null,
       scheduledFor: args.scheduledFor ?? null,
+      isMarketing: args.marketing ?? false,
     };
     const created = await this.prisma.withTenant(
       (tx) => tx.communication.create({ data }),
@@ -256,22 +330,45 @@ export class CommunicationsService {
       );
       return;
     }
+    // Un correo comercial se omite si el destinatario se dio de baja (puede
+    // haber pasado entre que se programó la campaña y el envío).
+    if (comm.isMarketing) {
+      const blocked = await this.marketingBlocked(comm);
+      if (blocked) {
+        await this.admin.communication.update({
+          where: { id: comm.id },
+          data: { status: 'skipped', errorMessage: blocked },
+        });
+        return;
+      }
+    }
     try {
       let providerMessageId: string | null = null;
       // Proveedor real que entregó el email (Brevo/Resend/SMTP, o el de respaldo).
       let deliveredBy: string | null = null;
       if (comm.channel === 'email') {
         const sealed = comm.secretsEncrypted;
+        let html = this.unseal(
+          tenantId,
+          sealed,
+          comm.bodyHtml ?? `<pre>${escapeHtml(comm.bodyText)}</pre>`,
+        );
+        let text = this.unseal(tenantId, sealed, comm.bodyText);
+        let headers: Record<string, string> | undefined;
+        if (comm.isMarketing) {
+          const unsub = await this.unsubscribeParts(comm);
+          if (unsub) {
+            ({ html, text } = appendUnsubscribeFooter({ html, text }, unsub.url, unsub.tenantName));
+            headers = unsub.headers;
+          }
+        }
         const res = await this.email.sendRendered({
           tenantId,
           to: comm.recipient,
           subject: this.unseal(tenantId, sealed, comm.subject ?? '(sin asunto)'),
-          html: this.unseal(
-            tenantId,
-            sealed,
-            comm.bodyHtml ?? `<pre>${escapeHtml(comm.bodyText)}</pre>`,
-          ),
-          text: this.unseal(tenantId, sealed, comm.bodyText),
+          html,
+          text,
+          ...(headers ? { headers } : {}),
           tags: { tenantId, communicationId },
         });
         providerMessageId = res.providerMessageId;

@@ -908,6 +908,7 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 | POST   | `/leads`                | SI   | owner, manager, staff | Crea (source default `manual`)                       |
 | PATCH  | `/leads/:id`            | SI   | owner, manager, staff | Edita                                                |
 | POST   | `/leads/:id/transition` | SI   | owner, manager, staff | Cambia estado segun state machine                    |
+| POST   | `/leads/:id/marketing`  | SI   | owner, manager, staff | Consentimiento comercial `{consent}` (false = baja)  |
 | POST   | `/leads/:id/convert`    | SI   | owner, manager, staff | Crea customer + (opcional) reservation, marca won    |
 | DELETE | `/leads/:id`            | SI   | owner, manager        | Soft delete                                          |
 
@@ -1748,6 +1749,9 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /campaigns` + `GET /campaigns/:id` (`communications:read`).
 - `POST /campaigns` (`communications:send`): crea una campaña en borrador (segmento + asunto + cuerpo Handlebars inline).
 - `POST /campaigns/:id/send` (`communications:send`): resuelve la audiencia, renderiza por destinatario y encola una `communications` por cada uno (`source=campaign:<id>`). Idempotente (409 `campaign_not_sendable` si no es borrador). v1 solo email.
+- **Audiencia comercial** (LSSI art. 21): clientes sin `marketing_opt_out_at` y leads con `marketing_consent_at` y sin baja. Cada correo lleva enlace y cabeceras de baja.
+- `POST /customers/:id/marketing {subscribed}` (`customers:write`): da de baja (o de alta, si el cliente lo pide) de las comunicaciones comerciales.
+- `GET /public/unsubscribe/:token` (público): destinatario (email oculto) y si ya está de baja. `POST /public/unsubscribe/:token`: da de baja (idempotente; también lo usa la baja de un clic del cliente de correo). Token firmado, 404 `unsubscribe_link_invalid` si no es válido.
 
 ### Subidas de precio / ECRI (`/rent-increases`)
 

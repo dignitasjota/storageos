@@ -141,6 +141,8 @@ export const CreateLeadSchema = z.object({
   estimatedDurationMonths: z.number().int().min(1).max(120).optional(),
   budgetMonthly: z.number().positive().finite().optional(),
   assignedToUserId: z.string().uuid().optional(),
+  /** Ha dado su consentimiento expreso para recibir comunicaciones comerciales. */
+  marketingConsent: z.boolean().optional(),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateLeadInput = z.infer<typeof CreateLeadSchema>;
@@ -150,6 +152,21 @@ export const UpdateLeadSchema = CreateLeadSchema.partial().refine(
   { message: 'Debes enviar al menos un campo' },
 );
 export type UpdateLeadInput = z.infer<typeof UpdateLeadSchema>;
+
+/**
+ * Consentimiento comercial de un lead (aún no es cliente: sin él no recibe
+ * campañas). `consent: false` = se da de baja.
+ */
+export const SetLeadMarketingSchema = z.object({ consent: z.boolean() });
+export type SetLeadMarketingInput = z.infer<typeof SetLeadMarketingSchema>;
+
+/** Página pública de baja de comunicaciones comerciales. */
+export interface UnsubscribeInfoDto {
+  tenantName: string;
+  /** Email del destinatario con parte oculta (p. ej. «j***@gmail.com»). */
+  email: string;
+  unsubscribed: boolean;
+}
 
 export const TransitionLeadSchema = z.object({
   status: LeadStatusEnum,

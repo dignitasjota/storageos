@@ -304,6 +304,7 @@ Log unificado de mensajes.
 
 - id, tenant_id, customer_id (nullable), lead_id (nullable), channel (email/sms/whatsapp/internal_note), direction (in/out), subject, body, status (queued/sent/delivered/opened/failed), provider_message_id, sent_at, opened_at, error
 - **contract_id / invoice_id** (2026-09-26, nullable, FK `ON DELETE SET NULL`): el recurso que originó el mensaje (recordatorios de pago y dunning → factura; firma, subidas de precio, valoraciones y alta de acceso → contrato; automatizaciones según su `entityType`). El historial `/communications` enlaza a inquilino, contrato, trastero y factura, y el API filtra por `?contractId=`/`?invoiceId=`. Los envíos anteriores quedan sin vínculo (no hay backfill).
+- **is_marketing** (2026-10-01): envío comercial (campaña, win-back). Lleva pie y cabecera de baja y, al enviarse, se omite (`skipped`) si el destinatario se dio de baja. Relacionado: `customers.marketing_opt_out_at` (baja; un cliente recibe campañas mientras sea null) y `leads.marketing_consent_at`/`marketing_opt_out_at` (un lead solo con consentimiento y sin baja).
 
 ### `message_templates`
 

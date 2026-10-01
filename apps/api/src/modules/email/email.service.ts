@@ -58,6 +58,8 @@ export interface SendMailRenderedArgs {
   html: string;
   text: string;
   tags?: Record<string, string>;
+  /** Cabeceras extra (p. ej. `List-Unsubscribe`). */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -112,6 +114,7 @@ export class EmailService {
         html: args.html,
         text: args.text,
         ...(args.tags ? { tags: args.tags } : {}),
+        ...(args.headers ? { headers: args.headers } : {}),
       });
     } catch (err) {
       this.logger.error(

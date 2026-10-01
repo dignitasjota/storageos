@@ -11,6 +11,7 @@ import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
 import { CustomerDocumentsTab } from './documents-tab';
 import { FollowupsCard } from './followups-card';
+import { MarketingPreferenceCard } from './marketing-preference-card';
 import { CustomerPaymentHistoryTab } from './payment-history-tab';
 import { CustomerPaymentMethodsTab } from './payment-methods-tab';
 import { PortalLinkButton } from './portal-link-button';
@@ -229,6 +230,7 @@ export default function CustomerDetailPage() {
               </div>
             </CardContent>
           </Card>
+          <MarketingPreferenceCard customerId={c.id} optOutAt={c.marketingOptOutAt} />
         </TabsContent>
       </Tabs>
     </div>

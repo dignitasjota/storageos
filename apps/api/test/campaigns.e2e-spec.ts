@@ -50,7 +50,12 @@ describe('Campaigns segmentadas (e2e)', () => {
     await request(app.getHttpServer())
       .post('/leads')
       .set(auth)
-      .send({ firstName: 'Lead', lastName: 'Tres', email: 'lead@e2e.local' })
+      .send({
+        firstName: 'Lead',
+        lastName: 'Tres',
+        email: 'lead@e2e.local',
+        marketingConsent: true,
+      })
       .expect(201);
 
     // Preview por tag → 1.

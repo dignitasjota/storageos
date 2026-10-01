@@ -95,7 +95,12 @@ export class LeadsService {
    */
   async listSources(tenantId: string): Promise<{ value: string; label: string }[]> {
     const used = await this.prisma.withTenant(
-      (tx) => tx.lead.findMany({ where: { deletedAt: null }, distinct: ['source'], select: { source: true } }),
+      (tx) =>
+        tx.lead.findMany({
+          where: { deletedAt: null },
+          distinct: ['source'],
+          select: { source: true },
+        }),
       tenantId,
     );
     const suggested = new Set(LEAD_SOURCE_SUGGESTIONS.map((s) => s.value));
@@ -173,6 +178,7 @@ export class LeadsService {
             utmSource: args.input.utmSource ?? null,
             utmMedium: args.input.utmMedium ?? null,
             utmCampaign: args.input.utmCampaign ?? null,
+            marketingConsentAt: args.input.acceptsMarketing ? new Date() : null,
             metadata: {
               acceptsMarketing: args.input.acceptsMarketing,
               acceptsTerms: args.input.acceptsTerms,
@@ -213,6 +219,7 @@ export class LeadsService {
       email: string;
       phone?: string | undefined;
       message?: string | undefined;
+      acceptsMarketing?: boolean | undefined;
     };
     meta: RequestMeta;
   }): Promise<LeadDto> {
@@ -227,6 +234,7 @@ export class LeadsService {
             email: args.input.email,
             phone: args.input.phone || null,
             message: args.input.message || null,
+            marketingConsentAt: args.input.acceptsMarketing ? new Date() : null,
             metadata: {
               origin: 'web_contact',
               userAgent: args.meta.userAgent ?? null,
@@ -465,6 +473,46 @@ export class LeadsService {
 
   // -----------------------------------------------------------------
 
+  /**
+   * Consentimiento comercial del lead (lo marca el staff, p. ej. si lo dio por
+   * teléfono). `false` = se da de baja.
+   */
+  async setMarketing(args: {
+    tenantId: string;
+    userId: string;
+    id: string;
+    consent: boolean;
+    meta: RequestMeta;
+  }): Promise<LeadDto> {
+    await this.findOrThrow(args.tenantId, args.id);
+    const now = new Date();
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.update({
+          where: { id: args.id },
+          data: args.consent
+            ? { marketingConsentAt: now, marketingOptOutAt: null }
+            : { marketingOptOutAt: now },
+          include: {
+            preferredFacility: { select: { name: true } },
+            preferredUnitType: { select: { name: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: args.consent ? 'lead.marketing_consent_given' : 'lead.marketing_opted_out',
+      entityType: 'Lead',
+      entityId: args.id,
+      ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
+      ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
+    });
+    return this.toDto(updated);
+  }
+
   private async findOrThrow(
     tenantId: string,
     id: string,
@@ -497,6 +545,7 @@ export class LeadsService {
     return {
       tenantId,
       source: input.source,
+      marketingConsentAt: input.marketingConsent ? new Date() : null,
       firstName: input.firstName || null,
       lastName: input.lastName || null,
       companyName: input.companyName || null,
@@ -544,6 +593,8 @@ export class LeadsService {
       l.companyName ?? `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim() ?? 'Lead';
     return {
       id: l.id,
+      marketingConsentAt: l.marketingConsentAt?.toISOString() ?? null,
+      marketingOptOutAt: l.marketingOptOutAt?.toISOString() ?? null,
       status: l.status,
       source: l.source,
       firstName: l.firstName,

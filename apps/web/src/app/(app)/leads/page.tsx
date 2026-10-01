@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
   useCreateLead,
   useLeads,
   useLeadSources,
+  useSetLeadMarketing,
   useTransitionLead,
   useUpdateLead,
 } from '@/lib/communications/hooks';
@@ -228,6 +230,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
   const create = useCreateLead();
   const update = useUpdateLead(lead?.id ?? '');
   const transition = useTransitionLead();
+  const setMarketing = useSetLeadMarketing();
   const sources = useLeadSources();
   const facilities = useFacilities();
 
@@ -241,11 +244,17 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
   const [phone, setPhone] = useState(lead?.phone ?? '');
   const [message, setMessage] = useState(lead?.message ?? '');
   const [facilityId, setFacilityId] = useState<string>(lead?.preferredFacilityId ?? '');
-  const [budget, setBudget] = useState(lead?.budgetMonthly != null ? String(lead.budgetMonthly) : '');
+  const [budget, setBudget] = useState(
+    lead?.budgetMonthly != null ? String(lead.budgetMonthly) : '',
+  );
+  // Recibe comunicaciones comerciales: consentimiento dado y sin baja posterior.
+  const initialMarketing = Boolean(lead?.marketingConsentAt && !lead.marketingOptOutAt);
+  const [marketing, setMarketingConsent] = useState(initialMarketing);
 
   const resolvedSource = source === CUSTOM_SOURCE ? customSource.trim() : source;
   const hasName = Boolean(firstName.trim() || lastName.trim() || companyName.trim());
-  const pending = create.isPending || update.isPending || transition.isPending;
+  const pending =
+    create.isPending || update.isPending || transition.isPending || setMarketing.isPending;
   const canSubmit = Boolean(resolvedSource) && hasName && !pending;
 
   async function submit() {
@@ -269,9 +278,12 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
         if (status !== lead.status) {
           await transition.mutateAsync({ id: lead.id, input: { status } });
         }
+        if (marketing !== initialMarketing) {
+          await setMarketing.mutateAsync({ id: lead.id, consent: marketing });
+        }
         toast.success('Lead actualizado.');
       } else {
-        await create.mutateAsync(input);
+        await create.mutateAsync({ ...input, marketingConsent: marketing });
         toast.success('Lead creado. Está en «Nuevos» para hacerle seguimiento.');
       }
       onClose();
@@ -410,6 +422,20 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
               rows={2}
               placeholder="Ej.: busca un trastero de ~5 m² para agosto"
             />
+          </div>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="lead-marketing"
+              checked={marketing}
+              onCheckedChange={(v) => setMarketingConsent(v === true)}
+              className="mt-0.5"
+            />
+            <Label htmlFor="lead-marketing" className="text-sm font-normal leading-snug">
+              Ha aceptado recibir ofertas y novedades
+              <span className="block text-xs text-muted-foreground">
+                Sin esto no recibirá campañas: aún no es cliente y la ley exige su permiso.
+              </span>
+            </Label>
           </div>
           {!hasName && (
             <p className="text-xs text-muted-foreground">

@@ -18,6 +18,7 @@ import {
   type LeadDto,
   type LeadSourceValue,
   type LeadStatusValue,
+  SetLeadMarketingSchema,
   TransitionLeadSchema,
   UpdateLeadSchema,
 } from '@storageos/shared';
@@ -37,6 +38,7 @@ import type { Request } from 'express';
 class CreateLeadDto extends createZodDto(CreateLeadSchema) {}
 class UpdateLeadDto extends createZodDto(UpdateLeadSchema) {}
 class TransitionLeadDto extends createZodDto(TransitionLeadSchema) {}
+class SetLeadMarketingDto extends createZodDto(SetLeadMarketingSchema) {}
 class ConvertLeadDto extends createZodDto(ConvertLeadSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -72,9 +74,7 @@ export class LeadsController {
   /** Orígenes disponibles (sugeridos + los que el tenant ya usó). Antes de `:id`. */
   @Get('sources')
   @RequirePermission('leads:read')
-  sources(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ value: string; label: string }[]> {
+  sources(@CurrentUser() user: AuthenticatedUser): Promise<{ value: string; label: string }[]> {
     return this.service.listSources(user.tenantId);
   }
 
@@ -115,6 +115,25 @@ export class LeadsController {
       userId: user.sub,
       id,
       input: body,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Consentimiento comercial del lead (true = lo da; false = se da de baja). */
+  @Post(':id/marketing')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('leads:write')
+  setMarketing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SetLeadMarketingDto,
+    @Req() req: Request,
+  ): Promise<LeadDto> {
+    return this.service.setMarketing({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      consent: body.consent,
       meta: extractMeta(req),
     });
   }

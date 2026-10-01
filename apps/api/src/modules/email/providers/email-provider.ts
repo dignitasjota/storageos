@@ -34,6 +34,8 @@ export interface SendEmailArgs {
    * está autenticado en Brevo). Si no tiene clave, se sigue el orden normal.
    */
   forceProvider?: 'brevo' | 'resend';
+  /** Cabeceras extra (p. ej. `List-Unsubscribe` en correos comerciales). */
+  headers?: Record<string, string>;
 }
 
 export interface SendEmailResult {

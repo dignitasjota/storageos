@@ -114,6 +114,21 @@ export function useSetKycVerified() {
   });
 }
 
+/** Comunicaciones comerciales del cliente (false = se da de baja). */
+export function useSetCustomerMarketing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; subscribed: boolean }) =>
+      apiFetch<CustomerDto>(`/customers/${args.id}/marketing`, {
+        method: 'POST',
+        json: { subscribed: args.subscribed },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}
+
 // Documents
 
 export function useCustomerDocuments(id: string | undefined) {

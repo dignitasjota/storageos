@@ -312,6 +312,10 @@ function CreateCampaignDialog() {
               <span className="text-sm text-muted-foreground">{count} destinatarios con email</span>
             )}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Solo cuentan los clientes que no se han dado de baja y los leads que aceptaron recibir
+            ofertas. Cada correo lleva un enlace para darse de baja.
+          </p>
 
           <div className="space-y-1">
             <Label>Asunto</Label>

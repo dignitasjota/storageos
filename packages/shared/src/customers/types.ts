@@ -11,6 +11,8 @@ import type {
 
 export interface CustomerDto {
   id: string;
+  /** Se dio de baja de las comunicaciones comerciales (null = las recibe). */
+  marketingOptOutAt: string | null;
   customerType: CustomerTypeValue;
   firstName: string | null;
   lastName: string | null;

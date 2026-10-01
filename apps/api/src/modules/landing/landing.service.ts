@@ -300,6 +300,7 @@ export class LandingService {
         email: input.email,
         phone: input.phone || undefined,
         message: input.message || undefined,
+        acceptsMarketing: input.acceptsMarketing ?? false,
       },
       meta,
     });

@@ -86,6 +86,7 @@ export function buildBrevoPayload(
     htmlContent: args.html,
     textContent: args.text,
     ...(args.replyTo ? { replyTo: toBrevoContact(args.replyTo) } : {}),
+    ...(args.headers && Object.keys(args.headers).length > 0 ? { headers: args.headers } : {}),
     // Brevo admite tags como lista de strings: se envían `clave:valor`.
     ...(args.tags && Object.keys(args.tags).length > 0
       ? { tags: Object.entries(args.tags).map(([k, v]) => `${k}:${v}`) }
