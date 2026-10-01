@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { AccessCredentialsService } from './access-credentials.service';
+
+import type { Env } from '../../config/env.schema';
 
 /**
  * Fase 8D: integraciones del modulo de accesos con el dominio.
@@ -26,6 +30,7 @@ export class AccessIntegrationsService {
     private readonly communications: CommunicationsService,
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -82,6 +87,10 @@ export class AccessIntegrationsService {
       );
       return;
     }
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
+    });
     await this.communications.enqueue({
       tenantId: args.tenantId,
       channel: 'email',
@@ -94,8 +103,16 @@ export class AccessIntegrationsService {
         // pago no los trae): se completan con el contrato vivo y el tenant.
         unit: args.scope.unit?.code ? args.scope.unit : { code: unitCode ?? '' },
         facility: args.scope.facility?.name ? args.scope.facility : { name: facilityName ?? '' },
-        tenant: { name: await this.tenantName(args.tenantId) },
+        tenant: { name: tenant?.name ?? '' },
+        // El área de clientes muestra siempre el PIN y el QR.
+        portal: {
+          url: tenant
+            ? tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant)
+            : '',
+        },
       },
+      // El correo lleva el PIN, pero el historial guarda «••••».
+      secretVariables: ['credential.secret'],
       customerId: args.customerId,
       // El PIN se emite al firmar (entityId = contrato) o al pagar la 1ª factura
       // (entityId = factura): se enlaza el recurso que lo originó.
@@ -146,14 +163,6 @@ export class AccessIntegrationsService {
       unitCode: latest?.code ?? null,
       facilityName: latest?.facility?.name ?? null,
     };
-  }
-
-  private async tenantName(tenantId: string): Promise<string> {
-    const t = await this.admin.tenant.findUnique({
-      where: { id: tenantId },
-      select: { name: true },
-    });
-    return t?.name ?? '';
   }
 
   /**

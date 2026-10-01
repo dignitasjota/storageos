@@ -2543,6 +2543,9 @@ model Communication {
   provider                 String? // "resend", "mailpit", "whatsapp_stub"
   /// Origen del envio: nombre legible. e.g. "dunning.email_reminder", "auth.invitation".
   source                   String?
+  /// Datos sensibles del envío (p. ej. el PIN de acceso), cifrados. El cuerpo
+  /// guardado lleva una marca en su lugar; solo se ponen al enviar.
+  secretsEncrypted         String?                @map("secrets_encrypted")
   errorMessage             String?                @map("error_message")
   retryCount               Int                    @default(0) @map("retry_count")
   scheduledFor             DateTime?              @map("scheduled_for") @db.Timestamptz(6)

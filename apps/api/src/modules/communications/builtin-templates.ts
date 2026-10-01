@@ -161,10 +161,10 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     name: 'Credencial de acceso emitida',
     subject: 'Tu acceso a {{tenant.name}}',
     bodyText:
-      'Hola {{customer.firstName}},\n\nYa puedes acceder a tu trastero {{unit.code}} en {{facility.name}}.\n\nCódigo de acceso: {{credential.secret}}\n\nGuárdalo bien: este código no volverá a mostrarse. Si lo pierdes, contáctanos para emitir uno nuevo.\n\nUn saludo,\nEl equipo de {{tenant.name}}',
+      'Hola {{customer.firstName}},\n\nYa puedes acceder a tu trastero {{unit.code}} en {{facility.name}}.\n\nCódigo de acceso: {{credential.secret}}\n\nTambién lo tienes siempre en tu área de clientes: {{portal.url}}\n\nUn saludo,\nEl equipo de {{tenant.name}}',
     bodyHtml: wrapHtml(
       'Tu acceso está listo',
-      '<p>Hola {{customer.firstName}},</p><p>Ya puedes acceder a tu trastero <strong>{{unit.code}}</strong> en <strong>{{facility.name}}</strong>.</p><p>Código de acceso:</p><p style="font-family:monospace;font-size:20px;background:#f5f5f5;padding:12px;border-radius:6px;text-align:center;">{{credential.secret}}</p><p style="font-size:12px;color:#888">Guárdalo bien: este código no volverá a mostrarse. Si lo pierdes, contáctanos para emitir uno nuevo.</p>',
+      '<p>Hola {{customer.firstName}},</p><p>Ya puedes acceder a tu trastero <strong>{{unit.code}}</strong> en <strong>{{facility.name}}</strong>.</p><p>Código de acceso:</p><p style="font-family:monospace;font-size:20px;background:#f5f5f5;padding:12px;border-radius:6px;text-align:center;">{{credential.secret}}</p><p>También lo tienes siempre en tu <a href="{{portal.url}}">área de clientes</a>.</p>',
     ),
     locale: 'es-ES',
     variables: [
@@ -173,6 +173,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
       'unit.code',
       'facility.name',
       'tenant.name',
+      'portal.url',
     ],
   },
   {

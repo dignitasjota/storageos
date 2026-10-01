@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -10,6 +11,7 @@ import { JOB_COMMUNICATIONS_DISPATCH, QUEUE_COMMUNICATIONS } from '../queues/que
 import { BUILTIN_TEMPLATES } from './builtin-templates';
 import { MessageTemplatesService } from './message-templates.service';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './providers/whatsapp-provider';
+import { extractSecrets, fillSecrets, maskSecrets } from './secret-vars';
 import { renderTemplate, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
 import { buildWhatsappTemplateParams } from './whatsapp-template.util';
 
@@ -62,6 +64,11 @@ export interface SendArgs {
   scheduledFor?: Date;
   /** Si se pasa, restringe el render de variables a la whitelist del trigger. */
   trigger?: AutomationTriggerValue | 'manual';
+  /**
+   * Rutas de `variables` con valores sensibles (p. ej. `credential.secret`):
+   * el correo los lleva, pero el historial guarda `••••` y el valor va cifrado.
+   */
+  secretVariables?: string[];
 }
 
 /**
@@ -86,7 +93,43 @@ export class CommunicationsService {
     private readonly email: EmailService,
     @Inject(WHATSAPP_PROVIDER) private readonly whatsapp: WhatsAppProvider,
     @InjectQueue(QUEUE_COMMUNICATIONS) private readonly queue: Queue,
+    private readonly crypto: CryptoService,
   ) {}
+
+  /**
+   * Variables para renderizar y para guardar, y los valores sensibles cifrados
+   * (ver `secret-vars.ts`).
+   */
+  private splitSecrets(args: SendArgs): {
+    renderVars: Record<string, unknown>;
+    storedVars: Record<string, unknown>;
+    secretsEncrypted: string | null;
+  } {
+    const vars = args.variables ?? {};
+    if (!args.secretVariables?.length) {
+      return { renderVars: vars, storedVars: vars, secretsEncrypted: null };
+    }
+    const { forRender, forStorage, secrets } = extractSecrets(vars, args.secretVariables);
+    return {
+      renderVars: forRender,
+      storedVars: forStorage,
+      secretsEncrypted: secrets
+        ? this.crypto.encryptString(JSON.stringify(secrets), args.tenantId)
+        : null,
+    };
+  }
+
+  /** Pone los valores sensibles reales en el texto (solo al enviar). */
+  private unseal(tenantId: string, encrypted: string | null, text: string): string;
+  private unseal(tenantId: string, encrypted: string | null, text: string | null): string | null;
+  private unseal(tenantId: string, encrypted: string | null, text: string | null): string | null {
+    if (!encrypted || text === null) return text;
+    const secrets = JSON.parse(this.crypto.decryptString(encrypted, tenantId)) as Record<
+      string,
+      string
+    >;
+    return fillSecrets(text, secrets);
+  }
 
   /**
    * API publica para enviar. Devuelve la communication persistida en estado
@@ -104,6 +147,7 @@ export class CommunicationsService {
     let whatsappTemplateName: string | null = null;
     let whatsappTemplateLanguage: string | null = null;
     let whatsappTemplateParams: Record<string, string> | null = null;
+    const { renderVars, storedVars, secretsEncrypted } = this.splitSecrets(args);
 
     if ((args.templateCode || args.templateId) && !bodyText) {
       const src = await this.resolveTemplateSource(args);
@@ -118,16 +162,16 @@ export class CommunicationsService {
       const allowed = args.trigger
         ? (TEMPLATE_VARIABLES_BY_TRIGGER[args.trigger] ?? undefined)
         : undefined;
-      subject = renderTemplate(src.subject ?? '', args.variables ?? {}, allowed);
-      bodyText = renderTemplate(src.bodyText, args.variables ?? {}, allowed);
-      bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, args.variables ?? {}, allowed) : null;
+      subject = renderTemplate(src.subject ?? '', renderVars, allowed);
+      bodyText = renderTemplate(src.bodyText, renderVars, allowed);
+      bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, renderVars, allowed) : null;
 
       if (args.channel === 'whatsapp' && src.whatsappTemplateName) {
         whatsappTemplateName = src.whatsappTemplateName;
         whatsappTemplateLanguage = src.whatsappTemplateLanguage ?? null;
         whatsappTemplateParams = buildWhatsappTemplateParams(
           src.whatsappTemplateVariables ?? [],
-          args.variables ?? {},
+          renderVars,
         );
       }
     }
@@ -155,7 +199,8 @@ export class CommunicationsService {
       subject,
       bodyText,
       bodyHtml,
-      variables: (args.variables ?? {}) as Prisma.InputJsonValue,
+      variables: storedVars as Prisma.InputJsonValue,
+      secretsEncrypted,
       whatsappTemplateName,
       whatsappTemplateLanguage,
       ...(whatsappTemplateParams
@@ -216,12 +261,17 @@ export class CommunicationsService {
       // Proveedor real que entregó el email (Brevo/Resend/SMTP, o el de respaldo).
       let deliveredBy: string | null = null;
       if (comm.channel === 'email') {
+        const sealed = comm.secretsEncrypted;
         const res = await this.email.sendRendered({
           tenantId,
           to: comm.recipient,
-          subject: comm.subject ?? '(sin asunto)',
-          html: comm.bodyHtml ?? `<pre>${escapeHtml(comm.bodyText)}</pre>`,
-          text: comm.bodyText,
+          subject: this.unseal(tenantId, sealed, comm.subject ?? '(sin asunto)'),
+          html: this.unseal(
+            tenantId,
+            sealed,
+            comm.bodyHtml ?? `<pre>${escapeHtml(comm.bodyText)}</pre>`,
+          ),
+          text: this.unseal(tenantId, sealed, comm.bodyText),
           tags: { tenantId, communicationId },
         });
         providerMessageId = res.providerMessageId;
@@ -230,7 +280,7 @@ export class CommunicationsService {
         // Envío por plantilla aprobada (proactivo); si no hay, texto libre.
         const res = await this.whatsapp.send({
           to: comm.recipient,
-          body: comm.bodyText,
+          body: this.unseal(tenantId, comm.secretsEncrypted, comm.bodyText),
           ...(comm.whatsappTemplateName ? { templateName: comm.whatsappTemplateName } : {}),
           ...(comm.whatsappTemplateLanguage
             ? { templateLanguage: comm.whatsappTemplateLanguage }
@@ -442,6 +492,7 @@ export class CommunicationsService {
     let bodyHtml = args.bodyHtml ?? null;
     let templateId: string | null = args.templateId ?? null;
     let provider: string | null = null;
+    const { renderVars, storedVars, secretsEncrypted } = this.splitSecrets(args);
     if ((args.templateCode || args.templateId) && !bodyText) {
       const src = await this.resolveTemplateSource(args);
       if (!src) {
@@ -454,9 +505,9 @@ export class CommunicationsService {
       const allowed = args.trigger
         ? (TEMPLATE_VARIABLES_BY_TRIGGER[args.trigger] ?? undefined)
         : undefined;
-      subject = renderTemplate(src.subject ?? '', args.variables ?? {}, allowed);
-      bodyText = renderTemplate(src.bodyText, args.variables ?? {}, allowed);
-      bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, args.variables ?? {}, allowed) : null;
+      subject = renderTemplate(src.subject ?? '', renderVars, allowed);
+      bodyText = renderTemplate(src.bodyText, renderVars, allowed);
+      bodyHtml = src.bodyHtml ? renderTemplate(src.bodyHtml, renderVars, allowed) : null;
     }
     if (args.channel === 'email') provider = this.email.providerName;
     else if (args.channel === 'whatsapp') provider = this.whatsapp.name;
@@ -476,7 +527,8 @@ export class CommunicationsService {
             subject,
             bodyText,
             bodyHtml,
-            variables: (args.variables ?? {}) as Prisma.InputJsonValue,
+            variables: storedVars as Prisma.InputJsonValue,
+            secretsEncrypted,
             provider,
             source: args.source ?? null,
           },
@@ -535,9 +587,9 @@ export class CommunicationsService {
       invoiceId: c.invoiceId,
       invoiceNumber: c.invoiceNumber ?? null,
       recipient: c.recipient,
-      subject: c.subject,
-      bodyText: c.bodyText,
-      bodyHtml: c.bodyHtml,
+      subject: c.subject === null ? null : maskSecrets(c.subject),
+      bodyText: maskSecrets(c.bodyText),
+      bodyHtml: c.bodyHtml === null ? null : maskSecrets(c.bodyHtml),
       variables: (c.variables ?? {}) as Record<string, unknown>,
       providerMessageId: c.providerMessageId,
       provider: c.provider,

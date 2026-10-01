@@ -65,6 +65,7 @@ Decisiones arquitecturales del proyecto. Cada decisión va con su justificación
 
 - **Tres remitentes**: tenant → inquilino (`TenantSenderService`: nombre del tenant, su dominio si está verificado); plataforma → tenant (`PlatformEmailSettingsService.platformSender(category)`: común y por tipo `account`/`billing`/`admin_messages`/`staff_notices`, con dirección de respuesta, herencia tipo → común → `EMAIL_FROM_*`); correos internos al super admin (remitente común).
 - **Correos por defecto antes que automatizaciones**: los transaccionales al inquilino (`CustomerEmailsModule`) salen siempre, activables uno a uno por el tenant; una automatización activa del mismo evento los sustituye. Las automatizaciones completan los datos al ejecutarse (`enrich`), no en el evento.
+- **Valores sensibles en un envío** (PIN de acceso): `SendArgs.secretVariables` los saca del historial — el cuerpo guardado lleva una marca, el valor va cifrado en `communications.secrets_encrypted` y solo se pone al enviar; el panel ve `••••`.
 - **El proveedor puede rechazar después de aceptar**: los avisos de entrega (`EmailEventsModule`, webhooks de Brevo con token y de Resend con firma Svix) actualizan cada comunicación a `delivered`/`bounced`/`failed`; lo que no está en Comunicaciones avisa al super admin. Los correos con enlaces de acceso al portal no se guardan en el historial a propósito.
 
 ## ADR-011: UUID v7 como tipo de id

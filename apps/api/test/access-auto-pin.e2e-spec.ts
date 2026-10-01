@@ -125,6 +125,21 @@ describe('Acceso automático al pagar (e2e)', () => {
     expect(mail.Subject).toBe(`Tu acceso a ${s.tenantName}`);
     const unit = await request(app.getHttpServer()).get(`/units/${s.unitId}`).set(s.auth);
     expect(mail.Text).toContain(`trastero ${unit.body.code as string} en ${s.facilityName}`);
+
+    // El correo lleva el PIN real y el enlace al área de clientes…
+    const pin = /Código de acceso: (\S+)/.exec(mail.Text)?.[1];
+    expect(pin).toMatch(/^\d{4,8}$/);
+    expect(mail.Text).toContain('/portal/login');
+    // …pero el historial del panel solo muestra «••••».
+    const comms = await request(app.getHttpServer())
+      .get(`/communications?customerId=${s.customerId}&source=access.invoice_paid`)
+      .set(s.auth)
+      .expect(200);
+    const comm = (comms.body as { bodyText: string; bodyHtml: string; variables: unknown }[])[0]!;
+    expect(comm.bodyText).toContain('Código de acceso: ••••');
+    expect(comm.bodyText).not.toContain(pin!);
+    expect(comm.bodyHtml).not.toContain(pin!);
+    expect(JSON.stringify(comm.variables)).not.toContain(pin!);
   });
 
   it('con el acceso suspendido por el staff, pagar NO le da un PIN nuevo', async () => {
