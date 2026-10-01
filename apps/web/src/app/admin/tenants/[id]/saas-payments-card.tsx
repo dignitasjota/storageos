@@ -204,6 +204,14 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
                                     onClick={() => onDownload(inv.id)}
                                   >
                                     {inv.fullNumber}
+                                    {inv.missing.length > 0 && (
+                                      <span
+                                        className="ml-1 text-amber-600 dark:text-amber-400"
+                                        title={`Falta: ${inv.missing.join(', ')}`}
+                                      >
+                                        (incompleta)
+                                      </span>
+                                    )}
                                   </button>
                                 );
                               }

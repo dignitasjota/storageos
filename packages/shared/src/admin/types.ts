@@ -81,6 +81,12 @@ export interface AdminTenantDto {
   currency: string;
   timezone: string;
   taxId: string | null;
+  billingLegalName: string | null;
+  billingAddress: string | null;
+  billingCity: string | null;
+  billingPostalCode: string | null;
+  /** Datos obligatorios que le faltan para que sus facturas de suscripción salgan completas. */
+  billingMissing: string[];
   createdAt: string;
   /** Conteos rápidos para la lista. */
   userCount: number;
@@ -805,6 +811,10 @@ export interface PlatformBillingSettingsDto {
   taxRate: number;
   seriesPrefix: string;
   enabled: boolean;
+  /** Datos del emisor que faltan para poder activar la facturación. */
+  missing: string[];
+  /** Negocio propio de la SL incluido en la exportación para la asesoría. */
+  ownTenant: { id: string; name: string; slug: string } | null;
 }
 
 export interface PlatformInvoiceDto {
@@ -827,6 +837,8 @@ export interface PlatformInvoiceDto {
   issuedAt: string;
   hasPdf: boolean;
   paymentId: string | null;
+  /** Datos obligatorios del destinatario que faltaban al emitirla (vacío = completa). */
+  missing: string[];
   /** Desglose por líneas (plan + add-ons); vacío en facturas antiguas monolínea. */
   lines: PlatformInvoiceLineDto[];
 }

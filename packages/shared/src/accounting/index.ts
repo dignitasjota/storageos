@@ -44,3 +44,6 @@ export interface HoldedTestResultDto {
   ok: boolean;
   message: string;
 }
+
+export * from './billing-details';
+export * from './accountant-export';

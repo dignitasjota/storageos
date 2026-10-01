@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { BillingDetailsSection } from './billing-details-section';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -293,6 +295,7 @@ export default function SaasBillingPage() {
         )}
       </section>
 
+      <BillingDetailsSection />
       <SepaMandateSection billingMode={sub.billingMode} />
       <SelfAddonsSection />
       <SaasInvoicesSection />

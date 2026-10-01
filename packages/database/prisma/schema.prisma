@@ -311,6 +311,11 @@ model Tenant {
   currency                     String                @default("EUR") @db.Char(3)
   timezone                     String                @default("Europe/Madrid")
   taxId                        String?               @map("tax_id")
+  /// Datos fiscales del tenant como destinatario de las facturas de suscripción.
+  billingLegalName             String?               @map("billing_legal_name")
+  billingAddress               String?               @map("billing_address")
+  billingCity                  String?               @map("billing_city")
+  billingPostalCode            String?               @map("billing_postal_code")
   ltvTier                      String?               @map("ltv_tier")
   strategicNotes               String?               @map("strategic_notes")
   tags                         String[]              @default([])
@@ -494,6 +499,7 @@ model Tenant {
   accessCredentialSyncs   AccessCredentialSync[]
   competitorFacilities    CompetitorFacility[]
   platformInvoices        PlatformInvoice[]
+  platformOwnSettings     PlatformBillingSettings[] @relation("PlatformOwnTenant")
   platformDunningEvents   PlatformDunningEvent[]
   userFacilities          UserFacility[]
   inspectionPhotos        ContractInspectionPhoto[]
@@ -3975,8 +3981,12 @@ model PlatformBillingSettings {
   taxRate      Decimal  @default(21) @map("tax_rate") @db.Decimal(5, 2)
   seriesPrefix String   @default("SAAS") @map("series_prefix")
   enabled      Boolean  @default(false)
+  /// Tenant del negocio propio de la SL emisora (entra en la exportación para la asesoría).
+  ownTenantId  String?  @map("own_tenant_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  ownTenant Tenant? @relation("PlatformOwnTenant", fields: [ownTenantId], references: [id], onDelete: SetNull)
 
   @@map("platform_billing_settings")
 }

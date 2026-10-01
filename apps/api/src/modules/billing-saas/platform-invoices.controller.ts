@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Query,
   Body,
   Controller,
@@ -13,7 +14,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ACCOUNTANT_INVOICE_COLUMNS,
+  ACCOUNTANT_PAYMENT_COLUMNS,
+  AccountantExportQuerySchema,
   IssuePlatformInvoiceSchema,
+  toAccountantCsv,
   UpdatePlatformBillingSettingsSchema,
   type PlatformBillingSettingsDto,
   type PlatformInvoiceDto,
@@ -24,6 +29,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin/admin.guard';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
+import { AccountantExportService } from './accountant-export.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
 
 import type { Response } from 'express';
@@ -36,7 +42,10 @@ class IssueDto extends createZodDto(IssuePlatformInvoiceSchema) {}
 @UseGuards(AdminGuard)
 @Controller('admin')
 export class PlatformInvoicesController {
-  constructor(private readonly service: PlatformInvoicesService) {}
+  constructor(
+    private readonly service: PlatformInvoicesService,
+    private readonly accountant: AccountantExportService,
+  ) {}
 
   @Get('platform-billing/settings')
   getSettings(): Promise<PlatformBillingSettingsDto> {
@@ -73,6 +82,53 @@ export class PlatformInvoicesController {
     const csv = await this.service.exportCsvForYear(y);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="facturas-saas-${y}.csv"`);
+    res.send(csv);
+  }
+
+  /**
+   * Exportación para la asesoría: facturas emitidas y cobros de la SL en un
+   * rango, con las suscripciones y el negocio propio juntos. `format=json`
+   * (vista previa), `csv` (una tabla por fichero, según `kind`) o `xlsx` (dos hojas).
+   */
+  @Get('platform-billing/accountant-export')
+  @RequireSuperadmin()
+  async accountantExport(
+    @Res() res: Response,
+    @Query() query: Record<string, string>,
+  ): Promise<void> {
+    const parsed = AccountantExportQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_range',
+        message: 'Indica el periodo (desde y hasta)',
+      });
+    }
+    const { from, to, format, kind } = parsed.data;
+    const dto = await this.accountant.build(from, to);
+    if (format === 'json') {
+      res.json(dto);
+      return;
+    }
+    const name = `asesoria-${from}-a-${to}`;
+    if (format === 'xlsx') {
+      const buf = await this.accountant.toXlsx(dto);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
+      res.send(buf);
+      return;
+    }
+    const csv =
+      kind === 'payments'
+        ? toAccountantCsv(ACCOUNTANT_PAYMENT_COLUMNS, dto.payments)
+        : toAccountantCsv(ACCOUNTANT_INVOICE_COLUMNS, dto.invoices);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${name}-${kind === 'payments' ? 'cobros' : 'facturas'}.csv"`,
+    );
     res.send(csv);
   }
 

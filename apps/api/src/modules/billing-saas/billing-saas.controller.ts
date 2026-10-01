@@ -16,7 +16,9 @@ import {
   CreatePortalSessionSchema,
   SelfAssignAddonSchema,
   SelfChangePlanSchema,
+  TenantBillingDetailsSchema,
   type BillingSessionResponseDto,
+  type TenantBillingDetailsDto,
   type PlatformInvoiceDto,
   type PlatformSepaMandateDto,
   type TenantSelfAddonsDto,
@@ -44,6 +46,7 @@ class CreatePortalSessionDto extends createZodDto(CreatePortalSessionSchema) {}
 class SelfAssignAddonDto extends createZodDto(SelfAssignAddonSchema) {}
 class SelfChangePlanDto extends createZodDto(SelfChangePlanSchema) {}
 class CreatePlatformSepaMandateDto extends createZodDto(CreatePlatformSepaMandateSchema) {}
+class TenantBillingDetailsBody extends createZodDto(TenantBillingDetailsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -74,6 +77,21 @@ export class BillingSaasController {
     private readonly invoices: PlatformInvoicesService,
     private readonly sepaMandate: PlatformSepaMandateService,
   ) {}
+
+  /** Datos fiscales del tenant para sus facturas de suscripción (razón social, NIF, domicilio). */
+  @Get('billing-details')
+  getBillingDetails(@CurrentUser() user: AuthenticatedUser): Promise<TenantBillingDetailsDto> {
+    return this.invoices.getTenantBillingDetails(user.tenantId);
+  }
+
+  @Post('billing-details')
+  @HttpCode(HttpStatus.OK)
+  updateBillingDetails(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: TenantBillingDetailsBody,
+  ): Promise<TenantBillingDetailsDto> {
+    return this.invoices.updateTenantBillingDetails(user.tenantId, body);
+  }
 
   @Get()
   async getCurrent(@CurrentUser() user: AuthenticatedUser): Promise<TenantSubscriptionDto> {

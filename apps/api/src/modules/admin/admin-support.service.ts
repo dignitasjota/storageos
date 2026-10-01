@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { normalizeTaxId, type AdminUpdateTenantInput } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { AuthService } from '../auth/auth.service';
@@ -7,8 +8,6 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
-
-import type { AdminUpdateTenantInput } from '@storageos/shared';
 
 interface ActionMeta {
   superAdminId: string;
@@ -110,7 +109,14 @@ export class AdminSupportService {
     if (input.country !== undefined) data.country = input.country;
     if (input.currency !== undefined) data.currency = input.currency;
     if (input.timezone !== undefined) data.timezone = input.timezone;
-    if (input.taxId !== undefined) data.taxId = input.taxId;
+    if (input.taxId !== undefined) data.taxId = input.taxId ? normalizeTaxId(input.taxId) : null;
+    if (input.billingLegalName !== undefined)
+      data.billingLegalName = input.billingLegalName || null;
+    if (input.billingAddress !== undefined) data.billingAddress = input.billingAddress || null;
+    if (input.billingCity !== undefined) data.billingCity = input.billingCity || null;
+    if (input.billingPostalCode !== undefined) {
+      data.billingPostalCode = input.billingPostalCode || null;
+    }
 
     await this.admin.tenant.update({ where: { id: tenantId }, data });
     await this.trace(tenantId, null, 'admin.tenant.updated', meta, { fields: Object.keys(data) });

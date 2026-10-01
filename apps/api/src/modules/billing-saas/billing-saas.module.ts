@@ -8,6 +8,7 @@ import { EmailModule } from '../email/email.module';
 import { FilesModule } from '../files/files.module';
 import { PaymentsModule } from '../payments/payments.module';
 
+import { AccountantExportService } from './accountant-export.service';
 import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
 import { BillingStatusController } from './billing-status.controller';
@@ -80,6 +81,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SubscriptionPlansService,
     SaasAddonsService,
     PlatformInvoicesService,
+    AccountantExportService,
     PlatformCouponsService,
     PlatformDunningService,
     PlatformDunningCron,
@@ -98,6 +100,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SubscriptionPlansService,
     SaasAddonsService,
     PlatformInvoicesService,
+    AccountantExportService,
     PlatformDunningService,
     PlatformCouponsService,
     PlatformSepaSettingsService,
