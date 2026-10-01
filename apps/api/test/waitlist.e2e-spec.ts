@@ -88,6 +88,15 @@ describe('Waitlist / lista de espera (e2e)', () => {
     expect(firstEntry?.status).toBe('notified');
     expect(firstEntry?.notifiedAt).not.toBeNull();
 
+    // El aviso queda en Comunicaciones (pasa por el outbox).
+    const comms = await request(app.getHttpServer())
+      .get('/communications?source=waitlist.match')
+      .set(auth)
+      .expect(200);
+    expect((comms.body as { recipient: string }[]).map((c) => c.recipient)).toContain(
+      'ana@example.com',
+    );
+
     // El segundo sigue esperando (solo se avisa a uno por unidad liberada).
     const list = await request(app.getHttpServer()).get('/waitlist?status=waiting').set(auth);
     expect((list.body as unknown[]).length).toBe(1);

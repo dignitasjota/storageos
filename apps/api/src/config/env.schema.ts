@@ -161,6 +161,10 @@ const envSchemaBase = z.object({
 
   // --- Resend (provider = resend) ---
   RESEND_API_KEY: z.string().default(''),
+  /** Secreto de firma del webhook de Resend (`whsec_…`), para los avisos de entrega. */
+  RESEND_WEBHOOK_SECRET: z.string().default(''),
+  /** Token de la URL del webhook de Brevo (`?token=`), para los avisos de entrega. */
+  EMAIL_WEBHOOK_TOKEN: z.string().default(''),
 
   // --- Brevo (provider = brevo) ---
   BREVO_API_KEY: z.string().default(''),

@@ -73,6 +73,13 @@ describe('Retención de bajas (e2e)', () => {
     expect(offerRes.status).toBe(201);
     expect(offerRes.body.status).toBe('pending');
 
+    // El aviso al inquilino queda en Comunicaciones, enlazado al contrato.
+    const comms = await request(app.getHttpServer())
+      .get(`/communications?contractId=${contractId}&source=retention.offer`)
+      .set(auth)
+      .expect(200);
+    expect(comms.body).toHaveLength(1);
+
     // El inquilino la ve en su portal con la cuota rebajada.
     const portalToken = await portalLogin(owner.slug, email);
     const pAuth = { Authorization: `Bearer ${portalToken}` };

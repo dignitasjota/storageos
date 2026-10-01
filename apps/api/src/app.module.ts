@@ -44,6 +44,7 @@ import { DatabaseModule } from './modules/database/database.module';
 import { DunningModule } from './modules/dunning/dunning.module';
 import { EmailModule } from './modules/email/email.module';
 import { EmailDomainsModule } from './modules/email-domains/email-domains.module';
+import { EmailEventsModule } from './modules/email-events/email-events.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { FaqModule } from './modules/faq/faq.module';
@@ -184,6 +185,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ExpensesModule,
     TenantDigestModule,
     CustomerEmailsModule,
+    EmailEventsModule,
     PlanLimitsModule,
     FaqModule,
     EmailDomainsModule,

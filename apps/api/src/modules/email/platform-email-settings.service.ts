@@ -110,6 +110,20 @@ export class PlatformEmailSettingsService {
       configured: { brevo: this.isConfigured('brevo'), resend: this.isConfigured('resend') },
       effectiveOrder: this.computeOrder(stored),
       fromAddress: this.config.get('EMAIL_FROM_ADDRESS', { infer: true }),
+      deliveryWebhooks: {
+        brevo: {
+          url: `${this.apiBase()}/webhooks/email-events/brevo`,
+          configured: Boolean(this.config.get('EMAIL_WEBHOOK_TOKEN', { infer: true })),
+        },
+        resend: {
+          url: `${this.apiBase()}/webhooks/email-events/resend`,
+          configured: Boolean(this.config.get('RESEND_WEBHOOK_SECRET', { infer: true })),
+        },
+      },
     };
+  }
+
+  private apiBase(): string {
+    return this.config.get('API_BASE_URL', { infer: true }).replace(/\/$/, '');
   }
 }

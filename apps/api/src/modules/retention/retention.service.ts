@@ -2,9 +2,9 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
-import { EmailService } from '../email/email.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { RetentionOffer } from '@storageos/database';
@@ -50,7 +50,7 @@ export class RetentionService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
-    private readonly email: EmailService,
+    private readonly communications: CommunicationsService,
   ) {}
 
   async createOffer(args: {
@@ -108,15 +108,20 @@ export class RetentionService {
         input.discountType === 'percentage'
           ? `${input.discountValue}% de descuento`
           : `${input.discountValue} € de descuento`;
-      await this.email
-        .sendRendered({
+      // Por el outbox: queda en Comunicaciones enlazada al contrato.
+      await this.communications
+        .enqueue({
           tenantId,
-          to: created.email,
+          channel: 'email',
+          recipient: created.email,
           subject: 'Una oferta para que te quedes con nosotros',
-          html: `<p>Hemos visto que ibas a darte de baja del trastero <strong>${escapeHtml(
+          bodyHtml: `<p>Hemos visto que ibas a darte de baja del trastero <strong>${escapeHtml(
             created.unitCode,
           )}</strong>. Nos gustaría que te quedaras: te ofrecemos <strong>${desc}</strong> durante ${input.months} mes(es).</p><p>Entra en tu portal para aceptarla.</p>`,
-          text: `Te ofrecemos ${desc} durante ${input.months} mes(es) en el trastero ${created.unitCode} para que te quedes. Entra en tu portal para aceptarla.`,
+          bodyText: `Te ofrecemos ${desc} durante ${input.months} mes(es) en el trastero ${created.unitCode} para que te quedes. Entra en tu portal para aceptarla.`,
+          customerId: created.row.customerId,
+          contractId: args.contractId,
+          source: 'retention.offer',
         })
         .catch((err: unknown) =>
           this.logger.warn(`[retention] email falló: ${err instanceof Error ? err.message : err}`),
