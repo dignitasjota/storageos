@@ -40,6 +40,11 @@ export interface SendEmailArgs {
 
 export interface SendEmailResult {
   providerMessageId: string | null;
+  /**
+   * No se envió: la dirección está en la lista de supresión (rebote
+   * permanente…). Texto del motivo, para el historial.
+   */
+  suppressed?: string;
   /** Proveedor que entregó el correo (lo rellena el enrutador). */
   provider?: string;
 }

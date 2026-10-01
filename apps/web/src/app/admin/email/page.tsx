@@ -32,6 +32,8 @@ import {
   useUpdatePlatformSenders,
   useAdminEmailSettings,
   useDeleteBrevoDomain,
+  useEmailSuppressions,
+  useRemoveEmailSuppression,
   useSendTestEmail,
   useUnusedBrevoDomains,
   useUpdateEmailSettings,
@@ -247,7 +249,82 @@ export default function AdminEmailPage() {
         </CardContent>
       </Card>
       <UnusedBrevoDomainsCard />
+      <EmailSuppressionsCard />
     </div>
+  );
+}
+
+function EmailSuppressionsCard() {
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const { data, isLoading } = useEmailSuppressions(query);
+  const remove = useRemoveEmailSuppression();
+
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  async function onRemove(id: string, email: string) {
+    if (!window.confirm(`¿Quitar ${email} de la lista? Volverá a recibir correos.`)) return;
+    try {
+      await remove.mutateAsync(id);
+      toast.success(`${email} desbloqueada.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Direcciones bloqueadas</CardTitle>
+        <CardDescription>
+          Se añaden solas con los avisos de Brevo y Resend. Un rebote permanente bloquea la
+          dirección para todos los tenants (no existe); una queja de spam solo corta las campañas de
+          ese tenant. Insistir en estas direcciones daña la reputación de la cuenta de envío.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por email"
+          className="text-base sm:text-sm"
+        />
+        {isLoading ? (
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        ) : !data || data.items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay direcciones bloqueadas.</p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {data.items.map((s) => (
+              <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{s.email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.reasonLabel} ·{' '}
+                    {s.scope === 'all'
+                      ? 'no recibe nada'
+                      : `sin campañas de ${s.tenantName ?? 'ningún tenant'}`}{' '}
+                    · {new Date(s.createdAt).toLocaleDateString('es-ES')}
+                  </p>
+                  {s.detail && <p className="truncate text-xs text-muted-foreground">{s.detail}</p>}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={remove.isPending}
+                  onClick={() => void onRemove(s.id, s.email)}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" /> Quitar
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

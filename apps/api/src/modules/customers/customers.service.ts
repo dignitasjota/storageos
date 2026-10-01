@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
+import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { ReferralsService } from '../referrals/referrals.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -12,6 +13,7 @@ import type { Customer, Prisma } from '@storageos/database';
 import type {
   CreateCustomerInput,
   CustomerDto,
+  EmailSuppressionDto,
   SetKycVerifiedInput,
   UpdateCustomerInput,
 } from '@storageos/shared';
@@ -37,6 +39,7 @@ export class CustomersService {
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
     private readonly referrals: ReferralsService,
+    private readonly suppressions: EmailSuppressionsService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<CustomerDto[]> {
@@ -294,6 +297,39 @@ export class CustomersService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toDto(updated);
+  }
+
+  /** Bloqueos de correo que afectan al email del inquilino (rebote, spam). */
+  async emailStatus(tenantId: string, customerId: string): Promise<EmailSuppressionDto[]> {
+    const c = await this.findOrThrow(tenantId, customerId);
+    if (!c.email) return [];
+    return this.suppressions.forTenantEmail(tenantId, c.email);
+  }
+
+  /**
+   * Desbloquea el email del inquilino (el buzón vuelve a funcionar o fue un
+   * error). La baja comercial, si la pidió, se mantiene: se cambia aparte.
+   */
+  async clearEmailBlock(args: {
+    tenantId: string;
+    userId: string;
+    customerId: string;
+    meta: RequestMeta;
+  }): Promise<{ removed: number }> {
+    const c = await this.findOrThrow(args.tenantId, args.customerId);
+    if (!c.email) return { removed: 0 };
+    const removed = await this.suppressions.clearForTenantEmail(args.tenantId, c.email);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'customer.email_block_cleared',
+      entityType: 'Customer',
+      entityId: args.customerId,
+      changes: { removed },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { removed };
   }
 
   private async findOrThrow(tenantId: string, customerId: string): Promise<CustomerWithCounts> {

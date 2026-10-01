@@ -66,6 +66,7 @@ import type {
   PlatformDomainStatusDto,
   PlatformSendersDto,
   UnusedBrevoDomainDto,
+  EmailSuppressionDto,
   AdminTenantHealthDto,
   TenantFeature,
   AdminBroadcastInput,
@@ -1577,6 +1578,27 @@ export function useDeleteBrevoDomain() {
       }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['admin', 'email-settings', 'brevo-unused'] }),
+  });
+}
+
+/** Lista de supresión de correo (rebotes permanentes y quejas de spam). */
+export function useEmailSuppressions(search: string) {
+  return useQuery({
+    queryKey: ['admin', 'email-settings', 'suppressions', search] as const,
+    queryFn: () =>
+      adminApiFetch<{ items: EmailSuppressionDto[]; nextCursor: string | null }>(
+        `/admin/email-settings/suppressions${search ? `?search=${encodeURIComponent(search)}` : ''}`,
+      ),
+  });
+}
+
+export function useRemoveEmailSuppression() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/email-settings/suppressions/${id}`, { method: 'DELETE' }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['admin', 'email-settings', 'suppressions'] }),
   });
 }
 

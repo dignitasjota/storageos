@@ -306,6 +306,10 @@ Log unificado de mensajes.
 - **contract_id / invoice_id** (2026-09-26, nullable, FK `ON DELETE SET NULL`): el recurso que originó el mensaje (recordatorios de pago y dunning → factura; firma, subidas de precio, valoraciones y alta de acceso → contrato; automatizaciones según su `entityType`). El historial `/communications` enlaza a inquilino, contrato, trastero y factura, y el API filtra por `?contractId=`/`?invoiceId=`. Los envíos anteriores quedan sin vínculo (no hay backfill).
 - **is_marketing** (2026-10-01): envío comercial (campaña, win-back). Lleva pie y cabecera de baja y, al enviarse, se omite (`skipped`) si el destinatario se dio de baja. Relacionado: `customers.marketing_opt_out_at` (baja; un cliente recibe campañas mientras sea null) y `leads.marketing_consent_at`/`marketing_opt_out_at` (un lead solo con consentimiento y sin baja).
 
+### `email_suppressions` (global, sin RLS, REVOKE al rol de la app)
+
+Lista de supresión de correo. `email` (minúsculas), `tenant_id` (null = todos los tenants), `scope` (`all` = no se envía nada; `marketing` = solo se omiten las comunicaciones comerciales), `reason` (`hard_bounce`/`invalid_email`/`blocked`/`complaint`), `provider`, `detail`, `created_at`. Único `(email, tenant_id) NULLS NOT DISTINCT`. La alimentan los avisos de entrega de Brevo/Resend; un envío a una dirección con bloqueo total queda `skipped`.
+
 ### `message_templates`
 
 - id, tenant_id, name, channel, subject, body, variables (jsonb), category, is_active

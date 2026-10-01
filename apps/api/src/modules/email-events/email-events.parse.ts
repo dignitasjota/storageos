@@ -1,5 +1,6 @@
 /** Resultado de entrega que nos interesa de un aviso del proveedor. */
-export type DeliveryOutcome = 'delivered' | 'bounced' | 'failed';
+/** `complained` = el destinatario lo marcó como spam. */
+export type DeliveryOutcome = 'delivered' | 'bounced' | 'failed' | 'complained';
 
 export interface DeliveryEvent {
   provider: 'brevo' | 'resend';
@@ -8,6 +9,12 @@ export interface DeliveryEvent {
   outcome: DeliveryOutcome;
   recipient: string | null;
   reason: string | null;
+  /**
+   * Motivo para la lista de supresión: `hard_bounce`/`invalid_email`/`blocked`
+   * (no se le envía nada más) o `complaint` (solo comerciales). Null = no
+   * se suprime (entrega, error del proveedor, rebote temporal…).
+   */
+  suppressReason: string | null;
   occurredAt: Date;
 }
 
@@ -17,6 +24,7 @@ const BREVO_OUTCOME: Record<string, DeliveryOutcome> = {
   invalid_email: 'bounced',
   blocked: 'bounced',
   error: 'failed',
+  spam: 'complained',
 };
 
 const BREVO_REASON: Record<string, string> = {
@@ -24,6 +32,15 @@ const BREVO_REASON: Record<string, string> = {
   invalid_email: 'Dirección de email no válida',
   blocked: 'Bloqueado por el proveedor',
   error: 'Rechazado por el proveedor',
+  spam: 'Marcado como spam',
+};
+
+/** Eventos de Brevo que meten la dirección en la lista de supresión. */
+const BREVO_SUPPRESS: Record<string, string> = {
+  hard_bounce: 'hard_bounce',
+  invalid_email: 'invalid_email',
+  blocked: 'blocked',
+  spam: 'complaint',
 };
 
 /**
@@ -51,6 +68,7 @@ export function parseBrevoEvents(body: unknown): DeliveryEvent[] {
         outcome === 'delivered'
           ? null
           : [BREVO_REASON[event], reason].filter(Boolean).join(': ').slice(0, 500),
+      suppressReason: BREVO_SUPPRESS[event] ?? null,
       occurredAt: parseDate(e.date),
     });
   }
@@ -61,6 +79,7 @@ const RESEND_OUTCOME: Record<string, DeliveryOutcome> = {
   'email.delivered': 'delivered',
   'email.bounced': 'bounced',
   'email.failed': 'failed',
+  'email.complained': 'complained',
 };
 
 /** Webhook de Resend: `{ type, created_at, data: { email_id, to[], bounce?, failed? } }`. */
@@ -72,7 +91,7 @@ export function parseResendEvent(body: unknown): DeliveryEvent[] {
     data?: {
       email_id?: unknown;
       to?: unknown;
-      bounce?: { message?: unknown };
+      bounce?: { message?: unknown; type?: unknown };
       failed?: { reason?: unknown };
     };
   };
@@ -95,10 +114,24 @@ export function parseResendEvent(body: unknown): DeliveryEvent[] {
       reason:
         outcome === 'delivered'
           ? null
-          : [outcome === 'bounced' ? 'Rebote' : 'Rechazado por el proveedor', detail]
+          : [
+              outcome === 'bounced'
+                ? 'Rebote'
+                : outcome === 'complained'
+                  ? 'Marcado como spam'
+                  : 'Rechazado por el proveedor',
+              detail,
+            ]
               .filter(Boolean)
               .join(': ')
               .slice(0, 500),
+      suppressReason:
+        outcome === 'complained'
+          ? 'complaint'
+          : // Resend avisa de los rebotes permanentes; un `Transient` no se suprime.
+            outcome === 'bounced' && e.data?.bounce?.type !== 'Transient'
+            ? 'hard_bounce'
+            : null,
       occurredAt: parseDate(e.created_at),
     },
   ];

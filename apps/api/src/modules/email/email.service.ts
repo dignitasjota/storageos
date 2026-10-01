@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { render } from '@react-email/render';
 
+import { EmailSuppressionsService } from './email-suppressions.service';
 import { PlatformEmailSettingsService } from './platform-email-settings.service';
 import {
   EMAIL_PROVIDER,
@@ -78,6 +79,7 @@ export class EmailService {
     @Inject(EMAIL_PROVIDER) private readonly provider: EmailProvider,
     private readonly senders: TenantSenderService,
     private readonly platform: PlatformEmailSettingsService,
+    private readonly suppressions: EmailSuppressionsService,
   ) {}
 
   get providerName(): string {
@@ -100,6 +102,18 @@ export class EmailService {
   }
 
   async sendRendered(args: SendMailRenderedArgs): Promise<SendEmailResult> {
+    // Dirección que rebota de forma permanente: no se insiste (daña la
+    // reputación de la cuenta de envío, compartida por todos los tenants).
+    const blocked = await this.suppressions.blockedForAll(args.to);
+    if (blocked) {
+      this.logger.warn(
+        `[email] ${args.to} en la lista de supresión (${blocked.reason}), no se envía`,
+      );
+      return {
+        providerMessageId: null,
+        suppressed: `No enviado: la dirección está bloqueada (${blocked.label.toLowerCase()})`,
+      };
+    }
     const sender: { from: EmailAddress; replyTo?: EmailAddress; forceProvider?: 'brevo' } =
       args.tenantId
         ? await this.senders.resolve(args.tenantId)

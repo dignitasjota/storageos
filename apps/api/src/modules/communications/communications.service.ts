@@ -11,6 +11,7 @@ import {
 } from '../../common/marketing/unsubscribe-token';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { EmailService } from '../email/email.service';
 import { JOB_COMMUNICATIONS_DISPATCH, QUEUE_COMMUNICATIONS } from '../queues/queues.module';
 
@@ -107,6 +108,7 @@ export class CommunicationsService {
     @InjectQueue(QUEUE_COMMUNICATIONS) private readonly queue: Queue,
     private readonly crypto: CryptoService,
     private readonly config: ConfigService<Env, true>,
+    private readonly suppressions: EmailSuppressionsService,
   ) {}
 
   /**
@@ -114,6 +116,13 @@ export class CommunicationsService {
    * un lead, solo con consentimiento y sin baja.
    */
   private async marketingBlocked(comm: Communication): Promise<string | null> {
+    // Marcó como spam un correo de este tenant (o la dirección rebota).
+    if (
+      comm.channel === 'email' &&
+      (await this.suppressions.blockedForMarketing(comm.tenantId, comm.recipient))
+    ) {
+      return 'El destinatario marcó como spam un correo anterior o su dirección rebota';
+    }
     if (comm.customerId) {
       const c = await this.admin.customer.findFirst({
         where: { id: comm.customerId, tenantId: comm.tenantId },
@@ -371,6 +380,13 @@ export class CommunicationsService {
           ...(headers ? { headers } : {}),
           tags: { tenantId, communicationId },
         });
+        if (res.suppressed) {
+          await this.admin.communication.update({
+            where: { id: comm.id },
+            data: { status: 'skipped', errorMessage: res.suppressed },
+          });
+          return;
+        }
         providerMessageId = res.providerMessageId;
         deliveredBy = res.provider ?? null;
       } else if (comm.channel === 'whatsapp') {

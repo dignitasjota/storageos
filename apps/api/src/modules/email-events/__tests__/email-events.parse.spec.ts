@@ -33,6 +33,13 @@ describe('parseBrevoEvents', () => {
     expect(events[1]!.reason).toBe('Rebote permanente: mailbox full');
     expect(events[2]!.reason).toContain('is not valid');
     expect(events[0]!.reason).toBeNull();
+    expect(events.map((e) => e.suppressReason)).toEqual([null, 'hard_bounce', null]);
+  });
+
+  it('queja de spam → complained + supresión comercial', () => {
+    const [e] = parseBrevoEvents({ event: 'spam', 'message-id': 'm2', email: 'x@y.es' });
+    expect(e).toMatchObject({ outcome: 'complained', suppressReason: 'complaint' });
+    expect(e!.reason).toBe('Marcado como spam');
   });
 
   it('acepta un objeto suelto', () => {
@@ -54,6 +61,17 @@ describe('parseResendEvent', () => {
       parseResendEvent({ type: 'email.delivered', data: { email_id: 're_2' } })[0]!.outcome,
     ).toBe('delivered');
     expect(parseResendEvent({ type: 'email.opened', data: { email_id: 're_3' } })).toEqual([]);
+    expect(b!.suppressReason).toBe('hard_bounce');
+  });
+
+  it('rebote temporal no suprime; queja de spam sí (solo comerciales)', () => {
+    const [t] = parseResendEvent({
+      type: 'email.bounced',
+      data: { email_id: 're_4', bounce: { type: 'Transient', message: 'mailbox full' } },
+    });
+    expect(t!.suppressReason).toBeNull();
+    const [c] = parseResendEvent({ type: 'email.complained', data: { email_id: 're_5' } });
+    expect(c).toMatchObject({ outcome: 'complained', suppressReason: 'complaint' });
   });
 });
 

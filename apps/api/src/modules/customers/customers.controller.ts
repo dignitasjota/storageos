@@ -15,6 +15,7 @@ import {
 import {
   CreateCustomerSchema,
   type CustomerDto,
+  type EmailSuppressionDto,
   SetKycVerifiedSchema,
   SetMarketingPreferenceSchema,
   UpdateCustomerSchema,
@@ -109,6 +110,32 @@ export class CustomersController {
     @Req() req: Request,
   ): Promise<void> {
     await this.customers.softDelete({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      customerId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Bloqueos de correo del email del inquilino (rebote permanente, spam). */
+  @RequirePermission('customers:read')
+  @Get(':id/email-status')
+  emailStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<EmailSuppressionDto[]> {
+    return this.customers.emailStatus(user.tenantId, id);
+  }
+
+  @RequirePermission('customers:write')
+  @Post(':id/email-status/clear')
+  @HttpCode(HttpStatus.OK)
+  clearEmailBlock(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ removed: number }> {
+    return this.customers.clearEmailBlock({
       tenantId: user.tenantId,
       userId: user.sub,
       customerId: id,
