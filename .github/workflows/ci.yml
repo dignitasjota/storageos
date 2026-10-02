@@ -302,12 +302,14 @@ jobs:
       # modules para ESM + heap de 6 GB); llamamos a jest directamente para poder
       # pasar `--shard` sin el problema del `--` de pnpm (que jest interpretaba
       # como patrón de ruta → «No tests found»).
+      # 5 trozos (antes 3): con ~240 suites, un trozo de ~80 en el mismo proceso
+      # superaba los 6 GB por la fuga acumulada (heap out of memory intermitente).
       - name: Run API e2e tests (sharded to avoid OOM)
         env:
           NODE_OPTIONS: '--experimental-vm-modules --max-old-space-size=6144'
         run: |
-          for shard in 1 2 3; do
-            echo "::group::E2E shard ${shard}/3"
-            pnpm -F api exec jest --config test/jest-e2e.config.js --runInBand --shard=${shard}/3
+          for shard in 1 2 3 4 5; do
+            echo "::group::E2E shard ${shard}/5"
+            pnpm -F api exec jest --config test/jest-e2e.config.js --runInBand --shard=${shard}/5
             echo "::endgroup::"
           done
