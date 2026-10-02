@@ -603,12 +603,19 @@ export class AnalyticsService {
               status: {
                 in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
               },
+              // La fianza no es un ingreso (se devuelve): fuera de lo facturado y cobrado.
+              kind: 'invoice',
               issueDate: { gte: fromDate, lt: toExclusive },
             },
             select: { issueDate: true, total: true },
           }),
           tx.payment.findMany({
-            where: { tenantId, status: 'succeeded', paidAt: { gte: fromDate, lt: toExclusive } },
+            where: {
+              tenantId,
+              status: 'succeeded',
+              paidAt: { gte: fromDate, lt: toExclusive },
+              invoice: { kind: 'invoice' },
+            },
             select: { paidAt: true, amount: true },
           }),
         ]),
@@ -670,7 +677,7 @@ export class AnalyticsService {
         }),
         tx.invoice.groupBy({
           by: ['customerId'],
-          where: { customerId: { not: null }, deletedAt: null },
+          where: { customerId: { not: null }, deletedAt: null, kind: 'invoice' },
           _sum: { amountPaid: true },
         }),
       ]);

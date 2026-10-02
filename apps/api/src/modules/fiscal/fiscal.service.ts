@@ -85,6 +85,7 @@ export class FiscalService {
             tenantId,
             deletedAt: null,
             status: { in: [...FISCAL_STATUSES] },
+            kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: fromD, lte: toD },
           },
           select: {
@@ -166,6 +167,7 @@ export class FiscalService {
             invoice: {
               deletedAt: null,
               status: { in: [...FISCAL_STATUSES] },
+              kind: 'invoice', // los justificantes de fianza no son facturas
               issueDate: { gte: from, lte: to },
             },
           },
@@ -191,6 +193,7 @@ export class FiscalService {
             tenantId,
             deletedAt: null,
             status: { in: [...FISCAL_STATUSES] },
+            kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: from, lte: to },
           },
         }),
@@ -218,6 +221,7 @@ export class FiscalService {
             tenantId,
             deletedAt: null,
             status: { in: [...FISCAL_STATUSES] },
+            kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: from, lte: to },
             customerId: { not: null },
           },
@@ -290,6 +294,7 @@ export class FiscalService {
             tenantId,
             deletedAt: null,
             status: { in: [...FISCAL_STATUSES] },
+            kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: fromD, lte: toD },
           },
           select: {

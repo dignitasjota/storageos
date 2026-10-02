@@ -16,6 +16,7 @@ interface TxMock {
   payment: {
     findFirst: jest.Mock;
     findUniqueOrThrow: jest.Mock;
+    findMany: jest.Mock;
     update: jest.Mock;
     updateMany: jest.Mock;
     create: jest.Mock;
@@ -23,6 +24,7 @@ interface TxMock {
   };
   invoice: {
     findFirst: jest.Mock;
+    findMany: jest.Mock;
     findUniqueOrThrow: jest.Mock;
     update: jest.Mock;
     updateMany: jest.Mock;
@@ -49,6 +51,11 @@ function buildTx(): TxMock {
       findFirst: jest.fn(),
       // Lectura fresca con la fila bloqueada: la misma fila que `findFirst`.
       findUniqueOrThrow: jest.fn((): unknown => tx.payment.findFirst()),
+      // Los webhooks buscan el grupo de pagos del mismo cargo (factura + fianza).
+      findMany: jest.fn(async (): Promise<unknown[]> => {
+        const row = (await tx.payment.findFirst()) as unknown;
+        return row ? [row] : [];
+      }),
       update: jest.fn().mockResolvedValue(undefined),
       // Transición condicionada (como en Postgres): solo cuenta si la fila actual
       // cumple `where.status`.
@@ -63,6 +70,8 @@ function buildTx(): TxMock {
     },
     invoice: {
       findFirst: jest.fn(),
+      // Justificantes de fianza que se cobran junto a la factura: ninguno por defecto.
+      findMany: jest.fn().mockResolvedValue([]),
       findUniqueOrThrow: jest.fn(),
       update: jest.fn().mockResolvedValue(undefined),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -523,9 +532,10 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     expect(tx.payment.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'processing' }) }),
     );
-    expect(tx.payment.update).toHaveBeenCalledWith(
+    // La reserva (y las de la fianza cobrada junto, si las hubiera) pasa a failed.
+    expect(tx.payment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: PAYMENT_ID },
+        where: { id: { in: [PAYMENT_ID] } },
         data: expect.objectContaining({ status: 'failed' }),
       }),
     );

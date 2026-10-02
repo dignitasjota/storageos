@@ -198,11 +198,14 @@ export class InvoicePdfService implements OnModuleDestroy {
       )
       .join('');
 
+    // Justificante de fianza: no es una factura (sin IVA ni Veri*Factu).
+    const isReceipt = i.kind === 'deposit_receipt';
+    const docTitle = isReceipt ? 'Justificante de fianza' : 'Factura';
     return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>Factura ${i.invoiceNumber}</title>
+<title>${docTitle} ${i.invoiceNumber}</title>
 <style>
   body { font-family: -apple-system, system-ui, Segoe UI, Helvetica, Arial, sans-serif; color: #111; font-size: 10.5pt; line-height: 1.4; }
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24pt; margin-bottom: 24pt; }
@@ -229,7 +232,7 @@ export class InvoicePdfService implements OnModuleDestroy {
 <body>
 <header>
   <div>
-    <h1>Factura</h1>
+    <h1>${docTitle}</h1>
     <div class="meta">N.º <strong>${i.invoiceNumber}</strong></div>
     <div class="meta">Fecha emisión: ${i.issueDate ?? '—'}</div>
     <div class="meta">Vencimiento: ${i.dueDate ?? '—'}</div>
@@ -278,7 +281,10 @@ export class InvoicePdfService implements OnModuleDestroy {
   ${i.amountPending > 0 && i.status !== 'paid' ? `<div class="row" style="color: #c00;"><span>Pendiente</span><span class="num">${eur(i.amountPending)}</span></div>` : ''}
 </div>
 
-<div class="verifactu">
+${
+  isReceipt
+    ? `<div class="verifactu"><div class="legal">Fianza en garantía del contrato: no es una factura ni una operación sujeta a IVA. Se devuelve al terminar el contrato, descontando lo que proceda.</div></div>`
+    : `<div class="verifactu">
   ${i.qrCodeUrl ? `<div class="qr"><img src="${i.qrCodeUrl}" alt="QR Verifactu" /></div>` : ''}
   <div class="legal">
     Factura verificable conforme al Reglamento que regula los sistemas
@@ -286,7 +292,8 @@ export class InvoicePdfService implements OnModuleDestroy {
     <span class="hash">Huella: ${i.hash ?? '—'}</span>
     ${i.aeatCsv ? `<br /><span class="hash">CSV AEAT: ${i.aeatCsv}</span>` : ''}
   </div>
-</div>
+</div>`
+}
 
 ${i.notes ? `<div style="margin-top: 18pt; font-size: 9.5pt; color: #444;"><strong>Notas:</strong> ${escapeHtml(i.notes)}</div>` : ''}
 </body>

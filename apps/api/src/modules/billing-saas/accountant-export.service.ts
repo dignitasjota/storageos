@@ -194,6 +194,7 @@ export class AccountantExportService {
         tenantId,
         deletedAt: null,
         status: { not: 'draft' },
+        kind: 'invoice', // los justificantes de fianza no son facturas
         issueDate: { gte: fromD, lte: toD },
       },
       select: {

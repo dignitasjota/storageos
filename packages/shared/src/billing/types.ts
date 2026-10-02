@@ -65,6 +65,10 @@ export interface InvoiceDto {
   facilityName: string | null;
   status: InvoiceStatusValue;
   invoiceType: InvoiceTypeValue;
+  /** `deposit_receipt`: justificante de fianza (no es factura: sin IVA ni Veri*Factu). */
+  kind: InvoiceKind;
+  /** Justificante: factura con la que se cobra en un solo pago. */
+  bundledWithInvoiceId: string | null;
   rectifiesInvoiceId: string | null;
   rectifiesInvoiceNumber: string | null;
   /** Rectificativas emitidas sobre esta factura (p. ej. la de abono al anularla). */
@@ -257,7 +261,19 @@ export interface PortalInvoiceDto {
   hasPdf: boolean;
   /** Hay un cobro en curso (SEPA/GoCardless `processing`) sobre esta factura. */
   paymentInProgress: boolean;
+  /** `deposit_receipt`: justificante de fianza (se paga junto a su factura). */
+  kind: InvoiceKind;
+  /**
+   * Factura: lo pendiente de su justificante de fianza, que se cobra en el
+   * mismo pago (0 si no tiene). Justificante: id de la factura con la que se
+   * paga mientras esa siga pendiente (entonces no tiene botón propio).
+   */
+  bundledReceiptPending: number;
+  paidWithInvoiceId: string | null;
 }
+
+/** Factura o justificante de fianza (no es factura: fuera de IVA y Veri*Factu). */
+export type InvoiceKind = 'invoice' | 'deposit_receipt';
 
 export interface PortalSessionDto {
   customerId: string;

@@ -1160,6 +1160,27 @@ function PortalConsumeContent() {
                               dueDate: i.dueDate ?? '—',
                             })}
                           </p>
+                          {i.kind === 'deposit_receipt' && (
+                            <p className="text-xs text-muted-foreground">
+                              {tInvoices('depositReceipt')}
+                              {i.paidWithInvoiceId &&
+                                ` · ${tInvoices('paidWithInvoice', {
+                                  number:
+                                    invoices.find((x) => x.id === i.paidWithInvoiceId)
+                                      ?.invoiceNumber ?? '',
+                                })}`}
+                            </p>
+                          )}
+                          {i.bundledReceiptPending > 0 && i.amountPending > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {tInvoices('includesDeposit', {
+                                total: (i.amountPending + i.bundledReceiptPending).toLocaleString(
+                                  intlLocaleForPortal(locale),
+                                  { style: 'currency', currency: 'EUR' },
+                                ),
+                              })}
+                            </p>
+                          )}
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="text-sm tabular-nums">
@@ -1185,7 +1206,7 @@ function PortalConsumeContent() {
                               {tInvoices('paymentInProgress')}
                             </Badge>
                           )}
-                          {i.amountPending > 0 && !i.paymentInProgress && (
+                          {i.amountPending > 0 && !i.paymentInProgress && !i.paidWithInvoiceId && (
                             <Button onClick={() => void handlePay(i)} disabled={payingId !== null}>
                               {payingId === i.id && (
                                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -1193,54 +1214,60 @@ function PortalConsumeContent() {
                               {tInvoices('pay')}
                             </Button>
                           )}
-                          {redsysEnabled && i.amountPending > 0 && !i.paymentInProgress && (
-                            <Button
-                              variant="outline"
-                              onClick={async () => {
-                                try {
-                                  submitRedsysForm(
-                                    await fetchPortalRedsysRedirect(
-                                      session.accessToken,
-                                      i.id,
-                                      bizumEnabled ? 'card' : undefined,
-                                    ),
-                                  );
-                                } catch (err) {
-                                  toast.error(
-                                    err instanceof ApiError
-                                      ? err.body.message
-                                      : tInvoices('redsysUnavailable'),
-                                  );
-                                }
-                              }}
-                            >
-                              {tInvoices('payWithCard')}
-                            </Button>
-                          )}
-                          {bizumEnabled && i.amountPending > 0 && !i.paymentInProgress && (
-                            <Button
-                              variant="outline"
-                              onClick={async () => {
-                                try {
-                                  submitRedsysForm(
-                                    await fetchPortalRedsysRedirect(
-                                      session.accessToken,
-                                      i.id,
-                                      'bizum',
-                                    ),
-                                  );
-                                } catch (err) {
-                                  toast.error(
-                                    err instanceof ApiError
-                                      ? err.body.message
-                                      : tInvoices('bizumUnavailable'),
-                                  );
-                                }
-                              }}
-                            >
-                              {tInvoices('payWithBizum')}
-                            </Button>
-                          )}
+                          {redsysEnabled &&
+                            i.amountPending > 0 &&
+                            !i.paymentInProgress &&
+                            !i.paidWithInvoiceId && (
+                              <Button
+                                variant="outline"
+                                onClick={async () => {
+                                  try {
+                                    submitRedsysForm(
+                                      await fetchPortalRedsysRedirect(
+                                        session.accessToken,
+                                        i.id,
+                                        bizumEnabled ? 'card' : undefined,
+                                      ),
+                                    );
+                                  } catch (err) {
+                                    toast.error(
+                                      err instanceof ApiError
+                                        ? err.body.message
+                                        : tInvoices('redsysUnavailable'),
+                                    );
+                                  }
+                                }}
+                              >
+                                {tInvoices('payWithCard')}
+                              </Button>
+                            )}
+                          {bizumEnabled &&
+                            i.amountPending > 0 &&
+                            !i.paymentInProgress &&
+                            !i.paidWithInvoiceId && (
+                              <Button
+                                variant="outline"
+                                onClick={async () => {
+                                  try {
+                                    submitRedsysForm(
+                                      await fetchPortalRedsysRedirect(
+                                        session.accessToken,
+                                        i.id,
+                                        'bizum',
+                                      ),
+                                    );
+                                  } catch (err) {
+                                    toast.error(
+                                      err instanceof ApiError
+                                        ? err.body.message
+                                        : tInvoices('bizumUnavailable'),
+                                    );
+                                  }
+                                }}
+                              >
+                                {tInvoices('payWithBizum')}
+                              </Button>
+                            )}
                           {i.hasPdf && (
                             <Button variant="outline" onClick={() => downloadInvoicePdf(i.id)}>
                               <Download className="mr-1 h-4 w-4" /> {tInvoices('pdf')}

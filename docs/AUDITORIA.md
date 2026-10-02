@@ -343,7 +343,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 
 ## Medios
 
-11. La fianza se factura como venta (base en libro de IVA, 303, A3, métricas y Holded). → PR 6.
+11. La fianza se factura como venta (base en libro de IVA, 303, A3, métricas y Holded). → ✅ PR 6 (justificante de fianza aparte).
 12. Rectificativa por sustitución sin compensar la original (base duplicada); rectificativas sin límite. → PR 6.
 13. Reembolsar no genera abono (IVA declarado sobre dinero devuelto). → PR 6.
 14. Recurrente: contratos «en baja» facturados tras su fin; inicio a mitad de mes sin prorrateo (contratos del staff); un **prepago deja de renovarse** si el contrato tiene una factura sin periodo (`ORDER BY period_end DESC` pone los nulos primero). → PR 7.
@@ -418,3 +418,14 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - **QR**: URL de cotejo de producción o de pruebas según el modo y fecha DD-MM-AAAA.
 - Los specs del XML y del cliente real vivían en `test/*.spec.ts` y no los ejecutaba ninguna configuración: movidos a `__tests__` (corren en CI). e2e `verifactu-chain` (3 casos).
 - **Antes de activar producción**: las facturas emitidas hasta ahora llevan la huella antigua y no tienen posición en la cadena (nunca se registraron en la AEAT); la primera factura nueva de cada tenant empieza la cadena (`PrimerRegistro`).
+
+## PR 6 — la fianza, en un justificante aparte ✅
+
+- La fianza ya no es una línea de la factura: va en un **justificante de fianza** (`invoices.kind = 'deposit_receipt'`, número `FZ-<contrato>` fuera de la numeración fiscal, sin IVA, sin huella ni Veri\*Factu). Migración `20261005180000_deposit_receipts`.
+- Fuera del libro de IVA, 303/347, exportación A3/Sage y de la asesoría, Holded, ingresos facturados y cobrados (analytics, P&L, asistente IA, panel admin).
+- **Un solo pago** (decisión de Jota): el justificante queda enlazado a la 1ª factura (`bundled_with_invoice_id`); cobrar la factura con tarjeta/adeudo (portal, firma, cobro automático) carga el total en una sola operación y registra un pago en cada documento con el mismo id de pasarela; los webhooks (cobro, reembolso repartido factura → fianza, disputa) tratan el grupo; Redsys cobra el total y reparte al confirmar.
+- **Acceso** al quedar pagados los dos documentos (antes, al pagar la factura). Un solo aviso «pago recibido» por el total.
+- El justificante no lleva recargo, no se rectifica ni se reembolsa por pasarela (la fianza se devuelve al liquidarla); anularlo sin cobros lo cancela sin rectificativa.
+- Portal: «Justificante de fianza», «se paga junto a la factura …» y «pagas … en total»; panel: distintivo «Fianza».
+- e2e `booking-deposit` reescrito (3 casos: justificante y exclusiones; un pago Redsys → los dos pagados + un acceso; pago por separado → acceso solo al final).
+- Sigue en la PR 6 (siguiente parte): rectificativas netas y limitadas, abono al reembolsar y métricas con reembolsos.

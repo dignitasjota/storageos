@@ -146,6 +146,31 @@ export class PaymentsService {
         message: 'Importe invalido',
       });
     }
+    // Justificantes de fianza que se cobran en el MISMO pago que esta factura
+    // (reserva online): un solo cargo, repartido entre los documentos. Solo al
+    // cobrar el total pendiente.
+    const bundled =
+      args.input.amount === undefined
+        ? (
+            await this.prisma.withTenant(
+              (tx) =>
+                tx.invoice.findMany({
+                  where: {
+                    bundledWithInvoiceId: invoice.id,
+                    kind: 'deposit_receipt',
+                    status: { in: ['issued', 'overdue'] },
+                    deletedAt: null,
+                  },
+                  select: { id: true, total: true, amountPaid: true },
+                }),
+              args.tenantId,
+            )
+          )
+            .map((r) => ({ id: r.id, amount: subtractAmounts(r.total, r.amountPaid) }))
+            .filter((r) => r.amount > 0)
+        : [];
+    for (const r of bundled) await this.assertNoPaymentInFlight(args.tenantId, r.id);
+    const chargeAmount = bundled.reduce((sum, r) => addAmounts(sum, r.amount), amount);
 
     // Resolver payment method.
     const pmId =
@@ -199,6 +224,37 @@ export class PaymentsService {
         });
       }
       const tokenPlain = await this.paymentMethods.decryptToken(tx, pm.id);
+      const bundledPaymentIds: { invoiceId: string; paymentId: string; amount: number }[] = [];
+      for (const r of bundled) {
+        const live = await tx.payment.count({
+          where: {
+            invoiceId: r.id,
+            gateway: { in: ['stripe', 'gocardless'] },
+            status: { in: ['pending', 'processing', 'succeeded'] },
+          },
+        });
+        if (live > 0) {
+          throw new ConflictException({
+            code: 'payment_in_progress',
+            message: 'Ya hay un cobro en curso para la fianza. Espera a que se confirme.',
+          });
+        }
+        const row = await tx.payment.create({
+          data: {
+            tenantId: args.tenantId,
+            invoiceId: r.id,
+            customerId: invoiceCustomerId,
+            paymentMethodId: pm.id,
+            amount: r.amount,
+            currency: invoice.currency,
+            status: 'processing',
+            methodType: pm.type,
+            gateway: pm.gateway,
+          },
+          select: { id: true },
+        });
+        bundledPaymentIds.push({ invoiceId: r.id, paymentId: row.id, amount: r.amount });
+      }
       const created = await tx.payment.create({
         data: {
           tenantId: args.tenantId,
@@ -215,6 +271,7 @@ export class PaymentsService {
       });
       return {
         paymentId: created.id,
+        bundledPayments: bundledPaymentIds,
         gateway: pm.gateway,
         type: pm.type,
         gatewayCustomerId: pm.gatewayCustomerId,
@@ -233,7 +290,7 @@ export class PaymentsService {
           ? await this.goCardlessCharge.charge({
               tenantId: args.tenantId,
               mandateId: reserved.tokenPlain,
-              amountCents: toCents(amount),
+              amountCents: toCents(chargeAmount),
               currency: invoice.currency,
               description: `Factura ${invoice.invoiceNumber}`,
               metadata: {
@@ -246,7 +303,7 @@ export class PaymentsService {
               gatewayCustomerId: reserved.gatewayCustomerId ?? '',
               paymentMethodToken: reserved.tokenPlain,
               paymentMethodType: reserved.type,
-              amountCents: toCents(amount),
+              amountCents: toCents(chargeAmount),
               currency: invoice.currency,
               description: `Factura ${invoice.invoiceNumber}`,
               metadata: {
@@ -259,8 +316,10 @@ export class PaymentsService {
     } catch (err) {
       await this.prisma.withTenant(
         (tx) =>
-          tx.payment.update({
-            where: { id: reserved.paymentId },
+          tx.payment.updateMany({
+            where: {
+              id: { in: [reserved.paymentId, ...reserved.bundledPayments.map((b) => b.paymentId)] },
+            },
             data: {
               status: 'failed',
               failureReason: err instanceof Error ? err.message.slice(0, 500) : 'gateway_error',
@@ -283,6 +342,7 @@ export class PaymentsService {
             ? 'pending'
             : 'failed';
     let invoiceFullyPaid = false;
+    const bundledPaidNow: string[] = [];
     const paymentRow = await this.prisma.withTenant(async (tx) => {
       // Solo esta llamada pasa la reserva de `processing` a su estado final: si
       // el webhook ya la resolvió (también puede llegar antes), no se vuelve a
@@ -310,6 +370,32 @@ export class PaymentsService {
           },
         },
       });
+      // Los justificantes cobrados en el mismo cargo: misma suerte que la factura.
+      for (const b of reserved.bundledPayments) {
+        const bMoved = await tx.payment.updateMany({
+          where: { id: b.paymentId, status: 'processing' },
+          data: {
+            status,
+            gatewayPaymentId: chargeResult.gatewayPaymentId,
+            ...(chargeResult.status === 'succeeded' ? { paidAt: new Date() } : {}),
+            ...(chargeResult.failureReason ? { failureReason: chargeResult.failureReason } : {}),
+          },
+        });
+        if (status === 'succeeded' && bMoved.count === 1) {
+          const after = await tx.invoice.update({
+            where: { id: b.invoiceId },
+            data: { amountPaid: { increment: b.amount } },
+            select: { amountPaid: true, total: true },
+          });
+          if (isAtLeast(Number(after.amountPaid), Number(after.total))) {
+            const flipped = await tx.invoice.updateMany({
+              where: { id: b.invoiceId, status: { in: ['issued', 'overdue'] } },
+              data: { status: 'paid', paidAt: new Date() },
+            });
+            if (flipped.count > 0) bundledPaidNow.push(b.invoiceId);
+          }
+        }
+      }
       if (status === 'succeeded' && moved.count === 1) {
         // Incremento atómico (no «pagado leído al principio + importe»): un cobro
         // manual o un webhook simultáneos sobre la misma factura no se pisan.
@@ -328,6 +414,14 @@ export class PaymentsService {
       }
       return updated;
     }, args.tenantId);
+    // Un solo aviso por el cobro conjunto (el de la factura): los avisos del
+    // justificante cobrado en el mismo cargo se omiten para no emitir el acceso
+    // dos veces a la vez.
+    if (bundledPaidNow.length > 0) {
+      this.logger.debug(
+        `[payments] fianzas cobradas con ${invoice.id}: ${bundledPaidNow.join(', ')}`,
+      );
+    }
     if (invoiceFullyPaid) await this.emitInvoicePaid(args.tenantId, invoice.id);
     if (chargeResult.status === 'failed' && args.notifyCustomerOnFailure) {
       this.emitPaymentFailed({
@@ -464,19 +558,48 @@ export class PaymentsService {
     paidAt?: Date;
     failureReason?: string;
   }): Promise<void> {
-    const existing = await this.prisma.withTenant(
+    // Un cargo puede cubrir varios documentos (factura + justificante de
+    // fianza cobrados juntos): todos sus pagos comparten el id de la pasarela.
+    const group = await this.prisma.withTenant(
       (tx) =>
-        tx.payment.findFirst({
+        tx.payment.findMany({
           where: { gatewayPaymentId: args.gatewayPaymentId },
+          include: { invoice: { select: { kind: true } } },
+          orderBy: { createdAt: 'asc' },
         }),
       args.tenantId,
     );
-    if (!existing) {
+    if (group.length === 0) {
       this.logger.warn(
         `Webhook recibido para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
       );
       return;
     }
+    const isGroup = group.length > 1;
+    for (const existing of group) {
+      // En un cobro conjunto solo avisa la factura (no el justificante).
+      const silent = isGroup && existing.invoice?.kind === 'deposit_receipt';
+      await this.syncOneFromWebhook(args, existing, silent);
+    }
+  }
+
+  private async syncOneFromWebhook(
+    args: {
+      tenantId: string;
+      gatewayPaymentId: string;
+      newStatus: PaymentStatusValue;
+      paidAt?: Date;
+      failureReason?: string;
+    },
+    existing: {
+      id: string;
+      status: PaymentStatus;
+      invoiceId: string | null;
+      customerId: string | null;
+      amount: Prisma.Decimal;
+    },
+    silent: boolean,
+  ): Promise<void> {
     const terminalStatuses: PaymentStatus[] = ['succeeded', 'refunded', 'partially_refunded'];
     let invoicePaidNow = false;
     let transitioned = false;
@@ -524,12 +647,12 @@ export class PaymentsService {
       );
       return;
     }
-    if (invoicePaidNow && existing.invoiceId) {
+    if (invoicePaidNow && existing.invoiceId && !silent) {
       await this.emitInvoicePaid(args.tenantId, existing.invoiceId);
     }
     // Un adeudo o cobro que se resuelve rechazado después (SEPA, 3DS…): el
     // inquilino no estaba delante, así que se le avisa.
-    if (args.newStatus === 'failed' && existing.invoiceId) {
+    if (args.newStatus === 'failed' && existing.invoiceId && !silent) {
       this.emitPaymentFailed({
         tenantId: args.tenantId,
         invoiceId: existing.invoiceId,
@@ -608,19 +731,42 @@ export class PaymentsService {
     /** Acumulado reembolsado segun el gateway, en unidades de moneda (EUR). */
     amountRefunded: number;
   }): Promise<void> {
-    const existing = await this.prisma.withTenant(
+    // Cargo conjunto (factura + fianza): el acumulado devuelto se reparte en
+    // orden, primero la factura y después el justificante.
+    const group = await this.prisma.withTenant(
       (tx) =>
-        tx.payment.findFirst({
+        tx.payment.findMany({
           where: { gatewayPaymentId: args.gatewayPaymentId },
+          include: { invoice: { select: { kind: true } } },
+          orderBy: { createdAt: 'asc' },
         }),
       args.tenantId,
     );
-    if (!existing) {
+    if (group.length === 0) {
       this.logger.warn(
         `charge.refunded para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
       );
       return;
     }
+    group.sort(
+      (a, b) =>
+        Number(a.invoice?.kind === 'deposit_receipt') -
+        Number(b.invoice?.kind === 'deposit_receipt'),
+    );
+    let remainingCents = toCents(args.amountRefunded);
+    for (const p of group) {
+      const allocCents = Math.min(remainingCents, toCents(p.amount));
+      remainingCents -= allocCents;
+      await this.syncOneRefund(args.tenantId, p, allocCents / 100);
+    }
+  }
+
+  private async syncOneRefund(
+    tenantId: string,
+    existing: { id: string; invoiceId: string | null },
+    amountRefunded: number,
+  ): Promise<void> {
+    const args = { tenantId, amountRefunded };
     let delta = 0;
     await this.prisma.withTenant(async (tx) => {
       // Pago bloqueado + lectura fresca: dos `charge.refunded` seguidos (o el
@@ -685,19 +831,24 @@ export class PaymentsService {
     gatewayPaymentId: string;
     reason?: string;
   }): Promise<void> {
-    const existing = await this.prisma.withTenant(
-      (tx) =>
-        tx.payment.findFirst({
-          where: { gatewayPaymentId: args.gatewayPaymentId },
-        }),
+    // La disputa es del cargo entero: revierte todos sus documentos.
+    const group = await this.prisma.withTenant(
+      (tx) => tx.payment.findMany({ where: { gatewayPaymentId: args.gatewayPaymentId } }),
       args.tenantId,
     );
-    if (!existing) {
+    if (group.length === 0) {
       this.logger.warn(
         `charge.dispute para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
       );
       return;
     }
+    for (const existing of group) await this.syncOneDispute(args, existing);
+  }
+
+  private async syncOneDispute(
+    args: { tenantId: string; gatewayPaymentId: string; reason?: string },
+    existing: { id: string; invoiceId: string | null; amount: Prisma.Decimal },
+  ): Promise<void> {
     let reverted = false;
     await this.prisma.withTenant(async (tx) => {
       // Solo el primero que pasa el pago de `succeeded` a `failed` resta el

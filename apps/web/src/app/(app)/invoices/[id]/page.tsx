@@ -192,6 +192,11 @@ export default function InvoiceDetailPage() {
               <h1 className="font-mono text-2xl font-semibold tracking-tight">{i.invoiceNumber}</h1>
               <InvoiceStatusBadge status={i.status} total={i.total} />
               <VerifactuBadge invoice={i} />
+              {i.kind === 'deposit_receipt' && (
+                <Badge variant="outline" title="Garantía reembolsable: sin IVA ni Veri*Factu">
+                  Justificante de fianza
+                </Badge>
+              )}
               {i.invoiceType !== 'F1' && (
                 <TooltipProvider>
                   <Tooltip>

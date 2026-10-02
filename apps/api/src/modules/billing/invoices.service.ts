@@ -365,6 +365,12 @@ export class InvoicesService {
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    if (existing.kind === 'deposit_receipt') {
+      throw new BadRequestException({
+        code: 'invoice_already_issued',
+        message: 'Un justificante de fianza no se emite: ya está disponible para cobrar',
+      });
+    }
     this.assertTransition(existing.status as InvoiceStatusValue, 'issued');
 
     const updated = await this.prisma.withTenant(async (tx) => {
@@ -672,9 +678,16 @@ export class InvoicesService {
           status: true,
           customerId: true,
           total: true,
+          kind: true,
           lateFeeInvoice: { select: { id: true } },
         },
       });
+      if (original?.kind === 'deposit_receipt') {
+        throw new BadRequestException({
+          code: 'invoice_not_chargeable',
+          message: 'Una fianza no lleva recargo por mora',
+        });
+      }
       if (!original) {
         throw new NotFoundException({
           code: 'invoice_not_found',
@@ -872,6 +885,9 @@ export class InvoicesService {
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    if (existing.kind === 'deposit_receipt') {
+      return this.cancelDepositReceipt(args);
+    }
     if (existing.status !== 'draft') {
       return this.cancelIssued(args);
     }
@@ -911,6 +927,133 @@ export class InvoicesService {
       invoiceId: updated.id,
     } satisfies InvoiceCancelledPayload);
     return this.toDto(updated);
+  }
+
+  /**
+   * Justificante de fianza (no es una factura): se anula sin rectificativa si
+   * no tiene cobros. Si ya se cobró, se devuelve con la liquidación de la
+   * fianza del contrato.
+   */
+  private async cancelDepositReceipt(args: {
+    tenantId: string;
+    userId: string | null;
+    invoiceId: string;
+    input: CancelInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, args.invoiceId);
+      const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: args.invoiceId } });
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
+        throw new BadRequestException({
+          code: 'invoice_not_cancellable',
+          message: 'El justificante ya está cobrado o anulado',
+        });
+      }
+      if (isGreaterThan(fresh.amountPaid, 0)) {
+        throw new BadRequestException({
+          code: 'invoice_has_payments',
+          message: 'La fianza ya se cobró: devuélvela al liquidar la fianza del contrato',
+        });
+      }
+      await assertNotInSepaRemittance(tx, args.invoiceId);
+      return tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: { status: 'cancelled', cancelledAt: new Date() },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.deposit_receipt_cancelled',
+      entityType: 'Invoice',
+      entityId: updated.id,
+      changes: { reason: args.input.reason ?? null },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(updated);
+  }
+
+  /**
+   * Justificante de fianza de un contrato: documento aparte de la factura (la
+   * fianza es una garantía, no una venta: sin IVA, sin Veri*Factu y fuera de
+   * los informes fiscales, de Holded y de los ingresos). Número `FZ-<contrato>`
+   * fuera de la numeración fiscal. `bundledWithInvoiceId`: la factura con la
+   * que se cobra en un solo pago.
+   */
+  async createDepositReceipt(args: {
+    tenantId: string;
+    userId: string | null;
+    contractId: string;
+    customerId: string;
+    contractNumber: string;
+    amount: number;
+    dueDate: Date | null;
+    bundledWithInvoiceId: string | null;
+  }): Promise<InvoiceDto> {
+    const series = await this.series.getDefault(args.tenantId);
+    if (!series) {
+      throw new BadRequestException({
+        code: 'invoice_series_required',
+        message: 'Crea una serie de facturación antes de cobrar fianzas',
+      });
+    }
+    const base = `FZ-${args.contractNumber}`;
+    const created = await this.prisma.withTenant(async (tx) => {
+      const taken = await tx.invoice.count({
+        where: { invoiceNumber: { startsWith: base } },
+      });
+      return tx.invoice.create({
+        data: {
+          tenantId: args.tenantId,
+          customerId: args.customerId,
+          contractId: args.contractId,
+          seriesId: series.id,
+          sequenceNumber: 0,
+          invoiceNumber: taken === 0 ? base : `${base}-${taken + 1}`,
+          kind: 'deposit_receipt',
+          status: 'issued',
+          invoiceType: 'F1',
+          issueDate: new Date(),
+          ...(args.dueDate ? { dueDate: args.dueDate } : {}),
+          bundledWithInvoiceId: args.bundledWithInvoiceId,
+          subtotal: args.amount,
+          taxAmount: 0,
+          total: args.amount,
+          notes:
+            'Justificante de fianza: garantía reembolsable al terminar el contrato. No es una factura.',
+          items: {
+            create: [
+              {
+                tenantId: args.tenantId,
+                description: `Fianza del contrato ${args.contractNumber}`,
+                quantity: 1,
+                unitPrice: args.amount,
+                taxRate: 0,
+                taxAmount: 0,
+                total: args.amount,
+                relatedContractId: args.contractId,
+                position: 0,
+              },
+            ],
+          },
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.deposit_receipt_created',
+      entityType: 'Invoice',
+      entityId: created.id,
+      changes: { contractId: args.contractId, amount: args.amount },
+      ipAddress: null,
+      userAgent: null,
+    });
+    return this.toDto(created);
   }
 
   /** Anula una factura emitida con una rectificativa de abono por el total. */
@@ -1330,8 +1473,14 @@ export class InvoicesService {
         await lockInvoiceRow(tx, args.invoiceId);
         const existing = await tx.invoice.findUniqueOrThrow({
           where: { id: args.invoiceId },
-          select: { status: true, total: true, amountRefunded: true },
+          select: { status: true, total: true, amountRefunded: true, kind: true },
         });
+        if (existing.kind === 'deposit_receipt') {
+          throw new BadRequestException({
+            code: 'invoice_not_refundable',
+            message: 'La fianza se devuelve al liquidarla desde el contrato',
+          });
+        }
         if (existing.status !== 'paid' && existing.status !== 'partially_refunded') {
           throw new BadRequestException({
             code: 'invoice_not_refundable',
@@ -1510,6 +1659,12 @@ export class InvoicesService {
       args.facilityScope,
     );
 
+    if (original.kind === 'deposit_receipt') {
+      throw new BadRequestException({
+        code: 'invoice_not_rectifiable',
+        message: 'Un justificante de fianza no es una factura: no se rectifica',
+      });
+    }
     if (original.status === 'draft' || original.status === 'cancelled') {
       throw new BadRequestException({
         code: 'invoice_not_rectifiable',
@@ -1837,6 +1992,8 @@ export class InvoicesService {
       customerName,
       contractId: row.contractId,
       contractNumber: row.contract?.contractNumber ?? null,
+      kind: row.kind === 'deposit_receipt' ? 'deposit_receipt' : 'invoice',
+      bundledWithInvoiceId: row.bundledWithInvoiceId,
       unitId: row.contract?.unit?.id ?? null,
       unitCode: row.contract?.unit?.code ?? null,
       facilityId: row.contract?.unit?.facility?.id ?? null,
