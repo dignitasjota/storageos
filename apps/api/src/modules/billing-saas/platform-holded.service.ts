@@ -215,6 +215,7 @@ export class PlatformHoldedService {
       notes: `Número legal: ${inv.fullNumber}. Emitida por TrasterOS; copia contable.`,
       lines,
     });
+    await client.approveDocument('invoice', holdedId);
     await this.admin.platformInvoice.update({
       where: { id: inv.id },
       data: { holdedDocumentId: holdedId },

@@ -1587,6 +1587,9 @@ model Invoice {
   holdedDocumentId    String?           @map("holded_document_id")
   /// Factura anulada que ya se canceló también en Holded.
   holdedCancelledAt   DateTime?         @map("holded_cancelled_at") @db.Timestamptz(6)
+  /// Copia a Holded en curso: null | 'creating' | 'approving' (ver migración holded_sync_claims).
+  holdedSyncState     String?           @map("holded_sync_state")
+  holdedSyncStartedAt DateTime?         @map("holded_sync_started_at") @db.Timestamptz(6)
   paidAt              DateTime?         @map("paid_at") @db.Timestamptz(6)
   cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
@@ -1672,6 +1675,10 @@ model Payment {
   refundedAt       DateTime?              @map("refunded_at") @db.Timestamptz(6)
   /// Cobro ya copiado a Holded (la integración no lo envía dos veces).
   holdedSyncedAt   DateTime?              @map("holded_synced_at") @db.Timestamptz(6)
+  /// Copia del cobro a Holded en curso (reserva; si Holded no respondió, queda para revisar).
+  holdedSyncStartedAt DateTime?           @map("holded_sync_started_at") @db.Timestamptz(6)
+  /// Cobro copiado a Holded y luego devuelto/reembolsado, ya revisado allí.
+  holdedReviewedAt DateTime?              @map("holded_reviewed_at") @db.Timestamptz(6)
   refundedAmount   Decimal                @default(0) @map("refunded_amount") @db.Decimal(12, 2)
   failureReason    String?                @map("failure_reason")
   notes            String?
