@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -12,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ConfirmRemittanceSchema,
   CreateRemittanceSchema,
   CreateSepaMandateSchema,
   type RemittancePreviewDto,
@@ -136,7 +138,27 @@ export class SepaController {
   confirm(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
   ): Promise<SepaRemittanceDto> {
-    return this.sepa.confirmRemittance(user.tenantId, user.sub, id);
+    // Body opcional: sin él se cobran todos los adeudos.
+    const parsed = ConfirmRemittanceSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_body',
+        message: 'Adeudos rechazados no válidos',
+      });
+    }
+    return this.sepa.confirmRemittance(user.tenantId, user.sub, id, parsed.data);
+  }
+
+  /** Cancela una remesa sin confirmar: sus facturas vuelven a poder cobrarse. */
+  @RequirePermission('invoices:manage')
+  @Post('remittances/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<SepaRemittanceDto> {
+    return this.sepa.cancelRemittance(user.tenantId, id);
   }
 }

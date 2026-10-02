@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { toCents } from '../../../common/money';
+import { assertNotInSepaRemittance } from '../../../common/sepa-remittance-guard';
 import { InvoicesService } from '../../billing/invoices.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -96,6 +97,8 @@ export class RedsysService {
         message: 'Ya hay un pago en curso para esta factura. Espera a que se confirme.',
       });
     }
+    // En una remesa SEPA sin confirmar: el banco la cobrará.
+    await assertNotInSepaRemittance(this.admin, invoiceId);
     // Céntimos enteros ANTES de restar: restar decimales y redondear después
     // arrastra el drift de coma flotante al importe enviado a Redsys.
     const amountCents = toCents(invoice.total) - toCents(invoice.amountPaid);
@@ -250,6 +253,7 @@ export class RedsysService {
             notes: `Redsys ${order}`,
             // Confirmación de un pago real por Redsys: salta el guard de adeudo en vuelo.
             overridePaymentInFlight: true,
+            allowInSepaRemittance: true,
           },
           meta: {},
         });

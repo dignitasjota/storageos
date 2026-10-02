@@ -369,7 +369,7 @@ Remesas SEPA (adeudos directos, fichero pain.008). RLS por `tenant_id`.
 - **`sepa_settings`** (acreedor, única por tenant): creditor_name, creditor_id (identificador del acreedor SEPA), creditor_iban_encrypted (AES-GCM), creditor_bic, enabled, `prenotice_days` (días de preaviso de los cargos, 14 por defecto = reglamento SEPA; 2026-10-01).
 - **`sepa_mandates`** (por cliente): reference (única autogenerada), iban_encrypted + iban_last4, bic, signed_at, sequence_type (FRST→RCUR), status (active/cancelled). Índice parcial **único mandato activo por cliente**.
 - **`sepa_remittances`** (lote): message_id, collection_date, status (generated/confirmed/cancelled), item_count, total_amount (céntimos), xml.
-- **`sepa_remittance_items`** (por factura): invoice_id (**único** → una factura por remesa), mandate_id (FK), amount (céntimos), sequence_type, end_to_end_id.
+- **`sepa_remittance_items`** (por factura): invoice_id (único **parcial**: una sola remesa viva —`status` pending/collected— por factura; tras una devolución o una remesa cancelada puede presentarse otra vez), mandate_id (FK), amount (céntimos), sequence_type, end_to_end_id (con sufijo por remesa), `status` (pending · collected · failed · returned · cancelled, migración `20261005120000`) + `failure_reason`.
 - Flujo: config acreedor + mandatos → `POST /sepa/remittances` genera el XML pain.008 → descargar → `POST /sepa/remittances/:id/confirm` marca las facturas pagadas (manual, methodType `sepa_debit`) + mandatos FRST→RCUR. Permisos `invoices:manage` (remesas) / `payments:charge` (mandatos) / `billing:configure` (settings).
 
 ### `rent_increases` + `rent_increase_items` (2026-06-22)

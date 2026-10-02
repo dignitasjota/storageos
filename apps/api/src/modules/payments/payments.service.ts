@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -430,13 +431,13 @@ export class PaymentsService {
    * esto un segundo intento generaría un doble cobro.
    */
   async assertNoPaymentInFlight(tenantId: string, invoiceId: string): Promise<void> {
-    const inFlight = await this.prisma.withTenant(
-      (tx) =>
-        tx.payment.count({
-          where: { invoiceId, status: { in: ['processing', 'pending'] } },
-        }),
-      tenantId,
-    );
+    const inFlight = await this.prisma.withTenant(async (tx) => {
+      // En una remesa SEPA sin confirmar: el banco la cobrará (409 propio).
+      await assertNotInSepaRemittance(tx, invoiceId);
+      return tx.payment.count({
+        where: { invoiceId, status: { in: ['processing', 'pending'] } },
+      });
+    }, tenantId);
     if (inFlight > 0) {
       throw new ConflictException({
         code: 'payment_in_progress',

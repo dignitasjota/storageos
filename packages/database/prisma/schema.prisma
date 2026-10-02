@@ -1610,7 +1610,7 @@ model Invoice {
   rectifiedBy        Invoice[]                  @relation("InvoiceRectification")
   lateFeeForInvoice  Invoice?                   @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
   lateFeeInvoice     Invoice?                   @relation("InvoiceLateFee")
-  sepaRemittanceItem SepaRemittanceItem?
+  sepaRemittanceItems SepaRemittanceItem[]
   bankStatementTxs   BankStatementTransaction[]
 
   // La unicidad de numeración vive en SQL como índice PARCIAL (solo
@@ -2028,12 +2028,16 @@ model SepaRemittanceItem {
   id           String @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId     String @map("tenant_id") @db.Uuid
   remittanceId String @map("remittance_id") @db.Uuid
-  invoiceId    String @unique @map("invoice_id") @db.Uuid
+  /// Una sola remesa viva (pending/collected) por factura: índice parcial en SQL.
+  invoiceId    String @map("invoice_id") @db.Uuid
   mandateId    String @map("mandate_id") @db.Uuid
   /// importe en céntimos.
   amount       Int
   sequenceType String @map("sequence_type")
   endToEndId   String @map("end_to_end_id")
+  /// pending | collected | failed | returned | cancelled (ver migración sepa_remittance_item_status).
+  status        String  @default("pending")
+  failureReason String? @map("failure_reason")
   /// Constancia del preaviso: null = pendiente | sent | disabled | no_email | failed.
   prenoticeStatus          String?   @map("prenotice_status")
   prenoticeAt              DateTime? @map("prenotice_at") @db.Timestamptz(6)
@@ -2049,6 +2053,7 @@ model SepaRemittanceItem {
   prenoticeCommunication Communication? @relation(fields: [prenoticeCommunicationId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([invoiceId])
   @@map("sepa_remittance_items")
 }
 

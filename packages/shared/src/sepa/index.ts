@@ -133,7 +133,29 @@ export interface SepaRemittanceDto {
   prenoticesSent: number;
   /** Adeudos sin preaviso (correo apagado, sin email o error). */
   prenoticesMissing: number;
+  /** Adeudos cobrados, fallidos (rechazados o factura ya pagada) y devueltos. */
+  collectedCount: number;
+  failedCount: number;
+  returnedCount: number;
 }
+
+/**
+ * Estado de un adeudo: pending (remesa sin confirmar) · collected · failed
+ * (rechazado por el banco o la factura ya estaba pagada) · returned (devuelto
+ * tras cobrarse) · cancelled (remesa cancelada).
+ */
+export type SepaRemittanceItemStatus =
+  | 'pending'
+  | 'collected'
+  | 'failed'
+  | 'returned'
+  | 'cancelled';
+
+/** Confirmar el cobro de una remesa: los adeudos que el banco rechazó no se cobran. */
+export const ConfirmRemittanceSchema = z.object({
+  rejectedItemIds: z.array(z.string().uuid()).max(1000).optional(),
+});
+export type ConfirmRemittanceInput = z.infer<typeof ConfirmRemittanceSchema>;
 
 /** Estado del preaviso de un adeudo: null = aún pendiente de enviar. */
 export type SepaPrenoticeStatus = 'sent' | 'disabled' | 'no_email' | 'failed';
@@ -153,6 +175,9 @@ export interface SepaRemittancePrenoticeDto {
   text: string | null;
   /** Estado de entrega del correo, mientras siga en Comunicaciones. */
   deliveryStatus: string | null;
+  /** Estado del adeudo y, si falló, por qué. */
+  itemStatus: SepaRemittanceItemStatus;
+  failureReason: string | null;
 }
 
 /**

@@ -92,11 +92,25 @@ export function useCreateRemittance() {
   });
 }
 
+/** Confirma el cobro; `rejectedItemIds` = adeudos que el banco rechazó (no se cobran). */
 export function useConfirmRemittance() {
   const qc = useQueryClient();
   return useMutation({
+    mutationFn: (args: { id: string; rejectedItemIds: string[] }) =>
+      apiFetch<SepaRemittanceDto>(`/sepa/remittances/${args.id}/confirm`, {
+        method: 'POST',
+        json: { rejectedItemIds: args.rejectedItemIds },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: remittancesKey }),
+  });
+}
+
+/** Cancela una remesa sin confirmar: sus facturas vuelven a poder cobrarse. */
+export function useCancelRemittance() {
+  const qc = useQueryClient();
+  return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<SepaRemittanceDto>(`/sepa/remittances/${id}/confirm`, { method: 'POST' }),
+      apiFetch<SepaRemittanceDto>(`/sepa/remittances/${id}/cancel`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: remittancesKey }),
   });
 }

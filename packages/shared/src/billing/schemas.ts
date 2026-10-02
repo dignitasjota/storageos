@@ -374,6 +374,13 @@ export const MarkPaidManuallySchema = z.object({
    * remesa SEPA) donde el importe del apunte puede ser menor que el pendiente.
    */
   allowPartialNonCash: z.boolean().optional(),
+  /**
+   * Uso interno: dinero que YA entró por otra vía (confirmar la remesa,
+   * conciliación N43, Redsys) aunque la factura esté en una remesa SEPA sin
+   * confirmar. Si al confirmar esa remesa la factura ya está pagada, su adeudo
+   * queda «fallido» para devolverlo.
+   */
+  allowInSepaRemittance: z.boolean().optional(),
 });
 export type MarkPaidManuallyInput = z.infer<typeof MarkPaidManuallySchema>;
 

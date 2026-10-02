@@ -11,6 +11,7 @@ import { CheckCircle2, Download, FileText, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { ConfirmRemittanceDialog } from './confirm-dialog';
 import { PrenoticesDialog } from './prenotices-dialog';
 
 import { DataTable } from '@/components/data-table';
@@ -38,7 +39,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
   downloadRemittanceXml,
-  useConfirmRemittance,
+  useCancelRemittance,
   useCreateRemittance,
   useRemittancePreview,
   useSepaRemittances,
@@ -60,15 +61,22 @@ const STATUS: Record<
 export default function SepaRemittancesPage() {
   const list = useSepaRemittances();
   const settings = useSepaSettings();
-  const confirmMut = useConfirmRemittance();
+  const cancelMut = useCancelRemittance();
   const canManage = useHasPermission('invoices:manage');
   const [prenoticeFor, setPrenoticeFor] = useState<SepaRemittanceDto | null>(null);
+  const [confirmFor, setConfirmFor] = useState<SepaRemittanceDto | null>(null);
 
-  async function handleConfirm(id: string) {
-    if (!window.confirm('¿Confirmar el cobro? Se marcarán las facturas como pagadas.')) return;
+  async function handleCancel(id: string) {
+    if (
+      !window.confirm(
+        '¿Cancelar la remesa? Hazlo solo si NO la has subido al banco (o el banco la rechazó entera): sus facturas volverán a poder cobrarse.',
+      )
+    ) {
+      return;
+    }
     try {
-      await confirmMut.mutateAsync(id);
-      toast.success('Remesa confirmada: facturas marcadas como pagadas.');
+      await cancelMut.mutateAsync(id);
+      toast.success('Remesa cancelada: sus facturas vuelven a estar pendientes.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -112,8 +120,30 @@ export default function SepaRemittancesPage() {
       accessorKey: 'status',
       header: 'Estado',
       cell: ({ row }) => {
-        const s = STATUS[row.original.status];
-        return <Badge variant={s.variant}>{s.label}</Badge>;
+        const r = row.original;
+        const s = STATUS[r.status];
+        return (
+          <div className="space-y-1">
+            <Badge variant={s.variant}>{s.label}</Badge>
+            {r.status === 'confirmed' && (
+              <span className="block text-xs text-muted-foreground">
+                {r.collectedCount} cobrados
+                {r.failedCount > 0 && (
+                  <span className="text-red-700 dark:text-red-300">
+                    {' '}
+                    · {r.failedCount} fallidos
+                  </span>
+                )}
+                {r.returnedCount > 0 && (
+                  <span className="text-amber-700 dark:text-amber-300">
+                    {' '}
+                    · {r.returnedCount} devueltos
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        );
       },
     },
     {
@@ -133,9 +163,19 @@ export default function SepaRemittancesPage() {
             <Download className="mr-1 h-4 w-4" /> XML
           </Button>
           {canManage && row.original.status === 'generated' && (
-            <Button variant="outline" size="sm" onClick={() => handleConfirm(row.original.id)}>
-              <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar cobro
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={() => setConfirmFor(row.original)}>
+                <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar cobro
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={cancelMut.isPending}
+                onClick={() => handleCancel(row.original.id)}
+              >
+                Cancelar
+              </Button>
+            </>
           )}
         </div>
       ),
@@ -170,6 +210,7 @@ export default function SepaRemittancesPage() {
         toolbarRight={canManage && configured ? <CreateRemittanceDialog /> : null}
       />
       <PrenoticesDialog remittance={prenoticeFor} onClose={() => setPrenoticeFor(null)} />
+      <ConfirmRemittanceDialog remittance={confirmFor} onClose={() => setConfirmFor(null)} />
     </div>
   );
 }
