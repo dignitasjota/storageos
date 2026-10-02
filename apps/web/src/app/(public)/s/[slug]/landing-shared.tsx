@@ -5,6 +5,7 @@ import { CorporateTemplate } from './corporate-template';
 import { EscaparateTemplate } from './escaparate-template';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { OnePageTemplate } from './onepage-template';
+import { OnePageMovilTemplate } from './onepagemovil-template';
 import { priceRangeString } from './price-format';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
@@ -244,6 +245,9 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
       ) : data.webTemplate === 'escaparate' ? (
         // Plantilla «escaparate» multisección: también autocontenida.
         <EscaparateTemplate data={data} locale={locale} />
+      ) : data.webTemplate === 'onepagemovil' ? (
+        // Plantilla «OnePageMovil»: autocontenida, pensada para el móvil.
+        <OnePageMovilTemplate data={data} locale={locale} />
       ) : data.webTemplate === 'corporate' ? (
         // Plantilla «corporativa» (quiénes somos + soluciones): también autocontenida.
         <CorporateTemplate data={data} locale={locale} />

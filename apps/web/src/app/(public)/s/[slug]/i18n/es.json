@@ -408,6 +408,94 @@
     "trust": {
       "facilitiesCount": "{count, plural, one {# local} other {# locales}}",
       "inCities": "en {cities}"
+    },
+    "onepagemovil": {
+      "heroSubtitle": "Alquila tu trastero en {tenantName} desde el móvil, en unos minutos y sin papeleo.",
+      "rentNow": "Alquilar ya",
+      "call": "Llamar",
+      "centersMenu": "Centros",
+      "openMenu": "Abrir menú",
+      "nav": {
+        "centers": "Centros",
+        "units": "Trasteros",
+        "uses": "Usos",
+        "how": "Cómo funciona",
+        "reviews": "Opiniones",
+        "faq": "Preguntas",
+        "contact": "Contacto"
+      },
+      "advantages": [
+        {
+          "label": "Contratas online, sin papeleo"
+        },
+        {
+          "label": "Mes a mes, sin compromiso"
+        },
+        {
+          "label": "Vigilancia con cámaras"
+        },
+        {
+          "label": "Acceso cómodo y carga fácil"
+        }
+      ],
+      "centersTitle": "¿Dónde estamos?",
+      "centersSubtitle": "Elige el centro que te quede más cerca.",
+      "unitsTitle": "Elige tu trastero",
+      "unitsSubtitle": "Precios por mes con IVA incluido. Reserva el que necesites y entra hoy mismo.",
+      "sizeM2": "{m2} m²",
+      "perMonth": "/mes",
+      "reserve": "Reservar",
+      "prev": "Anteriores",
+      "next": "Siguientes",
+      "noUnits": "Ahora mismo no hay trasteros disponibles. Escríbenos y te avisamos.",
+      "usesTitle": "¿Para qué lo necesitas?",
+      "usesCta": "Ver tamaños",
+      "uses": [
+        {
+          "title": "Cambio de casa",
+          "text": "Guarda los muebles entre una casa y otra\nSin prisas con las fechas de entrega\nTodo en un sitio seguro"
+        },
+        {
+          "title": "Obras y reformas",
+          "text": "Saca los muebles mientras duran las obras\nProtege lo que no quieres que se estropee\nRecupéralo cuando termines"
+        },
+        {
+          "title": "Más espacio en casa",
+          "text": "Bicicletas, ropa de otra temporada, cajas\nLibera el trastero o el garaje\nEntras cuando lo necesites"
+        },
+        {
+          "title": "Para tu negocio",
+          "text": "Stock y pedidos de tu tienda online\nMaterial y herramientas de trabajo\nMás barato que un local"
+        }
+      ],
+      "stepsTitle": "Así de fácil",
+      "steps": [
+        {
+          "title": "Elige",
+          "text": "Escoge el centro y el tamaño que necesitas."
+        },
+        {
+          "title": "Contrata",
+          "text": "Firma y paga online desde el móvil."
+        },
+        {
+          "title": "Recibe tu acceso",
+          "text": "Te llega el código para entrar al centro."
+        },
+        {
+          "title": "Úsalo",
+          "text": "Entra cuando quieras dentro del horario del centro."
+        }
+      ],
+      "galleryTitle": "Nuestras instalaciones",
+      "blogTitle": "Del blog",
+      "blogMore": "Ver todas las entradas",
+      "recoverTitle": "¿Ya eres cliente?",
+      "recoverText": "Consulta tu código de acceso, tus facturas y tus pagos en tu área de clientes.",
+      "recoverCta": "Ir a mi área de clientes",
+      "footerCenters": "Centros",
+      "footerLinks": "Enlaces",
+      "footerHome": "Inicio"
     }
   }
 }

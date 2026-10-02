@@ -408,6 +408,94 @@
     "trust": {
       "facilitiesCount": "{count, plural, one {# location} other {# locations}}",
       "inCities": "in {cities}"
+    },
+    "onepagemovil": {
+      "heroSubtitle": "Rent your storage unit at {tenantName} from your phone, in minutes and with no paperwork.",
+      "rentNow": "Rent now",
+      "call": "Call",
+      "centersMenu": "Locations",
+      "openMenu": "Open menu",
+      "nav": {
+        "centers": "Locations",
+        "units": "Units",
+        "uses": "Uses",
+        "how": "How it works",
+        "reviews": "Reviews",
+        "faq": "FAQ",
+        "contact": "Contact"
+      },
+      "advantages": [
+        {
+          "label": "Book online, no paperwork"
+        },
+        {
+          "label": "Month to month, no commitment"
+        },
+        {
+          "label": "Camera surveillance"
+        },
+        {
+          "label": "Easy access and loading"
+        }
+      ],
+      "centersTitle": "Where are we?",
+      "centersSubtitle": "Pick the location closest to you.",
+      "unitsTitle": "Choose your unit",
+      "unitsSubtitle": "Monthly prices including VAT. Book the one you need and move in today.",
+      "sizeM2": "{m2} m²",
+      "perMonth": "/month",
+      "reserve": "Book",
+      "prev": "Previous",
+      "next": "Next",
+      "noUnits": "There are no units available right now. Write to us and we will let you know.",
+      "usesTitle": "What do you need it for?",
+      "usesCta": "See sizes",
+      "uses": [
+        {
+          "title": "Moving home",
+          "text": "Keep your furniture between homes\nNo rush with handover dates\nEverything in a safe place"
+        },
+        {
+          "title": "Building work",
+          "text": "Move furniture out while the work lasts\nProtect what you don't want damaged\nGet it back when you finish"
+        },
+        {
+          "title": "More space at home",
+          "text": "Bikes, off-season clothes, boxes\nFree up your garage\nAccess it whenever you need"
+        },
+        {
+          "title": "For your business",
+          "text": "Stock and orders for your online shop\nWork materials and tools\nCheaper than a shop unit"
+        }
+      ],
+      "stepsTitle": "It's that easy",
+      "steps": [
+        {
+          "title": "Choose",
+          "text": "Pick the location and the size you need."
+        },
+        {
+          "title": "Sign up",
+          "text": "Sign and pay online from your phone."
+        },
+        {
+          "title": "Get your access",
+          "text": "You receive the code to enter the location."
+        },
+        {
+          "title": "Use it",
+          "text": "Come in whenever you like within opening hours."
+        }
+      ],
+      "galleryTitle": "Our facilities",
+      "blogTitle": "From the blog",
+      "blogMore": "See all posts",
+      "recoverTitle": "Already a customer?",
+      "recoverText": "Check your access code, invoices and payments in your customer area.",
+      "recoverCta": "Go to my customer area",
+      "footerCenters": "Locations",
+      "footerLinks": "Links",
+      "footerHome": "Home"
     }
   }
 }
