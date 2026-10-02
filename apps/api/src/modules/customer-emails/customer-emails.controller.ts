@@ -12,7 +12,11 @@ import { CustomerEmailsService } from './customer-emails.service';
 import { StaffEmailsService } from './staff-emails.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import type { CustomerEmailSettingsDto, StaffEmailSettingsDto } from '@storageos/shared';
+import type {
+  CustomerEmailSettingsDto,
+  MyEmailNoticesDto,
+  StaffEmailSettingsDto,
+} from '@storageos/shared';
 
 class UpdateCustomerEmailSettingsDto extends createZodDto(UpdateCustomerEmailSettingsSchema) {}
 
@@ -57,5 +61,24 @@ export class StaffEmailsController {
     @Body() body: UpdateStaffEmailSettingsDto,
   ): Promise<StaffEmailSettingsDto> {
     return this.service.updateSettings(user.tenantId, user.sub, body);
+  }
+}
+
+/** Avisos por correo que recibe el usuario (su perfil; sin permiso especial). */
+@Controller('me/email-notices')
+export class MyEmailNoticesController {
+  constructor(private readonly staff: StaffEmailsService) {}
+
+  @Get()
+  get(@CurrentUser() user: AuthenticatedUser): Promise<MyEmailNoticesDto> {
+    return this.staff.getMyNotices(user.tenantId, user.sub);
+  }
+
+  @Patch()
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateStaffEmailSettingsDto,
+  ): Promise<MyEmailNoticesDto> {
+    return this.staff.updateMyNotices(user.tenantId, user.sub, body);
   }
 }

@@ -396,7 +396,8 @@ function StaffEmailsCard() {
       <CardHeader>
         <CardTitle>Avisos a tu equipo por email</CardTitle>
         <CardDescription>
-          Los reciben los propietarios y gestores, además del aviso dentro de la app.
+          Qué avisos manda la empresa, además del aviso dentro de la app. Por defecto los reciben
+          propietarios y gestores; cada persona elige los suyos en su perfil.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

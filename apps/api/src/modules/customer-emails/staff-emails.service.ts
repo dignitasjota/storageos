@@ -4,6 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
   resolveStaffEmailSettings,
+  resolveUserEmailNotices,
+  STAFF_EMAIL_KINDS,
+  type MyEmailNoticesDto,
   type StaffEmailKind,
   type StaffEmailSettingsDto,
   type UpdateStaffEmailSettingsInput,
@@ -209,6 +212,46 @@ export class StaffEmailsService {
     });
   }
 
+  /** Preferencias del usuario sobre los avisos (su perfil). */
+  async getMyNotices(tenantId: string, userId: string): Promise<MyEmailNoticesDto> {
+    const [user, settings] = await Promise.all([
+      this.admin.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { role: true, emailNoticePrefs: true },
+      }),
+      this.getSettings(tenantId),
+    ]);
+    return {
+      notices: resolveUserEmailNotices(user?.emailNoticePrefs, user?.role ?? 'readonly'),
+      disabledByTenant: STAFF_EMAIL_KINDS.filter((k) => !settings[k]),
+    };
+  }
+
+  async updateMyNotices(
+    tenantId: string,
+    userId: string,
+    input: UpdateStaffEmailSettingsInput,
+  ): Promise<MyEmailNoticesDto> {
+    const user = await this.admin.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { emailNoticePrefs: true },
+    });
+    const current =
+      user?.emailNoticePrefs && typeof user.emailNoticePrefs === 'object'
+        ? (user.emailNoticePrefs as Record<string, boolean>)
+        : {};
+    const next: Record<string, boolean> = { ...current };
+    for (const k of STAFF_EMAIL_KINDS) {
+      const v = input[k];
+      if (typeof v === 'boolean') next[k] = v;
+    }
+    await this.admin.user.update({
+      where: { id: userId },
+      data: { emailNoticePrefs: next as Prisma.InputJsonValue },
+    });
+    return this.getMyNotices(tenantId, userId);
+  }
+
   // -------------------------------------------------------------------------
 
   private async notify(tenantId: string, kind: StaffEmailKind, msg: StaffMessage): Promise<void> {
@@ -219,7 +262,6 @@ export class StaffEmailsService {
       this.admin.user.findMany({
         where: {
           tenantId,
-          role: { in: ['owner', 'manager'] },
           isActive: true,
           emailVerifiedAt: { not: null },
           // Un usuario restringido a ciertos locales solo recibe los suyos.
@@ -232,10 +274,17 @@ export class StaffEmailsService {
               }
             : {}),
         },
-        select: { email: true },
+        select: { email: true, role: true, emailNoticePrefs: true },
       }),
     ]);
-    const to = [...new Set(staff.map((u) => u.email.toLowerCase()))];
+    // Cada usuario decide qué avisos recibe (por defecto, propietarios y gestores).
+    const to = [
+      ...new Set(
+        staff
+          .filter((u) => resolveUserEmailNotices(u.emailNoticePrefs, u.role)[kind])
+          .map((u) => u.email.toLowerCase()),
+      ),
+    ];
     if (!tenant || to.length === 0) return;
 
     const url = `${this.config.get('WEB_BASE_URL', { infer: true })}${msg.path}`;
@@ -248,7 +297,7 @@ export class StaffEmailsService {
 <h2 style="font-size:18px">${escapeHtml(msg.subject)}</h2>
 ${lines.map((l) => `<p style="font-size:15px;line-height:22px;margin:6px 0">${escapeHtml(l)}</p>`).join('\n')}
 <p style="margin:20px 0"><a href="${escapeHtml(url)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">${escapeHtml(msg.cta)}</a></p>
-<p style="font-size:12px;color:#94a3b8">Puedes desactivar estos avisos en Ajustes → Correo.</p>
+<p style="font-size:12px;color:#94a3b8">Elige qué avisos recibes en tu perfil (Ajustes → Perfil).</p>
 </div>`;
     await this.emailQueue.addBulk(
       to.map((address) => ({

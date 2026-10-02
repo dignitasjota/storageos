@@ -111,6 +111,30 @@ export const UpdateStaffEmailSettingsSchema = z
   .strict();
 export type UpdateStaffEmailSettingsInput = z.infer<typeof UpdateStaffEmailSettingsSchema>;
 
+/**
+ * Lo que recibe cada usuario: por defecto propietarios y gestores todos los
+ * avisos y el resto ninguno; cada uno puede cambiarlo en su perfil. Solo se
+ * envían los tipos que la empresa tiene activados.
+ */
+export function defaultStaffNoticeForRole(role: string): boolean {
+  return role === 'owner' || role === 'manager';
+}
+
+export function resolveUserEmailNotices(raw: unknown, role: string): StaffEmailSettingsDto {
+  const stored = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const fallback = defaultStaffNoticeForRole(role);
+  return Object.fromEntries(
+    STAFF_EMAIL_KINDS.map((k) => [k, typeof stored[k] === 'boolean' ? stored[k] : fallback]),
+  ) as StaffEmailSettingsDto;
+}
+
+/** Preferencias del usuario + qué tipos tiene activados la empresa. */
+export interface MyEmailNoticesDto {
+  notices: StaffEmailSettingsDto;
+  /** Tipos que la empresa ha apagado: no llegan aunque el usuario los quiera. */
+  disabledByTenant: StaffEmailKind[];
+}
+
 export function resolveStaffEmailSettings(raw: unknown): StaffEmailSettingsDto {
   const stored = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   return Object.fromEntries(

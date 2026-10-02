@@ -99,4 +99,59 @@ describe('Avisos por email al equipo (e2e)', () => {
       waitForEmail(owner.email, { subjectIncludes: 'Nuevo contacto', timeoutMs: 3000 }),
     ).rejects.toThrow();
   }, 90_000);
+
+  it('cada usuario elige sus avisos: quien los apaga no los recibe', async () => {
+    const owner = await registerVerifiedUser(app, 'staffpref');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+
+    const mine = await request(app.getHttpServer()).get('/me/email-notices').set(auth).expect(200);
+    expect(mine.body).toEqual({
+      notices: {
+        new_lead: true,
+        new_booking: true,
+        move_out_requested: true,
+        portal_incident: true,
+      },
+      disabledByTenant: [],
+    });
+
+    const off = await request(app.getHttpServer())
+      .patch('/me/email-notices')
+      .set(auth)
+      .send({ new_lead: false })
+      .expect(200);
+    expect(off.body.notices).toMatchObject({ new_lead: false, new_booking: true });
+
+    await request(app.getHttpServer())
+      .post(`/public/widget/${owner.slug}/leads`)
+      .send({
+        firstName: 'Luis',
+        email: `luis-${Date.now()}@e2e.local`,
+        phone: '+34 600 555 666',
+        hp: '',
+        acceptsTerms: true,
+        acceptsMarketing: false,
+      })
+      .expect(201);
+    await expect(
+      waitForEmail(owner.email, { subjectIncludes: 'Nuevo contacto', timeoutMs: 3000 }),
+    ).rejects.toThrow();
+
+    // Lo que la empresa apaga se marca aunque el usuario lo quiera.
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/staff-emails')
+      .set(auth)
+      .send({ new_booking: false })
+      .expect(200);
+    const after = await request(app.getHttpServer()).get('/me/email-notices').set(auth).expect(200);
+    expect(after.body.disabledByTenant).toEqual(['new_booking']);
+    expect(after.body.notices.new_booking).toBe(true);
+
+    await request(app.getHttpServer())
+      .patch('/me/email-notices')
+      .set(auth)
+      .send({ nope: true })
+      .expect(400);
+    await request(app.getHttpServer()).get('/me/email-notices').expect(401);
+  }, 90_000);
 });
