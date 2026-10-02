@@ -214,9 +214,17 @@ export class CompetitorsService {
     // Recalcula el área si el resultado de las medidas (nuevas o conservadas) da
     // ancho y fondo; si no hay medidas, usa el área indicada.
     const nextWidth =
-      input.widthM !== undefined ? input.widthM : existing.widthM != null ? num(existing.widthM) : null;
+      input.widthM !== undefined
+        ? input.widthM
+        : existing.widthM != null
+          ? num(existing.widthM)
+          : null;
     const nextDepth =
-      input.depthM !== undefined ? input.depthM : existing.depthM != null ? num(existing.depthM) : null;
+      input.depthM !== undefined
+        ? input.depthM
+        : existing.depthM != null
+          ? num(existing.depthM)
+          : null;
     const dimsTouched = input.widthM !== undefined || input.depthM !== undefined;
     const areaUpdate: { areaM2?: number } =
       dimsTouched && nextWidth != null && nextDepth != null

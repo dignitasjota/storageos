@@ -101,7 +101,21 @@ export class RedsysService {
     await assertNotInSepaRemittance(this.admin, invoiceId);
     // Céntimos enteros ANTES de restar: restar decimales y redondear después
     // arrastra el drift de coma flotante al importe enviado a Redsys.
-    const amountCents = toCents(invoice.total) - toCents(invoice.amountPaid);
+    // Con su justificante de fianza (reserva online): un solo pago por el total.
+    const bundled = await this.admin.invoice.findMany({
+      where: {
+        tenantId,
+        bundledWithInvoiceId: invoiceId,
+        kind: 'deposit_receipt',
+        status: { in: ['issued', 'overdue'] },
+        deletedAt: null,
+      },
+      select: { total: true, amountPaid: true },
+    });
+    const amountCents =
+      toCents(invoice.total) -
+      toCents(invoice.amountPaid) +
+      bundled.reduce((sum, r) => sum + Math.max(0, toCents(r.total) - toCents(r.amountPaid)), 0);
     if (amountCents <= 0) {
       throw new BadRequestException({
         code: 'nothing_to_pay',
@@ -243,20 +257,24 @@ export class RedsysService {
 
     if (approved) {
       try {
-        await this.invoices.markPaidManually({
-          tenantId: orderRow.tenantId,
-          userId: null,
-          invoiceId: orderRow.invoiceId,
-          input: {
-            amount: orderRow.amountCents / 100,
-            methodType: 'card',
-            notes: `Redsys ${order}`,
-            // Confirmación de un pago real por Redsys: salta el guard de adeudo en vuelo.
-            overridePaymentInFlight: true,
-            allowInSepaRemittance: true,
-          },
-          meta: {},
-        });
+        // El cobro se reparte: primero la factura, después su justificante de
+        // fianza (reserva online, un solo pago por el total).
+        for (const part of await this.splitOrder(orderRow)) {
+          await this.invoices.markPaidManually({
+            tenantId: orderRow.tenantId,
+            userId: null,
+            invoiceId: part.invoiceId,
+            input: {
+              amount: part.cents / 100,
+              methodType: 'card',
+              notes: `Redsys ${order}`,
+              // Confirmación de un pago real por Redsys: salta el guard de adeudo en vuelo.
+              overridePaymentInFlight: true,
+              allowInSepaRemittance: true,
+            },
+            meta: {},
+          });
+        }
       } catch (err) {
         // La factura podría estar ya pagada por otra vía (transferencia, otra
         // orden Redsys legítima, etc.): no es fatal para el webhook (Redsys
@@ -282,5 +300,45 @@ export class RedsysService {
           });
       }
     }
+  }
+
+  /**
+   * Reparte el importe de una orden entre la factura y sus justificantes de
+   * fianza pendientes. Lo que sobre se aplica a la factura (y el cobro manual
+   * lo rechazará como sobrecobro → aviso de revisión).
+   */
+  private async splitOrder(orderRow: {
+    tenantId: string;
+    invoiceId: string;
+    amountCents: number;
+  }): Promise<{ invoiceId: string; cents: number }[]> {
+    const docs = await this.admin.invoice.findMany({
+      where: {
+        tenantId: orderRow.tenantId,
+        OR: [
+          { id: orderRow.invoiceId },
+          { bundledWithInvoiceId: orderRow.invoiceId, kind: 'deposit_receipt' },
+        ],
+        status: { in: ['issued', 'overdue'] },
+        deletedAt: null,
+      },
+      select: { id: true, total: true, amountPaid: true },
+    });
+    docs.sort((a, b) => Number(b.id === orderRow.invoiceId) - Number(a.id === orderRow.invoiceId));
+    let remaining = orderRow.amountCents;
+    const parts: { invoiceId: string; cents: number }[] = [];
+    for (const d of docs) {
+      const pendingCents = Math.max(0, toCents(d.total) - toCents(d.amountPaid));
+      const cents = Math.min(remaining, pendingCents);
+      if (cents > 0) parts.push({ invoiceId: d.id, cents });
+      remaining -= cents;
+    }
+    if (remaining > 0 || parts.length === 0) {
+      parts.push({
+        invoiceId: orderRow.invoiceId,
+        cents: remaining > 0 ? remaining : orderRow.amountCents,
+      });
+    }
+    return parts;
   }
 }

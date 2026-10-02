@@ -1616,6 +1616,12 @@ model Invoice {
   previousInvoice    Invoice?                   @relation("InvoiceChain", fields: [previousInvoiceId], references: [id], onDelete: SetNull)
   nextInvoices       Invoice[]                  @relation("InvoiceChain")
   aeatRecordTimestamp String?                   @map("aeat_record_timestamp")
+  /// 'invoice' (factura) | 'deposit_receipt' (justificante de fianza: sin IVA, sin Veri*Factu, fuera de informes fiscales).
+  kind               String                     @default("invoice")
+  /// Justificante que se cobra junto con esta factura en un solo pago.
+  bundledWithInvoiceId String?                  @map("bundled_with_invoice_id") @db.Uuid
+  bundledWithInvoice Invoice?                   @relation("InvoiceBundle", fields: [bundledWithInvoiceId], references: [id], onDelete: SetNull)
+  bundledReceipts    Invoice[]                  @relation("InvoiceBundle")
   lateFeeForInvoice  Invoice?                   @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
   lateFeeInvoice     Invoice?                   @relation("InvoiceLateFee")
   sepaRemittanceItems SepaRemittanceItem[]

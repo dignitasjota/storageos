@@ -173,15 +173,13 @@ describe('SessionsService', () => {
       const session = buildSession({ refreshTokenHash: secretHash });
       // La relectura tras perder el CAS muestra que la revocación NO fue una
       // rotación reciente (logout) → reuso real, fuera de la gracia.
-      tx.session.findUnique
-        .mockResolvedValueOnce(session)
-        .mockResolvedValueOnce(
-          buildSession({
-            refreshTokenHash: secretHash,
-            revokedAt: new Date(),
-            revokedReason: 'logout',
-          }),
-        );
+      tx.session.findUnique.mockResolvedValueOnce(session).mockResolvedValueOnce(
+        buildSession({
+          refreshTokenHash: secretHash,
+          revokedAt: new Date(),
+          revokedReason: 'logout',
+        }),
+      );
       // 1ª llamada a updateMany = el intento de CAS de la rotación -> pierde.
       // 2ª llamada = el revoke-all paranoid subsiguiente.
       tx.session.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 2 });

@@ -222,6 +222,50 @@ export class AccessIntegrationsService {
     }
   }
 
+  /** Cola por inquilino (en este proceso): los avisos se atienden de uno en uno. */
+  private readonly queues = new Map<string, Promise<void>>();
+
+  private async serialized(key: string, fn: () => Promise<void>): Promise<void> {
+    const prev = this.queues.get(key) ?? Promise.resolve();
+    const next = prev.then(fn, fn);
+    const tail = next.catch(() => undefined);
+    this.queues.set(key, tail);
+    try {
+      await next;
+    } finally {
+      if (this.queues.get(key) === tail) this.queues.delete(key);
+    }
+  }
+
+  /**
+   * Factura y justificante de fianza que se cobran juntos (reserva online):
+   * el acceso no se emite hasta que estén pagados los dos.
+   */
+  private async bundleSettled(tenantId: string, invoiceId: string): Promise<boolean> {
+    const doc = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: { id: invoiceId },
+          select: { id: true, bundledWithInvoiceId: true },
+        }),
+      tenantId,
+    );
+    if (!doc) return true;
+    const rootId = doc.bundledWithInvoiceId ?? doc.id;
+    const unpaid = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.count({
+          where: {
+            OR: [{ id: rootId }, { bundledWithInvoiceId: rootId }],
+            status: { in: ['issued', 'overdue'] },
+            deletedAt: null,
+          },
+        }),
+      tenantId,
+    );
+    return unpaid === 0;
+  }
+
   @OnEvent(DOMAIN_EVENTS.invoice_paid, { async: true, promisify: true })
   async onInvoicePaid(payload: DomainEventPayload): Promise<void> {
     if (!payload.customerId) return;
@@ -241,26 +285,33 @@ export class AccessIntegrationsService {
       //    acceso suspendido por el staff, una tarjeta o una cara cuentan: no se
       //    le da un PIN nuevo en cada factura pagada. Sin contratos vivos
       //    tampoco se emite (lo comprueba issueCredential).
-      if (!(await this.hasOwnCredential(payload.tenantId, customerId))) {
-        const customer = await this.prisma.withTenant(
-          (tx) =>
-            tx.customer.findFirst({
-              where: { id: customerId, tenantId: payload.tenantId, deletedAt: null },
-              select: { email: true, firstName: true, lastName: true, companyName: true },
-            }),
-          payload.tenantId,
-        );
-        if (customer) {
-          await this.issueCredential({
-            tenantId: payload.tenantId,
-            customerId,
-            source: 'invoice_paid',
-            label: 'Acceso',
-            recipientEmail: customer.email ?? null,
-            scope: { customer: { firstName: customer.firstName ?? '' } },
-          });
+      // Serializado por inquilino: dos «pagada» casi a la vez (factura y su
+      // justificante de fianza cobrados juntos) no emiten dos accesos.
+      await this.serialized(customerId, async () => {
+        if (
+          (await this.bundleSettled(payload.tenantId, payload.entityId)) &&
+          !(await this.hasOwnCredential(payload.tenantId, customerId))
+        ) {
+          const customer = await this.prisma.withTenant(
+            (tx) =>
+              tx.customer.findFirst({
+                where: { id: customerId, tenantId: payload.tenantId, deletedAt: null },
+                select: { email: true, firstName: true, lastName: true, companyName: true },
+              }),
+            payload.tenantId,
+          );
+          if (customer) {
+            await this.issueCredential({
+              tenantId: payload.tenantId,
+              customerId,
+              source: 'invoice_paid',
+              label: 'Acceso',
+              recipientEmail: customer.email ?? null,
+              scope: { customer: { firstName: customer.firstName ?? '' } },
+            });
+          }
         }
-      }
+      });
       this.logger.log(
         `invoice.paid: credenciales reactivadas/emitidas (si procede) tenant=${payload.tenantId} customer=${customerId}`,
       );

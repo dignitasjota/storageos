@@ -135,11 +135,23 @@ export class CustomerEmailsService {
     await this.safe('payment_received', p.tenantId, async () => {
       const inv = await this.invoice(p.tenantId, p.entityId);
       if (!inv?.customerId || Number(inv.total) <= 0) return;
+      // Con su justificante de fianza cobrado en el mismo pago: un solo aviso
+      // por el importe total pagado.
+      const receipts = await this.admin.invoice.findMany({
+        where: {
+          tenantId: p.tenantId,
+          bundledWithInvoiceId: p.entityId,
+          status: 'paid',
+          deletedAt: null,
+        },
+        select: { total: true },
+      });
+      const amount = receipts.reduce((sum, r) => sum + Number(r.total), Number(inv.total));
       await this.send(p.tenantId, 'payment_received', 'invoice_paid', inv.customerId, {
         data: {
           kind: 'payment_received',
           invoiceNumber: inv.invoiceNumber,
-          amount: Number(inv.total),
+          amount: Math.round(amount * 100) / 100,
           paidAt: inv.paidAt ?? new Date(),
         },
         invoiceId: p.entityId,

@@ -441,17 +441,8 @@ export class SignaturesService {
         });
       }
 
-      // La fianza/depósito es indemnizatoria (garantía reembolsable) → IVA 0.
-      if (deposit > 0) {
-        items.push({
-          description: `Fianza ${contract.contractNumber}`,
-          quantity: 1,
-          unitPrice: deposit,
-          taxRate: 0,
-          relatedContractId: contractId,
-          relatedUnitId: contract.unit.id,
-        });
-      }
+      // La fianza NO va en la factura (es una garantía, no una venta): se cobra
+      // con un justificante aparte, en el mismo pago que esta factura.
 
       const dueDate = new Date(periodEnd);
       dueDate.setUTCDate(dueDate.getUTCDate() + 15);
@@ -473,6 +464,18 @@ export class SignaturesService {
         meta: {},
       });
       await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
+      if (deposit > 0) {
+        await this.invoices.createDepositReceipt({
+          tenantId,
+          userId: null,
+          contractId,
+          customerId,
+          contractNumber: contract.contractNumber,
+          amount: deposit,
+          dueDate,
+          bundledWithInvoiceId: invoice.id,
+        });
+      }
     } catch (err) {
       this.logger.error(
         `[move-in] no se pudo emitir la 1ª factura del contrato ${contractId}: ${
@@ -607,7 +610,7 @@ export class SignaturesService {
     let cancelled = 0;
     for (const c of candidates) {
       const paid = await this.admin.invoice.findFirst({
-        where: { tenantId: c.tenantId, contractId: c.id, status: 'paid' },
+        where: { tenantId: c.tenantId, contractId: c.id, status: 'paid', kind: 'invoice' },
         select: { id: true },
       });
       if (paid) {

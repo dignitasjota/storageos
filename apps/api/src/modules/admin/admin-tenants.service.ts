@@ -878,7 +878,7 @@ export class AdminTenantsService {
 
     const [totals, pending, overdueCount, collected, invoices, payments] = await Promise.all([
       this.admin.invoice.aggregate({
-        where: { tenantId, deletedAt: null, status: { in: ACCOUNTING_STATUSES } },
+        where: { tenantId, deletedAt: null, status: { in: ACCOUNTING_STATUSES }, kind: 'invoice' },
         _sum: { total: true },
         _count: true,
       }),
@@ -888,7 +888,7 @@ export class AdminTenantsService {
       }),
       this.admin.invoice.count({ where: { tenantId, deletedAt: null, status: 'overdue' } }),
       this.admin.payment.aggregate({
-        where: { tenantId, status: 'succeeded' },
+        where: { tenantId, status: 'succeeded', invoice: { kind: 'invoice' } },
         _sum: { amount: true },
       }),
       this.admin.invoice.findMany({
@@ -896,12 +896,18 @@ export class AdminTenantsService {
           tenantId,
           deletedAt: null,
           status: { in: ACCOUNTING_STATUSES },
+          kind: 'invoice',
           issueDate: { gte: fromDate, lt: toExclusive },
         },
         select: { issueDate: true, total: true },
       }),
       this.admin.payment.findMany({
-        where: { tenantId, status: 'succeeded', paidAt: { gte: fromDate, lt: toExclusive } },
+        where: {
+          tenantId,
+          status: 'succeeded',
+          paidAt: { gte: fromDate, lt: toExclusive },
+          invoice: { kind: 'invoice' },
+        },
         select: { paidAt: true, amount: true },
       }),
     ]);

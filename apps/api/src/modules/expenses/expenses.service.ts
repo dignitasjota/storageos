@@ -172,11 +172,16 @@ export class ExpensesService {
             issueDate: { gte: fromD, lte: toD },
             status: { notIn: ['draft', 'cancelled'] },
             deletedAt: null,
+            kind: 'invoice', // la fianza no es un ingreso
           },
           select: { total: true, contract: { select: { unit: { select: { facilityId: true } } } } },
         }),
         tx.payment.findMany({
-          where: { status: 'succeeded', paidAt: { gte: fromD, lte: toD } },
+          where: {
+            status: 'succeeded',
+            paidAt: { gte: fromD, lte: toD },
+            invoice: { kind: 'invoice' },
+          },
           select: {
             amount: true,
             invoice: {

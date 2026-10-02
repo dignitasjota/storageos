@@ -841,9 +841,19 @@ export class PortalService {
     const inFlightIds = new Set(
       inFlight.map((p) => p.invoiceId).filter((id): id is string => !!id),
     );
+    const pendingOf = (r: (typeof rows)[number]) =>
+      ['issued', 'overdue'].includes(r.status)
+        ? Math.max(0, Number(r.total) - Number(r.amountPaid))
+        : 0;
+    const byId = new Map(rows.map((r) => [r.id, r]));
     return rows.map((r) => {
       const total = Number(r.total);
       const paid = Number(r.amountPaid);
+      // La factura se paga junto a su justificante de fianza (un solo pago).
+      const bundledReceiptPending = rows
+        .filter((x) => x.bundledWithInvoiceId === r.id)
+        .reduce((sum, x) => sum + pendingOf(x), 0);
+      const parent = r.bundledWithInvoiceId ? byId.get(r.bundledWithInvoiceId) : undefined;
       return {
         id: r.id,
         invoiceNumber: r.invoiceNumber,
@@ -855,6 +865,9 @@ export class PortalService {
         status: r.status,
         hasPdf: !!r.pdfUrl,
         paymentInProgress: inFlightIds.has(r.id),
+        kind: r.kind === 'deposit_receipt' ? ('deposit_receipt' as const) : ('invoice' as const),
+        bundledReceiptPending: Math.round(bundledReceiptPending * 100) / 100,
+        paidWithInvoiceId: parent && pendingOf(parent) > 0 ? parent.id : null,
       };
     });
   }

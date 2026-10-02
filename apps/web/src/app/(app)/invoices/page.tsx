@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -188,9 +189,16 @@ export default function InvoicesPage() {
       accessorKey: 'invoiceNumber',
       header: 'Número',
       cell: ({ row }) => (
-        <Link href={`/invoices/${row.original.id}`} className="font-mono text-xs hover:underline">
-          {row.original.invoiceNumber}
-        </Link>
+        <span className="flex items-center gap-1.5">
+          <Link href={`/invoices/${row.original.id}`} className="font-mono text-xs hover:underline">
+            {row.original.invoiceNumber}
+          </Link>
+          {row.original.kind === 'deposit_receipt' && (
+            <Badge variant="outline" title="Justificante de fianza: no es una factura">
+              Fianza
+            </Badge>
+          )}
+        </span>
       ),
     },
     {

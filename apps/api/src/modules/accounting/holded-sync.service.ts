@@ -126,6 +126,7 @@ export class HoldedSyncService {
       where: {
         tenantId,
         deletedAt: null,
+        kind: 'invoice', // los justificantes de fianza no van a la contabilidad como facturas
         status: {
           in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
         },
@@ -363,6 +364,7 @@ export class HoldedSyncService {
       return true;
     }
     if (invoice.status === 'draft' || invoice.status === 'cancelled') return false;
+    if (invoice.kind === 'deposit_receipt') return false;
     // Otra copia en curso (o pendiente de revisar): no se crea una segunda.
     if (invoice.holdedSyncState) return false;
     if (isCreditNote && !cfg.creditNoteSeriesId) {
