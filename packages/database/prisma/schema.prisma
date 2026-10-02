@@ -2027,11 +2027,19 @@ model SepaRemittanceItem {
   amount       Int
   sequenceType String @map("sequence_type")
   endToEndId   String @map("end_to_end_id")
+  /// Constancia del preaviso: null = pendiente | sent | disabled | no_email | failed.
+  prenoticeStatus          String?   @map("prenotice_status")
+  prenoticeAt              DateTime? @map("prenotice_at") @db.Timestamptz(6)
+  prenoticeRecipient       String?   @map("prenotice_recipient")
+  prenoticeSubject         String?   @map("prenotice_subject")
+  prenoticeText            String?   @map("prenotice_text")
+  prenoticeCommunicationId String?   @map("prenotice_communication_id") @db.Uuid
 
-  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  remittance SepaRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
-  invoice    Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  mandate    SepaMandate    @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+  tenant                Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  remittance            SepaRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  invoice               Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  mandate               SepaMandate    @relation(fields: [mandateId], references: [id], onDelete: Restrict)
+  prenoticeCommunication Communication? @relation(fields: [prenoticeCommunicationId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@map("sepa_remittance_items")
@@ -2581,6 +2589,8 @@ model Communication {
   lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
   contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
   invoice  Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  sepaPrenotices SepaRemittanceItem[]
 
   @@index([tenantId])
   @@index([tenantId, contractId])

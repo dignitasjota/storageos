@@ -239,6 +239,8 @@ const envSchemaBase = z.object({
   RETENTION_ACCESS_LOGS_DAYS: z.coerce.number().int().positive().default(180),
   /** Outbox de comunicaciones (emails/WhatsApp enviados): 180 días. */
   RETENTION_COMMUNICATIONS_DAYS: z.coerce.number().int().positive().default(180),
+  // Preavisos SEPA: el deudor puede reclamar un adeudo no autorizado hasta 13 meses.
+  RETENTION_SEPA_PRENOTICE_DAYS: z.coerce.number().int().positive().default(430),
   /** Feed de notificaciones in-app: 90 días. */
   RETENTION_NOTIFICATIONS_DAYS: z.coerce.number().int().positive().default(90),
 

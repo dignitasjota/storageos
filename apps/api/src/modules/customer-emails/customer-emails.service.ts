@@ -47,6 +47,11 @@ interface Recipient {
  * Si el tenant ya tiene una automatización activa para el mismo evento, el
  * correo por defecto no se envía (para no mandar dos).
  */
+/** Qué pasó con un correo al inquilino (el preaviso SEPA lo anota en la remesa). */
+type SendOutcome =
+  | { status: 'sent'; communicationId: string; recipient: string; subject: string; text: string }
+  | { status: 'disabled' | 'automation' | 'no_email' | 'failed' };
+
 @Injectable()
 export class CustomerEmailsService {
   private readonly logger = new Logger(CustomerEmailsService.name);
@@ -243,24 +248,62 @@ export class CustomerEmailsService {
       });
       if (!remittance || !settings) return;
       for (const item of remittance.items) {
-        await this.safe('sepa_prenotification', p.tenantId, () =>
-          this.send(p.tenantId, 'sepa_prenotification', null, item.mandate.customerId, {
-            data: {
-              kind: 'sepa_prenotification',
-              invoiceNumber: item.invoice.invoiceNumber,
-              // La remesa guarda el importe en céntimos.
-              amount: Number(item.amount) / 100,
-              collectionDate: remittance.collectionDate,
-              ibanLast4: item.mandate.ibanLast4,
-              mandateReference: item.mandate.reference,
-              creditorName: settings.creditorName,
-              creditorId: settings.creditorId,
+        let outcome: SendOutcome;
+        try {
+          outcome = await this.send(
+            p.tenantId,
+            'sepa_prenotification',
+            null,
+            item.mandate.customerId,
+            {
+              data: {
+                kind: 'sepa_prenotification',
+                invoiceNumber: item.invoice.invoiceNumber,
+                // La remesa guarda el importe en céntimos.
+                amount: Number(item.amount) / 100,
+                collectionDate: remittance.collectionDate,
+                ibanLast4: item.mandate.ibanLast4,
+                mandateReference: item.mandate.reference,
+                creditorName: settings.creditorName,
+                creditorId: settings.creditorId,
+              },
+              invoiceId: item.invoiceId,
+              contractId: item.invoice.contractId,
             },
-            invoiceId: item.invoiceId,
-            contractId: item.invoice.contractId,
-          }),
-        );
+          );
+        } catch (err) {
+          this.logger.warn(
+            `[customer-email sepa_prenotification] tenant=${p.tenantId}: ${err instanceof Error ? err.message : err}`,
+          );
+          outcome = { status: 'failed' };
+        }
+        await this.recordPrenotice(p.tenantId, item.invoiceId, outcome);
       }
+    });
+  }
+
+  /**
+   * Constancia del preaviso en el adeudo de la remesa (dura lo que la remesa,
+   * no lo que el correo en Comunicaciones): prueba ante una devolución.
+   */
+  private async recordPrenotice(
+    tenantId: string,
+    invoiceId: string,
+    outcome: SendOutcome,
+  ): Promise<void> {
+    await this.admin.sepaRemittanceItem.updateMany({
+      where: { tenantId, invoiceId },
+      data:
+        outcome.status === 'sent'
+          ? {
+              prenoticeStatus: 'sent',
+              prenoticeAt: new Date(),
+              prenoticeRecipient: outcome.recipient,
+              prenoticeSubject: outcome.subject,
+              prenoticeText: outcome.text,
+              prenoticeCommunicationId: outcome.communicationId,
+            }
+          : { prenoticeStatus: outcome.status, prenoticeAt: new Date() },
     });
   }
 
@@ -275,13 +318,15 @@ export class CustomerEmailsService {
     trigger: AutomationTriggerValue | null,
     customerId: string,
     args: { data: CustomerEmailData; invoiceId?: string; contractId?: string | null },
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     const settings = await this.getSettings(tenantId);
-    if (!settings[kind]) return;
-    if (trigger && (await this.hasActiveAutomation(tenantId, trigger))) return;
+    if (!settings[kind]) return { status: 'disabled' };
+    if (trigger && (await this.hasActiveAutomation(tenantId, trigger))) {
+      return { status: 'automation' };
+    }
 
     const recipient = await this.recipient(tenantId, customerId);
-    if (!recipient) return;
+    if (!recipient) return { status: 'no_email' };
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: {
@@ -293,7 +338,7 @@ export class CustomerEmailsService {
         portalBrandColor: true,
       },
     });
-    if (!tenant) return;
+    if (!tenant) return { status: 'failed' };
 
     const email = renderCustomerEmail(
       {
@@ -306,7 +351,7 @@ export class CustomerEmailsService {
       },
       args.data,
     );
-    await this.communications.enqueue({
+    const comm = await this.communications.enqueue({
       tenantId,
       channel: 'email',
       recipient: recipient.email,
@@ -318,6 +363,13 @@ export class CustomerEmailsService {
       ...(args.contractId ? { contractId: args.contractId } : {}),
       source: `customer_email.${kind}`,
     });
+    return {
+      status: 'sent',
+      communicationId: comm.id,
+      recipient: recipient.email,
+      subject: email.subject,
+      text: email.text,
+    };
   }
 
   private async hasActiveAutomation(
