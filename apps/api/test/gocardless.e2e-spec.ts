@@ -11,6 +11,9 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+/** Ids de evento únicos por ejecución (la tabla de deduplicación es global y no se limpia). */
+const RUN = Date.now().toString(36);
+
 describe('GoCardless settings + webhook (e2e)', () => {
   let app: INestApplication;
 
@@ -238,7 +241,7 @@ describe('GoCardless settings + webhook (e2e)', () => {
     const body = JSON.stringify({
       events: [
         {
-          id: 'EV-pay',
+          id: `EV-pay-${RUN}`,
           resource_type: 'payments',
           action: 'confirmed',
           links: { payment: gatewayPaymentId },
@@ -284,7 +287,7 @@ describe('GoCardless settings + webhook (e2e)', () => {
     const cbBody = JSON.stringify({
       events: [
         {
-          id: 'EV-cb',
+          id: `EV-cb-${RUN}`,
           resource_type: 'payments',
           action: 'charged_back',
           links: { payment: gatewayPaymentId },

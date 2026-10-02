@@ -13,7 +13,14 @@ const INVOICE_ID = '019e3d20-cccc-7c2f-bf37-6511065b9fc5';
 const GATEWAY_PAYMENT_ID = 'pi_3QxTest123';
 
 interface TxMock {
-  payment: { findFirst: jest.Mock; update: jest.Mock; create: jest.Mock; count: jest.Mock };
+  payment: {
+    findFirst: jest.Mock;
+    findUniqueOrThrow: jest.Mock;
+    update: jest.Mock;
+    updateMany: jest.Mock;
+    create: jest.Mock;
+    count: jest.Mock;
+  };
   invoice: {
     findFirst: jest.Mock;
     findUniqueOrThrow: jest.Mock;
@@ -22,13 +29,32 @@ interface TxMock {
   };
   paymentMethod: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
   $executeRaw: jest.Mock;
+  $queryRaw: jest.Mock;
+}
+
+/** ¿Cumple el estado la condición `where.status` de Prisma (igual, in, notIn)? */
+function matchesStatus(status: string, cond: unknown): boolean {
+  if (cond === undefined) return true;
+  if (typeof cond === 'string') return status === cond;
+  const c = cond as { in?: string[]; notIn?: string[] };
+  if (c.in) return c.in.includes(status);
+  if (c.notIn) return !c.notIn.includes(status);
+  return true;
 }
 
 function buildTx(): TxMock {
-  return {
+  const tx: TxMock = {
     payment: {
       findFirst: jest.fn(),
+      // Lectura fresca con la fila bloqueada: la misma fila que `findFirst`.
+      findUniqueOrThrow: jest.fn((): unknown => tx.payment.findFirst()),
       update: jest.fn().mockResolvedValue(undefined),
+      // Transición condicionada (como en Postgres): solo cuenta si la fila actual
+      // cumple `where.status`.
+      updateMany: jest.fn(async ({ where }: { where: { status?: unknown } }) => {
+        const row = (await tx.payment.findFirst()) as { status?: string } | null;
+        return { count: row && matchesStatus(row.status ?? '', where.status) ? 1 : 0 };
+      }),
       create: jest.fn(),
       // `assertNoPaymentInFlight` (anti-doble-cobro del portal): sin cobro en
       // vuelo por defecto para que `chargeInvoice` prosiga en los casos base.
@@ -43,7 +69,10 @@ function buildTx(): TxMock {
     paymentMethod: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn() },
     // Advisory lock (`pg_advisory_xact_lock`) del guard anti-doble-cobro.
     $executeRaw: jest.fn().mockResolvedValue(1),
+    // `SELECT … FOR UPDATE` de las filas bloqueadas.
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
+  return tx;
 }
 
 function buildService(
@@ -120,9 +149,9 @@ describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
       paidAt: new Date('2026-06-11T10:00:00.000Z'),
     });
 
-    expect(tx.payment.update).toHaveBeenCalledWith(
+    expect(tx.payment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: PAYMENT_ID },
+        where: expect.objectContaining({ id: PAYMENT_ID }),
         data: expect.objectContaining({ status: 'succeeded' }),
       }),
     );
@@ -136,7 +165,7 @@ describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
     // 2º: como cubre el total, marca la factura pagada (solo si no lo estaba).
     expect(tx.invoice.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: INVOICE_ID, status: { not: 'paid' } },
+        where: { id: INVOICE_ID, status: { in: ['issued', 'overdue'] } },
         data: expect.objectContaining({ status: 'paid' }),
       }),
     );
@@ -225,7 +254,7 @@ describe('PaymentsService.syncFromWebhook (idempotencia)', () => {
       failureReason: 'insufficient_funds',
     });
 
-    expect(tx.payment.update).toHaveBeenCalledWith(
+    expect(tx.payment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'failed',
@@ -412,9 +441,10 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
       gateway: 'stripe',
       gatewayCustomerId: 'cus_123',
     });
-    // FASE 1 reserva el payment (select id); FASE 3 lo finaliza con update.
+    // FASE 1 reserva el payment (select id); FASE 3 lo finaliza con una
+    // transición condicionada (processing → estado final) y relee la fila.
     tx.payment.create.mockResolvedValue({ id: PAYMENT_ID });
-    tx.payment.update.mockResolvedValue(createdPaymentRow('processing'));
+    tx.payment.findFirst.mockResolvedValue(createdPaymentRow('processing'));
     const gateway = {
       charge: jest.fn().mockResolvedValue({
         gatewayPaymentId: GATEWAY_PAYMENT_ID,
@@ -447,9 +477,9 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
       }),
     );
     // FASE 3 actualiza la reserva con el resultado del gateway.
-    expect(tx.payment.update).toHaveBeenCalledWith(
+    expect(tx.payment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: PAYMENT_ID },
+        where: expect.objectContaining({ id: PAYMENT_ID }),
         data: expect.objectContaining({
           status: 'processing',
           gatewayPaymentId: GATEWAY_PAYMENT_ID,
@@ -548,9 +578,9 @@ describe('PaymentsService.syncDisputeFromWebhook (devoluciones SEPA)', () => {
       reason: 'debit_not_authorized',
     });
 
-    expect(tx.payment.update).toHaveBeenCalledWith(
+    expect(tx.payment.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: PAYMENT_ID },
+        where: expect.objectContaining({ id: PAYMENT_ID }),
         data: expect.objectContaining({
           status: 'failed',
           failureReason: 'disputed: debit_not_authorized',

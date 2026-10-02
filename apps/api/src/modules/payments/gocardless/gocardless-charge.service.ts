@@ -86,6 +86,7 @@ export class GoCardlessChargeService {
     /** Suma total reembolsada del payment (incluido este reembolso), en céntimos. */
     totalAmountConfirmationCents: number;
     reason?: string;
+    idempotencyKey?: string;
   }): Promise<RefundResult> {
     const resolved = await this.settings.getResolved(args.tenantId);
     if (!resolved?.enabled) {
@@ -97,6 +98,7 @@ export class GoCardlessChargeService {
         amountCents: args.amountCents,
         totalAmountConfirmationCents: args.totalAmountConfirmationCents,
         ...(args.reason ? { metadata: { reason: args.reason.slice(0, 200) } } : {}),
+        ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
       });
       const status: RefundResult['status'] =
         res.status === 'paid' || res.status === 'funds_returned'

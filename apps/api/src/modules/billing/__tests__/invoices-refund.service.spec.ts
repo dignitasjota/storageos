@@ -71,8 +71,11 @@ function buildService(deps: {
   goCardlessRefund?: jest.Mock;
 }) {
   const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     invoice: {
       findFirst: jest.fn().mockResolvedValue(invoiceRow()),
+      // Lectura fresca con la fila bloqueada: misma fila que `findFirst`.
+      findUniqueOrThrow: jest.fn((): unknown => tx.invoice.findFirst()),
       update: jest
         .fn()
         .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
