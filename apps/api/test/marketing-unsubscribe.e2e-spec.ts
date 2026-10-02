@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { deleteAllMessages, getMessageHeaders, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -79,6 +81,13 @@ describe('Baja y consentimiento en comunicaciones comerciales (e2e)', () => {
       .expect(200);
     expect(leads.body.audienceCount).toBe(1);
 
+    // Marca del tenant: el correo comercial (solo texto) sale con su color.
+    // (Directo en BD: el endpoint resuelve el DNS del logo, que en test no hay.)
+    await app.get(PrismaAdminService).tenant.update({
+      where: { slug: owner.slug },
+      data: { portalBrandColor: '#ff6600', portalLogoUrl: 'https://example.com/logo.png' },
+    });
+
     // Campaña a los clientes del tag: solo A.
     const segment = { audience: 'customers', tag: `mkt${stamp}` };
     const preview = await http().post('/campaigns/preview').set(auth).send({ segment }).expect(200);
@@ -98,6 +107,11 @@ describe('Baja y consentimiento en comunicaciones comerciales (e2e)', () => {
     // El correo lleva pie y cabecera de baja de un clic.
     const mail = await waitForEmail(emailA, { subjectIncludes: 'Oferta de otoño' });
     expect(mail.Text).toContain('Darme de baja de estas comunicaciones:');
+    // Carcasa con la marca: logo, color y el texto en párrafos (no `<pre>`).
+    expect(mail.HTML).toContain('#ff6600');
+    expect(mail.HTML).toContain('<img src="https://example.com/logo.png"');
+    expect(mail.HTML).not.toContain('<pre>');
+    expect(mail.HTML).toContain('Darme de baja de estas comunicaciones');
     const link = /\/unsubscribe\/([^\s"<]+)/.exec(mail.Text)?.[1];
     expect(link).toBeTruthy();
     const token = decodeURIComponent(link!);

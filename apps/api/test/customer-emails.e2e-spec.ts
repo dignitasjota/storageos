@@ -99,6 +99,9 @@ describe('Correos por defecto al inquilino (e2e)', () => {
     expect(issued.Text).toContain(`/portal/login?slug=${s.owner.slug}`);
     expect(issued.Text).toContain(s.tenantName);
     expect(issued.HTML).not.toMatch(/TrasterOS|STORAGEOS/);
+    // Con la marca del tenant (color por defecto mientras no configure el suyo).
+    expect(issued.HTML).toContain('#2563eb');
+    expect(issued.HTML.match(/<!DOCTYPE html>/g)).toHaveLength(1);
 
     await request(app.getHttpServer())
       .post(`/invoices/${inv}/mark-paid`)
