@@ -34,6 +34,8 @@ interface Recipient {
   customerId: string;
   email: string;
   name: string;
+  /** Idioma del inquilino (`es` / `en`). */
+  locale: string;
 }
 
 /**
@@ -297,6 +299,7 @@ export class CustomerEmailsService {
       {
         tenantName: tenant.name,
         customerName: recipient.name,
+        locale: recipient.locale,
         logoUrl: tenant.portalLogoUrl,
         brandColor: tenant.portalBrandColor,
         portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
@@ -331,11 +334,17 @@ export class CustomerEmailsService {
   private async recipient(tenantId: string, customerId: string): Promise<Recipient | null> {
     const c = await this.admin.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
-      select: { email: true, firstName: true, companyName: true, customerType: true },
+      select: {
+        email: true,
+        firstName: true,
+        companyName: true,
+        customerType: true,
+        locale: true,
+      },
     });
     if (!c?.email) return null;
     const name = (c.customerType === 'business' ? c.companyName : c.firstName) ?? '';
-    return { customerId, email: c.email, name };
+    return { customerId, email: c.email, name, locale: c.locale };
   }
 
   /**

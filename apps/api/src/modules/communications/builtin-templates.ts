@@ -18,7 +18,7 @@ export interface BuiltinTemplate {
 }
 
 /** Al enviar se mete en la carcasa del tenant (logo, color y pie con su nombre). */
-const wrapHtml = (title: string, body: string) =>
+export const wrapHtml = (title: string, body: string) =>
   `<!DOCTYPE html><html lang="es"><body style="font-family:Inter,system-ui,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;">
 <h2 style="margin-top:0">${title}</h2>
 ${body}

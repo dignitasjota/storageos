@@ -109,4 +109,25 @@ describe('renderCustomerEmail — preaviso SEPA', () => {
     expect(r.text).toContain('ES12ZZZB12345678');
     expect(r.text).toContain('MND-ABC');
   });
+
+  it('en inglés si el inquilino tiene locale en', () => {
+    const r = renderCustomerEmail(
+      { ...base, locale: 'en' },
+      {
+        kind: 'invoice_issued',
+        invoiceNumber: 'FA-1',
+        total: 121,
+        dueDate: new Date('2026-10-15T10:00:00Z'),
+        payment: { via: 'manual', transferIban: 'ES9121000418450200051332' },
+      },
+    );
+    expect(r.subject).toBe('New invoice FA-1');
+    expect(r.text).toContain('Hello Lucía,');
+    expect(r.text).toContain('for €121.00');
+    expect(r.text).toContain('Due date: 15/10/2026');
+    expect(r.text).toContain('Reference: FA-1');
+    expect(r.text).toContain('Pay now');
+    expect(r.text).toContain('Kind regards,');
+    expect(r.text).not.toMatch(/Hola|Vencimiento|Un saludo/);
+  });
 });

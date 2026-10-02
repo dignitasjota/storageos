@@ -48,9 +48,14 @@ export function appendUnsubscribeFooter(
   body: { text: string; html: string },
   url: string,
   tenantName: string,
+  locale: 'es' | 'en' = 'es',
 ): { text: string; html: string } {
-  const label = 'Darme de baja de estas comunicaciones';
-  const why = `Recibes este correo porque eres cliente de ${tenantName} o aceptaste recibir sus novedades.`;
+  const label =
+    locale === 'en' ? 'Unsubscribe from these emails' : 'Darme de baja de estas comunicaciones';
+  const why =
+    locale === 'en'
+      ? `You are receiving this email because you are a customer of ${tenantName} or agreed to receive its news.`
+      : `Recibes este correo porque eres cliente de ${tenantName} o aceptaste recibir sus novedades.`;
   const text = `${body.text}\n\n—\n${why}\n${label}: ${url}`;
   const esc = (v: string) =>
     v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
