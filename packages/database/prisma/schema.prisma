@@ -1676,7 +1676,7 @@ model Payment {
   id               String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId         String                 @map("tenant_id") @db.Uuid
   invoiceId        String?                @map("invoice_id") @db.Uuid
-  customerId       String                 @map("customer_id") @db.Uuid
+  customerId       String?                @map("customer_id") @db.Uuid
   paymentMethodId  String?                @map("payment_method_id") @db.Uuid
   amount           Decimal                @db.Decimal(12, 2)
   currency         String                 @default("EUR") @db.Char(3)
@@ -1701,7 +1701,7 @@ model Payment {
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])

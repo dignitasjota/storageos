@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { subtractAmounts } from '../../common/money';
+import { toCents } from '../../common/money';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 import { markSepaItemReturned } from '../sepa/sepa-items';
@@ -173,9 +173,11 @@ export class BankReconciliationService {
     tenantId: string;
     userId: string;
     transactionId: string;
-    invoiceId: string;
+    /** Una o varias facturas: el ingreso se reparte en este orden. */
+    invoiceIds: string[];
   }): Promise<BankStatementDetailDto> {
-    const { tenantId, transactionId, invoiceId } = args;
+    const { tenantId, transactionId } = args;
+    const invoiceIds = [...new Set(args.invoiceIds)];
     const txRow = await this.prisma.withTenant(
       (tx) => tx.bankStatementTransaction.findFirst({ where: { id: transactionId, tenantId } }),
       tenantId,
@@ -198,35 +200,43 @@ export class BankReconciliationService {
         message: 'Solo se concilian abonos (ingresos)',
       });
     }
-    // Marca la factura pagada por su importe pendiente.
-    const invoice = await this.prisma.withTenant(
+    const invoices = await this.prisma.withTenant(
       (tx) =>
-        tx.invoice.findFirst({
-          where: { id: invoiceId, tenantId },
-          select: { total: true, amountPaid: true, status: true },
+        tx.invoice.findMany({
+          where: { id: { in: invoiceIds }, tenantId },
+          select: { id: true, total: true, amountPaid: true },
         }),
       tenantId,
     );
-    if (!invoice) {
+    if (invoices.length !== invoiceIds.length) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    const pending = Math.max(0, subtractAmounts(invoice.total, invoice.amountPaid));
-    // Se aplica el importe REAL del apunte bancario (capado al pendiente), no el
-    // pendiente entero: un apunte de 60 € sobre una factura de 100 € la deja con
-    // 40 € pendientes (pago parcial), en vez de darla por saldada. `amount` está
-    // en céntimos con signo → a euros.
-    const amountToApply = Math.min(txRow.amount / 100, pending);
+    // Se aplica el importe REAL del apunte (en céntimos con signo), repartido
+    // por orden: a cada factura, como mucho lo que le queda pendiente. Un apunte
+    // de 60 € sobre una factura de 100 € la deja con 40 € pendientes.
+    let remaining = txRow.amount;
+    const plan: { invoiceId: string; amount: number }[] = [];
+    for (const id of invoiceIds) {
+      const inv = invoices.find((i) => i.id === id)!;
+      const pending = Math.max(0, toCents(inv.total) - toCents(inv.amountPaid));
+      const cents = Math.min(remaining, pending);
+      if (cents > 0) {
+        plan.push({ invoiceId: id, amount: cents / 100 });
+        remaining -= cents;
+      }
+    }
     // Reclamar el apunte ANTES de cobrar: un doble clic (o dos personas) no
     // aplica dos veces el mismo ingreso; el segundo ve el apunte ya conciliado.
-    await this.claimTransaction(tenantId, transactionId, 'matched', invoiceId);
+    await this.claimTransaction(tenantId, transactionId, 'matched', invoiceIds[0]!);
+    const applied: string[] = [];
     try {
-      if (amountToApply > 0) {
+      for (const part of plan) {
         await this.invoices.markPaidManually({
           tenantId,
           userId: args.userId,
-          invoiceId,
+          invoiceId: part.invoiceId,
           input: {
-            amount: amountToApply,
+            amount: part.amount,
             methodType: 'bank_transfer',
             notes: 'Conciliación N43',
             overridePaymentInFlight: true,
@@ -236,9 +246,12 @@ export class BankReconciliationService {
           },
           meta: {},
         });
+        applied.push(part.invoiceId);
       }
     } catch (err) {
-      await this.releaseTransaction(tenantId, transactionId, 'matched');
+      // Si no se aplicó nada, el apunte vuelve a quedar pendiente; si se aplicó
+      // a alguna factura, queda conciliado con esas (lo demás, a mano).
+      if (applied.length === 0) await this.releaseTransaction(tenantId, transactionId, 'matched');
       throw err;
     }
     return this.getStatement(tenantId, txRow.statementId);

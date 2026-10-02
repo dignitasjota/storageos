@@ -121,7 +121,7 @@ export interface PaymentDto {
   id: string;
   invoiceId: string | null;
   invoiceNumber: string | null;
-  customerId: string;
+  customerId: string | null;
   customerName: string;
   paymentMethodId: string | null;
   amount: number;

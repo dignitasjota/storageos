@@ -7,10 +7,21 @@ export const ImportN43Schema = z.object({
 });
 export type ImportN43Input = z.infer<typeof ImportN43Schema>;
 
-export const MatchTransactionSchema = z.object({
+export const MatchTransactionSchema = z
+  .object({
+    invoiceId: z.string().uuid().optional(),
+    /** Repartir un mismo ingreso entre varias facturas (en este orden). */
+    invoiceIds: z.array(z.string().uuid()).min(1).max(20).optional(),
+  })
+  .refine((v) => Boolean(v.invoiceId) !== Boolean(v.invoiceIds?.length), {
+    message: 'Indica una factura (invoiceId) o varias (invoiceIds)',
+  });
+export type MatchTransactionInput = z.infer<typeof MatchTransactionSchema>;
+
+export const MarkReturnTransactionSchema = z.object({
   invoiceId: z.string().uuid(),
 });
-export type MatchTransactionInput = z.infer<typeof MatchTransactionSchema>;
+export type MarkReturnTransactionInput = z.infer<typeof MarkReturnTransactionSchema>;
 
 export interface BankStatementDto {
   id: string;

@@ -316,14 +316,15 @@ export class AccountantExportService {
     });
     for (const p of rows) {
       const c = p.customer;
-      const name =
-        c.customerType === 'business'
+      const name = !c
+        ? 'Cliente sin identificar (factura simplificada)'
+        : c.customerType === 'business'
           ? (c.companyName ?? 'Empresa')
           : [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Cliente';
       const base = {
         source: 'own_business' as const,
         invoiceNumber: p.invoice?.invoiceNumber ?? null,
-        customerNif: c.documentNumber,
+        customerNif: c?.documentNumber ?? null,
         customerName: name,
         method: METHOD_LABELS[p.methodType] ?? p.methodType,
         reference: p.gatewayPaymentId,

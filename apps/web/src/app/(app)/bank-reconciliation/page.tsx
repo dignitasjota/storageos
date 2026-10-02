@@ -9,6 +9,16 @@ import type { BankTransactionDto } from '@storageos/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -27,6 +37,7 @@ import {
   useMarkReturnTransaction,
   useMatchTransaction,
 } from '@/lib/bank-reconciliation/hooks';
+import { useInvoices } from '@/lib/billing/hooks';
 
 const eur = (n: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
@@ -148,6 +159,18 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
     }
   }
 
+  const [splitTx, setSplitTx] = useState<BankTransactionDto | null>(null);
+
+  async function doSplit(transactionId: string, invoiceIds: string[]) {
+    try {
+      await match.mutateAsync({ transactionId, invoiceIds });
+      toast.success('Ingreso repartido entre las facturas seleccionadas.');
+      setSplitTx(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   async function doReturn(transactionId: string, invoiceId: string) {
     if (!window.confirm('¿Marcar como devolución? La factura volverá a estar pendiente (vencida).'))
       return;
@@ -222,6 +245,7 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
                     onMatch={(invoiceId) => doMatch(t.id, invoiceId)}
                     onReturn={(invoiceId) => doReturn(t.id, invoiceId)}
                     onIgnore={() => doIgnore(t.id)}
+                    onSplit={() => setSplitTx(t)}
                   />
                 </TableCell>
               </TableRow>
@@ -229,7 +253,99 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
           </TableBody>
         </Table>
       </CardContent>
+      {splitTx && (
+        <SplitDialog
+          tx={splitTx}
+          busy={match.isPending}
+          onClose={() => setSplitTx(null)}
+          onConfirm={(ids) => doSplit(splitTx.id, ids)}
+        />
+      )}
     </Card>
+  );
+}
+
+/** Repartir un ingreso entre varias facturas pendientes (en el orden marcado). */
+function SplitDialog({
+  tx,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  tx: BankTransactionDto;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (invoiceIds: string[]) => void;
+}) {
+  const issued = useInvoices({ status: 'issued' });
+  const overdue = useInvoices({ status: 'overdue' });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const pending = [...(overdue.data ?? []), ...(issued.data ?? [])].filter(
+    (i) => i.amountPending > 0,
+  );
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? pending.filter(
+        (i) =>
+          i.invoiceNumber.toLowerCase().includes(q) ||
+          (i.customerName ?? '').toLowerCase().includes(q),
+      )
+    : pending;
+  const sum = pending
+    .filter((i) => selected.includes(i.id))
+    .reduce((acc, i) => acc + i.amountPending, 0);
+  const toggle = (id: string) =>
+    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Repartir ingreso de {eur(tx.amount)}</DialogTitle>
+          <DialogDescription>
+            Marca las facturas que paga este ingreso. Se aplica en el orden marcado y a cada una,
+            como mucho, lo que le queda pendiente.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          placeholder="Buscar por número o cliente"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="max-h-72 space-y-1 overflow-y-auto">
+          {visible.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No hay facturas pendientes.
+            </p>
+          )}
+          {visible.map((i) => (
+            <label
+              key={i.id}
+              className="flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm"
+            >
+              <Checkbox checked={selected.includes(i.id)} onCheckedChange={() => toggle(i.id)} />
+              <span className="font-mono text-xs">{i.invoiceNumber}</span>
+              <span className="flex-1 truncate text-muted-foreground">{i.customerName ?? '—'}</span>
+              <span className="tabular-nums">{eur(i.amountPending)}</span>
+              {selected.includes(i.id) && (
+                <Badge variant="secondary">{selected.indexOf(i.id) + 1}</Badge>
+              )}
+            </label>
+          ))}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Pendiente de las seleccionadas: {eur(sum)} · Ingreso: {eur(tx.amount)}
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button disabled={busy || selected.length === 0} onClick={() => onConfirm(selected)}>
+            Conciliar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -240,6 +356,7 @@ function ReconcileCell({
   onMatch,
   onReturn,
   onIgnore,
+  onSplit,
 }: {
   tx: BankTransactionDto;
   canManage: boolean;
@@ -247,6 +364,7 @@ function ReconcileCell({
   onMatch: (invoiceId: string) => void;
   onReturn: (invoiceId: string) => void;
   onIgnore: () => void;
+  onSplit: () => void;
 }) {
   if (tx.status === 'matched') {
     return (
@@ -293,6 +411,9 @@ function ReconcileCell({
     return (
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground">Sin sugerencia</span>
+        <Button variant="outline" size="sm" onClick={onSplit} disabled={busy}>
+          Repartir…
+        </Button>
         <Button variant="ghost" size="sm" onClick={onIgnore} disabled={busy}>
           <X className="h-3 w-3" />
         </Button>
@@ -306,6 +427,9 @@ function ReconcileCell({
         <Check className="mr-1 h-3 w-3" /> {top.invoiceNumber}
       </Button>
       <span className="text-xs text-muted-foreground">{top.customerName}</span>
+      <Button variant="outline" size="sm" onClick={onSplit} disabled={busy}>
+        Repartir…
+      </Button>
       <Button variant="ghost" size="sm" onClick={onIgnore} disabled={busy}>
         <X className="h-3 w-3" />
       </Button>
