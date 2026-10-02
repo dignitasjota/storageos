@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { subtractAmounts } from '../../common/money';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
+import { markSepaItemReturned } from '../sepa/sepa-items';
 
 import { parseN43 } from './n43-parser';
 
@@ -229,6 +230,7 @@ export class BankReconciliationService {
             methodType: 'bank_transfer',
             notes: 'Conciliación N43',
             overridePaymentInFlight: true,
+            allowInSepaRemittance: true,
             // Ingreso bancario real ya confirmado: se admite el parcial no-efectivo.
             allowPartialNonCash: true,
           },
@@ -342,6 +344,9 @@ export class BankReconciliationService {
       await this.releaseTransaction(tenantId, transactionId, 'returned');
       throw err;
     }
+    // Si era un adeudo de remesa, queda «devuelto»: la factura puede volver
+    // a presentarse en otra remesa.
+    await this.prisma.withTenant((tx) => markSepaItemReturned(tx, invoiceId), tenantId);
     return this.getStatement(tenantId, txRow.statementId);
   }
 

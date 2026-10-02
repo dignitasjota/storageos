@@ -6,19 +6,21 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { subtractAmounts, toCents } from '../../common/money';
 import { DOMAIN_EVENTS, type SepaRemittanceCreatedPayload } from '../automations/domain-events';
-import { InvoicesService } from '../billing/invoices.service';
+import { InvoicesService, lockInvoiceRow } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { buildPain008, type Pain008Transaction } from './sepa-pain008';
 
 import type { Prisma } from '@storageos/database';
 import type {
+  ConfirmRemittanceInput,
   CreateRemittanceInput,
   CreateSepaMandateInput,
   RemittanceEligibleInvoiceDto,
   RemittancePreviewDto,
   SepaMandateDto,
   SepaPrenoticeStatus,
+  SepaRemittanceItemStatus,
   SepaRemittanceDto,
   SepaRemittancePrenoticeDto,
   SepaSettingsDto,
@@ -34,6 +36,8 @@ function customerName(c: {
   if (c.customerType === 'business') return c.companyName ?? 'Empresa';
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
 }
+
+type ItemStatusCounts = { collected: number; failed: number; returned: number };
 
 function rand(n = 8): string {
   return randomBytes(n).toString('hex').toUpperCase().slice(0, n);
@@ -215,7 +219,9 @@ export class SepaService {
             tenantId,
             status: { in: ['issued', 'overdue'] },
             deletedAt: null,
-            sepaRemittanceItem: { is: null },
+            // Ni en otra remesa viva ni con un cobro por pasarela en curso.
+            sepaRemittanceItems: { none: { status: { in: ['pending', 'collected'] } } },
+            payments: { none: { status: { in: ['pending', 'processing'] } } },
             customerId: { not: null },
           },
           select: {
@@ -300,63 +306,86 @@ export class SepaService {
     const creditorIban = this.crypto.decryptString(settings.creditorIbanEncrypted, tenantId);
     const messageId = `REM-${Date.now().toString(36).toUpperCase()}-${rand(6)}`;
 
-    const txs: Pain008Transaction[] = [];
-    const items: {
-      invoiceId: string;
-      mandateId: string;
-      amount: number;
-      sequenceType: string;
-      endToEndId: string;
-    }[] = [];
-    for (const inv of selected) {
-      const pending = Math.max(0, subtractAmounts(inv.total, inv.amountPaid));
-      if (pending <= 0) continue;
-      const mandate = inv.customerId ? byCustomer.get(inv.customerId) : undefined;
-      if (!mandate) continue;
-      const cents = toCents(pending);
-      const endToEndId = `E2E-${inv.invoiceNumber}`.replace(/[^A-Za-z0-9-]/g, '').slice(0, 35);
-      txs.push({
-        endToEndId,
-        amountCents: cents,
-        mandateReference: mandate.reference,
-        mandateSignedDate: mandate.signedAt.toISOString().slice(0, 10),
-        sequenceType: mandate.sequenceType as 'FRST' | 'RCUR',
-        debtorName: inv.customer ? customerName(inv.customer) : 'Cliente',
-        debtorIban: this.crypto.decryptString(mandate.ibanEncrypted, tenantId),
-        debtorBic: mandate.bic,
-        remittanceInfo: `Factura ${inv.invoiceNumber}`,
-      });
-      items.push({
-        invoiceId: inv.id,
-        mandateId: mandate.id,
-        amount: cents,
-        sequenceType: mandate.sequenceType,
-        endToEndId,
-      });
-    }
-    if (txs.length === 0) {
-      throw new BadRequestException({
-        code: 'no_eligible_invoices',
-        message: 'No hay facturas domiciliables con mandato activo',
-      });
-    }
-
-    const xml = buildPain008({
-      messageId,
-      creditor: {
-        name: settings.creditorName,
-        creditorId: settings.creditorId,
-        iban: creditorIban,
-        bic: settings.creditorBic,
-      },
-      collectionDate: input.collectionDate,
-      transactions: txs,
-    });
-    const totalCents = items.reduce((s, i) => s + i.amount, 0);
-
+    // Se bloquean las facturas (en orden, sin interbloqueos) y se vuelven a
+    // comprobar dentro de la transacción: un cobro, otra remesa o una
+    // anulación que llegue a la vez no acaba también en el fichero del banco.
     const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.sepaRemittance.create({
+      async (tx) => {
+        const ids = selected.map((i) => i.id).sort();
+        for (const id of ids) await lockInvoiceRow(tx, id);
+        const fresh = await tx.invoice.findMany({
+          where: {
+            id: { in: ids },
+            status: { in: ['issued', 'overdue'] },
+            deletedAt: null,
+            sepaRemittanceItems: { none: { status: { in: ['pending', 'collected'] } } },
+            payments: { none: { status: { in: ['pending', 'processing'] } } },
+          },
+          select: { id: true, total: true, amountPaid: true },
+        });
+        const freshById = new Map(fresh.map((f) => [f.id, f]));
+
+        const txs: Pain008Transaction[] = [];
+        const items: {
+          invoiceId: string;
+          mandateId: string;
+          amount: number;
+          sequenceType: string;
+          endToEndId: string;
+        }[] = [];
+        for (const inv of selected) {
+          const now = freshById.get(inv.id);
+          if (!now) continue;
+          const pending = Math.max(0, subtractAmounts(now.total, now.amountPaid));
+          if (pending <= 0) continue;
+          const mandate = inv.customerId ? byCustomer.get(inv.customerId) : undefined;
+          if (!mandate) continue;
+          const cents = toCents(pending);
+          // Sufijo por remesa: una factura devuelta y presentada otra vez lleva
+          // otra referencia de adeudo.
+          const endToEndId = `E2E-${inv.invoiceNumber}-${rand(4)}`
+            .replace(/[^A-Za-z0-9-]/g, '')
+            .slice(0, 35);
+          txs.push({
+            endToEndId,
+            amountCents: cents,
+            mandateReference: mandate.reference,
+            mandateSignedDate: mandate.signedAt.toISOString().slice(0, 10),
+            sequenceType: mandate.sequenceType as 'FRST' | 'RCUR',
+            debtorName: inv.customer ? customerName(inv.customer) : 'Cliente',
+            debtorIban: this.crypto.decryptString(mandate.ibanEncrypted, tenantId),
+            debtorBic: mandate.bic,
+            remittanceInfo: `Factura ${inv.invoiceNumber}`,
+          });
+          items.push({
+            invoiceId: inv.id,
+            mandateId: mandate.id,
+            amount: cents,
+            sequenceType: mandate.sequenceType,
+            endToEndId,
+          });
+        }
+        if (txs.length === 0) {
+          throw new BadRequestException({
+            code: 'no_eligible_invoices',
+            message: 'No hay facturas domiciliables con mandato activo',
+          });
+        }
+
+        const xml = buildPain008({
+          messageId,
+          creditor: {
+            name: settings.creditorName,
+            creditorId: settings.creditorId,
+            iban: creditorIban,
+            bic: settings.creditorBic,
+          },
+          collectionDate: input.collectionDate,
+          transactions: txs,
+        });
+        const totalCents = items.reduce((sum, i) => sum + i.amount, 0);
+
+        return tx.sepaRemittance.create({
           data: {
             tenantId,
             name: input.name,
@@ -378,8 +407,10 @@ export class SepaService {
               })),
             },
           },
-        }),
+        });
+      },
       tenantId,
+      { timeout: 30_000 },
     );
     // Preaviso de cargo a cada deudor (lo envía CustomerEmailsService).
     this.events.emit(DOMAIN_EVENTS.sepa_remittance_created, {
@@ -394,11 +425,12 @@ export class SepaService {
       (tx) => tx.sepaRemittance.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } }),
       tenantId,
     );
-    const counts = await this.prenoticeCounts(
-      tenantId,
-      rows.map((r) => r.id),
-    );
-    return rows.map((r) => this.toDto(r, counts.get(r.id)));
+    const ids = rows.map((r) => r.id);
+    const [counts, status] = await Promise.all([
+      this.prenoticeCounts(tenantId, ids),
+      this.itemStatusCounts(tenantId, ids),
+    ]);
+    return rows.map((r) => this.toDto(r, counts.get(r.id), status.get(r.id)));
   }
 
   /** Constancia del preaviso de cada adeudo de la remesa. */
@@ -447,6 +479,8 @@ export class SepaService {
         subject: i.prenoticeSubject,
         text: i.prenoticeText,
         deliveryStatus: i.prenoticeCommunication?.status ?? null,
+        itemStatus: i.status as SepaRemittanceItemStatus,
+        failureReason: i.failureReason,
       };
     });
   }
@@ -475,6 +509,32 @@ export class SepaService {
     return out;
   }
 
+  /** Adeudos cobrados, fallidos y devueltos por remesa. */
+  private async itemStatusCounts(
+    tenantId: string,
+    remittanceIds: string[],
+  ): Promise<Map<string, ItemStatusCounts>> {
+    const out = new Map<string, ItemStatusCounts>();
+    if (remittanceIds.length === 0) return out;
+    const groups = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittanceItem.groupBy({
+          by: ['remittanceId', 'status'],
+          where: { remittanceId: { in: remittanceIds } },
+          _count: { _all: true },
+        }),
+      tenantId,
+    );
+    for (const g of groups) {
+      const cur = out.get(g.remittanceId) ?? { collected: 0, failed: 0, returned: 0 };
+      if (g.status === 'collected' || g.status === 'failed' || g.status === 'returned') {
+        cur[g.status] += g._count._all;
+      }
+      out.set(g.remittanceId, cur);
+    }
+    return out;
+  }
+
   async getXml(tenantId: string, id: string): Promise<{ filename: string; xml: string }> {
     const r = await this.findOrThrow(tenantId, id);
     if (!r.xml) {
@@ -483,11 +543,16 @@ export class SepaService {
     return { filename: `remesa-sepa-${r.messageId}.xml`, xml: r.xml };
   }
 
-  /** Confirma el cobro: marca las facturas pagadas y pasa los mandatos a RCUR. */
+  /**
+   * Confirma el cobro: cada adeudo pasa a cobrado (factura pagada) o a fallido
+   * (rechazado por el banco, o la factura ya estaba pagada por otra vía); los
+   * mandatos con algún cobro pasan de FRST a RCUR.
+   */
   async confirmRemittance(
     tenantId: string,
     userId: string,
     id: string,
+    input: ConfirmRemittanceInput = {},
   ): Promise<SepaRemittanceDto> {
     const remittance = await this.findOrThrow(tenantId, id);
     // Reclamar la remesa ANTES de cobrar sus facturas: un doble clic en
@@ -506,11 +571,17 @@ export class SepaService {
         message: 'La remesa ya está confirmada o cancelada',
       });
     }
+    const rejected = new Set(input.rejectedItemIds ?? []);
     const items = await this.prisma.withTenant(
-      (tx) => tx.sepaRemittanceItem.findMany({ where: { remittanceId: id } }),
+      (tx) => tx.sepaRemittanceItem.findMany({ where: { remittanceId: id, status: 'pending' } }),
       tenantId,
     );
+    const collectedMandates = new Set<string>();
     for (const item of items) {
+      if (rejected.has(item.id)) {
+        await this.setItemStatus(tenantId, item.id, 'failed', 'Rechazado por el banco');
+        continue;
+      }
       try {
         await this.invoices.markPaidManually({
           tenantId,
@@ -522,26 +593,81 @@ export class SepaService {
             notes: `Remesa SEPA ${remittance.name}`,
             // Confirmación de un cobro real por remesa: salta el guard de adeudo en vuelo.
             overridePaymentInFlight: true,
+            allowInSepaRemittance: true,
+            allowPartialNonCash: true,
           },
           meta: {},
         });
+        await this.setItemStatus(tenantId, item.id, 'collected', null);
+        collectedMandates.add(item.mandateId);
       } catch (err) {
-        this.logger.warn(
-          `[sepa] marcar pagada ${item.invoiceId} falló: ${err instanceof Error ? err.message : err}`,
-        );
+        // P. ej. la factura ya se pagó por otra vía (efectivo, transferencia):
+        // el banco la ha cobrado igualmente → hay que devolver ese importe.
+        const reason = err instanceof Error ? err.message : 'No se pudo registrar el cobro';
+        this.logger.warn(`[sepa] adeudo ${item.id} (factura ${item.invoiceId}) falló: ${reason}`);
+        await this.setItemStatus(tenantId, item.id, 'failed', reason);
       }
     }
     // El primer cobro con éxito de un mandato pasa de FRST a RCUR.
-    const mandateIds = [...new Set(items.map((i) => i.mandateId))];
     const updated = await this.prisma.withTenant(async (tx) => {
-      await tx.sepaMandate.updateMany({
-        where: { id: { in: mandateIds }, sequenceType: 'FRST', status: 'active' },
-        data: { sequenceType: 'RCUR' },
+      if (collectedMandates.size > 0) {
+        await tx.sepaMandate.updateMany({
+          where: { id: { in: [...collectedMandates] }, sequenceType: 'FRST', status: 'active' },
+          data: { sequenceType: 'RCUR' },
+        });
+      }
+      return tx.sepaRemittance.findUniqueOrThrow({ where: { id } });
+    }, tenantId);
+    return this.dtoWithCounts(tenantId, updated);
+  }
+
+  /**
+   * Cancela una remesa generada y aún sin confirmar (no se llegó a enviar al
+   * banco, o el banco la rechazó entera): sus facturas vuelven a poder cobrarse
+   * y a entrar en otra remesa.
+   */
+  async cancelRemittance(tenantId: string, id: string): Promise<SepaRemittanceDto> {
+    await this.findOrThrow(tenantId, id);
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const { count } = await tx.sepaRemittance.updateMany({
+        where: { id, tenantId, status: 'generated' },
+        data: { status: 'cancelled' },
+      });
+      if (count === 0) {
+        throw new BadRequestException({
+          code: 'remittance_not_cancellable',
+          message: 'Solo se puede cancelar una remesa sin confirmar',
+        });
+      }
+      await tx.sepaRemittanceItem.updateMany({
+        where: { remittanceId: id, status: 'pending' },
+        data: { status: 'cancelled' },
       });
       return tx.sepaRemittance.findUniqueOrThrow({ where: { id } });
     }, tenantId);
-    const counts = await this.prenoticeCounts(tenantId, [updated.id]);
-    return this.toDto(updated, counts.get(updated.id));
+    return this.dtoWithCounts(tenantId, updated);
+  }
+
+  private async setItemStatus(
+    tenantId: string,
+    itemId: string,
+    status: 'collected' | 'failed',
+    failureReason: string | null,
+  ): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittanceItem.update({ where: { id: itemId }, data: { status, failureReason } }),
+      tenantId,
+    );
+  }
+
+  private async dtoWithCounts(
+    tenantId: string,
+    r: Prisma.SepaRemittanceGetPayload<object>,
+  ): Promise<SepaRemittanceDto> {
+    const counts = await this.prenoticeCounts(tenantId, [r.id]);
+    const status = await this.itemStatusCounts(tenantId, [r.id]);
+    return this.toDto(r, counts.get(r.id), status.get(r.id));
   }
 
   private async findOrThrow(tenantId: string, id: string) {
@@ -561,6 +687,7 @@ export class SepaService {
   private toDto(
     r: Prisma.SepaRemittanceGetPayload<object>,
     counts: { sent: number; missing: number } = { sent: 0, missing: 0 },
+    items: ItemStatusCounts = { collected: 0, failed: 0, returned: 0 },
   ): SepaRemittanceDto {
     return {
       id: r.id,
@@ -574,6 +701,9 @@ export class SepaService {
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
       prenoticesSent: counts.sent,
       prenoticesMissing: counts.missing,
+      collectedCount: items.collected,
+      failedCount: items.failed,
+      returnedCount: items.returned,
     };
   }
 }

@@ -329,7 +329,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 
 1. **Holded: facturas y cobros duplicados.** `pushDocument`/`pushPayments` comprueban, crean en Holded y guardan sin bloqueo; el aviso al emitir + «Enviar pendientes», o los avisos de «emitida» y «pagada» casi a la vez, duplican. → ✅ PR 2.
 2. **Reembolso doble de dinero real.** `refund` sin bloqueo ni clave de idempotencia. → ✅ PR 1.
-3. **Doble cobro con remesas SEPA.** Las facturas de una remesa generada se pueden pagar por otra vía y el banco las cobra igual; al confirmar, el fallo solo queda en el log. → PR 3 (la confirmación ya no se puede ejecutar dos veces: ✅ PR 1).
+3. **Doble cobro con remesas SEPA.** Las facturas de una remesa generada se pueden pagar por otra vía y el banco las cobra igual; al confirmar, el fallo solo queda en el log. → ✅ PR 3 (la confirmación ya no se puede ejecutar dos veces: ✅ PR 1).
 4. **Cobros simultáneos mal sumados.** Cobro manual con lectura previa a la transacción; webhooks de cobro, reembolso y disputa con el estado comprobado fuera; fase final del cobro por pasarela que sobrescribe. → ✅ PR 1.
 5. **Emitir dos veces la misma factura.** Hueco en la numeración, dos envíos a la AEAT y huella autorreferida. → ✅ PR 1.
 6. **Anular una factura emitida** (también el proceso de reservas sin pagar) sin registro de anulación en la AEAT ni rectificativa; rompe la cadena. → PR 4.
@@ -385,3 +385,13 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - `GET /settings/holded/review` + `POST /settings/holded/review/{invoices|payments}/:id` (reenviar / ya está en Holded / revisado) y bloque «Para revisar en Holded» en Ajustes → Facturación.
 - e2e `holded-idempotent` (6 casos: simultáneos, aprobación fallida, rechazo, sin respuesta, enlace manual, reembolso).
 - Pendiente: la copia en Holded de las facturas de suscripción (desactivada) aún no tiene reserva.
+
+## PR 3 — remesas SEPA ✅
+
+- Estado por adeudo (`sepa_remittance_items.status`: pending · collected · failed · returned · cancelled + `failure_reason`); el único por factura pasa a parcial: una sola remesa viva por factura.
+- Factura con un adeudo pendiente: `mark-paid`, cobro por pasarela, portal y Redsys → 409 `invoice_in_sepa_remittance`. El dinero que ya entró (N43, notificación Redsys, liquidación) se registra igual y, al confirmar, ese adeudo queda `failed` para devolverlo.
+- Crear la remesa bloquea y vuelve a comprobar las facturas dentro de la transacción; no entran facturas con un cobro por pasarela en curso.
+- Confirmar admite los adeudos rechazados por el banco (`rejectedItemIds`) e informa de los no cobrados; solo pasan a RCUR los mandatos con algún cobro.
+- Cancelar una remesa sin confirmar (`POST /sepa/remittances/:id/cancel`).
+- Devolución por N43 → adeudo `returned`, la factura se puede presentar otra vez; si era el primer cobro del mandato, vuelve a FRST.
+- e2e `sepa-remittance-safety` (3 casos).

@@ -747,6 +747,7 @@ export class CollectionsService {
           notes: `Liquidación expediente ${caseId} (fianza + disposición)`,
           allowPartialNonCash: true,
           overridePaymentInFlight: true,
+          allowInSepaRemittance: true,
         },
         meta: {},
       });

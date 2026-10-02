@@ -16,6 +16,7 @@ import { Queue } from 'bullmq';
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
+import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -919,6 +920,9 @@ export class InvoicesService {
               'Hay un adeudo SEPA/tarjeta en curso para esta factura. Confirma "pagar de otra forma" para registrar el cobro manual.',
           });
         }
+      }
+      if (!args.input.allowInSepaRemittance) {
+        await assertNotInSepaRemittance(tx, args.invoiceId);
       }
       // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
       // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).

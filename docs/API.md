@@ -1758,7 +1758,7 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /communications/page` (`communications:read`): historial paginado por cursor → `{items, nextCursor}`; `search` (destinatario, asunto, inquilino), `from`/`to`, `status`, `channel`, `customerId`, `leadId`, `source`, `limit` (máx. 100).
 - `GET/PATCH /me/email-notices` (cualquier usuario): qué avisos por correo al equipo recibe → `{notices: {new_lead, new_booking, move_out_requested, portal_incident}, disabledByTenant}`.
 - `GET /admin/email-log` (super admin, también soporte): historial de los correos de la plataforma → `{items, nextCursor}`; `search` (destinatario, asunto, tenant), `tenantId`, `kind`, `status`.
-- `GET /sepa/remittances/:id/prenotices` (`payments:read`): constancia del preaviso de cada adeudo → `[{invoiceNumber, customerName, amount, status (null|sent|disabled|no_email|failed), at, recipient, subject, text, deliveryStatus}]`. El listado de remesas añade `prenoticesSent`/`prenoticesMissing`.
+- `GET /sepa/remittances/:id/prenotices` (`payments:read`): constancia del preaviso de cada adeudo → `[{invoiceNumber, customerName, amount, status (null|sent|disabled|no_email|failed), at, recipient, subject, text, deliveryStatus, itemStatus (pending|collected|failed|returned|cancelled), failureReason}]`. El listado de remesas añade `prenoticesSent`/`prenoticesMissing`.
 - `GET /public/landing/:slug` añade `latestBlogPosts` (las 4 últimas entradas publicadas, con Web Premium) y admite la plantilla `onepagemovil`.
 - `PATCH /settings/tenant/billing` acepta `transferIban` (IBAN para transferencias, validado; `''` lo quita). Sale en el correo de «Nueva factura» de quien no tiene cobro automático ni domiciliación.
 
@@ -1802,7 +1802,10 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `POST /sepa/remittances/preview` (`invoices:manage`): facturas domiciliables (issued/overdue, cliente con mandato activo, sin remesa) + `withoutMandate`.
 - `POST /sepa/remittances` (`invoices:manage`): genera el XML pain.008 + items (facturas quedan "en remesa", no pagadas aún). `GET /sepa/remittances` (`payments:read`).
 - `GET /sepa/remittances/:id/xml` (`invoices:manage`): devuelve `{filename, xml}` (el front descarga el blob).
-- `POST /sepa/remittances/:id/confirm` (`invoices:manage`): marca las facturas pagadas (methodType `sepa_debit`) + pasa los mandatos FRST→RCUR.
+- `POST /sepa/remittances/:id/confirm` (`invoices:manage`), body opcional `{rejectedItemIds?: uuid[]}`: cada adeudo pasa a `collected` (factura pagada, methodType `sepa_debit`) o `failed` (rechazado por el banco, o la factura ya estaba pagada por otra vía → `failureReason`); los mandatos con algún cobro pasan FRST→RCUR. La respuesta trae `collectedCount`/`failedCount`/`returnedCount`. Segunda confirmación → 400 `remittance_not_confirmable`.
+- `POST /sepa/remittances/:id/cancel` (`invoices:manage`): cancela una remesa `generated` (adeudos → `cancelled`); sus facturas vuelven a poder cobrarse y a entrar en otra remesa. 400 `remittance_not_cancellable` si ya está confirmada o cancelada.
+- Mientras una factura tiene un adeudo `pending` (remesa sin confirmar), cobrarla por otra vía (`mark-paid`, `charge`, portal, Redsys) → 409 `invoice_in_sepa_remittance`. Lo que ya entró de verdad (conciliación N43, notificación Redsys, liquidación de un expediente) sí se registra; al confirmar la remesa ese adeudo queda `failed` para devolverlo.
+- Devolución por N43 (`mark-return`) de una factura cobrada por remesa → su adeudo pasa a `returned` y la factura puede presentarse en otra remesa; si era el primer cobro del mandato, el mandato vuelve a FRST.
 
 ### Portal — incidencias (`/portal/me/incidents`)
 

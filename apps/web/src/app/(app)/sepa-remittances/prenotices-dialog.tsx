@@ -3,7 +3,11 @@
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-import type { SepaPrenoticeStatus, SepaRemittanceDto } from '@storageos/shared';
+import type {
+  SepaPrenoticeStatus,
+  SepaRemittanceDto,
+  SepaRemittanceItemStatus,
+} from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,6 +30,24 @@ const STATUS: Record<SepaPrenoticeStatus, { label: string; className: string }> 
     label: 'Error al enviar',
     className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
   },
+};
+
+/** Estado del adeudo (cobro), aparte del preaviso. */
+export const ITEM_STATUS: Record<SepaRemittanceItemStatus, { label: string; className: string }> = {
+  pending: { label: 'Adeudo pendiente', className: '' },
+  collected: {
+    label: 'Cobrado',
+    className: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  },
+  failed: {
+    label: 'No cobrado',
+    className: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+  },
+  returned: {
+    label: 'Devuelto por el banco',
+    className: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  },
+  cancelled: { label: 'Remesa cancelada', className: '' },
 };
 
 const DELIVERY: Record<string, string> = {
@@ -54,7 +76,7 @@ export function PrenoticesDialog({
     <Dialog open={!!remittance} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Preavisos · {remittance?.name}</DialogTitle>
+          <DialogTitle>Adeudos y preavisos · {remittance?.name}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           Lo que se avisó a cada deudor antes del cargo. Se guarda con la remesa como prueba si un
@@ -70,6 +92,9 @@ export function PrenoticesDialog({
                   <Link href={`/customers/${p.customerId}`} className="font-medium hover:underline">
                     {p.customerName || 'Inquilino'}
                   </Link>
+                  <Badge variant="outline" className={ITEM_STATUS[p.itemStatus].className}>
+                    {ITEM_STATUS[p.itemStatus].label}
+                  </Badge>
                   {p.status ? (
                     <Badge variant="outline" className={STATUS[p.status].className}>
                       {STATUS[p.status].label}
@@ -85,6 +110,14 @@ export function PrenoticesDialog({
                   {p.recipient ? ` · ${p.recipient}` : ''}
                   {p.deliveryStatus ? ` · ${DELIVERY[p.deliveryStatus] ?? p.deliveryStatus}` : ''}
                 </p>
+                {p.failureReason && (
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                    {p.failureReason}
+                    {p.itemStatus === 'failed' &&
+                      !p.failureReason.startsWith('Rechazado') &&
+                      ' — si el banco sí lo cobró, devuelve el importe al inquilino.'}
+                  </p>
+                )}
                 {p.text && (
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-muted-foreground">

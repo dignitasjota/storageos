@@ -28,6 +28,7 @@ interface TxMock {
     updateMany: jest.Mock;
   };
   paymentMethod: { findFirst: jest.Mock; findUniqueOrThrow: jest.Mock };
+  sepaRemittanceItem: { findFirst: jest.Mock };
   $executeRaw: jest.Mock;
   $queryRaw: jest.Mock;
 }
@@ -67,6 +68,8 @@ function buildTx(): TxMock {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     paymentMethod: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn() },
+    // Guard de remesa SEPA sin confirmar: por defecto la factura no está en ninguna.
+    sepaRemittanceItem: { findFirst: jest.fn().mockResolvedValue(null) },
     // Advisory lock (`pg_advisory_xact_lock`) del guard anti-doble-cobro.
     $executeRaw: jest.fn().mockResolvedValue(1),
     // `SELECT … FOR UPDATE` de las filas bloqueadas.
