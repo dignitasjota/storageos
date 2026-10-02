@@ -344,8 +344,8 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 ## Medios
 
 11. La fianza se factura como venta (base en libro de IVA, 303, A3, métricas y Holded). → ✅ PR 6 (justificante de fianza aparte).
-12. Rectificativa por sustitución sin compensar la original (base duplicada); rectificativas sin límite. → PR 6.
-13. Reembolsar no genera abono (IVA declarado sobre dinero devuelto). → PR 6.
+12. Rectificativa por sustitución sin compensar la original (base duplicada); rectificativas sin límite. → ✅ PR 6 (2ª parte).
+13. Reembolsar no genera abono (IVA declarado sobre dinero devuelto). → ✅ PR 6 (2ª parte).
 14. Recurrente: contratos «en baja» facturados tras su fin; inicio a mitad de mes sin prorrateo (contratos del staff); un **prepago deja de renovarse** si el contrato tiene una factura sin periodo (`ORDER BY period_end DESC` pone los nulos primero). → PR 7.
 15. `revertPayment` marca como fallidos todos los pagos de la factura. → PR 7 (la devolución N43 ya revierte solo el importe del cargo: ✅ PR 1).
 16. GoCardless `late_failure_settled` no se trata. → PR 7.
@@ -353,7 +353,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 18. Holded no recibe reembolsos ni devoluciones. → ✅ PR 2 (salen «para revisar»: Holded no permite quitar un cobro por API; el abono por reembolso llega con la PR 6).
 19. Numeración de facturas de suscripción sin bloqueo (un cobro puede quedar sin factura). → PR 7.
 20. Una factura solo puede ir en una remesa en toda su vida; no se puede cancelar una remesa. → ✅ PR 3.
-21. Métricas: lo cobrado ignora entero un pago con reembolso parcial; lo facturado no descuenta reembolsos. → PR 6.
+21. Métricas: lo cobrado ignora entero un pago con reembolso parcial; lo facturado no descuenta reembolsos. → ✅ PR 6 (2ª parte).
 
 ## Menores (PR 8)
 
@@ -428,4 +428,13 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - El justificante no lleva recargo, no se rectifica ni se reembolsa por pasarela (la fianza se devuelve al liquidarla); anularlo sin cobros lo cancela sin rectificativa.
 - Portal: «Justificante de fianza», «se paga junto a la factura …» y «pagas … en total»; panel: distintivo «Fianza».
 - e2e `booking-deposit` reescrito (3 casos: justificante y exclusiones; un pago Redsys → los dos pagados + un acceso; pago por separado → acceso solo al final).
-- Sigue en la PR 6 (siguiente parte): rectificativas netas y limitadas, abono al reembolsar y métricas con reembolsos.
+
+## PR 6 (2ª parte) — rectificativas netas, abono al reembolsar y métricas ✅
+
+- **Abono por reembolso** (hallazgo 13): cada devolución, hecha desde la app o desde la pasarela (webhook `charge.refunded`), emite el evento `invoice_refunded` → rectificativa R4/R5 por diferencias por lo devuelto, repartida por tipo de IVA en proporción a la factura, emitida y compensada (`paid`). Los justificantes de fianza no generan abono.
+- **Límites** (hallazgo 12), comprobados al crear la rectificativa y otra vez al emitirla con la original bloqueada:
+  - por diferencias: original + Σ diferencias ≥ 0 (400 `rectification_exceeds_original`);
+  - por sustitución: solo sobre una factura sin cobros (400 `substitution_original_paid`) y sin otras rectificativas (409 `rectification_already_exists`); una factura sustituida no se rectifica por diferencias (409 `invoice_substituted`).
+- **Sustitución sin base duplicada:** al emitir la sustitutiva, la original pasa a `rectified` (deja de cobrarse y vencer) y su copia en Holded se anula. En libro de IVA, 303, 347, exportación A3/Sage y de la asesoría, la sustitutiva cuenta solo la diferencia con la sustituida.
+- **Métricas** (hallazgo 21): lo cobrado es neto de reembolsos (`amount − refundedAmount`, incluidos los pagos parcial o totalmente reembolsados) en analytics, P&L, asistente IA y panel admin; lo facturado descuenta lo devuelto a través de los abonos.
+- e2e `invoice-rectify-refund` (2 casos).

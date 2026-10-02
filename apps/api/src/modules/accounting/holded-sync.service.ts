@@ -514,12 +514,24 @@ export class HoldedSyncService {
   ): Promise<void> {
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, tenantId },
-      select: { holdedDocumentId: true, holdedCancelledAt: true, total: true, status: true },
+      select: {
+        holdedDocumentId: true,
+        holdedCancelledAt: true,
+        total: true,
+        status: true,
+        rectifiedBy: {
+          where: { correctionMethod: 'by_substitution', status: { notIn: ['draft', 'cancelled'] } },
+          select: { id: true },
+        },
+      },
     });
+    // Anulada, o sustituida por otra factura (la sustitutiva se copia aparte;
+    // una anulada por diferencias se compensa con su abono, no se cancela).
+    const replaced = invoice?.status === 'rectified' && invoice.rectifiedBy.length > 0;
     if (
       !invoice?.holdedDocumentId ||
       invoice.holdedCancelledAt ||
-      invoice.status !== 'cancelled' ||
+      (invoice.status !== 'cancelled' && !replaced) ||
       Number(invoice.total) < 0
     ) {
       return;

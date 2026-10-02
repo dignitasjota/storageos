@@ -1911,3 +1911,9 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
   proveedores SEPA y TPV bancario.
 - **Bulk endpoints**: imports masivos de customers/units/contracts.
 - **GraphQL o BFF**: si el frontend crece en complejidad, evaluar.
+
+### Rectificativas y reembolsos (auditoría de facturación, PR 6)
+
+- `POST /invoices/:id/refund` emite además una rectificativa de abono por lo devuelto (asíncrona, también para devoluciones hechas en la pasarela).
+- `POST /invoices/:id/rectify`: 400 `rectification_exceeds_original` (abonos por encima del total), 400 `substitution_original_paid` (sustitución de una factura con cobros), 409 `rectification_already_exists` / `invoice_substituted`. Emitir una sustitutiva deja la original `rectified`.
+- Justificantes de fianza (`kind: 'deposit_receipt'`): no admiten `issue`, `rectify`, `late-fee` ni `refund` por pasarela (400).

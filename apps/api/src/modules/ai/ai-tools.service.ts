@@ -527,11 +527,11 @@ export class AiToolsService {
         tx.payment.findMany({
           where: {
             tenantId,
-            status: 'succeeded',
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
             paidAt: { gte: from },
             invoice: { kind: 'invoice', ...(scope ? invoiceScope(scope) : {}) },
           },
-          select: { paidAt: true, amount: true },
+          select: { paidAt: true, amount: true, refundedAmount: true },
         }),
       ]);
       const buckets = new Map<string, { invoiced: number; collected: number }>();
@@ -544,7 +544,7 @@ export class AiToolsService {
       }
       for (const p of payments) {
         const b = p.paidAt ? buckets.get(p.paidAt.toISOString().slice(0, 7)) : undefined;
-        if (b) b.collected += Number(p.amount);
+        if (b) b.collected += Number(p.amount) - Number(p.refundedAmount);
       }
       return {
         currency: 'EUR',

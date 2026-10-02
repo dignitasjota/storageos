@@ -203,7 +203,14 @@ export class AccountantExportService {
         invoiceType: true,
         status: true,
         total: true,
-        rectifiesInvoice: { select: { invoiceNumber: true } },
+        correctionMethod: true,
+        rectifiesInvoice: {
+          select: {
+            invoiceNumber: true,
+            total: true,
+            items: { select: { taxRate: true, taxAmount: true, total: true } },
+          },
+        },
         customer: {
           select: {
             customerType: true,
@@ -230,14 +237,21 @@ export class AccountantExportService {
       const address = c?.address
         ? [c.address, [c.postalCode, c.city].filter(Boolean).join(' ')].filter(Boolean).join(', ')
         : null;
+      // Una sustitutiva cuenta solo la diferencia con la factura que sustituye.
+      const replaced = inv.correctionMethod === 'by_substitution' ? inv.rectifiesInvoice : null;
       const byRate = new Map<number, { base: number; vat: number }>();
-      for (const item of inv.items) {
-        const rate = Number(item.taxRate);
-        const prev = byRate.get(rate) ?? { base: 0, vat: 0 };
-        byRate.set(rate, {
-          base: prev.base + Number(item.total) - Number(item.taxAmount),
-          vat: prev.vat + Number(item.taxAmount),
-        });
+      for (const [items, sign] of [
+        [inv.items, 1],
+        [replaced?.items ?? [], -1],
+      ] as const) {
+        for (const item of items) {
+          const rate = Number(item.taxRate);
+          const prev = byRate.get(rate) ?? { base: 0, vat: 0 };
+          byRate.set(rate, {
+            base: prev.base + sign * (Number(item.total) - Number(item.taxAmount)),
+            vat: prev.vat + sign * Number(item.taxAmount),
+          });
+        }
       }
       for (const [rate, v] of [...byRate.entries()].sort((a, b) => b[0] - a[0])) {
         out.push({
@@ -253,7 +267,7 @@ export class AccountantExportService {
           base: round2(v.base),
           vat: round2(v.vat),
           lineTotal: round2(v.base + v.vat),
-          invoiceTotal: round2(Number(inv.total)),
+          invoiceTotal: round2(Number(inv.total) - (replaced ? Number(replaced.total) : 0)),
           status: STATUS_LABELS[inv.status] ?? inv.status,
         });
       }

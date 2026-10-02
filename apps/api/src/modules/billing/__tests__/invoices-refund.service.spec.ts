@@ -103,7 +103,7 @@ function buildService(deps: {
     audit,
     null as never,
     null as never,
-    null as never,
+    { emit: jest.fn() } as never,
     null as never,
     gateway,
     null as never,

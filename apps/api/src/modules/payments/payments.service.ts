@@ -15,6 +15,7 @@ import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
   type DomainEventPayload,
+  type InvoiceRefundedPayload,
   type PaymentFailedPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -814,6 +815,15 @@ export class PaymentsService {
     this.logger.log(
       `charge.refunded sincronizado: payment ${existing.id} refundedAmount=${args.amountRefunded} (delta ${delta.toFixed(2)})`,
     );
+    // Devolución hecha desde la pasarela → abono por lo devuelto (el listener
+    // ignora los justificantes de fianza).
+    if (existing.invoiceId) {
+      this.events.emit(DOMAIN_EVENTS.invoice_refunded, {
+        tenantId,
+        invoiceId: existing.invoiceId,
+        amount: delta,
+      } satisfies InvoiceRefundedPayload);
+    }
   }
 
   /**
