@@ -316,3 +316,62 @@ graves que las pasadas anteriores no detectaron.
 La suite e2e `webhooks` es inestable en local si hay un `nest start --watch`
 compartiendo Redis (se lleva los jobs de la cola) o jobs retrasados de
 ejecuciones previas; usar `REDIS_DB=<n>` con la DB vacía. En CI pasa.
+
+---
+
+# Auditoría de facturación (2026-10-02)
+
+Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice dos veces y de que no haya errores: facturas, numeración, Veri\*Factu, Holded, cobros (Stripe, GoCardless, Redsys, SEPA, N43, manual), reembolsos, facturas de suscripción, informes fiscales y métricas. Plan de 8 PRs.
+
+**Decisiones de Jota:** Veri\*Factu aún no está en producción (la PR 5 va antes de activarlo); la **fianza sale de la factura** y se cobra aparte; **anular una factura emitida** creará una rectificativa de abono automática.
+
+## Graves (dinero o duplicados reales)
+
+1. **Holded: facturas y cobros duplicados.** `pushDocument`/`pushPayments` comprueban, crean en Holded y guardan sin bloqueo; el aviso al emitir + «Enviar pendientes», o los avisos de «emitida» y «pagada» casi a la vez, duplican. → PR 2.
+2. **Reembolso doble de dinero real.** `refund` sin bloqueo ni clave de idempotencia. → ✅ PR 1.
+3. **Doble cobro con remesas SEPA.** Las facturas de una remesa generada se pueden pagar por otra vía y el banco las cobra igual; al confirmar, el fallo solo queda en el log. → PR 3 (la confirmación ya no se puede ejecutar dos veces: ✅ PR 1).
+4. **Cobros simultáneos mal sumados.** Cobro manual con lectura previa a la transacción; webhooks de cobro, reembolso y disputa con el estado comprobado fuera; fase final del cobro por pasarela que sobrescribe. → ✅ PR 1.
+5. **Emitir dos veces la misma factura.** Hueco en la numeración, dos envíos a la AEAT y huella autorreferida. → ✅ PR 1.
+6. **Anular una factura emitida** (también el proceso de reservas sin pagar) sin registro de anulación en la AEAT ni rectificativa; rompe la cadena. → PR 4.
+
+## Bloqueantes antes de activar Veri\*Factu en producción (PR 5)
+
+7. Huella con algoritmo simplificado, encadenada por serie (debe ser por emisor e incluir anulaciones) y con la fecha-hora de generación creada en cada envío.
+8. Desglose de IVA en una sola línea con el tipo deducido (alquiler 21 % + fianza 0 % → «14 %», rechazo); recargo y fianza como operación sujeta.
+9. Envíos duplicados: sin comprobar si ya se aceptó, «Reenviar» de aceptadas, duplicado = rechazo, envío en paralelo desordenado, sin subsanación.
+10. Se puede emitir sin NIF del tenant (huella con «PENDIENTE»).
+
+## Medios
+
+11. La fianza se factura como venta (base en libro de IVA, 303, A3, métricas y Holded). → PR 6.
+12. Rectificativa por sustitución sin compensar la original (base duplicada); rectificativas sin límite. → PR 6.
+13. Reembolsar no genera abono (IVA declarado sobre dinero devuelto). → PR 6.
+14. Recurrente: contratos «en baja» facturados tras su fin; inicio a mitad de mes sin prorrateo (contratos del staff); un **prepago deja de renovarse** si el contrato tiene una factura sin periodo (`ORDER BY period_end DESC` pone los nulos primero). → PR 7.
+15. `revertPayment` marca como fallidos todos los pagos de la factura. → PR 7 (la devolución N43 ya revierte solo el importe del cargo: ✅ PR 1).
+16. GoCardless `late_failure_settled` no se trata. → PR 7.
+17. Cobro por pasarela sobre factura ya pagada por otra vía: sin aviso. → PR 7.
+18. Holded no recibe reembolsos ni devoluciones. → PR 2.
+19. Numeración de facturas de suscripción sin bloqueo (un cobro puede quedar sin factura). → PR 7.
+20. Una factura solo puede ir en una remesa en toda su vida; no se puede cancelar una remesa. → PR 3.
+21. Métricas: lo cobrado ignora entero un pago con reembolso parcial; lo facturado no descuenta reembolsos. → PR 6.
+
+## Menores (PR 8)
+
+22. Fecha de emisión en UTC (00:30 del día 1 cae en el mes/trimestre anterior); año del número por reloj del servidor; fecha anterior a la última de la serie permitida.
+23. Reglas de precio (sin forma de crearlas hoy) alterarían la cuota congelada de los contratos.
+24. N43: un apunte que paga dos facturas no se puede repartir.
+25. F2 sin cliente cobrada a mano no crea pago (no cuenta en lo cobrado ni en la caja).
+
+## Bien resuelto (verificado)
+
+Números de factura no repetibles (índice único + bloqueo de la serie al reservar); bloqueo contra el doble cargo en el cobro por pasarela; webhooks de Stripe/GoCardless sin doble procesamiento por id de evento; Redsys idempotente; recurrente sin duplicados por solapamiento de periodo; primera factura de una reserva sin duplicar.
+
+## PR 1 — bloqueos en todo lo que mueve dinero ✅
+
+- `issue()`: bloquea la fila (`FOR UPDATE`) y vuelve a comprobar que sigue en borrador → 409 `invoice_already_issued`.
+- `markPaidManually` y `revertPayment`: todo el cálculo dentro de la transacción sobre la fila bloqueada.
+- `refund`: una sola transacción bloqueada (hasta 30 s, incluye la llamada a la pasarela) + clave de idempotencia hacia Stripe y GoCardless (`refund-<pago>-<céntimos acumulados>`).
+- Webhooks: transiciones atómicas (`updateMany` condicionado al estado) en cobro y disputa; el reembolso calcula el delta con el pago bloqueado.
+- Cobro por pasarela: la fase final suma con incremento y solo si la reserva sigue en `processing`.
+- Confirmar remesa SEPA y conciliar/devolver un apunte N43: se reclaman de forma atómica antes de tocar facturas.
+- e2e `billing-concurrency`: 7 operaciones lanzadas dos veces a la vez. **Sin el arreglo fallan las 7**; con él pasan.

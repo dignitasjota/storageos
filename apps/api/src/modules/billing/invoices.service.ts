@@ -363,6 +363,20 @@ export class InvoicesService {
     this.assertTransition(existing.status as InvoiceStatusValue, 'issued');
 
     const updated = await this.prisma.withTenant(async (tx) => {
+      // Dos «Emitir» a la vez (doble clic, lote + emisión automática): la fila
+      // bloqueada serializa y el segundo ve la factura ya emitida → 409, en vez
+      // de reservar otro número (hueco en la serie) y enviarla dos veces a la AEAT.
+      await lockInvoiceRow(tx, args.invoiceId);
+      const fresh = await tx.invoice.findUnique({
+        where: { id: args.invoiceId },
+        select: { status: true },
+      });
+      if (fresh?.status !== 'draft') {
+        throw new ConflictException({
+          code: 'invoice_already_issued',
+          message: 'La factura ya se ha emitido',
+        });
+      }
       const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
       const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber);
       const issueDate = existing.issueDate ?? new Date();
@@ -854,71 +868,81 @@ export class InvoicesService {
     input: MarkPaidManuallyInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
+    // Alcance por local y existencia (fuera de la transacción: solo lectura).
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
-    if (existing.status !== 'issued' && existing.status !== 'overdue') {
-      throw new BadRequestException({
-        code: 'invoice_not_payable',
-        message: 'La factura no esta en estado pagable',
-      });
-    }
     const amount = args.input.amount;
-    const total = Number(existing.total);
-    const newPaid = addAmounts(existing.amountPaid, amount);
-    if (isGreaterThan(newPaid, total)) {
-      throw new BadRequestException({
-        code: 'overpayment',
-        message: 'El importe excede el pendiente',
+    const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
+    let total = 0;
+    let fullyPaid = false;
+
+    // Todas las comprobaciones de importe se hacen DENTRO de la transacción,
+    // sobre la fila bloqueada: dos cobros a la vez (Redsys + el staff, remesa SEPA
+    // + conciliación N43…) se serializan y el segundo ve lo que ya cobró el
+    // primero, en vez de calcular con una lectura vieja (dos pagos registrados y
+    // el «pagado» sumado de menos, o un sobrecobro que pasa el control).
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, args.invoiceId);
+      const fresh = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        select: { status: true, total: true, amountPaid: true, customerId: true },
       });
-    }
-    const fullyPaid = isAtLeast(newPaid, total);
-    // Anti-doble-cobro: si hay un adeudo SEPA/tarjeta en curso (`processing`/
-    // `pending`) sobre la factura, marcar pagado a mano lo cobraría dos veces
-    // (el webhook confirmará el adeudo después). Se bloquea salvo marca explícita.
-    if (!args.input.overridePaymentInFlight) {
-      const gatewayInFlight = await this.prisma.withTenant(
-        (tx) =>
-          tx.payment.count({
-            where: {
-              invoiceId: args.invoiceId,
-              gateway: { in: ['stripe', 'gocardless'] },
-              status: { in: ['pending', 'processing'] },
-            },
-          }),
-        args.tenantId,
-      );
-      if (gatewayInFlight > 0) {
-        throw new ConflictException({
-          code: 'gateway_payment_in_progress',
-          message:
-            'Hay un adeudo SEPA/tarjeta en curso para esta factura. Confirma "pagar de otra forma" para registrar el cobro manual.',
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
+        throw new BadRequestException({
+          code: 'invoice_not_payable',
+          message: 'La factura no esta en estado pagable',
         });
       }
-    }
-    // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
-    // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).
-    // Excepción: cobros bancarios reales ya confirmados (N43/SEPA) con `allowPartialNonCash`.
-    if (
-      isGreaterThan(total, newPaid) &&
-      args.input.methodType !== 'cash' &&
-      !args.input.allowPartialNonCash
-    ) {
-      throw new BadRequestException({
-        code: 'partial_only_cash',
-        message: 'Solo se admiten pagos parciales en efectivo; por otra vía debe saldarse el total',
-      });
-    }
-    const paidAt = args.input.paidAt ? new Date(args.input.paidAt) : new Date();
-
-    const updated = await this.prisma.withTenant(async (tx) => {
+      total = Number(fresh.total);
+      const newPaid = addAmounts(fresh.amountPaid, amount);
+      if (isGreaterThan(newPaid, total)) {
+        throw new BadRequestException({
+          code: 'overpayment',
+          message: 'El importe excede el pendiente',
+        });
+      }
+      fullyPaid = isAtLeast(newPaid, total);
+      // Anti-doble-cobro: si hay un adeudo SEPA/tarjeta en curso (`processing`/
+      // `pending`) sobre la factura, marcar pagado a mano lo cobraría dos veces
+      // (el webhook confirmará el adeudo después). Se bloquea salvo marca explícita.
+      if (!args.input.overridePaymentInFlight) {
+        const gatewayInFlight = await tx.payment.count({
+          where: {
+            invoiceId: args.invoiceId,
+            gateway: { in: ['stripe', 'gocardless'] },
+            status: { in: ['pending', 'processing'] },
+          },
+        });
+        if (gatewayInFlight > 0) {
+          throw new ConflictException({
+            code: 'gateway_payment_in_progress',
+            message:
+              'Hay un adeudo SEPA/tarjeta en curso para esta factura. Confirma "pagar de otra forma" para registrar el cobro manual.',
+          });
+        }
+      }
+      // Pagos parciales solo en efectivo: por cualquier otra vía la factura se
+      // salda de una vez (evita cobros parciales fantasma por pasarela/transferencia).
+      // Excepción: cobros bancarios reales ya confirmados (N43/SEPA) con `allowPartialNonCash`.
+      if (
+        isGreaterThan(total, newPaid) &&
+        args.input.methodType !== 'cash' &&
+        !args.input.allowPartialNonCash
+      ) {
+        throw new BadRequestException({
+          code: 'partial_only_cash',
+          message:
+            'Solo se admiten pagos parciales en efectivo; por otra vía debe saldarse el total',
+        });
+      }
       // En F2 sin destinatario no podemos crear un Payment (la tabla
       // exige customer_id). Solo actualizamos el contador agregado de
       // la factura; el cobro queda registrado en `amountPaid`.
-      if (existing.customerId) {
+      if (fresh.customerId) {
         await tx.payment.create({
           data: {
             tenantId: args.tenantId,
             invoiceId: args.invoiceId,
-            customerId: existing.customerId,
+            customerId: fresh.customerId,
             amount,
             methodType: args.input.methodType,
             gateway: 'manual',
@@ -983,22 +1007,30 @@ export class InvoicesService {
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
-    if (Number(existing.amountPaid) <= 0) {
-      throw new BadRequestException({
-        code: 'nothing_to_revert',
-        message: 'La factura no tiene cobros que revertir',
-      });
-    }
-    const newPaid = Math.max(0, subtractAmounts(existing.amountPaid, args.amount));
-    const wasPaid = existing.status === 'paid';
-    const revertedStatus = wasPaid
-      ? existing.dueDate && existing.dueDate.getTime() < Date.now()
-        ? 'overdue'
-        : 'issued'
-      : existing.status;
+    await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    let revertedStatus: InvoiceStatus = 'issued';
 
     const updated = await this.prisma.withTenant(async (tx) => {
+      // Fila bloqueada + lectura fresca: dos devoluciones a la vez no restan
+      // dos veces sobre el mismo «pagado».
+      await lockInvoiceRow(tx, args.invoiceId);
+      const existing = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        select: { amountPaid: true, status: true, dueDate: true },
+      });
+      if (Number(existing.amountPaid) <= 0) {
+        throw new BadRequestException({
+          code: 'nothing_to_revert',
+          message: 'La factura no tiene cobros que revertir',
+        });
+      }
+      const newPaid = Math.max(0, subtractAmounts(existing.amountPaid, args.amount));
+      const wasPaid = existing.status === 'paid';
+      revertedStatus = wasPaid
+        ? existing.dueDate && existing.dueDate.getTime() < Date.now()
+          ? 'overdue'
+          : 'issued'
+        : existing.status;
       await tx.payment.updateMany({
         where: { invoiceId: args.invoiceId, status: 'succeeded' },
         data: { status: 'failed', failureReason: args.reason },
@@ -1035,140 +1067,156 @@ export class InvoicesService {
     input: RefundInvoiceInput;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
-    if (existing.status !== 'paid' && existing.status !== 'partially_refunded') {
-      throw new BadRequestException({
-        code: 'invoice_not_refundable',
-        message: 'Solo se pueden reembolsar facturas pagadas',
-      });
-    }
+    // Alcance por local y existencia (fuera de la transacción: solo lectura).
+    await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     const amount = args.input.amount;
-    const total = Number(existing.total);
-    const newRefunded = addAmounts(existing.amountRefunded, amount);
-    if (isGreaterThan(newRefunded, total)) {
-      throw new BadRequestException({
-        code: 'over_refund',
-        message: 'El importe excede el cobrado',
-      });
-    }
-    const fullyRefunded = isAtLeast(newRefunded, total);
+    let fullyRefunded = false;
+    let gatewayRefundId: string | null = null;
+    let usedGateway = false;
 
-    // Si la factura se cobró por pasarela (Stripe/SEPA), devolvemos el dinero DE
-    // VERDAD antes de tocar la BD: buscamos el payment con `gatewayPaymentId` que
-    // tenga saldo reembolsable. Sin esto, el botón «Reembolsar» solo marcaba la
-    // factura en BD y el dinero nunca salía del gateway.
-    const gatewayPayment = await this.prisma.withTenant(
-      (tx) =>
-        tx.payment.findFirst({
+    // Todo el reembolso va en UNA transacción con la factura bloqueada, que
+    // incluye la llamada a la pasarela: un doble clic (o dos personas a la vez)
+    // espera al primero y ve lo ya reembolsado, en vez de devolver el dinero dos
+    // veces. La clave de idempotencia cubre además un reintento tras un fallo de
+    // red: la pasarela devuelve el mismo reembolso en vez de crear otro. Si la
+    // pasarela devuelve el dinero pero el commit fallara, el webhook
+    // `charge.refunded` lo sincroniza por delta.
+    const updated = await this.prisma.withTenant(
+      async (tx) => {
+        await lockInvoiceRow(tx, args.invoiceId);
+        const existing = await tx.invoice.findUniqueOrThrow({
+          where: { id: args.invoiceId },
+          select: { status: true, total: true, amountRefunded: true },
+        });
+        if (existing.status !== 'paid' && existing.status !== 'partially_refunded') {
+          throw new BadRequestException({
+            code: 'invoice_not_refundable',
+            message: 'Solo se pueden reembolsar facturas pagadas',
+          });
+        }
+        const total = Number(existing.total);
+        const newRefunded = addAmounts(existing.amountRefunded, amount);
+        if (isGreaterThan(newRefunded, total)) {
+          throw new BadRequestException({
+            code: 'over_refund',
+            message: 'El importe excede el cobrado',
+          });
+        }
+        fullyRefunded = isAtLeast(newRefunded, total);
+
+        // Si la factura se cobró por pasarela (Stripe/SEPA), devolvemos el dinero
+        // DE VERDAD: el payment con `gatewayPaymentId` que tenga saldo reembolsable.
+        const gatewayPayment = await tx.payment.findFirst({
           where: {
             invoiceId: args.invoiceId,
             gatewayPaymentId: { not: null },
             status: { in: ['succeeded', 'partially_refunded'] },
           },
           orderBy: { createdAt: 'desc' },
-        }),
-      args.tenantId,
-    );
+        });
 
-    let gatewayRefundId: string | null = null;
-    if (gatewayPayment?.gatewayPaymentId) {
-      // Redsys (y cualquier otra pasarela sin API de reembolso integrada): se
-      // reembolsa a mano en su panel. Stripe y GoCardless SÍ se reembolsan aquí.
-      if (gatewayPayment.gateway !== 'stripe' && gatewayPayment.gateway !== 'gocardless') {
-        throw new BadRequestException({
-          code: 'refund_not_supported_gateway',
-          message: `Este cobro se hizo por ${gatewayPayment.gateway}; reembólsalo desde el panel de ${gatewayPayment.gateway} (aún no se puede desde la app).`,
-        });
-      }
-      const paymentRefundable = subtractAmounts(
-        gatewayPayment.amount,
-        gatewayPayment.refundedAmount,
-      );
-      if (isGreaterThan(amount, paymentRefundable)) {
-        throw new BadRequestException({
-          code: 'over_refund_gateway',
-          message: 'El importe excede lo cobrado por la pasarela para este pago',
-        });
-      }
-      // GoCardless usa su propia API (SEPA, reembolso asíncrono); el resto (Stripe)
-      // va por el `PAYMENT_GATEWAY` inyectado.
-      const result =
-        gatewayPayment.gateway === 'gocardless'
-          ? await this.goCardlessCharge.refund({
-              tenantId: args.tenantId,
-              paymentId: gatewayPayment.gatewayPaymentId,
-              amountCents: toCents(amount),
-              // Suma total reembolsada del payment (incluido este) para la
-              // salvaguarda `total_amount_confirmation` de GoCardless.
-              totalAmountConfirmationCents: toCents(
-                addAmounts(gatewayPayment.refundedAmount, amount),
-              ),
-              ...(args.input.reason ? { reason: args.input.reason } : {}),
-            })
-          : await this.gateway.refund({
-              gatewayPaymentId: gatewayPayment.gatewayPaymentId,
-              amountCents: toCents(amount),
-              ...(args.input.reason ? { reason: args.input.reason } : {}),
+        if (gatewayPayment?.gatewayPaymentId) {
+          // Redsys (y cualquier otra pasarela sin API de reembolso integrada): se
+          // reembolsa a mano en su panel. Stripe y GoCardless SÍ se reembolsan aquí.
+          if (gatewayPayment.gateway !== 'stripe' && gatewayPayment.gateway !== 'gocardless') {
+            throw new BadRequestException({
+              code: 'refund_not_supported_gateway',
+              message: `Este cobro se hizo por ${gatewayPayment.gateway}; reembólsalo desde el panel de ${gatewayPayment.gateway} (aún no se puede desde la app).`,
             });
-      if (result.status === 'failed') {
-        throw new BadRequestException({
-          code: 'gateway_refund_failed',
-          message: 'La pasarela rechazó el reembolso; no se ha devuelto el dinero',
-        });
-      }
-      gatewayRefundId = result.gatewayRefundId;
-    }
-
-    const updated = await this.prisma.withTenant(async (tx) => {
-      // Actualizamos también `payment.refundedAmount` cuando el reembolso pasó
-      // por la pasarela: el webhook `charge.refunded` sincroniza por delta contra
-      // este campo, así que dejarlo al día evita el DOBLE cómputo (el webhook
-      // llegaría después y volvería a sumar el importe sobre la factura).
-      if (gatewayPayment) {
-        const newPaymentRefunded = addAmounts(gatewayPayment.refundedAmount, amount);
-        const paymentFully = isAtLeast(newPaymentRefunded, gatewayPayment.amount);
-        await tx.payment.update({
-          where: { id: gatewayPayment.id },
-          data: {
-            refundedAmount: newPaymentRefunded,
-            refundedAt: new Date(),
-            status: paymentFully ? 'refunded' : 'partially_refunded',
-          },
-        });
-      } else {
-        // Cobro manual (efectivo/transferencia): no hay pasarela que devuelva el
-        // dinero, pero registramos el reembolso en el `payment` para que el arqueo
-        // de caja lo descuente por su método (p. ej. una devolución en efectivo).
-        const manualPayment = await tx.payment.findFirst({
-          where: {
-            invoiceId: args.invoiceId,
-            gatewayPaymentId: null,
-            status: { in: ['succeeded', 'partially_refunded'] },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-        if (manualPayment) {
-          const newPaymentRefunded = addAmounts(manualPayment.refundedAmount, amount);
-          const paymentFully = isAtLeast(newPaymentRefunded, manualPayment.amount);
+          }
+          const paymentRefundable = subtractAmounts(
+            gatewayPayment.amount,
+            gatewayPayment.refundedAmount,
+          );
+          if (isGreaterThan(amount, paymentRefundable)) {
+            throw new BadRequestException({
+              code: 'over_refund_gateway',
+              message: 'El importe excede lo cobrado por la pasarela para este pago',
+            });
+          }
+          const newPaymentRefunded = addAmounts(gatewayPayment.refundedAmount, amount);
+          // Misma clave para el mismo reembolso del mismo pago (lo ya devuelto +
+          // este importe): un reintento idéntico no crea un segundo reembolso.
+          const idempotencyKey = `refund-${gatewayPayment.id}-${toCents(newPaymentRefunded)}`;
+          // GoCardless usa su propia API (SEPA, reembolso asíncrono); el resto
+          // (Stripe) va por el `PAYMENT_GATEWAY` inyectado.
+          const result =
+            gatewayPayment.gateway === 'gocardless'
+              ? await this.goCardlessCharge.refund({
+                  tenantId: args.tenantId,
+                  paymentId: gatewayPayment.gatewayPaymentId,
+                  amountCents: toCents(amount),
+                  // Suma total reembolsada del payment (incluido este) para la
+                  // salvaguarda `total_amount_confirmation` de GoCardless.
+                  totalAmountConfirmationCents: toCents(newPaymentRefunded),
+                  idempotencyKey,
+                  ...(args.input.reason ? { reason: args.input.reason } : {}),
+                })
+              : await this.gateway.refund({
+                  gatewayPaymentId: gatewayPayment.gatewayPaymentId,
+                  amountCents: toCents(amount),
+                  idempotencyKey,
+                  ...(args.input.reason ? { reason: args.input.reason } : {}),
+                });
+          if (result.status === 'failed') {
+            throw new BadRequestException({
+              code: 'gateway_refund_failed',
+              message: 'La pasarela rechazó el reembolso; no se ha devuelto el dinero',
+            });
+          }
+          gatewayRefundId = result.gatewayRefundId;
+          usedGateway = true;
+          // `payment.refundedAmount` al día: el webhook `charge.refunded`
+          // sincroniza por delta contra este campo, así no se cuenta dos veces.
           await tx.payment.update({
-            where: { id: manualPayment.id },
+            where: { id: gatewayPayment.id },
             data: {
               refundedAmount: newPaymentRefunded,
               refundedAt: new Date(),
-              status: paymentFully ? 'refunded' : 'partially_refunded',
+              status: isAtLeast(newPaymentRefunded, gatewayPayment.amount)
+                ? 'refunded'
+                : 'partially_refunded',
             },
           });
+        } else {
+          // Cobro manual (efectivo/transferencia): no hay pasarela que devuelva el
+          // dinero, pero registramos el reembolso en el `payment` para que el arqueo
+          // de caja lo descuente por su método (p. ej. una devolución en efectivo).
+          const manualPayment = await tx.payment.findFirst({
+            where: {
+              invoiceId: args.invoiceId,
+              gatewayPaymentId: null,
+              status: { in: ['succeeded', 'partially_refunded'] },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (manualPayment) {
+            const newPaymentRefunded = addAmounts(manualPayment.refundedAmount, amount);
+            await tx.payment.update({
+              where: { id: manualPayment.id },
+              data: {
+                refundedAmount: newPaymentRefunded,
+                refundedAt: new Date(),
+                status: isAtLeast(newPaymentRefunded, manualPayment.amount)
+                  ? 'refunded'
+                  : 'partially_refunded',
+              },
+            });
+          }
         }
-      }
-      return tx.invoice.update({
-        where: { id: args.invoiceId },
-        data: {
-          amountRefunded: newRefunded,
-          status: fullyRefunded ? 'refunded' : 'partially_refunded',
-        },
-        include: this.includeRelations(),
-      });
-    }, args.tenantId);
+        return tx.invoice.update({
+          where: { id: args.invoiceId },
+          data: {
+            amountRefunded: newRefunded,
+            status: fullyRefunded ? 'refunded' : 'partially_refunded',
+          },
+          include: this.includeRelations(),
+        });
+      },
+      args.tenantId,
+      // Incluye la llamada a la pasarela.
+      { timeout: 30_000 },
+    );
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -1180,7 +1228,7 @@ export class InvoicesService {
         amount,
         fully: fullyRefunded,
         reason: args.input.reason ?? null,
-        gateway: gatewayPayment ? true : false,
+        gateway: usedGateway,
         gatewayRefundId,
       },
       ipAddress: args.meta.ipAddress ?? null,
@@ -1599,4 +1647,15 @@ export class InvoicesService {
  */
 export function draftPlaceholderNumber(): string {
   return `DRAFT-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * Bloquea la fila de la factura hasta el fin de la transacción (`FOR UPDATE`):
+ * serializa las operaciones que leen y reescriben importes o el estado.
+ */
+export async function lockInvoiceRow(
+  tx: Prisma.TransactionClient,
+  invoiceId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`;
 }

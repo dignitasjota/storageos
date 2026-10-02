@@ -55,6 +55,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async withTenant<T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
     overrideTenantId?: string,
+    /** Tiempo máximo de la transacción (ms). Por defecto el de Prisma (5 s). */
+    options?: { timeout?: number },
   ): Promise<T> {
     const tenantId = overrideTenantId ?? this.asyncContext.getTenantId();
     if (!tenantId) {
@@ -62,9 +64,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         'PrismaService.withTenant llamado sin tenantId (ni en AsyncContext ni override).',
       );
     }
-    return this.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.current_tenant', ${tenantId}, true)`;
-      return fn(tx);
-    });
+    return this.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.current_tenant', ${tenantId}, true)`;
+        return fn(tx);
+      },
+      options?.timeout ? { timeout: options.timeout, maxWait: 10_000 } : undefined,
+    );
   }
 }

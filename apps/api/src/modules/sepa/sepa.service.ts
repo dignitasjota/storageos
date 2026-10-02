@@ -490,7 +490,17 @@ export class SepaService {
     id: string,
   ): Promise<SepaRemittanceDto> {
     const remittance = await this.findOrThrow(tenantId, id);
-    if (remittance.status !== 'generated') {
+    // Reclamar la remesa ANTES de cobrar sus facturas: un doble clic en
+    // «Confirmar cobro» no registra dos veces cada cobro; el segundo recibe 400.
+    const { count } = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittance.updateMany({
+          where: { id, tenantId, status: 'generated' },
+          data: { status: 'confirmed', confirmedAt: new Date() },
+        }),
+      tenantId,
+    );
+    if (count === 0) {
       throw new BadRequestException({
         code: 'remittance_not_confirmable',
         message: 'La remesa ya está confirmada o cancelada',
@@ -528,10 +538,7 @@ export class SepaService {
         where: { id: { in: mandateIds }, sequenceType: 'FRST', status: 'active' },
         data: { sequenceType: 'RCUR' },
       });
-      return tx.sepaRemittance.update({
-        where: { id },
-        data: { status: 'confirmed', confirmedAt: new Date() },
-      });
+      return tx.sepaRemittance.findUniqueOrThrow({ where: { id } });
     }, tenantId);
     const counts = await this.prenoticeCounts(tenantId, [updated.id]);
     return this.toDto(updated, counts.get(updated.id));

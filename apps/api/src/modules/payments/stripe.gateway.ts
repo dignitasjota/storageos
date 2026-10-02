@@ -119,11 +119,14 @@ export class StripeGateway extends PaymentGateway {
   }
 
   async refund(args: RefundParams): Promise<RefundResult> {
-    const r = await this.stripe.refunds.create({
-      payment_intent: args.gatewayPaymentId,
-      amount: args.amountCents,
-      ...(args.reason ? { reason: 'requested_by_customer' } : {}),
-    });
+    const r = await this.stripe.refunds.create(
+      {
+        payment_intent: args.gatewayPaymentId,
+        amount: args.amountCents,
+        ...(args.reason ? { reason: 'requested_by_customer' } : {}),
+      },
+      args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
+    );
     return {
       gatewayRefundId: r.id,
       status:

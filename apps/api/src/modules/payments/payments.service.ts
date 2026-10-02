@@ -283,14 +283,20 @@ export class PaymentsService {
             : 'failed';
     let invoiceFullyPaid = false;
     const paymentRow = await this.prisma.withTenant(async (tx) => {
-      const updated = await tx.payment.update({
-        where: { id: reserved.paymentId },
+      // Solo esta llamada pasa la reserva de `processing` a su estado final: si
+      // el webhook ya la resolvió (también puede llegar antes), no se vuelve a
+      // sumar el cobro a la factura.
+      const moved = await tx.payment.updateMany({
+        where: { id: reserved.paymentId, status: 'processing' },
         data: {
           status,
           gatewayPaymentId: chargeResult.gatewayPaymentId,
           ...(chargeResult.status === 'succeeded' ? { paidAt: new Date() } : {}),
           ...(chargeResult.failureReason ? { failureReason: chargeResult.failureReason } : {}),
         },
+      });
+      const updated = await tx.payment.findUniqueOrThrow({
+        where: { id: reserved.paymentId },
         include: {
           invoice: { select: { invoiceNumber: true } },
           customer: {
@@ -303,17 +309,21 @@ export class PaymentsService {
           },
         },
       });
-      if (status === 'succeeded') {
-        const newPaid = addAmounts(invoice.amountPaid, amount);
-        const fully = isAtLeast(newPaid, invoice.total);
-        await tx.invoice.update({
+      if (status === 'succeeded' && moved.count === 1) {
+        // Incremento atómico (no «pagado leído al principio + importe»): un cobro
+        // manual o un webhook simultáneos sobre la misma factura no se pisan.
+        const after = await tx.invoice.update({
           where: { id: invoice.id },
-          data: {
-            amountPaid: newPaid,
-            ...(fully ? { status: 'paid', paidAt: new Date() } : {}),
-          },
+          data: { amountPaid: { increment: amount } },
+          select: { amountPaid: true, total: true },
         });
-        invoiceFullyPaid = fully;
+        if (isAtLeast(Number(after.amountPaid), Number(after.total))) {
+          const flipped = await tx.invoice.updateMany({
+            where: { id: invoice.id, status: { in: ['issued', 'overdue'] } },
+            data: { status: 'paid', paidAt: new Date() },
+          });
+          invoiceFullyPaid = flipped.count > 0;
+        }
       }
       return updated;
     }, args.tenantId);
@@ -467,22 +477,26 @@ export class PaymentsService {
       return;
     }
     const terminalStatuses: PaymentStatus[] = ['succeeded', 'refunded', 'partially_refunded'];
-    if (existing.status === args.newStatus || terminalStatuses.includes(existing.status)) {
-      this.logger.log(
-        `Webhook ignorado para payment ${existing.id}: status ${existing.status} -> ${args.newStatus} (duplicado o estado terminal)`,
-      );
-      return;
-    }
     let invoicePaidNow = false;
+    let transitioned = false;
     await this.prisma.withTenant(async (tx) => {
-      await tx.payment.update({
-        where: { id: existing.id },
+      // Transición ATÓMICA: solo cambia si el pago no está ya en ese estado ni en
+      // uno terminal. Dos webhooks distintos que llegan a la vez para el mismo
+      // cobro (`confirmed` + `paid_out` de GoCardless, reintentos de Stripe con
+      // otro id de evento…) ya no suman dos veces el cobro a la factura.
+      const moved = await tx.payment.updateMany({
+        where: {
+          id: existing.id,
+          status: { notIn: [...terminalStatuses, args.newStatus as PaymentStatus] },
+        },
         data: {
           status: args.newStatus as PaymentStatus,
           ...(args.paidAt ? { paidAt: args.paidAt } : {}),
           ...(args.failureReason ? { failureReason: args.failureReason } : {}),
         },
       });
+      if (moved.count === 0) return;
+      transitioned = true;
       if (args.newStatus === 'succeeded' && existing.invoiceId) {
         // amountPaid ATÓMICO: `increment` en vez de leer-calcular-escribir, para
         // que dos webhooks concurrentes de la misma factura no se pisen (lost
@@ -496,13 +510,19 @@ export class PaymentsService {
           // Solo la transición a `paid` avisa (un segundo pago sobre una
           // factura ya pagada no vuelve a emitir el evento).
           const flipped = await tx.invoice.updateMany({
-            where: { id: existing.invoiceId, status: { not: 'paid' } },
+            where: { id: existing.invoiceId, status: { in: ['issued', 'overdue'] } },
             data: { status: 'paid', paidAt: args.paidAt ?? new Date() },
           });
           invoicePaidNow = flipped.count > 0;
         }
       }
     }, args.tenantId);
+    if (!transitioned) {
+      this.logger.log(
+        `Webhook ignorado para payment ${existing.id}: status ${existing.status} -> ${args.newStatus} (duplicado o estado terminal)`,
+      );
+      return;
+    }
     if (invoicePaidNow && existing.invoiceId) {
       await this.emitInvoicePaid(args.tenantId, existing.invoiceId);
     }
@@ -600,15 +620,19 @@ export class PaymentsService {
       );
       return;
     }
-    const delta = subtractAmounts(args.amountRefunded, existing.refundedAmount);
-    if (delta <= 0) {
-      this.logger.log(
-        `charge.refunded ignorado para payment ${existing.id}: acumulado ${args.amountRefunded} <= registrado ${Number(existing.refundedAmount)}`,
-      );
-      return;
-    }
-    const fullyRefunded = isAtLeast(args.amountRefunded, existing.amount);
+    let delta = 0;
     await this.prisma.withTenant(async (tx) => {
+      // Pago bloqueado + lectura fresca: dos `charge.refunded` seguidos (o el
+      // reembolso hecho desde la app a la vez) no calculan el delta sobre la
+      // misma lectura vieja → el reembolso no se suma dos veces a la factura.
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${existing.id}::uuid FOR UPDATE`;
+      const fresh = await tx.payment.findUniqueOrThrow({
+        where: { id: existing.id },
+        select: { refundedAmount: true, amount: true },
+      });
+      delta = subtractAmounts(args.amountRefunded, fresh.refundedAmount);
+      if (delta <= 0) return;
+      const fullyRefunded = isAtLeast(args.amountRefunded, fresh.amount);
       await tx.payment.update({
         where: { id: existing.id },
         data: {
@@ -618,6 +642,7 @@ export class PaymentsService {
         },
       });
       if (existing.invoiceId) {
+        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${existing.invoiceId}::uuid FOR UPDATE`;
         const invoice = await tx.invoice.findUniqueOrThrow({
           where: { id: existing.invoiceId },
         });
@@ -633,6 +658,12 @@ export class PaymentsService {
         });
       }
     }, args.tenantId);
+    if (delta <= 0) {
+      this.logger.log(
+        `charge.refunded ignorado para payment ${existing.id}: acumulado ${args.amountRefunded} ya registrado`,
+      );
+      return;
+    }
     this.logger.log(
       `charge.refunded sincronizado: payment ${existing.id} refundedAmount=${args.amountRefunded} (delta ${delta.toFixed(2)})`,
     );
@@ -666,21 +697,21 @@ export class PaymentsService {
       );
       return;
     }
-    if (existing.status !== 'succeeded') {
-      this.logger.log(
-        `charge.dispute ignorado para payment ${existing.id}: status ${existing.status} (solo se revierte succeeded)`,
-      );
-      return;
-    }
+    let reverted = false;
     await this.prisma.withTenant(async (tx) => {
-      await tx.payment.update({
-        where: { id: existing.id },
+      // Solo el primero que pasa el pago de `succeeded` a `failed` resta el
+      // importe: una disputa y un `charged_back` simultáneos no restan dos veces.
+      const moved = await tx.payment.updateMany({
+        where: { id: existing.id, status: 'succeeded' },
         data: {
           status: 'failed',
           failureReason: `disputed: ${args.reason ?? 'unknown'}`,
         },
       });
+      if (moved.count === 0) return;
+      reverted = true;
       if (existing.invoiceId) {
+        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${existing.invoiceId}::uuid FOR UPDATE`;
         const invoice = await tx.invoice.findUniqueOrThrow({
           where: { id: existing.invoiceId },
         });
@@ -704,6 +735,12 @@ export class PaymentsService {
         });
       }
     }, args.tenantId);
+    if (!reverted) {
+      this.logger.log(
+        `charge.dispute ignorado para payment ${existing.id}: no estaba cobrado (solo se revierte succeeded)`,
+      );
+      return;
+    }
     this.logger.warn(
       `charge.dispute sincronizado: payment ${existing.id} revertido (${Number(existing.amount)} EUR, reason=${args.reason ?? 'unknown'})`,
     );

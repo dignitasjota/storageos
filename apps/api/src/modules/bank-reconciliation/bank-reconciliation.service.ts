@@ -215,31 +215,73 @@ export class BankReconciliationService {
     // 40 € pendientes (pago parcial), en vez de darla por saldada. `amount` está
     // en céntimos con signo → a euros.
     const amountToApply = Math.min(txRow.amount / 100, pending);
-    if (amountToApply > 0) {
-      await this.invoices.markPaidManually({
-        tenantId,
-        userId: args.userId,
-        invoiceId,
-        input: {
-          amount: amountToApply,
-          methodType: 'bank_transfer',
-          notes: 'Conciliación N43',
-          overridePaymentInFlight: true,
-          // Ingreso bancario real ya confirmado: se admite el parcial no-efectivo.
-          allowPartialNonCash: true,
-        },
-        meta: {},
-      });
+    // Reclamar el apunte ANTES de cobrar: un doble clic (o dos personas) no
+    // aplica dos veces el mismo ingreso; el segundo ve el apunte ya conciliado.
+    await this.claimTransaction(tenantId, transactionId, 'matched', invoiceId);
+    try {
+      if (amountToApply > 0) {
+        await this.invoices.markPaidManually({
+          tenantId,
+          userId: args.userId,
+          invoiceId,
+          input: {
+            amount: amountToApply,
+            methodType: 'bank_transfer',
+            notes: 'Conciliación N43',
+            overridePaymentInFlight: true,
+            // Ingreso bancario real ya confirmado: se admite el parcial no-efectivo.
+            allowPartialNonCash: true,
+          },
+          meta: {},
+        });
+      }
+    } catch (err) {
+      await this.releaseTransaction(tenantId, transactionId, 'matched');
+      throw err;
     }
-    await this.prisma.withTenant(
+    return this.getStatement(tenantId, txRow.statementId);
+  }
+
+  /**
+   * Reclama un apunte pendiente de forma atómica (pending → matched/returned).
+   * Si otro proceso ya lo reclamó, 400 `already_matched`.
+   */
+  private async claimTransaction(
+    tenantId: string,
+    transactionId: string,
+    status: 'matched' | 'returned',
+    invoiceId: string,
+  ): Promise<void> {
+    const { count } = await this.prisma.withTenant(
       (tx) =>
-        tx.bankStatementTransaction.update({
-          where: { id: transactionId },
-          data: { status: 'matched', matchedInvoiceId: invoiceId, matchedAt: new Date() },
+        tx.bankStatementTransaction.updateMany({
+          where: { id: transactionId, status: 'pending' },
+          data: { status, matchedInvoiceId: invoiceId, matchedAt: new Date() },
         }),
       tenantId,
     );
-    return this.getStatement(tenantId, txRow.statementId);
+    if (count === 0) {
+      throw new BadRequestException({
+        code: 'already_matched',
+        message: 'El movimiento ya está conciliado',
+      });
+    }
+  }
+
+  /** Deshace la reclamación si el cobro o la devolución fallaron. */
+  private async releaseTransaction(
+    tenantId: string,
+    transactionId: string,
+    status: 'matched' | 'returned',
+  ): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.bankStatementTransaction.updateMany({
+          where: { id: transactionId, status },
+          data: { status: 'pending', matchedInvoiceId: null, matchedAt: null },
+        }),
+      tenantId,
+    );
   }
 
   /** Marca un cargo como **devolución SEPA**: revierte el cobro de la factura. */
@@ -283,23 +325,23 @@ export class BankReconciliationService {
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
-    // Revierte el cobro completo de la factura → vuelve a vencida/emitida.
-    await this.invoices.revertPayment({
-      tenantId,
-      userId: args.userId,
-      invoiceId,
-      amount: Number(invoice.amountPaid),
-      reason: 'Devolución SEPA (conciliación N43)',
-      meta: {},
-    });
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.bankStatementTransaction.update({
-          where: { id: transactionId },
-          data: { status: 'returned', matchedInvoiceId: invoiceId, matchedAt: new Date() },
-        }),
-      tenantId,
-    );
+    await this.claimTransaction(tenantId, transactionId, 'returned', invoiceId);
+    try {
+      // Se revierte el importe DEVUELTO por el banco (el cargo), no todo lo
+      // cobrado: una devolución de 60 € sobre una factura cobrada en dos partes
+      // no borra también la otra.
+      await this.invoices.revertPayment({
+        tenantId,
+        userId: args.userId,
+        invoiceId,
+        amount: Math.min(Math.abs(txRow.amount) / 100, Number(invoice.amountPaid)),
+        reason: 'Devolución SEPA (conciliación N43)',
+        meta: {},
+      });
+    } catch (err) {
+      await this.releaseTransaction(tenantId, transactionId, 'returned');
+      throw err;
+    }
     return this.getStatement(tenantId, txRow.statementId);
   }
 

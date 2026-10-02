@@ -62,6 +62,11 @@ export interface RefundParams {
   gatewayPaymentId: string;
   amountCents: number;
   reason?: string;
+  /**
+   * Clave de idempotencia: dos peticiones con la misma clave devuelven el mismo
+   * reembolso en vez de devolver el dinero dos veces (doble clic, reintento).
+   */
+  idempotencyKey?: string;
 }
 
 export interface RefundResult {
