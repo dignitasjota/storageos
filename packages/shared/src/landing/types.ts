@@ -76,6 +76,8 @@ export interface PublicLandingDto {
   activePromotion: PublicActivePromotionDto | null;
   /** ¿Tiene al menos una entrada de blog publicada? Controla el enlace "Blog" del nav. */
   hasBlog: boolean;
+  /** Las 4 últimas entradas publicadas (plantillas con sección de blog). */
+  latestBlogPosts: PublicBlogPostSummaryDto[];
 }
 
 /** Promoción destacable en el banner de la web pública (datos mínimos, no sensibles). */

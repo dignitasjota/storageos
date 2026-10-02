@@ -43,6 +43,12 @@ export const WEB_TEMPLATES = [
       'Web corporativa completa al estilo de las grandes cadenas de self-storage: quiénes somos, servicios, soluciones por tipo de cliente (particulares, empresas, autónomos, ecommerce), tus centros, ventajas y opiniones.',
   },
   {
+    value: 'onepagemovil',
+    label: 'OnePageMovil (catálogo y reserva)',
+    description:
+      'Web de una página pensada para el móvil: portada con foto, ventajas, tus centros, carrusel de trasteros con precio, para qué lo necesitas, cómo funciona, opiniones con galería, preguntas, blog y contacto.',
+  },
+  {
     value: 'external',
     label: 'Web externa (ya tienes tu propia web)',
     description:

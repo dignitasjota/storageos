@@ -31,12 +31,17 @@ type Item = { title: string; text: string };
 
 /** Plantillas multisección que usan el copy editable de secciones. */
 function usesContent(template: WebTemplateValue): boolean {
-  return template === 'onepage' || template === 'escaparate' || template === 'corporate';
+  return (
+    template === 'onepage' ||
+    template === 'escaparate' ||
+    template === 'corporate' ||
+    template === 'onepagemovil'
+  );
 }
 
 /** Plantillas que además de servicios usan «Ventajas» (con icono). */
 function usesAdvantages(template: WebTemplateValue): boolean {
-  return template === 'escaparate' || template === 'corporate';
+  return template === 'escaparate' || template === 'corporate' || template === 'onepagemovil';
 }
 
 export default function WebSettingsPage() {
@@ -255,7 +260,9 @@ export default function WebSettingsPage() {
                 ? '«Una página»'
                 : template === 'corporate'
                   ? '«Corporativa»'
-                  : '«Escaparate»'}
+                  : template === 'onepagemovil'
+                    ? '«OnePageMovil»'
+                    : '«Escaparate»'}
               . Deja una sección vacía para usar los textos por defecto.
             </CardDescription>
           </CardHeader>
@@ -275,8 +282,12 @@ export default function WebSettingsPage() {
             </div>
 
             <ItemsEditor
-              label="Servicios"
-              hint="Tarjetas de servicios/usos (título + descripción)."
+              label={template === 'onepagemovil' ? '¿Para qué lo necesitas?' : 'Servicios'}
+              hint={
+                template === 'onepagemovil'
+                  ? 'Bloques desplegables (título + una línea por cada punto).'
+                  : 'Tarjetas de servicios/usos (título + descripción).'
+              }
               items={services}
               onChange={setServices}
               max={6}
@@ -287,7 +298,11 @@ export default function WebSettingsPage() {
             {usesAdvantages(template) && (
               <LabelsEditor
                 label="Ventajas"
-                hint="Etiquetas cortas de «Por qué elegirnos» (con icono)."
+                hint={
+                  template === 'onepagemovil'
+                    ? 'Las 4 ventajas bajo la portada (con icono).'
+                    : 'Etiquetas cortas de «Por qué elegirnos» (con icono).'
+                }
                 items={advantages}
                 onChange={setAdvantages}
                 max={8}
@@ -295,7 +310,7 @@ export default function WebSettingsPage() {
               />
             )}
 
-            {template === 'escaparate' && (
+            {(template === 'escaparate' || template === 'onepagemovil') && (
               <ItemsEditor
                 label="Pasos para contratar"
                 hint="Los pasos de «Contratar es muy fácil» (título + descripción)."

@@ -323,6 +323,59 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(landing.body.webTemplate).toBe('corporate');
   });
 
+  it('web premium: la plantilla «onepagemovil» se aplica y trae las últimas entradas del blog', async () => {
+    const owner = await registerVerifiedUser(app, 'web-opm');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    const save = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ template: 'onepagemovil' });
+    expect(save.status).toBe(200);
+    expect(save.body.template).toBe('onepagemovil');
+
+    // Sin entradas: no hay blog.
+    const empty = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(empty.body.webTemplate).toBe('onepagemovil');
+    expect(empty.body.hasBlog).toBe(false);
+    expect(empty.body.latestBlogPosts).toEqual([]);
+
+    for (const title of ['Primera', 'Segunda', 'Tercera', 'Cuarta', 'Quinta']) {
+      await request(app.getHttpServer())
+        .post('/blog-posts')
+        .set(auth)
+        .send({ title, contentMarkdown: 'Contenido.', isPublished: true })
+        .expect(201);
+    }
+    await request(app.getHttpServer())
+      .post('/blog-posts')
+      .set(auth)
+      .send({ title: 'Borrador', contentMarkdown: 'No publicado.' })
+      .expect(201);
+
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.hasBlog).toBe(true);
+    // Solo las 4 últimas publicadas, de la más reciente a la más antigua.
+    expect(landing.body.latestBlogPosts.map((p: { title: string }) => p.title)).toEqual([
+      'Quinta',
+      'Cuarta',
+      'Tercera',
+      'Segunda',
+    ]);
+    expect(landing.body.latestBlogPosts[0]).toMatchObject({
+      slug: expect.any(String),
+      publishedAt: expect.any(String),
+    });
+
+    // Sin la feature, vuelve a la plantilla estándar y sin blog.
+    await setTenantFeatureOverride(owner.slug, 'web_premium', false);
+    const off = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(off.body.webTemplate).toBe('default');
+    expect(off.body.latestBlogPosts).toEqual([]);
+  });
+
   it('secciones: testimonios (reseña NPS≥9), FAQ y contacto→lead', async () => {
     const owner = await registerVerifiedUser(app, 'web-sec');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

@@ -113,13 +113,24 @@ export class LandingService {
     const sections = hasWebPremium
       ? parseWebSections(tenant.webSections)
       : { testimonials: false, faq: false, contact: false };
-    const [testimonials, faqs, activePromotion, blogCount] = await Promise.all([
+    const [testimonials, faqs, activePromotion, latestPosts] = await Promise.all([
       sections.testimonials ? this.loadTestimonials(tenant.id) : Promise.resolve([]),
       sections.faq ? this.loadFaqs(tenant.id) : Promise.resolve([]),
       this.loadActivePromotion(tenant.id),
       hasWebPremium
-        ? this.admin.blogPost.count({ where: { tenantId: tenant.id, isPublished: true } })
-        : Promise.resolve(0),
+        ? this.admin.blogPost.findMany({
+            where: { tenantId: tenant.id, isPublished: true },
+            select: {
+              slug: true,
+              title: true,
+              excerpt: true,
+              coverImageKey: true,
+              publishedAt: true,
+            },
+            orderBy: { publishedAt: 'desc' },
+            take: 4,
+          })
+        : Promise.resolve([]),
     ]);
 
     return {
@@ -139,7 +150,16 @@ export class LandingService {
       faqs,
       contactEnabled: sections.contact,
       activePromotion,
-      hasBlog: blogCount > 0,
+      hasBlog: latestPosts.length > 0,
+      latestBlogPosts: latestPosts.map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        excerpt: r.excerpt,
+        coverImageUrl: r.coverImageKey
+          ? this.files.buildPublicUrl('public', r.coverImageKey)
+          : null,
+        publishedAt: r.publishedAt!.toISOString(),
+      })),
       facilities: facilities.map((f) => ({
         id: f.id,
         publicSlug: f.publicSlug,
