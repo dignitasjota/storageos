@@ -336,10 +336,10 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 
 ## Bloqueantes antes de activar Veri\*Factu en producción (PR 5)
 
-7. Huella con algoritmo simplificado, encadenada por serie (debe ser por emisor e incluir anulaciones) y con la fecha-hora de generación creada en cada envío.
-8. Desglose de IVA en una sola línea con el tipo deducido (alquiler 21 % + fianza 0 % → «14 %», rechazo); recargo y fianza como operación sujeta.
-9. Envíos duplicados: sin comprobar si ya se aceptó, «Reenviar» de aceptadas, duplicado = rechazo, envío en paralelo desordenado, sin subsanación.
-10. Se puede emitir sin NIF del tenant (huella con «PENDIENTE»).
+7. Huella con algoritmo simplificado, encadenada por serie (debe ser por emisor e incluir anulaciones) y con la fecha-hora de generación creada en cada envío. → ✅ PR 5 (las anulaciones son rectificativas desde la PR 4: no se usan registros de anulación).
+8. Desglose de IVA en una sola línea con el tipo deducido (alquiler 21 % + fianza 0 % → «14 %», rechazo); recargo y fianza como operación sujeta. → ✅ PR 5.
+9. Envíos duplicados: sin comprobar si ya se aceptó, «Reenviar» de aceptadas, duplicado = rechazo, envío en paralelo desordenado, sin subsanación. → ✅ PR 5.
+10. Se puede emitir sin NIF del tenant (huella con «PENDIENTE»). → ✅ PR 5 (en envío real; en modo `stub` se sigue permitiendo).
 
 ## Medios
 
@@ -352,7 +352,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 17. Cobro por pasarela sobre factura ya pagada por otra vía: sin aviso. → PR 7.
 18. Holded no recibe reembolsos ni devoluciones. → ✅ PR 2 (salen «para revisar»: Holded no permite quitar un cobro por API; el abono por reembolso llega con la PR 6).
 19. Numeración de facturas de suscripción sin bloqueo (un cobro puede quedar sin factura). → PR 7.
-20. Una factura solo puede ir en una remesa en toda su vida; no se puede cancelar una remesa. → PR 3.
+20. Una factura solo puede ir en una remesa en toda su vida; no se puede cancelar una remesa. → ✅ PR 3.
 21. Métricas: lo cobrado ignora entero un pago con reembolso parcial; lo facturado no descuenta reembolsos. → PR 6.
 
 ## Menores (PR 8)
@@ -405,3 +405,16 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - Lo usan también la caducidad de reservas sin pagar, la venta y el pase nocturno no cobrados. Holded recibe la rectificativa (no se cancela la original allí).
 - `InvoiceDto.rectifiedBy` (enlace a la rectificativa desde la anulada); en la web «Anular» pide confirmación y la anulada enlaza a su rectificativa; la rectificativa compensada se muestra «Compensada».
 - e2e `invoice-cancel-rectify` (4 casos).
+
+## PR 5 — Veri\*Factu conforme ✅
+
+- **Huella oficial** (`billing/verifactu-hash.ts`): `IDEmisorFactura=…&NumSerieFactura=…&FechaExpedicionFactura=DD-MM-AAAA&TipoFactura=…&CuotaTotal=…&ImporteTotal=…&Huella=<anterior>&FechaHoraHusoGenRegistro=…`, SHA-256 en mayúsculas. Comprobada con los ejemplos publicados por la AEAT.
+- **Cadena por emisor**, no por serie: `invoices.chain_seq` + `previous_invoice_id` (migración `20261005160000`), con bloqueo por tenant al emitir. La **FechaHoraHusoGenRegistro** se fija al emitir (`aeat_record_timestamp`) y el XML usa la misma (antes se creaba en cada envío y no coincidía con la huella).
+- **Desglose por tipo de IVA**: una `DetalleDesglose` por tipo; las líneas al 0 % (fianza, recargo por mora) como no sujetas (N1) sin tipo ni cuota. Antes un único «tipo deducido» (21 % + 0 % → 14 %).
+- **Destinatario**: NIF español válido → `<NIF>`; extranjero → `<IDOtro>` con país (pasaporte 03, documento extranjero 04).
+- **NIF obligatorio en envío real** (`AEAT_MODE` ≠ stub): sin NIF válido del emisor → 400 `tenant_tax_id_required`; factura completa sin NIF/NIE válido del cliente (español) → 400 `customer_tax_id_required`.
+- **Sin envíos duplicados**: no se envía lo ya aceptado; «Reenviar» de una aceptada → 400 `already_accepted`; si hubo un envío previo, se consulta a la AEAT antes de reenviar; «registro duplicado» (3000) → se consulta y se guarda el estado real.
+- **En orden**: la cola procesa de uno en uno y un registro espera a que el anterior de la cadena esté resuelto (`previous_record_pending`); el cron cada 15 min reencola lo que agotó sus reintentos por un fallo pasajero.
+- **QR**: URL de cotejo de producción o de pruebas según el modo y fecha DD-MM-AAAA.
+- Los specs del XML y del cliente real vivían en `test/*.spec.ts` y no los ejecutaba ninguna configuración: movidos a `__tests__` (corren en CI). e2e `verifactu-chain` (3 casos).
+- **Antes de activar producción**: las facturas emitidas hasta ahora llevan la huella antigua y no tienen posición en la cadena (nunca se registraron en la AEAT); la primera factura nueva de cada tenant empieza la cadena (`PrimerRegistro`).

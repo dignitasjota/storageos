@@ -28,7 +28,9 @@ export interface VerifactuSendJobData {
  * antes de devolver el resultado, asi que el ultimo intento siempre deja
  * la BD coherente con lo ocurrido.
  */
-@Processor(QUEUE_VERIFACTU, { concurrency: 2 })
+// De uno en uno: la AEAT recibe los registros en el orden de la cadena (con
+// concurrencia 2, un registro podía llegar antes que su anterior).
+@Processor(QUEUE_VERIFACTU, { concurrency: 1 })
 export class VerifactuProcessor extends WorkerHost {
   private readonly logger = new Logger(VerifactuProcessor.name);
 

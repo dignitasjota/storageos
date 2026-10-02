@@ -1253,7 +1253,7 @@ Modulo `apps/api/src/modules/billing/aeat-client/` y `tenant-aeat-credentials.{s
 - **`AEAT_MODE=stub|sandbox|production`** selecciona implementacion. `stub` devuelve `accepted` sintetico. `sandbox`/`production` usan `RealAeatClient` con mTLS via `https.Agent`.
 - **XML conforme al XSD AEAT**: SOAP envelope con `Cabecera/ObligadoEmision`, `RegistroAlta` (IDFactura, Desglose IVA, Encadenamiento, SistemaInformatico, TipoHuella=01, Huella SHA-256 uppercase).
 - **Retry policy**: cola BullMQ `verifactu` con `attempts: 3, backoff: exponential 60s` (≈1m, 5m, 25m). Reintenta solo si `result.status='error'` (tecnico). `rejected` no reintenta (decision firme AEAT). `removeOnFail: false` para visibilidad manual.
-- **Reenvio manual**: `POST /billing/invoices/:id/resend-aeat` resetea `aeat_*` y reencola.
+- **Reenvio manual**: `POST /billing/invoices/:id/resend-aeat` vuelve a `pending` y reencola (400 `already_accepted` si la AEAT ya la aceptó; si hubo un envío previo, antes de reenviar se consulta a la AEAT). Emitir en envío real (`AEAT_MODE` ≠ stub) exige NIF válido del emisor (400 `tenant_tax_id_required`) y, en facturas completas, NIF/NIE válido del cliente español (400 `customer_tax_id_required`).
 
 ### Endpoints — Credenciales AEAT del tenant
 
@@ -1265,9 +1265,9 @@ Modulo `apps/api/src/modules/billing/aeat-client/` y `tenant-aeat-credentials.{s
 
 ### Endpoints — Reenvio factura
 
-| Metodo | Ruta                                | Auth | Roles          | Descripcion                           |
-| ------ | ----------------------------------- | ---- | -------------- | ------------------------------------- |
-| POST   | `/billing/invoices/:id/resend-aeat` | SI   | owner, manager | Resetea `aeat_*` + reencola job (202) |
+| Metodo | Ruta                                | Auth | Roles          | Descripcion                                                     |
+| ------ | ----------------------------------- | ---- | -------------- | --------------------------------------------------------------- |
+| POST   | `/billing/invoices/:id/resend-aeat` | SI   | owner, manager | Vuelve a `pending` + reencola job (202); 400 `already_accepted` |
 
 ### Codigos `code` (Fase 10)
 

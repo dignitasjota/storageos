@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
 import * as forge from 'node-forge';
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
@@ -15,9 +16,29 @@ import {
   type SendInvoiceArgs,
   type SendInvoiceResult,
 } from './aeat-client';
-import { VerifactuXmlBuilder } from './verifactu-xml-builder';
+import { breakdownFromItems, VerifactuXmlBuilder } from './verifactu-xml-builder';
 
 import type { Env } from '../../../config/env.schema';
+
+/**
+ * NIF español válido → `<NIF>`; si no, `<IDOtro>` con el país del cliente
+ * (pasaporte → 03; documento extranjero → 04).
+ */
+export function recipientId(
+  customer: {
+    documentNumber: string | null;
+    documentType: string | null;
+    country: string | null;
+  } | null,
+): { taxId: string } | { otherId: { country: string; idType: '03' | '04' | '06'; id: string } } {
+  const doc = (customer?.documentNumber ?? '').trim();
+  if (doc && isValidSpanishTaxId(doc)) return { taxId: normalizeTaxId(doc) };
+  const country = (customer?.country ?? 'ES').toUpperCase();
+  const passport = /pasaporte|passport/i.test(customer?.documentType ?? '');
+  return {
+    otherId: { country, idType: passport ? '03' : country === 'ES' ? '06' : '04', id: doc },
+  };
+}
 
 /**
  * Cliente real para AEAT sandbox y produccion (Veri*Factu, RD 1007/2023).
@@ -119,13 +140,16 @@ export class RealAeatClient extends AeatClient {
       };
     }
 
-    // 4. Si hay previous_hash, buscar la factura anterior para incluir su
-    //    numero+fecha en `<RegistroAnterior>`.
+    if (!invoice.aeatRecordTimestamp) {
+      return { status: 'error', message: 'invoice_missing_record_timestamp' };
+    }
+
+    // 4. Registro anterior del emisor (cadena por tenant) para `<RegistroAnterior>`.
     let previousInvoiceNumber: string | undefined;
     let previousInvoiceDate: Date | undefined;
-    if (args.previousHash) {
-      const prev = await this.admin.invoice.findFirst({
-        where: { tenantId: args.tenantId, hash: args.previousHash },
+    if (invoice.previousInvoiceId) {
+      const prev = await this.admin.invoice.findUnique({
+        where: { id: invoice.previousInvoiceId },
         select: { invoiceNumber: true, issueDate: true },
       });
       previousInvoiceNumber = prev?.invoiceNumber ?? undefined;
@@ -173,10 +197,17 @@ export class RealAeatClient extends AeatClient {
     }
 
     // 6. Construir XML.
-    const subtotal = Number(invoice.subtotal);
     const taxAmount = Number(invoice.taxAmount);
     const total = Number(invoice.total);
-    const taxRate = subtotal !== 0 ? Math.round((taxAmount / subtotal) * 10_000) / 100 : 0;
+    // Una línea de desglose por tipo de IVA (antes un único tipo «deducido»
+    // de base/cuota: alquiler 21 % + fianza 0 % daba un 14 % inexistente).
+    const breakdown = breakdownFromItems(
+      invoice.items.map((it) => ({
+        taxRate: Number(it.taxRate),
+        taxAmount: Number(it.taxAmount),
+        total: Number(it.total),
+      })),
+    );
 
     // Para F2 sin customer (factura simplificada) omitimos `recipient`;
     // el XML emite `<FacturaSinIdentifDestinatarioArt61d>`. Para
@@ -195,10 +226,10 @@ export class RealAeatClient extends AeatClient {
         issueDate: invoice.issueDate,
         description: this.buildDescription(invoice),
         invoiceType: invoice.invoiceType as 'F1' | 'F2' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5',
-        subtotal,
-        taxRate,
+        breakdown,
         taxAmount,
         total,
+        recordTimestamp: invoice.aeatRecordTimestamp,
         hash: args.hash,
         previousHash: args.previousHash,
         ...(previousInvoiceNumber !== undefined ? { previousInvoiceNumber } : {}),
@@ -211,8 +242,8 @@ export class RealAeatClient extends AeatClient {
       ...(hasRecipient
         ? {
             recipient: {
-              taxId: invoice.customer?.documentNumber ?? '',
               name: this.buildRecipientName(invoice.customer),
+              ...recipientId(invoice.customer),
             },
           }
         : {}),

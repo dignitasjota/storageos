@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import QRCode from 'qrcode';
@@ -12,31 +10,28 @@ import {
   type GetStatusResult,
   type SendInvoiceResult,
 } from './aeat-client';
+import {
+  formatSpanishDate,
+  formatTimestampWithMadridTimezone,
+} from './aeat-client/verifactu-xml-builder';
+import { computeAltaHash } from './verifactu-hash';
 
 import type { Env } from '../../config/env.schema';
 import type { AeatStatus, Invoice, Prisma } from '@storageos/database';
 
 /**
- * Verifactu (RD 1007/2023). En Fase 4 implementamos:
+ * Veri*Factu (RD 1007/2023, Orden HAC/1177/2024).
  *
- * - **Hash encadenado** SHA-256 de cada factura. El `previous_hash` apunta a
- *   la inmediatamente anterior emitida de la misma serie del tenant. La
- *   primera de cada serie tiene `previous_hash = null`. Hash inmutable
- *   tras emitir.
- * - **QR AEAT**: payload con campos clave (NIF emisor, número, importe,
- *   fecha) en formato URL de la sede AEAT. Renderizado a `qr_code_url`
- *   como data:image/png;base64 para embebido en el PDF. En Fase 8 se
- *   sustituye por la URL con el CSV definitivo devuelto por AEAT.
- * - **Envío AEAT**: gobernado por `AEAT_MODE`:
- *   - `stub` (Fase 4): no envia, devuelve `accepted` simulado.
- *   - `sandbox` / `production` (Fase 8): envia el XML firmado al endpoint
- *     real de la AEAT con el certificado del tenant.
- *
- * Algoritmo del hash (simplificado, conforme al spec AEAT):
- *
- *   sha256(
- *     `${tenantTaxId}|${invoiceNumber}|${issueDate}|${total}|${previousHash ?? ''}`
- *   )
+ * - **Huella oficial** (`verifactu-hash.ts`): SHA-256 de los campos del
+ *   registro de alta + la huella del registro ANTERIOR DEL EMISOR (cadena por
+ *   tenant, no por serie) + la FechaHoraHusoGenRegistro, que se fija al emitir
+ *   y se guarda para que el XML lleve exactamente la misma.
+ * - **QR** con la URL de cotejo de la AEAT (pruebas o producción según
+ *   `AEAT_MODE`) y la fecha en DD-MM-AAAA.
+ * - **Envío** (cola `verifactu`, de uno en uno y en el orden de la cadena):
+ *   no se reenvía lo ya aceptado; si un intento anterior pudo llegar, se
+ *   consulta antes; un «duplicado» de la AEAT se resuelve consultando; y un
+ *   registro espera a que el anterior esté resuelto.
  */
 @Injectable()
 export class VerifactuService {
@@ -45,48 +40,63 @@ export class VerifactuService {
   constructor(
     private readonly admin: PrismaAdminService,
     @Inject(AEAT_CLIENT) private readonly aeat: AeatClient,
-    _config: ConfigService<Env, true>,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
+  /** Envío real a la AEAT (pruebas o producción): exige datos fiscales completos. */
+  get realMode(): boolean {
+    return this.config.get('AEAT_MODE', { infer: true }) !== 'stub';
+  }
+
   /**
-   * Calcula el hash de una factura encadenándolo con la última emitida de
-   * la misma serie del tenant. Devuelve `{ hash, previousHash }`. Llamado
-   * dentro de la transacción de `InvoicesService.issue`.
+   * Huella encadenada con el último registro del emisor. Llamado dentro de la
+   * transacción de `InvoicesService.issue`: un bloqueo por tenant serializa la
+   * cadena (dos facturas de series distintas emitidas a la vez no comparten
+   * registro anterior).
    */
   async computeChainedHash(
     tx: Prisma.TransactionClient,
     args: {
       tenantId: string;
       tenantTaxId: string;
-      seriesId: string;
       invoiceNumber: string;
       issueDate: Date;
+      invoiceType: string;
+      taxAmount: number;
       total: number;
     },
-  ): Promise<{ hash: string; previousHash: string | null }> {
+  ): Promise<{
+    hash: string;
+    previousHash: string | null;
+    previousInvoiceId: string | null;
+    chainSeq: number;
+    recordTimestamp: string;
+  }> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`verifactu-chain:${args.tenantId}`}))`;
     const previous = await tx.invoice.findFirst({
-      where: {
-        tenantId: args.tenantId,
-        seriesId: args.seriesId,
-        // Toda factura emitida forma parte de la cadena, también las anuladas con rectificativa.
-        status: {
-          in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
-        },
-        hash: { not: null },
-      },
-      orderBy: { sequenceNumber: 'desc' },
-      select: { hash: true },
+      where: { tenantId: args.tenantId, chainSeq: { not: null } },
+      orderBy: { chainSeq: 'desc' },
+      select: { id: true, hash: true, chainSeq: true },
     });
+    const recordTimestamp = formatTimestampWithMadridTimezone(new Date());
     const previousHash = previous?.hash ?? null;
-    const payload = [
-      args.tenantTaxId,
-      args.invoiceNumber,
-      args.issueDate.toISOString().slice(0, 10),
-      args.total.toFixed(2),
-      previousHash ?? '',
-    ].join('|');
-    const hash = createHash('sha256').update(payload).digest('hex');
-    return { hash, previousHash };
+    const hash = computeAltaHash({
+      emitterTaxId: args.tenantTaxId,
+      invoiceNumber: args.invoiceNumber,
+      issueDate: formatSpanishDate(args.issueDate),
+      invoiceType: args.invoiceType,
+      cuotaTotal: args.taxAmount,
+      importeTotal: args.total,
+      previousHash,
+      recordTimestamp,
+    });
+    return {
+      hash,
+      previousHash,
+      previousInvoiceId: previous?.id ?? null,
+      chainSeq: (previous?.chainSeq ?? 0) + 1,
+      recordTimestamp,
+    };
   }
 
   /**
@@ -100,10 +110,15 @@ export class VerifactuService {
     issueDate: Date;
     total: number;
   }): Promise<string> {
-    const url = new URL('https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR');
+    // URL de cotejo de la AEAT: pruebas o producción según el modo.
+    const base =
+      this.config.get('AEAT_MODE', { infer: true }) === 'production'
+        ? 'https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR'
+        : 'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR';
+    const url = new URL(base);
     url.searchParams.set('nif', args.tenantTaxId || 'PENDIENTE');
     url.searchParams.set('numserie', args.invoiceNumber);
-    url.searchParams.set('fecha', args.issueDate.toISOString().slice(0, 10));
+    url.searchParams.set('fecha', formatSpanishDate(args.issueDate));
     url.searchParams.set('importe', args.total.toFixed(2));
     const qrPng = await QRCode.toDataURL(url.toString(), {
       errorCorrectionLevel: 'M',
@@ -132,17 +147,43 @@ export class VerifactuService {
         total: true,
         previousHash: true,
         hash: true,
+        aeatStatus: true,
+        aeatSentAt: true,
+        aeatCsv: true,
+        previousInvoice: { select: { id: true, aeatStatus: true } },
       },
     });
     if (!invoice || !invoice.invoiceNumber || !invoice.issueDate || !invoice.hash) {
       this.logger.warn(`[Verifactu] invoice ${invoiceId} no enviable (campos faltantes)`);
       return null;
     }
+    // Ya registrada: no se vuelve a enviar (un segundo alta sería un duplicado).
+    if (invoice.aeatStatus === 'accepted' || invoice.aeatStatus === 'accepted_with_warnings') {
+      return { status: invoice.aeatStatus, csv: invoice.aeatCsv, message: 'already_accepted' };
+    }
+    // En orden: el registro anterior del emisor tiene que estar resuelto
+    // (aceptado o rechazado) antes de enviar este. Si no, se reintenta luego.
+    const prev = invoice.previousInvoice;
+    if (
+      prev &&
+      (prev.aeatStatus === null || prev.aeatStatus === 'pending' || prev.aeatStatus === 'error')
+    ) {
+      return { status: 'error', message: 'previous_record_pending' };
+    }
+    // Un intento anterior pudo llegar a la AEAT aunque no tengamos respuesta
+    // (tiempo agotado): se consulta antes de volver a enviarla.
+    if (this.realMode && invoice.aeatSentAt) {
+      const known = await this.aeat.getStatus({ invoiceId });
+      if (known.status === 'accepted' || known.status === 'accepted_with_warnings') {
+        await this.saveStatus(invoiceId, known, 'status_before_resend');
+        return { status: known.status, csv: known.csv ?? null, message: 'already_registered' };
+      }
+    }
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: { taxId: true },
     });
-    const result = await this.aeat.sendInvoice({
+    let result = await this.aeat.sendInvoice({
       tenantId,
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
@@ -152,6 +193,17 @@ export class VerifactuService {
       hash: invoice.hash,
       emitterTaxId: tenant?.taxId ?? '',
     });
+    // «Registro duplicado» (código 3000): ya estaba en la AEAT → su estado real.
+    if (result.status === 'rejected' && /\b3000\b/.test(result.message ?? '')) {
+      const known = await this.aeat.getStatus({ invoiceId });
+      if (known.status === 'accepted' || known.status === 'accepted_with_warnings') {
+        result = {
+          status: known.status,
+          csv: known.csv ?? null,
+          message: 'duplicate_already_registered',
+        };
+      }
+    }
     const status: AeatStatus =
       result.status === 'accepted'
         ? 'accepted'
@@ -238,21 +290,63 @@ export class VerifactuService {
     return result;
   }
 
-  /** Comprueba el hash de una factura ya emitida (auditoría). */
+  private async saveStatus(
+    invoiceId: string,
+    result: GetStatusResult,
+    source: string,
+  ): Promise<void> {
+    if (result.status === 'pending') return;
+    const status: AeatStatus =
+      result.status === 'accepted'
+        ? 'accepted'
+        : result.status === 'accepted_with_warnings'
+          ? 'accepted_with_warnings'
+          : result.status === 'rejected'
+            ? 'rejected'
+            : 'error';
+    await this.admin.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        aeatStatus: status,
+        ...(result.csv ? { aeatCsv: result.csv } : {}),
+        aeatResponse: {
+          mode: this.aeat.mode,
+          source,
+          ...(result.message ? { message: result.message } : {}),
+          ...(result.raw ?? {}),
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  /** Comprueba la huella de una factura ya emitida (auditoría). */
   verifyHash(args: {
     tenantTaxId: string;
-    invoice: Pick<Invoice, 'invoiceNumber' | 'issueDate' | 'total' | 'previousHash' | 'hash'>;
+    invoice: Pick<
+      Invoice,
+      | 'invoiceNumber'
+      | 'issueDate'
+      | 'invoiceType'
+      | 'taxAmount'
+      | 'total'
+      | 'previousHash'
+      | 'hash'
+      | 'aeatRecordTimestamp'
+    >;
   }): boolean {
-    if (!args.invoice.hash || !args.invoice.issueDate) return false;
-    const total = Number(args.invoice.total);
-    const payload = [
-      args.tenantTaxId,
-      args.invoice.invoiceNumber,
-      args.invoice.issueDate.toISOString().slice(0, 10),
-      total.toFixed(2),
-      args.invoice.previousHash ?? '',
-    ].join('|');
-    const expected = createHash('sha256').update(payload).digest('hex');
-    return expected === args.invoice.hash;
+    const i = args.invoice;
+    if (!i.hash || !i.issueDate || !i.aeatRecordTimestamp) return false;
+    return (
+      computeAltaHash({
+        emitterTaxId: args.tenantTaxId,
+        invoiceNumber: i.invoiceNumber,
+        issueDate: formatSpanishDate(i.issueDate),
+        invoiceType: i.invoiceType,
+        cuotaTotal: Number(i.taxAmount),
+        importeTotal: Number(i.total),
+        previousHash: i.previousHash,
+        recordTimestamp: i.aeatRecordTimestamp,
+      }) === i.hash.toUpperCase()
+    );
   }
 }

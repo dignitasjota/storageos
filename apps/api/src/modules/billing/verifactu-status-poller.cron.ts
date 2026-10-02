@@ -1,7 +1,11 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { QUEUE_VERIFACTU } from '../queues/queue-names';
+import { JOB_VERIFACTU_SEND } from '../queues/queues.module';
 
 import { VerifactuService } from './verifactu.service';
 
@@ -33,10 +37,57 @@ export class VerifactuStatusPollerCron {
   /** Batch maximo de facturas por tick para acotar la carga. */
   private static readonly BATCH_SIZE = 50;
 
+  /** Errores que no se arreglan reintentando: necesitan intervención. */
+  private static readonly NOT_RETRYABLE = new Set([
+    'tenant_no_aeat_credential',
+    'certificate_expired',
+    'invalid_certificate',
+    'invoice_missing_required_fields',
+    'invoice_missing_record_timestamp',
+    'invoice_not_found',
+    'tenant_not_found',
+  ]);
+
   constructor(
     private readonly verifactu: VerifactuService,
     private readonly admin: PrismaAdminService,
+    @InjectQueue(QUEUE_VERIFACTU) private readonly queue: Queue,
   ) {}
+
+  /**
+   * Vuelve a encolar lo que agotó sus reintentos por un fallo pasajero (red,
+   * AEAT caída) o porque esperaba a que se resolviera el registro anterior de
+   * la cadena: sin esto se quedaba parado hasta un «Reenviar» manual.
+   */
+  @Cron('*/15 * * * *', { name: 'verifactu-status.requeue' })
+  async requeueStalled(): Promise<void> {
+    const cutoff = new Date(Date.now() - VerifactuStatusPollerCron.COOLDOWN_MS);
+    const stalled = await this.admin.invoice.findMany({
+      where: {
+        hash: { not: null },
+        OR: [
+          { aeatStatus: 'error', aeatSentAt: { lt: cutoff } },
+          { aeatStatus: 'pending', aeatSentAt: null, updatedAt: { lt: cutoff } },
+        ],
+      },
+      select: { id: true, tenantId: true, aeatResponse: true, chainSeq: true },
+      orderBy: [{ tenantId: 'asc' }, { chainSeq: 'asc' }],
+      take: VerifactuStatusPollerCron.BATCH_SIZE,
+    });
+    for (const inv of stalled) {
+      const message = (inv.aeatResponse as { message?: string } | null)?.message ?? '';
+      if (VerifactuStatusPollerCron.NOT_RETRYABLE.has(message)) continue;
+      await this.queue.add(
+        JOB_VERIFACTU_SEND,
+        { invoiceId: inv.id, tenantId: inv.tenantId },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 60_000 },
+          removeOnComplete: { age: 86_400 },
+        },
+      );
+    }
+  }
 
   @Cron('*/15 * * * *', { name: 'verifactu-status.poll-orphans' })
   async pollOrphans(): Promise<void> {
