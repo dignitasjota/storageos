@@ -16,6 +16,7 @@ import {
   DOMAIN_EVENTS,
   type DomainEventPayload,
   type InvoiceRefundedPayload,
+  type PaymentOverpaidPayload,
   type PaymentFailedPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -604,6 +605,7 @@ export class PaymentsService {
     const terminalStatuses: PaymentStatus[] = ['succeeded', 'refunded', 'partially_refunded'];
     let invoicePaidNow = false;
     let transitioned = false;
+    let excessCents = 0;
     await this.prisma.withTenant(async (tx) => {
       // Transición ATÓMICA: solo cambia si el pago no está ya en ese estado ni en
       // uno terminal. Dos webhooks distintos que llegan a la vez para el mismo
@@ -631,6 +633,12 @@ export class PaymentsService {
           data: { amountPaid: { increment: existing.amount } },
           select: { amountPaid: true, total: true },
         });
+        // Factura ya pagada por otra vía (transferencia, efectivo…) mientras el
+        // cobro estaba en curso: lo cobrado de más hay que devolverlo.
+        excessCents = Math.min(
+          toCents(existing.amount),
+          Math.max(0, toCents(updated.amountPaid) - toCents(updated.total)),
+        );
         if (isAtLeast(Number(updated.amountPaid), Number(updated.total))) {
           // Solo la transición a `paid` avisa (un segundo pago sobre una
           // factura ya pagada no vuelve a emitir el evento).
@@ -650,6 +658,17 @@ export class PaymentsService {
     }
     if (invoicePaidNow && existing.invoiceId && !silent) {
       await this.emitInvoicePaid(args.tenantId, existing.invoiceId);
+    }
+    if (excessCents > 0 && existing.invoiceId) {
+      this.logger.warn(
+        `Cobro ${args.gatewayPaymentId} confirmado sobre la factura ${existing.invoiceId} ya pagada: ${excessCents / 100} € de más`,
+      );
+      this.events.emit(DOMAIN_EVENTS.payment_overpaid, {
+        tenantId: args.tenantId,
+        invoiceId: existing.invoiceId,
+        excess: excessCents / 100,
+        gatewayPaymentId: args.gatewayPaymentId,
+      } satisfies PaymentOverpaidPayload);
     }
     // Un adeudo o cobro que se resuelve rechazado después (SEPA, 3DS…): el
     // inquilino no estaba delante, así que se le avisa.

@@ -117,8 +117,18 @@ export class BillingJobsService {
       let cStart = periodStart;
       let cEnd = periodEnd;
       if (interval > 1) {
+        // Solo facturas con periodo: una factura sin periodo (producto, ajuste…)
+        // va la primera en `periodEnd desc` (nulos primero) y el prepago dejaba
+        // de renovarse.
         const last = await this.admin.invoice.findFirst({
-          where: { tenantId, contractId: c.id, status: { not: 'cancelled' }, deletedAt: null },
+          where: {
+            tenantId,
+            contractId: c.id,
+            status: { not: 'cancelled' },
+            deletedAt: null,
+            kind: 'invoice',
+            periodEnd: { not: null },
+          },
           orderBy: { periodEnd: 'desc' },
           select: { periodEnd: true },
         });
@@ -127,7 +137,25 @@ export class BillingJobsService {
           : new Date(c.startDate);
         if (cStart > periodEnd) continue; // cobertura aún vigente / periodo futuro
         cEnd = this.addDays(this.addMonths(cStart, interval), -1);
+      } else {
+        // Alta a mitad de mes: se factura desde el alta (prorrateado); un
+        // contrato que empieza después de este mes no se factura aún.
+        const start = new Date(c.startDate);
+        if (start > periodEnd) continue;
+        if (start > cStart) cStart = start;
       }
+      // Periodo completo antes de recortar por la baja (para el prorrateo).
+      const fullDays =
+        interval > 1 ? this.daysBetween(cStart, cEnd) : this.daysBetween(periodStart, periodEnd);
+      // Baja: no se factura más allá de la fecha de fin del contrato.
+      if (c.endDate) {
+        const end = new Date(c.endDate);
+        if (end < cStart) continue;
+        if (end < cEnd) cEnd = end;
+      }
+      const billedDays = this.daysBetween(cStart, cEnd);
+      const factor = billedDays >= fullDays ? 1 : billedDays / fullDays;
+      const prorated = factor < 1;
 
       // Dedup por SOLAPAMIENTO de periodo (no coincidencia exacta): la 1ª factura
       // del move-in cubre [alta, fin de mes natural], que rara vez casa día a día
@@ -171,20 +199,25 @@ export class BillingJobsService {
       const prepayPct = interval > 1 ? Number(c.prepayDiscountPct) : 0;
       const rentUnitPrice = isFreeMonth
         ? 0
-        : Math.round(toCents(pricing.effectivePrice) * interval * (1 - prepayPct / 100)) / 100;
+        : Math.round(toCents(pricing.effectivePrice) * interval * (1 - prepayPct / 100) * factor) /
+          100;
+      const insuranceUnitPrice =
+        Math.round(toCents(Number(c.insurancePrice ?? 0)) * interval * factor) / 100;
       const rentDesc =
         interval > 1
           ? `Alquiler ${c.contractNumber} (${cStart.toISOString().slice(0, 10)}–${cEnd
               .toISOString()
               .slice(0, 10)}, ${interval} meses prepago${prepayPct > 0 ? ` −${prepayPct}%` : ''})`
-          : `Alquiler ${c.contractNumber} (${rentMonth})${
-              isFreeMonth ? ' — mes gratis (promoción)' : ''
-            }`;
+          : `Alquiler ${c.contractNumber} (${rentMonth}${
+              prorated
+                ? `, ${cStart.toISOString().slice(0, 10)}–${cEnd.toISOString().slice(0, 10)}`
+                : ''
+            })${isFreeMonth ? ' — mes gratis (promoción)' : ''}`;
 
       try {
         const draft = await this.invoices.create({
           tenantId,
-          userId: c.customerId, // marcador: lo lanzo el sistema; en audit se filtrara
+          userId: null, // la crea el sistema (antes el id del inquilino: rompía la auditoría)
           input: {
             invoiceType: 'F1',
             customerId: c.customerId,
@@ -213,7 +246,7 @@ export class BillingJobsService {
                         c.insurancePlan?.name ? ` — ${c.insurancePlan.name}` : ''
                       } (${interval > 1 ? `${interval} meses` : cStart.toISOString().slice(0, 7)})`,
                       quantity: 1,
-                      unitPrice: Number(c.insurancePrice) * interval,
+                      unitPrice: insuranceUnitPrice,
                       taxRate: Number(c.insurancePlan?.taxRate ?? 21),
                       relatedContractId: c.id,
                       periodStart: cStart.toISOString().slice(0, 10),
@@ -276,6 +309,11 @@ export class BillingJobsService {
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
     return { periodStart: start, periodEnd: end };
+  }
+
+  /** Días naturales de `[from, to]`, ambos incluidos. */
+  private daysBetween(from: Date, to: Date): number {
+    return Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
   }
 
   private addDays(d: Date, days: number): Date {

@@ -25,6 +25,8 @@ export const DOMAIN_EVENTS = {
    * genera la rectificativa de abono por lo devuelto. No es trigger.
    */
   invoice_refunded: 'domain.invoice_refunded',
+  /** Cobro por pasarela confirmado sobre una factura ya pagada por otra vía. No es trigger. */
+  payment_overpaid: 'domain.payment_overpaid',
   invoice_rectified: 'domain.invoice_rectified',
   reservation_confirmed: 'domain.reservation_confirmed',
   lead_created: 'domain.lead_created',
@@ -47,6 +49,14 @@ export const DOMAIN_EVENTS = {
 export interface InvoiceCancelledPayload {
   tenantId: string;
   invoiceId: string;
+}
+
+export interface PaymentOverpaidPayload {
+  tenantId: string;
+  invoiceId: string;
+  /** Importe cobrado de más (a devolver), en euros. */
+  excess: number;
+  gatewayPaymentId: string;
 }
 
 export interface InvoiceRefundedPayload {

@@ -10,6 +10,7 @@ import {
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
+import { isUniqueViolation } from '../../common/prisma-errors';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
@@ -364,47 +365,65 @@ export class PlatformInvoicesService {
     // consultar Stripe). La cabecera monolínea (base/IVA/total) no cambia.
     const lines = await this.buildLines(payment, taxRate, { total, base, taxAmount });
 
-    // Numeración secuencial atómica por serie (año) + creación de la factura + líneas.
-    const created = await this.admin.$transaction(async (tx) => {
-      const last = await tx.platformInvoice.findFirst({
-        where: { series },
-        orderBy: { number: 'desc' },
-        select: { number: true },
-      });
-      const number = (last?.number ?? 0) + 1;
-      const fullNumber = `${settings.seriesPrefix}-${series}-${String(number).padStart(4, '0')}`;
-      const invoice = await tx.platformInvoice.create({
-        data: {
-          series,
-          number,
-          fullNumber,
-          tenantId: tenant.id,
-          tenantName: recipientName,
-          tenantTaxId: tenant.taxId,
-          tenantEmail: tenant.billingEmail,
-          tenantAddress: recipientAddress,
-          planSlug: payment.planSlug,
-          planName: payment.planName,
-          // Concepto real del cobro (p. ej. «Add-on: X»); si el pago no lo trae,
-          // el PDF cae a «Suscripción {plan}».
-          concept: payment.description ?? null,
-          periodStart: payment.periodStart,
-          periodEnd: payment.periodEnd,
-          baseAmount: base,
-          taxRate,
-          taxAmount,
-          total,
-          currency: payment.currency,
-          paymentId: payment.id,
-        },
-      });
-      if (lines.length > 0) {
-        await tx.platformInvoiceLine.createMany({
-          data: lines.map((l) => ({ ...l, platformInvoiceId: invoice.id })),
+    // Numeración secuencial atómica por serie (año) + creación de la factura +
+    // líneas. El bloqueo por serie serializa dos emisiones a la vez (antes las
+    // dos leían el mismo último número y la segunda fallaba por el único:
+    // el cobro quedaba sin factura).
+    let created;
+    try {
+      created = await this.admin.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`platform_invoice:${series}`}))`;
+        const last = await tx.platformInvoice.findFirst({
+          where: { series },
+          orderBy: { number: 'desc' },
+          select: { number: true },
         });
+        const number = (last?.number ?? 0) + 1;
+        const fullNumber = `${settings.seriesPrefix}-${series}-${String(number).padStart(4, '0')}`;
+        const invoice = await tx.platformInvoice.create({
+          data: {
+            series,
+            number,
+            fullNumber,
+            tenantId: tenant.id,
+            tenantName: recipientName,
+            tenantTaxId: tenant.taxId,
+            tenantEmail: tenant.billingEmail,
+            tenantAddress: recipientAddress,
+            planSlug: payment.planSlug,
+            planName: payment.planName,
+            // Concepto real del cobro (p. ej. «Add-on: X»); si el pago no lo trae,
+            // el PDF cae a «Suscripción {plan}».
+            concept: payment.description ?? null,
+            periodStart: payment.periodStart,
+            periodEnd: payment.periodEnd,
+            baseAmount: base,
+            taxRate,
+            taxAmount,
+            total,
+            currency: payment.currency,
+            paymentId: payment.id,
+          },
+        });
+        if (lines.length > 0) {
+          await tx.platformInvoiceLine.createMany({
+            data: lines.map((l) => ({ ...l, platformInvoiceId: invoice.id })),
+          });
+        }
+        return invoice;
+      });
+    } catch (err) {
+      // El mismo pago facturado a la vez por otro proceso (webhook + pago
+      // manual, dos réplicas): se devuelve la que ya existe.
+      if (isUniqueViolation(err)) {
+        const dup = await this.admin.platformInvoice.findUnique({
+          where: { paymentId },
+          include: INVOICE_INCLUDE,
+        });
+        if (dup) return this.invoiceToDto(dup);
       }
-      return invoice;
-    });
+      throw err;
+    }
 
     // PDF (best-effort: si falla, la factura queda emitida sin PDF y se puede regenerar).
     try {

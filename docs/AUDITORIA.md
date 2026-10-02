@@ -346,14 +346,27 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 11. La fianza se factura como venta (base en libro de IVA, 303, A3, métricas y Holded). → ✅ PR 6 (justificante de fianza aparte).
 12. Rectificativa por sustitución sin compensar la original (base duplicada); rectificativas sin límite. → ✅ PR 6 (2ª parte).
 13. Reembolsar no genera abono (IVA declarado sobre dinero devuelto). → ✅ PR 6 (2ª parte).
-14. Recurrente: contratos «en baja» facturados tras su fin; inicio a mitad de mes sin prorrateo (contratos del staff); un **prepago deja de renovarse** si el contrato tiene una factura sin periodo (`ORDER BY period_end DESC` pone los nulos primero). → PR 7.
-15. `revertPayment` marca como fallidos todos los pagos de la factura. → PR 7 (la devolución N43 ya revierte solo el importe del cargo: ✅ PR 1).
-16. GoCardless `late_failure_settled` no se trata. → PR 7.
-17. Cobro por pasarela sobre factura ya pagada por otra vía: sin aviso. → PR 7.
+14. Recurrente: contratos «en baja» facturados tras su fin; inicio a mitad de mes sin prorrateo (contratos del staff); un **prepago deja de renovarse** si el contrato tiene una factura sin periodo (`ORDER BY period_end DESC` pone los nulos primero). → ✅ PR 7.
+15. `revertPayment` marca como fallidos todos los pagos de la factura. → ✅ PR 7.
+16. GoCardless `late_failure_settled` no se trata. → ✅ PR 7.
+17. Cobro por pasarela sobre factura ya pagada por otra vía: sin aviso. → ✅ PR 7.
 18. Holded no recibe reembolsos ni devoluciones. → ✅ PR 2 (salen «para revisar»: Holded no permite quitar un cobro por API; el abono por reembolso llega con la PR 6).
-19. Numeración de facturas de suscripción sin bloqueo (un cobro puede quedar sin factura). → PR 7.
+19. Numeración de facturas de suscripción sin bloqueo (un cobro puede quedar sin factura). → ✅ PR 7.
 20. Una factura solo puede ir en una remesa en toda su vida; no se puede cancelar una remesa. → ✅ PR 3.
 21. Métricas: lo cobrado ignora entero un pago con reembolso parcial; lo facturado no descuenta reembolsos. → ✅ PR 6 (2ª parte).
+
+## PR 7 — casos límite de la recurrente y de los cobros ✅
+
+- **Recurrente** (hallazgo 14):
+  - un contrato con fecha de baja no se factura más allá de ella; si la baja cae dentro del mes, el alquiler y el seguro se prorratean hasta ese día;
+  - un alta a mitad de mes (contratos del staff) se factura prorrateada desde el alta, y un contrato que empieza después del mes no se factura aún;
+  - el prepago busca su última factura entre las que tienen periodo (una factura suelta del contrato ya no corta la renovación).
+  - De paso, la recurrente ya no pasa el id del inquilino como «usuario» (rompía el registro de auditoría).
+- **Devolución** (hallazgo 15): `revertPayment` solo marca fallido el cobro devuelto (uno del mismo importe o los más recientes que quepan), no todos los de la factura.
+- **GoCardless** (hallazgo 16): `late_failure_settled`, o un `failed` sobre un cobro ya confirmado, revierte el cobro como una devolución.
+- **Cobro duplicado** (hallazgo 17): un cobro de Stripe/GoCardless confirmado sobre una factura ya pagada por otra vía emite `payment_overpaid` → aviso al equipo con el importe a devolver (Redsys ya avisaba).
+- **Facturas de suscripción** (hallazgo 19): numeración con bloqueo por serie; facturar el mismo pago a la vez devuelve la factura existente.
+- e2e `billing-edges` (6 casos).
 
 ## Menores (PR 8)
 
