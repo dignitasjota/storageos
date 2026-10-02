@@ -84,6 +84,12 @@ export interface MessageTemplateDto {
   updatedAt: string;
 }
 
+/** Página del historial de Comunicaciones (paginado por cursor). */
+export interface CommunicationPageDto {
+  items: CommunicationDto[];
+  nextCursor: string | null;
+}
+
 export interface CommunicationDto {
   id: string;
   channel: CommunicationChannelValue;

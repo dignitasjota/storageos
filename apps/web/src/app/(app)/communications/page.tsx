@@ -2,13 +2,13 @@
 
 import { type CommunicationDto, type CommunicationStatusValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCommunications, useRetryCommunication } from '@/lib/communications/hooks';
+import { useCommunicationsPage, useRetryCommunication } from '@/lib/communications/hooks';
 
 const STATUS_LABELS: Record<CommunicationStatusValue, { label: string; variant: string }> = {
   pending: { label: 'Pendiente', variant: 'secondary' },
@@ -25,16 +25,41 @@ const STATUS_LABELS: Record<CommunicationStatusValue, { label: string; variant: 
   delivered: { label: 'Entregada', variant: 'default' },
   bounced: { label: 'Rebote', variant: 'destructive' },
   failed: { label: 'Fallida', variant: 'destructive' },
-  skipped: { label: 'Cancelada', variant: 'outline' },
+  skipped: { label: 'Omitida', variant: 'outline' },
+};
+
+const PERIODS: Record<string, { label: string; days: number | null }> = {
+  '7': { label: 'Últimos 7 días', days: 7 },
+  '30': { label: 'Últimos 30 días', days: 30 },
+  '90': { label: 'Últimos 90 días', days: 90 },
+  all: { label: 'Todo', days: null },
 };
 
 export default function CommunicationsPage() {
   const [status, setStatus] = useState<CommunicationStatusValue | undefined>();
   const [channel, setChannel] = useState<string | undefined>();
-  const communications = useCommunications({
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [period, setPeriod] = useState('30');
+  // Espera a que deje de escribir para buscar en el servidor.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+  const from = useMemo(() => {
+    const days = PERIODS[period]?.days;
+    return days ? new Date(Date.now() - days * 86_400_000).toISOString() : undefined;
+  }, [period]);
+  const communications = useCommunicationsPage({
     ...(status ? { status } : {}),
     ...(channel ? { channel } : {}),
+    ...(search ? { search } : {}),
+    ...(from ? { from } : {}),
   });
+  const rows = useMemo(
+    () => communications.data?.pages.flatMap((p) => p.items) ?? [],
+    [communications.data],
+  );
   const retry = useRetryCommunication();
 
   const columns: ColumnDef<CommunicationDto>[] = [
@@ -99,8 +124,17 @@ export default function CommunicationsPage() {
       accessorKey: 'status',
       header: 'Estado',
       cell: ({ row }) => {
-        const s = STATUS_LABELS[row.original.status];
-        return <Badge>{s.label}</Badge>;
+        const c = row.original;
+        const s = STATUS_LABELS[c.status];
+        return (
+          <div className="space-y-0.5">
+            <Badge variant={s.variant as 'default'}>{s.label}</Badge>
+            {c.errorMessage &&
+              (c.status === 'skipped' || c.status === 'failed' || c.status === 'bounced') && (
+                <p className="max-w-[220px] text-xs text-muted-foreground">{c.errorMessage}</p>
+              )}
+          </div>
+        );
       },
     },
     {
@@ -124,14 +158,6 @@ export default function CommunicationsPage() {
     },
   ];
 
-  if (communications.isLoading) {
-    return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div>
@@ -143,6 +169,24 @@ export default function CommunicationsPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Buscar destinatario, asunto o inquilino…"
+          className="w-full text-base sm:w-[300px] sm:text-sm"
+        />
+        <Select value={period} onValueChange={setPeriod}>
+          <SelectTrigger className="w-[170px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(PERIODS).map(([k, v]) => (
+              <SelectItem key={k} value={k}>
+                {v.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select
           value={status ?? 'all'}
           onValueChange={(v) =>
@@ -179,11 +223,22 @@ export default function CommunicationsPage() {
 
       <DataTable
         columns={columns}
-        data={communications.data ?? []}
+        data={rows}
         isLoading={communications.isLoading}
-        searchPlaceholder="Buscar destinatario..."
-        emptyText="Aún no hay comunicaciones."
+        pageSize={50}
+        emptyText="No hay comunicaciones con estos filtros."
       />
+      {communications.hasNextPage && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => void communications.fetchNextPage()}
+            disabled={communications.isFetchingNextPage}
+          >
+            {communications.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

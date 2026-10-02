@@ -43,6 +43,7 @@ import type {
   AutomationTriggerValue,
   CommunicationChannelValue,
   CommunicationDto,
+  CommunicationPageDto,
   CommunicationStatusValue,
   SendCommunicationInput,
 } from '@storageos/shared';
@@ -63,6 +64,16 @@ export interface ListFilters {
   contractId?: string;
   invoiceId?: string;
   source?: string;
+}
+
+/** Filtros del historial paginado (página de Comunicaciones). */
+export interface PageFilters extends ListFilters {
+  /** Destinatario, asunto o nombre del inquilino. */
+  search?: string;
+  from?: Date;
+  to?: Date;
+  cursor?: string;
+  limit?: number;
 }
 
 export interface SendArgs {
@@ -497,6 +508,60 @@ export class CommunicationsService {
         ...linkFields(r),
       }),
     );
+  }
+
+  /**
+   * Historial paginado por cursor (más recientes primero), con búsqueda y
+   * rango de fechas. El listado simple (`list`, máx. 200) se mantiene para las
+   * fichas y los filtros por recurso.
+   */
+  async listPage(tenantId: string, f: PageFilters): Promise<CommunicationPageDto> {
+    const take = Math.min(Math.max(f.limit ?? 50, 1), 100);
+    const where: Prisma.CommunicationWhereInput = {};
+    if (f.channel) where.channel = f.channel;
+    if (f.status) where.status = f.status;
+    if (f.customerId) where.customerId = f.customerId;
+    if (f.leadId) where.leadId = f.leadId;
+    if (f.source) where.source = f.source;
+    if (f.from || f.to) {
+      where.createdAt = { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) };
+    }
+    const q = f.search?.trim();
+    if (q) {
+      const contains = { contains: q, mode: 'insensitive' as const };
+      where.OR = [
+        { recipient: contains },
+        { subject: contains },
+        {
+          customer: {
+            OR: [{ firstName: contains }, { lastName: contains }, { companyName: contains }],
+          },
+        },
+      ];
+    }
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.communication.findMany({
+          where,
+          include: LIST_INCLUDE,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: take + 1,
+          ...(f.cursor ? { cursor: { id: f.cursor }, skip: 1 } : {}),
+        }),
+      tenantId,
+    );
+    const page = rows.slice(0, take);
+    return {
+      items: page.map((r) =>
+        this.toDto({
+          ...r,
+          templateName: r.template?.name ?? null,
+          customerName: r.customer ? customerDisplay(r.customer) : null,
+          ...linkFields(r),
+        }),
+      ),
+      nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
+    };
   }
 
   async detail(tenantId: string, id: string): Promise<CommunicationDto> {
