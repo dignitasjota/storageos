@@ -18,7 +18,9 @@ import type {
   RemittanceEligibleInvoiceDto,
   RemittancePreviewDto,
   SepaMandateDto,
+  SepaPrenoticeStatus,
   SepaRemittanceDto,
+  SepaRemittancePrenoticeDto,
   SepaSettingsDto,
   UpdateSepaSettingsInput,
 } from '@storageos/shared';
@@ -392,7 +394,85 @@ export class SepaService {
       (tx) => tx.sepaRemittance.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } }),
       tenantId,
     );
-    return rows.map((r) => this.toDto(r));
+    const counts = await this.prenoticeCounts(
+      tenantId,
+      rows.map((r) => r.id),
+    );
+    return rows.map((r) => this.toDto(r, counts.get(r.id)));
+  }
+
+  /** Constancia del preaviso de cada adeudo de la remesa. */
+  async listPrenotices(tenantId: string, id: string): Promise<SepaRemittancePrenoticeDto[]> {
+    await this.findOrThrow(tenantId, id);
+    const items = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittanceItem.findMany({
+          where: { remittanceId: id },
+          include: {
+            invoice: { select: { invoiceNumber: true } },
+            mandate: {
+              select: {
+                customerId: true,
+                customer: {
+                  select: {
+                    customerType: true,
+                    firstName: true,
+                    lastName: true,
+                    companyName: true,
+                  },
+                },
+              },
+            },
+            prenoticeCommunication: { select: { status: true } },
+          },
+          orderBy: { id: 'asc' },
+        }),
+      tenantId,
+    );
+    return items.map((i) => {
+      const c = i.mandate.customer;
+      return {
+        itemId: i.id,
+        invoiceId: i.invoiceId,
+        invoiceNumber: i.invoice.invoiceNumber,
+        customerId: i.mandate.customerId,
+        customerName:
+          c.customerType === 'business'
+            ? (c.companyName ?? '')
+            : [c.firstName, c.lastName].filter(Boolean).join(' '),
+        amount: i.amount / 100,
+        status: i.prenoticeStatus as SepaPrenoticeStatus | null,
+        at: i.prenoticeAt?.toISOString() ?? null,
+        recipient: i.prenoticeRecipient,
+        subject: i.prenoticeSubject,
+        text: i.prenoticeText,
+        deliveryStatus: i.prenoticeCommunication?.status ?? null,
+      };
+    });
+  }
+
+  private async prenoticeCounts(
+    tenantId: string,
+    remittanceIds: string[],
+  ): Promise<Map<string, { sent: number; missing: number }>> {
+    const out = new Map<string, { sent: number; missing: number }>();
+    if (remittanceIds.length === 0) return out;
+    const groups = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittanceItem.groupBy({
+          by: ['remittanceId', 'prenoticeStatus'],
+          where: { remittanceId: { in: remittanceIds } },
+          _count: { _all: true },
+        }),
+      tenantId,
+    );
+    for (const g of groups) {
+      const cur = out.get(g.remittanceId) ?? { sent: 0, missing: 0 };
+      if (g.prenoticeStatus === 'sent') cur.sent += g._count._all;
+      else if (g.prenoticeStatus) cur.missing += g._count._all;
+      out.set(g.remittanceId, cur);
+    }
+    return out;
   }
 
   async getXml(tenantId: string, id: string): Promise<{ filename: string; xml: string }> {
@@ -453,7 +533,8 @@ export class SepaService {
         data: { status: 'confirmed', confirmedAt: new Date() },
       });
     }, tenantId);
-    return this.toDto(updated);
+    const counts = await this.prenoticeCounts(tenantId, [updated.id]);
+    return this.toDto(updated, counts.get(updated.id));
   }
 
   private async findOrThrow(tenantId: string, id: string) {
@@ -470,7 +551,10 @@ export class SepaService {
     return row;
   }
 
-  private toDto(r: Prisma.SepaRemittanceGetPayload<object>): SepaRemittanceDto {
+  private toDto(
+    r: Prisma.SepaRemittanceGetPayload<object>,
+    counts: { sent: number; missing: number } = { sent: 0, missing: 0 },
+  ): SepaRemittanceDto {
     return {
       id: r.id,
       name: r.name,
@@ -481,6 +565,8 @@ export class SepaService {
       total: r.totalAmount / 100,
       createdAt: r.createdAt.toISOString(),
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
+      prenoticesSent: counts.sent,
+      prenoticesMissing: counts.missing,
     };
   }
 }

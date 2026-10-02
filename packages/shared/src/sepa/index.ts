@@ -129,6 +129,30 @@ export interface SepaRemittanceDto {
   total: number;
   createdAt: string;
   confirmedAt: string | null;
+  /** Preavisos enviados a los deudores. */
+  prenoticesSent: number;
+  /** Adeudos sin preaviso (correo apagado, sin email o error). */
+  prenoticesMissing: number;
+}
+
+/** Estado del preaviso de un adeudo: null = aún pendiente de enviar. */
+export type SepaPrenoticeStatus = 'sent' | 'disabled' | 'no_email' | 'failed';
+
+/** Constancia del preaviso de cada adeudo de una remesa. */
+export interface SepaRemittancePrenoticeDto {
+  itemId: string;
+  invoiceId: string;
+  invoiceNumber: string | null;
+  customerId: string;
+  customerName: string;
+  amount: number;
+  status: SepaPrenoticeStatus | null;
+  at: string | null;
+  recipient: string | null;
+  subject: string | null;
+  text: string | null;
+  /** Estado de entrega del correo, mientras siga en Comunicaciones. */
+  deliveryStatus: string | null;
 }
 
 /**

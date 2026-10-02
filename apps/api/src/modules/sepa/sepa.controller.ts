@@ -17,6 +17,7 @@ import {
   type RemittancePreviewDto,
   type SepaMandateDto,
   type SepaRemittanceDto,
+  type SepaRemittancePrenoticeDto,
   type SepaSettingsDto,
   UpdateSepaSettingsSchema,
 } from '@storageos/shared';
@@ -109,6 +110,15 @@ export class SepaController {
     @Body() body: CreateRemittanceDto,
   ): Promise<SepaRemittanceDto> {
     return this.sepa.createRemittance({ tenantId: user.tenantId, userId: user.sub, input: body });
+  }
+
+  @RequirePermission('payments:read')
+  @Get('remittances/:id/prenotices')
+  prenotices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<SepaRemittancePrenoticeDto[]> {
+    return this.sepa.listPrenotices(user.tenantId, id);
   }
 
   @RequirePermission('invoices:manage')

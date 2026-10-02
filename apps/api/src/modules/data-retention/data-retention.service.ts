@@ -16,6 +16,9 @@ import type { Env } from '../../config/env.schema';
  * NO incluye tablas con obligación fiscal (invoices, payments) ni las que ya
  * tienen su propio cleanup (security_events 90d, webhook_deliveries, stripe_events).
  */
+/** Origen de los preavisos SEPA en `communications`. */
+const SEPA_PRENOTICE_SOURCE = 'customer_email.sepa_prenotification';
+
 @Injectable()
 export class DataRetentionService {
   private readonly logger = new Logger(DataRetentionService.name);
@@ -40,12 +43,26 @@ export class DataRetentionService {
     const accessDays = this.config.get('RETENTION_ACCESS_LOGS_DAYS', { infer: true });
     const commsDays = this.config.get('RETENTION_COMMUNICATIONS_DAYS', { infer: true });
     const notifDays = this.config.get('RETENTION_NOTIFICATIONS_DAYS', { infer: true });
+    const prenoticeDays = Math.max(
+      this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
+      commsDays,
+    );
 
     const [auditLogs, accessLogs, communications, notifications, platformEmails] =
       await Promise.all([
         this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
         this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
-        this.admin.communication.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),
+        // Los preavisos SEPA se conservan más (prueba ante una devolución).
+        this.admin.communication.deleteMany({
+          where: {
+            createdAt: { lt: cutoff(commsDays) },
+            OR: [
+              { source: null },
+              { source: { not: SEPA_PRENOTICE_SOURCE } },
+              { createdAt: { lt: cutoff(prenoticeDays) } },
+            ],
+          },
+        }),
         this.admin.notification.deleteMany({ where: { createdAt: { lt: cutoff(notifDays) } } }),
         // Historial de correos de la plataforma: mismo plazo que Comunicaciones.
         this.admin.platformEmailLog.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),

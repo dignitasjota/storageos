@@ -111,6 +111,29 @@ describe('Remesas SEPA (e2e)', () => {
     expect(notice.Subject).toMatch(/121,00\s€ el 30\/06\/2026/);
     expect(notice.Text).toContain('Referencia del mandato: MND-');
 
+    // Constancia del preaviso en la propia remesa (prueba ante una devolución).
+    let prenotices: { status: string | null; recipient: string; text: string; subject: string }[] =
+      [];
+    for (let i = 0; i < 40; i++) {
+      prenotices = (
+        await request(app.getHttpServer())
+          .get(`/sepa/remittances/${remittanceId}/prenotices`)
+          .set(auth)
+          .expect(200)
+      ).body;
+      if (prenotices[0]?.status) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(prenotices).toHaveLength(1);
+    expect(prenotices[0]).toMatchObject({ status: 'sent', recipient: debtorEmail });
+    expect(prenotices[0]!.subject).toContain('Aviso de cargo');
+    expect(prenotices[0]!.text).toContain('Referencia del mandato: MND-');
+    const listed = await request(app.getHttpServer()).get('/sepa/remittances').set(auth);
+    expect(listed.body.find((r: { id: string }) => r.id === remittanceId)).toMatchObject({
+      prenoticesSent: 1,
+      prenoticesMissing: 0,
+    });
+
     // Descargar XML pain.008 y validar lo esencial.
     const xmlRes = await request(app.getHttpServer())
       .get(`/sepa/remittances/${remittanceId}/xml`)
@@ -167,5 +190,55 @@ describe('Remesas SEPA (e2e)', () => {
     expect(preview.body.withoutMandate.map((w: { invoiceId: string }) => w.invoiceId)).toContain(
       invoiceId,
     );
+  });
+
+  it('si el preaviso está apagado, la remesa lo deja constado como no enviado', async () => {
+    const owner = await registerVerifiedUser(app, 'sepaoff');
+    await setTenantPlan(owner.slug, 'pro');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    await request(app.getHttpServer())
+      .put('/sepa/settings')
+      .set(auth)
+      .send({
+        creditorName: 'Trasteros SL',
+        creditorId: 'ES12ZZZB12345678',
+        creditorIban: CREDITOR_IBAN,
+        enabled: true,
+      })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/customer-emails')
+      .set(auth)
+      .send({ sepa_prenotification: false })
+      .expect(200);
+    const customerId = await createCustomer(app, owner.accessToken, {
+      email: `sepaoff-${Date.now()}@e2e.local`,
+    });
+    await request(app.getHttpServer())
+      .post('/sepa/mandates')
+      .set(auth)
+      .send({ customerId, iban: DEBTOR_IBAN, signedAt: '2026-01-15' })
+      .expect(201);
+    const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId);
+    await request(app.getHttpServer()).post(`/invoices/${invoiceId}/issue`).set(auth).expect(200);
+    const rem = await request(app.getHttpServer())
+      .post('/sepa/remittances')
+      .set(auth)
+      .send({ name: 'Sin preaviso', collectionDate: '2026-06-30', invoiceIds: [invoiceId] })
+      .expect(201);
+
+    let status: string | null = null;
+    for (let i = 0; i < 40 && !status; i++) {
+      const res = await request(app.getHttpServer())
+        .get(`/sepa/remittances/${rem.body.id}/prenotices`)
+        .set(auth)
+        .expect(200);
+      status = res.body[0]?.status ?? null;
+      if (!status) await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(status).toBe('disabled');
+    const listed = await request(app.getHttpServer()).get('/sepa/remittances').set(auth);
+    expect(listed.body[0]).toMatchObject({ prenoticesSent: 0, prenoticesMissing: 1 });
   });
 });

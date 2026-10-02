@@ -8,6 +8,7 @@ const RETENTION: Record<string, number> = {
   RETENTION_ACCESS_LOGS_DAYS: 180,
   RETENTION_COMMUNICATIONS_DAYS: 180,
   RETENTION_NOTIFICATIONS_DAYS: 90,
+  RETENTION_SEPA_PRENOTICE_DAYS: 430,
 };
 
 function build() {
@@ -42,6 +43,14 @@ describe('DataRetentionService', () => {
       Date,
     );
     expect(admin.notification.deleteMany.mock.calls[0]![0].where.createdAt.lt).toBeInstanceOf(Date);
+
+    // Los preavisos SEPA solo se borran pasado su propio plazo (430 días).
+    const commsWhere = admin.communication.deleteMany.mock.calls[0]![0].where;
+    expect(commsWhere.OR[1]).toEqual({
+      source: { not: 'customer_email.sepa_prenotification' },
+    });
+    const prenoticeCutoff = commsWhere.OR[2].createdAt.lt as Date;
+    expect(Math.abs(prenoticeCutoff.getTime() - (before - 430 * 86_400_000))).toBeLessThan(5000);
 
     expect(result).toEqual({
       auditLogs: 3,

@@ -8,6 +8,7 @@ import type {
   RemittancePreviewDto,
   SepaMandateDto,
   SepaRemittanceDto,
+  SepaRemittancePrenoticeDto,
   SepaSettingsDto,
   UpdateSepaSettingsInput,
 } from '@storageos/shared';
@@ -69,6 +70,16 @@ export function useSepaRemittances() {
   return useQuery({
     queryKey: remittancesKey,
     queryFn: () => apiFetch<SepaRemittanceDto[]>('/sepa/remittances'),
+  });
+}
+
+/** Constancia del preaviso de cada adeudo (se refresca mientras haya pendientes). */
+export function useRemittancePrenotices(id: string | null) {
+  return useQuery({
+    queryKey: [...remittancesKey, id, 'prenotices'] as const,
+    queryFn: () => apiFetch<SepaRemittancePrenoticeDto[]>(`/sepa/remittances/${id}/prenotices`),
+    enabled: !!id,
+    refetchInterval: (q) => (q.state.data?.some((p) => p.status === null) ? 3000 : false),
   });
 }
 

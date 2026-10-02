@@ -11,6 +11,8 @@ import { CheckCircle2, Download, FileText, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { PrenoticesDialog } from './prenotices-dialog';
+
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,6 +62,7 @@ export default function SepaRemittancesPage() {
   const settings = useSepaSettings();
   const confirmMut = useConfirmRemittance();
   const canManage = useHasPermission('invoices:manage');
+  const [prenoticeFor, setPrenoticeFor] = useState<SepaRemittanceDto | null>(null);
 
   async function handleConfirm(id: string) {
     if (!window.confirm('¿Confirmar el cobro? Se marcarán las facturas como pagadas.')) return;
@@ -80,6 +83,31 @@ export default function SepaRemittancesPage() {
     { accessorKey: 'collectionDate', header: 'Fecha de cobro' },
     { accessorKey: 'itemCount', header: 'Facturas' },
     { accessorKey: 'total', header: 'Total', cell: ({ row }) => eur(row.original.total) },
+    {
+      id: 'prenotices',
+      header: 'Preavisos',
+      cell: ({ row }) => {
+        const r = row.original;
+        const pending = r.itemCount - r.prenoticesSent - r.prenoticesMissing;
+        return (
+          <button
+            type="button"
+            onClick={() => setPrenoticeFor(r)}
+            className="text-left text-sm hover:underline"
+          >
+            {r.prenoticesSent}/{r.itemCount} enviados
+            {r.prenoticesMissing > 0 && (
+              <span className="block text-xs text-amber-700 dark:text-amber-300">
+                {r.prenoticesMissing} sin preaviso
+              </span>
+            )}
+            {pending > 0 && (
+              <span className="block text-xs text-muted-foreground">{pending} pendientes</span>
+            )}
+          </button>
+        );
+      },
+    },
     {
       accessorKey: 'status',
       header: 'Estado',
@@ -141,6 +169,7 @@ export default function SepaRemittancesPage() {
         emptyText="Aún no has generado ninguna remesa."
         toolbarRight={canManage && configured ? <CreateRemittanceDialog /> : null}
       />
+      <PrenoticesDialog remittance={prenoticeFor} onClose={() => setPrenoticeFor(null)} />
     </div>
   );
 }
