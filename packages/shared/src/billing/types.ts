@@ -67,6 +67,13 @@ export interface InvoiceDto {
   invoiceType: InvoiceTypeValue;
   rectifiesInvoiceId: string | null;
   rectifiesInvoiceNumber: string | null;
+  /** Rectificativas emitidas sobre esta factura (p. ej. la de abono al anularla). */
+  rectifiedBy: {
+    id: string;
+    invoiceNumber: string | null;
+    status: InvoiceStatusValue;
+    total: number;
+  }[];
   rectificationReason: string | null;
   /** Si esta factura es un recargo por mora, la factura vencida que lo originó. */
   lateFeeForInvoiceId: string | null;

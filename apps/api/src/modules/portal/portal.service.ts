@@ -821,7 +821,9 @@ export class PortalService {
         tenantId,
         customerId,
         deletedAt: null,
-        status: { in: ['issued', 'overdue', 'paid', 'refunded', 'partially_refunded'] },
+        status: {
+          in: ['issued', 'overdue', 'paid', 'refunded', 'partially_refunded', 'rectified'],
+        },
       },
       orderBy: { issueDate: 'desc' },
     });

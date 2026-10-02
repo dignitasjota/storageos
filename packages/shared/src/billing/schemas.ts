@@ -23,6 +23,8 @@ export const InvoiceStatusEnum = z.enum([
   'cancelled',
   'refunded',
   'partially_refunded',
+  /** Emitida y anulada con una rectificativa de abono por el total. */
+  'rectified',
 ]);
 export type InvoiceStatusValue = z.infer<typeof InvoiceStatusEnum>;
 

@@ -135,31 +135,25 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
       .send({ name: 'M', defaultPriceMonthly: 50, defaultDepositAmount: 0 });
     const unitTypeId = unitType.body.id as string;
     const mkUnit = (code: string) =>
-      request(app.getHttpServer())
-        .post('/units')
-        .set(auth)
-        .send({
-          facilityId,
-          unitTypeId,
-          code,
-          widthM: 2,
-          depthM: 2,
-          heightM: 2,
-          basePriceMonthly: 50,
-        });
+      request(app.getHttpServer()).post('/units').set(auth).send({
+        facilityId,
+        unitTypeId,
+        code,
+        widthM: 2,
+        depthM: 2,
+        heightM: 2,
+        basePriceMonthly: 50,
+      });
     const uBase = await mkUnit('BE-BASE');
     const uUnpaid = await mkUnit('BE-UNPAID');
     const uPaid = await mkUnit('BE-PAID');
 
-    const customer = await request(app.getHttpServer())
-      .post('/customers')
-      .set(auth)
-      .send({
-        customerType: 'individual',
-        firstName: 'Ana',
-        lastName: 'Ríos',
-        email: 'ana-be@x.com',
-      });
+    const customer = await request(app.getHttpServer()).post('/customers').set(auth).send({
+      customerType: 'individual',
+      firstName: 'Ana',
+      lastName: 'Ríos',
+      email: 'ana-be@x.com',
+    });
     const customerId = customer.body.id as string;
 
     // Contrato base activo en el local.
@@ -211,7 +205,11 @@ describe('Portal: self-service de contratación de trastero (e2e)', () => {
     const unitUnpaid = await admin.unit.findUnique({ where: { id: uUnpaid.body.id } });
     expect(unitUnpaid!.status).toBe('available');
     const invUnpaid = await admin.invoice.findUnique({ where: { id: bookUnpaid.body.invoiceId } });
-    expect(invUnpaid!.status).toBe('cancelled');
+    // Ya emitida: se anula con una rectificativa de abono (no se borra del libro de IVA).
+    expect(invUnpaid!.status).toBe('rectified');
+    expect(
+      await admin.invoice.count({ where: { rectifiesInvoiceId: bookUnpaid.body.invoiceId } }),
+    ).toBe(1);
 
     // Pagado → intacto (contrato sigue vivo, deadline limpiado).
     const cPaid = await admin.contract.findUnique({ where: { id: bookPaid.body.contractId } });

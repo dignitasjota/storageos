@@ -154,15 +154,24 @@ describe('Holded: copia contable de facturas (e2e)', () => {
     );
     expect(generic).toBeDefined();
 
-    // Anulada → cancelada en Holded.
+    // Anulada → su rectificativa de abono llega a Holded como rectificativa
+    // (la factura original no se cancela allí: se compensa, igual que en la app).
     const third = await createDraftInvoice(app, owner.accessToken, customerId);
     await http().post(`/invoices/${third}/issue`).set(auth).expect(200);
     const thirdHolded = await holdedIdOf(third);
-    await http().post(`/invoices/${third}/cancel`).set(auth).send({ reason: 'Error' }).expect(200);
-    await waitFor(async () =>
-      holded.calls.find((c) => c.path === `/invoices/${thirdHolded}/cancel`),
-    );
-    const row = await admin.invoice.findUniqueOrThrow({ where: { id: third } });
-    expect(row.holdedCancelledAt).not.toBeNull();
+    const cancelled = await http()
+      .post(`/invoices/${third}/cancel`)
+      .set(auth)
+      .send({ reason: 'Error' })
+      .expect(200);
+    expect(cancelled.body.status).toBe('rectified');
+    const creditNotesBefore = holded.calls.filter(
+      (c) => c.method === 'POST' && c.path === '/credit-notes',
+    ).length;
+    await holdedIdOf(cancelled.body.rectifiedBy[0].id as string);
+    expect(
+      holded.calls.filter((c) => c.method === 'POST' && c.path === '/credit-notes').length,
+    ).toBeGreaterThanOrEqual(creditNotesBefore);
+    expect(holded.calls.some((c) => c.path === `/invoices/${thirdHolded}/cancel`)).toBe(false);
   }, 90_000);
 });

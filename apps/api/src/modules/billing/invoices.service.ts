@@ -56,12 +56,14 @@ import type {
 
 const ALLOWED_TRANSITIONS: Record<InvoiceStatusValue, InvoiceStatusValue[]> = {
   draft: ['issued', 'cancelled'],
-  issued: ['paid', 'overdue', 'cancelled', 'refunded', 'partially_refunded'],
-  overdue: ['paid', 'cancelled', 'refunded', 'partially_refunded'],
+  // Emitida: no se «cancela»; se anula con rectificativa (`rectified`).
+  issued: ['paid', 'overdue', 'rectified', 'refunded', 'partially_refunded'],
+  overdue: ['paid', 'rectified', 'refunded', 'partially_refunded'],
   paid: ['refunded', 'partially_refunded'],
   partially_refunded: ['refunded'],
   refunded: [],
   cancelled: [],
+  rectified: [],
 };
 
 type InvoiceWithRelations = Invoice & {
@@ -79,6 +81,7 @@ type InvoiceWithRelations = Invoice & {
   } | null;
   series: { code: string };
   rectifiesInvoice: { id: string; invoiceNumber: string } | null;
+  rectifiedBy: { id: string; invoiceNumber: string; status: string; total: Prisma.Decimal }[];
   lateFeeInvoice: { id: string } | null;
 };
 
@@ -823,6 +826,15 @@ export class InvoicesService {
     return this.toDto(await this.findOrThrow(tenantId, invoiceId));
   }
 
+  /**
+   * Anula una factura.
+   * - Borrador → `cancelled` (no tiene número ni efecto fiscal).
+   * - Emitida (issued/overdue) y sin cobros → `rectified` + rectificativa de
+   *   abono por el total, emitida en el acto (R4; R5 si la original es una
+   *   simplificada). La original sigue en los informes fiscales y la
+   *   rectificativa resta; Holded recibe la rectificativa.
+   * Con cobros hay que reembolsar o rectificar a mano (400 `invoice_has_payments`).
+   */
   async cancel(args: {
     tenantId: string;
     /** `null` cuando lo lanza un proceso automático (cron de bookings impagados). */
@@ -833,12 +845,26 @@ export class InvoicesService {
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    if (existing.status !== 'draft') {
+      return this.cancelIssued(args);
+    }
     this.assertTransition(existing.status as InvoiceStatusValue, 'cancelled');
+    const { count } = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.updateMany({
+          where: { id: args.invoiceId, status: 'draft' },
+          data: { status: 'cancelled', cancelledAt: new Date() },
+        }),
+      args.tenantId,
+    );
+    if (count === 0) {
+      // Se emitió entre la lectura y la anulación: se anula como emitida.
+      return this.cancelIssued(args);
+    }
     const updated = await this.prisma.withTenant(
       (tx) =>
-        tx.invoice.update({
+        tx.invoice.findUniqueOrThrow({
           where: { id: args.invoiceId },
-          data: { status: 'cancelled', cancelledAt: new Date() },
           include: this.includeRelations(),
         }),
       args.tenantId,
@@ -857,6 +883,161 @@ export class InvoicesService {
       tenantId: args.tenantId,
       invoiceId: updated.id,
     } satisfies InvoiceCancelledPayload);
+    return this.toDto(updated);
+  }
+
+  /** Anula una factura emitida con una rectificativa de abono por el total. */
+  private async cancelIssued(args: {
+    tenantId: string;
+    userId: string | null;
+    invoiceId: string;
+    input: CancelInvoiceInput;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const reason = args.input.reason?.trim() || 'Anulación de la factura';
+    // Reserva atómica: la factura pasa a `rectified` con la fila bloqueada y
+    // comprobando que sigue sin cobros ni cobros en curso. Dos anulaciones a
+    // la vez no emiten dos rectificativas.
+    const original = await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, args.invoiceId);
+      const fresh = await tx.invoice.findUniqueOrThrow({
+        where: { id: args.invoiceId },
+        include: { items: { orderBy: { position: 'asc' } } },
+      });
+      if (fresh.status !== 'issued' && fresh.status !== 'overdue') {
+        throw new BadRequestException({
+          code: 'invoice_not_cancellable',
+          message:
+            fresh.status === 'rectified' || fresh.status === 'cancelled'
+              ? 'La factura ya está anulada'
+              : 'Una factura cobrada no se anula: reembólsala o emite una rectificativa',
+        });
+      }
+      if (fresh.invoiceType !== 'F1' && fresh.invoiceType !== 'F2') {
+        throw new BadRequestException({
+          code: 'invoice_not_cancellable',
+          message: 'Una rectificativa no se anula: emite otra rectificativa',
+        });
+      }
+      if (isGreaterThan(fresh.amountPaid, 0)) {
+        throw new BadRequestException({
+          code: 'invoice_has_payments',
+          message:
+            'La factura tiene cobros: reembolsa lo cobrado o emite una rectificativa por la diferencia',
+        });
+      }
+      const inFlight = await tx.payment.count({
+        where: { invoiceId: args.invoiceId, status: { in: ['pending', 'processing'] } },
+      });
+      if (inFlight > 0) {
+        throw new ConflictException({
+          code: 'payment_in_progress',
+          message: 'Hay un cobro en curso para esta factura: espera a que se resuelva',
+        });
+      }
+      await assertNotInSepaRemittance(tx, args.invoiceId);
+      await tx.invoice.update({
+        where: { id: args.invoiceId },
+        data: { status: 'rectified', cancelledAt: new Date() },
+      });
+      return fresh;
+    }, args.tenantId);
+
+    // Líneas en negativo: mismas cantidades y tipos de IVA, precio con signo
+    // contrario → la rectificativa resta exactamente lo facturado.
+    const items = original.items.map((it) => {
+      const qty = Number(it.quantity);
+      const integer = Number.isInteger(qty) && qty > 0;
+      return {
+        description: it.description,
+        quantity: integer ? qty : 1,
+        unitPrice: -(integer
+          ? Number(it.unitPrice)
+          : Math.round(qty * Number(it.unitPrice) * 100) / 100),
+        taxRate: Number(it.taxRate),
+        ...(it.relatedContractId ? { relatedContractId: it.relatedContractId } : {}),
+        ...(it.relatedUnitId ? { relatedUnitId: it.relatedUnitId } : {}),
+        ...(it.periodStart ? { periodStart: it.periodStart.toISOString().slice(0, 10) } : {}),
+        ...(it.periodEnd ? { periodEnd: it.periodEnd.toISOString().slice(0, 10) } : {}),
+      };
+    });
+
+    let rectificationId: string;
+    try {
+      const draft = await this.rectify({
+        originalInvoiceId: original.id,
+        tenantId: args.tenantId,
+        userId: args.userId,
+        input: {
+          rectificationType: original.invoiceType === 'F2' ? 'R5' : 'R4',
+          reason,
+          correctionMethod: 'by_differences',
+          items,
+        },
+        meta: args.meta,
+        allowRectifiedOriginal: true,
+      });
+      rectificationId = draft.id;
+    } catch (err) {
+      // Sin rectificativa no hay anulación: la factura vuelve a su estado.
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.updateMany({
+            where: { id: original.id, status: 'rectified' },
+            data: { status: original.status, cancelledAt: null },
+          }),
+        args.tenantId,
+      );
+      throw err;
+    }
+
+    try {
+      await this.issue({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: rectificationId,
+        meta: args.meta,
+      });
+      // Compensada con la original (que no se cobró): no queda nada que
+      // cobrar ni que devolver, así que no cuenta como pendiente ni vence.
+      await this.prisma.withTenant(async (tx) => {
+        const r = await tx.invoice.findUniqueOrThrow({
+          where: { id: rectificationId },
+          select: { total: true },
+        });
+        await tx.invoice.updateMany({
+          where: { id: rectificationId, status: 'issued' },
+          data: { status: 'paid', amountPaid: r.total, paidAt: new Date(), dueDate: null },
+        });
+      }, args.tenantId);
+    } catch (err) {
+      // La rectificativa queda en borrador enlazada a la original: el staff la
+      // ve y la emite a mano. La original ya no se cobra.
+      this.logger.error(
+        `[invoices] rectificativa ${rectificationId} de ${original.id} sin emitir: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'invoice.cancelled_with_rectification',
+      entityType: 'Invoice',
+      entityId: original.id,
+      changes: { reason, rectificationId },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findUniqueOrThrow({
+          where: { id: original.id },
+          include: this.includeRelations(),
+        }),
+      args.tenantId,
+    );
     return this.toDto(updated);
   }
 
@@ -1258,9 +1439,11 @@ export class InvoicesService {
     originalInvoiceId: string;
     tenantId: string;
     facilityScope?: string[] | null;
-    userId: string;
+    userId: string | null;
     input: RectifyInvoiceInput;
     meta: RequestMeta;
+    /** Uso interno de la anulación: la original ya está reservada como `rectified`. */
+    allowRectifiedOriginal?: boolean;
   }): Promise<InvoiceDto> {
     const original = await this.findOrThrow(
       args.tenantId,
@@ -1272,6 +1455,12 @@ export class InvoicesService {
       throw new BadRequestException({
         code: 'invoice_not_rectifiable',
         message: 'Solo se pueden rectificar facturas emitidas',
+      });
+    }
+    if (original.status === 'rectified' && !args.allowRectifiedOriginal) {
+      throw new BadRequestException({
+        code: 'invoice_not_rectifiable',
+        message: 'La factura ya está anulada con una rectificativa por el total',
       });
     }
     // Solo se permite rectificar facturas no-rectificativas. F1 y F2
@@ -1380,6 +1569,8 @@ export class InvoicesService {
           where: {
             status: 'issued',
             dueDate: { lt: new Date() },
+            // Una rectificativa de abono (importe ≤ 0) no se reclama.
+            total: { gt: 0 },
           },
           data: { status: 'overdue' },
         }),
@@ -1445,6 +1636,11 @@ export class InvoicesService {
       },
       series: { select: { code: true } },
       rectifiesInvoice: { select: { id: true, invoiceNumber: true } },
+      rectifiedBy: {
+        where: { deletedAt: null },
+        select: { id: true, invoiceNumber: true, status: true, total: true },
+        orderBy: { createdAt: 'asc' },
+      },
       lateFeeInvoice: { select: { id: true } },
     } as const;
   }
@@ -1590,6 +1786,12 @@ export class InvoicesService {
       invoiceType: row.invoiceType as InvoiceTypeValue,
       rectifiesInvoiceId: row.rectifiesInvoiceId,
       rectifiesInvoiceNumber: row.rectifiesInvoice?.invoiceNumber ?? null,
+      rectifiedBy: row.rectifiedBy.map((r) => ({
+        id: r.id,
+        invoiceNumber: r.status === 'draft' ? null : r.invoiceNumber,
+        status: r.status as InvoiceStatusValue,
+        total: Number(r.total),
+      })),
       lateFeeForInvoiceId: row.lateFeeForInvoiceId,
       lateFeeInvoiceId: row.lateFeeInvoice?.id ?? null,
       rectificationReason: row.rectificationReason,

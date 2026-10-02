@@ -600,7 +600,9 @@ export class AnalyticsService {
             where: {
               tenantId,
               deletedAt: null,
-              status: { in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] },
+              status: {
+                in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
+              },
               issueDate: { gte: fromDate, lt: toExclusive },
             },
             select: { issueDate: true, total: true },

@@ -150,6 +150,7 @@
         "statusCancelled": "Cancelled",
         "statusRefunded": "Refunded",
         "statusPartiallyRefunded": "Partial refund",
+        "statusRectified": "Cancelled",
         "paymentInProgress": "Payment in progress",
         "pay": "Pay",
         "payWithCard": "Pay with card",

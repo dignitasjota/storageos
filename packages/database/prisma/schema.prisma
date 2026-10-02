@@ -143,6 +143,8 @@ enum InvoiceStatus {
   cancelled
   refunded
   partially_refunded
+  /// Emitida y anulada con una rectificativa de abono por el total (sigue contando en los informes fiscales).
+  rectified
 
   @@map("invoice_status")
 }

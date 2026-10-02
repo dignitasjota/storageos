@@ -126,7 +126,9 @@ export class HoldedSyncService {
       where: {
         tenantId,
         deletedAt: null,
-        status: { in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] },
+        status: {
+          in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
+        },
         // Sin copia y sin reserva, o creadas en Holded pero sin aprobar. Las que
         // se quedaron «creando» (Holded no respondió) van a «para revisar».
         OR: [{ holdedDocumentId: null, holdedSyncState: null }, { holdedSyncState: 'approving' }],
