@@ -278,7 +278,7 @@ access-devices) con el principio **configuración (owner) vs operación
 Redsys); configuración de integraciones (series, PUT de Holded/Redsys, upload/revoke
 de credenciales AEAT) → `billing:configure` (owner-only, `manager` pierde crear/editar
 series); operaciones y lecturas de billing (resend/refresh AEAT + GET de credenciales AEAT
-history/me, Holded test/backfill/sync) → `invoices:manage` (owner+manager; `GET /settings/holded/series`,
+history/me, Holded test/backfill/sync y la revisión `GET /settings/holded/review` + `POST /settings/holded/review/{invoices|payments}/:id {action: retry|already_in_holded|reviewed, holdedDocumentId?}`) → `invoices:manage` (owner+manager; `GET /settings/holded/series`,
 que lista las series de la cuenta de Holded para elegirlas, → `billing:configure`; `GET/POST /settings/saas-billing/billing-details`, datos fiscales del tenant para sus facturas de suscripción, → `billing:configure`; `GET /admin/platform-billing/accountant-export?from=&to=&format=json|csv|xlsx&kind=invoices|payments`, exportación para la asesoría, → super admin `@RequireSuperadmin`; `GET/PUT /admin/platform-billing/holded` + `/holded/series`, `/holded/test`, `/holded/backfill`, copia en Holded de las facturas de suscripción, → super admin; `POST /admin/platform-invoices/:id/rectify`, rectificativa de una factura de suscripción, → super admin); lecturas
 de settings de pasarela (GET de Holded/Redsys) → `settings:read`; accesos →
 `access:read` (GET + device ping) y `access:manage`

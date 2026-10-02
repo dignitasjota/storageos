@@ -26,7 +26,7 @@ export class HoldedSettingsService {
     private readonly crypto: CryptoService,
   ) {}
 
-  async get(tenantId: string): Promise<HoldedSettingsDto> {
+  async get(tenantId: string): Promise<Omit<HoldedSettingsDto, 'reviewCount'>> {
     const row = await this.row(tenantId);
     const hasApiKey = !!row?.apiKeyEncrypted;
     const enabled = row?.enabled ?? false;
@@ -41,7 +41,10 @@ export class HoldedSettingsService {
     };
   }
 
-  async update(tenantId: string, input: UpdateHoldedSettingsInput): Promise<HoldedSettingsDto> {
+  async update(
+    tenantId: string,
+    input: UpdateHoldedSettingsInput,
+  ): Promise<Omit<HoldedSettingsDto, 'reviewCount'>> {
     const existing = await this.row(tenantId);
     if (input.enabled && !input.apiKey && !existing?.apiKeyEncrypted) {
       throw new BadRequestException({

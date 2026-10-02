@@ -24,7 +24,43 @@ export interface HoldedSettingsDto {
   ready: boolean;
   lastSyncAt: string | null;
   lastError: string | null;
+  /** Elementos para revisar a mano en Holded (ver `HoldedReviewItemDto`). */
+  reviewCount: number;
 }
+
+/**
+ * Algo que conviene comprobar a mano en Holded:
+ * - `invoice_unconfirmed`: se envió la factura y Holded no respondió (pudo crearse o no);
+ * - `payment_unconfirmed`: lo mismo con un cobro;
+ * - `payment_reversed`: un cobro ya copiado se devolvió o reembolsó después
+ *   (Holded no permite quitarlo por API).
+ */
+export type HoldedReviewKind = 'invoice_unconfirmed' | 'payment_unconfirmed' | 'payment_reversed';
+
+export interface HoldedReviewItemDto {
+  kind: HoldedReviewKind;
+  /** Id de la factura (`invoice_unconfirmed`) o del cobro. */
+  id: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  amount: number;
+  /** Cuándo se envió o se devolvió. */
+  date: string;
+  /** Estado actual del cobro (`payment_reversed`). */
+  paymentStatus: string | null;
+}
+
+/**
+ * Resolver un elemento para revisar:
+ * - `retry`: no está en Holded → se vuelve a enviar;
+ * - `already_in_holded`: sí está (factura: pegar su id de Holded);
+ * - `reviewed`: cobro devuelto ya corregido a mano en Holded.
+ */
+export const ResolveHoldedReviewSchema = z.object({
+  action: z.enum(['retry', 'already_in_holded', 'reviewed']),
+  holdedDocumentId: z.string().trim().min(1).max(100).optional(),
+});
+export type ResolveHoldedReviewInput = z.infer<typeof ResolveHoldedReviewSchema>;
 
 /** Serie de numeración de la cuenta de Holded del tenant. */
 export interface HoldedSeriesDto {

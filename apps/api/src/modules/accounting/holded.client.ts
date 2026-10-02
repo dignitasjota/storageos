@@ -191,7 +191,11 @@ export class HoldedClient {
     return r.id;
   }
 
-  /** Crea una factura (o rectificativa) en su serie y la aprueba. Devuelve su id. */
+  /**
+   * Crea una factura (o rectificativa) en su serie, SIN aprobar. Devuelve su id.
+   * Se aprueba aparte (`approveDocument`) para poder guardar el id antes: así un
+   * fallo al aprobar no hace que se cree otra copia al reintentar.
+   */
   async createDocument(
     kind: 'invoice' | 'creditnote',
     input: HoldedDocumentInput,
@@ -213,10 +217,16 @@ export class HoldedClient {
       tags: ['trasteros'],
       items,
     });
-    // Aprobada: genera los asientos contables. La serie está excluida de
-    // Veri*Factu, así que aprobarla no la registra en la AEAT.
-    await this.request('POST', `${path}/${r.id}/approve`);
     return r.id;
+  }
+
+  /**
+   * Aprueba el documento: genera los asientos contables. La serie está excluida
+   * de Veri*Factu, así que aprobarlo no lo registra en la AEAT.
+   */
+  async approveDocument(kind: 'invoice' | 'creditnote', documentId: string): Promise<void> {
+    const path = kind === 'invoice' ? '/invoices' : '/credit-notes';
+    await this.request('POST', `${path}/${documentId}/approve`);
   }
 
   /** Registra un cobro de la factura. */

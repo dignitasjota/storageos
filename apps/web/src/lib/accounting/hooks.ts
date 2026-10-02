@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  HoldedReviewItemDto,
   HoldedSeriesListDto,
   HoldedSettingsDto,
   HoldedTestResultDto,
+  ResolveHoldedReviewInput,
   UpdateHoldedSettingsInput,
 } from '@storageos/shared';
 
@@ -60,5 +62,26 @@ export function useSyncInvoiceHolded() {
       void qc.invalidateQueries({ queryKey: ['invoices'] });
       void qc.invalidateQueries({ queryKey: ['invoice', invoiceId] });
     },
+  });
+}
+
+/** Copias sin confirmar y cobros devueltos que hay que revisar en Holded. */
+export function useHoldedReview(enabled: boolean) {
+  return useQuery({
+    queryKey: [...holdedKey, 'review'],
+    queryFn: () => apiFetch<HoldedReviewItemDto[]>('/settings/holded/review'),
+    enabled,
+  });
+}
+
+export function useResolveHoldedReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { item: HoldedReviewItemDto; input: ResolveHoldedReviewInput }) =>
+      apiFetch<{ ok: true }>(
+        `/settings/holded/review/${args.item.kind === 'invoice_unconfirmed' ? 'invoices' : 'payments'}/${args.item.id}`,
+        { method: 'POST', json: args.input },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: holdedKey }),
   });
 }

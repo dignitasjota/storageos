@@ -81,7 +81,7 @@ describe('HoldedClient (API v2)', () => {
     expect(calls[1]!.url).toContain('email=a%40b.com');
   });
 
-  it('createDocument crea en la serie y aprueba', async () => {
+  it('createDocument crea en la serie y approveDocument lo aprueba aparte', async () => {
     const calls = mockFetch((url) => ({
       status: url.endsWith('/approve') ? 200 : 201,
       body: { id: 'inv1' },
@@ -94,6 +94,8 @@ describe('HoldedClient (API v2)', () => {
       lines: [{ name: 'Abono', units: 1, price: 10, taxes: ['s_iva_21'] }],
     });
     expect(id).toBe('inv1');
+    expect(calls).toHaveLength(1);
+    await new HoldedClient('k').approveDocument('creditnote', id);
     expect(calls[0]!.url).toMatch(/\/credit-notes$/);
     expect(calls[0]!.body).toMatchObject({ contact_id: 'c1', number_line_id: 'ser-r' });
     expect(calls[1]!.url).toMatch(/\/credit-notes\/inv1\/approve$/);
