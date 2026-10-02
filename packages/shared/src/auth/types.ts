@@ -151,6 +151,7 @@ export interface TenantBillingSettingsResponse {
   autoChargeRetryEnabled: boolean;
   autoChargeRetryMax: number;
   autoChargeRetryIntervalDays: number;
+  transferIban: string | null;
 }
 
 /** Respuesta de `/settings/tenant/reviews` (auto-solicitud de valoraciones). */

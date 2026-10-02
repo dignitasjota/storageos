@@ -7,8 +7,25 @@ export interface CustomerEmailBase {
   portalUrl: string;
 }
 
+/**
+ * Cómo se va a pagar una factura, para decírselo al inquilino en el correo:
+ * cobro automático (tarjeta o adeudo por la pasarela), remesa SEPA del propio
+ * tenant, o lo paga él (área de clientes y, si hay, transferencia).
+ */
+export type InvoicePaymentHint =
+  | { via: 'auto_card'; brand: string | null; last4: string | null }
+  | { via: 'auto_debit'; last4: string | null }
+  | { via: 'sepa_remittance'; last4: string }
+  | { via: 'manual'; transferIban: string | null };
+
 export type CustomerEmailData =
-  | { kind: 'invoice_issued'; invoiceNumber: string; total: number; dueDate: Date | null }
+  | {
+      kind: 'invoice_issued';
+      invoiceNumber: string;
+      total: number;
+      dueDate: Date | null;
+      payment: InvoicePaymentHint;
+    }
   | { kind: 'payment_received'; invoiceNumber: string; amount: number; paidAt: Date }
   | { kind: 'payment_failed'; invoiceNumber: string; amount: number; reason: string | null }
   | {
@@ -76,6 +93,45 @@ interface Content {
   cta: string;
 }
 
+/** «ES9121000418450200051332» → «ES91 2100 0418 4502 0005 1332». */
+export function formatIban(iban: string): string {
+  return iban
+    .replace(/\s+/g, '')
+    .replace(/(.{4})/g, '$1 ')
+    .trim();
+}
+
+function paymentParagraphs(p: InvoicePaymentHint, invoiceNumber: string): string[] {
+  switch (p.via) {
+    case 'auto_card': {
+      const card = [
+        p.brand ? capitalize(p.brand) : 'tarjeta',
+        p.last4 ? `terminada en ${p.last4}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return [`Te la cobraremos automáticamente en tu ${card}. No tienes que hacer nada.`];
+    }
+    case 'auto_debit':
+      return [
+        `Se cargará por domiciliación en tu cuenta${p.last4 ? ` terminada en ${p.last4}` : ''} en los próximos días. No tienes que hacer nada.`,
+      ];
+    case 'sepa_remittance':
+      return [
+        `Se cobrará por domiciliación en tu cuenta terminada en ${p.last4}. Antes del cargo te avisaremos de la fecha. No tienes que hacer nada.`,
+      ];
+    case 'manual':
+      return p.transferIban
+        ? [
+            'Puedes pagarla con tarjeta desde tu área de clientes o por transferencia bancaria:',
+            `IBAN: ${formatIban(p.transferIban)} · Concepto: ${invoiceNumber}`,
+          ]
+        : ['Puedes verla y pagarla desde tu área de clientes.'];
+  }
+}
+
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
 function content(data: CustomerEmailData): Content {
   switch (data.kind) {
     case 'invoice_issued':
@@ -84,9 +140,9 @@ function content(data: CustomerEmailData): Content {
         paragraphs: [
           `Te hemos emitido la factura ${data.invoiceNumber} por ${eur(data.total)}.`,
           data.dueDate ? `Vencimiento: ${day(data.dueDate)}.` : '',
-          'Puedes verla, descargarla y pagarla desde tu área de clientes.',
+          ...paymentParagraphs(data.payment, data.invoiceNumber),
         ],
-        cta: 'Ver mis facturas',
+        cta: data.payment.via === 'manual' ? 'Pagar ahora' : 'Ver mis facturas',
       };
     case 'payment_received':
       return {

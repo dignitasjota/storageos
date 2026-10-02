@@ -1754,6 +1754,7 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `GET /public/unsubscribe/:token` (público): destinatario (email oculto) y si ya está de baja. `POST /public/unsubscribe/:token`: da de baja (idempotente; también lo usa la baja de un clic del cliente de correo). Token firmado, 404 `unsubscribe_link_invalid` si no es válido.
 - **Lista de supresión**: `GET /customers/:id/email-status` (`customers:read`, bloqueos del email del inquilino) + `POST /customers/:id/email-status/clear` (`customers:write`, desbloquea). Panel admin: `GET /admin/email-settings/suppressions?search=&cursor=` + `DELETE /admin/email-settings/suppressions/:id` (superadmin).
 - `GET /communications/channels` (`communications:read`): `{ email, whatsapp }` — si WhatsApp puede enviar de verdad. Crear un envío por WhatsApp que no puede salir (manual, automatización, valoración) → 400 `whatsapp_not_available`; los ya creados quedan `skipped` al despachar.
+- `PATCH /settings/tenant/billing` acepta `transferIban` (IBAN para transferencias, validado; `''` lo quita). Sale en el correo de «Nueva factura» de quien no tiene cobro automático ni domiciliación.
 
 ### Subidas de precio / ECRI (`/rent-increases`)
 

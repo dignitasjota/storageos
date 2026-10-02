@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isValidIban, normalizeIban } from '../sepa';
+
 /**
  * Regla de slug: solo minusculas, digitos y guiones simples. Sin guion al
  * inicio o al final, sin guiones consecutivos. Longitud 3-63 (limite de
@@ -204,6 +206,14 @@ export const UpdateTenantBillingSettingsSchema = z.object({
   autoChargeRetryEnabled: z.boolean().optional(),
   autoChargeRetryMax: z.number().int().min(1).max(10).optional(),
   autoChargeRetryIntervalDays: z.number().int().min(1).max(30).optional(),
+  /** IBAN para pagos por transferencia ('' = quitar). Sale en el correo de cada factura. */
+  transferIban: z
+    .string()
+    .trim()
+    .max(42)
+    .refine((v) => v === '' || isValidIban(v), 'IBAN no válido')
+    .transform((v) => (v === '' ? '' : normalizeIban(v)))
+    .optional(),
 });
 export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;
 
