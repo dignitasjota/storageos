@@ -13,7 +13,15 @@ import type {
 } from '@storageos/shared';
 
 /** Estados que cuentan a efectos fiscales (devengo): todo salvo borrador/anulada. */
-const FISCAL_STATUSES = ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] as const;
+const FISCAL_STATUSES = [
+  'issued',
+  'paid',
+  'overdue',
+  'refunded',
+  'partially_refunded',
+  // Anulada con rectificativa: sigue contando; la rectificativa de abono resta.
+  'rectified',
+] as const;
 
 function customerName(
   c: {
@@ -36,6 +44,7 @@ const STATUS_LABELS: Record<string, string> = {
   overdue: 'Vencida',
   refunded: 'Reembolsada',
   partially_refunded: 'Reembolsada (parcial)',
+  rectified: 'Anulada (con rectificativa)',
 };
 
 function parseRange(from: string, to: string): { fromD: Date; toD: Date } {

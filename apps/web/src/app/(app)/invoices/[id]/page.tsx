@@ -190,7 +190,7 @@ export default function InvoiceDetailPage() {
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="font-mono text-2xl font-semibold tracking-tight">{i.invoiceNumber}</h1>
-              <InvoiceStatusBadge status={i.status} />
+              <InvoiceStatusBadge status={i.status} total={i.total} />
               <VerifactuBadge invoice={i} />
               {i.invoiceType !== 'F1' && (
                 <TooltipProvider>
@@ -222,6 +222,19 @@ export default function InvoiceDetailPage() {
                 </TooltipProvider>
               )}
             </div>
+            {i.rectifiedBy.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                {i.status === 'rectified' ? 'Anulada con la rectificativa ' : 'Rectificada por '}
+                {i.rectifiedBy.map((r, idx) => (
+                  <span key={r.id}>
+                    {idx > 0 && ', '}
+                    <Link href={`/invoices/${r.id}`} className="underline">
+                      {r.invoiceNumber ?? 'borrador'}
+                    </Link>
+                  </span>
+                ))}
+              </p>
+            )}
             <p className="text-sm text-muted-foreground">
               {i.customerId ? (
                 <Link href={`/customers/${i.customerId}`} className="hover:underline">
@@ -300,19 +313,29 @@ export default function InvoiceDetailPage() {
               </Button>
             )}
             {canManageInv &&
-              i.status !== 'paid' &&
-              i.status !== 'cancelled' &&
-              i.status !== 'refunded' && (
+              (i.status === 'draft' || i.status === 'issued' || i.status === 'overdue') &&
+              (i.invoiceType === 'F1' || i.invoiceType === 'F2' || i.status === 'draft') && (
                 <Button
                   variant="destructive"
-                  onClick={() =>
-                    safe(
-                      () => cancel.mutateAsync({ id: i.id, body: { reason: 'manual' } }),
-                      'Factura cancelada.',
-                    )
-                  }
+                  onClick={() => {
+                    // Una emitida no se borra: se anula con una rectificativa de abono.
+                    if (
+                      i.status !== 'draft' &&
+                      !window.confirm(
+                        'La factura ya está emitida: se anulará emitiendo una rectificativa de abono por el total (queda registrada en Veri*Factu y en la contabilidad). ¿Continuar?',
+                      )
+                    ) {
+                      return;
+                    }
+                    void safe(
+                      () => cancel.mutateAsync({ id: i.id, body: { reason: 'Anulación manual' } }),
+                      i.status === 'draft'
+                        ? 'Borrador cancelado.'
+                        : 'Factura anulada con una rectificativa de abono.',
+                    );
+                  }}
                 >
-                  <Ban className="mr-1 h-4 w-4" /> Cancelar
+                  <Ban className="mr-1 h-4 w-4" /> {i.status === 'draft' ? 'Cancelar' : 'Anular'}
                 </Button>
               )}
             {canManageInv &&

@@ -255,6 +255,7 @@ function invoiceStatusLabel(
   if (status === 'cancelled') return t('statusCancelled');
   if (status === 'refunded') return t('statusRefunded');
   if (status === 'partially_refunded') return t('statusPartiallyRefunded');
+  if (status === 'rectified') return t('statusRectified');
   return status;
 }
 

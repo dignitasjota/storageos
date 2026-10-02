@@ -32,6 +32,7 @@ function invoiceRow(overrides: Record<string, unknown> = {}) {
     invoiceType: 'F1',
     rectifiesInvoiceId: null,
     rectifiesInvoice: null,
+    rectifiedBy: [],
     lateFeeForInvoiceId: null,
     lateFeeInvoice: null,
     rectificationReason: null,

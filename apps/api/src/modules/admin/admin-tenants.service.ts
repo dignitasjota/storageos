@@ -50,6 +50,7 @@ const ACCOUNTING_STATUSES: InvoiceStatus[] = [
   'overdue',
   'refunded',
   'partially_refunded',
+  'rectified',
 ];
 
 const MONTHS_ES = [

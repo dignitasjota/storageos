@@ -150,6 +150,7 @@
         "statusCancelled": "Anulada",
         "statusRefunded": "Reembolsada",
         "statusPartiallyRefunded": "Reemb. parcial",
+        "statusRectified": "Anulada",
         "paymentInProgress": "Pago en curso",
         "pay": "Pagar",
         "payWithCard": "Pagar con tarjeta",

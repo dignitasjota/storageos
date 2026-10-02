@@ -745,18 +745,18 @@ portal mínimo para que el inquilino consulte sus facturas.
 
 ### Endpoints — Invoices
 
-| Metodo | Ruta                           | Auth | Roles                 | Descripcion                                             |
-| ------ | ------------------------------ | ---- | --------------------- | ------------------------------------------------------- |
-| GET    | `/invoices`                    | SI   | cualquiera            | Filtros `?status=&customerId=&contractId=&overdue=true` |
-| GET    | `/invoices/:id`                | SI   | cualquiera            | Detalle con items, hash, qrCodeUrl                      |
-| POST   | `/invoices`                    | SI   | owner, manager, staff | Crea borrador con items                                 |
-| PATCH  | `/invoices/:id`                | SI   | owner, manager, staff | Edita (lineas solo en draft)                            |
-| POST   | `/invoices/:id/issue`          | SI   | owner, manager        | Asigna numero + hash + QR; envia AEAT (stub/real)       |
-| POST   | `/invoices/:id/cancel`         | SI   | owner, manager        | Cancela                                                 |
-| POST   | `/invoices/:id/refund`         | SI   | owner, manager        | Reembolso parcial o total                               |
-| POST   | `/invoices/:id/mark-paid`      | SI   | owner, manager, staff | Pago manual (efectivo, transferencia, tarjeta)          |
-| POST   | `/invoices/:id/generate-pdf`   | SI   | owner, manager        | Genera PDF con QR Verifactu y persiste signed_pdf_url   |
-| POST   | `/invoices/jobs/run-recurring` | SI   | owner, manager        | Dispara manualmente el job de facturas recurrentes      |
+| Metodo | Ruta                           | Auth | Roles                 | Descripcion                                                                                                                                                                                                       |
+| ------ | ------------------------------ | ---- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/invoices`                    | SI   | cualquiera            | Filtros `?status=&customerId=&contractId=&overdue=true`                                                                                                                                                           |
+| GET    | `/invoices/:id`                | SI   | cualquiera            | Detalle con items, hash, qrCodeUrl                                                                                                                                                                                |
+| POST   | `/invoices`                    | SI   | owner, manager, staff | Crea borrador con items                                                                                                                                                                                           |
+| PATCH  | `/invoices/:id`                | SI   | owner, manager, staff | Edita (lineas solo en draft)                                                                                                                                                                                      |
+| POST   | `/invoices/:id/issue`          | SI   | owner, manager        | Asigna numero + hash + QR; envia AEAT (stub/real)                                                                                                                                                                 |
+| POST   | `/invoices/:id/cancel`         | SI   | owner, manager        | Borrador → `cancelled`. Emitida sin cobros → `rectified` + rectificativa de abono por el total, emitida y compensada (400 `invoice_has_payments` / `invoice_not_cancellable`; 409 con cobro en curso o en remesa) |
+| POST   | `/invoices/:id/refund`         | SI   | owner, manager        | Reembolso parcial o total                                                                                                                                                                                         |
+| POST   | `/invoices/:id/mark-paid`      | SI   | owner, manager, staff | Pago manual (efectivo, transferencia, tarjeta)                                                                                                                                                                    |
+| POST   | `/invoices/:id/generate-pdf`   | SI   | owner, manager        | Genera PDF con QR Verifactu y persiste signed_pdf_url                                                                                                                                                             |
+| POST   | `/invoices/jobs/run-recurring` | SI   | owner, manager        | Dispara manualmente el job de facturas recurrentes                                                                                                                                                                |
 
 ### Endpoints — Payments
 

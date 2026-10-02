@@ -10,6 +10,7 @@ const labels: Record<InvoiceStatusValue, string> = {
   cancelled: 'Cancelada',
   refunded: 'Reembolsada',
   partially_refunded: 'Reemb. parcial',
+  rectified: 'Anulada',
 };
 
 const variants: Record<InvoiceStatusValue, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -20,8 +21,21 @@ const variants: Record<InvoiceStatusValue, 'default' | 'secondary' | 'destructiv
   cancelled: 'outline',
   refunded: 'outline',
   partially_refunded: 'secondary',
+  rectified: 'outline',
 };
 
-export function InvoiceStatusBadge({ status }: { status: InvoiceStatusValue }) {
-  return <Badge variant={variants[status]}>{labels[status]}</Badge>;
+/**
+ * `total` opcional: una rectificativa de abono pagada (importe negativo) se
+ * muestra como «Compensada» (se saldó con la factura que anula).
+ */
+export function InvoiceStatusBadge({
+  status,
+  total,
+}: {
+  status: InvoiceStatusValue;
+  total?: number;
+}) {
+  const label =
+    status === 'paid' && total !== undefined && total < 0 ? 'Compensada' : labels[status];
+  return <Badge variant={variants[status]}>{label}</Badge>;
 }

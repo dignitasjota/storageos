@@ -332,7 +332,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 3. **Doble cobro con remesas SEPA.** Las facturas de una remesa generada se pueden pagar por otra vía y el banco las cobra igual; al confirmar, el fallo solo queda en el log. → ✅ PR 3 (la confirmación ya no se puede ejecutar dos veces: ✅ PR 1).
 4. **Cobros simultáneos mal sumados.** Cobro manual con lectura previa a la transacción; webhooks de cobro, reembolso y disputa con el estado comprobado fuera; fase final del cobro por pasarela que sobrescribe. → ✅ PR 1.
 5. **Emitir dos veces la misma factura.** Hueco en la numeración, dos envíos a la AEAT y huella autorreferida. → ✅ PR 1.
-6. **Anular una factura emitida** (también el proceso de reservas sin pagar) sin registro de anulación en la AEAT ni rectificativa; rompe la cadena. → PR 4.
+6. **Anular una factura emitida** (también el proceso de reservas sin pagar) sin registro de anulación en la AEAT ni rectificativa; rompe la cadena. → ✅ PR 4 (rectificativa de abono automática; la cadena por emisor y el registro de anulación AEAT van en la PR 5).
 
 ## Bloqueantes antes de activar Veri\*Factu en producción (PR 5)
 
@@ -395,3 +395,13 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - Cancelar una remesa sin confirmar (`POST /sepa/remittances/:id/cancel`).
 - Devolución por N43 → adeudo `returned`, la factura se puede presentar otra vez; si era el primer cobro del mandato, vuelve a FRST.
 - e2e `sepa-remittance-safety` (3 casos).
+
+## PR 4 — anular una factura emitida ✅
+
+- Estado nuevo `rectified` («anulada con rectificativa», migración `20261005140000`). Un borrador se sigue cancelando (`cancelled`); una emitida (issued/overdue) y sin cobros pasa a `rectified` y se emite en el acto una **rectificativa de abono por el total** (R4; R5 si la original es simplificada) con las mismas líneas en negativo.
+- La original sigue contando en el libro de IVA, 303/347, ingresos y la cadena de Veri\*Factu; la rectificativa resta. Ya no se cobra ni se reclama.
+- La rectificativa de una anulación queda **compensada** (pagada por su importe, sin vencimiento): no cuenta como pendiente ni la reclama el cobro de impagos. Ninguna factura de importe ≤ 0 pasa a vencida.
+- Con cobros → 400 `invoice_has_payments` (reembolsar o rectificar); con un cobro en curso → 409; en una remesa sin confirmar → 409. Dos anulaciones a la vez emiten una sola rectificativa (reserva con la fila bloqueada).
+- Lo usan también la caducidad de reservas sin pagar, la venta y el pase nocturno no cobrados. Holded recibe la rectificativa (no se cancela la original allí).
+- `InvoiceDto.rectifiedBy` (enlace a la rectificativa desde la anulada); en la web «Anular» pide confirmación y la anulada enlaza a su rectificativa; la rectificativa compensada se muestra «Compensada».
+- e2e `invoice-cancel-rectify` (4 casos).

@@ -1,0 +1,12 @@
+-- Anular una factura emitida (auditoría de facturación, PR 4).
+--
+-- Antes, «anular» pasaba la factura a `cancelled` aunque ya estuviera emitida
+-- (con número, registrada en Veri*Factu y copiada en Holded): desaparecía del
+-- libro de IVA y de los modelos 303/347 sin ninguna rectificativa.
+--
+-- Ahora una factura emitida y sin cobros pasa a `rectified` («anulada con
+-- rectificativa») y se emite automáticamente una rectificativa de abono por
+-- el total. La original sigue contando en los informes fiscales (la
+-- rectificativa resta) y deja de poder cobrarse o reclamarse. `cancelled`
+-- queda solo para borradores.
+ALTER TYPE "invoice_status" ADD VALUE IF NOT EXISTS 'rectified';

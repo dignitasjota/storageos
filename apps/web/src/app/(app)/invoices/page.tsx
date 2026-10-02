@@ -60,6 +60,7 @@ const STATUS_LABELS: Record<InvoiceStatusValue, string> = {
   cancelled: 'Cancelada',
   refunded: 'Reembolsada',
   partially_refunded: 'Reemb. parcial',
+  rectified: 'Anulada (rectificativa)',
 };
 
 interface NewInvoiceDraftItem {
@@ -243,7 +244,9 @@ export default function InvoicesPage() {
     {
       accessorKey: 'status',
       header: 'Estado',
-      cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
+      cell: ({ row }) => (
+        <InvoiceStatusBadge status={row.original.status} total={row.original.total} />
+      ),
     },
   ];
 

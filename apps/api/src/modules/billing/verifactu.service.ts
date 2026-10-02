@@ -68,7 +68,10 @@ export class VerifactuService {
       where: {
         tenantId: args.tenantId,
         seriesId: args.seriesId,
-        status: { in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded'] },
+        // Toda factura emitida forma parte de la cadena, también las anuladas con rectificativa.
+        status: {
+          in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
+        },
         hash: { not: null },
       },
       orderBy: { sequenceNumber: 'desc' },
