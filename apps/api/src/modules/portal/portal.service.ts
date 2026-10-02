@@ -17,12 +17,13 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
 import { Queue } from 'bullmq';
 
+import { emailLocale } from '../../common/format';
 import { AuditService } from '../auth/audit.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
-import { PortalMagicLinkEmail } from '../email/templates/portal-magic-link';
-import { PortalWelcomeEmail } from '../email/templates/portal-welcome';
+import { PortalMagicLinkEmail, portalMagicLinkSubject } from '../email/templates/portal-magic-link';
+import { PortalWelcomeEmail, portalWelcomeSubject } from '../email/templates/portal-welcome';
 import { FilesService } from '../files/files.service';
 import { GoCardlessMandatesService } from '../payments/gocardless/gocardless-mandates.service';
 import { PaymentMethodsService } from '../payments/payment-methods.service';
@@ -248,7 +249,13 @@ export class PortalService {
     const [customer, tenant] = await Promise.all([
       this.admin.customer.findFirst({
         where: { id: customerId, tenantId, deletedAt: null },
-        select: { email: true, firstName: true, companyName: true, customerType: true },
+        select: {
+          email: true,
+          firstName: true,
+          companyName: true,
+          customerType: true,
+          locale: true,
+        },
       }),
       this.admin.tenant.findUnique({
         where: { id: tenantId },
@@ -275,13 +282,14 @@ export class PortalService {
     await this.email.send({
       tenantId,
       to: customer.email,
-      subject: `Tu acceso al área de clientes de ${tenant.name}`,
+      subject: portalWelcomeSubject(tenant.name, emailLocale(customer.locale)),
       template: PortalWelcomeEmail({
         tenantName: tenant.name,
         customerName,
         link: url,
         ttlDays: Math.round(STAFF_MAGIC_LINK_TTL_SECONDS / 86_400),
         loginUrl,
+        locale: emailLocale(customer.locale),
       }),
     });
     await this.audit.write({
@@ -364,11 +372,12 @@ export class PortalService {
     await this.email.send({
       tenantId: tenant.id,
       to: input.email,
-      subject: `Accede a tu cuenta de ${tenant.name}`,
+      subject: portalMagicLinkSubject(tenant.name, emailLocale(customer.locale)),
       template: PortalMagicLinkEmail({
         tenantName: tenant.name,
         link,
         ttlMinutes: 30,
+        locale: emailLocale(customer.locale),
       }),
     });
   }
@@ -539,8 +548,14 @@ export class PortalService {
     await this.email.send({
       tenantId: tenant.id,
       to: input.email,
-      subject: `Restablece tu contraseña de ${tenant.name}`,
-      template: PortalMagicLinkEmail({ tenantName: tenant.name, link, ttlMinutes: 30 }),
+      subject: portalMagicLinkSubject(tenant.name, emailLocale(customer.locale), 'reset'),
+      template: PortalMagicLinkEmail({
+        tenantName: tenant.name,
+        link,
+        ttlMinutes: 30,
+        locale: emailLocale(customer.locale),
+        purpose: 'reset',
+      }),
     });
   }
 

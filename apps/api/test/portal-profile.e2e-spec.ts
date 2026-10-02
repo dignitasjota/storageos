@@ -112,7 +112,8 @@ describe('Portal — editar perfil (e2e)', () => {
       .post('/portal/login/request')
       .send({ tenantSlug: owner.slug, email })
       .expect(204);
-    const mail = await waitForEmail(email, { subjectIncludes: 'Accede' });
+    // El enlace llega ya en el idioma del inquilino.
+    const mail = await waitForEmail(email, { subjectIncludes: 'Sign in to your' });
     const token = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
     const consume = await request(app.getHttpServer())
       .post('/portal/login/consume')

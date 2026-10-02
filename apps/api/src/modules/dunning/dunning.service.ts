@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
-import { formatDateLong, formatEur } from '../../common/format';
+import { emailLocale, formatDateLong, formatEur } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
@@ -245,6 +245,7 @@ export class DunningService {
             lastName: true,
             companyName: true,
             customerType: true,
+            locale: true,
           },
         },
       },
@@ -356,11 +357,13 @@ export class DunningService {
         lastName: string | null;
         companyName: string | null;
         customerType: CustomerType;
+        locale?: string | null;
       } | null;
     },
     stage: 'first' | 'final' = 'first',
   ): Promise<boolean> {
     const customer = invoice.customer;
+    const locale = emailLocale(customer?.locale);
     if (!invoice.customerId || !customer?.email) {
       this.logger.warn(
         `dunning.email_reminder: factura ${invoice.invoiceNumber} sin customer/email; no se envia recordatorio`,
@@ -401,9 +404,9 @@ export class DunningService {
         },
         invoice: {
           number: invoice.invoiceNumber,
-          total: formatEur(invoice.total),
-          amountPending: formatEur(amountPending),
-          dueDate: invoice.dueDate ? formatDateLong(invoice.dueDate) : '',
+          total: formatEur(invoice.total, locale),
+          amountPending: formatEur(amountPending, locale),
+          dueDate: invoice.dueDate ? formatDateLong(invoice.dueDate, 'Europe/Madrid', locale) : '',
           daysOverdue,
         },
         portal: {

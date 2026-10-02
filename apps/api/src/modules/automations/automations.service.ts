@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
-import { formatDateLong, formatEur } from '../../common/format';
+import { type EmailLocale, emailLocale, formatDateLong, formatEur } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
@@ -311,6 +311,7 @@ export class AutomationsService {
   private async enrich(
     job: AutomationJobData,
   ): Promise<{ job: Partial<AutomationJobData>; skipReason?: string }> {
+    let locale: EmailLocale = 'es';
     const scope: Record<string, unknown> = { ...job.scope };
     const out: Partial<AutomationJobData> = {};
 
@@ -346,10 +347,12 @@ export class AutomationsService {
           lastName: true,
           companyName: true,
           customerType: true,
+          locale: true,
         },
       });
       // Inquilino borrado (o anonimizado) entre el evento y el envío.
       if (!c) return { job: out, skipReason: 'inquilino eliminado' };
+      locale = emailLocale(c.locale);
       out.recipientEmail = job.recipientEmail ?? c.email ?? null;
       out.recipientPhone = job.recipientPhone ?? c.phone ?? null;
       const displayName =
@@ -403,7 +406,7 @@ export class AutomationsService {
       };
     }
 
-    out.scope = humanizeScope(scope);
+    out.scope = humanizeScope(scope, locale);
     return { job: out };
   }
 
@@ -612,7 +615,10 @@ const DATE_FIELDS: Record<string, readonly string[]> = {
  * `2026-10-01`) porque también alimentan los webhooks salientes; para el
  * correo se pasan a «121,00 €» y «1 de octubre de 2026».
  */
-export function humanizeScope(scope: Record<string, unknown>): Record<string, unknown> {
+export function humanizeScope(
+  scope: Record<string, unknown>,
+  locale: EmailLocale = 'es',
+): Record<string, unknown> {
   const out: Record<string, unknown> = { ...scope };
   const apply = (fields: Record<string, readonly string[]>, fmt: (v: unknown) => string | null) => {
     for (const [entity, keys] of Object.entries(fields)) {
@@ -627,15 +633,17 @@ export function humanizeScope(scope: Record<string, unknown>): Record<string, un
     }
   };
   apply(MONEY_FIELDS, (v) => {
-    if (typeof v === 'number') return formatEur(v);
-    if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) return formatEur(v.trim());
+    if (typeof v === 'number') return formatEur(v, locale);
+    if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) {
+      return formatEur(v.trim(), locale);
+    }
     return null;
   });
   apply(DATE_FIELDS, (v) => {
-    if (v instanceof Date) return formatDateLong(v);
+    if (v instanceof Date) return formatDateLong(v, 'Europe/Madrid', locale);
     if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
       const d = new Date(v);
-      return Number.isNaN(d.getTime()) ? null : formatDateLong(d);
+      return Number.isNaN(d.getTime()) ? null : formatDateLong(d, 'Europe/Madrid', locale);
     }
     return null;
   });

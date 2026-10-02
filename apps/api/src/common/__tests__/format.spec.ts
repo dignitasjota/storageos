@@ -13,3 +13,12 @@ describe('format', () => {
     expect(formatDateLong(new Date('2026-09-30T23:30:00Z'))).toBe('1 de octubre de 2026');
   });
 });
+
+describe('format en inglés', () => {
+  it('importe y fecha', () => {
+    expect(formatEur(121, 'en')).toBe('€121.00');
+    expect(formatDateLong(new Date('2026-09-30T23:30:00Z'), 'Europe/Madrid', 'en')).toBe(
+      '1 October 2026',
+    );
+  });
+});

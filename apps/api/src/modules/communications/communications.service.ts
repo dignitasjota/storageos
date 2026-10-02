@@ -30,6 +30,7 @@ import { EmailService } from '../email/email.service';
 import { JOB_COMMUNICATIONS_DISPATCH, QUEUE_COMMUNICATIONS } from '../queues/queues.module';
 
 import { BUILTIN_TEMPLATES } from './builtin-templates';
+import { BUILTIN_TEMPLATES_EN } from './builtin-templates.en';
 import { MessageTemplatesService } from './message-templates.service';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './providers/whatsapp-provider';
 import { extractSecrets, fillSecrets, maskSecrets } from './secret-vars';
@@ -386,7 +387,15 @@ export class CommunicationsService {
         if (comm.isMarketing) {
           const unsub = await this.unsubscribeParts(comm);
           if (unsub) {
-            ({ html, text } = appendUnsubscribeFooter({ html, text }, unsub.url, unsub.tenantName));
+            ({ html, text } = appendUnsubscribeFooter(
+              { html, text },
+              unsub.url,
+              unsub.tenantName,
+              await this.recipientLocale({
+                tenantId,
+                customerId: comm.customerId ?? undefined,
+              }),
+            ));
             headers = unsub.headers;
           }
         }
@@ -597,6 +606,25 @@ export class CommunicationsService {
       : args.templateCode
         ? await this.templates.findByCode(args.tenantId, args.templateCode)
         : null;
+    const code = tpl?.code ?? args.templateCode;
+    const builtinEs = code ? BUILTIN_TEMPLATES.find((b) => b.code === code) : undefined;
+    const english = code ? BUILTIN_TEMPLATES_EN[code] : undefined;
+    // Inquilino en inglés y plantilla sin editar (igual a la de por defecto):
+    // sale la versión inglesa. Si el tenant la editó, sale su texto.
+    if (
+      english &&
+      builtinEs &&
+      (!tpl || tpl.bodyText === builtinEs.bodyText) &&
+      (await this.recipientLocale(args)) === 'en'
+    ) {
+      return {
+        templateId: tpl?.id ?? null,
+        name: tpl?.name ?? builtinEs.name,
+        subject: english.subject,
+        bodyText: english.bodyText,
+        bodyHtml: english.bodyHtml,
+      };
+    }
     if (tpl) {
       return {
         templateId: tpl.id,
@@ -622,6 +650,19 @@ export class CommunicationsService {
       };
     }
     return null;
+  }
+
+  /** Idioma del inquilino destinatario (`es` si no hay inquilino). */
+  private async recipientLocale(args: {
+    tenantId: string;
+    customerId?: string | undefined;
+  }): Promise<'es' | 'en'> {
+    if (!args.customerId) return 'es';
+    const c = await this.admin.customer.findFirst({
+      where: { id: args.customerId, tenantId: args.tenantId },
+      select: { locale: true },
+    });
+    return c?.locale === 'en' ? 'en' : 'es';
   }
 
   private async enqueueWithoutJob(args: SendArgs): Promise<CommunicationDto> {

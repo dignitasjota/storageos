@@ -21,6 +21,8 @@ interface EmailLayoutProps {
    * inquilinos llevan SU nombre (white-label); los de la plataforma, TrasterOS.
    */
   brandName?: string;
+  /** Idioma del pie y del documento (`es` por defecto). */
+  locale?: 'es' | 'en';
 }
 
 /**
@@ -34,10 +36,11 @@ export function EmailLayout({
   heading,
   children,
   brandName = 'TrasterOS',
+  locale = 'es',
 }: EmailLayoutProps) {
   const year = new Date().getUTCFullYear();
   return (
-    <Html lang="es">
+    <Html lang={locale}>
       <Head />
       <Preview>{preview}</Preview>
       <Body
@@ -88,8 +91,10 @@ export function EmailLayout({
           <Hr style={{ borderColor: '#e2e8f0', marginTop: 32, marginBottom: 16 }} />
           <Section>
             <Text style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
-              © {year} {brandName}. Este email se envia automaticamente; no es necesario que
-              respondas.
+              © {year} {brandName}.{' '}
+              {locale === 'en'
+                ? 'This email is sent automatically; there is no need to reply.'
+                : 'Este email se envía automáticamente; no es necesario que respondas.'}
             </Text>
           </Section>
         </Container>
