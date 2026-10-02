@@ -5,7 +5,11 @@ import { AuthModule } from '../auth/auth.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
-import { CustomerEmailsController, StaffEmailsController } from './customer-emails.controller';
+import {
+  CustomerEmailsController,
+  MyEmailNoticesController,
+  StaffEmailsController,
+} from './customer-emails.controller';
 import { CustomerEmailsService } from './customer-emails.service';
 import { StaffEmailsService } from './staff-emails.service';
 
@@ -16,7 +20,7 @@ import { StaffEmailsService } from './staff-emails.service';
  */
 @Module({
   imports: [AuthModule, CommunicationsModule, BullModule.registerQueue({ name: QUEUE_EMAIL })],
-  controllers: [CustomerEmailsController, StaffEmailsController],
+  controllers: [CustomerEmailsController, StaffEmailsController, MyEmailNoticesController],
   providers: [CustomerEmailsService, StaffEmailsService],
 })
 export class CustomerEmailsModule {}

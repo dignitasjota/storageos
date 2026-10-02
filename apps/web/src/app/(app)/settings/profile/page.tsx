@@ -12,6 +12,8 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { EmailNoticesForm } from './email-notices-form';
+
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -44,6 +46,7 @@ export default function ProfileSettingsPage() {
         <TabsList>
           <TabsTrigger value="profile">{t('tabs.profile')}</TabsTrigger>
           <TabsTrigger value="password">{t('tabs.password')}</TabsTrigger>
+          <TabsTrigger value="notices">Avisos por correo</TabsTrigger>
         </TabsList>
         <TabsContent value="profile" className="mt-6 max-w-lg">
           {me.data ? (
@@ -60,6 +63,9 @@ export default function ProfileSettingsPage() {
         </TabsContent>
         <TabsContent value="password" className="mt-6 max-w-lg">
           <PasswordForm t={t} tCommon={tCommon} />
+        </TabsContent>
+        <TabsContent value="notices" className="mt-6 max-w-lg">
+          <EmailNoticesForm />
         </TabsContent>
       </Tabs>
     </div>

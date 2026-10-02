@@ -551,6 +551,8 @@ model User {
   twoFactorLastStep               BigInt?   @map("two_factor_last_step")
   twoFactorEnrolledAt             DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt                     DateTime? @map("last_login_at") @db.Timestamptz(6)
+  /// Avisos por correo al equipo que el usuario cambió ({tipo: bool}); el resto, por rol.
+  emailNoticePrefs                Json      @default("{}") @map("email_notice_prefs")
   isActive                        Boolean   @default(true) @map("is_active")
   createdAt                       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)

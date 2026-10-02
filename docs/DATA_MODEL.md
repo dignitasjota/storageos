@@ -709,3 +709,5 @@ Variable de entorno booleana (default `true`).
 - `app.enableVersioning({ type: VersioningType.URI, prefix: 'v', defaultVersion: '1' })`.
 - TODAS las rutas viven bajo `/v1/...`. Rutas legacy responden **`308 Permanent Redirect`** preservando método HTTP y body.
 - Excepciones marcadas `VERSION_NEUTRAL`: `/health`, `/webhooks/*`, `/public/widget/*`, `/api/docs`, `/api/docs-json`, `/api/csp-report`.
+
+- `users.email_notice_prefs` (jsonb, 2026-10-04): avisos por correo al equipo que el usuario cambió (`{tipo: bool}`); lo que falta toma el defecto de su rol (propietario/gestor: sí; resto: no).

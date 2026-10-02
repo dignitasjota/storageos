@@ -6,6 +6,7 @@ import type {
   CustomerEmailSettingsDto,
   EmailDomainDto,
   EmailDomainResponseDto,
+  MyEmailNoticesDto,
   StaffEmailSettingsDto,
   UpdateCustomerEmailSettingsInput,
   UpdateStaffEmailSettingsInput,
@@ -72,6 +73,25 @@ export function useUpdateCustomerEmailSettings() {
 
 const staffEmailsKey = ['settings', 'tenant', 'staff-emails'] as const;
 const STAFF_EMAILS_PATH = '/settings/tenant/staff-emails';
+
+const myNoticesKey = ['me', 'email-notices'] as const;
+
+/** Avisos por correo que recibe el usuario (su perfil). */
+export function useMyEmailNotices() {
+  return useQuery({
+    queryKey: myNoticesKey,
+    queryFn: () => apiFetch<MyEmailNoticesDto>('/me/email-notices'),
+  });
+}
+
+export function useUpdateMyEmailNotices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateStaffEmailSettingsInput) =>
+      apiFetch<MyEmailNoticesDto>('/me/email-notices', { method: 'PATCH', json: input }),
+    onSuccess: (data) => qc.setQueryData(myNoticesKey, data),
+  });
+}
 
 /** Avisos por email al equipo (activados por defecto). */
 export function useStaffEmailSettings() {

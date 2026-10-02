@@ -1756,6 +1756,7 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - **Lista de supresión**: `GET /customers/:id/email-status` (`customers:read`, bloqueos del email del inquilino) + `POST /customers/:id/email-status/clear` (`customers:write`, desbloquea). Panel admin: `GET /admin/email-settings/suppressions?search=&cursor=` + `DELETE /admin/email-settings/suppressions/:id` (superadmin).
 - `GET /communications/channels` (`communications:read`): `{ email, whatsapp }` — si WhatsApp puede enviar de verdad. Crear un envío por WhatsApp que no puede salir (manual, automatización, valoración) → 400 `whatsapp_not_available`; los ya creados quedan `skipped` al despachar.
 - `GET /communications/page` (`communications:read`): historial paginado por cursor → `{items, nextCursor}`; `search` (destinatario, asunto, inquilino), `from`/`to`, `status`, `channel`, `customerId`, `leadId`, `source`, `limit` (máx. 100).
+- `GET/PATCH /me/email-notices` (cualquier usuario): qué avisos por correo al equipo recibe → `{notices: {new_lead, new_booking, move_out_requested, portal_incident}, disabledByTenant}`.
 - `PATCH /settings/tenant/billing` acepta `transferIban` (IBAN para transferencias, validado; `''` lo quita). Sale en el correo de «Nueva factura» de quien no tiene cobro automático ni domiciliación.
 
 ### Subidas de precio / ECRI (`/rent-increases`)
