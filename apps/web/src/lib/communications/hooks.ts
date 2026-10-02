@@ -65,6 +65,9 @@ export function useLeadReply(leadId: string) {
       void qc.invalidateQueries({ queryKey: ['communications'] });
       void qc.invalidateQueries({ queryKey: ['leads'] });
     },
+  });
+}
+
 /** Historial paginado (página de Comunicaciones): búsqueda, periodo y «cargar más». */
 export function useCommunicationsPage(params: {
   status?: string;
