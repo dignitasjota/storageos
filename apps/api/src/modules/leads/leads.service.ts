@@ -1,9 +1,16 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { LEAD_SOURCE_SUGGESTIONS, leadSourceLabel } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -17,6 +24,8 @@ import type {
   TransitionLeadInput,
   UpdateLeadInput,
   WidgetLeadInput,
+  CommunicationDto,
+  LeadReplyInput,
 } from '@storageos/shared';
 
 interface ListFilters {
@@ -48,7 +57,58 @@ export class LeadsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
+    private readonly communications: CommunicationsService,
   ) {}
+
+  /**
+   * Responde al contacto por email desde el panel: sale con el remitente del
+   * tenant (las respuestas le llegan a su correo) y queda en Comunicaciones
+   * enlazada al lead. Si estaba sin contactar, pasa a «contactado».
+   */
+  async reply(args: {
+    tenantId: string;
+    userId: string;
+    id: string;
+    input: LeadReplyInput;
+    meta: RequestMeta;
+  }): Promise<CommunicationDto> {
+    const lead = await this.findOrThrow(args.tenantId, args.id);
+    if (!lead.email) {
+      throw new BadRequestException({
+        code: 'lead_without_email',
+        message: 'Este contacto no tiene email',
+      });
+    }
+    const comm = await this.communications.enqueue({
+      tenantId: args.tenantId,
+      channel: 'email',
+      recipient: lead.email,
+      subject: args.input.subject,
+      bodyText: args.input.body,
+      leadId: lead.id,
+      source: 'lead.reply',
+    });
+    if (lead.status === 'new') {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.lead.updateMany({
+            where: { id: lead.id, status: 'new' },
+            data: { status: 'contacted', contactedAt: new Date() },
+          }),
+        args.tenantId,
+      );
+    }
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'lead.replied',
+      entityType: 'Lead',
+      entityId: lead.id,
+      ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
+      ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
+    });
+    return comm;
+  }
 
   async list(tenantId: string, filters: ListFilters): Promise<LeadDto[]> {
     const where: Prisma.LeadWhereInput = { deletedAt: null };

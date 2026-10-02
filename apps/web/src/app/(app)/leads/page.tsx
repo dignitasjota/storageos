@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { LeadConversation } from './lead-conversation';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -294,7 +296,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Editar lead' : 'Nuevo lead'}</DialogTitle>
         </DialogHeader>
@@ -443,6 +445,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
             </p>
           )}
         </div>
+        {isEdit && lead && <LeadConversation lead={lead} />}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             Cancelar

@@ -908,6 +908,7 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 | POST   | `/leads`                | SI   | owner, manager, staff | Crea (source default `manual`)                       |
 | PATCH  | `/leads/:id`            | SI   | owner, manager, staff | Edita                                                |
 | POST   | `/leads/:id/transition` | SI   | owner, manager, staff | Cambia estado segun state machine                    |
+| POST   | `/leads/:id/reply`      | SI   | communications:send   | Email al contacto `{subject, body}` (new→contacted)  |
 | POST   | `/leads/:id/marketing`  | SI   | owner, manager, staff | Consentimiento comercial `{consent}` (false = baja)  |
 | POST   | `/leads/:id/convert`    | SI   | owner, manager, staff | Crea customer + (opcional) reservation, marca won    |
 | DELETE | `/leads/:id`            | SI   | owner, manager        | Soft delete                                          |
