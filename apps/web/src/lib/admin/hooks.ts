@@ -87,6 +87,7 @@ import type {
   AdminTenantCustomerDto,
   AdminTenantDto,
   AdminTenantsListResponseDto,
+  PlatformEmailLogPageDto,
   AdminUpdateTenantInput,
   AdminTenantFacilityDto,
   AdminTenantInvoicingDto,
@@ -295,6 +296,32 @@ export function useAdminTenants(filters?: AdminTenantsFilters) {
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+}
+
+export interface PlatformEmailLogFilters {
+  search?: string;
+  tenantId?: string;
+  kind?: string;
+  status?: string;
+}
+
+/** Historial de los correos de la plataforma, paginado por cursor. */
+export function useAdminEmailLog(filters: PlatformEmailLogFilters) {
+  return useInfiniteQuery({
+    queryKey: ['admin', 'email-log', filters] as const,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams({ limit: '50' });
+      if (filters.search) qs.set('search', filters.search);
+      if (filters.tenantId) qs.set('tenantId', filters.tenantId);
+      if (filters.kind) qs.set('kind', filters.kind);
+      if (filters.status) qs.set('status', filters.status);
+      if (pageParam) qs.set('cursor', pageParam);
+      return adminApiFetch<PlatformEmailLogPageDto>(`/admin/email-log?${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: (prev) => prev,
   });
 }
 

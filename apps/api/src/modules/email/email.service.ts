@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { render } from '@react-email/render';
 
 import { EmailSuppressionsService } from './email-suppressions.service';
+import { PlatformEmailLogService } from './platform-email-log.service';
 import { PlatformEmailSettingsService } from './platform-email-settings.service';
 import {
   EMAIL_PROVIDER,
@@ -80,6 +81,7 @@ export class EmailService {
     private readonly senders: TenantSenderService,
     private readonly platform: PlatformEmailSettingsService,
     private readonly suppressions: EmailSuppressionsService,
+    private readonly platformLog: PlatformEmailLogService,
   ) {}
 
   get providerName(): string {
@@ -102,6 +104,38 @@ export class EmailService {
   }
 
   async sendRendered(args: SendMailRenderedArgs): Promise<SendEmailResult> {
+    // Los correos de la plataforma (sin tenant) quedan en su historial; los de
+    // un tenant a sus inquilinos ya se guardan en `communications`.
+    if (args.tenantId) return this.deliver(args);
+    const base = {
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+      kind: args.kind,
+      category: args.category,
+    };
+    try {
+      const result = await this.deliver(args);
+      await this.platformLog.record({
+        ...base,
+        status: result.suppressed ? 'suppressed' : 'sent',
+        provider: result.provider ?? this.provider.name,
+        providerMessageId: result.providerMessageId,
+        error: result.suppressed ?? null,
+      });
+      return result;
+    } catch (err) {
+      await this.platformLog.record({
+        ...base,
+        status: 'failed',
+        provider: this.provider.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  }
+
+  private async deliver(args: SendMailRenderedArgs): Promise<SendEmailResult> {
     // Dirección que rebota de forma permanente: no se insiste (daña la
     // reputación de la cuenta de envío, compartida por todos los tenants).
     const blocked = await this.suppressions.blockedForAll(args.to);

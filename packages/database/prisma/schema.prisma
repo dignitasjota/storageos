@@ -493,6 +493,7 @@ model Tenant {
   aiPendingActions        AiPendingAction[]
   emailDomain             TenantEmailDomain?
   emailSuppressions       EmailSuppression[]
+  platformEmailLogs       PlatformEmailLog[]
   notificationReads       NotificationRead[]
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
@@ -4299,6 +4300,31 @@ model EmailSuppression {
 
   @@index([createdAt])
   @@map("email_suppressions")
+}
+
+/// Historial de los correos de la plataforma (global, REVOKE). Los de un tenant
+/// a sus inquilinos van en `communications`.
+model PlatformEmailLog {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String?   @map("tenant_id") @db.Uuid
+  recipient         String
+  subject           String
+  /// Null en los correos de cuenta (llevan enlaces que dan acceso).
+  bodyText          String?   @map("body_text")
+  kind              String?
+  category          String?
+  /// sent | delivered | bounced | failed | suppressed
+  status            String
+  provider          String?
+  providerMessageId String?   @map("provider_message_id")
+  errorMessage      String?   @map("error_message")
+  deliveredAt       DateTime? @map("delivered_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([providerMessageId])
+  @@map("platform_email_logs")
 }
 
 model PlatformEmailSettings {

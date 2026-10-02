@@ -711,3 +711,4 @@ Variable de entorno booleana (default `true`).
 - Excepciones marcadas `VERSION_NEUTRAL`: `/health`, `/webhooks/*`, `/public/widget/*`, `/api/docs`, `/api/docs-json`, `/api/csp-report`.
 
 - `users.email_notice_prefs` (jsonb, 2026-10-04): avisos por correo al equipo que el usuario cambió (`{tipo: bool}`); lo que falta toma el defecto de su rol (propietario/gestor: sí; resto: no).
+- `platform_email_logs` (global, REVOKE, 2026-10-04): correos que manda la plataforma (no los de un tenant a sus inquilinos). `recipient`, `subject`, `body_text` (null en los de cuenta), `kind`/`category`, `status` (sent/delivered/bounced/failed/suppressed), `provider`, `provider_message_id`, `error_message`, `delivered_at`, `tenant_id` (FK SET NULL, deducido del destinatario). Retención 180 días.

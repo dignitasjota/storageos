@@ -34,6 +34,7 @@ import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
 import { TenantNotesCard } from './tenant-notes-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
 
+import { PlatformEmailLog } from '@/components/admin/platform-email-log';
 import { SupportTicketList } from '@/components/admin/support-ticket-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -218,6 +219,7 @@ export default function AdminTenantDetailPage() {
           <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
           <TabsTrigger value="tickets">Tickets</TabsTrigger>
+          <TabsTrigger value="emails">Correos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="mt-4">
@@ -355,6 +357,9 @@ export default function AdminTenantDetailPage() {
           <TenantFollowupsCard tenantId={id} />
         </TabsContent>
 
+        <TabsContent value="emails" className="mt-4">
+          <PlatformEmailLog tenantId={id} />
+        </TabsContent>
         <TabsContent value="tickets" className="mt-4">
           <SupportTicketList
             filters={{ tenantId: id }}
