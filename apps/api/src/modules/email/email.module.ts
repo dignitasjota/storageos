@@ -5,6 +5,7 @@ import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { EmailSendProcessor } from './email-send.processor';
 import { EmailSuppressionsService } from './email-suppressions.service';
 import { EmailService } from './email.service';
+import { PlatformEmailLogService } from './platform-email-log.service';
 import { PlatformEmailSettingsService } from './platform-email-settings.service';
 import { BrevoEmailProvider } from './providers/brevo.provider';
 import { EMAIL_PROVIDER } from './providers/email-provider';
@@ -30,6 +31,7 @@ import { TenantSenderService } from './tenant-sender.service';
     { provide: EMAIL_PROVIDER, useExisting: RoutingEmailProvider },
     EmailService,
     EmailSuppressionsService,
+    PlatformEmailLogService,
     TenantSenderService,
     // Solo procesa jobs cuando los workers corren en este proceso (worker en
     // prod; API en dev/test). El `EmailService` sigue disponible siempre.
@@ -38,6 +40,7 @@ import { TenantSenderService } from './tenant-sender.service';
   exports: [
     EmailService,
     EmailSuppressionsService,
+    PlatformEmailLogService,
     TenantSenderService,
     PlatformEmailSettingsService,
     EMAIL_PROVIDER,

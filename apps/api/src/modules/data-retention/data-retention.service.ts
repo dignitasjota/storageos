@@ -31,6 +31,7 @@ export class DataRetentionService {
     accessLogs: number;
     communications: number;
     notifications: number;
+    platformEmails: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -40,26 +41,35 @@ export class DataRetentionService {
     const commsDays = this.config.get('RETENTION_COMMUNICATIONS_DAYS', { infer: true });
     const notifDays = this.config.get('RETENTION_NOTIFICATIONS_DAYS', { infer: true });
 
-    const [auditLogs, accessLogs, communications, notifications] = await Promise.all([
-      this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
-      this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
-      this.admin.communication.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),
-      this.admin.notification.deleteMany({ where: { createdAt: { lt: cutoff(notifDays) } } }),
-    ]);
+    const [auditLogs, accessLogs, communications, notifications, platformEmails] =
+      await Promise.all([
+        this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
+        this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
+        this.admin.communication.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),
+        this.admin.notification.deleteMany({ where: { createdAt: { lt: cutoff(notifDays) } } }),
+        // Historial de correos de la plataforma: mismo plazo que Comunicaciones.
+        this.admin.platformEmailLog.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),
+      ]);
 
     const result = {
       auditLogs: auditLogs.count,
       accessLogs: accessLogs.count,
       communications: communications.count,
       notifications: notifications.count,
+      platformEmails: platformEmails.count,
     };
     const total =
-      result.auditLogs + result.accessLogs + result.communications + result.notifications;
+      result.auditLogs +
+      result.accessLogs +
+      result.communications +
+      result.notifications +
+      result.platformEmails;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
           `(audit=${result.auditLogs}, access=${result.accessLogs}, ` +
-          `comms=${result.communications}, notif=${result.notifications})`,
+          `comms=${result.communications}, notif=${result.notifications}, ` +
+          `platform_emails=${result.platformEmails})`,
       );
     }
     return result;

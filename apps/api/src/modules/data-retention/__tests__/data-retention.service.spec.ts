@@ -16,6 +16,7 @@ function build() {
     accessLog: { deleteMany: jest.fn().mockResolvedValue({ count: 5 }) },
     communication: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    platformEmailLog: { deleteMany: jest.fn().mockResolvedValue({ count: 4 }) },
   };
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
@@ -47,6 +48,7 @@ describe('DataRetentionService', () => {
       accessLogs: 5,
       communications: 2,
       notifications: 1,
+      platformEmails: 4,
     });
   });
 });

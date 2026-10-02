@@ -1353,3 +1353,29 @@ export interface UnusedBrevoDomainDto {
   domain: string;
   authenticated: boolean;
 }
+
+/** Estado de un correo de la plataforma en su historial. */
+export type PlatformEmailLogStatus = 'sent' | 'delivered' | 'bounced' | 'failed' | 'suppressed';
+
+/** Un correo de la plataforma (historial del super admin). */
+export interface PlatformEmailLogDto {
+  id: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  recipient: string;
+  subject: string;
+  /** Null en los correos de cuenta (llevan enlaces que dan acceso). */
+  bodyText: string | null;
+  kind: string | null;
+  category: string | null;
+  status: PlatformEmailLogStatus;
+  provider: string | null;
+  errorMessage: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+}
+
+export interface PlatformEmailLogPageDto {
+  items: PlatformEmailLogDto[];
+  nextCursor: string | null;
+}

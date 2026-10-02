@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
+import { PlatformEmailLogService } from '../email/platform-email-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import { messageIdVariants, type DeliveryEvent } from './email-events.parse';
@@ -33,6 +34,7 @@ export class EmailEventsService {
     private readonly admin: PrismaAdminService,
     private readonly notifications: NotificationsService,
     private readonly suppressions: EmailSuppressionsService,
+    private readonly platformLog: PlatformEmailLogService,
   ) {}
 
   async apply(events: DeliveryEvent[]): Promise<{ matched: number }> {
@@ -80,8 +82,11 @@ export class EmailEventsService {
     }
 
     if (!comm) {
-      if (e.outcome !== 'delivered') await this.notifySuperAdmin(e);
-      return false;
+      // Correo de la plataforma (verificación, facturas de la suscripción…):
+      // se actualiza su historial.
+      const platform = await this.platformLog.applyDelivery(messageIdVariants(e.messageId), e);
+      if (e.outcome !== 'delivered') await this.notifySuperAdmin(e, platform);
+      return platform;
     }
 
     if (e.outcome === 'delivered') {
@@ -153,7 +158,7 @@ export class EmailEventsService {
     });
   }
 
-  private async notifySuperAdmin(e: DeliveryEvent): Promise<void> {
+  private async notifySuperAdmin(e: DeliveryEvent, inPlatformLog = false): Promise<void> {
     const provider = e.provider === 'brevo' ? 'Brevo' : 'Resend';
     const body = e.reason ?? 'Sin motivo indicado';
     const recent = await this.admin.superAdminNotification.findFirst({
@@ -170,7 +175,7 @@ export class EmailEventsService {
         type: 'email.provider_rejected',
         title: `${provider} no entregó un correo${e.recipient ? ` a ${e.recipient}` : ''}`,
         body,
-        link: '/admin/email',
+        link: inPlatformLog ? '/admin/email-log' : '/admin/email',
       },
     });
   }
