@@ -63,6 +63,52 @@ function ddmmyyyy(d: Date): string {
   return `${dd}/${mm}/${d.getUTCFullYear()}`;
 }
 
+type Amount = { toString(): string } | number;
+interface FiscalItem {
+  taxRate: Amount;
+  taxAmount: Amount;
+  total: Amount;
+}
+interface FiscalDoc {
+  items: FiscalItem[];
+  correctionMethod: string | null;
+  rectifiesInvoice: {
+    subtotal: Amount;
+    taxAmount: Amount;
+    total: Amount;
+    items: FiscalItem[];
+  } | null;
+}
+
+/**
+ * Factura sustituida por una rectificativa por sustitución: la sustitutiva
+ * lleva los importes completos, así que en los informes cuenta solo la
+ * diferencia (si no, la base salía dos veces).
+ */
+function substituted(inv: FiscalDoc): FiscalDoc['rectifiesInvoice'] {
+  return inv.correctionMethod === 'by_substitution' ? inv.rectifiesInvoice : null;
+}
+
+/** Base y cuota por tipo de IVA, neto de la factura sustituida. */
+function netByRate(inv: FiscalDoc): Map<number, { base: number; vat: number }> {
+  const out = new Map<number, { base: number; vat: number }>();
+  const add = (items: FiscalItem[], sign: number) => {
+    for (const item of items) {
+      const rate = Number(item.taxRate);
+      const lineBase = Number(item.total) - Number(item.taxAmount);
+      const prev = out.get(rate) ?? { base: 0, vat: 0 };
+      out.set(rate, {
+        base: prev.base + sign * lineBase,
+        vat: prev.vat + sign * Number(item.taxAmount),
+      });
+    }
+  };
+  add(inv.items, 1);
+  const sub = substituted(inv);
+  if (sub) add(sub.items, -1);
+  return out;
+}
+
 function quarterRange(year: number, quarter: number): { from: Date; to: Date } {
   const startMonth = (quarter - 1) * 3;
   return {
@@ -105,6 +151,15 @@ export class FiscalService {
               },
             },
             items: { select: { taxRate: true, taxAmount: true, total: true } },
+            correctionMethod: true,
+            rectifiesInvoice: {
+              select: {
+                subtotal: true,
+                taxAmount: true,
+                total: true,
+                items: { select: { taxRate: true, taxAmount: true, total: true } },
+              },
+            },
           },
           orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
         }),
@@ -117,16 +172,16 @@ export class FiscalService {
     let totalTotal = 0;
 
     const rows = invoices.map((inv) => {
-      const base = Number(inv.subtotal);
-      const vat = Number(inv.taxAmount);
+      const sub = substituted(inv);
+      const base = Number(inv.subtotal) - (sub ? Number(sub.subtotal) : 0);
+      const vat = Number(inv.taxAmount) - (sub ? Number(sub.taxAmount) : 0);
+      const total = Number(inv.total) - (sub ? Number(sub.total) : 0);
       totalBase += base;
       totalVat += vat;
-      totalTotal += Number(inv.total);
-      for (const item of inv.items) {
-        const rate = Number(item.taxRate);
-        const lineBase = Number(item.total) - Number(item.taxAmount);
+      totalTotal += total;
+      for (const [rate, v] of netByRate(inv)) {
         const prev = byRateMap.get(rate) ?? { base: 0, vat: 0 };
-        byRateMap.set(rate, { base: prev.base + lineBase, vat: prev.vat + Number(item.taxAmount) });
+        byRateMap.set(rate, { base: prev.base + v.base, vat: prev.vat + v.vat });
       }
       return {
         invoiceNumber: inv.invoiceNumber,
@@ -136,7 +191,7 @@ export class FiscalService {
         customerNif: inv.customer?.documentNumber ?? null,
         base: round2(base),
         vat: round2(vat),
-        total: round2(Number(inv.total)),
+        total: round2(total),
       };
     });
 
@@ -175,12 +230,41 @@ export class FiscalService {
         }),
       tenantId,
     );
+    // Las sustitutivas declaran solo la diferencia con la factura sustituida.
+    const replaced = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoiceItem.findMany({
+          where: {
+            tenantId,
+            invoice: {
+              rectifiedBy: {
+                some: {
+                  correctionMethod: 'by_substitution',
+                  deletedAt: null,
+                  status: { in: [...FISCAL_STATUSES] },
+                  issueDate: { gte: from, lte: to },
+                },
+              },
+            },
+          },
+          select: { taxRate: true, taxAmount: true, total: true },
+        }),
+      tenantId,
+    );
     const byRateMap = new Map<number, { base: number; vat: number }>();
-    for (const item of items) {
-      const rate = Number(item.taxRate);
-      const lineBase = Number(item.total) - Number(item.taxAmount);
-      const prev = byRateMap.get(rate) ?? { base: 0, vat: 0 };
-      byRateMap.set(rate, { base: prev.base + lineBase, vat: prev.vat + Number(item.taxAmount) });
+    for (const [list, sign] of [
+      [items, 1],
+      [replaced, -1],
+    ] as const) {
+      for (const item of list) {
+        const rate = Number(item.taxRate);
+        const lineBase = Number(item.total) - Number(item.taxAmount);
+        const prev = byRateMap.get(rate) ?? { base: 0, vat: 0 };
+        byRateMap.set(rate, {
+          base: prev.base + sign * lineBase,
+          vat: prev.vat + sign * Number(item.taxAmount),
+        });
+      }
     }
     const byRate = [...byRateMap.entries()]
       .map(([rate, v]) => ({ rate, base: round2(v.base), vat: round2(v.vat) }))
@@ -228,6 +312,8 @@ export class FiscalService {
           select: {
             total: true,
             issueDate: true,
+            correctionMethod: true,
+            rectifiesInvoice: { select: { total: true } },
             customer: {
               select: {
                 id: true,
@@ -257,7 +343,11 @@ export class FiscalService {
         total: 0,
         q: [0, 0, 0, 0] as [number, number, number, number],
       };
-      const amount = Number(inv.total);
+      const amount =
+        Number(inv.total) -
+        (inv.correctionMethod === 'by_substitution' && inv.rectifiesInvoice
+          ? Number(inv.rectifiesInvoice.total)
+          : 0);
       entry.total += amount;
       entry.q[q] = (entry.q[q] ?? 0) + amount;
       byCustomer.set(c.id, entry);
@@ -313,6 +403,15 @@ export class FiscalService {
               },
             },
             items: { select: { taxRate: true, taxAmount: true, total: true } },
+            correctionMethod: true,
+            rectifiesInvoice: {
+              select: {
+                subtotal: true,
+                taxAmount: true,
+                total: true,
+                items: { select: { taxRate: true, taxAmount: true, total: true } },
+              },
+            },
           },
           orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
         }),
@@ -321,17 +420,12 @@ export class FiscalService {
 
     const rows: AccountingExportRow[] = [];
     for (const inv of invoices) {
-      const byRate = new Map<number, { base: number; vat: number }>();
-      for (const item of inv.items) {
-        const rate = Number(item.taxRate);
-        const lineBase = Number(item.total) - Number(item.taxAmount);
-        const prev = byRate.get(rate) ?? { base: 0, vat: 0 };
-        byRate.set(rate, { base: prev.base + lineBase, vat: prev.vat + Number(item.taxAmount) });
-      }
+      const byRate = netByRate(inv);
       const issueDate = inv.issueDate ? ddmmyyyy(inv.issueDate) : null;
       const name = customerName(inv.customer);
       const nif = inv.customer?.documentNumber ?? null;
-      const invoiceTotal = round2(Number(inv.total));
+      const sub = substituted(inv);
+      const invoiceTotal = round2(Number(inv.total) - (sub ? Number(sub.total) : 0));
       for (const [rate, v] of [...byRate.entries()].sort((a, b) => b[0] - a[0])) {
         rows.push({
           invoiceNumber: inv.invoiceNumber,

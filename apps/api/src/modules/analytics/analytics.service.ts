@@ -612,11 +612,11 @@ export class AnalyticsService {
           tx.payment.findMany({
             where: {
               tenantId,
-              status: 'succeeded',
+              status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
               paidAt: { gte: fromDate, lt: toExclusive },
               invoice: { kind: 'invoice' },
             },
-            select: { paidAt: true, amount: true },
+            select: { paidAt: true, amount: true, refundedAmount: true },
           }),
         ]),
       tenantId,
@@ -632,7 +632,10 @@ export class AnalyticsService {
     for (const p of payments) {
       if (!p.paidAt) continue;
       const key = formatYearMonth(p.paidAt.getUTCFullYear(), p.paidAt.getUTCMonth() + 1);
-      collectedByKey.set(key, (collectedByKey.get(key) ?? 0) + Number(p.amount));
+      collectedByKey.set(
+        key,
+        (collectedByKey.get(key) ?? 0) + Number(p.amount) - Number(p.refundedAmount),
+      );
     }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;

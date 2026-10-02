@@ -178,12 +178,13 @@ export class ExpensesService {
         }),
         tx.payment.findMany({
           where: {
-            status: 'succeeded',
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
             paidAt: { gte: fromD, lte: toD },
             invoice: { kind: 'invoice' },
           },
           select: {
             amount: true,
+            refundedAmount: true,
             invoice: {
               select: { contract: { select: { unit: { select: { facilityId: true } } } } },
             },
@@ -206,7 +207,11 @@ export class ExpensesService {
       for (const i of invoices)
         bump(i.contract?.unit.facilityId ?? GENERAL, 'invoiced', num(i.total));
       for (const p of payments)
-        bump(p.invoice?.contract?.unit.facilityId ?? GENERAL, 'collected', num(p.amount));
+        bump(
+          p.invoice?.contract?.unit.facilityId ?? GENERAL,
+          'collected',
+          num(p.amount) - num(p.refundedAmount),
+        );
       for (const ex of expenses) bump(ex.facilityId ?? GENERAL, 'expenses', num(ex.amount));
 
       const nameById = new Map(facilities.map((f) => [f.id, f.name]));

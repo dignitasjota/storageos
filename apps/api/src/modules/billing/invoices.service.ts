@@ -9,7 +9,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
 import { Queue } from 'bullmq';
@@ -23,6 +23,7 @@ import {
   DOMAIN_EVENTS,
   type DomainEventPayload,
   type InvoiceCancelledPayload,
+  type InvoiceRefundedPayload,
 } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
@@ -388,6 +389,22 @@ export class InvoicesService {
           message: 'La factura ya se ha emitido',
         });
       }
+      if (existing.rectifiesInvoiceId) {
+        const method = (existing.correctionMethod ?? 'by_differences') as CorrectionMethodValue;
+        await this.assertRectificationLimits(tx, {
+          originalId: existing.rectifiesInvoiceId,
+          selfId: existing.id,
+          total: Number(existing.total),
+          method,
+        });
+        if (method === 'by_substitution') {
+          // La sustituida deja de cobrarse: la sustitutiva es la que vale.
+          await tx.invoice.updateMany({
+            where: { id: existing.rectifiesInvoiceId, status: { in: ['issued', 'overdue'] } },
+            data: { status: 'rectified', cancelledAt: new Date() },
+          });
+        }
+      }
       const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
       const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber);
       const issueDate = existing.issueDate ?? new Date();
@@ -485,6 +502,13 @@ export class InvoicesService {
       },
     };
     this.events.emit(DOMAIN_EVENTS.invoice_issued, issuedPayload);
+    if (existing.rectifiesInvoiceId && existing.correctionMethod === 'by_substitution') {
+      // La sustituida deja de valer (copia contable de Holded).
+      this.events.emit(DOMAIN_EVENTS.invoice_cancelled, {
+        tenantId: args.tenantId,
+        invoiceId: existing.rectifiesInvoiceId,
+      } satisfies InvoiceCancelledPayload);
+    }
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
   }
 
@@ -1627,7 +1651,100 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    // Dinero devuelto → rectificativa de abono por lo devuelto (si no, el IVA
+    // de lo reembolsado se seguía declarando).
+    this.events.emit(DOMAIN_EVENTS.invoice_refunded, {
+      tenantId: args.tenantId,
+      invoiceId: args.invoiceId,
+      amount,
+    } satisfies InvoiceRefundedPayload);
     return this.toDto(updated);
+  }
+
+  @OnEvent(DOMAIN_EVENTS.invoice_refunded, { async: true, promisify: true })
+  async onInvoiceRefunded(p: InvoiceRefundedPayload): Promise<void> {
+    try {
+      await this.issueRefundCreditNote(p.tenantId, p.invoiceId, p.amount);
+    } catch (err) {
+      this.logger.error(
+        `[invoices] abono por reembolso de ${p.invoiceId} sin emitir: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Rectificativa de abono (por diferencias) por un importe devuelto,
+   * repartido por tipo de IVA en proporción a la factura. Se emite y queda
+   * compensada (el dinero ya se devolvió por el reembolso).
+   */
+  async issueRefundCreditNote(tenantId: string, invoiceId: string, amount: number): Promise<void> {
+    const original = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: { id: invoiceId, deletedAt: null },
+          include: { items: true },
+        }),
+      tenantId,
+    );
+    if (!original || original.kind !== 'invoice') return;
+    if (original.invoiceType !== 'F1' && original.invoiceType !== 'F2') return;
+    const totalCents = toCents(original.total);
+    const refundCents = Math.min(toCents(amount), totalCents);
+    if (refundCents <= 0 || totalCents <= 0) return;
+
+    // Bruto por tipo de IVA y parte proporcional del reembolso.
+    const grossByRate = new Map<number, number>();
+    for (const it of original.items) {
+      const rate = Number(it.taxRate);
+      grossByRate.set(rate, (grossByRate.get(rate) ?? 0) + toCents(it.total));
+    }
+    const rates = [...grossByRate.entries()].filter(([, g]) => g > 0).sort(([a], [b]) => b - a);
+    let assigned = 0;
+    const items = rates.map(([rate, gross], idx) => {
+      const share =
+        idx === rates.length - 1
+          ? refundCents - assigned
+          : Math.round((refundCents * gross) / totalCents);
+      assigned += share;
+      // Base tal que base + cuota (redondeada por línea) = lo devuelto.
+      let netCents = Math.round(share / (1 + rate / 100));
+      const tax = Math.round((netCents * rate) / 100);
+      netCents += share - (netCents + tax);
+      return {
+        description: `Abono por reembolso de la factura ${original.invoiceNumber}`,
+        quantity: 1,
+        unitPrice: -netCents / 100,
+        taxRate: rate,
+      };
+    });
+
+    const draft = await this.rectify({
+      originalInvoiceId: original.id,
+      tenantId,
+      userId: null,
+      input: {
+        rectificationType: original.invoiceType === 'F2' ? 'R5' : 'R4',
+        reason: 'Reembolso de lo cobrado',
+        correctionMethod: 'by_differences',
+        items,
+      },
+      meta: {},
+      allowRectifiedOriginal: true,
+    });
+    await this.issue({ tenantId, userId: null, invoiceId: draft.id, meta: {} });
+    // Compensada: el dinero ya se devolvió.
+    await this.prisma.withTenant(async (tx) => {
+      const r = await tx.invoice.findUniqueOrThrow({
+        where: { id: draft.id },
+        select: { total: true },
+      });
+      await tx.invoice.updateMany({
+        where: { id: draft.id, status: 'issued' },
+        data: { status: 'paid', amountPaid: r.total, paidAt: new Date(), dueDate: null },
+      });
+    }, tenantId);
   }
 
   /**
@@ -1690,36 +1807,40 @@ export class InvoicesService {
     const { subtotal, taxAmount, total } = this.computeTotalsRectify(args.input.items);
     const placeholderNumber = draftPlaceholderNumber();
 
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoice.create({
-          data: {
-            tenantId: args.tenantId,
-            ...(original.customerId ? { customerId: original.customerId } : {}),
-            ...(original.contractId ? { contractId: original.contractId } : {}),
-            seriesId: original.seriesId,
-            sequenceNumber: 0,
-            invoiceNumber: placeholderNumber,
-            status: 'draft',
-            invoiceType: args.input.rectificationType as InvoiceType,
-            rectifiesInvoiceId: original.id,
-            rectificationReason: args.input.reason.trim(),
-            correctionMethod,
-            verifactuMode: original.verifactuMode,
-            ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
-            subtotal,
-            taxAmount,
-            total,
-            items: {
-              create: args.input.items.map((item, idx) =>
-                this.toRectifyItemCreateData(item, args.tenantId, idx),
-              ),
-            },
+    const created = await this.prisma.withTenant(async (tx) => {
+      await this.assertRectificationLimits(tx, {
+        originalId: original.id,
+        selfId: null,
+        total,
+        method: correctionMethod,
+      });
+      return tx.invoice.create({
+        data: {
+          tenantId: args.tenantId,
+          ...(original.customerId ? { customerId: original.customerId } : {}),
+          ...(original.contractId ? { contractId: original.contractId } : {}),
+          seriesId: original.seriesId,
+          sequenceNumber: 0,
+          invoiceNumber: placeholderNumber,
+          status: 'draft',
+          invoiceType: args.input.rectificationType as InvoiceType,
+          rectifiesInvoiceId: original.id,
+          rectificationReason: args.input.reason.trim(),
+          correctionMethod,
+          verifactuMode: original.verifactuMode,
+          ...(args.input.issueDate ? { issueDate: new Date(args.input.issueDate) } : {}),
+          subtotal,
+          taxAmount,
+          total,
+          items: {
+            create: args.input.items.map((item, idx) =>
+              this.toRectifyItemCreateData(item, args.tenantId, idx),
+            ),
           },
-          include: this.includeRelations(),
-        }),
-      args.tenantId,
-    );
+        },
+        include: this.includeRelations(),
+      });
+    }, args.tenantId);
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -1761,6 +1882,70 @@ export class InvoicesService {
     this.events.emit(DOMAIN_EVENTS.invoice_rectified, payload);
 
     return this.toDto(created);
+  }
+
+  /**
+   * Límites de las rectificativas de una factura (con la original bloqueada):
+   * - por sustitución: solo una, y solo si la original no tiene cobros (la
+   *   sustitutiva pasa a ser la que se cobra);
+   * - por diferencias: los abonos no pueden dejar la factura en negativo
+   *   (original + Σ diferencias ≥ 0).
+   */
+  private async assertRectificationLimits(
+    tx: Prisma.TransactionClient,
+    args: {
+      originalId: string;
+      selfId: string | null;
+      total: number;
+      method: CorrectionMethodValue;
+    },
+  ): Promise<void> {
+    await lockInvoiceRow(tx, args.originalId);
+    const original = await tx.invoice.findUniqueOrThrow({
+      where: { id: args.originalId },
+      select: { total: true, amountPaid: true },
+    });
+    const others = await tx.invoice.findMany({
+      where: {
+        rectifiesInvoiceId: args.originalId,
+        status: { not: 'cancelled' },
+        deletedAt: null,
+        ...(args.selfId ? { id: { not: args.selfId } } : {}),
+      },
+      select: { total: true, correctionMethod: true },
+    });
+    if (args.method === 'by_substitution') {
+      if (toCents(original.amountPaid) > 0) {
+        throw new BadRequestException({
+          code: 'substitution_original_paid',
+          message:
+            'La factura tiene cobros: corrígela con una rectificativa por diferencias, no por sustitución',
+        });
+      }
+      if (others.length > 0) {
+        throw new ConflictException({
+          code: 'rectification_already_exists',
+          message: 'La factura ya tiene rectificativas: no se puede sustituir',
+        });
+      }
+      return;
+    }
+    if (others.some((o) => o.correctionMethod === 'by_substitution')) {
+      throw new ConflictException({
+        code: 'invoice_substituted',
+        message: 'La factura ya está sustituida: rectifica la sustitutiva',
+      });
+    }
+    const netCents =
+      toCents(original.total) +
+      others.reduce((sum, o) => sum + toCents(o.total), 0) +
+      toCents(args.total);
+    if (netCents < 0) {
+      throw new BadRequestException({
+        code: 'rectification_exceeds_original',
+        message: 'Los abonos no pueden superar el total de la factura',
+      });
+    }
   }
 
   /** Persiste la URL del PDF tras generarlo. */

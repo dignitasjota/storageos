@@ -888,8 +888,12 @@ export class AdminTenantsService {
       }),
       this.admin.invoice.count({ where: { tenantId, deletedAt: null, status: 'overdue' } }),
       this.admin.payment.aggregate({
-        where: { tenantId, status: 'succeeded', invoice: { kind: 'invoice' } },
-        _sum: { amount: true },
+        where: {
+          tenantId,
+          status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+          invoice: { kind: 'invoice' },
+        },
+        _sum: { amount: true, refundedAmount: true },
       }),
       this.admin.invoice.findMany({
         where: {
@@ -904,11 +908,11 @@ export class AdminTenantsService {
       this.admin.payment.findMany({
         where: {
           tenantId,
-          status: 'succeeded',
+          status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
           paidAt: { gte: fromDate, lt: toExclusive },
           invoice: { kind: 'invoice' },
         },
-        select: { paidAt: true, amount: true },
+        select: { paidAt: true, amount: true, refundedAmount: true },
       }),
     ]);
 
@@ -922,7 +926,10 @@ export class AdminTenantsService {
     for (const p of payments) {
       if (!p.paidAt) continue;
       const key = `${p.paidAt.getUTCFullYear()}-${String(p.paidAt.getUTCMonth() + 1).padStart(2, '0')}`;
-      collectedByKey.set(key, (collectedByKey.get(key) ?? 0) + Number(p.amount));
+      collectedByKey.set(
+        key,
+        (collectedByKey.get(key) ?? 0) + Number(p.amount) - Number(p.refundedAmount),
+      );
     }
 
     const totalInvoiced = Number(totals._sum.total ?? 0);
@@ -935,7 +942,9 @@ export class AdminTenantsService {
     return {
       currency: tenant.currency,
       totalInvoiced: round2(totalInvoiced),
-      totalCollected: round2(Number(collected._sum.amount ?? 0)),
+      totalCollected: round2(
+        Number(collected._sum.amount ?? 0) - Number(collected._sum.refundedAmount ?? 0),
+      ),
       totalPending: round2(Math.max(0, totalPending)),
       invoiceCount,
       overdueCount,

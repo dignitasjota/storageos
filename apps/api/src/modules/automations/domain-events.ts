@@ -20,6 +20,11 @@ export const DOMAIN_EVENTS = {
   invoice_paid: 'domain.invoice_paid',
   /** Factura anulada (solo la oye la copia contable de Holded; no es trigger). */
   invoice_cancelled: 'domain.invoice_cancelled',
+  /**
+   * Se devolvió dinero de una factura (desde la app o desde la pasarela):
+   * genera la rectificativa de abono por lo devuelto. No es trigger.
+   */
+  invoice_refunded: 'domain.invoice_refunded',
   invoice_rectified: 'domain.invoice_rectified',
   reservation_confirmed: 'domain.reservation_confirmed',
   lead_created: 'domain.lead_created',
@@ -42,6 +47,13 @@ export const DOMAIN_EVENTS = {
 export interface InvoiceCancelledPayload {
   tenantId: string;
   invoiceId: string;
+}
+
+export interface InvoiceRefundedPayload {
+  tenantId: string;
+  invoiceId: string;
+  /** Importe devuelto en esta operación (no el acumulado), en euros. */
+  amount: number;
 }
 
 export interface SepaRemittanceCreatedPayload {
