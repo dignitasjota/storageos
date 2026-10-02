@@ -10,12 +10,12 @@ import { ConfigService } from '@nestjs/config';
 import nock from 'nock';
 import * as forge from 'node-forge';
 
-import { RealAeatClient } from '../src/modules/billing/aeat-client/real-aeat.client';
-import { VerifactuXmlBuilder } from '../src/modules/billing/aeat-client/verifactu-xml-builder';
-import { TenantAeatCredentialsService } from '../src/modules/billing/tenant-aeat-credentials.service';
-import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { RealAeatClient } from '../aeat-client/real-aeat.client';
+import { VerifactuXmlBuilder } from '../aeat-client/verifactu-xml-builder';
+import { TenantAeatCredentialsService } from '../tenant-aeat-credentials.service';
 
-import type { Env } from '../src/config/env.schema';
+import type { Env } from '../../../config/env.schema';
 
 /**
  * Genera un PKCS#12 dummy con node-forge. No es un certificado emitido por
@@ -91,16 +91,20 @@ function fakeInvoice() {
     taxAmount: 21 as unknown as number,
     total: 121 as unknown as number,
     hash: 'A'.repeat(64),
+    aeatRecordTimestamp: '2026-05-20T10:00:00+02:00',
+    previousInvoiceId: null,
     notes: 'Alquiler trastero T-12 mes mayo 2026',
     periodStart: new Date('2026-05-01T00:00:00.000Z'),
     periodEnd: new Date('2026-05-31T00:00:00.000Z'),
-    items: [],
+    items: [{ taxRate: 21, taxAmount: 21, total: 121 }],
     customer: {
       customerType: 'individual',
       companyName: null,
       firstName: 'Juan',
       lastName: 'Perez',
       documentNumber: '12345678Z',
+      documentType: 'dni',
+      country: 'ES',
     },
   };
 }

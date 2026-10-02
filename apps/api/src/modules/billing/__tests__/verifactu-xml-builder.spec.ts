@@ -1,14 +1,15 @@
 import { ConfigService } from '@nestjs/config';
 
 import {
+  breakdownFromItems,
   VerifactuXmlBuilder,
   escapeXml,
   formatSpanishDate,
   formatTimestampWithMadridTimezone,
   type BuildRegistroAltaArgs,
-} from '../src/modules/billing/aeat-client/verifactu-xml-builder';
+} from '../aeat-client/verifactu-xml-builder';
 
-import type { Env } from '../src/config/env.schema';
+import type { Env } from '../../../config/env.schema';
 
 /**
  * Construye un `ConfigService` mock con los valores de sistema informatico
@@ -49,10 +50,10 @@ function baseArgs(): BuildRegistroAltaArgs {
       issueDate: new Date('2026-05-20T00:00:00.000Z'),
       description: 'Alquiler trastero T-12 mes mayo 2026',
       invoiceType: 'F1',
-      subtotal: 100.0,
-      taxRate: 21.0,
+      breakdown: [{ taxRate: 21, base: 100, cuota: 21, subject: true }],
       taxAmount: 21.0,
       total: 121.0,
+      recordTimestamp: '2026-05-20T10:00:00+02:00',
       hash: 'A'.repeat(64),
       previousHash: null,
     },
@@ -196,7 +197,7 @@ describe('VerifactuXmlBuilder', () => {
     it('escapa caracteres XML peligrosos en nombres y descripciones', () => {
       const builder = new VerifactuXmlBuilder(createConfig());
       const args = baseArgs();
-      args.recipient.name = 'Juan & Maria <test>';
+      args.recipient!.name = 'Juan & Maria <test>';
       args.invoice.description = 'Comilla " y apostrofe \' en descripcion';
       args.tenant.name = 'Trasteros & Co <SL>';
 
@@ -483,5 +484,65 @@ describe('VerifactuXmlBuilder', () => {
         expect(escapeXml('&amp;')).toBe('&amp;amp;');
       });
     });
+  });
+});
+
+describe('VerifactuXmlBuilder — auditoría de facturación (PR 5)', () => {
+  const builder = new VerifactuXmlBuilder(createConfig());
+
+  it('una línea de desglose por tipo; el 0 % va como no sujeta (N1) sin tipo ni cuota', () => {
+    const args = baseArgs();
+    args.invoice.breakdown = [
+      { taxRate: 21, base: 100, cuota: 21, subject: true },
+      { taxRate: 0, base: 50, cuota: 0, subject: false },
+    ];
+    args.invoice.total = 171;
+    const xml = builder.buildRegistroAlta(args);
+    expect(xml.match(/<sum1:DetalleDesglose>/g)).toHaveLength(2);
+    expect(xml).toContain('<sum1:CalificacionOperacion>N1</sum1:CalificacionOperacion>');
+    expect(xml).toContain('<sum1:TipoImpositivo>21.00</sum1:TipoImpositivo>');
+    expect(xml).not.toContain('<sum1:TipoImpositivo>14');
+    expect(xml).toContain('<sum1:ImporteTotal>171.00</sum1:ImporteTotal>');
+  });
+
+  it('usa la FechaHoraHusoGenRegistro guardada al emitir (la misma de la huella)', () => {
+    const xml = builder.buildRegistroAlta(baseArgs());
+    expect(xml).toContain(
+      '<sum1:FechaHoraHusoGenRegistro>2026-05-20T10:00:00+02:00</sum1:FechaHoraHusoGenRegistro>',
+    );
+  });
+
+  it('destinatario sin NIF español → IDOtro con país y tipo', () => {
+    const args = baseArgs();
+    args.recipient = {
+      name: 'John Smith',
+      otherId: { country: 'GB', idType: '03', id: 'X1234567' },
+    };
+    const xml = builder.buildRegistroAlta(args);
+    expect(xml).toContain('<sum1:CodigoPais>GB</sum1:CodigoPais>');
+    expect(xml).toContain('<sum1:IDType>03</sum1:IDType>');
+    expect(xml).toContain('<sum1:ID>X1234567</sum1:ID>');
+    expect(xml).not.toContain('<sum1:NIF></sum1:NIF>');
+  });
+});
+
+describe('breakdownFromItems', () => {
+  it('agrupa por tipo en céntimos y marca el 0 % como no sujeto', () => {
+    expect(
+      breakdownFromItems([
+        { taxRate: 21, taxAmount: 21, total: 121 },
+        { taxRate: 21, taxAmount: 2.1, total: 12.1 },
+        { taxRate: 0, taxAmount: 0, total: 50 },
+      ]),
+    ).toEqual([
+      { taxRate: 21, base: 110, cuota: 23.1, subject: true },
+      { taxRate: 0, base: 50, cuota: 0, subject: false },
+    ]);
+  });
+
+  it('rectificativa de abono: importes negativos', () => {
+    expect(breakdownFromItems([{ taxRate: 21, taxAmount: -21, total: -121 }])).toEqual([
+      { taxRate: 21, base: -100, cuota: -21, subject: true },
+    ]);
   });
 });

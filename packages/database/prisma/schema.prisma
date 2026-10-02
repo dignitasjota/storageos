@@ -1610,6 +1610,12 @@ model Invoice {
   redsysOrders       RedsysOrder[]
   rectifiesInvoice   Invoice?                   @relation("InvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
   rectifiedBy        Invoice[]                  @relation("InvoiceRectification")
+  /// Cadena Veri*Factu por emisor: posición, registro anterior y FechaHoraHusoGenRegistro de la huella.
+  chainSeq           Int?                       @map("chain_seq")
+  previousInvoiceId  String?                    @map("previous_invoice_id") @db.Uuid
+  previousInvoice    Invoice?                   @relation("InvoiceChain", fields: [previousInvoiceId], references: [id], onDelete: SetNull)
+  nextInvoices       Invoice[]                  @relation("InvoiceChain")
+  aeatRecordTimestamp String?                   @map("aeat_record_timestamp")
   lateFeeForInvoice  Invoice?                   @relation("InvoiceLateFee", fields: [lateFeeForInvoiceId], references: [id], onDelete: SetNull)
   lateFeeInvoice     Invoice?                   @relation("InvoiceLateFee")
   sepaRemittanceItems SepaRemittanceItem[]

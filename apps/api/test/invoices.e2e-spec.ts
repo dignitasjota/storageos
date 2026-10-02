@@ -58,7 +58,7 @@ describe('Invoices state machine + Verifactu hash (e2e)', () => {
     expect(issued1.status).toBe(200);
     expect(issued1.body.status).toBe('issued');
     expect(issued1.body.invoiceNumber).toMatch(/^FA\/\d{4}\/00001$/);
-    expect(issued1.body.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(issued1.body.hash).toMatch(/^[0-9A-F]{64}$/);
     expect(issued1.body.previousHash).toBeNull();
     expect(issued1.body.qrCodeUrl).toMatch(/^data:image\/png/);
     // El envio AEAT es asincrono (cola BullMQ `verifactu`): el body del issue

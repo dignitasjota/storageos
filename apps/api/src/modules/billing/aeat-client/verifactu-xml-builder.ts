@@ -63,15 +63,14 @@ export class VerifactuXmlBuilder {
         ? `          <sum1:Destinatarios>
             <sum1:IDDestinatario>
               <sum1:NombreRazon>${escapeXml(recipient.name)}</sum1:NombreRazon>
-              <sum1:NIF>${escapeXml(recipient.taxId)}</sum1:NIF>
+${recipientIdBlock(recipient)}
             </sum1:IDDestinatario>
           </sum1:Destinatarios>`
         : `          <sum1:FacturaSinIdentifDestinatarioArt61d>S</sum1:FacturaSinIdentifDestinatarioArt61d>`;
 
-    const subtotal = invoice.subtotal.toFixed(2);
-    const taxRate = invoice.taxRate.toFixed(2);
     const taxAmount = invoice.taxAmount.toFixed(2);
     const total = invoice.total.toFixed(2);
+    const desglose = buildDesglose(invoice.breakdown);
     const huella = invoice.hash.toUpperCase();
 
     const encadenamiento = invoice.previousHash
@@ -96,7 +95,8 @@ export class VerifactuXmlBuilder {
         })
       : '';
 
-    const generadoEn = formatTimestampWithMadridTimezone(new Date());
+    // La misma fecha-hora que entró en la huella (se fija al emitir).
+    const generadoEn = escapeXml(invoice.recordTimestamp);
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:sum="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroLR.xsd" xmlns:sum1="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd">
@@ -122,14 +122,7 @@ export class VerifactuXmlBuilder {
           <sum1:DescripcionOperacion>${description}</sum1:DescripcionOperacion>
 ${destinatariosBlock}${rectificationBlocks}
           <sum1:Desglose>
-            <sum1:DetalleDesglose>
-              <sum1:Impuesto>01</sum1:Impuesto>
-              <sum1:ClaveRegimen>01</sum1:ClaveRegimen>
-              <sum1:CalificacionOperacion>S1</sum1:CalificacionOperacion>
-              <sum1:TipoImpositivo>${taxRate}</sum1:TipoImpositivo>
-              <sum1:BaseImponibleOimporteNoSujeto>${subtotal}</sum1:BaseImponibleOimporteNoSujeto>
-              <sum1:CuotaRepercutida>${taxAmount}</sum1:CuotaRepercutida>
-            </sum1:DetalleDesglose>
+${desglose}
           </sum1:Desglose>
           <sum1:CuotaTotal>${taxAmount}</sum1:CuotaTotal>
           <sum1:ImporteTotal>${total}</sum1:ImporteTotal>
@@ -338,11 +331,16 @@ export interface BuildRegistroAltaArgs {
       cuotaRectificada: number;
       recargo?: number;
     };
-    subtotal: number;
-    /** Porcentaje (ej. 21, 10, 4, 0). */
-    taxRate: number;
+    /**
+     * Desglose por tipo de IVA (una línea por tipo). `subject: false` =
+     * operación no sujeta (N1: fianzas, indemnizaciones como el recargo por
+     * mora): sin tipo ni cuota.
+     */
+    breakdown: ReadonlyArray<{ taxRate: number; base: number; cuota: number; subject: boolean }>;
     taxAmount: number;
     total: number;
+    /** FechaHoraHusoGenRegistro usada en la huella (se guarda al emitir). */
+    recordTimestamp: string;
     /** SHA-256 hex (64 chars). Sera serializado en MAYUSCULAS. */
     hash: string;
     /** Hash de la factura inmediatamente anterior de la misma serie; `null`
@@ -363,9 +361,73 @@ export interface BuildRegistroAltaArgs {
    * `<Destinatarios>`.
    */
   recipient?: {
-    taxId: string;
     name: string;
+    /** NIF español válido → `<NIF>`. */
+    taxId?: string;
+    /** Identificación extranjera o sin NIF → `<IDOtro>`. */
+    otherId?: { country: string; idType: '02' | '03' | '04' | '05' | '06'; id: string };
   };
+}
+
+/** `<NIF>` o `<IDOtro>` del destinatario. */
+function recipientIdBlock(r: NonNullable<BuildRegistroAltaArgs['recipient']>): string {
+  if (r.taxId) return `              <sum1:NIF>${escapeXml(r.taxId)}</sum1:NIF>`;
+  const o = r.otherId ?? { country: 'ES', idType: '06' as const, id: '' };
+  return `              <sum1:IDOtro>
+                <sum1:CodigoPais>${escapeXml(o.country)}</sum1:CodigoPais>
+                <sum1:IDType>${o.idType}</sum1:IDType>
+                <sum1:ID>${escapeXml(o.id)}</sum1:ID>
+              </sum1:IDOtro>`;
+}
+
+/** Una `<DetalleDesglose>` por tipo de IVA; las no sujetas como N1. */
+function buildDesglose(lines: BuildRegistroAltaArgs['invoice']['breakdown']): string {
+  return lines
+    .map((l) =>
+      l.subject
+        ? `            <sum1:DetalleDesglose>
+              <sum1:Impuesto>01</sum1:Impuesto>
+              <sum1:ClaveRegimen>01</sum1:ClaveRegimen>
+              <sum1:CalificacionOperacion>S1</sum1:CalificacionOperacion>
+              <sum1:TipoImpositivo>${l.taxRate.toFixed(2)}</sum1:TipoImpositivo>
+              <sum1:BaseImponibleOimporteNoSujeto>${l.base.toFixed(2)}</sum1:BaseImponibleOimporteNoSujeto>
+              <sum1:CuotaRepercutida>${l.cuota.toFixed(2)}</sum1:CuotaRepercutida>
+            </sum1:DetalleDesglose>`
+        : `            <sum1:DetalleDesglose>
+              <sum1:Impuesto>01</sum1:Impuesto>
+              <sum1:ClaveRegimen>01</sum1:ClaveRegimen>
+              <sum1:CalificacionOperacion>N1</sum1:CalificacionOperacion>
+              <sum1:BaseImponibleOimporteNoSujeto>${l.base.toFixed(2)}</sum1:BaseImponibleOimporteNoSujeto>
+            </sum1:DetalleDesglose>`,
+    )
+    .join('\n');
+}
+
+/**
+ * Desglose por tipo a partir de las líneas: base = total − cuota de cada
+ * línea, agrupado por tipo; las líneas al 0 % son no sujetas (N1).
+ */
+export function breakdownFromItems(
+  items: ReadonlyArray<{ taxRate: number; taxAmount: number; total: number }>,
+): Array<{ taxRate: number; base: number; cuota: number; subject: boolean }> {
+  const byRate = new Map<number, { baseCents: number; cuotaCents: number }>();
+  for (const it of items) {
+    const rate = Math.round(it.taxRate * 100) / 100;
+    const cur = byRate.get(rate) ?? { baseCents: 0, cuotaCents: 0 };
+    const totalCents = Math.round(it.total * 100);
+    const taxCents = Math.round(it.taxAmount * 100);
+    cur.baseCents += totalCents - taxCents;
+    cur.cuotaCents += taxCents;
+    byRate.set(rate, cur);
+  }
+  return [...byRate.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([rate, v]) => ({
+      taxRate: rate,
+      base: v.baseCents / 100,
+      cuota: v.cuotaCents / 100,
+      subject: rate > 0,
+    }));
 }
 
 // --------------------------------------------------------------------------

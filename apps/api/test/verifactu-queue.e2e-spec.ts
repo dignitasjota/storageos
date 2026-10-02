@@ -4,6 +4,7 @@ import request from 'supertest';
 import { InvoicesService } from '../src/modules/billing/invoices.service';
 import { VerifactuProcessor } from '../src/modules/billing/verifactu.processor';
 import { VerifactuService } from '../src/modules/billing/verifactu.service';
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../src/modules/queues/queues.module';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -68,10 +69,22 @@ describe('Verifactu queue + resend-aeat (e2e)', () => {
     const service = app.get(VerifactuService);
     await service.sendToAeat(id, owner.tenantId);
 
-    const before = await request(app.getHttpServer())
+    let before = await request(app.getHttpServer())
       .get(`/invoices/${id}`)
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(before.body.aeatStatus).toBe('accepted');
+    // Una aceptada no se reenvía (sería un alta duplicada en la AEAT): se
+    // reenvía tras un error.
+    await request(app.getHttpServer())
+      .post(`/billing/invoices/${id}/resend-aeat`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(400);
+    await app
+      .get(PrismaAdminService)
+      .invoice.update({ where: { id }, data: { aeatStatus: 'error' } });
+    before = await request(app.getHttpServer())
+      .get(`/invoices/${id}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
 
     const resend = await request(app.getHttpServer())
       .post(`/billing/invoices/${id}/resend-aeat`)

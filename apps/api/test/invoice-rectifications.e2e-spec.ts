@@ -95,7 +95,7 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
     expect(issuedRect.status).toBe(200);
     expect(issuedRect.body.status).toBe('issued');
     expect(issuedRect.body.invoiceNumber).toMatch(/^FA\/\d{4}\/00002$/);
-    expect(issuedRect.body.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(issuedRect.body.hash).toMatch(/^[0-9A-F]{64}$/);
     // El previousHash encadena con la ultima de la serie (la F1 original).
     expect(issuedRect.body.previousHash).toBe(originalIssued.body.hash);
     // Desde Fase 10A.4 el envio a AEAT pasa a ser asincrono via BullMQ; tras
@@ -277,7 +277,7 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
     expect(issuedRect.body.status).toBe('issued');
     expect(issuedRect.body.correctionMethod).toBe('by_substitution');
     expect(issuedRect.body.invoiceType).toBe('R1');
-    expect(issuedRect.body.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(issuedRect.body.hash).toMatch(/^[0-9A-F]{64}$/);
   });
 
   it('correctionMethod por defecto sigue siendo by_differences (retrocompat)', async () => {

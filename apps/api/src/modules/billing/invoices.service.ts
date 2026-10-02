@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
+import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
@@ -386,22 +387,37 @@ export class InvoicesService {
       const issueDate = existing.issueDate ?? new Date();
       const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate);
 
-      // Verifactu hash encadenado.
+      // Veri*Factu: huella oficial encadenada con el último registro del emisor.
       const tenant = await tx.tenant.findUniqueOrThrow({
         where: { id: args.tenantId },
         select: { taxId: true },
       });
+      const emitterTaxId = tenant.taxId ? normalizeTaxId(tenant.taxId) : '';
+      if (this.verifactu.realMode) {
+        // Envío real a la AEAT: sin NIF válido del emisor el registro se
+        // rechazaría (antes la huella llevaba «PENDIENTE»).
+        if (!emitterTaxId || !isValidSpanishTaxId(emitterTaxId)) {
+          throw new BadRequestException({
+            code: 'tenant_tax_id_required',
+            message:
+              'Pon el NIF de tu empresa en Ajustes → Suscripción (datos fiscales) antes de emitir facturas',
+          });
+        }
+        await this.assertRecipientIdentifiable(tx, existing);
+      }
       const total = Number(existing.total);
-      const { hash, previousHash } = await this.verifactu.computeChainedHash(tx, {
+      const chain = await this.verifactu.computeChainedHash(tx, {
         tenantId: args.tenantId,
-        tenantTaxId: tenant.taxId ?? 'PENDIENTE',
-        seriesId: existing.seriesId,
+        tenantTaxId: emitterTaxId || 'PENDIENTE',
         invoiceNumber,
         issueDate,
+        invoiceType: existing.invoiceType,
+        taxAmount: Number(existing.taxAmount),
         total,
       });
+      const { hash, previousHash } = chain;
       const qrCodeUrl = await this.verifactu.buildQrDataUrl({
-        tenantTaxId: tenant.taxId ?? 'PENDIENTE',
+        tenantTaxId: emitterTaxId || 'PENDIENTE',
         invoiceNumber,
         issueDate,
         total,
@@ -417,6 +433,9 @@ export class InvoicesService {
           dueDate,
           hash,
           previousHash,
+          previousInvoiceId: chain.previousInvoiceId,
+          chainSeq: chain.chainSeq,
+          aeatRecordTimestamp: chain.recordTimestamp,
           qrCodeUrl,
           aeatStatus: 'pending',
         },
@@ -779,19 +798,27 @@ export class InvoicesService {
     tenantId: string,
   ): Promise<{ queued: true; invoiceId: string }> {
     const existing = await this.findOrThrow(tenantId, invoiceId);
-    if (existing.status === 'draft') {
+    if (existing.status === 'draft' || existing.status === 'cancelled') {
       throw new BadRequestException({
         code: 'invoice_draft_not_sendable',
         message: 'No se puede reenviar a AEAT una factura en borrador',
+      });
+    }
+    // Ya registrada en la AEAT: reenviarla sería un alta duplicada.
+    if (existing.aeatStatus === 'accepted' || existing.aeatStatus === 'accepted_with_warnings') {
+      throw new BadRequestException({
+        code: 'already_accepted',
+        message: 'La AEAT ya aceptó esta factura: no se reenvía',
       });
     }
     await this.prisma.withTenant(
       (tx) =>
         tx.invoice.update({
           where: { id: invoiceId },
+          // Se conserva `aeatSentAt`: si ya hubo un envío, antes de reenviar se
+          // consulta a la AEAT por si llegó (evita el alta duplicada).
           data: {
-            aeatSentAt: null,
-            aeatStatus: null,
+            aeatStatus: 'pending',
             aeatCsv: null,
             aeatResponse: Prisma.JsonNull,
           },
@@ -1039,6 +1066,38 @@ export class InvoicesService {
       args.tenantId,
     );
     return this.toDto(updated);
+  }
+
+  /**
+   * Envío real a la AEAT: una factura completa o rectificativa necesita un
+   * destinatario identificado (NIF español válido, o documento extranjero
+   * con país). Una simplificada sin cliente no.
+   */
+  private async assertRecipientIdentifiable(
+    tx: Prisma.TransactionClient,
+    invoice: { invoiceType: string; customerId: string | null },
+  ): Promise<void> {
+    if (invoice.invoiceType === 'F2' && !invoice.customerId) return;
+    if (!invoice.customerId) {
+      throw new BadRequestException({
+        code: 'customer_required',
+        message: 'Una factura completa necesita un cliente identificado',
+      });
+    }
+    const c = await tx.customer.findUnique({
+      where: { id: invoice.customerId },
+      select: { documentNumber: true, country: true },
+    });
+    const doc = (c?.documentNumber ?? '').trim();
+    const spanish = (c?.country ?? 'ES').toUpperCase() === 'ES';
+    if (!doc || (spanish && !isValidSpanishTaxId(doc))) {
+      if (invoice.invoiceType === 'F2') return; // simplificada: el NIF es opcional
+      throw new BadRequestException({
+        code: 'customer_tax_id_required',
+        message:
+          'El cliente no tiene un NIF/NIE válido: complétalo en su ficha (o emite una factura simplificada si no supera 400 €)',
+      });
+    }
   }
 
   /** Marca una factura como pagada manualmente (cobro en efectivo, transferencia...). */
