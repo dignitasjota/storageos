@@ -37,6 +37,7 @@ export function useCommunications(params?: {
   status?: string;
   channel?: string;
   customerId?: string;
+  leadId?: string;
   contractId?: string;
   invoiceId?: string;
 }) {
@@ -44,11 +45,25 @@ export function useCommunications(params?: {
   if (params?.status) qs.set('status', params.status);
   if (params?.channel) qs.set('channel', params.channel);
   if (params?.customerId) qs.set('customerId', params.customerId);
+  if (params?.leadId) qs.set('leadId', params.leadId);
   if (params?.contractId) qs.set('contractId', params.contractId);
   if (params?.invoiceId) qs.set('invoiceId', params.invoiceId);
   return useQuery({
     queryKey: communicationsKey(params),
     queryFn: () => apiFetch<CommunicationDto[]>(`/communications${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+/** Responde al contacto por email (queda en Comunicaciones). */
+export function useLeadReply(leadId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { subject: string; body: string }) =>
+      apiFetch<CommunicationDto>(`/leads/${leadId}/reply`, { method: 'POST', json: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['communications'] });
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+    },
   });
 }
 

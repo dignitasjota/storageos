@@ -15,9 +15,11 @@ import {
 import {
   ConvertLeadSchema,
   CreateLeadSchema,
+  type CommunicationDto,
   type LeadDto,
   type LeadSourceValue,
   type LeadStatusValue,
+  LeadReplySchema,
   SetLeadMarketingSchema,
   TransitionLeadSchema,
   UpdateLeadSchema,
@@ -39,6 +41,7 @@ class CreateLeadDto extends createZodDto(CreateLeadSchema) {}
 class UpdateLeadDto extends createZodDto(UpdateLeadSchema) {}
 class TransitionLeadDto extends createZodDto(TransitionLeadSchema) {}
 class SetLeadMarketingDto extends createZodDto(SetLeadMarketingSchema) {}
+class LeadReplyDto extends createZodDto(LeadReplySchema) {}
 class ConvertLeadDto extends createZodDto(ConvertLeadSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -111,6 +114,24 @@ export class LeadsController {
     @Req() req: Request,
   ): Promise<LeadDto> {
     return this.service.update({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      input: body,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Responde al contacto por email (queda en Comunicaciones). */
+  @Post(':id/reply')
+  @RequirePermission('communications:send')
+  reply(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: LeadReplyDto,
+    @Req() req: Request,
+  ): Promise<CommunicationDto> {
+    return this.service.reply({
       tenantId: user.tenantId,
       userId: user.sub,
       id,

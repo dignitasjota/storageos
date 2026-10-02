@@ -178,6 +178,13 @@ export interface EmailSuppressionDto {
   createdAt: string;
 }
 
+/** Respuesta del staff a un contacto (lead) por email. */
+export const LeadReplySchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(10_000),
+});
+export type LeadReplyInput = z.infer<typeof LeadReplySchema>;
+
 /** Página pública de baja de comunicaciones comerciales. */
 export interface UnsubscribeInfoDto {
   tenantName: string;
