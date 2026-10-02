@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
@@ -6,6 +6,7 @@ import type {
   AutomationRuleDto,
   AutomationRunDto,
   CommunicationDto,
+  CommunicationPageDto,
   ConvertLeadInput,
   CreateAutomationRuleInput,
   CreateLeadInput,
@@ -64,6 +65,28 @@ export function useLeadReply(leadId: string) {
       void qc.invalidateQueries({ queryKey: ['communications'] });
       void qc.invalidateQueries({ queryKey: ['leads'] });
     },
+/** Historial paginado (página de Comunicaciones): búsqueda, periodo y «cargar más». */
+export function useCommunicationsPage(params: {
+  status?: string;
+  channel?: string;
+  search?: string;
+  from?: string;
+}) {
+  return useInfiniteQuery({
+    queryKey: ['communications', 'page', params] as const,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams({ limit: '50' });
+      if (params.status) qs.set('status', params.status);
+      if (params.channel) qs.set('channel', params.channel);
+      if (params.search) qs.set('search', params.search);
+      if (params.from) qs.set('from', params.from);
+      if (pageParam) qs.set('cursor', pageParam);
+      return apiFetch<CommunicationPageDto>(`/communications/page?${qs}`);
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // Mientras llega la búsqueda nueva, se siguen viendo los resultados anteriores.
+    placeholderData: (prev) => prev,
   });
 }
 
