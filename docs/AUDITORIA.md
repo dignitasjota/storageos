@@ -327,7 +327,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 
 ## Graves (dinero o duplicados reales)
 
-1. **Holded: facturas y cobros duplicados.** `pushDocument`/`pushPayments` comprueban, crean en Holded y guardan sin bloqueo; el aviso al emitir + «Enviar pendientes», o los avisos de «emitida» y «pagada» casi a la vez, duplican. → PR 2.
+1. **Holded: facturas y cobros duplicados.** `pushDocument`/`pushPayments` comprueban, crean en Holded y guardan sin bloqueo; el aviso al emitir + «Enviar pendientes», o los avisos de «emitida» y «pagada» casi a la vez, duplican. → ✅ PR 2.
 2. **Reembolso doble de dinero real.** `refund` sin bloqueo ni clave de idempotencia. → ✅ PR 1.
 3. **Doble cobro con remesas SEPA.** Las facturas de una remesa generada se pueden pagar por otra vía y el banco las cobra igual; al confirmar, el fallo solo queda en el log. → PR 3 (la confirmación ya no se puede ejecutar dos veces: ✅ PR 1).
 4. **Cobros simultáneos mal sumados.** Cobro manual con lectura previa a la transacción; webhooks de cobro, reembolso y disputa con el estado comprobado fuera; fase final del cobro por pasarela que sobrescribe. → ✅ PR 1.
@@ -350,7 +350,7 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 15. `revertPayment` marca como fallidos todos los pagos de la factura. → PR 7 (la devolución N43 ya revierte solo el importe del cargo: ✅ PR 1).
 16. GoCardless `late_failure_settled` no se trata. → PR 7.
 17. Cobro por pasarela sobre factura ya pagada por otra vía: sin aviso. → PR 7.
-18. Holded no recibe reembolsos ni devoluciones. → PR 2.
+18. Holded no recibe reembolsos ni devoluciones. → ✅ PR 2 (salen «para revisar»: Holded no permite quitar un cobro por API; el abono por reembolso llega con la PR 6).
 19. Numeración de facturas de suscripción sin bloqueo (un cobro puede quedar sin factura). → PR 7.
 20. Una factura solo puede ir en una remesa en toda su vida; no se puede cancelar una remesa. → PR 3.
 21. Métricas: lo cobrado ignora entero un pago con reembolso parcial; lo facturado no descuenta reembolsos. → PR 6.
@@ -375,3 +375,13 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - Cobro por pasarela: la fase final suma con incremento y solo si la reserva sigue en `processing`.
 - Confirmar remesa SEPA y conciliar/devolver un apunte N43: se reclaman de forma atómica antes de tocar facturas.
 - e2e `billing-concurrency`: 7 operaciones lanzadas dos veces a la vez. **Sin el arreglo fallan las 7**; con él pasan.
+
+## PR 2 — Holded sin duplicados ✅
+
+- Reserva atómica antes de llamar a Holded (`invoices.holded_sync_state` + `holded_sync_started_at`, `payments.holded_sync_started_at`): varios envíos a la vez dan una sola factura, un solo cobro y un solo contacto.
+- Crear y aprobar por separado: el id de Holded se guarda antes de aprobar; si la aprobación falla, el reintento solo aprueba.
+- Holded rechaza (error HTTP) → se libera y se reintenta. Holded no responde (red, tiempo agotado) → la reserva se queda: no se reintenta sola (pudo crearse) y a los 5 minutos sale «para revisar».
+- Cobros ya copiados que luego se reembolsan o devuelven → «para revisar» (`payments.holded_reviewed_at` al marcarlos revisados).
+- `GET /settings/holded/review` + `POST /settings/holded/review/{invoices|payments}/:id` (reenviar / ya está en Holded / revisado) y bloque «Para revisar en Holded» en Ajustes → Facturación.
+- e2e `holded-idempotent` (6 casos: simultáneos, aprobación fallida, rechazo, sin respuesta, enlace manual, reembolso).
+- Pendiente: la copia en Holded de las facturas de suscripción (desactivada) aún no tiene reserva.
