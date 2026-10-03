@@ -1,9 +1,11 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import {
   missingFiscalData,
+  normalizeTaxId,
   type RectifyPlatformInvoiceInput,
   type TenantBillingDetailsDto,
   type TenantBillingDetailsInput,
@@ -12,12 +14,14 @@ import StripeSDK from 'stripe';
 
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertTaxIdFree } from '../../common/tax-id-unique';
+import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 
 import { PlatformHoldedService } from './platform-holded.service';
+import { PlatformOwnTenantInvoicingService } from './platform-own-tenant-invoicing.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -95,6 +99,7 @@ export class PlatformInvoicesService {
   private readonly logger = new Logger(PlatformInvoicesService.name);
   private readonly s3: S3Client;
   private readonly bucket: string;
+  private readonly aeatRealMode: boolean;
   private browserPromise: Promise<Browser> | null = null;
   private readonly stripe: StripeClient;
 
@@ -104,8 +109,10 @@ export class PlatformInvoicesService {
     private readonly email: EmailService,
     private readonly stripeGateway: StripeGateway,
     private readonly holded: PlatformHoldedService,
+    private readonly ownTenant: PlatformOwnTenantInvoicingService,
     config: ConfigService<Env, true>,
   ) {
+    this.aeatRealMode = config.get('AEAT_MODE', { infer: true }) !== 'stub';
     this.stripe = stripeGateway.getClient();
     this.s3 = new S3Client({
       endpoint: config.get('MINIO_ENDPOINT', { infer: true }),
@@ -154,12 +161,20 @@ export class PlatformInvoicesService {
       } else {
         const t = await this.admin.tenant.findFirst({
           where: { slug: input.ownTenantSlug.toLowerCase(), deletedAt: null },
-          select: { id: true },
+          select: { id: true, taxId: true },
         });
         if (!t) {
           throw new BadRequestException({
             code: 'own_tenant_not_found',
             message: `No hay ninguna empresa con el identificador «${input.ownTenantSlug}»`,
+          });
+        }
+        // Emite las facturas de suscripción: debe ser la misma sociedad (mismo NIF).
+        const issuerTaxId = input.taxId ?? existing?.taxId ?? '';
+        if (issuerTaxId && t.taxId && normalizeTaxId(issuerTaxId) !== normalizeTaxId(t.taxId)) {
+          throw new BadRequestException({
+            code: 'own_tenant_tax_id_mismatch',
+            message: `El negocio propio tiene el NIF ${t.taxId} y el emisor ${issuerTaxId}: deben ser la misma sociedad`,
           });
         }
         ownTenantId = t.id;
@@ -368,6 +383,27 @@ export class PlatformInvoicesService {
     // consultar Stripe). La cabecera monolínea (base/IVA/total) no cambia.
     const lines = await this.buildLines(payment, taxRate, { total, base, taxAmount });
 
+    // Con «negocio propio», la factura de suscripción es una factura normal de
+    // ese tenant (mismo NIF, misma cadena Veri*Factu y mismo modo de emisión).
+    if (settings.ownTenant) {
+      return this.issueViaOwnTenant({
+        ownTenantId: settings.ownTenant.id,
+        payment,
+        settings,
+        lines,
+        recipient: { name: recipientName, address: recipientAddress, missing: recipientMissing },
+      });
+    }
+    // Sin él, la numeración propia no se registra en Veri*Factu: solo vale en
+    // pruebas (en envío real a la AEAT hace falta el negocio propio).
+    if (this.aeatRealMode) {
+      throw new BadRequestException({
+        code: 'own_tenant_required',
+        message:
+          'Indica en Facturación del SaaS el negocio propio que emite las facturas de suscripción (las registra en Veri*Factu)',
+      });
+    }
+
     // Numeración secuencial atómica por serie (año) + creación de la factura +
     // líneas. El bloqueo por serie serializa dos emisiones a la vez (antes las
     // dos leían el mismo último número y la segunda fallaba por el único:
@@ -465,6 +501,107 @@ export class PlatformInvoicesService {
       include: INVOICE_INCLUDE,
     });
     return this.invoiceToDto(finalRow ?? created);
+  }
+
+  /**
+   * Factura de suscripción emitida por el tenant propio: crea (o retoma) su
+   * factura normal y guarda aquí la copia que ven el tenant y el admin.
+   */
+  private async issueViaOwnTenant(args: {
+    ownTenantId: string;
+    payment: {
+      id: string;
+      provider: string;
+      paidAt: Date | null;
+      periodStart: Date | null;
+      periodEnd: Date | null;
+      planSlug: string | null;
+      planName: string | null;
+      description: string | null;
+      currency: string;
+      tenant: { id: string; name: string; taxId: string | null; billingEmail: string | null };
+    };
+    settings: PlatformBillingSettingsDto;
+    lines: LineData[];
+    recipient: { name: string; address: string | null; missing: string[] };
+  }): Promise<PlatformInvoiceDto> {
+    const { payment, settings, lines } = args;
+    const issued = await this.ownTenant.issue({
+      ownTenantId: args.ownTenantId,
+      payment: {
+        id: payment.id,
+        provider: payment.provider,
+        paidAt: payment.paidAt,
+        periodStart: payment.periodStart,
+        periodEnd: payment.periodEnd,
+        tenantId: payment.tenant.id,
+      },
+      lines: lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        baseAmount: l.baseAmount,
+        taxRate: l.taxRate,
+      })),
+    });
+    let created;
+    try {
+      created = await this.admin.platformInvoice.create({
+        data: {
+          series: 'own',
+          number: 0,
+          fullNumber: issued.invoiceNumber,
+          invoiceId: issued.invoiceId,
+          tenantId: payment.tenant.id,
+          tenantName: args.recipient.name,
+          tenantTaxId: payment.tenant.taxId,
+          tenantEmail: payment.tenant.billingEmail,
+          tenantAddress: args.recipient.address,
+          planSlug: payment.planSlug,
+          planName: payment.planName,
+          concept: payment.description ?? null,
+          periodStart: payment.periodStart,
+          periodEnd: payment.periodEnd,
+          baseAmount: issued.subtotal,
+          taxRate: settings.taxRate,
+          taxAmount: issued.taxAmount,
+          total: issued.total,
+          currency: payment.currency,
+          paymentId: payment.id,
+          issuedAt: issued.issueDate,
+          pdfUrl: issued.pdfKey,
+          lines: { create: lines },
+        },
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const dup = await this.admin.platformInvoice.findUnique({
+          where: { paymentId: payment.id },
+          include: INVOICE_INCLUDE,
+        });
+        if (dup) return this.invoiceToDto(dup);
+      }
+      throw err;
+    }
+    if (args.recipient.missing.length > 0) {
+      await this.admin.superAdminNotification
+        .create({
+          data: {
+            type: 'platform_invoice.incomplete_recipient',
+            title: `Factura ${created.fullNumber} sin datos del cliente`,
+            body: `${payment.tenant.name} no tiene completos sus datos de facturación (${args.recipient.missing.join(', ')}). Pídeselos y rectifica la factura desde el negocio propio.`,
+            link: `/admin/tenants/${payment.tenant.id}`,
+          },
+        })
+        .catch(() => undefined);
+    }
+    await this.sendEmail(created, settings).catch((err) =>
+      this.logger.warn(`Email factura ${created.fullNumber} falló: ${(err as Error).message}`),
+    );
+    const finalRow = await this.admin.platformInvoice.findUniqueOrThrow({
+      where: { id: created.id },
+      include: INVOICE_INCLUDE,
+    });
+    return this.invoiceToDto(finalRow);
   }
 
   /**
@@ -580,6 +717,107 @@ export class PlatformInvoicesService {
     }
   }
 
+  /**
+   * Rectificativa emitida por el negocio propio sobre una factura de
+   * suscripción: se copia aquí para que la vean el tenant y el admin.
+   */
+  @OnEvent(DOMAIN_EVENTS.invoice_issued, { async: true, promisify: true })
+  async onOwnTenantInvoiceIssued(p: DomainEventPayload): Promise<void> {
+    try {
+      await this.mirrorOwnTenantRectification(p.tenantId, p.entityId);
+    } catch (err) {
+      this.logger.warn(
+        `Rectificativa ${p.entityId} sin copiar a suscripciones: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async mirrorOwnTenantRectification(tenantId: string, invoiceId: string): Promise<void> {
+    const rect = await this.admin.invoice.findFirst({
+      where: { id: invoiceId, tenantId, rectifiesInvoiceId: { not: null } },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        invoiceType: true,
+        issueDate: true,
+        subtotal: true,
+        taxAmount: true,
+        total: true,
+        rectifiesInvoiceId: true,
+        rectificationReason: true,
+        correctionMethod: true,
+      },
+    });
+    if (!rect?.rectifiesInvoiceId) return;
+    const original = await this.admin.platformInvoice.findUnique({
+      where: { invoiceId: rect.rectifiesInvoiceId },
+    });
+    if (!original) return; // no es una factura de suscripción
+    const already = await this.admin.platformInvoice.findUnique({ where: { invoiceId: rect.id } });
+    if (already) return;
+    const substitution = rect.correctionMethod === 'by_substitution';
+    const total = Number(rect.total);
+    const created = await this.admin.platformInvoice.create({
+      data: {
+        series: 'own',
+        number: 0,
+        fullNumber: rect.invoiceNumber,
+        invoiceId: rect.id,
+        tenantId: original.tenantId,
+        tenantName: original.tenantName,
+        tenantTaxId: original.tenantTaxId,
+        tenantEmail: original.tenantEmail,
+        tenantAddress: original.tenantAddress,
+        planSlug: original.planSlug,
+        planName: original.planName,
+        concept: original.concept,
+        periodStart: original.periodStart,
+        periodEnd: original.periodEnd,
+        baseAmount: Number(rect.subtotal),
+        taxRate: original.taxRate,
+        taxAmount: Number(rect.taxAmount),
+        total,
+        currency: original.currency,
+        issuedAt: rect.issueDate ?? new Date(),
+        invoiceType: rect.invoiceType,
+        rectifiesInvoiceId: original.id,
+        rectificationReason: rect.rectificationReason,
+        correctionMethod: substitution ? 'substitution' : 'differences',
+        pdfUrl: await this.ownTenant.pdfKeyFor(tenantId, rect.id),
+        lines: {
+          create: [
+            {
+              kind: 'adjustment',
+              description: rect.rectificationReason ?? 'Rectificación',
+              quantity: 1,
+              unitAmount: Number(rect.subtotal),
+              baseAmount: Number(rect.subtotal),
+              taxRate: original.taxRate,
+              taxAmount: Number(rect.taxAmount),
+              total,
+              position: 0,
+            },
+          ],
+        },
+      },
+    });
+    // La original queda sustituida, o anulada si el abono la cubre entera.
+    const credited = await this.admin.platformInvoice.aggregate({
+      where: { rectifiesInvoiceId: original.id, correctionMethod: 'differences' },
+      _sum: { total: true },
+    });
+    const fullyCredited =
+      !substitution && -Number(credited._sum.total ?? 0) >= Number(original.total) - 0.005;
+    if (substitution || fullyCredited) {
+      await this.admin.platformInvoice.update({
+        where: { id: original.id },
+        data: { status: substitution ? 'rectified' : 'cancelled' },
+      });
+    }
+    const settings = await this.getSettings();
+    await this.sendEmail(created, settings).catch(() => undefined);
+  }
+
   /** URL firmada (GET) del PDF; el bucket de facturas es privado. */
   async getPdfUrl(id: string): Promise<{ url: string }> {
     const inv = await this.admin.platformInvoice.findUnique({ where: { id } });
@@ -621,6 +859,14 @@ export class PlatformInvoicesService {
     });
     if (!original) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    if (original.invoiceId) {
+      // Emitida por el negocio propio: se rectifica allí (Facturas), y la
+      // rectificativa aparece aquí sola.
+      throw new BadRequestException({
+        code: 'rectify_in_own_tenant',
+        message: `Rectifica la factura ${original.fullNumber} desde Facturas del negocio propio: la rectificativa aparecerá aquí sola`,
+      });
     }
     if (original.invoiceType !== 'F1') {
       throw new BadRequestException({
@@ -1053,6 +1299,7 @@ export class PlatformInvoicesService {
     invoiceType: string;
     rectificationReason: string | null;
     correctionMethod: string | null;
+    invoiceId?: string | null;
     rectifiesInvoice?: { id: string; fullNumber: string } | null;
     rectifications?: {
       id: string;
@@ -1081,6 +1328,7 @@ export class PlatformInvoicesService {
       issuedAt: r.issuedAt.toISOString(),
       hasPdf: Boolean(r.pdfUrl),
       paymentId: r.paymentId,
+      ownTenantInvoiceId: r.invoiceId ?? null,
       missing: [...(r.tenantTaxId ? [] : ['NIF']), ...(r.tenantAddress ? [] : ['Domicilio'])],
       invoiceType: r.invoiceType,
       rectifies: r.rectifiesInvoice ?? null,

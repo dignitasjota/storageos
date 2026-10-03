@@ -107,7 +107,8 @@ export class AccountantExportService {
     warnings: AccountantExportWarning[],
   ): Promise<void> {
     const rows = await this.admin.platformInvoice.findMany({
-      where: { issuedAt: { gte: fromD, lte: toD } },
+      // Las emitidas por el negocio propio ya salen con sus facturas (sin duplicar).
+      where: { issuedAt: { gte: fromD, lte: toD }, invoiceId: null },
       include: { lines: true, rectifiesInvoice: { select: { fullNumber: true } } },
       orderBy: [{ issuedAt: 'asc' }, { number: 'asc' }],
     });
@@ -162,7 +163,12 @@ export class AccountantExportService {
     out: AccountantPaymentRow[],
   ): Promise<void> {
     const rows = await this.admin.tenantSubscriptionPayment.findMany({
-      where: { status: 'paid', paidAt: { gte: fromD, lte: toD } },
+      where: {
+        status: 'paid',
+        paidAt: { gte: fromD, lte: toD },
+        // Facturado por el negocio propio: su cobro ya sale con sus facturas.
+        ownTenantInvoice: { is: null },
+      },
       include: {
         invoice: { select: { fullNumber: true } },
         tenant: { select: { name: true, billingLegalName: true, taxId: true } },

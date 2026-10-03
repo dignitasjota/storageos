@@ -199,9 +199,10 @@ export default function PlatformBillingPage() {
               onChange={(e) => set({ ownTenantSlug: e.target.value })}
             />
             <p className="text-xs text-muted-foreground">
-              Si esta misma sociedad alquila trasteros con su propia cuenta, indica aquí el
-              identificador de esa empresa: sus facturas a inquilinos se incluirán en la exportación
-              para la asesoría junto a las de suscripción. Déjalo vacío si no aplica.
+              La cuenta de esta misma sociedad en la plataforma (con el mismo NIF). Emite las
+              facturas de suscripción como facturas suyas, con cada tenant como cliente: comparten
+              su numeración, su registro en Veri*Factu (o en Holded, según su modo de emisión) y su
+              exportación para la asesoría. Imprescindible con envío real a la AEAT.
               {data?.ownTenant ? ` Ahora: ${data.ownTenant.name}.` : ''}
             </p>
           </div>

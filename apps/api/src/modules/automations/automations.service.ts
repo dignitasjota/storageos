@@ -416,6 +416,14 @@ export class AutomationsService {
    */
   private async staleReason(job: AutomationJobData): Promise<string | null> {
     const where = { id: job.entityId, tenantId: job.tenantId };
+    if (job.entityType === 'invoice') {
+      const inv = await this.admin.invoice.findFirst({
+        where,
+        select: { platformPaymentId: true },
+      });
+      // Factura de suscripción (negocio propio → tenant): no es de un inquilino.
+      if (inv?.platformPaymentId) return 'factura de suscripción';
+    }
     if (job.entityType === 'contract') {
       const c = await this.admin.contract.findFirst({
         where,
