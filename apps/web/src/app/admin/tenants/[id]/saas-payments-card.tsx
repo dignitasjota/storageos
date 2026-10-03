@@ -59,6 +59,8 @@ const STATUS_LABELS: Record<string, string> = {
   failed: 'Fallido',
   pending: 'Pendiente',
   void: 'Anulado',
+  refunded: 'Devuelto',
+  partially_refunded: 'Devuelto en parte',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -183,7 +185,12 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
                               </span>
                             ) : null}
                           </td>
-                          <td className="p-2">{STATUS_LABELS[p.status] ?? p.status}</td>
+                          <td className="p-2">
+                            {STATUS_LABELS[p.status] ?? p.status}
+                            {p.disputed && (
+                              <span className="ml-1 text-xs text-destructive">· contracargo</span>
+                            )}
+                          </td>
                           <td className="space-x-2 p-2">
                             {p.invoiceUrl && (
                               <a

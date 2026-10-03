@@ -42,6 +42,15 @@ const STATUS_LABELS: Record<string, string> = {
 };
 const statusLabel = (s: string) => STATUS_LABELS[s] ?? s;
 
+/** Estado de un cobro de la suscripción. */
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  paid: 'Pagado',
+  failed: 'Fallido',
+  pending: 'Pendiente',
+  refunded: 'Devuelto',
+  partially_refunded: 'Devuelto en parte',
+};
+
 /**
  * Pantalla de la suscripcion SaaS del propio tenant a TrasterOS.
  * Solo accesible para owner (el backend ya lo aplica con `billing:configure`).
@@ -582,7 +591,7 @@ function SaasInvoicesSection() {
                   <div className="flex items-center gap-3">
                     <span>{eur(Number(p.amount), p.currency)}</span>
                     <Badge variant={p.status === 'paid' ? 'secondary' : 'outline'}>
-                      {p.status}
+                      {PAYMENT_STATUS_LABELS[p.status] ?? p.status}
                     </Badge>
                   </div>
                 </li>

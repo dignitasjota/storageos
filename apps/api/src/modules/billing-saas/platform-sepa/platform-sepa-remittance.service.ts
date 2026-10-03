@@ -307,7 +307,7 @@ export class PlatformSepaRemittanceService {
     });
     for (const item of items) {
       try {
-        await this.billingSaas.recordManualPayment({
+        const payment = await this.billingSaas.recordManualPayment({
           tenantId: item.tenantId,
           provider: 'sepa',
           amount: item.amount / 100,
@@ -318,7 +318,7 @@ export class PlatformSepaRemittanceService {
         });
         await this.admin.platformSepaRemittanceItem.update({
           where: { id: item.id },
-          data: { itemStatus: 'collected' },
+          data: { itemStatus: 'collected', paymentId: payment.id },
         });
       } catch (err) {
         this.logger.warn(
@@ -371,6 +371,16 @@ export class PlatformSepaRemittanceService {
       where: { tenantId: item.tenantId },
       data: { status: 'past_due' },
     });
+    // El dinero no llegó: el cobro queda devuelto y su factura, abonada.
+    if (item.paymentId) {
+      await this.billingSaas
+        .syncSubscriptionRefund(item.paymentId, item.amount / 100, 'Adeudo SEPA devuelto')
+        .catch((err) =>
+          this.logger.warn(
+            `[platform-sepa] abono del adeudo devuelto ${item.id}: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
+    }
   }
 
   private async findOrThrow(id: string) {

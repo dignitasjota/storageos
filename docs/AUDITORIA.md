@@ -530,3 +530,14 @@ Hallazgo 1 (decisión de Jota, opción a). Con el «negocio propio» configurado
 - sin los correos de inquilino ni las automatizaciones del negocio propio para estas facturas (llevan el correo de la plataforma); la copia contable de Holded de la plataforma y la exportación para la asesoría no las duplican.
 - Sin negocio propio se mantiene la numeración propia antigua solo en pruebas: con envío real a la AEAT → 400 `own_tenant_required`.
 - Migración `20261006180000_platform_invoices_own_tenant` (el único de `platform_invoices (series, number)` pasa a parcial `WHERE series <> 'own'`). e2e `platform-own-tenant`.
+
+## PR 4 — reembolsos, contracargos y devoluciones de las suscripciones ✅
+
+Hallazgo 7. Antes un reembolso o contracargo de Stripe de una suscripción, o una devolución de la remesa SEPA de la plataforma, no se reflejaba en el pago ni abonaba la factura.
+
+- `tenant_subscription_payments.refunded_amount`/`refunded_at`/`disputed_at`/`dispute_reason` + `platform_sepa_remittance_items.payment_id` (migración `20261006200000_saas_payment_reversals`).
+- El webhook de Stripe identifica un cobro de suscripción por `invoicePayments.list` (con la API `2026-04-22.dahlia` el cobro no trae la factura): `charge.refunded` → `syncSubscriptionRefund` (por diferencia sobre el total devuelto acumulado, transición condicionada: reenviar el aviso no abona dos veces); `charge.dispute.created` → `markSubscriptionDisputed` (aviso al super admin, aún sin abono); `charge.dispute.closed` perdido → abono por el importe disputado + suscripción `past_due` (ganado → se limpia).
+- Remesa SEPA de la plataforma: al confirmar guarda el pago de cada adeudo; marcar uno como devuelto abona su factura (además del `past_due` que ya hacía).
+- El abono: con negocio propio, reembolso de su factura (`InvoicesService.refund`, `userId` null) → rectificativa automática → copia en la suscripción del tenant; sin él, rectificativa por diferencias de la numeración propia (`PlatformInvoicesService.creditForPayment`).
+- `TenantSubscriptionPaymentDto.refundedAmount`/`disputed`; la web muestra «Devuelto», «Devuelto en parte» y «contracargo».
+- e2e `saas-payment-reversals` (reembolso parcial, aviso repetido sin abono doble, resto, contracargo perdido). El camino de Stripe (`invoicePayments`) no se ejercita en test (sin Stripe en CI).
