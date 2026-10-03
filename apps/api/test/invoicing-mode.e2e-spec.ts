@@ -234,6 +234,8 @@ describe('Modo de emisión de facturas (e2e)', () => {
     expect(applied.body).toMatchObject({ mode: 'app', pendingMode: null });
     const id4 = await createDraftInvoice(app, owner.accessToken, customerId);
     const appIssued = await http().post(`/invoices/${id4}/issue`).set(auth).expect(200);
-    expect(appIssued.body).toMatchObject({ issuedBy: 'app', aeatStatus: 'pending' });
+    expect(appIssued.body.issuedBy).toBe('app');
+    // Con huella propia de Veri*Factu (pendiente o ya aceptada por el simulador).
+    expect(appIssued.body.hash).toMatch(/^[0-9A-F]{64}$/);
   }, 60_000);
 });
