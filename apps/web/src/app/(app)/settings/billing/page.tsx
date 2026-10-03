@@ -111,6 +111,10 @@ export default function BillingSettingsPage() {
       cell: ({ row }) =>
         row.original.isDefault ? (
           <Badge>Default</Badge>
+        ) : row.original.isRectification ? (
+          <Badge variant="outline" title="Las rectificativas van siempre en su propia serie">
+            Rectificativas
+          </Badge>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),

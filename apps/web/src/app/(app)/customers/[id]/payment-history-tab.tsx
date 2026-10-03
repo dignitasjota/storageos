@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
-import type { InvoiceDto, PaymentDto, PaymentMethodTypeValue } from '@storageos/shared';
+import type { InvoiceDto, PaymentDto, PaymentRecordMethodValue } from '@storageos/shared';
 
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -40,12 +40,13 @@ function formatMonth(iso: string | null): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const METHOD_LABELS: Record<PaymentMethodTypeValue, string> = {
+const METHOD_LABELS: Record<PaymentRecordMethodValue, string> = {
   card: 'Tarjeta',
   sepa_debit: 'SEPA',
   bank_transfer: 'Transferencia',
   cash: 'Efectivo',
   other: 'Otro',
+  credit_note: 'Compensación (abono)',
 };
 
 const PAYMENT_STATUS: Record<

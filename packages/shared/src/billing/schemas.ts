@@ -90,6 +90,12 @@ export const PaymentMethodTypeEnum = z.enum([
   'other',
 ]);
 export type PaymentMethodTypeValue = z.infer<typeof PaymentMethodTypeEnum>;
+/**
+ * Método de un pago registrado: además de los anteriores, `credit_note` =
+ * compensación con una rectificativa de abono (lo crea la app; no es dinero
+ * cobrado y no se puede elegir a mano).
+ */
+export type PaymentRecordMethodValue = PaymentMethodTypeValue | 'credit_note';
 
 export const PaymentGatewayProviderEnum = z.enum(['stripe', 'gocardless', 'redsys', 'manual']);
 export type PaymentGatewayProviderValue = z.infer<typeof PaymentGatewayProviderEnum>;

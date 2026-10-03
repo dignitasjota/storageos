@@ -293,6 +293,7 @@ export class AccountantExportService {
     const rows = await this.admin.payment.findMany({
       where: {
         tenantId,
+        methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
         OR: [
           {
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] },

@@ -615,6 +615,7 @@ export class AnalyticsService {
               status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
               paidAt: { gte: fromDate, lt: toExclusive },
               invoice: { kind: 'invoice' },
+              methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
             },
             select: { paidAt: true, amount: true, refundedAmount: true },
           }),

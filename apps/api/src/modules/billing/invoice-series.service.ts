@@ -33,7 +33,7 @@ export class InvoiceSeriesService {
     return this.prisma.withTenant(
       (tx) =>
         tx.invoiceSeries.findFirst({
-          where: { isDefault: true, isActive: true },
+          where: { isDefault: true, isActive: true, isRectification: false },
           orderBy: { code: 'asc' },
         }),
       tenantId,
@@ -98,6 +98,12 @@ export class InvoiceSeriesService {
     meta: RequestMeta;
   }): Promise<InvoiceSeriesDto> {
     const existing = await this.findOrThrow(args.tenantId, args.seriesId);
+    if (args.input.isDefault === true && existing.isRectification) {
+      throw new ConflictException({
+        code: 'rectification_series_not_default',
+        message: 'La serie de rectificativas no puede ser la serie por defecto',
+      });
+    }
     const updated = await this.prisma.withTenant(async (tx) => {
       if (args.input.isDefault === true && !existing.isDefault) {
         await tx.invoiceSeries.updateMany({
@@ -157,6 +163,45 @@ export class InvoiceSeriesService {
   }
 
   /**
+   * Serie de rectificativas del tenant (RD 1619/2012, art. 6: las facturas
+   * rectificativas van en una serie propia). Se crea sola la primera vez, con
+   * un prefijo que no use ninguna otra serie (los números no pueden chocar).
+   */
+  async rectificationSeries(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+  ): Promise<InvoiceSeries> {
+    const existing = await tx.invoiceSeries.findFirst({
+      where: { isRectification: true, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) return existing;
+    // Serializa la creación (dos rectificativas a la vez no crean dos series).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rect_series:${tenantId}`}))`;
+    const again = await tx.invoiceSeries.findFirst({
+      where: { isRectification: true, isActive: true },
+    });
+    if (again) return again;
+    const taken = await tx.invoiceSeries.findMany({ select: { prefix: true, code: true } });
+    const prefixes = new Set(taken.map((t) => t.prefix.toUpperCase()));
+    const codes = new Set(taken.map((t) => t.code.toUpperCase()));
+    const prefix = ['R', 'RECT', 'RE'].find((p) => !prefixes.has(p)) ?? `R${taken.length + 1}`;
+    let code = 'RECT';
+    for (let i = 2; codes.has(code); i++) code = `RECT${i}`;
+    return tx.invoiceSeries.create({
+      data: {
+        tenantId,
+        code,
+        name: 'Rectificativas',
+        prefix,
+        yearScope: true,
+        isDefault: false,
+        isRectification: true,
+      },
+    });
+  }
+
+  /**
    * Formato del invoice_number a partir de prefix + año + sequence. El año es
    * el de la fecha de emisión (no el reloj del servidor).
    */
@@ -194,6 +239,7 @@ export class InvoiceSeriesService {
       facilityId: row.facilityId,
       isActive: row.isActive,
       isDefault: row.isDefault,
+      isRectification: row.isRectification,
       createdAt: row.createdAt.toISOString(),
     };
   }

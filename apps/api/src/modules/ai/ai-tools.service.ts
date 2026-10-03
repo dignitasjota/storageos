@@ -530,6 +530,7 @@ export class AiToolsService {
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
             paidAt: { gte: from },
             invoice: { kind: 'invoice', ...(scope ? invoiceScope(scope) : {}) },
+            methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
           },
           select: { paidAt: true, amount: true, refundedAmount: true },
         }),

@@ -86,6 +86,8 @@ export class DunningService {
       where: {
         status: 'issued',
         dueDate: { lt: new Date() },
+        // Una rectificativa de abono (importe ≤ 0) no se reclama.
+        total: { gt: 0 },
       },
       select: {
         id: true,

@@ -165,7 +165,7 @@ describe('VerifactuXmlBuilder', () => {
       expect(xml).toContain(
         '<sum1:TipoUsoPosibleSoloVerifactu>S</sum1:TipoUsoPosibleSoloVerifactu>',
       );
-      expect(xml).toContain('<sum1:IndicadorMultiplesOT>N</sum1:IndicadorMultiplesOT>');
+      expect(xml).toContain('<sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>');
 
       // Huella en mayusculas, tipo 01 (SHA-256).
       expect(xml).toContain('<sum1:TipoHuella>01</sum1:TipoHuella>');

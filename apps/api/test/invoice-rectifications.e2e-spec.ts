@@ -93,8 +93,9 @@ describe('Invoice rectifications R1-R5 (e2e)', () => {
       .post(`/invoices/${rectId}/issue`)
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(issuedRect.status).toBe(200);
-    expect(issuedRect.body.status).toBe('issued');
-    expect(issuedRect.body.invoiceNumber).toMatch(/^FA\/\d{4}\/00002$/);
+    // Abono: queda saldado al emitirse y va en la serie propia de rectificativas.
+    expect(issuedRect.body.status).toBe('paid');
+    expect(issuedRect.body.invoiceNumber).toMatch(/^R\/\d{4}\/00001$/);
     expect(issuedRect.body.hash).toMatch(/^[0-9A-F]{64}$/);
     // El previousHash encadena con la ultima de la serie (la F1 original).
     expect(issuedRect.body.previousHash).toBe(originalIssued.body.hash);
