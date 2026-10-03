@@ -722,3 +722,5 @@ Variable de entorno booleana (default `true`).
 - `invoice_series.is_rectification` + valor `credit_note` en `payment_method_type` (2026-10-06, migración `20261006120000_rectification_series_credit_compensation`): serie propia de rectificativas (la crea la app) y pago de compensación de un abono (no es dinero cobrado).
 
 - `tenants.invoicing_mode`/`invoicing_mode_pending`/`invoicing_mode_pending_from`, `holded_settings.issuing_invoice_series_id`/`issuing_credit_note_series_id`, `invoices.issued_by` (2026-10-06, migración `20261006140000_tenant_invoicing_mode`): dónde se emiten las facturas del tenant (app con Veri\*Factu u Holded) con cambio programado al 1 de enero.
+
+- `platform_billing_settings.prices_include_vat`/`stripe_tax_rate_id`/`stripe_tax_rate_percent` (2026-10-06, migración `20261006160000_platform_prices_vat`): precios de la plataforma con IVA incluido o +IVA.
