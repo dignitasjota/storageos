@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Queue } from 'bullmq';
 
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
+import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
   QUEUE_AUTOMATIONS,
@@ -18,7 +19,6 @@ import {
 
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
-import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 
 import type {
   AdminAddonChargeDueDto,

@@ -7,8 +7,8 @@ import { toCents } from '../../../common/money';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { buildPain008, type Pain008Transaction } from '../../sepa/sepa-pain008';
 import { BillingSaasService } from '../billing-saas.service';
-import { SaasAddonsService } from '../saas-addons.service';
 import { amountToCharge, platformPricing } from '../platform-pricing';
+import { SaasAddonsService } from '../saas-addons.service';
 
 import type { Prisma } from '@storageos/database';
 import type {

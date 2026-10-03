@@ -10,8 +10,8 @@ import {
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
-import { assertTaxIdFree } from '../../common/tax-id-unique';
 import { isUniqueViolation } from '../../common/prisma-errors';
+import { assertTaxIdFree } from '../../common/tax-id-unique';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
