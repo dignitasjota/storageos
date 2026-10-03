@@ -935,7 +935,7 @@ export class PaymentsService {
         lastName: string | null;
         companyName: string | null;
         customerType: 'individual' | 'business';
-      };
+      } | null;
     },
   ): PaymentDto {
     const customerName = row.customer
@@ -943,7 +943,9 @@ export class PaymentsService {
         ? (row.customer.companyName ?? 'Empresa')
         : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ').trim() ||
           'Sin nombre'
-      : 'Inquilino';
+      : row.customerId
+        ? 'Inquilino'
+        : 'Sin cliente (F2)';
     return {
       id: row.id,
       invoiceId: row.invoiceId,

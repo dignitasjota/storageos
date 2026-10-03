@@ -370,10 +370,18 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 
 ## Menores (PR 8)
 
-22. Fecha de emisión en UTC (00:30 del día 1 cae en el mes/trimestre anterior); año del número por reloj del servidor; fecha anterior a la última de la serie permitida.
-23. Reglas de precio (sin forma de crearlas hoy) alterarían la cuota congelada de los contratos.
-24. N43: un apunte que paga dos facturas no se puede repartir.
-25. F2 sin cliente cobrada a mano no crea pago (no cuenta en lo cobrado ni en la caja).
+22. Fecha de emisión en UTC (00:30 del día 1 cae en el mes/trimestre anterior); año del número por reloj del servidor; fecha anterior a la última de la serie permitida. → ✅ PR 8.
+23. Reglas de precio (sin forma de crearlas hoy) alterarían la cuota congelada de los contratos. → ✅ PR 8.
+24. N43: un apunte que paga dos facturas no se puede repartir. → ✅ PR 8.
+25. F2 sin cliente cobrada a mano no crea pago (no cuenta en lo cobrado ni en la caja). → ✅ PR 8.
+
+## PR 8 — menores ✅
+
+- **Fecha de emisión** (hallazgo 22): hoy en la zona horaria del tenant (`todayInTimezone`, `common/format.ts`), no en UTC; el año del número sale de esa fecha; emitir con fecha anterior a la última factura de la serie → 400 `issue_date_before_last`.
+- **Recurrente con precio congelado** (hallazgo 23): ya no pasa por las reglas de precio (son para contratos nuevos); para subir la cuota está la revisión de precios.
+- **N43 repartido** (hallazgo 24): `POST /bank-statements/transactions/:id/match {invoiceIds: [...]}` reparte el ingreso por orden, a cada factura como mucho su pendiente; botón «Repartir…» con diálogo de selección en la conciliación.
+- **F2 sin cliente** (hallazgo 25): `payments.customer_id` opcional (migración `20261005200000_payment_customer_optional`); el cobro manual crea su pago → cuenta en lo cobrado y en el cierre de caja.
+- e2e `billing-minor` (3 casos).
 
 ## Bien resuelto (verificado)
 

@@ -1917,3 +1917,5 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 - `POST /invoices/:id/refund` emite además una rectificativa de abono por lo devuelto (asíncrona, también para devoluciones hechas en la pasarela).
 - `POST /invoices/:id/rectify`: 400 `rectification_exceeds_original` (abonos por encima del total), 400 `substitution_original_paid` (sustitución de una factura con cobros), 409 `rectification_already_exists` / `invoice_substituted`. Emitir una sustitutiva deja la original `rectified`.
 - Justificantes de fianza (`kind: 'deposit_receipt'`): no admiten `issue`, `rectify`, `late-fee` ni `refund` por pasarela (400).
+- `POST /bank-statements/transactions/:id/match`: `{invoiceId}` o `{invoiceIds: [...]}` (reparte el ingreso por orden). `mark-return` sigue con `{invoiceId}`.
+- `POST /invoices/:id/issue`: 400 `issue_date_before_last` si la fecha de emisión es anterior a la de la última factura de la serie.

@@ -15,6 +15,7 @@ import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
@@ -405,16 +406,31 @@ export class InvoicesService {
           });
         }
       }
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: args.tenantId },
+        select: { taxId: true, timezone: true },
+      });
+      // Fecha de emisión = hoy en la zona del tenant (en UTC, a las 00:30 del
+      // día 1 la factura caía en el mes —o trimestre— anterior).
+      const issueDate = existing.issueDate ?? todayInTimezone(tenant.timezone);
       const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
-      const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber);
-      const issueDate = existing.issueDate ?? new Date();
+      // La numeración va en orden de fecha: no se emite con una fecha anterior
+      // a la última factura de la serie (la serie ya está bloqueada).
+      const lastInSeries = await tx.invoice.findFirst({
+        where: { seriesId: existing.seriesId, sequenceNumber: { gt: 0 }, issueDate: { not: null } },
+        orderBy: { issueDate: 'desc' },
+        select: { issueDate: true, invoiceNumber: true },
+      });
+      if (lastInSeries?.issueDate && issueDate < lastInSeries.issueDate) {
+        throw new BadRequestException({
+          code: 'issue_date_before_last',
+          message: `La fecha de emisión no puede ser anterior a la de la última factura de la serie (${lastInSeries.invoiceNumber}, ${lastInSeries.issueDate.toISOString().slice(0, 10)})`,
+        });
+      }
+      const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber, issueDate);
       const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate);
 
       // Veri*Factu: huella oficial encadenada con el último registro del emisor.
-      const tenant = await tx.tenant.findUniqueOrThrow({
-        where: { id: args.tenantId },
-        select: { taxId: true },
-      });
       const emitterTaxId = tenant.taxId ? normalizeTaxId(tenant.taxId) : '';
       if (this.verifactu.realMode) {
         // Envío real a la AEAT: sin NIF válido del emisor el registro se
@@ -1345,24 +1361,21 @@ export class InvoicesService {
             'Solo se admiten pagos parciales en efectivo; por otra vía debe saldarse el total',
         });
       }
-      // En F2 sin destinatario no podemos crear un Payment (la tabla
-      // exige customer_id). Solo actualizamos el contador agregado de
-      // la factura; el cobro queda registrado en `amountPaid`.
-      if (fresh.customerId) {
-        await tx.payment.create({
-          data: {
-            tenantId: args.tenantId,
-            invoiceId: args.invoiceId,
-            customerId: fresh.customerId,
-            amount,
-            methodType: args.input.methodType,
-            gateway: 'manual',
-            status: 'succeeded',
-            paidAt,
-            notes: args.input.notes?.trim() || null,
-          },
-        });
-      }
+      // También en una F2 sin destinatario (pago sin cliente): así cuenta en
+      // lo cobrado y en el cierre de caja.
+      await tx.payment.create({
+        data: {
+          tenantId: args.tenantId,
+          invoiceId: args.invoiceId,
+          customerId: fresh.customerId ?? null,
+          amount,
+          methodType: args.input.methodType,
+          gateway: 'manual',
+          status: 'succeeded',
+          paidAt,
+          notes: args.input.notes?.trim() || null,
+        },
+      });
       return tx.invoice.update({
         where: { id: args.invoiceId },
         data: {

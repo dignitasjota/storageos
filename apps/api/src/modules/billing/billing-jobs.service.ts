@@ -9,7 +9,6 @@ import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.
 
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicesService } from './invoices.service';
-import { PricingRulesService } from './pricing-rules.service';
 
 export interface GenerateRecurringJobData {
   tenantId: string;
@@ -42,7 +41,6 @@ export class BillingJobsService {
     private readonly admin: PrismaAdminService,
     private readonly invoices: InvoicesService,
     private readonly series: InvoiceSeriesService,
-    private readonly pricing: PricingRulesService,
   ) {}
 
   /**
@@ -77,8 +75,8 @@ export class BillingJobsService {
    * Procesa un job `generate-recurring`: para cada contrato activo del
    * tenant cuyo periodo facturable corresponda al mes en curso y NO
    * tenga ya una invoice emitida para ese periodo, genera una nueva en
-   * estado `draft` con una linea por contrato y los importes resueltos
-   * por `PricingRulesService`. Llamado desde `BillingRecurringProcessor`.
+   * estado `draft` con una linea por contrato al precio congelado del
+   * contrato. Llamado desde `BillingRecurringProcessor`.
    */
   async processGenerateRecurring(data: GenerateRecurringJobData): Promise<{ created: number }> {
     const { tenantId } = data;
@@ -175,14 +173,10 @@ export class BillingJobsService {
       });
       if (already) continue;
 
-      const pricing = await this.pricing.resolve({
-        tenantId,
-        basePrice: Number(c.priceMonthly) - Number(c.discountAmount),
-        unitId: c.unit.id,
-        unitTypeId: c.unit.unitTypeId,
-        facilityId: c.unit.facilityId,
-        at: cStart,
-      });
+      // Precio congelado del contrato (cuota − descuento): las reglas de precio
+      // son para el alta de contratos nuevos y no deben cambiar la cuota de un
+      // contrato en vigor (para subirla está la revisión de precios).
+      const effectivePrice = Number(c.priceMonthly) - Number(c.discountAmount);
 
       const series = await this.series.getDefault(tenantId);
       if (!series) {
@@ -199,8 +193,7 @@ export class BillingJobsService {
       const prepayPct = interval > 1 ? Number(c.prepayDiscountPct) : 0;
       const rentUnitPrice = isFreeMonth
         ? 0
-        : Math.round(toCents(pricing.effectivePrice) * interval * (1 - prepayPct / 100) * factor) /
-          100;
+        : Math.round(toCents(effectivePrice) * interval * (1 - prepayPct / 100) * factor) / 100;
       const insuranceUnitPrice =
         Math.round(toCents(Number(c.insurancePrice ?? 0)) * interval * factor) / 100;
       const rentDesc =

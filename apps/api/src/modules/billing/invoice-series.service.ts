@@ -156,9 +156,12 @@ export class InvoiceSeriesService {
     return { sequenceNumber: updated.nextNumber - 1, series: updated };
   }
 
-  /** Formato del invoice_number a partir de prefix + año + sequence. */
-  formatInvoiceNumber(series: InvoiceSeries, sequence: number): string {
-    const year = new Date().getFullYear();
+  /**
+   * Formato del invoice_number a partir de prefix + año + sequence. El año es
+   * el de la fecha de emisión (no el reloj del servidor).
+   */
+  formatInvoiceNumber(series: InvoiceSeries, sequence: number, issueDate: Date): string {
+    const year = issueDate.getUTCFullYear();
     const seq = String(sequence).padStart(5, '0');
     if (series.yearScope) {
       return `${series.prefix}/${year}/${seq}`;

@@ -55,11 +55,14 @@ export default function PaymentsPage() {
     {
       accessorKey: 'customerName',
       header: 'Cliente',
-      cell: ({ row }) => (
-        <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
-          {row.original.customerName}
-        </Link>
-      ),
+      cell: ({ row }) =>
+        row.original.customerId ? (
+          <Link href={`/customers/${row.original.customerId}`} className="hover:underline">
+            {row.original.customerName}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">{row.original.customerName}</span>
+        ),
     },
     {
       accessorKey: 'amount',

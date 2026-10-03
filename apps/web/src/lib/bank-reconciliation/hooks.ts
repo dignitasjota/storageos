@@ -39,12 +39,12 @@ export function useImportN43() {
 export function useMatchTransaction(statementId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { transactionId: string; invoiceId: string }) =>
+    mutationFn: (args: { transactionId: string; invoiceId?: string; invoiceIds?: string[] }) =>
       apiFetch<BankStatementDetailDto>(
         `/bank-statements/transactions/${args.transactionId}/match`,
         {
           method: 'POST',
-          json: { invoiceId: args.invoiceId },
+          json: args.invoiceIds ? { invoiceIds: args.invoiceIds } : { invoiceId: args.invoiceId },
         },
       ),
     onSuccess: (data) => {

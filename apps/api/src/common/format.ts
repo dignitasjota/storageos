@@ -37,3 +37,29 @@ export function formatDateLong(
     timeZone,
   }).format(date);
 }
+
+/**
+ * Fecha de hoy en una zona horaria, como fecha UTC a medianoche (para columnas
+ * `DATE`). A las 00:30 del día 1 en Madrid ya es el día 1, aunque en UTC sea
+ * todavía el día anterior.
+ */
+export function todayInTimezone(timeZone = 'Europe/Madrid', now = new Date()): Date {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now);
+  } catch {
+    parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now);
+  }
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
+}
