@@ -88,6 +88,8 @@ export const UpdatePlatformHoldedSettingsSchema = z.object({
   enabled: z.boolean(),
   /** Serie «No enviar a Verifactu». Omitido = no cambia; null = quitarla. */
   invoiceSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
+  /** Serie de rectificativas «No enviar a Verifactu». Omitido = no cambia; null = quitarla. */
+  creditNoteSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
 });
 export type UpdatePlatformHoldedSettingsInput = z.infer<typeof UpdatePlatformHoldedSettingsSchema>;
 
@@ -95,13 +97,38 @@ export interface PlatformHoldedSettingsDto {
   enabled: boolean;
   hasApiKey: boolean;
   invoiceSeriesId: string | null;
+  creditNoteSeriesId: string | null;
   /** Activa, con clave y serie: las facturas de suscripción se copian a Holded. */
   ready: boolean;
   lastSyncAt: string | null;
   lastError: string | null;
   /** Facturas de suscripción aún sin copiar a Holded. */
   pendingCount: number;
+  /** Envíos sin confirmar (Holded no respondió): hay que comprobarlos en Holded. */
+  reviewCount: number;
 }
+
+/** Factura de suscripción cuyo envío a Holded quedó sin confirmar. */
+export interface PlatformHoldedReviewItemDto {
+  /** `invoice`: la factura (o la sustitutiva); `credit_note`: la anulación de la original; `payment`: el cobro. */
+  kind: 'invoice' | 'credit_note' | 'payment';
+  invoiceId: string;
+  fullNumber: string;
+  total: number;
+  startedAt: string;
+}
+
+/**
+ * Resolver un envío sin confirmar:
+ * - `retry`: no está en Holded → se vuelve a enviar;
+ * - `already_in_holded`: sí está (documento: pegar su id de Holded).
+ */
+export const ResolvePlatformHoldedReviewSchema = z.object({
+  kind: z.enum(['invoice', 'credit_note', 'payment']),
+  action: z.enum(['retry', 'already_in_holded']),
+  holdedDocumentId: z.string().trim().min(1).max(100).optional(),
+});
+export type ResolvePlatformHoldedReviewInput = z.infer<typeof ResolvePlatformHoldedReviewSchema>;
 
 export * from './billing-details';
 export * from './accountant-export';

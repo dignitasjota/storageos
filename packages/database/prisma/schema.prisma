@@ -4069,6 +4069,8 @@ model PlatformBillingSettings {
   holdedApiKeyEncrypted String?   @map("holded_api_key_encrypted")
   /// Serie de Holded marcada «No enviar a Verifactu».
   holdedInvoiceSeriesId String?   @map("holded_invoice_series_id")
+  /// Serie de rectificativas de Holded marcada «No enviar a Verifactu».
+  holdedCreditNoteSeriesId String? @map("holded_credit_note_series_id")
   holdedLastSyncAt      DateTime? @map("holded_last_sync_at") @db.Timestamptz(6)
   holdedLastError       String?   @map("holded_last_error")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -4107,6 +4109,13 @@ model PlatformInvoice {
   paymentId     String?   @unique @map("payment_id") @db.Uuid
   /// Id del documento en Holded si se ha copiado (copia contable de la plataforma).
   holdedDocumentId String? @map("holded_document_id")
+  /// Reserva de la copia en Holded: null | 'creating' | 'approving'.
+  holdedSyncState        String?   @map("holded_sync_state")
+  holdedSyncStartedAt    DateTime? @map("holded_sync_started_at") @db.Timestamptz(6)
+  /// Sustitución: rectificativa de Holded que anula la factura original.
+  holdedCreditNoteId     String?   @map("holded_credit_note_id")
+  holdedPaymentStartedAt DateTime? @map("holded_payment_started_at") @db.Timestamptz(6)
+  holdedPaymentSyncedAt  DateTime? @map("holded_payment_synced_at") @db.Timestamptz(6)
   /// 'F1' (factura) o 'R1'/'R4' (rectificativa, en su propia serie).
   invoiceType         String    @default("F1") @map("invoice_type")
   rectifiesInvoiceId  String?   @map("rectifies_invoice_id") @db.Uuid

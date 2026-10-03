@@ -814,6 +814,8 @@ export class PlatformInvoicesService {
         `Email rectificativa ${created.fullNumber} falló: ${(err as Error).message}`,
       ),
     );
+    // Copia contable en Holded (best-effort; no-op si no está activa).
+    await this.holded.pushBestEffort(created.id);
 
     const row = await this.admin.platformInvoice.findUniqueOrThrow({
       where: { id: created.id },

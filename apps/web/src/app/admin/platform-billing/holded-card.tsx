@@ -17,7 +17,9 @@ import {
 import {
   useBackfillPlatformHolded,
   usePlatformHolded,
+  usePlatformHoldedReview,
   usePlatformHoldedSeries,
+  useResolvePlatformHoldedReview,
   useTestPlatformHolded,
   useUpdatePlatformHolded,
 } from '@/lib/admin/hooks';
@@ -36,14 +38,18 @@ export function PlatformHoldedCard() {
   const update = useUpdatePlatformHolded();
   const test = useTestPlatformHolded();
   const backfill = useBackfillPlatformHolded();
+  const review = usePlatformHoldedReview((data?.reviewCount ?? 0) > 0);
+  const resolve = useResolvePlatformHoldedReview();
 
   const [apiKey, setApiKey] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [creditSeriesId, setCreditSeriesId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   if (data && !initialized) {
     setEnabled(data.enabled);
     setSeriesId(data.invoiceSeriesId);
+    setCreditSeriesId(data.creditNoteSeriesId);
     setInitialized(true);
   }
   if (!data) return null;
@@ -56,7 +62,9 @@ export function PlatformHoldedCard() {
       await update.mutateAsync({
         enabled,
         ...(apiKey ? { apiKey } : {}),
-        ...(data?.hasApiKey ? { invoiceSeriesId: seriesId } : {}),
+        ...(data?.hasApiKey
+          ? { invoiceSeriesId: seriesId, creditNoteSeriesId: creditSeriesId }
+          : {}),
       });
       setApiKey('');
       toast.success('Copia en Holded guardada.');
@@ -69,6 +77,27 @@ export function PlatformHoldedCard() {
     const r = await test.mutateAsync();
     if (r.ok) toast.success(r.message);
     else toast.error(r.message);
+  }
+
+  async function resolveItem(
+    invoiceId: string,
+    kind: 'invoice' | 'credit_note' | 'payment',
+    action: 'retry' | 'already_in_holded',
+  ) {
+    let holdedDocumentId: string | undefined;
+    if (action === 'already_in_holded' && kind !== 'payment') {
+      holdedDocumentId = window.prompt('Id del documento en Holded')?.trim() || undefined;
+      if (!holdedDocumentId) return;
+    }
+    try {
+      await resolve.mutateAsync({
+        invoiceId,
+        input: { kind, action, ...(holdedDocumentId ? { holdedDocumentId } : {}) },
+      });
+      toast.success(action === 'retry' ? 'Se volverá a enviar.' : 'Marcado como copiado.');
+    } catch (e) {
+      err(e, 'No se pudo resolver.');
+    }
   }
 
   async function runBackfill() {
@@ -87,9 +116,9 @@ export function PlatformHoldedCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Si contratas Holded, cada factura de suscripción se copia allí (aprobada y con su cobro)
-          para llevar la contabilidad. Las facturas se siguen emitiendo aquí. Mientras no la
-          actives, no se envía nada.
+          Si contratas Holded, cada factura de suscripción se copia allí (aprobada y con su cobro),
+          y sus rectificativas como rectificativas de Holded, para llevar la contabilidad. Las
+          facturas se siguen emitiendo aquí. Mientras no la actives, no se envía nada.
         </p>
         <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           En Holded, crea una serie de facturas solo para las suscripciones (p. ej. «SUS-») y
@@ -109,24 +138,49 @@ export function PlatformHoldedCard() {
         {data.hasApiKey &&
           (series.data ? (
             <div className="space-y-1">
-              <Label>Serie de facturas en Holded</Label>
-              <Select
-                value={seriesId ?? NONE}
-                onValueChange={(v) => setSeriesId(v === NONE ? null : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Elige una serie" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Sin elegir</SelectItem>
-                  {series.data.invoice.map((s) => (
-                    <SelectItem key={s.id} value={s.id} disabled={!s.verifactuExcluded}>
-                      {s.name} ({s.format})
-                      {s.verifactuExcluded ? '' : ' — se envía a Verifactu, no válida'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-1">
+                <Label>Serie de facturas en Holded</Label>
+                <Select
+                  value={seriesId ?? NONE}
+                  onValueChange={(v) => setSeriesId(v === NONE ? null : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Elige una serie" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin elegir</SelectItem>
+                    {series.data.invoice.map((s) => (
+                      <SelectItem key={s.id} value={s.id} disabled={!s.verifactuExcluded}>
+                        {s.name} ({s.format})
+                        {s.verifactuExcluded ? '' : ' — se envía a Verifactu, no válida'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1 pt-2">
+                <Label>Serie de rectificativas en Holded</Label>
+                <Select
+                  value={creditSeriesId ?? NONE}
+                  onValueChange={(v) => setCreditSeriesId(v === NONE ? null : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Elige una serie" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin elegir</SelectItem>
+                    {series.data.creditnote.map((s) => (
+                      <SelectItem key={s.id} value={s.id} disabled={!s.verifactuExcluded}>
+                        {s.name} ({s.format})
+                        {s.verifactuExcluded ? '' : ' — se envía a Verifactu, no válida'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Para copiar las rectificativas de suscripción (abonos y sustituciones).
+                </p>
+              </div>
             </div>
           ) : series.error ? (
             <p className="text-xs text-destructive">
@@ -151,6 +205,47 @@ export function PlatformHoldedCard() {
         </p>
         {data.lastError && (
           <p className="text-xs text-destructive">Último error: {data.lastError}</p>
+        )}
+        {data.reviewCount > 0 && (
+          <div className="space-y-2 rounded-md border border-amber-300 p-2 dark:border-amber-800">
+            <p className="text-sm font-medium">Para revisar en Holded ({data.reviewCount})</p>
+            <p className="text-xs text-muted-foreground">
+              Holded no respondió a estos envíos y pudieron crearse. Compruébalo en Holded: si no
+              están, reenvíalos; si están, márcalos como copiados.
+            </p>
+            {(review.data ?? []).map((r) => (
+              <div
+                key={`${r.invoiceId}-${r.kind}`}
+                className="flex flex-wrap items-center gap-2 text-xs"
+              >
+                <span className="font-mono">{r.fullNumber}</span>
+                <span className="text-muted-foreground">
+                  {r.kind === 'payment'
+                    ? 'cobro'
+                    : r.kind === 'credit_note'
+                      ? 'anulación de la original'
+                      : 'factura'}{' '}
+                  · {r.total.toFixed(2)} €
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resolve.isPending}
+                  onClick={() => void resolveItem(r.invoiceId, r.kind, 'retry')}
+                >
+                  No está: reenviar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={resolve.isPending}
+                  onClick={() => void resolveItem(r.invoiceId, r.kind, 'already_in_holded')}
+                >
+                  Ya está en Holded
+                </Button>
+              </div>
+            ))}
+          </div>
         )}
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void save()} disabled={update.isPending}>

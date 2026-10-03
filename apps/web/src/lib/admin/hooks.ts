@@ -9,6 +9,8 @@ import type {
   HoldedSeriesListDto,
   HoldedTestResultDto,
   PlatformHoldedSettingsDto,
+  PlatformHoldedReviewItemDto,
+  ResolvePlatformHoldedReviewInput,
   UpdatePlatformHoldedSettingsInput,
   AdminAddonAnalyticsDto,
   AdminTenantNotesDto,
@@ -1801,6 +1803,27 @@ export function useBackfillPlatformHolded() {
     mutationFn: () =>
       adminApiFetch<{ synced: number }>('/admin/platform-billing/holded/backfill', {
         method: 'POST',
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: platformHoldedKey }),
+  });
+}
+
+export function usePlatformHoldedReview(enabled: boolean) {
+  return useQuery({
+    queryKey: [...platformHoldedKey, 'review'],
+    queryFn: () =>
+      adminApiFetch<PlatformHoldedReviewItemDto[]>('/admin/platform-billing/holded/review'),
+    enabled,
+  });
+}
+
+export function useResolvePlatformHoldedReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; input: ResolvePlatformHoldedReviewInput }) =>
+      adminApiFetch<void>(`/admin/platform-billing/holded/review/${args.invoiceId}`, {
+        method: 'POST',
+        json: args.input,
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: platformHoldedKey }),
   });
