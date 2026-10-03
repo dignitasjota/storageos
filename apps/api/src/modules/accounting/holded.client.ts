@@ -241,6 +241,42 @@ export class HoldedClient {
     });
   }
 
+  /** Número asignado por la serie de Holded (`document_number`; null si aún no tiene). */
+  async getDocumentNumber(
+    kind: 'invoice' | 'creditnote',
+    documentId: string,
+  ): Promise<string | null> {
+    const path = kind === 'invoice' ? '/invoices' : '/credit-notes';
+    const r = await this.request<{ document_number?: string | null }>(
+      'GET',
+      `${path}/${documentId}`,
+    );
+    return r.document_number ?? null;
+  }
+
+  /** PDF del documento tal como lo genera Holded (con su QR de Veri*Factu). */
+  async getPdf(kind: 'invoice' | 'creditnote', documentId: string): Promise<Buffer> {
+    const path = kind === 'invoice' ? '/invoices' : '/credit-notes';
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}${path}/${documentId}/pdf`, {
+        headers: { authorization: `Bearer ${this.apiKey}`, accept: 'application/pdf' },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      throw new HoldedApiError(
+        `Holded: error de red (${err instanceof Error ? err.message : String(err)})`,
+        0,
+      );
+    }
+    if (!res.ok)
+      throw new HoldedApiError(
+        `Holded: no se pudo descargar el PDF (HTTP ${res.status})`,
+        res.status,
+      );
+    return Buffer.from(await res.arrayBuffer());
+  }
+
   /** Cancela una factura (Holded responde 422 si ya está cobrada). */
   async cancelInvoice(invoiceId: string): Promise<void> {
     await this.request('POST', `/invoices/${invoiceId}/cancel`);

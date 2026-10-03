@@ -168,15 +168,12 @@ describe('Promotions (e2e)', () => {
     const cId = await createCustomer(app, owner.accessToken, { email: 'p-free@e2e.local' });
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
 
-    await request(app.getHttpServer())
-      .post('/promotions')
-      .set(a)
-      .send({
-        code: 'DOSMESES',
-        name: '2 meses gratis',
-        discountType: 'free_months',
-        discountValue: 2,
-      });
+    await request(app.getHttpServer()).post('/promotions').set(a).send({
+      code: 'DOSMESES',
+      name: '2 meses gratis',
+      discountType: 'free_months',
+      discountValue: 2,
+    });
 
     // Alta del contrato con el código → 2 meses gratis registrados, sin descuento €.
     const contract = await request(app.getHttpServer()).post('/contracts').set(a).send({

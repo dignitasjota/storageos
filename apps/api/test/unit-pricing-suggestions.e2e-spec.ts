@@ -35,18 +35,15 @@ describe('Sugerencia de precio por trastero (e2e)', () => {
     const unitTypeId = unitType.body.id as string;
 
     // Un solo trastero, disponible → ocupación 0% de su dimensión → sugerir bajar.
-    const unit = await request(app.getHttpServer())
-      .post('/units')
-      .set(auth)
-      .send({
-        facilityId,
-        unitTypeId,
-        code: 'UP-001',
-        widthM: 3,
-        depthM: 3,
-        heightM: 2.5,
-        basePriceMonthly: 100,
-      });
+    const unit = await request(app.getHttpServer()).post('/units').set(auth).send({
+      facilityId,
+      unitTypeId,
+      code: 'UP-001',
+      widthM: 3,
+      depthM: 3,
+      heightM: 2.5,
+      basePriceMonthly: 100,
+    });
     const unitId = unit.body.id as string;
 
     const sug = await request(app.getHttpServer())

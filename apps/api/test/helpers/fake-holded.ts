@@ -58,6 +58,7 @@ export function fakeHolded(): Promise<{
         return send(200, {
           items: [
             { id: 'ser-r', name: 'Rect TrasterOS', format: 'RTR%%%', verifactu_excluded: true },
+            { id: 'ser-rvf', name: 'Rectificativas', format: 'R%%%%', verifactu_excluded: false },
           ],
         });
       }
@@ -74,6 +75,14 @@ export function fakeHolded(): Promise<{
       if (req.method === 'POST' && path === '/invoices') return send(201, { id: `inv-${++seq}` });
       if (req.method === 'POST' && path === '/credit-notes')
         return send(201, { id: `cn-${++seq}` });
+      // PDF del documento (binario).
+      if (method === 'GET' && /^\/(invoices|credit-notes)\/[^/]+\/pdf$/.test(path)) {
+        res.writeHead(200, { 'content-type': 'application/pdf' });
+        return res.end(Buffer.from('%PDF-1.4 holded'));
+      }
+      // Detalle: el número que asigna la serie (H-<id> en el simulador).
+      const doc = /^\/(invoices|credit-notes)\/([^/?]+)$/.exec(path);
+      if (method === 'GET' && doc) return send(200, { id: doc[2], document_number: `H-${doc[2]}` });
       return send(200, {});
     };
   });

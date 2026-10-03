@@ -43,16 +43,13 @@ describe('Dahua sync (Patrón B) con stub (e2e)', () => {
     });
 
     // Terminal Patrón B (provider stub → StubSyncProvider).
-    const dev = await request(app.getHttpServer())
-      .post('/access/devices')
-      .set(auth)
-      .send({
-        facilityId,
-        type: 'door',
-        name: 'Terminal ASI',
-        hardwareId: 'asi-b-001',
-        provider: 'stub',
-      });
+    const dev = await request(app.getHttpServer()).post('/access/devices').set(auth).send({
+      facilityId,
+      type: 'door',
+      name: 'Terminal ASI',
+      hardwareId: 'asi-b-001',
+      provider: 'stub',
+    });
     expect(dev.status).toBe(201);
     const deviceId = dev.body.id as string;
 

@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 
 import { GoCardlessCard } from './gocardless-card';
 import { HoldedCard } from './holded-card';
+import { InvoicingModeCard } from './invoicing-mode-card';
 import { MonthlyDigestCard } from './monthly-digest-card';
 import { RedsysCard } from './redsys-card';
 
@@ -148,6 +149,7 @@ export default function BillingSettingsPage() {
       <MonthlyDigestCard />
       <SepaSettingsCard />
 
+      <InvoicingModeCard />
       <HoldedCard />
 
       <RedsysCard />

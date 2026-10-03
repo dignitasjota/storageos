@@ -97,15 +97,12 @@ describe('Portal — seguro self-service (e2e)', () => {
     const customerB = await createCustomer(app, owner.accessToken, {
       email: `pinsb-${Date.now()}@e2e.local`,
     });
-    const cB = await request(app.getHttpServer())
-      .post('/contracts')
-      .set(auth)
-      .send({
-        customerId: customerB,
-        unitId: unitIds[1],
-        startDate: '2026-01-01',
-        priceMonthly: 60,
-      });
+    const cB = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId: customerB,
+      unitId: unitIds[1],
+      startDate: '2026-01-01',
+      priceMonthly: 60,
+    });
     const contractB = cB.body.id as string;
 
     const tokenA = await portalLogin(owner.slug, emailA);

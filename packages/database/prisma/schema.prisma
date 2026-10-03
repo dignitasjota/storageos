@@ -333,6 +333,11 @@ model Tenant {
   autoChargeOnIssue            Boolean               @default(false) @map("auto_charge_on_issue")
   /// IBAN para pagos por transferencia (sale en el correo de «Nueva factura»).
   transferIban            String?  @map("transfer_iban")
+  /// Dónde se emiten las facturas: 'app' (Veri*Factu) | 'holded'.
+  invoicingMode                String                @default("app") @map("invoicing_mode")
+  /// Cambio programado (no se cambia en mitad del año): modo y fecha de efecto.
+  invoicingModePending         String?               @map("invoicing_mode_pending")
+  invoicingModePendingFrom     DateTime?             @map("invoicing_mode_pending_from") @db.Date
   autoChargeRetryEnabled       Boolean               @default(false) @map("auto_charge_retry_enabled")
   autoChargeRetryMax           Int                   @default(3) @map("auto_charge_retry_max")
   autoChargeRetryIntervalDays  Int                   @default(3) @map("auto_charge_retry_interval_days")
@@ -1596,6 +1601,8 @@ model Invoice {
   /// Copia a Holded en curso: null | 'creating' | 'approving' (ver migración holded_sync_claims).
   holdedSyncState     String?           @map("holded_sync_state")
   holdedSyncStartedAt DateTime?         @map("holded_sync_started_at") @db.Timestamptz(6)
+  /// Sistema que emitió la factura: 'app' (Veri*Factu) | 'holded'.
+  issuedBy            String            @default("app") @map("issued_by")
   paidAt              DateTime?         @map("paid_at") @db.Timestamptz(6)
   cancelledAt         DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
@@ -3512,6 +3519,9 @@ model HoldedSettings {
   invoiceSeriesId    String?   @map("invoice_series_id")
   /// Serie de rectificativas de Holded (también excluida de Veri*Factu).
   creditNoteSeriesId String?   @map("credit_note_series_id")
+  /// Series donde Holded EMITE las facturas (modo 'holded'; sí van a Veri*Factu).
+  issuingInvoiceSeriesId    String? @map("issuing_invoice_series_id")
+  issuingCreditNoteSeriesId String? @map("issuing_credit_note_series_id")
   lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(6)
   lastError       String?   @map("last_error")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

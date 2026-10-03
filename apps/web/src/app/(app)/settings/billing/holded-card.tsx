@@ -23,6 +23,7 @@ import {
   useHoldedReview,
   useHoldedSeries,
   useHoldedSettings,
+  useLinkHoldedCreditNote,
   useResolveHoldedReview,
   useTestHolded,
   useUpdateHoldedSettings,
@@ -37,12 +38,15 @@ function SeriesSelect({
   value,
   onChange,
   options,
+  issuing = false,
 }: {
   label: string;
   help: string;
   value: string | null;
   onChange: (v: string | null) => void;
   options: HoldedSeriesDto[];
+  /** Series para emitir en Holded: al revés, deben ir a Veri*Factu. */
+  issuing?: boolean;
 }) {
   return (
     <div className="space-y-1">
@@ -54,8 +58,19 @@ function SeriesSelect({
         <SelectContent>
           <SelectItem value={NONE}>Sin elegir</SelectItem>
           {options.map((s) => (
-            <SelectItem key={s.id} value={s.id} disabled={!s.verifactuExcluded}>
-              {s.name} ({s.format}){s.verifactuExcluded ? '' : ' — se envía a Verifactu, no válida'}
+            <SelectItem
+              key={s.id}
+              value={s.id}
+              disabled={issuing ? s.verifactuExcluded : !s.verifactuExcluded}
+            >
+              {s.name} ({s.format})
+              {issuing
+                ? s.verifactuExcluded
+                  ? ' — «No enviar a Verifactu», no válida'
+                  : ''
+                : s.verifactuExcluded
+                  ? ''
+                  : ' — se envía a Verifactu, no válida'}
             </SelectItem>
           ))}
         </SelectContent>
@@ -77,6 +92,8 @@ export function HoldedCard() {
   const [enabled, setEnabled] = useState(false);
   const [invoiceSeriesId, setInvoiceSeriesId] = useState<string | null>(null);
   const [creditNoteSeriesId, setCreditNoteSeriesId] = useState<string | null>(null);
+  const [issuingInvoiceSeriesId, setIssuingInvoiceSeriesId] = useState<string | null>(null);
+  const [issuingCreditNoteSeriesId, setIssuingCreditNoteSeriesId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   // Inicializa el formulario con el estado del servidor una sola vez.
@@ -84,6 +101,8 @@ export function HoldedCard() {
     setEnabled(data.enabled);
     setInvoiceSeriesId(data.invoiceSeriesId);
     setCreditNoteSeriesId(data.creditNoteSeriesId);
+    setIssuingInvoiceSeriesId(data.issuingInvoiceSeriesId);
+    setIssuingCreditNoteSeriesId(data.issuingCreditNoteSeriesId);
     setInitialized(true);
   }
 
@@ -92,7 +111,14 @@ export function HoldedCard() {
       await update.mutateAsync({
         enabled,
         ...(apiKey ? { apiKey } : {}),
-        ...(data?.hasApiKey ? { invoiceSeriesId, creditNoteSeriesId } : {}),
+        ...(data?.hasApiKey
+          ? {
+              invoiceSeriesId,
+              creditNoteSeriesId,
+              issuingInvoiceSeriesId,
+              issuingCreditNoteSeriesId,
+            }
+          : {}),
       });
       setApiKey('');
       toast.success('Integración con Holded guardada.');
@@ -183,6 +209,29 @@ export function HoldedCard() {
                   recarga esta página.
                 </p>
               )}
+              <div className="space-y-1 border-t pt-3 sm:col-span-2">
+                <p className="text-sm font-medium">Si Holded emite tus facturas</p>
+                <p className="text-xs text-muted-foreground">
+                  Solo se usan si eliges Holded en «Dónde se emiten tus facturas». Aquí la serie sí
+                  debe enviarse a Verifactu: Holded numera y registra cada factura en la AEAT.
+                </p>
+              </div>
+              <SeriesSelect
+                label="Serie para emitir facturas"
+                help="Holded numera aquí las facturas que emites desde TrasterOS."
+                value={issuingInvoiceSeriesId}
+                onChange={setIssuingInvoiceSeriesId}
+                options={series.data.invoice}
+                issuing
+              />
+              <SeriesSelect
+                label="Serie para emitir rectificativas"
+                help="Para las anulaciones y los abonos."
+                value={issuingCreditNoteSeriesId}
+                onChange={setIssuingCreditNoteSeriesId}
+                options={series.data.creditnote}
+                issuing
+              />
             </div>
           ) : null
         ) : (
@@ -250,6 +299,8 @@ const REVIEW_TEXT: Record<HoldedReviewItemDto['kind'], string> = {
     'Se envió el cobro y Holded no respondió: comprueba si aparece en la factura de Holded.',
   payment_reversed:
     'Este cobro ya estaba en Holded y luego se devolvió o reembolsó. Corrígelo a mano en Holded.',
+  credit_note_pending:
+    'Crea en Holded la rectificativa desde la factura original (así queda enlazada en Veri*Factu) y pega aquí su id para enlazarla.',
 };
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -258,7 +309,19 @@ const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', curren
 function HoldedReviewList() {
   const { data: items } = useHoldedReview(true);
   const resolve = useResolveHoldedReview();
+  const link = useLinkHoldedCreditNote();
   const [docIds, setDocIds] = useState<Record<string, string>>({});
+
+  async function linkCreditNote(item: HoldedReviewItemDto) {
+    const holdedDocumentId = docIds[item.id]?.trim();
+    if (!holdedDocumentId) return;
+    try {
+      await link.mutateAsync({ invoiceId: item.id, holdedDocumentId });
+      toast.success('Rectificativa enlazada');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo enlazar');
+    }
+  }
 
   async function run(
     item: HoldedReviewItemDto,
@@ -289,14 +352,35 @@ function HoldedReviewList() {
         <div key={`${item.kind}-${item.id}`} className="space-y-2 rounded border bg-background p-2">
           <p className="text-sm">
             <span className="font-medium">
-              {item.kind === 'invoice_unconfirmed' ? 'Factura' : 'Cobro de la factura'}{' '}
-              {item.invoiceNumber ?? '—'}
+              {item.kind === 'credit_note_pending'
+                ? `Rectificativa de la factura ${item.originalInvoiceNumber ?? '—'}`
+                : `${item.kind === 'invoice_unconfirmed' ? 'Factura' : 'Cobro de la factura'} ${
+                    item.invoiceNumber ?? '—'
+                  }`}
             </span>{' '}
             · {eur(item.amount)} · {new Date(item.date).toLocaleString('es-ES')}
           </p>
           <p className="text-xs text-muted-foreground">{REVIEW_TEXT[item.kind]}</p>
           <div className="flex flex-wrap items-center gap-2">
-            {item.kind === 'payment_reversed' ? (
+            {item.kind === 'credit_note_pending' ? (
+              <>
+                <Input
+                  className="h-8 w-56"
+                  placeholder="Id de la rectificativa en Holded"
+                  aria-label="Id de la rectificativa en Holded"
+                  value={docIds[item.id] ?? ''}
+                  onChange={(e) => setDocIds((d) => ({ ...d, [item.id]: e.target.value }))}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={link.isPending || !docIds[item.id]?.trim()}
+                  onClick={() => linkCreditNote(item)}
+                >
+                  Enlazar
+                </Button>
+              </>
+            ) : item.kind === 'payment_reversed' ? (
               <Button
                 size="sm"
                 variant="outline"

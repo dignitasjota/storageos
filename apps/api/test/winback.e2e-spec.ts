@@ -36,7 +36,13 @@ describe('Win-back automático (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/customers')
       .set(auth)
-      .send({ customerType: 'individual', firstName: 'Ex', lastName: 'Cliente', email, country: 'ES' })
+      .send({
+        customerType: 'individual',
+        firstName: 'Ex',
+        lastName: 'Cliente',
+        email,
+        country: 'ES',
+      })
       .expect(201);
     return res.body.id as string;
   }

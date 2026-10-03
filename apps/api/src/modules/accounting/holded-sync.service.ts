@@ -8,7 +8,11 @@ import {
 } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { HoldedSettingsService, type HoldedResolved } from './holded-settings.service';
+import {
+  HoldedSettingsService,
+  type HoldedIssuingResolved,
+  type HoldedResolved,
+} from './holded-settings.service';
 import { HoldedApiError, HoldedClient, type HoldedLine } from './holded.client';
 
 import type { Prisma } from '@storageos/database';
@@ -46,6 +50,11 @@ const reviewWhere = (tenantId: string, before: Date) => ({
     holdedSyncedAt: null,
     holdedSyncStartedAt: { lt: before },
   } satisfies Prisma.PaymentWhereInput,
+  creditNotesPending: {
+    tenantId,
+    status: 'draft',
+    holdedSyncState: 'awaiting_holded',
+  } satisfies Prisma.InvoiceWhereInput,
   reversedPayments: {
     tenantId,
     holdedSyncedAt: { not: null },
@@ -93,8 +102,21 @@ export class HoldedSyncService {
 
   @OnEvent(DOMAIN_EVENTS.invoice_paid, { async: true, promisify: true })
   async handleInvoicePaid(payload: DomainEventPayload): Promise<void> {
+    const inv = await this.admin.invoice.findFirst({
+      where: { id: payload.entityId, tenantId: payload.tenantId },
+      select: { issuedBy: true },
+    });
+    if (inv?.issuedBy === 'holded') {
+      // Emitida por Holded: los cobros van a esa factura con la clave de emisión.
+      const cfg = await this.settings.resolveIssuing(payload.tenantId);
+      if ('reason' in cfg) return;
+      await this.pushPayments(payload.tenantId, payload.entityId, cfg.apiKey).catch((err) =>
+        this.fail(payload.tenantId, payload.entityId, err),
+      );
+      return;
+    }
     await this.run(payload.tenantId, false, (cfg) =>
-      this.pushPayments(payload.tenantId, payload.entityId, cfg),
+      this.pushPayments(payload.tenantId, payload.entityId, cfg.apiKey),
     );
   }
 
@@ -112,7 +134,7 @@ export class HoldedSyncService {
   async pushInvoice(tenantId: string, invoiceId: string, throwOnError: boolean): Promise<void> {
     await this.run(tenantId, throwOnError, async (cfg) => {
       const created = await this.pushDocument(tenantId, invoiceId, cfg, throwOnError);
-      if (created) await this.pushPayments(tenantId, invoiceId, cfg);
+      if (created) await this.pushPayments(tenantId, invoiceId, cfg.apiKey);
     });
   }
 
@@ -127,6 +149,7 @@ export class HoldedSyncService {
         tenantId,
         deletedAt: null,
         kind: 'invoice', // los justificantes de fianza no van a la contabilidad como facturas
+        issuedBy: 'app', // las emitidas por Holded ya están allí
         status: {
           in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
         },
@@ -142,7 +165,7 @@ export class HoldedSyncService {
     for (const inv of pending) {
       try {
         if (await this.pushDocument(tenantId, inv.id, cfg, false)) synced += 1;
-        await this.pushPayments(tenantId, inv.id, cfg);
+        await this.pushPayments(tenantId, inv.id, cfg.apiKey);
       } catch (err) {
         await this.fail(tenantId, inv.id, err);
       }
@@ -152,6 +175,7 @@ export class HoldedSyncService {
       where: {
         tenantId,
         holdedDocumentId: { not: null },
+        issuedBy: 'app',
         OR: [
           {
             payments: {
@@ -172,23 +196,177 @@ export class HoldedSyncService {
     for (const inv of withPending) {
       try {
         if (inv.status === 'cancelled') await this.cancelInHolded(tenantId, inv.id, cfg);
-        else await this.pushPayments(tenantId, inv.id, cfg);
+        else await this.pushPayments(tenantId, inv.id, cfg.apiKey);
       } catch (err) {
         await this.fail(tenantId, inv.id, err);
       }
     }
+    await this.syncHoldedIssuedPayments(tenantId);
     return { synced };
+  }
+
+  /** Cobros pendientes de las facturas emitidas por Holded (modo 'holded'). */
+  async syncHoldedIssuedPayments(tenantId: string): Promise<void> {
+    const cfg = await this.settings.resolveIssuing(tenantId);
+    if ('reason' in cfg) return;
+    const invoices = await this.admin.invoice.findMany({
+      where: {
+        tenantId,
+        issuedBy: 'holded',
+        holdedDocumentId: { not: null },
+        payments: {
+          some: {
+            status: 'succeeded',
+            holdedSyncedAt: null,
+            holdedSyncStartedAt: null,
+            methodType: { not: 'credit_note' },
+          },
+        },
+      },
+      select: { id: true },
+      take: 100,
+    });
+    for (const inv of invoices) {
+      try {
+        await this.pushPayments(tenantId, inv.id, cfg.apiKey);
+      } catch (err) {
+        await this.fail(tenantId, inv.id, err);
+      }
+    }
+  }
+
+  /**
+   * Emite la factura (o rectificativa, si es negativa) EN Holded: Holded la
+   * numera en su serie y la registra en Veri*Factu. El llamador ya reservó la
+   * factura (`holdedSyncState = 'creating'`). Si algo falla a mitad, el estado
+   * permite reanudar sin duplicar: con el documento creado (`approving`) solo
+   * falta aprobarlo; aprobado (`numbering`), leer su número. Si Holded no
+   * respondió al crearlo, la reserva se queda y sale «para revisar».
+   */
+  async issueDocument(
+    tenantId: string,
+    invoiceId: string,
+    cfg: HoldedIssuingResolved,
+  ): Promise<{ documentId: string; number: string }> {
+    const invoice = await this.admin.invoice.findFirstOrThrow({
+      where: { id: invoiceId, tenantId },
+      include: {
+        items: { orderBy: { position: 'asc' } },
+        customer: true,
+        rectifiesInvoice: { select: { invoiceNumber: true } },
+      },
+    });
+    const isCreditNote = Number(invoice.total) < 0;
+    const kind = isCreditNote ? 'creditnote' : 'invoice';
+    const client = new HoldedClient(cfg.apiKey);
+    let documentId = invoice.holdedDocumentId;
+    let state = invoice.holdedSyncState;
+
+    if (!documentId) {
+      let sent = false;
+      try {
+        const contactId = invoice.customer
+          ? await this.contactFor(client, invoice.customer)
+          : await this.genericContact(client);
+        const lines = await this.buildLines(client, invoice.items, isCreditNote);
+        sent = true;
+        documentId = await client.createDocument(kind, {
+          contactId,
+          date: day(invoice.issueDate ?? new Date()),
+          dueDate: invoice.dueDate ? day(invoice.dueDate) : null,
+          seriesId: isCreditNote ? cfg.creditNoteSeriesId : cfg.invoiceSeriesId,
+          description: invoice.rectifiesInvoice
+            ? `Rectificativa de la factura ${invoice.rectifiesInvoice.invoiceNumber}${invoice.rectificationReason ? `: ${invoice.rectificationReason}` : ''}`
+            : '',
+          lines,
+        });
+      } catch (err) {
+        if (!sent || holdedRejected(err)) {
+          await this.admin.invoice.update({
+            where: { id: invoiceId },
+            data: { holdedSyncState: null, holdedSyncStartedAt: null },
+          });
+        }
+        throw err;
+      }
+      await this.admin.invoice.update({
+        where: { id: invoiceId },
+        data: { holdedDocumentId: documentId, holdedSyncState: 'approving' },
+      });
+      state = 'approving';
+    }
+    if (state !== 'numbering') {
+      await client.approveDocument(kind, documentId);
+      await this.admin.invoice.update({
+        where: { id: invoiceId },
+        data: { holdedSyncState: 'numbering' },
+      });
+    }
+    const number = await client.getDocumentNumber(kind, documentId);
+    if (!number) throw new HoldedApiError('Holded no ha devuelto el número de la factura', 0);
+    return { documentId, number };
+  }
+
+  /** Número de una rectificativa de Holded (null si aún no está aprobada). */
+  async creditNoteNumber(tenantId: string, documentId: string): Promise<string | null> {
+    const cfg = await this.settings.resolveIssuing(tenantId);
+    if ('reason' in cfg) {
+      throw new BadRequestException({ code: 'holded_issuing_not_ready', message: cfg.reason });
+    }
+    return new HoldedClient(cfg.apiKey).getDocumentNumber('creditnote', documentId);
+  }
+
+  /** PDF de una factura emitida por Holded (con su QR de Veri*Factu). */
+  async downloadIssuedPdf(tenantId: string, invoiceId: string): Promise<Buffer> {
+    const cfg = await this.settings.resolveIssuing(tenantId);
+    if ('reason' in cfg) {
+      throw new BadRequestException({ code: 'holded_issuing_not_ready', message: cfg.reason });
+    }
+    const inv = await this.admin.invoice.findFirstOrThrow({
+      where: { id: invoiceId, tenantId },
+      select: { holdedDocumentId: true, total: true },
+    });
+    if (!inv.holdedDocumentId) {
+      throw new BadRequestException({
+        code: 'holded_document_missing',
+        message: 'La factura no está en Holded',
+      });
+    }
+    return new HoldedClient(cfg.apiKey).getPdf(
+      Number(inv.total) < 0 ? 'creditnote' : 'invoice',
+      inv.holdedDocumentId,
+    );
+  }
+
+  private async buildLines(
+    client: HoldedClient,
+    items: { description: string; quantity: unknown; unitPrice: unknown; taxRate: unknown }[],
+    isCreditNote: boolean,
+  ): Promise<HoldedLine[]> {
+    const lines: HoldedLine[] = [];
+    for (const it of items) {
+      const price = Number(it.unitPrice);
+      lines.push({
+        name: it.description,
+        units: Number(it.quantity),
+        // En Holded la rectificativa ya resta: sus líneas van en positivo.
+        price: isCreditNote ? -price : price,
+        taxes: [await client.taxKeyFor(Number(it.taxRate))],
+      });
+    }
+    return lines;
   }
 
   /** Cuántos elementos hay que revisar a mano en Holded. */
   async reviewCount(tenantId: string): Promise<number> {
     const w = reviewWhere(tenantId, new Date(Date.now() - REVIEW_AFTER_MS));
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, d] = await Promise.all([
       this.admin.invoice.count({ where: w.invoices }),
       this.admin.payment.count({ where: w.unconfirmedPayments }),
       this.admin.payment.count({ where: w.reversedPayments }),
+      this.admin.invoice.count({ where: w.creditNotesPending }),
     ]);
-    return a + b + c;
+    return a + b + c + d;
   }
 
   /** Envíos sin confirmar y cobros copiados que luego se devolvieron. */
@@ -203,7 +381,7 @@ export class HoldedSyncService {
       updatedAt: true,
       invoice: { select: { invoiceNumber: true } },
     } as const;
-    const [invoices, unconfirmed, reversed] = await Promise.all([
+    const [invoices, unconfirmed, reversed, pendingCredits] = await Promise.all([
       this.admin.invoice.findMany({
         where: w.invoices,
         select: { id: true, invoiceNumber: true, total: true, holdedSyncStartedAt: true },
@@ -219,6 +397,17 @@ export class HoldedSyncService {
       this.admin.payment.findMany({
         where: w.reversedPayments,
         select: paymentSelect,
+        orderBy: { updatedAt: 'asc' },
+        take: 100,
+      }),
+      this.admin.invoice.findMany({
+        where: w.creditNotesPending,
+        select: {
+          id: true,
+          total: true,
+          updatedAt: true,
+          rectifiesInvoice: { select: { invoiceNumber: true } },
+        },
         orderBy: { updatedAt: 'asc' },
         take: 100,
       }),
@@ -255,6 +444,18 @@ export class HoldedSyncService {
           amount: Number(p.amount),
           date: p.updatedAt.toISOString(),
           paymentStatus: p.status,
+        }),
+      ),
+      ...pendingCredits.map(
+        (i): HoldedReviewItemDto => ({
+          kind: 'credit_note_pending',
+          id: i.id,
+          invoiceId: i.id,
+          invoiceNumber: null,
+          amount: Number(i.total),
+          date: i.updatedAt.toISOString(),
+          paymentStatus: null,
+          originalInvoiceNumber: i.rectifiesInvoice?.invoiceNumber ?? null,
         }),
       ),
     ];
@@ -394,17 +595,7 @@ export class HoldedSyncService {
         ? await this.contactFor(client, invoice.customer)
         : await this.genericContact(client);
 
-      const lines: HoldedLine[] = [];
-      for (const it of invoice.items) {
-        const price = Number(it.unitPrice);
-        lines.push({
-          name: it.description,
-          units: Number(it.quantity),
-          // En Holded la rectificativa ya resta: sus líneas van en positivo.
-          price: isCreditNote ? -price : price,
-          taxes: [await client.taxKeyFor(Number(it.taxRate))],
-        });
-      }
+      const lines = await this.buildLines(client, invoice.items, isCreditNote);
 
       const number = invoice.invoiceNumber;
       const description = invoice.rectifiesInvoice
@@ -457,11 +648,7 @@ export class HoldedSyncService {
   }
 
   /** Copia a Holded los cobros de la factura aún no copiados. */
-  private async pushPayments(
-    tenantId: string,
-    invoiceId: string,
-    cfg: HoldedResolved,
-  ): Promise<void> {
+  private async pushPayments(tenantId: string, invoiceId: string, apiKey: string): Promise<void> {
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, tenantId },
       select: {
@@ -487,7 +674,7 @@ export class HoldedSyncService {
       return;
     }
     if (invoice.payments.length === 0) return;
-    const client = new HoldedClient(cfg.apiKey);
+    const client = new HoldedClient(apiKey);
     for (const p of invoice.payments) {
       // Reserva atómica del cobro: dos envíos a la vez no lo registran dos veces.
       const claimed = await this.admin.payment.updateMany({

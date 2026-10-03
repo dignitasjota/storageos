@@ -51,15 +51,12 @@ describe('Acceso facial (e2e)', () => {
 
     await setTenantFeatureOverride(owner.slug, 'facial_access', true);
 
-    const res = await request(app.getHttpServer())
-      .post('/access/credentials/face')
-      .set(auth)
-      .send({
-        customerId,
-        label: 'Rostro principal',
-        photoBase64: PHOTO_B64,
-        photoMimeType: 'image/jpeg',
-      });
+    const res = await request(app.getHttpServer()).post('/access/credentials/face').set(auth).send({
+      customerId,
+      label: 'Rostro principal',
+      photoBase64: PHOTO_B64,
+      photoMimeType: 'image/jpeg',
+    });
 
     expect(res.status).toBe(201);
     expect(res.body.method).toBe('face');

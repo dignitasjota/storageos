@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   Inject,
@@ -26,6 +27,8 @@ import {
 } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
+import { HoldedSettingsService } from '../accounting/holded-settings.service';
+import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { AuditService } from '../auth/audit.service';
 import {
   DOMAIN_EVENTS,
@@ -41,6 +44,7 @@ import { PAYMENT_GATEWAY, type PaymentGateway } from '../payments/payment-gatewa
 import { JOB_VERIFACTU_SEND, QUEUE_VERIFACTU } from '../queues/queues.module';
 
 import { InvoiceSeriesService } from './invoice-series.service';
+import { InvoicingModeService } from './invoicing-mode.service';
 import { VerifactuService } from './verifactu.service';
 
 import type { VerifactuSendJobData } from './verifactu.processor';
@@ -127,6 +131,9 @@ export class InvoicesService {
     private readonly communications: CommunicationsService,
     private readonly goCardlessCharge: GoCardlessChargeService,
     private readonly files: FilesService,
+    private readonly invoicingMode: InvoicingModeService,
+    private readonly holdedSettings: HoldedSettingsService,
+    private readonly holdedSync: HoldedSyncService,
   ) {}
 
   async list(tenantId: string, filters: ListFilters): Promise<InvoiceDto[]> {
@@ -372,6 +379,8 @@ export class InvoicesService {
     invoiceId: string;
     facilityScope?: string[] | null;
     meta: RequestMeta;
+    /** Rectificativa ya creada por el tenant en Holded (modo Holded): se enlaza. */
+    holdedDocument?: { documentId: string; number: string };
   }): Promise<InvoiceDto> {
     const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
     if (existing.kind === 'deposit_receipt') {
@@ -381,6 +390,24 @@ export class InvoicesService {
       });
     }
     this.assertTransition(existing.status as InvoiceStatusValue, 'issued');
+
+    // Modo Holded: Holded numera la factura y la registra en Veri*Factu. Se
+    // emite allí primero (fuera de la transacción: es una llamada externa) y
+    // luego se guarda aquí con su número.
+    const mode = await this.prisma.withTenant(
+      (tx) => this.invoicingMode.current(tx, args.tenantId),
+      args.tenantId,
+    );
+    if (mode === 'holded' && existing.rectifiesInvoiceId && !args.holdedDocument) {
+      // La API de Holded no permite indicar qué factura rectifica: la
+      // rectificativa la hace el tenant en Holded desde la original y luego se
+      // enlaza aquí (`linkHoldedCreditNote`). Hasta entonces queda pendiente.
+      return this.awaitHoldedCreditNote(args.tenantId, existing);
+    }
+    const fromHolded =
+      mode === 'holded'
+        ? (args.holdedDocument ?? (await this.issueInHolded(args.tenantId, existing)))
+        : null;
 
     let compensatedOriginal: {
       id: string;
@@ -427,6 +454,40 @@ export class InvoicesService {
       // Fecha de emisión = hoy en la zona del tenant (en UTC, a las 00:30 del
       // día 1 la factura caía en el mes —o trimestre— anterior).
       const issueDate = existing.issueDate ?? todayInTimezone(tenant.timezone);
+      const total = Number(existing.total);
+      // Rectificativa de abono: no se cobra ni se reclama (queda saldada al
+      // emitirse; el dinero, si lo hay, se devuelve aparte).
+      const isCredit = total < 0;
+
+      if (fromHolded) {
+        // Emitida en Holded: su número y su registro en Veri*Factu son los de
+        // Holded; aquí no hay huella ni envío a la AEAT.
+        const holdedRow = await tx.invoice.update({
+          where: { id: args.invoiceId },
+          data: {
+            status: isCredit ? 'paid' : 'issued',
+            invoiceNumber: fromHolded.number,
+            issueDate,
+            dueDate: isCredit ? null : (existing.dueDate ?? this.computeDefaultDueDate(issueDate)),
+            ...(isCredit ? { amountPaid: total, paidAt: new Date() } : {}),
+            issuedBy: 'holded',
+            holdedDocumentId: fromHolded.documentId,
+            holdedSyncState: null,
+            holdedSyncStartedAt: null,
+          },
+          include: this.includeRelations(),
+        });
+        if (isCredit && existing.rectifiesInvoiceId) {
+          compensatedOriginal = await this.compensateWithCredit(tx, {
+            tenantId: args.tenantId,
+            originalId: existing.rectifiesInvoiceId,
+            creditCents: -toCents(total),
+            creditNumber: fromHolded.number,
+          });
+        }
+        return holdedRow;
+      }
+
       const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
       // La numeración va en orden de fecha: no se emite con una fecha anterior
       // a la última factura de la serie (la serie ya está bloqueada).
@@ -471,7 +532,6 @@ export class InvoicesService {
           });
         }
       }
-      const total = Number(existing.total);
       const chain = await this.verifactu.computeChainedHash(tx, {
         tenantId: args.tenantId,
         tenantTaxId: emitterTaxId || 'PENDIENTE',
@@ -489,9 +549,6 @@ export class InvoicesService {
         total,
       });
 
-      // Rectificativa de abono: no se cobra ni se reclama (queda saldada al
-      // emitirse; el dinero, si lo hay, se devuelve aparte).
-      const isCredit = total < 0;
       const row = await tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
@@ -557,11 +614,13 @@ export class InvoicesService {
     // Encolar el envio AEAT en BullMQ con retry exponencial. El worker
     // (VerifactuProcessor) consumira el job de forma asincrona. Solo
     // reintenta cuando AEAT devuelve `status='error'` (fallo tecnico).
-    await this.verifactuQueue.add(
-      JOB_VERIFACTU_SEND,
-      { invoiceId: updated.id, tenantId: args.tenantId },
-      InvoicesService.VERIFACTU_JOB_OPTS,
-    );
+    if (!fromHolded) {
+      await this.verifactuQueue.add(
+        JOB_VERIFACTU_SEND,
+        { invoiceId: updated.id, tenantId: args.tenantId },
+        InvoicesService.VERIFACTU_JOB_OPTS,
+      );
+    }
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -598,6 +657,162 @@ export class InvoicesService {
       } satisfies InvoiceCancelledPayload);
     }
     return this.toDto(await this.findOrThrow(args.tenantId, updated.id));
+  }
+
+  /**
+   * Rectificativa en modo Holded: queda en borrador «pendiente de hacer en
+   * Holded». Sale en Ajustes → Facturación → Holded para enlazarla.
+   */
+  private async awaitHoldedCreditNote(
+    tenantId: string,
+    existing: InvoiceWithRelations,
+  ): Promise<InvoiceDto> {
+    if (existing.correctionMethod === 'by_substitution') {
+      throw new BadRequestException({
+        code: 'holded_substitution_not_supported',
+        message:
+          'Con Holded como sistema de facturación, rectifica por diferencias (Holded no emite sustitutivas desde la app)',
+      });
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, existing.id);
+      if (existing.rectifiesInvoiceId) {
+        await this.assertRectificationLimits(tx, {
+          originalId: existing.rectifiesInvoiceId,
+          selfId: existing.id,
+          total: Number(existing.total),
+          method: 'by_differences',
+        });
+      }
+      await tx.invoice.updateMany({
+        where: { id: existing.id, status: 'draft' },
+        data: { holdedSyncState: 'awaiting_holded', issuedBy: 'holded' },
+      });
+    }, tenantId);
+    return this.toDto(await this.findOrThrow(tenantId, existing.id));
+  }
+
+  /**
+   * Enlaza la rectificativa que el tenant creó en Holded desde la factura
+   * original: toma su número de Holded y la da por emitida (y compensa la
+   * original si tenía importe pendiente).
+   */
+  async linkHoldedCreditNote(args: {
+    tenantId: string;
+    userId: string;
+    invoiceId: string;
+    holdedDocumentId: string;
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<InvoiceDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
+    if (existing.status !== 'draft' || existing.holdedSyncState !== 'awaiting_holded') {
+      throw new ConflictException({
+        code: 'not_awaiting_holded',
+        message: 'Esta factura no está pendiente de enlazar con Holded',
+      });
+    }
+    let number: string | null;
+    try {
+      number = await this.holdedSync.creditNoteNumber(args.tenantId, args.holdedDocumentId);
+    } catch (err) {
+      throw new BadGatewayException({
+        code: 'holded_request_failed',
+        message: `No se pudo leer la rectificativa en Holded: ${err instanceof Error ? err.message : 'error desconocido'}`,
+      });
+    }
+    if (!number) {
+      throw new BadRequestException({
+        code: 'holded_document_not_issued',
+        message: 'Esa rectificativa de Holded aún no tiene número: apruébala en Holded primero',
+      });
+    }
+    return this.issue({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      invoiceId: args.invoiceId,
+      meta: args.meta,
+      holdedDocument: { documentId: args.holdedDocumentId, number },
+      ...(args.facilityScope !== undefined ? { facilityScope: args.facilityScope } : {}),
+    });
+  }
+
+  /**
+   * Emite la factura en Holded (modo 'holded'). Reserva la factura antes de
+   * llamar a Holded (dos «Emitir» a la vez no crean dos facturas allí) y
+   * reanuda una emisión que se quedó a medias (creada pero sin aprobar o sin
+   * número). Si Holded no respondió al crearla, la factura queda reservada y
+   * sale «para revisar» en Ajustes → Facturación.
+   */
+  private async issueInHolded(
+    tenantId: string,
+    existing: InvoiceWithRelations,
+  ): Promise<{ documentId: string; number: string }> {
+    if (existing.rectifiesInvoiceId && existing.correctionMethod === 'by_substitution') {
+      throw new BadRequestException({
+        code: 'holded_substitution_not_supported',
+        message:
+          'Con Holded como sistema de facturación, rectifica por diferencias (Holded no emite sustitutivas desde la app)',
+      });
+    }
+    const cfg = await this.holdedSettings.resolveIssuing(tenantId);
+    if ('reason' in cfg) {
+      throw new BadRequestException({ code: 'holded_issuing_not_ready', message: cfg.reason });
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await lockInvoiceRow(tx, existing.id);
+      const fresh = await tx.invoice.findUniqueOrThrow({
+        where: { id: existing.id },
+        select: { status: true, holdedSyncState: true, holdedDocumentId: true, issueDate: true },
+      });
+      if (fresh.status !== 'draft') {
+        throw new ConflictException({
+          code: 'invoice_already_issued',
+          message: 'La factura ya se ha emitido',
+        });
+      }
+      if (fresh.holdedSyncState === 'creating') {
+        throw new ConflictException({
+          code: 'invoice_issue_in_progress',
+          message:
+            'Esta factura se está emitiendo en Holded o hay que comprobarla allí (Ajustes → Facturación → Holded)',
+        });
+      }
+      if (existing.rectifiesInvoiceId) {
+        await this.assertRectificationLimits(tx, {
+          originalId: existing.rectifiesInvoiceId,
+          selfId: existing.id,
+          total: Number(existing.total),
+          method: 'by_differences',
+        });
+      }
+      if (!fresh.holdedDocumentId) {
+        const tenant = await tx.tenant.findUniqueOrThrow({
+          where: { id: tenantId },
+          select: { timezone: true },
+        });
+        const issueDate = fresh.issueDate ?? todayInTimezone(tenant.timezone);
+        await tx.invoice.update({
+          where: { id: existing.id },
+          data: {
+            holdedSyncState: 'creating',
+            holdedSyncStartedAt: new Date(),
+            issueDate,
+            ...(existing.dueDate || Number(existing.total) < 0
+              ? {}
+              : { dueDate: this.computeDefaultDueDate(issueDate) }),
+          },
+        });
+      }
+    }, tenantId);
+    try {
+      return await this.holdedSync.issueDocument(tenantId, existing.id, cfg);
+    } catch (err) {
+      throw new BadGatewayException({
+        code: 'holded_issue_failed',
+        message: `No se pudo emitir la factura en Holded: ${err instanceof Error ? err.message : 'error desconocido'}`,
+      });
+    }
   }
 
   /**
@@ -927,6 +1142,12 @@ export class InvoicesService {
       throw new BadRequestException({
         code: 'invoice_draft_not_sendable',
         message: 'No se puede reenviar a AEAT una factura en borrador',
+      });
+    }
+    if (existing.issuedBy === 'holded') {
+      throw new BadRequestException({
+        code: 'issued_by_holded',
+        message: 'Esta factura la emitió Holded: su registro en Veri*Factu se gestiona allí',
       });
     }
     // Ya registrada en la AEAT: reenviarla sería un alta duplicada.
@@ -2431,6 +2652,7 @@ export class InvoicesService {
       aeatStatus: row.aeatStatus,
       aeatCsv: row.aeatCsv,
       holdedDocumentId: row.holdedDocumentId,
+      issuedBy: row.issuedBy === 'holded' ? 'holded' : 'app',
       paidAt: row.paidAt ? row.paidAt.toISOString() : null,
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
       items: row.items.map((it) => this.toItemDto(it)),

@@ -191,7 +191,21 @@ export default function InvoiceDetailPage() {
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="font-mono text-2xl font-semibold tracking-tight">{i.invoiceNumber}</h1>
               <InvoiceStatusBadge status={i.status} total={i.total} />
-              <VerifactuBadge invoice={i} />
+              {i.issuedBy === 'holded' && i.status === 'draft' ? (
+                <Badge
+                  variant="outline"
+                  className="border-amber-400 text-amber-700 dark:text-amber-300"
+                  title="Créala en Holded desde la factura original y enlázala en Ajustes → Facturación → Holded"
+                >
+                  Pendiente de hacer en Holded
+                </Badge>
+              ) : i.issuedBy === 'holded' ? (
+                <Badge variant="outline" title="Holded la numeró y la registra en Veri*Factu">
+                  Emitida en Holded
+                </Badge>
+              ) : (
+                <VerifactuBadge invoice={i} />
+              )}
               {i.kind === 'deposit_receipt' && (
                 <Badge variant="outline" title="Garantía reembolsable: sin IVA ni Veri*Factu">
                   Justificante de fianza
