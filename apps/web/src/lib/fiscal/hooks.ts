@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
-import type { AccountingExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
+import type { AccountantExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
 
 export function useVatBook(from: string, to: string, enabled = true) {
   return useQuery({
@@ -26,10 +26,11 @@ export function useModel347(year: number) {
   });
 }
 
-export function useAccountingExport(from: string, to: string, enabled = true) {
+/** Vista previa de la exportación para la asesoría (facturas, cobros y fianzas). */
+export function useAccountantExport(from: string, to: string, enabled = true) {
   return useQuery({
-    queryKey: ['fiscal', 'accounting-export', from, to] as const,
-    queryFn: () => apiFetch<AccountingExportDto>(`/fiscal/accounting-export?from=${from}&to=${to}`),
+    queryKey: ['fiscal', 'accountant-export', from, to] as const,
+    queryFn: () => apiFetch<AccountantExportDto>(`/fiscal/accountant-export?from=${from}&to=${to}`),
     enabled: enabled && !!from && !!to,
   });
 }

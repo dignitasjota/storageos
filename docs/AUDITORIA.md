@@ -541,3 +541,12 @@ Hallazgo 7. Antes un reembolso o contracargo de Stripe de una suscripción, o un
 - El abono: con negocio propio, reembolso de su factura (`InvoicesService.refund`, `userId` null) → rectificativa automática → copia en la suscripción del tenant; sin él, rectificativa por diferencias de la numeración propia (`PlatformInvoicesService.creditForPayment`).
 - `TenantSubscriptionPaymentDto.refundedAmount`/`disputed`; la web muestra «Devuelto», «Devuelto en parte» y «contracargo».
 - e2e `saas-payment-reversals` (reembolso parcial, aviso repetido sin abono doble, resto, contracargo perdido). El camino de Stripe (`invoicePayments`) no se ejercita en test (sin Stripe en CI).
+
+## PR 5 — exportación para la asesoría del tenant ✅
+
+Hallazgo: el tenant solo tenía la «Exportación A3/Sage» (CSV de facturas por tipo de IVA): sin cobros, sin fianzas, sin Excel y sin avisos de datos que faltan.
+
+- `GET /fiscal/accountant-export?from=&to=&format=json|csv|xlsx&kind=invoices|payments|deposits` (`invoices:manage`) → `AccountantExportService.buildForTenant` (el mismo motor de la exportación de la plataforma): facturas por tipo de IVA (sustitutivas netas de la sustituida), cobros con sus devoluciones en negativo y la hoja nueva de **fianzas** (recibida al cobrar el justificante `FZ-…`, devuelta en negativo y retenida con su motivo al liquidar el contrato). Las fianzas salen de los cobros: no son ingresos.
+- Excel con tres hojas (Facturas, Cobros, Fianzas) sin la columna «Actividad»; la exportación de la plataforma gana también la hoja/CSV de fianzas del negocio propio.
+- Web: la pestaña de `/fiscal` pasa a «Exportación para la asesoría» (resumen, avisos, Excel y CSV). El endpoint antiguo `/fiscal/accounting-export` se mantiene.
+- e2e `tenant-accountant-export`.

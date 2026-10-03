@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ACCOUNTANT_DEPOSIT_COLUMNS,
   ACCOUNTANT_INVOICE_COLUMNS,
   ACCOUNTANT_PAYMENT_COLUMNS,
   AccountantExportQuerySchema,
@@ -183,12 +184,12 @@ export class PlatformInvoicesController {
     const csv =
       kind === 'payments'
         ? toAccountantCsv(ACCOUNTANT_PAYMENT_COLUMNS, dto.payments)
-        : toAccountantCsv(ACCOUNTANT_INVOICE_COLUMNS, dto.invoices);
+        : kind === 'deposits'
+          ? toAccountantCsv(ACCOUNTANT_DEPOSIT_COLUMNS, dto.deposits)
+          : toAccountantCsv(ACCOUNTANT_INVOICE_COLUMNS, dto.invoices);
+    const suffix = { invoices: 'facturas', payments: 'cobros', deposits: 'fianzas' }[kind];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${name}-${kind === 'payments' ? 'cobros' : 'facturas'}.csv"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${name}-${suffix}.csv"`);
     res.send(csv);
   }
 
