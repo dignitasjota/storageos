@@ -498,3 +498,7 @@ Revisión completa de la facturación de la plataforma (suscripciones) y de los 
 - **Reembolsos**: como mucho el dinero cobrado (sin compensaciones) → 400 `over_refund`; el abono automático por reembolso se calcula sobre lo devuelto en total menos lo que ya cubren los abonos emitidos (sin abono doble).
 - **Veri\*Factu**: `IndicadorMultiplesOT = S`; en envío real, emitir sin certificado vigente → 400 `aeat_certificate_required`.
 - e2e `billing-audit2` (3 casos).
+
+## PR aparte — cobro con tarjeta de los inquilinos desactivado ✅
+
+Hallazgo 2. Variable nueva `TENANT_CARD_PAYMENTS_ENABLED` (por defecto `false`): sin Stripe Connect, la cuenta de Stripe es la de la plataforma y el dinero de los inquilinos acabaría en TrasterOS. Con ella apagada, registrar tarjeta/IBAN por Stripe (staff y portal) y cobrar con un método de Stripe dan 400 `card_payments_disabled`; `GET /payment-methods/options` y `GET /portal/me/payments/options` → `{cardPayments}` para que la web oculte los formularios (ficha del inquilino, portal y página de firma de la reserva online). Los cobros por Redsys/Bizum, GoCardless y remesa SEPA no cambian; Stripe sigue sirviendo para la suscripción. e2e `tenant-card-payments`.
