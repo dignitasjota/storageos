@@ -57,15 +57,12 @@ describe('Toque de queda de acceso (curfew) (e2e)', () => {
       .post('/customers')
       .set(auth)
       .send({ customerType: 'individual', firstName: 'Ana', lastName: 'Lopez', country: 'ES' });
-    const device = await request(app.getHttpServer())
-      .post('/access/devices')
-      .set(auth)
-      .send({
-        facilityId: facility.body.id,
-        type: 'gate',
-        name: 'Cancela',
-        hardwareId: 'curfew-dev-1',
-      });
+    const device = await request(app.getHttpServer()).post('/access/devices').set(auth).send({
+      facilityId: facility.body.id,
+      type: 'gate',
+      name: 'Cancela',
+      hardwareId: 'curfew-dev-1',
+    });
     const apiKey = device.body.revealedApiKey as string;
 
     // Credencial normal → denegada por el toque de queda.

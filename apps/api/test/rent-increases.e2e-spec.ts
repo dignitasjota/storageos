@@ -28,16 +28,13 @@ describe('Rent increases / ECRI (e2e)', () => {
     const customerId = await createCustomer(app, owner.accessToken);
 
     // Contrato activo a 100€/mes.
-    const create = await request(app.getHttpServer())
-      .post('/contracts')
-      .set(auth)
-      .send({
-        customerId,
-        unitId: unitIds[0],
-        startDate: '2026-01-01',
-        priceMonthly: 100,
-        depositAmount: 0,
-      });
+    const create = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-01-01',
+      priceMonthly: 100,
+      depositAmount: 0,
+    });
     expect(create.status).toBe(201);
     const contractId = create.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);

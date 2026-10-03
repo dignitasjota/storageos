@@ -36,7 +36,9 @@ describe('Overlock badge (staff + portal) (e2e)', () => {
       .expect(204);
     const mail = await waitForEmail(email, { subjectIncludes: 'Accede' });
     const token = mail.Text.match(/token=([0-9a-f]{32}\.[A-Za-z0-9_-]+)/)?.[1];
-    const consume = await request(app.getHttpServer()).post('/portal/login/consume').send({ token });
+    const consume = await request(app.getHttpServer())
+      .post('/portal/login/consume')
+      .send({ token });
     return consume.body.accessToken as string;
   }
 
@@ -52,15 +54,28 @@ describe('Overlock badge (staff + portal) (e2e)', () => {
     const contract = await request(app.getHttpServer())
       .post('/contracts')
       .set(auth)
-      .send({ customerId, unitId: unitIds[0], startDate: '2026-01-01', priceMonthly: 100, depositAmount: 0 });
+      .send({
+        customerId,
+        unitId: unitIds[0],
+        startDate: '2026-01-01',
+        priceMonthly: 100,
+        depositAmount: 0,
+      });
     const contractId = contract.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
     await ensureDefaultSeries(app, owner.accessToken);
     const invoice = await request(app.getHttpServer())
       .post('/invoices')
       .set(auth)
-      .send({ customerId, contractId, items: [{ description: 'Cuota', quantity: 1, unitPrice: 100, taxRate: 21 }] });
-    await request(app.getHttpServer()).post(`/invoices/${invoice.body.id}/issue`).set(auth).expect(200);
+      .send({
+        customerId,
+        contractId,
+        items: [{ description: 'Cuota', quantity: 1, unitPrice: 100, taxRate: 21 }],
+      });
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoice.body.id}/issue`)
+      .set(auth)
+      .expect(200);
 
     // Sin expediente → by-contract devuelve null.
     const before = await request(app.getHttpServer())

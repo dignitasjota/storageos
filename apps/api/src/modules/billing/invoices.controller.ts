@@ -19,6 +19,7 @@ import {
   CreateInvoiceSchema,
   type InvoiceDto,
   InvoiceStatusEnum,
+  LinkHoldedCreditNoteSchema,
   MarkPaidManuallySchema,
   RectifyInvoiceSchema,
   RefundInvoiceSchema,
@@ -46,6 +47,7 @@ class CancelInvoiceDto extends createZodDto(CancelInvoiceSchema) {}
 class RefundInvoiceDto extends createZodDto(RefundInvoiceSchema) {}
 class MarkPaidManuallyDto extends createZodDto(MarkPaidManuallySchema) {}
 class BulkInvoiceActionDto extends createZodDto(BulkInvoiceActionSchema) {}
+class LinkHoldedCreditNoteDto extends createZodDto(LinkHoldedCreditNoteSchema) {}
 class RectifyInvoiceDto extends createZodDto(RectifyInvoiceSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
@@ -169,6 +171,26 @@ export class InvoicesController {
       tenantId: user.tenantId,
       ids: body.ids,
       facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Modo Holded: enlaza la rectificativa que el tenant creó en Holded. */
+  @RequirePermission('invoices:manage')
+  @Post(':id/link-holded')
+  @HttpCode(HttpStatus.OK)
+  async linkHolded(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: LinkHoldedCreditNoteDto,
+    @Req() req: Request,
+  ): Promise<InvoiceDto> {
+    return this.invoices.linkHoldedCreditNote({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      invoiceId: id,
+      holdedDocumentId: body.holdedDocumentId,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
     });
   }
 

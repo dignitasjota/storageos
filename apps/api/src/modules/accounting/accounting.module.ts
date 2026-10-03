@@ -15,5 +15,6 @@ import { HoldedController } from './holded.controller';
   imports: [AuthModule],
   controllers: [HoldedController],
   providers: [HoldedSettingsService, HoldedSyncService],
+  exports: [HoldedSettingsService, HoldedSyncService],
 })
 export class AccountingModule {}

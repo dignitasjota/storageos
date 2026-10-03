@@ -7,6 +7,9 @@ import type {
   HoldedSeriesListDto,
   HoldedSettingsDto,
   HoldedTestResultDto,
+  InvoiceDto,
+  InvoicingModeDto,
+  InvoicingModeValue,
   ResolveHoldedReviewInput,
   UpdateHoldedSettingsInput,
 } from '@storageos/shared';
@@ -83,5 +86,40 @@ export function useResolveHoldedReview() {
         { method: 'POST', json: args.input },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: holdedKey }),
+  });
+}
+
+/** Modo Holded: enlaza la rectificativa que el tenant creó en Holded. */
+export function useLinkHoldedCreditNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { invoiceId: string; holdedDocumentId: string }) =>
+      apiFetch<InvoiceDto>(`/invoices/${args.invoiceId}/link-holded`, {
+        method: 'POST',
+        json: { holdedDocumentId: args.holdedDocumentId },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: holdedKey });
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
+const invoicingModeKey = ['invoicing-mode'] as const;
+
+/** Dónde se emiten las facturas del tenant (la app con Veri*Factu, u Holded). */
+export function useInvoicingMode() {
+  return useQuery({
+    queryKey: invoicingModeKey,
+    queryFn: () => apiFetch<InvoicingModeDto>('/settings/invoicing-mode'),
+  });
+}
+
+export function useUpdateInvoicingMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: InvoicingModeValue) =>
+      apiFetch<InvoicingModeDto>('/settings/invoicing-mode', { method: 'PUT', json: { mode } }),
+    onSuccess: (data) => qc.setQueryData(invoicingModeKey, data),
   });
 }

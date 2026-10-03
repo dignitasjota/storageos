@@ -315,6 +315,12 @@ export const RectifyInvoiceItemSchema = z.object({
 });
 export type RectifyInvoiceItemInput = z.infer<typeof RectifyInvoiceItemSchema>;
 
+/** Enlazar la rectificativa creada en Holded (modo Holded). */
+export const LinkHoldedCreditNoteSchema = z.object({
+  holdedDocumentId: z.string().trim().min(1).max(100),
+});
+export type LinkHoldedCreditNoteInput = z.infer<typeof LinkHoldedCreditNoteSchema>;
+
 export const RectifyInvoiceSchema = z.object({
   rectificationType: RectificationTypeEnum,
   reason: z.string().trim().min(1).max(500),

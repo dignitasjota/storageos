@@ -2,6 +2,7 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -23,6 +24,7 @@ export class InvoicePdfService implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
     private readonly files: FilesService,
+    private readonly holded: HoldedSyncService,
     config: ConfigService<Env, true>,
   ) {
     this.s3 = new S3Client({
@@ -52,6 +54,15 @@ export class InvoicePdfService implements OnModuleDestroy {
     const invoice = await this.invoices.detail(tenantId, invoiceId);
     if (invoice.status === 'draft') {
       throw new Error('No se puede generar PDF de un borrador');
+    }
+    if (invoice.issuedBy === 'holded') {
+      // Emitida en Holded: su PDF es el legal (número y QR de Veri*Factu de Holded).
+      return this.store(
+        tenantId,
+        invoiceId,
+        invoice.invoiceNumber,
+        await this.holded.downloadIssuedPdf(tenantId, invoiceId),
+      );
     }
     const tenant = await this.prisma.withTenant(
       (tx) =>
@@ -109,26 +120,35 @@ export class InvoicePdfService implements OnModuleDestroy {
         margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' },
         printBackground: true,
       });
-      const key = `${tenantId}/invoices/${invoiceId}-${invoice.invoiceNumber.replace(/\//g, '_')}.pdf`;
-      await this.s3.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-          Body: pdfBuffer,
-          ContentType: 'application/pdf',
-        }),
-      );
-      const publicUrl = `${this.files.buildPublicUrl('invoices', key)}`;
-      await this.invoices.attachPdf({ tenantId, invoiceId, pdfUrl: publicUrl });
-      // Se guarda la forma "pública" (sin firmar) para poder re-firmarla más
-      // tarde vía `presignFromPublicUrl` (y para el link que se manda en el
-      // email de recordatorio de impago, que necesita seguir siendo válido
-      // días después) — pero NUNCA se devuelve tal cual en la respuesta.
-      const url = await this.files.getPresignedGetUrl('invoices', key, 300);
-      return { pdfUrl: url };
+      return await this.store(tenantId, invoiceId, invoice.invoiceNumber, pdfBuffer);
     } finally {
       await page.close();
     }
+  }
+
+  private async store(
+    tenantId: string,
+    invoiceId: string,
+    invoiceNumber: string,
+    pdfBuffer: Uint8Array,
+  ): Promise<{ pdfUrl: string }> {
+    const key = `${tenantId}/invoices/${invoiceId}-${invoiceNumber.replace(/[/\\]/g, '_')}.pdf`;
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: pdfBuffer,
+        ContentType: 'application/pdf',
+      }),
+    );
+    const publicUrl = `${this.files.buildPublicUrl('invoices', key)}`;
+    await this.invoices.attachPdf({ tenantId, invoiceId, pdfUrl: publicUrl });
+    // Se guarda la forma "pública" (sin firmar) para poder re-firmarla más
+    // tarde vía `presignFromPublicUrl` (y para el link que se manda en el
+    // email de recordatorio de impago, que necesita seguir siendo válido
+    // días después) — pero NUNCA se devuelve tal cual en la respuesta.
+    const url = await this.files.getPresignedGetUrl('invoices', key, 300);
+    return { pdfUrl: url };
   }
 
   private async getBrowser(): Promise<Browser> {

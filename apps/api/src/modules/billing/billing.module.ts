@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+import { AccountingModule } from '../accounting/accounting.module';
 import { AuthModule } from '../auth/auth.module';
 import { GoCardlessCoreModule } from '../payments/gocardless/gocardless-core.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -19,6 +20,8 @@ import { InvoiceSeriesController } from './invoice-series.controller';
 import { InvoiceSeriesService } from './invoice-series.service';
 import { InvoicesController } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
+import { InvoicingModeController } from './invoicing-mode.controller';
+import { InvoicingModeService } from './invoicing-mode.service';
 import { PricingRulesService } from './pricing-rules.service';
 import { TenantAeatCredentialsController } from './tenant-aeat-credentials.controller';
 import { TenantAeatCredentialsService } from './tenant-aeat-credentials.service';
@@ -40,6 +43,7 @@ import type { Env } from '../../config/env.schema';
 @Module({
   imports: [
     AuthModule,
+    AccountingModule,
     PaymentsModule,
     GoCardlessCoreModule,
     BullModule.registerQueue({ name: QUEUE_BILLING }, { name: QUEUE_VERIFACTU }),
@@ -49,11 +53,13 @@ import type { Env } from '../../config/env.schema';
     InvoiceSeriesController,
     TenantAeatCredentialsController,
     VerifactuAeatController,
+    InvoicingModeController,
   ],
   providers: [
     InvoiceSeriesService,
     InvoicesService,
     InvoicePdfService,
+    InvoicingModeService,
     VerifactuService,
     PricingRulesService,
     BillingJobsService,
@@ -73,6 +79,7 @@ import type { Env } from '../../config/env.schema';
   ],
   exports: [
     InvoicesService,
+    InvoicingModeService,
     InvoiceSeriesService,
     PricingRulesService,
     TenantAeatCredentialsService,

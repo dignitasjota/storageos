@@ -37,41 +37,32 @@ describe('Solicitud de trastero adicional (e2e)', () => {
     const unitTypeId = unitType.body.id as string;
 
     // Un trastero ocupado (del contrato) y otro disponible (para solicitar).
-    const u1 = await request(app.getHttpServer())
-      .post('/units')
-      .set(auth)
-      .send({
-        facilityId,
-        unitTypeId,
-        code: 'UR-001',
-        widthM: 2,
-        depthM: 2,
-        heightM: 2.5,
-        basePriceMonthly: 60,
-      });
+    const u1 = await request(app.getHttpServer()).post('/units').set(auth).send({
+      facilityId,
+      unitTypeId,
+      code: 'UR-001',
+      widthM: 2,
+      depthM: 2,
+      heightM: 2.5,
+      basePriceMonthly: 60,
+    });
     const occupiedUnitId = u1.body.id as string;
-    await request(app.getHttpServer())
-      .post('/units')
-      .set(auth)
-      .send({
-        facilityId,
-        unitTypeId,
-        code: 'UR-002',
-        widthM: 2,
-        depthM: 3,
-        heightM: 2.5,
-        basePriceMonthly: 70,
-      });
+    await request(app.getHttpServer()).post('/units').set(auth).send({
+      facilityId,
+      unitTypeId,
+      code: 'UR-002',
+      widthM: 2,
+      depthM: 3,
+      heightM: 2.5,
+      basePriceMonthly: 70,
+    });
 
-    const customer = await request(app.getHttpServer())
-      .post('/customers')
-      .set(auth)
-      .send({
-        customerType: 'individual',
-        firstName: 'Ana',
-        lastName: 'Ruiz',
-        email: 'ana-ur@x.com',
-      });
+    const customer = await request(app.getHttpServer()).post('/customers').set(auth).send({
+      customerType: 'individual',
+      firstName: 'Ana',
+      lastName: 'Ruiz',
+      email: 'ana-ur@x.com',
+    });
     const customerId = customer.body.id as string;
 
     const contract = await request(app.getHttpServer())

@@ -111,6 +111,9 @@ function buildService(deps: {
     null as never,
     goCardlessCharge,
     null as never,
+    null as never,
+    null as never,
+    null as never,
   );
   return { service, tx, gateway, goCardlessCharge };
 }

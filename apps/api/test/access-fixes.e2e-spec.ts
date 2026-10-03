@@ -81,16 +81,13 @@ describe('Fixes de control de accesos (e2e)', () => {
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await ensureDefaultSeries(app, owner.accessToken);
     const email = `race-${Date.now()}@e2e.local`;
-    await request(app.getHttpServer())
-      .post('/customers')
-      .set(auth)
-      .send({
-        customerType: 'individual',
-        firstName: 'Race',
-        lastName: 'Test',
-        email,
-        country: 'ES',
-      });
+    await request(app.getHttpServer()).post('/customers').set(auth).send({
+      customerType: 'individual',
+      firstName: 'Race',
+      lastName: 'Test',
+      email,
+      country: 'ES',
+    });
     const facility = await request(app.getHttpServer())
       .post('/facilities')
       .set(auth)

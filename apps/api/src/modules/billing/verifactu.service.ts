@@ -244,10 +244,14 @@ export class VerifactuService {
   async refreshStatus(invoiceId: string, tenantId: string): Promise<GetStatusResult> {
     const invoice = await this.admin.invoice.findUnique({
       where: { id: invoiceId },
-      select: { id: true, tenantId: true },
+      select: { id: true, tenantId: true, issuedBy: true },
     });
     if (!invoice || invoice.tenantId !== tenantId) {
       return { status: 'error', message: 'invoice_not_found' };
+    }
+    // Emitida por Holded: Holded la registra en la AEAT, no la app.
+    if (invoice.issuedBy === 'holded') {
+      return { status: 'error', message: 'issued_by_holded' };
     }
 
     const result = await this.aeat.getStatus({ invoiceId });

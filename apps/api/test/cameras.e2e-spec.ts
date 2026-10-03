@@ -42,7 +42,12 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
     const dev = await request(app.getHttpServer())
       .post('/cameras/devices')
       .set(auth)
-      .send({ facilityId: facility.body.id, name: 'Cámara pasillo 1', channel: 3, provider: 'dahua' });
+      .send({
+        facilityId: facility.body.id,
+        name: 'Cámara pasillo 1',
+        channel: 3,
+        provider: 'dahua',
+      });
     expect(dev.status).toBe(201);
     expect(dev.body.revealedIngestToken).toBeTruthy();
     expect(dev.body.provider).toBe('dahua');
@@ -116,7 +121,9 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
 
     // El evento queda vinculado a la incidencia (incidentId + título en el DTO).
     const feed2 = await request(app.getHttpServer()).get('/cameras/events?kind=alarm').set(auth);
-    const linked = (feed2.body as { id: string; incidentId: string | null; incidentTitle: string | null }[])[0];
+    const linked = (
+      feed2.body as { id: string; incidentId: string | null; incidentTitle: string | null }[]
+    )[0];
     expect(linked?.incidentId).toBe(incidentId);
     expect(linked?.incidentTitle).toBe('Alarma: zone_triggered');
 
@@ -151,17 +158,14 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
       .send({ name: 'Local control' });
 
     // Cámara con provider 'stub' (simula el equipo) + datos de conexión.
-    const dev = await request(app.getHttpServer())
-      .post('/cameras/devices')
-      .set(auth)
-      .send({
-        facilityId: facility.body.id,
-        name: 'NVR stub',
-        channel: 1,
-        provider: 'stub',
-        controlUrl: 'http://127.0.0.1:1',
-        controlSecret: 'admin:pw',
-      });
+    const dev = await request(app.getHttpServer()).post('/cameras/devices').set(auth).send({
+      facilityId: facility.body.id,
+      name: 'NVR stub',
+      channel: 1,
+      provider: 'stub',
+      controlUrl: 'http://127.0.0.1:1',
+      controlSecret: 'admin:pw',
+    });
     expect(dev.status).toBe(201);
     expect(dev.body.controlUrl).toBe('http://127.0.0.1:1');
     expect(dev.body.hasControlSecret).toBe(true);
@@ -182,7 +186,9 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
     expect(onDemand).toBeDefined();
 
     // Armar / desarmar → el stub simula éxito.
-    const armed = await request(app.getHttpServer()).post(`/cameras/devices/${deviceId}/arm`).set(auth);
+    const armed = await request(app.getHttpServer())
+      .post(`/cameras/devices/${deviceId}/arm`)
+      .set(auth);
     expect(armed.status).toBe(200);
     expect(armed.body.dispatched).toBe(true);
 

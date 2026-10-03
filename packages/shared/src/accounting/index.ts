@@ -11,6 +11,13 @@ export const UpdateHoldedSettingsSchema = z.object({
    */
   invoiceSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
   creditNoteSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
+  /**
+   * Series donde Holded EMITE las facturas cuando el tenant elige «Holded» como
+   * sistema de facturación. Al revés que las anteriores, NO pueden estar
+   * excluidas de Veri*Factu (Holded es quien las registra en la AEAT).
+   */
+  issuingInvoiceSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
+  issuingCreditNoteSeriesId: z.string().trim().min(1).max(100).nullable().optional(),
 });
 export type UpdateHoldedSettingsInput = z.infer<typeof UpdateHoldedSettingsSchema>;
 
@@ -22,6 +29,10 @@ export interface HoldedSettingsDto {
   creditNoteSeriesId: string | null;
   /** Activa, con clave y serie de facturas: lista para copiar facturas. */
   ready: boolean;
+  issuingInvoiceSeriesId: string | null;
+  issuingCreditNoteSeriesId: string | null;
+  /** Con clave y las dos series de emisión: Holded puede emitir las facturas. */
+  issuingReady: boolean;
   lastSyncAt: string | null;
   lastError: string | null;
   /** Elementos para revisar a mano en Holded (ver `HoldedReviewItemDto`). */
@@ -35,7 +46,17 @@ export interface HoldedSettingsDto {
  * - `payment_reversed`: un cobro ya copiado se devolvió o reembolsó después
  *   (Holded no permite quitarlo por API).
  */
-export type HoldedReviewKind = 'invoice_unconfirmed' | 'payment_unconfirmed' | 'payment_reversed';
+/**
+ * - `credit_note_pending`: con Holded como sistema de facturación, una
+ *   rectificativa (anulación o abono) que hay que crear en Holded desde la
+ *   factura original y enlazar aquí (la API de Holded no permite indicar qué
+ *   factura rectifica).
+ */
+export type HoldedReviewKind =
+  | 'invoice_unconfirmed'
+  | 'payment_unconfirmed'
+  | 'payment_reversed'
+  | 'credit_note_pending';
 
 export interface HoldedReviewItemDto {
   kind: HoldedReviewKind;
@@ -48,6 +69,8 @@ export interface HoldedReviewItemDto {
   date: string;
   /** Estado actual del cobro (`payment_reversed`). */
   paymentStatus: string | null;
+  /** Número de la factura original (`credit_note_pending`). */
+  originalInvoiceNumber?: string | null;
 }
 
 /**
@@ -132,3 +155,29 @@ export type ResolvePlatformHoldedReviewInput = z.infer<typeof ResolvePlatformHol
 
 export * from './billing-details';
 export * from './accountant-export';
+
+/** Sistema que emite las facturas del tenant. */
+export const InvoicingModeEnum = z.enum(['app', 'holded']);
+export type InvoicingModeValue = z.infer<typeof InvoicingModeEnum>;
+
+export const UpdateInvoicingModeSchema = z.object({ mode: InvoicingModeEnum });
+export type UpdateInvoicingModeInput = z.infer<typeof UpdateInvoicingModeSchema>;
+
+/**
+ * Dónde se emiten las facturas del tenant. El cambio no se aplica en mitad del
+ * año (la numeración y el registro en la AEAT no pueden partirse): queda
+ * programado para el 1 de enero, salvo que aún no haya emitido ninguna factura
+ * este año.
+ */
+export interface InvoicingModeDto {
+  mode: InvoicingModeValue;
+  pendingMode: InvoicingModeValue | null;
+  /** Fecha (YYYY-MM-DD) desde la que se aplica `pendingMode`. */
+  pendingFrom: string | null;
+  /** true si aún no ha emitido facturas este año (el cambio sería inmediato). */
+  canChangeNow: boolean;
+  /** Holded tiene clave y series de emisión elegidas. */
+  holdedReady: boolean;
+  /** Envío real a la AEAT activo y sin certificado vigente subido. */
+  certificateMissing: boolean;
+}

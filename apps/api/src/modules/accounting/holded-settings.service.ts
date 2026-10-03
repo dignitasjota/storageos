@@ -19,6 +19,13 @@ export interface HoldedResolved {
   creditNoteSeriesId: string | null;
 }
 
+/** Clave y series para que Holded EMITA las facturas (modo 'holded'). */
+export interface HoldedIssuingResolved {
+  apiKey: string;
+  invoiceSeriesId: string;
+  creditNoteSeriesId: string;
+}
+
 @Injectable()
 export class HoldedSettingsService {
   constructor(
@@ -36,6 +43,9 @@ export class HoldedSettingsService {
       invoiceSeriesId: row?.invoiceSeriesId ?? null,
       creditNoteSeriesId: row?.creditNoteSeriesId ?? null,
       ready: enabled && hasApiKey && !!row?.invoiceSeriesId,
+      issuingInvoiceSeriesId: row?.issuingInvoiceSeriesId ?? null,
+      issuingCreditNoteSeriesId: row?.issuingCreditNoteSeriesId ?? null,
+      issuingReady: hasApiKey && !!row?.issuingInvoiceSeriesId && !!row?.issuingCreditNoteSeriesId,
       lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
       lastError: row?.lastError ?? null,
     };
@@ -61,7 +71,12 @@ export class HoldedSettingsService {
     // Las series se comprueban en Holded: solo valen las marcadas «No enviar a
     // Verifactu». Si no, Holded registraría en la AEAT facturas que la app ya
     // registró (duplicado).
-    if (input.invoiceSeriesId || input.creditNoteSeriesId) {
+    if (
+      input.invoiceSeriesId ||
+      input.creditNoteSeriesId ||
+      input.issuingInvoiceSeriesId ||
+      input.issuingCreditNoteSeriesId
+    ) {
       if (!apiKey) {
         throw new BadRequestException({
           code: 'holded_api_key_required',
@@ -75,6 +90,13 @@ export class HoldedSettingsService {
       if (input.creditNoteSeriesId) {
         await this.assertExcludedSeries(client, 'creditnote', input.creditNoteSeriesId);
       }
+      // Las de emisión, al revés: Holded es quien registra en la AEAT.
+      if (input.issuingInvoiceSeriesId) {
+        await this.assertIssuingSeries(client, 'invoice', input.issuingInvoiceSeriesId);
+      }
+      if (input.issuingCreditNoteSeriesId) {
+        await this.assertIssuingSeries(client, 'creditnote', input.issuingCreditNoteSeriesId);
+      }
     }
 
     const apiKeyEncrypted = input.apiKey
@@ -84,6 +106,12 @@ export class HoldedSettingsService {
       ...(input.invoiceSeriesId !== undefined ? { invoiceSeriesId: input.invoiceSeriesId } : {}),
       ...(input.creditNoteSeriesId !== undefined
         ? { creditNoteSeriesId: input.creditNoteSeriesId }
+        : {}),
+      ...(input.issuingInvoiceSeriesId !== undefined
+        ? { issuingInvoiceSeriesId: input.issuingInvoiceSeriesId }
+        : {}),
+      ...(input.issuingCreditNoteSeriesId !== undefined
+        ? { issuingCreditNoteSeriesId: input.issuingCreditNoteSeriesId }
         : {}),
     };
 
@@ -162,6 +190,26 @@ export class HoldedSettingsService {
     };
   }
 
+  /**
+   * Clave y series para que Holded emita las facturas, o el motivo por el que
+   * no puede (no depende del interruptor de la copia contable).
+   */
+  async resolveIssuing(tenantId: string): Promise<HoldedIssuingResolved | { reason: string }> {
+    const row = await this.row(tenantId);
+    if (!row?.apiKeyEncrypted) return { reason: 'Falta la API key de Holded' };
+    if (!row.issuingInvoiceSeriesId || !row.issuingCreditNoteSeriesId) {
+      return {
+        reason:
+          'Elige en Ajustes → Facturación las series de Holded donde emitir las facturas y las rectificativas',
+      };
+    }
+    return {
+      apiKey: this.crypto.decryptString(row.apiKeyEncrypted, tenantId),
+      invoiceSeriesId: row.issuingInvoiceSeriesId,
+      creditNoteSeriesId: row.issuingCreditNoteSeriesId,
+    };
+  }
+
   async recordResult(tenantId: string, error: string | null): Promise<void> {
     await this.prisma
       .withTenant(
@@ -193,6 +241,39 @@ export class HoldedSettingsService {
       (tx) => tx.holdedSettings.findUnique({ where: { tenantId } }),
       tenantId,
     );
+  }
+
+  private async findSeries(client: HoldedClient, type: 'invoice' | 'creditnote', seriesId: string) {
+    let series;
+    try {
+      series = (await client.listSeries(type)).find((s) => s.id === seriesId);
+    } catch (err) {
+      throw new BadRequestException({
+        code: 'holded_request_failed',
+        message: err instanceof Error ? err.message : 'Error consultando Holded',
+      });
+    }
+    if (!series) {
+      throw new BadRequestException({
+        code: 'holded_series_not_found',
+        message: 'Esa serie no existe en tu cuenta de Holded',
+      });
+    }
+    return series;
+  }
+
+  private async assertIssuingSeries(
+    client: HoldedClient,
+    type: 'invoice' | 'creditnote',
+    seriesId: string,
+  ): Promise<void> {
+    const series = await this.findSeries(client, type, seriesId);
+    if (series.verifactuExcluded) {
+      throw new BadRequestException({
+        code: 'holded_series_excluded',
+        message: `La serie «${series.name}» está marcada «No enviar a Verifactu»: si Holded emite tus facturas, deben ir a Veri*Factu. Elige otra serie.`,
+      });
+    }
   }
 
   private async assertExcludedSeries(

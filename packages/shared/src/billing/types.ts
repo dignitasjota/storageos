@@ -1,3 +1,4 @@
+import type { InvoicingModeValue } from '../accounting';
 import type { PortalLocaleValue } from '../portal';
 import type {
   AeatStatusValue,
@@ -113,6 +114,8 @@ export interface InvoiceDto {
   aeatStatus: AeatStatusValue | null;
   aeatCsv: string | null;
   holdedDocumentId: string | null;
+  /** Sistema que emitió la factura: la app (Veri*Factu) o Holded. */
+  issuedBy: InvoicingModeValue;
   paidAt: string | null;
   cancelledAt: string | null;
   items: InvoiceItemDto[];
