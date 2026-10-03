@@ -338,6 +338,8 @@ function PortalConsumeContent() {
   const [addOpen, setAddOpen] = useState(false);
   const [addPending, setAddPending] = useState(false);
   const [goCardlessEnabled, setGoCardlessEnabled] = useState(false);
+  // Alta y cobro con tarjeta/IBAN por Stripe (desactivado sin Stripe Connect).
+  const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
   const [redsysEnabled, setRedsysEnabled] = useState(false);
   const [bizumEnabled, setBizumEnabled] = useState(false);
   const [gcPending, setGcPending] = useState(false);
@@ -439,6 +441,13 @@ function PortalConsumeContent() {
           if (!cancelled) setGoCardlessEnabled(gc.enabled);
         } catch {
           /* gocardless opcional */
+        }
+        // ¿Se puede registrar tarjeta/IBAN por Stripe? (best-effort).
+        try {
+          const o = await portalFetch<{ cardPayments: boolean }>(s, '/portal/me/payments/options');
+          if (!cancelled) setCardPaymentsEnabled(o.cardPayments);
+        } catch {
+          /* opcional */
         }
         // ¿Ofrece el negocio pago con tarjeta (Redsys)? (best-effort).
         try {
@@ -772,6 +781,12 @@ function PortalConsumeContent() {
     }
   }
 
+  // «Pagar» cobra con el método por defecto: solo si se puede usar (una
+  // domiciliación de GoCardless siempre; una tarjeta de Stripe si está activa).
+  const canChargeAutomatically = cardPaymentsEnabled
+    ? true
+    : (paymentMethods ?? []).some((pm) => pm.isDefault && pm.gateway !== 'stripe');
+
   async function handlePay(invoice: PortalInvoiceDto) {
     if (!session) return;
     setPayingId(invoice.id);
@@ -800,8 +815,12 @@ function PortalConsumeContent() {
       }
     } catch (err) {
       if (err instanceof ApiError && err.body.code === 'no_payment_method') {
-        toast.message(tInvoices('addPaymentMethodFirst'));
-        void openAddDialog();
+        if (cardPaymentsEnabled) {
+          toast.message(tInvoices('addPaymentMethodFirst'));
+          void openAddDialog();
+        } else {
+          toast.message(tInvoices('noAutomaticPayment'));
+        }
       } else {
         toast.error(err instanceof ApiError ? err.body.message : tInvoices('chargeError'));
       }
@@ -1206,14 +1225,20 @@ function PortalConsumeContent() {
                               {tInvoices('paymentInProgress')}
                             </Badge>
                           )}
-                          {i.amountPending > 0 && !i.paymentInProgress && !i.paidWithInvoiceId && (
-                            <Button onClick={() => void handlePay(i)} disabled={payingId !== null}>
-                              {payingId === i.id && (
-                                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                              )}
-                              {tInvoices('pay')}
-                            </Button>
-                          )}
+                          {canChargeAutomatically &&
+                            i.amountPending > 0 &&
+                            !i.paymentInProgress &&
+                            !i.paidWithInvoiceId && (
+                              <Button
+                                onClick={() => void handlePay(i)}
+                                disabled={payingId !== null}
+                              >
+                                {payingId === i.id && (
+                                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                )}
+                                {tInvoices('pay')}
+                              </Button>
+                            )}
                           {redsysEnabled &&
                             i.amountPending > 0 &&
                             !i.paymentInProgress &&
@@ -1343,18 +1368,20 @@ function PortalConsumeContent() {
                       {tInvoices('directDebitGoCardless')}
                     </Button>
                   )}
-                  <Button
-                    onClick={() => void openAddDialog()}
-                    disabled={addPending}
-                    variant="outline"
-                  >
-                    {addPending ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="mr-1 h-4 w-4" />
-                    )}
-                    {tInvoices('addIbanOrCard')}
-                  </Button>
+                  {cardPaymentsEnabled && (
+                    <Button
+                      onClick={() => void openAddDialog()}
+                      disabled={addPending}
+                      variant="outline"
+                    >
+                      {addPending ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="mr-1 h-4 w-4" />
+                      )}
+                      {tInvoices('addIbanOrCard')}
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>

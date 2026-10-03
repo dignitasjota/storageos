@@ -836,6 +836,16 @@ export class PortalController {
     return this.portal.registerMyPaymentMethod(tenantId, customerId, input);
   }
 
+  /** ¿Se puede pagar con tarjeta/IBAN por Stripe? (si no, se ocultan sus formularios). */
+  @Public()
+  @Get('me/payments/options')
+  async paymentOptions(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<{ cardPayments: boolean }> {
+    await this.requirePortalSession(auth);
+    return { cardPayments: this.portal.cardPaymentsEnabled };
+  }
+
   /** ¿Ofrece el negocio pago con tarjeta/Bizum vía Redsys? (para gatear los botones). */
   @Public()
   @Get('me/redsys/enabled')

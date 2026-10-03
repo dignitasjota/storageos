@@ -127,6 +127,11 @@ export class PortalService {
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
 
+  /** Formas de pago que ofrece el portal (la tarjeta por Stripe puede estar desactivada). */
+  get cardPaymentsEnabled(): boolean {
+    return this.paymentMethods.cardPaymentsEnabled;
+  }
+
   /**
    * Secret del JWT del portal: dedicado (`PORTAL_JWT_SECRET`) si está definido,
    * con fallback a `JWT_2FA_PENDING_SECRET` por compatibilidad (auditoría

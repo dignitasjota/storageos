@@ -379,6 +379,7 @@
       "paymentProcessing": "Domiciliación iniciada: tu banco la confirmará en 2-5 días hábiles y tu acceso se activará entonces.",
       "firstInvoice": "Primera factura: {number} — {amount}",
       "payWithCard": "Pagar con tarjeta",
+      "noOnlinePayment": "El negocio te indicará cómo pagar esta factura (transferencia o domiciliación). También la tienes en tu área de clientes.",
       "payAmount": "Pagar {amount}",
       "payWithRedsys": "Pagar con Redsys",
       "paymentEmailNote": "También recibirás un email con el enlace a tu portal para pagarla más tarde.",

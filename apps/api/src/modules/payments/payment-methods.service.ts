@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -44,6 +50,21 @@ export class PaymentMethodsService {
    * (`sk_test_dummy`): cualquier llamada a la API fallaría con un 500 opaco, así
    * que lo cortamos antes con un error claro.
    */
+  /** ¿Pueden los tenants cobrar con tarjeta/IBAN por Stripe? (ver env). */
+  get cardPaymentsEnabled(): boolean {
+    return this.config.get('TENANT_CARD_PAYMENTS_ENABLED', { infer: true }) === true;
+  }
+
+  private assertCardPaymentsEnabled(): void {
+    if (!this.cardPaymentsEnabled) {
+      throw new BadRequestException({
+        code: 'card_payments_disabled',
+        message:
+          'El pago con tarjeta no está disponible. Paga con Redsys/Bizum o por domiciliación bancaria.',
+      });
+    }
+  }
+
   private assertGatewayConfigured(): void {
     const key = this.config.get('STRIPE_SECRET_KEY', { infer: true });
     if (!key || key === 'sk_test_dummy') {
@@ -59,6 +80,7 @@ export class PaymentMethodsService {
     tenantId: string,
     input: CreateSetupIntentInput,
   ): Promise<SetupIntentResponseDto> {
+    this.assertCardPaymentsEnabled();
     this.assertGatewayConfigured();
     // Resolver/crear el Stripe customer del cliente final.
     const customer = await this.prisma.withTenant(
@@ -110,6 +132,7 @@ export class PaymentMethodsService {
     input: RegisterPaymentMethodInput;
     meta: RequestMeta;
   }): Promise<PaymentMethodDto> {
+    this.assertCardPaymentsEnabled();
     const details = await this.gateway.getPaymentMethodDetails(args.input.gatewayToken);
     // El tipo real lo dicta el gateway (un PM sepa_debit registrado como
     // 'card' rompería el cobro posterior); el input es solo fallback para

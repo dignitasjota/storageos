@@ -190,6 +190,7 @@
         "chargeFailedWithReason": "The payment couldn't be completed: {reason}",
         "chargeFailed": "The payment couldn't be completed.",
         "addPaymentMethodFirst": "Add an IBAN or card first to be able to pay.",
+        "noAutomaticPayment": "To pay this invoice use Redsys/Bizum or set up a direct debit.",
         "chargeError": "Couldn't process the payment.",
         "startAddError": "Couldn't start the setup.",
         "savedSuccess": "Payment method saved. You can now pay your invoices.",

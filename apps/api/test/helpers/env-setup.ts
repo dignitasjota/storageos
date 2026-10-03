@@ -52,3 +52,7 @@ process.env.EMAIL_WEBHOOK_TOKEN = process.env.EMAIL_WEBHOOK_TOKEN || 'email-webh
 process.env.RESEND_WEBHOOK_SECRET =
   process.env.RESEND_WEBHOOK_SECRET ||
   `whsec_${Buffer.from('resend-webhook-e2e').toString('base64')}`;
+// Cobro con tarjeta de los inquilinos por Stripe: en producción va desactivado
+// por defecto; los e2e de pagos lo prueban activado (el caso desactivado lo
+// cubre `tenant-card-payments.e2e-spec.ts` forzando el valor).
+process.env.TENANT_CARD_PAYMENTS_ENABLED = process.env.TENANT_CARD_PAYMENTS_ENABLED || 'true';

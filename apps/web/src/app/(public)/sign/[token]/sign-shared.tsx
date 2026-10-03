@@ -299,7 +299,19 @@ function BookingPayment({
   // Qué ofrece el TPV del tenant (Redsys + Bizum). Sin Redsys no se muestra.
   const [redsys, setRedsys] = useState<{ enabled: boolean; bizumEnabled: boolean } | null>(null);
 
+  // Tarjeta por Stripe: desactivada mientras no haya Stripe Connect.
+  const [cardPayments, setCardPayments] = useState(false);
+
   const auth = { Authorization: `Bearer ${portalToken}` };
+
+  useEffect(() => {
+    apiFetch<{ cardPayments: boolean }>('/portal/me/payments/options', {
+      requiresAuth: false,
+      headers: { Authorization: `Bearer ${portalToken}` },
+    })
+      .then((o) => setCardPayments(o.cardPayments))
+      .catch(() => setCardPayments(false));
+  }, [portalToken]);
 
   useEffect(() => {
     apiFetch<{ enabled: boolean; bizumEnabled: boolean }>('/portal/me/redsys/enabled', {
@@ -388,10 +400,15 @@ function BookingPayment({
         />
       ) : (
         <div className="flex flex-col gap-2">
-          <Button onClick={startStripe} disabled={busy}>
-            {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            {t('payWithCard')}
-          </Button>
+          {cardPayments && (
+            <Button onClick={startStripe} disabled={busy}>
+              {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              {t('payWithCard')}
+            </Button>
+          )}
+          {!cardPayments && redsys && !redsys.enabled && (
+            <p className="text-sm text-muted-foreground">{t('noOnlinePayment')}</p>
+          )}
           {redsys?.bizumEnabled && (
             <Button variant="outline" onClick={() => void payWithRedsys('bizum')}>
               {t('payWithBizum')}

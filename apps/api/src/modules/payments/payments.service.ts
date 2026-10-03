@@ -217,6 +217,15 @@ export class PaymentsService {
         });
       }
       const pm = await tx.paymentMethod.findUniqueOrThrow({ where: { id: pmId } });
+      // Stripe es la cuenta de la plataforma: sin Connect, no se cobra con ella
+      // a los inquilinos (ver TENANT_CARD_PAYMENTS_ENABLED).
+      if (pm.gateway === 'stripe' && !this.paymentMethods.cardPaymentsEnabled) {
+        throw new BadRequestException({
+          code: 'card_payments_disabled',
+          message:
+            'El cobro con tarjeta no está disponible. Usa Redsys/Bizum o la domiciliación bancaria.',
+        });
+      }
       // Solo card y sepa_debit son cobrables via gateway; bank_transfer,
       // cash y other se registran a mano con mark-paid.
       if (pm.type !== 'card' && pm.type !== 'sepa_debit') {

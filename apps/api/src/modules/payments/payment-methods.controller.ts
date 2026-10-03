@@ -45,6 +45,13 @@ function extractMeta(req: Request): RequestMeta {
 export class PaymentMethodsController {
   constructor(private readonly pms: PaymentMethodsService) {}
 
+  /** ¿Se puede registrar tarjeta/IBAN por Stripe? (si no, la UI oculta el formulario). */
+  @RequirePermission('payments:read')
+  @Get('payment-methods/options')
+  options(): { cardPayments: boolean } {
+    return { cardPayments: this.pms.cardPaymentsEnabled };
+  }
+
   @RequirePermission('payments:read')
   @Get('customers/:customerId/payment-methods')
   async list(

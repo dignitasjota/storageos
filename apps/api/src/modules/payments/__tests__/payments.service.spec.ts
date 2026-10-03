@@ -91,7 +91,7 @@ function buildService(
   tx: TxMock,
   deps: {
     gateway?: { charge: jest.Mock };
-    paymentMethods?: { decryptToken: jest.Mock };
+    paymentMethods?: { decryptToken: jest.Mock; cardPaymentsEnabled?: boolean };
     goCardlessCharge?: { charge: jest.Mock };
     events?: { emit: jest.Mock };
   } = {},
@@ -463,7 +463,10 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
         status: 'processing', // SEPA: el banco liquida en dias, no en el request
       }),
     };
-    const paymentMethods = { decryptToken: jest.fn().mockResolvedValue('pm_sepa_token') };
+    const paymentMethods = {
+      decryptToken: jest.fn().mockResolvedValue('pm_sepa_token'),
+      cardPaymentsEnabled: true,
+    };
     const service = buildService(tx, { gateway, paymentMethods });
 
     const dto = await service.chargeInvoice({
@@ -514,7 +517,10 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     });
     tx.payment.create.mockResolvedValue({ id: PAYMENT_ID });
     const gateway = { charge: jest.fn().mockRejectedValue(new Error('network down')) };
-    const paymentMethods = { decryptToken: jest.fn().mockResolvedValue('pm_token') };
+    const paymentMethods = {
+      decryptToken: jest.fn().mockResolvedValue('pm_token'),
+      cardPaymentsEnabled: true,
+    };
     const service = buildService(tx, { gateway, paymentMethods });
 
     await expect(
