@@ -32,6 +32,8 @@ import type { Request } from 'express';
  *   - payment_intent.succeeded / payment_intent.payment_failed
  *   - charge.refunded (refunds hechos en el dashboard de Stripe)
  *   - charge.dispute.created (devoluciones SEPA / chargebacks)
+ *   - charge.dispute.closed (contracargo de una suscripción perdido → abono)
+ *   - charge.refunded / dispute de un cobro de SUSCRIPCIÓN → abono de su factura
  *   - setup_intent.succeeded (solo log)
  *   - customer.deleted (limpia payment_methods relacionados)
  */
@@ -140,6 +142,15 @@ export class StripeWebhookController {
         // acaso resolvemos el tenant buscando el payment por gateway id.
         const resolvedTenantId = tenantId ?? (await this.lookupTenantByPaymentIntent(intentId));
         if (!resolvedTenantId) {
+          // ¿Cobro de una suscripción a la plataforma?
+          const sub = await this.saasBilling.findSubscriptionPaymentByIntent(intentId);
+          if (sub) {
+            await this.saasBilling.syncSubscriptionRefund(
+              sub.id,
+              (charge.amount_refunded ?? 0) / 100,
+            );
+            break;
+          }
           this.logger.warn(
             `charge.refunded sin tenant resoluble (event ${event.id}, intent ${intentId})`,
           );
@@ -163,6 +174,11 @@ export class StripeWebhookController {
         }
         const resolvedTenantId = tenantId ?? (await this.lookupTenantByPaymentIntent(intentId));
         if (!resolvedTenantId) {
+          const sub = await this.saasBilling.findSubscriptionPaymentByIntent(intentId);
+          if (sub) {
+            await this.saasBilling.markSubscriptionDisputed(sub.id, dispute.reason ?? null);
+            break;
+          }
           this.logger.warn(
             `charge.dispute.created sin tenant resoluble (event ${event.id}, intent ${intentId})`,
           );
@@ -173,6 +189,22 @@ export class StripeWebhookController {
           gatewayPaymentId: intentId,
           ...(dispute.reason ? { reason: dispute.reason } : {}),
         });
+        break;
+      }
+      case 'charge.dispute.closed': {
+        // Contracargo de una suscripción resuelto: perdido → abono + impagada.
+        // (Los de inquilinos ya se revirtieron al abrirse.)
+        const dispute = (event.data as { object: StripeDisputeLike }).object;
+        const intentId = stringId(dispute.payment_intent);
+        if (!intentId) break;
+        const sub = await this.saasBilling.findSubscriptionPaymentByIntent(intentId);
+        if (sub) {
+          await this.saasBilling.closeSubscriptionDispute(
+            sub.id,
+            dispute.status === 'lost',
+            (dispute.amount ?? 0) / 100,
+          );
+        }
         break;
       }
       case 'customer.subscription.created':
@@ -270,6 +302,10 @@ interface StripeDisputeLike {
   id: string;
   payment_intent: string | { id: string } | null;
   reason?: string;
+  /** `charge.dispute.closed`: won | lost | … */
+  status?: string;
+  /** Importe disputado en céntimos. */
+  amount?: number;
   metadata?: Record<string, string>;
 }
 

@@ -1807,7 +1807,8 @@ export class InvoicesService {
 
   async refund(args: {
     tenantId: string;
-    userId: string;
+    /** null en los reembolsos automáticos (p. ej. suscripción devuelta en Stripe). */
+    userId: string | null;
     invoiceId: string;
     facilityScope?: string[] | null;
     input: RefundInvoiceInput;

@@ -726,3 +726,5 @@ Variable de entorno booleana (default `true`).
 - `platform_billing_settings.prices_include_vat`/`stripe_tax_rate_id`/`stripe_tax_rate_percent` (2026-10-06, migración `20261006160000_platform_prices_vat`): precios de la plataforma con IVA incluido o +IVA.
 
 - `platform_invoices.invoice_id`, `invoices.platform_payment_id`, `customers.platform_tenant_id`, `tenant_subscription_payments.invoicing_claimed_at` (2026-10-06, migración `20261006180000_platform_invoices_own_tenant`): facturas de suscripción emitidas como facturas del negocio propio; el único `(series, number)` de `platform_invoices` pasa a parcial `WHERE series <> 'own'`.
+
+- `tenant_subscription_payments.refunded_amount`/`refunded_at`/`disputed_at`/`dispute_reason`, `platform_sepa_remittance_items.payment_id` (2026-10-06, migración `20261006200000_saas_payment_reversals`): devoluciones de los cobros de suscripción y su abono.

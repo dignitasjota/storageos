@@ -676,6 +676,10 @@ export interface TenantSubscriptionPaymentDto {
   invoiceUrl: string | null;
   pdfUrl: string | null;
   createdAt: string;
+  /** Devuelto (reembolso, contracargo perdido o adeudo SEPA devuelto). */
+  refundedAmount: number;
+  /** Contracargo abierto. */
+  disputed: boolean;
 }
 
 /**

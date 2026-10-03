@@ -84,6 +84,8 @@ function toPaymentDto(r: {
   invoiceUrl: string | null;
   pdfUrl: string | null;
   createdAt: Date;
+  refundedAmount?: unknown;
+  disputedAt?: Date | null;
 }): TenantSubscriptionPaymentDto {
   return {
     id: r.id,
@@ -101,6 +103,8 @@ function toPaymentDto(r: {
     invoiceUrl: r.invoiceUrl,
     pdfUrl: r.pdfUrl,
     createdAt: r.createdAt.toISOString(),
+    refundedAmount: Number(r.refundedAmount ?? 0),
+    disputed: Boolean(r.disputedAt),
   };
 }
 
@@ -156,6 +160,8 @@ function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
  * - `syncSubscriptionFromStripe`: invocado desde el webhook para mantener
  *   nuestra BD coherente con Stripe (status, currentPeriodEnd, cancelAtPeriodEnd).
  */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 @Injectable()
 export class BillingSaasService {
   private readonly logger = new Logger(BillingSaasService.name);
@@ -168,7 +174,7 @@ export class BillingSaasService {
     private readonly platformInvoices: PlatformInvoicesService,
     private readonly coupons: PlatformCouponsService,
     private readonly platformSepaMandates: PlatformSepaMandateService,
-    stripeGateway: StripeGateway,
+    private readonly stripeGateway: StripeGateway,
   ) {
     this.stripe = stripeGateway.getClient();
   }
@@ -614,6 +620,126 @@ export class BillingSaasService {
    * No cambiamos status si Stripe no nos lo dice — solo loggeamos y
    * delegamos en `customer.subscription.updated` que llega justo despues.
    */
+  // ---- Reembolsos y contracargos de los cobros de suscripción ----
+
+  /**
+   * Pago de suscripción al que corresponde un PaymentIntent de Stripe. Con la
+   * API actual el cobro no lleva la factura: se busca por `invoicePayments`
+   * (factura de Stripe → `externalId` del pago). null si no es de suscripción.
+   */
+  async findSubscriptionPaymentByIntent(intentId: string): Promise<{ id: string } | null> {
+    if (!this.stripeConfigured()) return null;
+    let invoiceId: string | null = null;
+    try {
+      const list = await this.stripe.invoicePayments.list({
+        payment: { type: 'payment_intent', payment_intent: intentId },
+        limit: 1,
+      });
+      const inv = list.data[0]?.invoice;
+      invoiceId = typeof inv === 'string' ? inv : (inv?.id ?? null);
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo resolver la factura de Stripe del cobro ${intentId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+    if (!invoiceId) return null;
+    return this.admin.tenantSubscriptionPayment.findFirst({
+      where: { provider: 'stripe', externalId: invoiceId },
+      select: { id: true },
+    });
+  }
+
+  private stripeConfigured(): boolean {
+    return this.stripeGateway.isConfigured();
+  }
+
+  /**
+   * Reembolso de un cobro de suscripción hecho en Stripe (`charge.refunded`
+   * trae el total devuelto acumulado). Se sincroniza por diferencia — reenviar
+   * el aviso no abona dos veces — y la factura recibe su abono.
+   */
+  async syncSubscriptionRefund(
+    paymentId: string,
+    totalRefunded: number,
+    reason = 'Reembolso de la suscripción',
+  ): Promise<void> {
+    const p = await this.admin.tenantSubscriptionPayment.findUnique({
+      where: { id: paymentId },
+      select: { amount: true, refundedAmount: true },
+    });
+    if (!p) return;
+    const before = Number(p.refundedAmount);
+    const target = Math.min(round2(totalRefunded), Number(p.amount));
+    const delta = round2(target - before);
+    if (delta <= 0) return;
+    // Transición condicionada: dos avisos a la vez no abonan dos veces.
+    const claimed = await this.admin.tenantSubscriptionPayment.updateMany({
+      where: { id: paymentId, refundedAmount: before },
+      data: {
+        refundedAmount: target,
+        refundedAt: new Date(),
+        status: target >= Number(p.amount) ? 'refunded' : 'partially_refunded',
+      },
+    });
+    if (claimed.count === 0) return;
+    await this.platformInvoices.creditForPayment(paymentId, delta, reason);
+  }
+
+  /**
+   * Contracargo abierto de un cobro de suscripción: se marca y se avisa al
+   * super admin (aún no hay dinero devuelto; se abona si se pierde).
+   */
+  async markSubscriptionDisputed(paymentId: string, reason: string | null): Promise<void> {
+    const r = await this.admin.tenantSubscriptionPayment.updateMany({
+      where: { id: paymentId, disputedAt: null },
+      data: { disputedAt: new Date(), disputeReason: reason },
+    });
+    if (r.count === 0) return;
+    const p = await this.admin.tenantSubscriptionPayment.findUniqueOrThrow({
+      where: { id: paymentId },
+      include: { tenant: { select: { name: true } } },
+    });
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'saas_payment.disputed',
+          title: `Contracargo de ${p.tenant.name}`,
+          body: `El cobro de ${Number(p.amount).toFixed(2)} € de su suscripción tiene un contracargo abierto${reason ? ` (${reason})` : ''}. Respóndelo en Stripe.`,
+          link: `/admin/tenants/${p.tenantId}`,
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Contracargo resuelto: si se pierde, el dinero no vuelve → abono por el
+   * importe disputado y la suscripción pasa a impagada. Si se gana, se limpia.
+   */
+  async closeSubscriptionDispute(paymentId: string, lost: boolean, amount: number): Promise<void> {
+    if (!lost) {
+      await this.admin.tenantSubscriptionPayment.updateMany({
+        where: { id: paymentId },
+        data: { disputedAt: null, disputeReason: null },
+      });
+      return;
+    }
+    const p = await this.admin.tenantSubscriptionPayment.findUnique({
+      where: { id: paymentId },
+      select: { refundedAmount: true, tenantId: true },
+    });
+    if (!p) return;
+    await this.syncSubscriptionRefund(
+      paymentId,
+      Number(p.refundedAmount) + amount,
+      'Contracargo perdido',
+    );
+    await this.admin.tenantSubscription.updateMany({
+      where: { tenantId: p.tenantId, status: 'active' },
+      data: { status: 'past_due' },
+    });
+  }
+
   async recordInvoicePaymentFailed(invoice: StripeInvoice): Promise<void> {
     const customerId =
       typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;

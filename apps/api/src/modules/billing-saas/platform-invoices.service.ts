@@ -718,6 +718,39 @@ export class PlatformInvoicesService {
   }
 
   /**
+   * Dinero devuelto de un cobro de suscripción (reembolso, contracargo perdido,
+   * adeudo SEPA devuelto): su factura recibe la rectificativa de abono. Con
+   * negocio propio, como reembolso de su factura (abono automático que se
+   * copia aquí solo); sin él, rectificativa por diferencias de la numeración
+   * propia. Sin factura emitida no hay nada que abonar.
+   */
+  async creditForPayment(paymentId: string, amount: number, reason: string): Promise<void> {
+    if (amount <= 0) return;
+    const pinv = await this.admin.platformInvoice.findUnique({ where: { paymentId } });
+    if (!pinv) return;
+    if (pinv.invoiceId) {
+      const real = await this.admin.invoice.findUniqueOrThrow({
+        where: { id: pinv.invoiceId },
+        select: { tenantId: true },
+      });
+      await this.ownTenant.refund({
+        ownTenantId: real.tenantId,
+        invoiceId: pinv.invoiceId,
+        amount,
+        reason,
+      });
+      return;
+    }
+    if (pinv.status === 'cancelled') return;
+    await this.rectify(pinv.id, {
+      method: 'differences',
+      rectificationType: 'R4',
+      reason,
+      amount: Math.min(amount, Number(pinv.total)),
+    });
+  }
+
+  /**
    * Rectificativa emitida por el negocio propio sobre una factura de
    * suscripción: se copia aquí para que la vean el tenant y el admin.
    */

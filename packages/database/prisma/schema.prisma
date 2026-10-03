@@ -4044,6 +4044,11 @@ model TenantSubscriptionPayment {
   recoveredAt    DateTime? @map("recovered_at") @db.Timestamptz(6)
   /// Reserva mientras se emite su factura (dos procesos no la facturan dos veces).
   invoicingClaimedAt DateTime? @map("invoicing_claimed_at") @db.Timestamptz(6)
+  /// Devuelto (reembolso o contracargo perdido) y cuándo; contracargo abierto.
+  refundedAmount Decimal   @default(0) @map("refunded_amount") @db.Decimal(12, 2)
+  refundedAt     DateTime? @map("refunded_at") @db.Timestamptz(6)
+  disputedAt     DateTime? @map("disputed_at") @db.Timestamptz(6)
+  disputeReason  String?   @map("dispute_reason")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4051,6 +4056,7 @@ model TenantSubscriptionPayment {
   invoice PlatformInvoice?
   /// Factura real (del tenant propio) que factura este pago.
   ownTenantInvoice Invoice? @relation("InvoicePlatformPayment")
+  sepaItems        PlatformSepaRemittanceItem[]
 
   @@index([tenantId, paidAt])
   @@index([firstFailedAt])
@@ -4562,8 +4568,11 @@ model PlatformSepaRemittanceItem {
   itemStatus    String    @default("pending") @map("item_status")
   bouncedAt     DateTime? @map("bounced_at") @db.Timestamptz(6)
   bounceReason  String?   @map("bounce_reason")
+  /// Pago de suscripción que registró este adeudo al confirmar la remesa.
+  paymentId     String?   @map("payment_id") @db.Uuid
 
   remittance PlatformSepaRemittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  payment    TenantSubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   mandate    PlatformSepaMandate    @relation(fields: [mandateId], references: [id], onDelete: Restrict)
 

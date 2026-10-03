@@ -218,6 +218,27 @@ export class PlatformOwnTenantInvoicingService {
     };
   }
 
+  /**
+   * Devuelve dinero de una factura de suscripción del negocio propio (reembolso
+   * de Stripe, contracargo perdido, adeudo SEPA devuelto): se registra como
+   * reembolso y la factura recibe su rectificativa de abono automática (que se
+   * copia sola a la suscripción del tenant).
+   */
+  async refund(args: {
+    ownTenantId: string;
+    invoiceId: string;
+    amount: number;
+    reason: string;
+  }): Promise<void> {
+    await this.invoices.refund({
+      tenantId: args.ownTenantId,
+      userId: null,
+      invoiceId: args.invoiceId,
+      meta: SYSTEM_META,
+      input: { amount: round2(args.amount), reason: args.reason },
+    });
+  }
+
   /** Clave del PDF de una factura del tenant propio (lo genera si hace falta). */
   async pdfKeyFor(ownTenantId: string, invoiceId: string): Promise<string | null> {
     try {
