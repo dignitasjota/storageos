@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCreateSetupIntent,
+  usePaymentOptions,
   useCustomerPaymentMethods,
   useRegisterPaymentMethod,
   useRemovePaymentMethod,
@@ -32,6 +33,7 @@ import { useCancelSepaMandate, useCreateSepaMandate, useSepaMandates } from '@/l
 export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }) {
   const methods = useCustomerPaymentMethods(customerId);
   const createSetupIntent = useCreateSetupIntent();
+  const paymentOptions = usePaymentOptions();
   const remove = useRemovePaymentMethod();
   const gcSettings = useGoCardlessSettings();
   const startGoCardless = useStartGoCardlessMandate();
@@ -93,14 +95,16 @@ export function CustomerPaymentMethodsTab({ customerId }: { customerId: string }
                 Domiciliar con GoCardless
               </Button>
             )}
-            <Button onClick={openAddDialog} disabled={createSetupIntent.isPending}>
-              {createSetupIntent.isPending ? (
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="mr-1 h-4 w-4" />
-              )}
-              Añadir método de pago
-            </Button>
+            {paymentOptions.data?.cardPayments && (
+              <Button onClick={openAddDialog} disabled={createSetupIntent.isPending}>
+                {createSetupIntent.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-1 h-4 w-4" />
+                )}
+                Añadir método de pago
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>

@@ -268,6 +268,15 @@ export function useCustomerPaymentMethods(customerId: string | undefined) {
   });
 }
 
+/** ¿Se puede registrar tarjeta/IBAN por Stripe? (desactivado sin Stripe Connect). */
+export function usePaymentOptions() {
+  return useQuery({
+    queryKey: ['payment-methods', 'options'],
+    queryFn: () => apiFetch<{ cardPayments: boolean }>('/payment-methods/options'),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useCreateSetupIntent() {
   return useMutation({
     mutationFn: (customerId: string) =>

@@ -190,6 +190,7 @@
         "chargeFailedWithReason": "El pago no se completó: {reason}",
         "chargeFailed": "El pago no se completó.",
         "addPaymentMethodFirst": "Añade primero un IBAN o tarjeta para poder pagar.",
+        "noAutomaticPayment": "Para pagar esta factura usa Redsys/Bizum o domicilia tu cuenta.",
         "chargeError": "No se pudo procesar el pago.",
         "startAddError": "No se pudo iniciar el alta.",
         "savedSuccess": "Método de pago guardado. Ya puedes pagar tus facturas.",

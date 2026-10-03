@@ -262,6 +262,16 @@ const envSchemaBase = z.object({
    *  default es `false`; cuando lo activamos para inspeccion temporal,
    *  recuerda exigir auth a nivel de Nginx Proxy Manager. En dev/test
    *  siempre se monta independientemente del valor (ver `main.ts`). */
+  /**
+   * Cobro con tarjeta/IBAN de los inquilinos por Stripe. Desactivado: la
+   * cuenta de Stripe es la de la plataforma (sin Stripe Connect), así que el
+   * dinero de los inquilinos acabaría en TrasterOS. Los tenants cobran por
+   * Redsys/Bizum, GoCardless o remesa SEPA (cuentas propias).
+   */
+  TENANT_CARD_PAYMENTS_ENABLED: z
+    .union([z.literal('true'), z.literal('false')])
+    .default('false')
+    .transform((v) => v === 'true'),
   OPENAPI_ENABLED: z
     .union([z.literal('true'), z.literal('false')])
     .default('false')
