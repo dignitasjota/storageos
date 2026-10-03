@@ -437,6 +437,8 @@ model Tenant {
   units                   Unit[]
   unitStatusHistory       UnitStatusHistory[]
   customers               Customer[]
+  /// Clientes del tenant propio que representan a este tenant (facturas de suscripción).
+  platformCustomers       Customer[] @relation("CustomerPlatformTenant")
   customerDocuments       CustomerDocument[]
   contracts               Contract[]
   contractEvents          ContractEvent[]
@@ -1102,11 +1104,14 @@ model Customer {
   kycVerifiedAt         DateTime?    @map("kyc_verified_at") @db.Timestamptz(6)
   /// Codigo de referido que este cliente comparte (unico por tenant).
   referralCode          String?      @map("referral_code")
+  /// En el tenant propio: el tenant de la plataforma al que representa (facturas de suscripción).
+  platformTenantId      String?      @map("platform_tenant_id") @db.Uuid
   deletedAt             DateTime?    @map("deleted_at") @db.Timestamptz(6)
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  platformTenant     Tenant?               @relation("CustomerPlatformTenant", fields: [platformTenantId], references: [id], onDelete: SetNull)
   documents          CustomerDocument[]
   contracts          Contract[]
   reservations       Reservation[]
@@ -1608,9 +1613,13 @@ model Invoice {
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Pago de suscripción que factura (factura de suscripción emitida por el tenant propio).
+  platformPaymentId   String?           @unique @map("platform_payment_id") @db.Uuid
 
   tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer           Customer?                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  platformPayment    TenantSubscriptionPayment? @relation("InvoicePlatformPayment", fields: [platformPaymentId], references: [id], onDelete: SetNull)
+  platformInvoice    PlatformInvoice?           @relation("PlatformInvoiceSource")
   contract           Contract?                  @relation(fields: [contractId], references: [id], onDelete: SetNull)
   facility           Facility?                  @relation("InvoiceFacility", fields: [facilityId], references: [id], onDelete: SetNull)
   series             InvoiceSeries              @relation(fields: [seriesId], references: [id], onDelete: Restrict)
@@ -4033,11 +4042,15 @@ model TenantSubscriptionPayment {
   failedAttempts Int       @default(0) @map("failed_attempts")
   firstFailedAt  DateTime? @map("first_failed_at") @db.Timestamptz(6)
   recoveredAt    DateTime? @map("recovered_at") @db.Timestamptz(6)
+  /// Reserva mientras se emite su factura (dos procesos no la facturan dos veces).
+  invoicingClaimedAt DateTime? @map("invoicing_claimed_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoice PlatformInvoice?
+  /// Factura real (del tenant propio) que factura este pago.
+  ownTenantInvoice Invoice? @relation("InvoicePlatformPayment")
 
   @@index([tenantId, paidAt])
   @@index([firstFailedAt])
@@ -4141,15 +4154,19 @@ model PlatformInvoice {
   rectificationReason String?   @map("rectification_reason")
   /// 'substitution' | 'differences' (solo rectificativas).
   correctionMethod    String?   @map("correction_method")
+  /// Factura real del tenant propio que la respalda (null = numeración propia antigua).
+  invoiceId           String?   @unique @map("invoice_id") @db.Uuid
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant  Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payment TenantSubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  invoice Invoice?                   @relation("PlatformInvoiceSource", fields: [invoiceId], references: [id], onDelete: SetNull)
   lines   PlatformInvoiceLine[]
   rectifiesInvoice PlatformInvoice?  @relation("PlatformInvoiceRectification", fields: [rectifiesInvoiceId], references: [id], onDelete: Restrict)
   rectifications   PlatformInvoice[] @relation("PlatformInvoiceRectification")
 
-  @@unique([series, number])
+  // Único (series, number) solo en la numeración propia (series <> 'own'): índice parcial en SQL.
+  @@index([series, number])
   @@index([rectifiesInvoiceId])
   @@index([tenantId, issuedAt(sort: Desc)])
   @@map("platform_invoices")

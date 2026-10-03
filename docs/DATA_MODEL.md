@@ -724,3 +724,5 @@ Variable de entorno booleana (default `true`).
 - `tenants.invoicing_mode`/`invoicing_mode_pending`/`invoicing_mode_pending_from`, `holded_settings.issuing_invoice_series_id`/`issuing_credit_note_series_id`, `invoices.issued_by` (2026-10-06, migración `20261006140000_tenant_invoicing_mode`): dónde se emiten las facturas del tenant (app con Veri\*Factu u Holded) con cambio programado al 1 de enero.
 
 - `platform_billing_settings.prices_include_vat`/`stripe_tax_rate_id`/`stripe_tax_rate_percent` (2026-10-06, migración `20261006160000_platform_prices_vat`): precios de la plataforma con IVA incluido o +IVA.
+
+- `platform_invoices.invoice_id`, `invoices.platform_payment_id`, `customers.platform_tenant_id`, `tenant_subscription_payments.invoicing_claimed_at` (2026-10-06, migración `20261006180000_platform_invoices_own_tenant`): facturas de suscripción emitidas como facturas del negocio propio; el único `(series, number)` de `platform_invoices` pasa a parcial `WHERE series <> 'own'`.

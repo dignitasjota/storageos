@@ -20,6 +20,7 @@ import { PlatformDunningService } from './platform-dunning.service';
 import { PlatformHoldedService } from './platform-holded.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { PlatformOwnTenantInvoicingService } from './platform-own-tenant-invoicing.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import {
   PlatformSepaRemittanceController,
@@ -82,6 +83,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     SubscriptionPlansService,
     SaasAddonsService,
     PlatformInvoicesService,
+    PlatformOwnTenantInvoicingService,
     AccountantExportService,
     PlatformHoldedService,
     PlatformCouponsService,

@@ -114,8 +114,9 @@ export class CustomerEmailsService {
   async onInvoiceIssued(p: DomainEventPayload): Promise<void> {
     await this.safe('invoice_issued', p.tenantId, async () => {
       const inv = await this.invoice(p.tenantId, p.entityId);
-      // Rectificativas (importe negativo) y facturas a 0 € no se avisan.
-      if (!inv?.customerId || Number(inv.total) <= 0) return;
+      // Rectificativas (importe negativo) y facturas a 0 € no se avisan. Las de
+      // suscripción (negocio propio → tenant) ya llevan el correo de la plataforma.
+      if (!inv?.customerId || Number(inv.total) <= 0 || inv.platformPaymentId) return;
       await this.send(p.tenantId, 'invoice_issued', 'invoice_issued', inv.customerId, {
         data: {
           kind: 'invoice_issued',
@@ -138,7 +139,7 @@ export class CustomerEmailsService {
         ?.invoice;
       if (scopeInvoice?.compensated) return;
       const inv = await this.invoice(p.tenantId, p.entityId);
-      if (!inv?.customerId || Number(inv.total) <= 0) return;
+      if (!inv?.customerId || Number(inv.total) <= 0 || inv.platformPaymentId) return;
       // Con su justificante de fianza cobrado en el mismo pago: un solo aviso
       // por el importe total pagado.
       const receipts = await this.admin.invoice.findMany({
@@ -461,6 +462,7 @@ export class CustomerEmailsService {
         paidAt: true,
         customerId: true,
         contractId: true,
+        platformPaymentId: true,
       },
     });
   }

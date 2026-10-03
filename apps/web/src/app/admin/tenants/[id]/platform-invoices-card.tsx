@@ -83,7 +83,9 @@ export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
               const credited = inv.rectifiedBy
                 .filter((r) => r.correctionMethod === 'differences')
                 .reduce((s, r) => s - r.total, 0);
-              const canRectify = !rect && inv.status !== 'cancelled';
+              // Las emitidas por el negocio propio se rectifican allí (Facturas).
+              const ownTenant = Boolean(inv.ownTenantInvoiceId);
+              const canRectify = !rect && inv.status !== 'cancelled' && !ownTenant;
               return (
                 <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
@@ -130,6 +132,14 @@ export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
                       <Button size="sm" variant="outline" onClick={() => setTarget(inv)}>
                         Rectificar
                       </Button>
+                    )}
+                    {ownTenant && !rect && inv.status !== 'cancelled' && (
+                      <span
+                        className="text-xs text-muted-foreground"
+                        title="Emitida por el negocio propio: rectifícala desde sus Facturas (aparecerá aquí sola)"
+                      >
+                        Del negocio propio
+                      </span>
                     )}
                   </div>
                 </li>

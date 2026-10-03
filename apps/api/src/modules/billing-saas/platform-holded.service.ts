@@ -29,6 +29,8 @@ const APPROVING = { doc: 'approving', credit: 'credit_approving' } as const;
 
 /** Lo que falta por enviar (o por aprobar) a Holded. */
 const PENDING_WHERE: Prisma.PlatformInvoiceWhereInput = {
+  // Las emitidas por el negocio propio las copia (o emite) su propio Holded.
+  invoiceId: null,
   OR: [
     { holdedSyncState: { in: [APPROVING.doc, APPROVING.credit] } },
     {
@@ -370,7 +372,7 @@ export class PlatformHoldedService {
    */
   private async push(invoiceId: string, cfg: Resolved): Promise<void> {
     let inv = await this.load(invoiceId);
-    if (!inv) return;
+    if (!inv || inv.invoiceId) return; // emitida por el negocio propio: su Holded la gestiona
     // Original sustituida que nunca llegó a Holded: va la sustitutiva en su lugar.
     if (inv.invoiceType === 'F1' && inv.status === 'rectified' && !inv.holdedDocumentId) return;
 

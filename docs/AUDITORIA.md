@@ -518,3 +518,15 @@ Hallazgo 2. Variable nueva `TENANT_CARD_PAYMENTS_ENABLED` (por defecto `false`):
 - **NIF único**: un NIF solo puede pertenecer a una empresa activa (Veri\*Factu encadena por emisor) → `common/tax-id-unique.ts` (`assertTaxIdFree`) en los datos de facturación del tenant y en la edición desde el admin; 409 `tax_id_in_use`.
 - e2e `platform-prices-vat` (2 casos).
 - **Decisión de Jota para la PR 3c**: las facturas de suscripción se emitirán como facturas del tenant propio de TrasterOS SL (el «Negocio propio» de los ajustes), con cada tenant como su cliente → misma cadena Veri\*Factu, mismo modo de emisión (app/Holded) y misma exportación.
+
+## PR 3c — las facturas de suscripción las emite el negocio propio ✅
+
+Hallazgo 1 (decisión de Jota, opción a). Con el «negocio propio» configurado en Facturación SaaS (el tenant de la sociedad emisora, con el mismo NIF: 400 `own_tenant_tax_id_mismatch` si no coincide), cada cobro de suscripción se factura como una **factura normal de ese tenant** (`PlatformOwnTenantInvoicingService`):
+
+- el tenant cobrado es un cliente del negocio propio (`customers.platform_tenant_id`), creado y actualizado con sus datos de facturación;
+- la factura (`invoices.platform_payment_id`, idempotente con reserva `tenant_subscription_payments.invoicing_claimed_at`) se emite en su serie, con su cadena Veri\*Factu o en Holded según el modo de emisión del negocio propio, y se marca cobrada con la forma de pago del cobro;
+- `platform_invoices` guarda la copia que ven el tenant y el admin (`invoice_id`, número de la factura real, su PDF; `PlatformInvoiceDto.ownTenantInvoiceId`);
+- se rectifican desde el negocio propio (desde la plataforma → 400 `rectify_in_own_tenant`) y la rectificativa se copia sola (`onOwnTenantInvoiceIssued`);
+- sin los correos de inquilino ni las automatizaciones del negocio propio para estas facturas (llevan el correo de la plataforma); la copia contable de Holded de la plataforma y la exportación para la asesoría no las duplican.
+- Sin negocio propio se mantiene la numeración propia antigua solo en pruebas: con envío real a la AEAT → 400 `own_tenant_required`.
+- Migración `20261006180000_platform_invoices_own_tenant` (el único de `platform_invoices (series, number)` pasa a parcial `WHERE series <> 'own'`). e2e `platform-own-tenant`.

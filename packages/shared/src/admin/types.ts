@@ -824,6 +824,8 @@ export interface PlatformBillingSettingsDto {
 export interface PlatformInvoiceDto {
   id: string;
   fullNumber: string;
+  /** Factura del negocio propio que la respalda (null = numeración propia antigua). */
+  ownTenantInvoiceId: string | null;
   tenantId: string;
   tenantName: string;
   tenantTaxId: string | null;
