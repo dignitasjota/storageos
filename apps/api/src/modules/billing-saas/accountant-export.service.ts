@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
+  ACCOUNTANT_DEPOSIT_COLUMNS,
   ACCOUNTANT_INVOICE_COLUMNS,
   ACCOUNTANT_PAYMENT_COLUMNS,
+  withoutActivity,
+  type AccountantDepositRow,
   type AccountantExportDto,
   type AccountantExportWarning,
   type AccountantInvoiceRow,
@@ -60,6 +63,7 @@ export class AccountantExportService {
 
     const invoices: AccountantInvoiceRow[] = [];
     const payments: AccountantPaymentRow[] = [];
+    const deposits: AccountantDepositRow[] = [];
     const warnings: AccountantExportWarning[] = [];
 
     await this.addSubscriptionInvoices(fromD, toD, invoices, warnings);
@@ -67,20 +71,72 @@ export class AccountantExportService {
     if (own) {
       await this.addOwnInvoices(own.id, fromD, toD, invoices, warnings);
       await this.addOwnPayments(own.id, fromD, toD, payments);
+      await this.addDeposits(own.id, fromD, toD, deposits);
     }
-
-    const byDate = (a: string, b: string) =>
-      a.split('/').reverse().join('').localeCompare(b.split('/').reverse().join(''));
-    invoices.sort(
-      (a, b) => byDate(a.issueDate, b.issueDate) || a.invoiceNumber.localeCompare(b.invoiceNumber),
-    );
-    payments.sort((a, b) => byDate(a.date, b.date));
-
-    return { from, to, ownBusinessName: own?.name ?? null, invoices, payments, warnings };
+    return this.sorted({
+      from,
+      to,
+      ownBusinessName: own?.name ?? null,
+      invoices,
+      payments,
+      deposits,
+      warnings,
+    });
   }
 
-  /** Excel con una hoja de facturas y otra de cobros. */
-  async toXlsx(dto: AccountantExportDto): Promise<Buffer> {
+  /**
+   * Exportación para la asesoría de UN tenant: sus facturas emitidas (por tipo
+   * de IVA), sus cobros y sus fianzas, con los avisos de facturas sin NIF o
+   * domicilio del cliente.
+   */
+  async buildForTenant(tenantId: string, from: string, to: string): Promise<AccountantExportDto> {
+    const { fromD, toD } = this.range(from, to);
+    const tenant = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    const invoices: AccountantInvoiceRow[] = [];
+    const payments: AccountantPaymentRow[] = [];
+    const deposits: AccountantDepositRow[] = [];
+    const warnings: AccountantExportWarning[] = [];
+    await this.addOwnInvoices(tenantId, fromD, toD, invoices, warnings);
+    await this.addOwnPayments(tenantId, fromD, toD, payments);
+    await this.addDeposits(tenantId, fromD, toD, deposits);
+    return this.sorted({
+      from,
+      to,
+      ownBusinessName: tenant.name,
+      invoices,
+      payments,
+      deposits,
+      warnings,
+    });
+  }
+
+  private range(from: string, to: string): { fromD: Date; toD: Date } {
+    const fromD = new Date(`${from}T00:00:00.000Z`);
+    const toD = new Date(`${to}T23:59:59.999Z`);
+    if (Number.isNaN(fromD.getTime()) || Number.isNaN(toD.getTime()) || fromD > toD) {
+      throw new BadRequestException({ code: 'invalid_range', message: 'Rango de fechas inválido' });
+    }
+    return { fromD, toD };
+  }
+
+  private sorted(dto: AccountantExportDto): AccountantExportDto {
+    const byDate = (a: string, b: string) =>
+      a.split('/').reverse().join('').localeCompare(b.split('/').reverse().join(''));
+    dto.invoices.sort(
+      (a, b) => byDate(a.issueDate, b.issueDate) || a.invoiceNumber.localeCompare(b.invoiceNumber),
+    );
+    dto.payments.sort((a, b) => byDate(a.date, b.date));
+    dto.deposits.sort((a, b) => byDate(a.date, b.date));
+    return dto;
+  }
+
+  /** Excel con hojas de facturas, cobros y fianzas (`single`: sin la columna «Actividad»). */
+  async toXlsx(dto: AccountantExportDto, single = false): Promise<Buffer> {
+    const cols = <T>(c: { header: string; value: (row: T) => string | number | null }[]) =>
+      single ? withoutActivity(c) : c;
     const wb = new ExcelJS.Workbook();
     const addSheet = <T>(
       name: string,
@@ -95,8 +151,9 @@ export class AccountantExportService {
       });
       ws.views = [{ state: 'frozen', ySplit: 1 }];
     };
-    addSheet('Facturas', ACCOUNTANT_INVOICE_COLUMNS, dto.invoices);
-    addSheet('Cobros', ACCOUNTANT_PAYMENT_COLUMNS, dto.payments);
+    addSheet('Facturas', cols(ACCOUNTANT_INVOICE_COLUMNS), dto.invoices);
+    addSheet('Cobros', cols(ACCOUNTANT_PAYMENT_COLUMNS), dto.payments);
+    addSheet('Fianzas', cols(ACCOUNTANT_DEPOSIT_COLUMNS), dto.deposits);
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
 
@@ -300,6 +357,8 @@ export class AccountantExportService {
       where: {
         tenantId,
         methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
+        // Las fianzas no son ingresos: van en su propia hoja.
+        NOT: { invoice: { kind: 'deposit_receipt' } },
         OR: [
           {
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
@@ -351,6 +410,114 @@ export class AccountantExportService {
           date: ddmmyyyy(p.refundedAt),
           amount: -round2(Number(p.refundedAmount)),
           method: `Devolución (${base.method})`,
+        });
+      }
+    }
+  }
+
+  /** Fianzas: recibidas (cobro del justificante), devueltas y retenidas (al liquidar). */
+  private async addDeposits(
+    tenantId: string,
+    fromD: Date,
+    toD: Date,
+    out: AccountantDepositRow[],
+  ): Promise<void> {
+    const name = (c: {
+      customerType: string;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+    } | null) =>
+      !c
+        ? 'Cliente'
+        : c.customerType === 'business'
+          ? (c.companyName ?? 'Empresa')
+          : [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Cliente';
+    const customerSelect = {
+      customerType: true,
+      firstName: true,
+      lastName: true,
+      companyName: true,
+      documentNumber: true,
+    } as const;
+
+    const received = await this.admin.payment.findMany({
+      where: {
+        tenantId,
+        invoice: { kind: 'deposit_receipt' },
+        OR: [
+          {
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            paidAt: { gte: fromD, lte: toD },
+          },
+          { refundedAt: { gte: fromD, lte: toD }, refundedAmount: { gt: 0 } },
+        ],
+      },
+      include: {
+        invoice: { select: { invoiceNumber: true, contract: { select: { contractNumber: true } } } },
+        customer: { select: customerSelect },
+      },
+    });
+    for (const p of received) {
+      const base = {
+        source: 'own_business' as const,
+        document: p.invoice?.invoiceNumber ?? '',
+        contractNumber: p.invoice?.contract?.contractNumber ?? null,
+        customerNif: p.customer?.documentNumber ?? null,
+        customerName: name(p.customer),
+      };
+      if (p.paidAt && p.paidAt >= fromD && p.paidAt <= toD) {
+        out.push({
+          ...base,
+          date: ddmmyyyy(p.paidAt),
+          movement: 'received',
+          amount: round2(Number(p.amount)),
+          detail: METHOD_LABELS[p.methodType] ?? p.methodType,
+        });
+      }
+      if (p.refundedAt && p.refundedAt >= fromD && p.refundedAt <= toD) {
+        out.push({
+          ...base,
+          date: ddmmyyyy(p.refundedAt),
+          movement: 'returned',
+          amount: -round2(Number(p.refundedAmount)),
+          detail: 'Reembolso del cobro',
+        });
+      }
+    }
+
+    // Liquidación al terminar el contrato: lo devuelto y lo que se queda el negocio.
+    const settled = await this.admin.contract.findMany({
+      where: { tenantId, depositSettledAt: { gte: fromD, lte: toD }, depositAmount: { gt: 0 } },
+      select: {
+        contractNumber: true,
+        depositAmount: true,
+        depositReturnedAmount: true,
+        depositSettledAt: true,
+        depositRetentionReason: true,
+        customer: { select: customerSelect },
+      },
+    });
+    for (const c of settled) {
+      const returned = round2(Number(c.depositReturnedAmount ?? 0));
+      const retained = round2(Number(c.depositAmount) - returned);
+      const base = {
+        source: 'own_business' as const,
+        date: ddmmyyyy(c.depositSettledAt!),
+        document: c.contractNumber,
+        contractNumber: c.contractNumber,
+        customerNif: c.customer?.documentNumber ?? null,
+        customerName: name(c.customer),
+      };
+      if (returned > 0) {
+        out.push({ ...base, movement: 'returned', amount: -returned, detail: null });
+      }
+      if (retained > 0) {
+        out.push({
+          ...base,
+          movement: 'retained',
+          amount: retained,
+          detail: c.depositRetentionReason,
         });
       }
     }

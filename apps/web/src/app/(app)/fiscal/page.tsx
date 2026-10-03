@@ -2,6 +2,7 @@
 
 import { Download } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,9 +17,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ApiError, apiFetchBlob } from '@/lib/auth/api';
 import {
   downloadCsv,
-  useAccountingExport,
+  useAccountantExport,
   useModel303,
   useModel347,
   useVatBook,
@@ -46,7 +48,7 @@ export default function FiscalPage() {
           <TabsTrigger value="vat-book">Libro de IVA</TabsTrigger>
           <TabsTrigger value="m303">Modelo 303</TabsTrigger>
           <TabsTrigger value="m347">Modelo 347</TabsTrigger>
-          <TabsTrigger value="accounting-export">Exportación A3/Sage</TabsTrigger>
+          <TabsTrigger value="accounting-export">Exportación para la asesoría</TabsTrigger>
         </TabsList>
         <TabsContent value="vat-book">
           <VatBookTab />
@@ -58,7 +60,7 @@ export default function FiscalPage() {
           <Model347Tab />
         </TabsContent>
         <TabsContent value="accounting-export">
-          <AccountingExportTab />
+          <AccountantExportTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -331,54 +333,51 @@ function Model347Tab() {
   );
 }
 
-function AccountingExportTab() {
+function AccountantExportTab() {
   const [from, setFrom] = useState(`${YEAR}-01-01`);
   const [to, setTo] = useState(`${YEAR}-12-31`);
-  const data = useAccountingExport(from, to);
+  const [busy, setBusy] = useState<string | null>(null);
+  const data = useAccountantExport(from, to);
+  const d = data.data;
 
-  function exportCsv() {
-    if (!data.data) return;
-    const rows: (string | number)[][] = [
-      [
-        'Fecha',
-        'Nº factura',
-        'Tipo',
-        'Cliente',
-        'NIF',
-        '% IVA',
-        'Base',
-        'Cuota IVA',
-        'Total línea',
-        'Total factura',
-        'Estado',
-      ],
-      ...data.data.rows.map((r) => [
-        r.issueDate ?? '',
-        r.invoiceNumber,
-        r.invoiceType,
-        r.customerName,
-        r.customerNif ?? '',
-        r.taxRate,
-        r.base,
-        r.vat,
-        r.lineTotal,
-        r.invoiceTotal,
-        r.status,
-      ]),
-    ];
-    downloadCsv(`exportacion-contable-${from}_${to}.csv`, rows);
+  async function download(format: 'xlsx' | 'csv', kind?: 'invoices' | 'payments' | 'deposits') {
+    setBusy(kind ?? format);
+    try {
+      const qs = `from=${from}&to=${to}&format=${format}${kind ? `&kind=${kind}` : ''}`;
+      const blob = await apiFetchBlob(`/fiscal/accountant-export?${qs}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const suffix = kind
+        ? `-${{ invoices: 'facturas', payments: 'cobros', deposits: 'fianzas' }[kind]}`
+        : '';
+      a.download = `asesoria-${from}-a-${to}${suffix}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar.');
+    } finally {
+      setBusy(null);
+    }
   }
+
+  const totalBase = d?.invoices.reduce((s, r) => s + r.base, 0) ?? 0;
+  const totalVat = d?.invoices.reduce((s, r) => s + r.vat, 0) ?? 0;
+  const collected = d?.payments.reduce((s, r) => s + r.amount, 0) ?? 0;
+  const depositsHeld =
+    d?.deposits.reduce((s, r) => s + (r.movement === 'retained' ? 0 : r.amount), 0) ?? 0;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <CardTitle className="text-base">Exportación contable (A3/Sage y similares)</CardTitle>
+            <CardTitle className="text-base">Exportación para la asesoría</CardTitle>
             <CardDescription>
-              Una fila por factura y tipo de IVA, lista para importar en tu software de
-              contabilidad. Ni A3 ni Sage exigen un formato fijo: la primera vez mapeas las columnas
-              en su asistente de importación y guardas la plantilla para reutilizarla.
+              Facturas emitidas (una fila por factura y tipo de IVA), cobros y fianzas del periodo.
+              El Excel trae tres hojas; en CSV va un fichero por tabla, con «;» y coma decimal.
+              Sirve para A3, Sage o el programa de tu asesor: la primera vez mapea las columnas en
+              su importador y guarda la plantilla. Las fianzas van aparte porque no son ingresos.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -400,13 +399,87 @@ function AccountingExportTab() {
                 className="h-9"
               />
             </div>
-            <Button variant="outline" onClick={exportCsv} disabled={!data.data?.rows.length}>
-              <Download className="mr-1 h-4 w-4" /> CSV
-            </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        {data.isLoading ? (
+          <p className="text-xs text-muted-foreground">Calculando…</p>
+        ) : d ? (
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
+            <div>
+              <div className="text-xs text-muted-foreground">Facturas</div>
+              <div className="font-medium">
+                {new Set(d.invoices.map((r) => r.invoiceNumber)).size}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Base imponible</div>
+              <div className="font-medium">{eur(totalBase)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">IVA repercutido</div>
+              <div className="font-medium">{eur(totalVat)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Cobrado</div>
+              <div className="font-medium">{eur(collected)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Fianzas (neto)</div>
+              <div className="font-medium">{eur(depositsHeld)}</div>
+            </div>
+          </div>
+        ) : null}
+
+        {d && d.warnings.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <p className="font-medium">
+              {d.warnings.length} factura(s) sin datos obligatorios del cliente:
+            </p>
+            <ul className="mt-1 list-disc pl-4">
+              {d.warnings.slice(0, 8).map((w) => (
+                <li key={w.invoiceNumber}>
+                  {w.invoiceNumber} — falta {w.missing.join(' y ')}
+                </li>
+              ))}
+            </ul>
+            {d.warnings.length > 8 && <p>… y {d.warnings.length - 8} más.</p>}
+            <p className="mt-1">
+              Completa los datos del cliente; si la factura ya se envió, puede requerir una
+              rectificativa (consúltalo con tu asesor).
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void download('xlsx')} disabled={busy !== null || !d}>
+            <Download className="mr-1 h-4 w-4" />
+            {busy === 'xlsx' ? 'Exportando…' : 'Descargar Excel'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void download('csv', 'invoices')}
+            disabled={busy !== null || !d}
+          >
+            CSV de facturas
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void download('csv', 'payments')}
+            disabled={busy !== null || !d}
+          >
+            CSV de cobros
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void download('csv', 'deposits')}
+            disabled={busy !== null || !d}
+          >
+            CSV de fianzas
+          </Button>
+        </div>
+
         <div className="max-h-[60vh] overflow-auto rounded-md border">
           <Table>
             <TableHeader>
@@ -423,7 +496,7 @@ function AccountingExportTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data.data?.rows ?? []).map((r, i) => (
+              {(d?.invoices ?? []).map((r, i) => (
                 <TableRow key={`${r.invoiceNumber}-${r.taxRate}-${i}`}>
                   <TableCell className="text-xs">{r.issueDate}</TableCell>
                   <TableCell className="text-xs font-mono">{r.invoiceNumber}</TableCell>
@@ -436,7 +509,7 @@ function AccountingExportTab() {
                   <TableCell className="text-xs">{r.status}</TableCell>
                 </TableRow>
               ))}
-              {data.data && data.data.rows.length === 0 && (
+              {d && d.invoices.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
                     Sin facturas en el periodo.

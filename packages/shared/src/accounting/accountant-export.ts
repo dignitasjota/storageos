@@ -12,7 +12,7 @@ export const AccountantExportQuerySchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   format: z.enum(['json', 'csv', 'xlsx']).default('json'),
   /** Solo para CSV (un fichero por tabla). */
-  kind: z.enum(['invoices', 'payments']).default('invoices'),
+  kind: z.enum(['invoices', 'payments', 'deposits']).default('invoices'),
 });
 export type AccountantExportQuery = z.infer<typeof AccountantExportQuerySchema>;
 
@@ -58,6 +58,32 @@ export interface AccountantPaymentRow {
   reference: string | null;
 }
 
+/**
+ * Movimiento de fianza (no es un ingreso ni lleva IVA): recibida al cobrarla,
+ * devuelta al liquidar el contrato (en negativo) o retenida (pasa a ser del
+ * negocio, p. ej. para cubrir una deuda o daños).
+ */
+export interface AccountantDepositRow {
+  source: AccountantSource;
+  /** DD/MM/AAAA. */
+  date: string;
+  movement: 'received' | 'returned' | 'retained';
+  /** Justificante de la fianza (FZ-…) o número de contrato. */
+  document: string;
+  contractNumber: string | null;
+  customerNif: string | null;
+  customerName: string;
+  amount: number;
+  /** Forma de cobro (recibida) o motivo (retenida). */
+  detail: string | null;
+}
+
+export const DEPOSIT_MOVEMENT_LABELS: Record<AccountantDepositRow['movement'], string> = {
+  received: 'Fianza recibida',
+  returned: 'Fianza devuelta',
+  retained: 'Fianza retenida',
+};
+
 export interface AccountantExportWarning {
   invoiceNumber: string;
   source: AccountantSource;
@@ -71,6 +97,8 @@ export interface AccountantExportDto {
   ownBusinessName: string | null;
   invoices: AccountantInvoiceRow[];
   payments: AccountantPaymentRow[];
+  /** Fianzas recibidas, devueltas y retenidas (aparte de los cobros: no son ingresos). */
+  deposits: AccountantDepositRow[];
   /** Facturas a las que les faltan datos obligatorios del destinatario. */
   warnings: AccountantExportWarning[];
 }
@@ -104,6 +132,23 @@ export const ACCOUNTANT_PAYMENT_COLUMNS: Column<AccountantPaymentRow>[] = [
   { header: 'Forma de cobro', value: (r) => r.method },
   { header: 'Referencia', value: (r) => r.reference },
 ];
+
+export const ACCOUNTANT_DEPOSIT_COLUMNS: Column<AccountantDepositRow>[] = [
+  { header: 'Actividad', value: (r) => ACCOUNTANT_SOURCE_LABELS[r.source] },
+  { header: 'Fecha', value: (r) => r.date },
+  { header: 'Movimiento', value: (r) => DEPOSIT_MOVEMENT_LABELS[r.movement] },
+  { header: 'Documento', value: (r) => r.document },
+  { header: 'Contrato', value: (r) => r.contractNumber },
+  { header: 'NIF', value: (r) => r.customerNif },
+  { header: 'Cliente', value: (r) => r.customerName },
+  { header: 'Importe', value: (r) => r.amount },
+  { header: 'Detalle', value: (r) => r.detail },
+];
+
+/** En la exportación de un tenant sobra la columna «Actividad» (solo hay una). */
+export function withoutActivity<T>(columns: Column<T>[]): Column<T>[] {
+  return columns.filter((c) => c.header !== 'Actividad');
+}
 
 const csvCell = (v: string | number | null): string => {
   if (v === null) return '';
