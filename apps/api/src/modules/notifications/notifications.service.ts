@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type DomainEventPayload,
+  type PaymentOverpaidPayload,
+} from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -209,6 +213,17 @@ export class NotificationsService {
       title: num ? `Pago recibido — ${num}` : 'Pago recibido',
       link: `/invoices/${p.entityId}`,
       invoiceId: p.entityId,
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.payment_overpaid, { async: true, promisify: true })
+  async onPaymentOverpaid(p: PaymentOverpaidPayload): Promise<void> {
+    await this.safe(p.tenantId, {
+      type: 'payment.overpaid',
+      title: 'Cobro duplicado — requiere revisión',
+      body: `Se confirmó un cobro por pasarela (${p.gatewayPaymentId}) sobre una factura que ya estaba pagada por otra vía. Hay ${p.excess.toFixed(2)} € cobrados de más: reembólsalos desde la factura.`,
+      link: `/invoices/${p.invoiceId}`,
+      invoiceId: p.invoiceId,
     });
   }
 

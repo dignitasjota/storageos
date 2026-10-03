@@ -1442,10 +1442,35 @@ export class InvoicesService {
           ? 'overdue'
           : 'issued'
         : existing.status;
-      await tx.payment.updateMany({
+      // Solo el cobro devuelto pasa a fallido (antes, todos los de la
+      // factura): primero uno del mismo importe; si no, los más recientes
+      // que quepan en lo devuelto.
+      const live = await tx.payment.findMany({
         where: { invoiceId: args.invoiceId, status: 'succeeded' },
-        data: { status: 'failed', failureReason: args.reason },
+        orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, amount: true },
       });
+      const target = toCents(args.amount);
+      const exact = live.find((p) => toCents(p.amount) === target);
+      const reverted: string[] = [];
+      if (exact) {
+        reverted.push(exact.id);
+      } else {
+        let left = target;
+        for (const p of live) {
+          const cents = toCents(p.amount);
+          if (cents > left) continue;
+          reverted.push(p.id);
+          left -= cents;
+          if (left <= 0) break;
+        }
+      }
+      if (reverted.length > 0) {
+        await tx.payment.updateMany({
+          where: { id: { in: reverted } },
+          data: { status: 'failed', failureReason: args.reason },
+        });
+      }
       return tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
