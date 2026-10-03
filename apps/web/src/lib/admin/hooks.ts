@@ -1326,8 +1326,13 @@ export function useAddManualPaymentDeps(tenantId: string) {
   const billing = useTenantBillingSummary(tenantId);
   const slug = tenant.data?.subscription?.planSlug ?? null;
   const plan = (plans.data ?? []).find((p) => p.slug === slug) ?? null;
+  // Con precios +IVA, lo que se cobra es el precio más el IVA.
+  const vatFactor =
+    billing.data && !billing.data.pricesIncludeVat && billing.data.effectiveMonthly > 0
+      ? billing.data.effectiveMonthlyToCharge / billing.data.effectiveMonthly
+      : 1;
   return {
-    planPriceMonthly: plan?.priceMonthly ?? null,
+    planPriceMonthly: plan ? Math.round(plan.priceMonthly * vatFactor * 100) / 100 : null,
     /** Importe mensual efectivo (plan + add-ons); para sugerir la duración. */
     effectiveMonthly: billing.data?.effectiveMonthly ?? null,
     planCurrency: plan?.currency ?? 'EUR',

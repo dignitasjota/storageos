@@ -7,6 +7,7 @@ import { toCents } from '../../../common/money';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { buildPain008, type Pain008Transaction } from '../../sepa/sepa-pain008';
 import { BillingSaasService } from '../billing-saas.service';
+import { amountToCharge, platformPricing } from '../platform-pricing';
 import { SaasAddonsService } from '../saas-addons.service';
 
 import type { Prisma } from '@storageos/database';
@@ -76,7 +77,8 @@ export class PlatformSepaRemittanceService {
     const nonStripeAddons = summary.addons
       .filter((a) => !a.suspended && a.billingMode !== 'stripe')
       .reduce((s, a) => s + a.lineTotal, 0);
-    return Math.round((summary.planMonthly + nonStripeAddons) * 100) / 100;
+    // Con precios +IVA se domicilia el precio más el IVA.
+    return amountToCharge(summary.planMonthly + nonStripeAddons, await platformPricing(this.admin));
   }
 
   private async eligible(): Promise<{

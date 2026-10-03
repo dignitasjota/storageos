@@ -198,6 +198,30 @@ export class BillingSaasService {
    *
    * Si el tenant aun no tiene `stripeCustomerId`, lo creamos primero.
    */
+  /**
+   * Con precios +IVA, el TaxRate de Stripe (no incluido en el precio) que suma
+   * el IVA. Se crea la primera vez y otra vez si cambia el tipo. Con IVA
+   * incluido devuelve null (el precio de Stripe ya es el final).
+   */
+  private async stripeTaxRateIfExclusive(): Promise<string | null> {
+    const s = await this.admin.platformBillingSettings.findFirst();
+    if (!s || s.pricesIncludeVat) return null;
+    const rate = Number(s.taxRate);
+    if (s.stripeTaxRateId && Number(s.stripeTaxRatePercent) === rate) return s.stripeTaxRateId;
+    const taxRate = await this.stripe.taxRates.create({
+      display_name: 'IVA',
+      percentage: rate,
+      inclusive: false,
+      country: 'ES',
+      jurisdiction: 'ES',
+    });
+    await this.admin.platformBillingSettings.update({
+      where: { id: s.id },
+      data: { stripeTaxRateId: taxRate.id, stripeTaxRatePercent: rate },
+    });
+    return taxRate.id;
+  }
+
   async createCheckoutSession(args: {
     tenantId: string;
     userId: string;
@@ -252,6 +276,10 @@ export class BillingSaasService {
       billingEmail: tenant.billingEmail,
     });
 
+    // Precios +IVA: Stripe suma el IVA con un tipo impositivo (sin él cobraría
+    // el precio de lista y el IVA saldría de nuestro bolsillo).
+    const taxRateId = await this.stripeTaxRateIfExclusive();
+
     let session: CheckoutSession;
     try {
       session = await this.stripe.checkout.sessions.create({
@@ -268,6 +296,7 @@ export class BillingSaasService {
         cancel_url: args.cancelUrl,
         client_reference_id: args.tenantId,
         subscription_data: {
+          ...(taxRateId ? { default_tax_rates: [taxRateId] } : {}),
           metadata: {
             tenantId: args.tenantId,
             planId: plan.id,

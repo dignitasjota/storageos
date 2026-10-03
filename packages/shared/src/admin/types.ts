@@ -545,6 +545,8 @@ export interface SupportTicketMessageDto {
 }
 
 export interface SubscriptionPlanDto {
+  /** Solo en el catálogo público: los precios incluyen el IVA (true) o son +IVA (false). */
+  pricesIncludeVat?: boolean;
   id: string;
   slug: string;
   name: string;
@@ -811,6 +813,8 @@ export interface PlatformBillingSettingsDto {
   taxRate: number;
   seriesPrefix: string;
   enabled: boolean;
+  /** Los precios de planes y extras incluyen el IVA (true) o son +IVA (false). */
+  pricesIncludeVat: boolean;
   /** Datos del emisor que faltan para poder activar la facturación. */
   missing: string[];
   /** Negocio propio de la SL incluido en la exportación para la asesoría. */
@@ -949,8 +953,12 @@ export interface TenantBillingSummaryDto {
   planMonthly: number;
   addons: TenantAddonDto[];
   addonsMonthly: number;
-  /** planMonthly + addonsMonthly. */
+  /** planMonthly + addonsMonthly (precio de lista). */
   effectiveMonthly: number;
+  /** Los precios incluyen el IVA (true) o son +IVA (false). */
+  pricesIncludeVat: boolean;
+  /** Lo que se cobra al mes: igual que `effectiveMonthly` con IVA incluido, o más el IVA. */
+  effectiveMonthlyToCharge: number;
 }
 
 /** Límites efectivos del tenant (plan + add-ons de capacidad; null = ilimitado) con el uso actual. */

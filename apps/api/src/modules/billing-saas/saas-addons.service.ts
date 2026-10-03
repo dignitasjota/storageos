@@ -13,6 +13,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
+import { amountToCharge, platformPricing } from './platform-pricing';
+
 import type { Prisma } from '@storageos/database';
 import type {
   AddonBillingMode,
@@ -239,12 +241,16 @@ export class SaasAddonsService {
     const addonsMonthly = round2(
       addonDtos.filter((a) => !a.suspended).reduce((s, a) => s + a.lineTotal, 0),
     );
+    const effectiveMonthly = round2(planMonthly + addonsMonthly);
+    const pricing = await platformPricing(this.admin);
     return {
       planName: subscription?.plan.name ?? null,
       planMonthly,
       addons: addonDtos,
       addonsMonthly,
-      effectiveMonthly: round2(planMonthly + addonsMonthly),
+      effectiveMonthly,
+      pricesIncludeVat: pricing.includeVat,
+      effectiveMonthlyToCharge: amountToCharge(effectiveMonthly, pricing),
     };
   }
 

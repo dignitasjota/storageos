@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Queue } from 'bullmq';
 
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
+import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
   QUEUE_AUTOMATIONS,
@@ -270,6 +271,7 @@ export class AdminTodayService {
       },
       orderBy: { nextChargeAt: 'asc' },
     });
+    const pricing = await platformPricing(this.admin);
     return rows.map((r) => {
       const due = r.nextChargeAt ?? now;
       const overdueDays = Math.max(0, Math.floor((now.getTime() - due.getTime()) / MS_PER_DAY));
@@ -278,7 +280,7 @@ export class AdminTodayService {
         tenantId: r.tenantId,
         tenantName: r.tenant.name,
         addonName: r.addon.name,
-        amount: Number(r.priceMonthly) * r.quantity,
+        amount: amountToCharge(Number(r.priceMonthly) * r.quantity, pricing),
         currency: r.tenant.currency,
         nextChargeAt: due.toISOString(),
         overdueDays,
@@ -308,7 +310,11 @@ export class AdminTodayService {
         message: 'El add-on está suspendido; reactívalo antes de cobrarlo.',
       });
     }
-    const amount = Number(row.priceMonthly) * row.quantity;
+    // Con precios +IVA se cobra el precio más el IVA.
+    const amount = amountToCharge(
+      Number(row.priceMonthly) * row.quantity,
+      await platformPricing(this.admin),
+    );
     await this.billing.recordManualPayment({
       tenantId: row.tenantId,
       provider,

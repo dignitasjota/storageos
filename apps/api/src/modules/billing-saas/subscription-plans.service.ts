@@ -3,6 +3,8 @@ import { normalizePlanFeatures } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { platformPricing } from './platform-pricing';
+
 import type { Prisma } from '@storageos/database';
 import type { SubscriptionPlanDto, UpsertSubscriptionPlanFormInput } from '@storageos/shared';
 
@@ -26,7 +28,8 @@ export class SubscriptionPlansService {
       where: { isActive: true },
       orderBy: [{ priceMonthly: 'asc' }],
     });
-    return rows.map((r) => this.toDto(r));
+    const { includeVat } = await platformPricing(this.admin);
+    return rows.map((r) => ({ ...this.toDto(r), pricesIncludeVat: includeVat }));
   }
 
   /** Lista TODOS los planes (incluye inactivos). Solo admin. */
