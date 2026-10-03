@@ -1,14 +1,25 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import {
+  ACCOUNTANT_DEPOSIT_COLUMNS,
+  ACCOUNTANT_INVOICE_COLUMNS,
+  ACCOUNTANT_PAYMENT_COLUMNS,
+  AccountantExportQuerySchema,
+  toAccountantCsv,
+  withoutActivity,
+} from '@storageos/shared';
 
 import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { AccountantExportService } from '../billing-saas/accountant-export.service';
 
 import { FiscalService } from './fiscal.service';
 
 import type { AccountingExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
+import type { Response } from 'express';
+
 
 function parseYear(raw: string | undefined): number {
   const y = Number(raw);
@@ -21,7 +32,57 @@ function parseYear(raw: string | undefined): number {
 @RequirePermission('invoices:manage')
 @Controller('fiscal')
 export class FiscalController {
-  constructor(private readonly fiscal: FiscalService) {}
+  constructor(
+    private readonly fiscal: FiscalService,
+    private readonly accountant: AccountantExportService,
+  ) {}
+
+  /**
+   * Exportación para la asesoría: facturas (por tipo de IVA), cobros y fianzas
+   * del periodo. `format=json` (vista previa), `csv` (una tabla según `kind`)
+   * o `xlsx` (tres hojas).
+   */
+  @Get('accountant-export')
+  async accountantExport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+    @Query() query: Record<string, string>,
+  ): Promise<void> {
+    const parsed = AccountantExportQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_range',
+        message: 'Indica el periodo (desde y hasta)',
+      });
+    }
+    const { from, to, format, kind } = parsed.data;
+    const dto = await this.accountant.buildForTenant(user.tenantId, from, to);
+    if (format === 'json') {
+      res.json(dto);
+      return;
+    }
+    const name = `asesoria-${from}-a-${to}`;
+    if (format === 'xlsx') {
+      const buf = await this.accountant.toXlsx(dto, true);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
+      res.send(buf);
+      return;
+    }
+    const csv =
+      kind === 'payments'
+        ? toAccountantCsv(withoutActivity(ACCOUNTANT_PAYMENT_COLUMNS), dto.payments)
+        : kind === 'deposits'
+          ? toAccountantCsv(withoutActivity(ACCOUNTANT_DEPOSIT_COLUMNS), dto.deposits)
+          : toAccountantCsv(withoutActivity(ACCOUNTANT_INVOICE_COLUMNS), dto.invoices);
+    const suffix = { invoices: 'facturas', payments: 'cobros', deposits: 'fianzas' }[kind];
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}-${suffix}.csv"`);
+    res.send(csv);
+  }
 
   @Get('vat-book')
   vatBook(

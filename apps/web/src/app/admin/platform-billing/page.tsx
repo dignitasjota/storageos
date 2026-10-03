@@ -282,7 +282,7 @@ function AccountantExportCard() {
   const { from, to } = periodRange(Number(year), period);
   const preview = useAccountantExport(from, to);
 
-  async function download(format: 'xlsx' | 'csv', kind?: 'invoices' | 'payments') {
+  async function download(format: 'xlsx' | 'csv', kind?: 'invoices' | 'payments' | 'deposits') {
     setBusy(kind ?? format);
     try {
       const qs = `from=${from}&to=${to}&format=${format}${kind ? `&kind=${kind}` : ''}`;
@@ -290,7 +290,9 @@ function AccountantExportCard() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const suffix = kind ? `-${kind === 'payments' ? 'cobros' : 'facturas'}` : '';
+      const suffix = kind
+        ? `-${{ invoices: 'facturas', payments: 'cobros', deposits: 'fianzas' }[kind]}`
+        : '';
       a.download = `asesoria-${from}-a-${to}${suffix}.${format}`;
       a.click();
       URL.revokeObjectURL(url);
@@ -323,8 +325,9 @@ function AccountantExportCard() {
             </>
           ) : null}
           . Una fila por factura y tipo de IVA, columna «Actividad» para separarlas. El Excel trae
-          dos hojas (facturas y cobros); en CSV va un fichero por tabla, con «;» y coma decimal. Tu
-          asesor configura el formato una vez en su programa y lo reutiliza cada periodo.
+          tres hojas (facturas, cobros y fianzas del negocio propio); en CSV va un fichero por
+          tabla, con «;» y coma decimal. Tu asesor configura el formato una vez en su programa y lo
+          reutiliza cada periodo.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
@@ -420,6 +423,15 @@ function AccountantExportCard() {
           >
             CSV de cobros
           </Button>
+          {d?.ownBusinessName && (
+            <Button
+              variant="outline"
+              onClick={() => void download('csv', 'deposits')}
+              disabled={busy !== null}
+            >
+              CSV de fianzas
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

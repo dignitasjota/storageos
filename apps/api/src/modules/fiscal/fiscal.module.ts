@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { AccountantExportService } from '../billing-saas/accountant-export.service';
 
 import { FiscalController } from './fiscal.controller';
 import { FiscalService } from './fiscal.service';
@@ -12,7 +13,7 @@ import { FiscalService } from './fiscal.service';
 @Module({
   imports: [AuthModule],
   controllers: [FiscalController],
-  providers: [FiscalService],
+  providers: [FiscalService, AccountantExportService],
   exports: [FiscalService],
 })
 export class FiscalModule {}
