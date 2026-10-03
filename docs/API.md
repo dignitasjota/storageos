@@ -1919,3 +1919,4 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 - Justificantes de fianza (`kind: 'deposit_receipt'`): no admiten `issue`, `rectify`, `late-fee` ni `refund` por pasarela (400).
 - `POST /bank-statements/transactions/:id/match`: `{invoiceId}` o `{invoiceIds: [...]}` (reparte el ingreso por orden). `mark-return` sigue con `{invoiceId}`.
 - `POST /invoices/:id/issue`: 400 `issue_date_before_last` si la fecha de emisión es anterior a la de la última factura de la serie.
+- `PUT /admin/platform-billing/holded` acepta `creditNoteSeriesId` (serie de rectificativas «No enviar a Verifactu»). `GET /admin/platform-billing/holded/review` (envíos sin confirmar) y `POST /admin/platform-billing/holded/review/:invoiceId {kind: invoice|credit_note|payment, action: retry|already_in_holded, holdedDocumentId?}` (superadmin).

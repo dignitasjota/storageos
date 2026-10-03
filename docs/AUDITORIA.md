@@ -383,6 +383,13 @@ Revisión en profundidad, pedida por Jota, de que ninguna factura se contabilice
 - **F2 sin cliente** (hallazgo 25): `payments.customer_id` opcional (migración `20261005200000_payment_customer_optional`); el cobro manual crea su pago → cuenta en lo cobrado y en el cierre de caja.
 - e2e `billing-minor` (3 casos).
 
+## Holded de la plataforma — sin duplicados y con rectificativas ✅ (2026-10-03)
+
+- **Reserva** antes de llamar a Holded (`platform_invoices.holded_sync_state` null|`creating`|`approving`, `credit_creating`/`credit_approving` para la anulación de una sustituida; `holded_sync_started_at`); el id se guarda antes de aprobar; el cobro se reserva aparte (`holded_payment_started_at`/`holded_payment_synced_at`). Holded rechaza → se libera; sin respuesta → «para revisar» a los 5 min. Migración `20261006100000_platform_holded_claims`.
+- **Rectificativas**: por diferencias → rectificativa de Holded en la serie de rectificativas elegida (`platform_billing_settings.holded_credit_note_series_id`, comprobada «No enviar a Verifactu»); por sustitución → rectificativa que anula la original en Holded + factura nueva con los datos corregidos, sin cobro (el dinero está en la original y el abono lo compensa; Holded no deja cancelar una factura cobrada). La original va antes que su rectificativa; una original sustituida que nunca llegó a Holded no se copia.
+- `GET /admin/platform-billing/holded/review` + `POST …/review/:invoiceId {kind, action}`; `PlatformHoldedSettingsDto.creditNoteSeriesId`/`reviewCount`; la rectificación también dispara la copia. Tarjeta del panel: selector de la serie de rectificativas y bloque «Para revisar en Holded».
+- e2e `platform-holded` (2 casos).
+
 ## Bien resuelto (verificado)
 
 Números de factura no repetibles (índice único + bloqueo de la serie al reservar); bloqueo contra el doble cargo en el cobro por pasarela; webhooks de Stripe/GoCardless sin doble procesamiento por id de evento; Redsys idempotente; recurrente sin duplicados por solapamiento de periodo; primera factura de una reserva sin duplicar.
@@ -405,7 +412,7 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - Cobros ya copiados que luego se reembolsan o devuelven → «para revisar» (`payments.holded_reviewed_at` al marcarlos revisados).
 - `GET /settings/holded/review` + `POST /settings/holded/review/{invoices|payments}/:id` (reenviar / ya está en Holded / revisado) y bloque «Para revisar en Holded» en Ajustes → Facturación.
 - e2e `holded-idempotent` (6 casos: simultáneos, aprobación fallida, rechazo, sin respuesta, enlace manual, reembolso).
-- Pendiente: la copia en Holded de las facturas de suscripción (desactivada) aún no tiene reserva.
+- Copia en Holded de las facturas de suscripción: misma reserva y lista «para revisar», y ahora también sus rectificativas (2026-10-03, ver abajo).
 
 ## PR 3 — remesas SEPA ✅
 

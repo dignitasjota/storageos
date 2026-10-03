@@ -19,9 +19,11 @@ import {
   AccountantExportQuerySchema,
   IssuePlatformInvoiceSchema,
   RectifyPlatformInvoiceSchema,
+  ResolvePlatformHoldedReviewSchema,
   UpdatePlatformHoldedSettingsSchema,
   type HoldedSeriesListDto,
   type HoldedTestResultDto,
+  type PlatformHoldedReviewItemDto,
   type PlatformHoldedSettingsDto,
   toAccountantCsv,
   UpdatePlatformBillingSettingsSchema,
@@ -44,6 +46,7 @@ class UpdateSettingsDto extends createZodDto(UpdatePlatformBillingSettingsSchema
 class IssueDto extends createZodDto(IssuePlatformInvoiceSchema) {}
 class RectifyDto extends createZodDto(RectifyPlatformInvoiceSchema) {}
 class UpdateHoldedDto extends createZodDto(UpdatePlatformHoldedSettingsSchema) {}
+class ResolveHoldedReviewDto extends createZodDto(ResolvePlatformHoldedReviewSchema) {}
 
 /** Facturación del SaaS (TrasterOS → tenant). Solo super admin. */
 @Public()
@@ -87,6 +90,21 @@ export class PlatformInvoicesController {
   @RequireSuperadmin()
   backfillHolded(): Promise<{ synced: number }> {
     return this.holded.backfill();
+  }
+
+  @Get('platform-billing/holded/review')
+  holdedReview(): Promise<PlatformHoldedReviewItemDto[]> {
+    return this.holded.listReview();
+  }
+
+  @Post('platform-billing/holded/review/:invoiceId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequireSuperadmin()
+  resolveHoldedReview(
+    @Param('invoiceId', new ParseUUIDPipe()) invoiceId: string,
+    @Body() body: ResolveHoldedReviewDto,
+  ): Promise<void> {
+    return this.holded.resolveReview(invoiceId, body);
   }
 
   @Get('platform-billing/settings')
