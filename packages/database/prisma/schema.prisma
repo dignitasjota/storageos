@@ -211,6 +211,8 @@ enum PaymentMethodType {
   bank_transfer
   cash
   other
+  /// Compensación con una rectificativa de abono (no es dinero cobrado).
+  credit_note
 
   @@map("payment_method_type")
 }
@@ -1516,6 +1518,8 @@ model InvoiceSeries {
   facilityId String?  @map("facility_id") @db.Uuid
   isActive   Boolean  @default(true) @map("is_active")
   isDefault  Boolean  @default(false) @map("is_default")
+  /// Serie de facturas rectificativas (RD 1619/2012, art. 6: serie propia).
+  isRectification Boolean @default(false) @map("is_rectification")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

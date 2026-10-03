@@ -259,7 +259,8 @@ export class PaymentMethodsService {
     return {
       id: row.id,
       customerId: row.customerId,
-      type: row.type,
+      // Un método de pago guardado nunca es `credit_note` (solo pagos de compensación).
+      type: row.type as PaymentMethodDto['type'],
       gateway: row.gateway,
       last4: row.last4,
       brand: row.brand,

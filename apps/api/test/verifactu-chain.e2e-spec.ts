@@ -109,6 +109,23 @@ describe('Veri*Factu: cadena por emisor (e2e)', () => {
         where: { id: noDoc },
         data: { documentNumber: '12345678Z', country: 'ES' },
       });
+      // Sin certificado vigente no se emite (se quedaría sin registrar).
+      const r3 = await http().post(`/invoices/${id}/issue`).set(auth).expect(400);
+      expect(r3.body.code).toBe('aeat_certificate_required');
+      const user = await admin.user.findFirstOrThrow({ where: { tenantId: tenant.id } });
+      await admin.tenantAeatCredential.create({
+        data: {
+          tenantId: tenant.id,
+          certP12Encrypted: Buffer.from('x'),
+          certPasswordEncrypted: 'x',
+          certCommonName: 'TEST',
+          certNif: 'B12345674',
+          certIssuer: 'TEST',
+          certValidFrom: new Date(Date.now() - 86_400_000),
+          certValidTo: new Date(Date.now() + 365 * 86_400_000),
+          uploadedById: user.id,
+        },
+      });
       await http().post(`/invoices/${id}/issue`).set(auth).expect(200);
     } finally {
       spy.mockRestore();

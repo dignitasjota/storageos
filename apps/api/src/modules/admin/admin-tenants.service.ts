@@ -892,6 +892,7 @@ export class AdminTenantsService {
           tenantId,
           status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
           invoice: { kind: 'invoice' },
+          methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
         },
         _sum: { amount: true, refundedAmount: true },
       }),
@@ -911,6 +912,7 @@ export class AdminTenantsService {
           status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
           paidAt: { gte: fromDate, lt: toExclusive },
           invoice: { kind: 'invoice' },
+          methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
         },
         select: { paidAt: true, amount: true, refundedAmount: true },
       }),

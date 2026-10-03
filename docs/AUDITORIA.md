@@ -466,3 +466,35 @@ Números de factura no repetibles (índice único + bloqueo de la serie al reser
 - **Sustitución sin base duplicada:** al emitir la sustitutiva, la original pasa a `rectified` (deja de cobrarse y vencer) y su copia en Holded se anula. En libro de IVA, 303, 347, exportación A3/Sage y de la asesoría, la sustitutiva cuenta solo la diferencia con la sustituida.
 - **Métricas** (hallazgo 21): lo cobrado es neto de reembolsos (`amount − refundedAmount`, incluidos los pagos parcial o totalmente reembolsados) en analytics, P&L, asistente IA y panel admin; lo facturado descuenta lo devuelto a través de los abonos.
 - e2e `invoice-rectify-refund` (2 casos).
+
+# Segunda auditoría de facturación (2026-10-03)
+
+Revisión completa de la facturación de la plataforma (suscripciones) y de los tenants (inquilinos), con Veri\*Factu, Holded y la exportación para la asesoría.
+
+**Decisiones de Jota:**
+
+- Cada tenant elige **dónde se emiten sus facturas**: en la app con Veri\*Factu (con **su propio certificado**) o en Holded (Holded numera y registra). La elección no se puede cambiar durante el año natural (salvo si aún no ha emitido ninguna ese año). La exportación para la asesoría está siempre disponible (no sustituye a Veri\*Factu: la obligación es de quien emite).
+- La plataforma tiene la misma elección para las facturas de suscripción (Veri\*Factu con el certificado de TrasterOS SL, o Holded).
+- El cobro con tarjeta de los tenants por la cuenta de Stripe de la plataforma se **desactiva** por ahora (Redsys, Bizum y GoCardless son de cada tenant); Stripe Connect más adelante.
+- Los precios de suscripción se podrán configurar **con IVA incluido o +IVA**.
+
+## Hallazgos
+
+1. Facturas de suscripción sin Veri\*Factu (ni huella, ni QR, ni envío; la copia en Holded va a una serie «No enviar a Verifactu»). → PR 3.
+2. Cobros con tarjeta de los inquilinos en la cuenta de Stripe de la plataforma (sin Connect). → PR aparte (desactivar).
+3. Rectificativas de los tenants en la misma serie que las facturas (RD 1619/2012, art. 6 exige serie propia). → ✅ PR 1.
+4. Redondeo asimétrico (`Math.round` en negativos) y en coma flotante: una anulación no dejaba la factura a cero. → ✅ PR 1.
+5. Un abono manual no compensaba el pendiente de la original; las rectificativas negativas emitidas a mano entraban en el cobro de impagos. → ✅ PR 1.
+6. Reembolsar tras un abono manual generaba un segundo abono; el reembolso se limitaba al total de la factura, no al dinero cobrado. → ✅ PR 1.
+7. Reembolsos y contracargos de Stripe de las suscripciones y devoluciones de la remesa SEPA de la plataforma no se reflejan (ni abono). → PR 4.
+8. XML con `IndicadorMultiplesOT = N` (la instalación factura por muchos tenants); en envío real se podía emitir sin certificado. → ✅ PR 1.
+9. La exportación del tenant para su asesoría es solo CSV, sin cobros ni fianzas ni avisos de datos fiscales. → PR 5.
+
+## PR 1 — correcciones ✅
+
+- **Serie de rectificativas** (`invoice_series.is_rectification`, migración `20261006120000_rectification_series_credit_compensation`): `InvoiceSeriesService.rectificationSeries` la crea sola la primera vez (prefijo libre: `R`, `RECT`…); toda rectificativa va ahí; no puede ser la serie por defecto (409 `rectification_series_not_default`).
+- **Redondeo**: `money.ts` → `roundHalfAway` (simétrico, con margen para la coma flotante) y `lineCents` (base redondeada, cuota sobre la base, total = base + cuota); `toCents` simétrico.
+- **Abonos**: una rectificativa de importe negativo queda saldada al emitirse (sin vencimiento: no entra en impagos; el cron de impagos también filtra `total > 0`). Si es por diferencias y la original tiene pendiente, lo **compensa** con un pago `credit_note` (valor nuevo del enum; no es dinero cobrado: fuera de lo cobrado, la caja, los reembolsos, la copia en Holded y la exportación de cobros). Si la original queda saldada, `invoice_paid` con `compensated: true` (sin correo de «pago recibido»).
+- **Reembolsos**: como mucho el dinero cobrado (sin compensaciones) → 400 `over_refund`; el abono automático por reembolso se calcula sobre lo devuelto en total menos lo que ya cubren los abonos emitidos (sin abono doble).
+- **Veri\*Factu**: `IndicadorMultiplesOT = S`; en envío real, emitir sin certificado vigente → 400 `aeat_certificate_required`.
+- e2e `billing-audit2` (3 casos).

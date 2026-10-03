@@ -133,6 +133,10 @@ export class CustomerEmailsService {
   @OnEvent(DOMAIN_EVENTS.invoice_paid, { async: true, promisify: true })
   async onInvoicePaid(p: DomainEventPayload): Promise<void> {
     await this.safe('payment_received', p.tenantId, async () => {
+      // Saldada con un abono (no con un cobro): no hay «pago recibido».
+      const scopeInvoice = (p.scope as { invoice?: { compensated?: boolean } } | undefined)
+        ?.invoice;
+      if (scopeInvoice?.compensated) return;
       const inv = await this.invoice(p.tenantId, p.entityId);
       if (!inv?.customerId || Number(inv.total) <= 0) return;
       // Con su justificante de fianza cobrado en el mismo pago: un solo aviso

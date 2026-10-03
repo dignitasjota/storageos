@@ -181,6 +181,7 @@ export class ExpensesService {
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
             paidAt: { gte: fromD, lte: toD },
             invoice: { kind: 'invoice' },
+            methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
           },
           select: {
             amount: true,

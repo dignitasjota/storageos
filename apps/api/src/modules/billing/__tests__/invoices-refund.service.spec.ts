@@ -85,6 +85,8 @@ function buildService(deps: {
     },
     payment: {
       findFirst: jest.fn().mockResolvedValue(deps.gatewayPayment),
+      // Dinero cobrado de la factura (límite del reembolso).
+      findMany: jest.fn().mockResolvedValue([{ amount: 1000 }]),
       update: jest.fn().mockResolvedValue(undefined),
     },
   };

@@ -15,9 +15,34 @@
 
 type MoneyLike = number | string | { toString(): string };
 
-/** Importe en euros → centimos enteros (redondeo half-away-from-zero de Math.round). */
+/**
+ * Redondeo al entero más cercano con los medios lejos del cero (simétrico):
+ * 2,5 → 3 y −2,5 → −3. `Math.round` sube hacia +∞ (−2,5 → −2), así que una
+ * línea negativa no era la opuesta exacta de la positiva. El pequeño margen
+ * absorbe el error de coma flotante (10,05 × 100 = 1004,999…).
+ */
+export function roundHalfAway(x: number): number {
+  return Math.sign(x) * Math.round(Math.abs(x) + 1e-9);
+}
+
+/** Importe en euros → centimos enteros (redondeo simétrico). */
 export function toCents(amount: MoneyLike): number {
-  return Math.round(Number(amount) * 100);
+  return roundHalfAway(Number(amount) * 100);
+}
+
+/**
+ * Importes de una línea de factura en céntimos: base redondeada, cuota sobre
+ * la base ya redondeada y total = base + cuota. La línea negativa es siempre
+ * la opuesta exacta de la positiva.
+ */
+export function lineCents(
+  quantity: number,
+  unitPrice: number,
+  taxRate: number,
+): { baseCents: number; taxCents: number; totalCents: number } {
+  const baseCents = roundHalfAway(quantity * unitPrice * 100);
+  const taxCents = roundHalfAway((baseCents * taxRate) / 100);
+  return { baseCents, taxCents, totalCents: baseCents + taxCents };
 }
 
 /** Suma exacta en centimos, devuelta en euros con 2 decimales. */

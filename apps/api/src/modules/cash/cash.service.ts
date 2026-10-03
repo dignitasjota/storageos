@@ -67,6 +67,8 @@ export class CashService {
     const incomeWhere: Prisma.PaymentWhereInput = {
       status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
       paidAt: { gte, lt },
+      // Una compensación con abono no es dinero que entre en caja.
+      methodType: { not: 'credit_note' },
       ...facilityFilter,
     };
     // Reembolsos del día: pagos con importe devuelto en esta fecha (restan de la

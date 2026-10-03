@@ -8,6 +8,7 @@ import type {
   InvoiceTypeValue,
   PaymentGatewayProviderValue,
   PaymentMethodTypeValue,
+  PaymentRecordMethodValue,
   PaymentStatusValue,
   PriceModifierTypeValue,
   PricingRuleScopeValue,
@@ -26,6 +27,8 @@ export interface InvoiceSeriesDto {
   facilityId: string | null;
   isActive: boolean;
   isDefault: boolean;
+  /** Serie de rectificativas (la crea la app; las rectificativas van siempre aquí). */
+  isRectification: boolean;
   createdAt: string;
 }
 
@@ -127,7 +130,7 @@ export interface PaymentDto {
   amount: number;
   currency: string;
   status: PaymentStatusValue;
-  methodType: PaymentMethodTypeValue;
+  methodType: PaymentRecordMethodValue;
   gateway: PaymentGatewayProviderValue;
   gatewayPaymentId: string | null;
   paidAt: string | null;

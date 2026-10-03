@@ -138,7 +138,7 @@ ${encadenamiento}
             <sum1:NumeroInstalacion>${sistemaInstalacion}</sum1:NumeroInstalacion>
             <sum1:TipoUsoPosibleSoloVerifactu>S</sum1:TipoUsoPosibleSoloVerifactu>
             <sum1:TipoUsoPosibleMultiOT>S</sum1:TipoUsoPosibleMultiOT>
-            <sum1:IndicadorMultiplesOT>N</sum1:IndicadorMultiplesOT>
+            <sum1:IndicadorMultiplesOT>S</sum1:IndicadorMultiplesOT>
           </sum1:SistemaInformatico>
           <sum1:FechaHoraHusoGenRegistro>${generadoEn}</sum1:FechaHoraHusoGenRegistro>
           <sum1:TipoHuella>01</sum1:TipoHuella>

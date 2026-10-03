@@ -155,7 +155,12 @@ export class HoldedSyncService {
         OR: [
           {
             payments: {
-              some: { status: 'succeeded', holdedSyncedAt: null, holdedSyncStartedAt: null },
+              some: {
+                status: 'succeeded',
+                holdedSyncedAt: null,
+                holdedSyncStartedAt: null,
+                methodType: { not: 'credit_note' },
+              },
             },
           },
           { status: 'cancelled', holdedCancelledAt: null },
@@ -465,7 +470,13 @@ export class HoldedSyncService {
         invoiceNumber: true,
         holdedSyncState: true,
         payments: {
-          where: { status: 'succeeded', holdedSyncedAt: null, holdedSyncStartedAt: null },
+          // La compensación con un abono no es un cobro: el abono ya va a Holded.
+          where: {
+            status: 'succeeded',
+            holdedSyncedAt: null,
+            holdedSyncStartedAt: null,
+            methodType: { not: 'credit_note' },
+          },
           select: { id: true, amount: true, paidAt: true, createdAt: true },
         },
       },

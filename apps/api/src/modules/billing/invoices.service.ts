@@ -16,7 +16,14 @@ import { Queue } from 'bullmq';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
-import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
+import {
+  addAmounts,
+  isAtLeast,
+  isGreaterThan,
+  lineCents,
+  subtractAmounts,
+  toCents,
+} from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { assertNotInSepaRemittance } from '../../common/sepa-remittance-guard';
 import { AuditService } from '../auth/audit.service';
@@ -375,6 +382,13 @@ export class InvoicesService {
     }
     this.assertTransition(existing.status as InvoiceStatusValue, 'issued');
 
+    let compensatedOriginal: {
+      id: string;
+      invoiceNumber: string;
+      customerId: string | null;
+      total: number;
+      fullyPaid: boolean;
+    } | null = null;
     const updated = await this.prisma.withTenant(async (tx) => {
       // Dos «Emitir» a la vez (doble clic, lote + emisión automática): la fila
       // bloqueada serializa y el segundo ve la factura ya emitida → 409, en vez
@@ -443,6 +457,19 @@ export class InvoicesService {
           });
         }
         await this.assertRecipientIdentifiable(tx, existing);
+        // Sin un certificado vigente la factura se emitiría y se quedaría sin
+        // registrar en la AEAT (el registro debe hacerse al emitir).
+        const cert = await tx.tenantAeatCredential.findFirst({
+          where: { revokedAt: null, certValidTo: { gt: new Date() } },
+          select: { id: true },
+        });
+        if (!cert) {
+          throw new BadRequestException({
+            code: 'aeat_certificate_required',
+            message:
+              'Sube un certificado digital vigente en Ajustes → Facturación → Veri*Factu antes de emitir facturas',
+          });
+        }
       }
       const total = Number(existing.total);
       const chain = await this.verifactu.computeChainedHash(tx, {
@@ -462,14 +489,18 @@ export class InvoicesService {
         total,
       });
 
-      return tx.invoice.update({
+      // Rectificativa de abono: no se cobra ni se reclama (queda saldada al
+      // emitirse; el dinero, si lo hay, se devuelve aparte).
+      const isCredit = total < 0;
+      const row = await tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
-          status: 'issued',
+          status: isCredit ? 'paid' : 'issued',
           invoiceNumber,
           sequenceNumber,
           issueDate,
-          dueDate,
+          dueDate: isCredit ? null : dueDate,
+          ...(isCredit ? { amountPaid: total, paidAt: new Date() } : {}),
           hash,
           previousHash,
           previousInvoiceId: chain.previousInvoiceId,
@@ -480,7 +511,48 @@ export class InvoicesService {
         },
         include: this.includeRelations(),
       });
+      // Un abono por diferencias sobre una factura con importe pendiente lo
+      // compensa: la original deja de reclamar lo abonado.
+      if (
+        isCredit &&
+        existing.rectifiesInvoiceId &&
+        (existing.correctionMethod ?? 'by_differences') === 'by_differences'
+      ) {
+        compensatedOriginal = await this.compensateWithCredit(tx, {
+          tenantId: args.tenantId,
+          originalId: existing.rectifiesInvoiceId,
+          creditCents: -toCents(total),
+          creditNumber: invoiceNumber,
+        });
+      }
+      return row;
     }, args.tenantId);
+    // (Asignado dentro de la transacción: TS no lo ve y lo estrecha a null.)
+    const comp = compensatedOriginal as {
+      id: string;
+      invoiceNumber: string;
+      customerId: string | null;
+      total: number;
+      fullyPaid: boolean;
+    } | null;
+    if (comp?.fullyPaid) {
+      this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+        tenantId: args.tenantId,
+        entityType: 'invoice',
+        entityId: comp.id,
+        customerId: comp.customerId,
+        recipientEmail: null,
+        scope: {
+          invoice: {
+            number: comp.invoiceNumber,
+            total: comp.total.toFixed(2),
+            paidAt: new Date().toISOString(),
+            // Saldada con un abono, no con un cobro (sin aviso de «pago recibido»).
+            compensated: true,
+          },
+        },
+      } satisfies DomainEventPayload);
+    }
 
     // Encolar el envio AEAT en BullMQ con retry exponencial. El worker
     // (VerifactuProcessor) consumira el job de forma asincrona. Solo
@@ -1459,7 +1531,11 @@ export class InvoicesService {
       // factura): primero uno del mismo importe; si no, los más recientes
       // que quepan en lo devuelto.
       const live = await tx.payment.findMany({
-        where: { invoiceId: args.invoiceId, status: 'succeeded' },
+        where: {
+          invoiceId: args.invoiceId,
+          status: 'succeeded',
+          methodType: { not: 'credit_note' },
+        },
         orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
         select: { id: true, amount: true },
       });
@@ -1551,7 +1627,18 @@ export class InvoicesService {
         }
         const total = Number(existing.total);
         const newRefunded = addAmounts(existing.amountRefunded, amount);
-        if (isGreaterThan(newRefunded, total)) {
+        // Se devuelve, como mucho, el dinero realmente cobrado (una
+        // compensación con un abono no es dinero que devolver).
+        const realPayments = await tx.payment.findMany({
+          where: {
+            invoiceId: args.invoiceId,
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            methodType: { not: 'credit_note' },
+          },
+          select: { amount: true },
+        });
+        const collectedCents = realPayments.reduce((sum, p) => sum + toCents(p.amount), 0);
+        if (isGreaterThan(newRefunded, total) || toCents(newRefunded) > collectedCents) {
           throw new BadRequestException({
             code: 'over_refund',
             message: 'El importe excede el cobrado',
@@ -1642,6 +1729,7 @@ export class InvoicesService {
               invoiceId: args.invoiceId,
               gatewayPaymentId: null,
               status: { in: ['succeeded', 'partially_refunded'] },
+              methodType: { not: 'credit_note' },
             },
             orderBy: { createdAt: 'desc' },
           });
@@ -1729,8 +1817,35 @@ export class InvoicesService {
     if (!original || original.kind !== 'invoice') return;
     if (original.invoiceType !== 'F1' && original.invoiceType !== 'F2') return;
     const totalCents = toCents(original.total);
-    const refundCents = Math.min(toCents(amount), totalCents);
+    // Abono necesario = lo devuelto en total − lo que ya cubren los abonos
+    // emitidos que no compensaron un pendiente (p. ej. el abono de la baja de
+    // un prepago emitido antes del reembolso): sin esto, reembolsar después de
+    // un abono manual generaba un segundo abono por el mismo dinero.
+    const [credits, compensations] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.invoice.findMany({
+            where: {
+              rectifiesInvoiceId: invoiceId,
+              correctionMethod: 'by_differences',
+              sequenceNumber: { gt: 0 },
+              deletedAt: null,
+            },
+            select: { total: true },
+          }),
+          tx.payment.findMany({
+            where: { invoiceId, methodType: 'credit_note', status: 'succeeded' },
+            select: { amount: true },
+          }),
+        ]),
+      tenantId,
+    );
+    const creditedCents = credits.reduce((sum, c) => sum - Math.min(0, toCents(c.total)), 0);
+    const compensatedCents = compensations.reduce((sum, c) => sum + toCents(c.amount), 0);
+    const coveredCents = Math.max(0, creditedCents - compensatedCents);
+    const refundCents = Math.min(toCents(original.amountRefunded), totalCents) - coveredCents;
     if (refundCents <= 0 || totalCents <= 0) return;
+    void amount; // el importe del aviso solo informa: se recalcula sobre lo acumulado
 
     // Bruto por tipo de IVA y parte proporcional del reembolso.
     const grossByRate = new Map<number, number>();
@@ -1852,12 +1967,14 @@ export class InvoicesService {
         total,
         method: correctionMethod,
       });
+      // Serie propia de rectificativas (RD 1619/2012, art. 6).
+      const rectSeries = await this.series.rectificationSeries(tx, args.tenantId);
       return tx.invoice.create({
         data: {
           tenantId: args.tenantId,
           ...(original.customerId ? { customerId: original.customerId } : {}),
           ...(original.contractId ? { contractId: original.contractId } : {}),
-          seriesId: original.seriesId,
+          seriesId: rectSeries.id,
           sequenceNumber: 0,
           invoiceNumber: placeholderNumber,
           status: 'draft',
@@ -1920,6 +2037,68 @@ export class InvoicesService {
     this.events.emit(DOMAIN_EVENTS.invoice_rectified, payload);
 
     return this.toDto(created);
+  }
+
+  /**
+   * Compensa el pendiente de una factura con un abono: registra un pago de
+   * compensación (`credit_note`, no es dinero cobrado) por lo que quede
+   * pendiente, como mucho el abono. Con la fila bloqueada.
+   */
+  private async compensateWithCredit(
+    tx: Prisma.TransactionClient,
+    args: { tenantId: string; originalId: string; creditCents: number; creditNumber: string },
+  ): Promise<{
+    id: string;
+    invoiceNumber: string;
+    customerId: string | null;
+    total: number;
+    fullyPaid: boolean;
+  } | null> {
+    await lockInvoiceRow(tx, args.originalId);
+    const orig = await tx.invoice.findUniqueOrThrow({
+      where: { id: args.originalId },
+      select: {
+        status: true,
+        total: true,
+        amountPaid: true,
+        customerId: true,
+        invoiceNumber: true,
+      },
+    });
+    if (orig.status !== 'issued' && orig.status !== 'overdue') return null;
+    const pendingCents = toCents(orig.total) - toCents(orig.amountPaid);
+    const comp = Math.min(pendingCents, args.creditCents);
+    if (comp <= 0) return null;
+    const now = new Date();
+    await tx.payment.create({
+      data: {
+        tenantId: args.tenantId,
+        invoiceId: args.originalId,
+        customerId: orig.customerId,
+        amount: comp / 100,
+        methodType: 'credit_note',
+        gateway: 'manual',
+        status: 'succeeded',
+        paidAt: now,
+        notes: `Compensación con la rectificativa ${args.creditNumber}`,
+      },
+    });
+    const newPaidCents = toCents(orig.amountPaid) + comp;
+    const fullyPaid = newPaidCents >= toCents(orig.total);
+    await tx.invoice.update({
+      where: { id: args.originalId },
+      data: {
+        amountPaid: newPaidCents / 100,
+        ...(fullyPaid ? { status: 'paid', paidAt: now } : {}),
+      },
+    });
+    return {
+      id: args.originalId,
+      invoiceNumber: orig.invoiceNumber,
+      customerId: orig.customerId,
+      total: Number(orig.total),
+      fullyPaid,
+    };
   }
 
   /**
@@ -2095,10 +2274,9 @@ export class InvoicesService {
     let taxCents = 0;
     let totalCents = 0;
     for (const it of items) {
-      const lineSubtotal = it.quantity * it.unitPrice;
-      const lineTax = (lineSubtotal * it.taxRate) / 100;
-      taxCents += Math.round(lineTax * 100);
-      totalCents += Math.round((lineSubtotal + lineTax) * 100);
+      const line = lineCents(it.quantity, it.unitPrice, it.taxRate);
+      taxCents += line.taxCents;
+      totalCents += line.totalCents;
     }
     return {
       subtotal: (totalCents - taxCents) / 100,
@@ -2112,16 +2290,15 @@ export class InvoicesService {
     tenantId: string,
     position: number,
   ): Prisma.InvoiceItemUncheckedCreateWithoutInvoiceInput {
-    const lineSubtotal = item.quantity * item.unitPrice;
-    const lineTax = (lineSubtotal * item.taxRate) / 100;
+    const line = lineCents(item.quantity, item.unitPrice, item.taxRate);
     return {
       tenantId,
       description: item.description,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       taxRate: item.taxRate,
-      taxAmount: Math.round(lineTax * 100) / 100,
-      total: Math.round((lineSubtotal + lineTax) * 100) / 100,
+      taxAmount: line.taxCents / 100,
+      total: line.totalCents / 100,
       ...(item.relatedContractId ? { relatedContractId: item.relatedContractId } : {}),
       ...(item.relatedUnitId ? { relatedUnitId: item.relatedUnitId } : {}),
       ...(item.periodStart ? { periodStart: new Date(item.periodStart) } : {}),
@@ -2148,10 +2325,9 @@ export class InvoicesService {
     let taxCents = 0;
     let totalCents = 0;
     for (const it of items) {
-      const lineSubtotal = it.quantity * it.unitPrice;
-      const lineTax = (lineSubtotal * it.taxRate) / 100;
-      taxCents += Math.round(lineTax * 100);
-      totalCents += Math.round((lineSubtotal + lineTax) * 100);
+      const line = lineCents(it.quantity, it.unitPrice, it.taxRate);
+      taxCents += line.taxCents;
+      totalCents += line.totalCents;
     }
     return {
       subtotal: (totalCents - taxCents) / 100,
@@ -2165,16 +2341,15 @@ export class InvoicesService {
     tenantId: string,
     position: number,
   ): Prisma.InvoiceItemUncheckedCreateWithoutInvoiceInput {
-    const lineSubtotal = item.quantity * item.unitPrice;
-    const lineTax = (lineSubtotal * item.taxRate) / 100;
+    const line = lineCents(item.quantity, item.unitPrice, item.taxRate);
     return {
       tenantId,
       description: item.description,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       taxRate: item.taxRate,
-      taxAmount: Math.round(lineTax * 100) / 100,
-      total: Math.round((lineSubtotal + lineTax) * 100) / 100,
+      taxAmount: line.taxCents / 100,
+      total: line.totalCents / 100,
       ...(item.relatedContractId ? { relatedContractId: item.relatedContractId } : {}),
       ...(item.relatedUnitId ? { relatedUnitId: item.relatedUnitId } : {}),
       ...(item.periodStart ? { periodStart: new Date(item.periodStart) } : {}),
