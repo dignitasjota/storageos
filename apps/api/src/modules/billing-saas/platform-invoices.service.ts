@@ -142,6 +142,7 @@ export class PlatformInvoicesService {
       ...(input.taxRate !== undefined ? { taxRate: input.taxRate } : {}),
       ...(input.seriesPrefix !== undefined ? { seriesPrefix: input.seriesPrefix } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.pricesIncludeVat !== undefined ? { pricesIncludeVat: input.pricesIncludeVat } : {}),
     };
 
     // Negocio propio de la SL (para la exportación de la asesoría), por slug.
@@ -522,6 +523,11 @@ export class PlatformInvoicesService {
           ]);
           const planByPrice = new Map(plans.map((p) => [p.stripePriceId, p.name]));
           const addonByPrice = new Map(addons.map((a) => [a.stripePriceId, a.name]));
+          // Con precios +IVA, Stripe da cada línea sin el IVA (lo suma aparte):
+          // se escala al total cobrado para que cada línea lleve su IVA.
+          const exclTax = (invoice as { total_excluding_tax?: number | null }).total_excluding_tax;
+          const grossFactor =
+            exclTax && exclTax > 0 && invoice.total > exclTax ? invoice.total / exclTax : 1;
           return stripeLines.map((line, i) => {
             const priceId = extractLinePriceId(line);
             const planName = priceId ? planByPrice.get(priceId) : undefined;
@@ -530,7 +536,7 @@ export class PlatformInvoicesService {
             const kind = addonName ? 'addon' : isProration ? 'adjustment' : 'plan';
             const description =
               addonName ?? planName ?? line.description ?? (isProration ? 'Ajuste' : 'Suscripción');
-            const gross = (line.amount ?? 0) / 100;
+            const gross = round2(((line.amount ?? 0) / 100) * grossFactor);
             const qty = line.quantity ?? 1;
             return split(gross, qty, kind, description, i);
           });
@@ -995,6 +1001,7 @@ export class PlatformInvoicesService {
     taxRate: unknown;
     seriesPrefix: string;
     enabled: boolean;
+    pricesIncludeVat: boolean;
     ownTenant?: { id: string; name: string; slug: string } | null;
   }): PlatformBillingSettingsDto {
     return {
@@ -1017,6 +1024,7 @@ export class PlatformInvoicesService {
       taxRate: Number(r.taxRate),
       seriesPrefix: r.seriesPrefix,
       enabled: r.enabled,
+      pricesIncludeVat: r.pricesIncludeVat,
     };
   }
 

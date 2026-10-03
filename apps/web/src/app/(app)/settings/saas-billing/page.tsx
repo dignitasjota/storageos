@@ -239,7 +239,7 @@ export default function SaasBillingPage() {
                               currency: p.currency,
                             })}
                             <span className="ml-1 text-xs font-normal text-muted-foreground">
-                              /año
+                              /año{p.pricesIncludeVat === false ? ' + IVA' : ' IVA incl.'}
                             </span>
                           </div>
                           {p.priceMonthly > 0 && p.priceYearly < p.priceMonthly * 12 && (
@@ -257,7 +257,7 @@ export default function SaasBillingPage() {
                             currency: p.currency,
                           })}
                           <span className="ml-1 text-xs font-normal text-muted-foreground">
-                            /mes
+                            /mes{p.pricesIncludeVat === false ? ' + IVA' : ' IVA incl.'}
                           </span>
                         </div>
                       )}
@@ -654,7 +654,10 @@ function SelfAddonsSection() {
                   </div>
                 ))}
                 <div className="flex justify-between border-t pt-2 text-sm font-semibold">
-                  <span>Total mensual (plan + extras)</span>
+                  <span>
+                    Total mensual (plan + extras)
+                    {data.data?.summary.pricesIncludeVat === false ? ' + IVA' : ', IVA incl.'}
+                  </span>
                   <span>{eur(data.data?.summary.effectiveMonthly ?? 0)}</span>
                 </div>
               </div>

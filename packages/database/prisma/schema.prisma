@@ -4074,6 +4074,11 @@ model PlatformBillingSettings {
   country      String   @default("ES")
   email        String?
   taxRate      Decimal  @default(21) @map("tax_rate") @db.Decimal(5, 2)
+  /// true: los precios de planes y extras ya incluyen el IVA; false: +IVA.
+  pricesIncludeVat     Boolean  @default(true) @map("prices_include_vat")
+  /// TaxRate de Stripe para cobrar +IVA (se crea la primera vez).
+  stripeTaxRateId      String?  @map("stripe_tax_rate_id")
+  stripeTaxRatePercent Decimal? @map("stripe_tax_rate_percent") @db.Decimal(5, 2)
   seriesPrefix String   @default("SAAS") @map("series_prefix")
   enabled      Boolean  @default(false)
   /// Tenant del negocio propio de la SL emisora (entra en la exportación para la asesoría).

@@ -239,6 +239,12 @@ export function TenantAddonsCard({ tenantId }: { tenantId: string }) {
                 <span>Total efectivo</span>
                 <span>{eur(summary.data?.effectiveMonthly ?? 0)}/mes</span>
               </div>
+              {summary.data && !summary.data.pricesIncludeVat && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Se cobra (con IVA)</span>
+                  <span>{eur(summary.data.effectiveMonthlyToCharge)}/mes</span>
+                </div>
+              )}
             </div>
 
             {/* Uso vs límite (plan + add-ons de capacidad) */}

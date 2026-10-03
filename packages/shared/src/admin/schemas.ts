@@ -472,6 +472,8 @@ export const UpdatePlatformBillingSettingsSchema = z.object({
   taxRate: z.number().min(0).max(100).default(21),
   seriesPrefix: z.string().trim().min(1).max(20).default('SAAS'),
   enabled: z.boolean().default(false),
+  /** Los precios de planes y extras incluyen el IVA (true) o son +IVA (false). Omitido = no cambia. */
+  pricesIncludeVat: z.boolean().optional(),
   /**
    * Slug del tenant del negocio propio de la SL (sus facturas entran en la
    * exportación para la asesoría). Omitido = no cambia; '' = quitarlo.

@@ -35,6 +35,7 @@ type Form = {
   taxRate: number;
   seriesPrefix: string;
   enabled: boolean;
+  pricesIncludeVat: boolean;
   ownTenantSlug: string;
 };
 
@@ -56,6 +57,7 @@ export default function PlatformBillingPage() {
         taxRate: data.taxRate,
         seriesPrefix: data.seriesPrefix,
         enabled: data.enabled,
+        pricesIncludeVat: data.pricesIncludeVat,
         ownTenantSlug: data.ownTenant?.slug ?? '',
       });
     }
@@ -75,6 +77,7 @@ export default function PlatformBillingPage() {
         taxRate: form.taxRate,
         seriesPrefix: form.seriesPrefix,
         enabled: form.enabled,
+        pricesIncludeVat: form.pricesIncludeVat,
         ownTenantSlug: form.ownTenantSlug.trim(),
       });
       toast.success('Datos de facturación guardados.');
@@ -152,6 +155,35 @@ export default function PlatformBillingPage() {
                 onChange={(e) => set({ seriesPrefix: e.target.value })}
               />
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Precios de planes y extras</Label>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="prices-vat"
+                  checked={form.pricesIncludeVat}
+                  onChange={() => set({ pricesIncludeVat: true })}
+                />
+                IVA incluido
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="prices-vat"
+                  checked={!form.pricesIncludeVat}
+                  onChange={() => set({ pricesIncludeVat: false })}
+                />
+                + IVA
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Con «+ IVA» se cobra el precio más el {form.taxRate} % (remesas SEPA, cobros manuales
+              de extras y suscripciones nuevas por Stripe, a las que se aplica un tipo de IVA de
+              Stripe). Las suscripciones de Stripe que ya existían siguen con su importe: cámbialas
+              en Stripe si hace falta.
+            </p>
           </div>
           {data && data.missing.length > 0 && (
             <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
