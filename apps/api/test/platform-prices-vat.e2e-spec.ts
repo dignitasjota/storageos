@@ -103,4 +103,40 @@ describe('Precios de la plataforma con IVA incluido o +IVA (e2e)', () => {
     });
     expect(Number(pay.amount)).toBe(12.1);
   });
+
+  it('un NIF solo puede tenerlo una empresa', async () => {
+    const a = await registerVerifiedUser(app, 'niforiga');
+    const b = await registerVerifiedUser(app, 'nifcopyb');
+    const details = {
+      legalName: 'Trasteros SL',
+      taxId: '12345678Z',
+      address: 'C/ Uno 1',
+      city: 'Sevilla',
+      postalCode: '41001',
+    };
+    await http()
+      .post('/settings/saas-billing/billing-details')
+      .set({ Authorization: `Bearer ${a.accessToken}` })
+      .send(details)
+      .expect(200);
+    const dup = await http()
+      .post('/settings/saas-billing/billing-details')
+      .set({ Authorization: `Bearer ${b.accessToken}` })
+      .send({ ...details, taxId: '12345678-z' })
+      .expect(409);
+    expect(dup.body.code).toBe('tax_id_in_use');
+    // Desde el admin tampoco.
+    const adminDup = await http()
+      .patch(`/admin/tenants/${b.tenantId}`)
+      .set(auth)
+      .send({ taxId: '12345678Z' })
+      .expect(409);
+    expect(adminDup.body.code).toBe('tax_id_in_use');
+    // La propia empresa sí puede volver a guardar el suyo.
+    await http()
+      .post('/settings/saas-billing/billing-details')
+      .set({ Authorization: `Bearer ${a.accessToken}` })
+      .send(details)
+      .expect(200);
+  });
 });

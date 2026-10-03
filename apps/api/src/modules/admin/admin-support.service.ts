@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { normalizeTaxId, type AdminUpdateTenantInput } from '@storageos/shared';
 
+import { assertTaxIdFree } from '../../common/tax-id-unique';
+
 import { AuditService } from '../auth/audit.service';
 import { AuthService } from '../auth/auth.service';
 import { SessionsService } from '../auth/sessions.service';
@@ -109,7 +111,10 @@ export class AdminSupportService {
     if (input.country !== undefined) data.country = input.country;
     if (input.currency !== undefined) data.currency = input.currency;
     if (input.timezone !== undefined) data.timezone = input.timezone;
-    if (input.taxId !== undefined) data.taxId = input.taxId ? normalizeTaxId(input.taxId) : null;
+    if (input.taxId !== undefined) {
+      await assertTaxIdFree(this.admin, tenantId, input.taxId);
+      data.taxId = input.taxId ? normalizeTaxId(input.taxId) : null;
+    }
     if (input.billingLegalName !== undefined)
       data.billingLegalName = input.billingLegalName || null;
     if (input.billingAddress !== undefined) data.billingAddress = input.billingAddress || null;
