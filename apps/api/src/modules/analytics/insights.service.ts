@@ -599,6 +599,18 @@ export class InsightsService {
       const previousPrice = toNumber(unit.basePriceMonthly);
       const newPrice = round2(args.price);
       await tx.unit.update({ where: { id: args.unitId }, data: { basePriceMonthly: newPrice } });
+      if (newPrice !== previousPrice) {
+        await tx.unitPriceHistory.create({
+          data: {
+            tenantId: args.tenantId,
+            unitId: args.unitId,
+            previousPrice,
+            newPrice,
+            source: 'suggestion',
+            changedByUserId: args.userId,
+          },
+        });
+      }
       return { previousPrice, newPrice };
     }, args.tenantId);
 

@@ -535,6 +535,8 @@ model Tenant {
 
   // Índices para las queries cross-tenant del panel admin (filtros omnipresentes
   // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
+  competitorUnitObservations CompetitorUnitObservation[]
+  unitPriceHistory           UnitPriceHistory[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -611,6 +613,7 @@ model User {
   delinquencyCaseEvents    DelinquencyCaseEvent[]    @relation("DelinquencyCaseEventCreatedBy")
   delinquencyCaseFiles     DelinquencyCaseFile[]     @relation("DelinquencyCaseFileCreatedBy")
 
+  unitPriceChanges  UnitPriceHistory[] @relation("UnitPriceChangedBy")
   @@unique([tenantId, email])
   @@index([tenantId])
   @@map("users")
@@ -1037,6 +1040,7 @@ model Unit {
   accessDevices    AccessDevice[]      @relation("DeviceUnit")
   delinquencyCases DelinquencyCase[]
 
+  priceHistory      UnitPriceHistory[]
   @@unique([facilityId, code])
   @@index([tenantId])
   @@index([facilityId, status])
@@ -2320,6 +2324,26 @@ model CompetitorFacility {
   /// precio a NETO al comparar con el nuestro (que es sin IVA).
   priceIncludesVat Boolean  @default(true) @map("price_includes_vat")
   notes            String?
+  /// Contacto: teléfono, web, dirección y cómo se consultó (para repetirlo).
+  phone                     String?
+  website                   String?
+  address                   String?
+  /// phone | web | visit | email | whatsapp | other
+  contactMethod             String?   @map("contact_method")
+  contactNotes              String?   @map("contact_notes")
+  distanceKm                Decimal?  @map("distance_km") @db.Decimal(8, 2)
+  /// Inventario completo: todos sus trasteros están fichados (su ocupación es fiable).
+  inventoryComplete         Boolean   @default(false) @map("inventory_complete")
+  inventoryCompletedAt      DateTime? @map("inventory_completed_at") @db.Timestamptz(6)
+  /// Total de trasteros que se sabe que tiene (p. ej. lo dice su web).
+  knownTotalUnits           Int?      @map("known_total_units")
+  currentPromotion          String?   @map("current_promotion")
+  depositAmount             Decimal?  @map("deposit_amount") @db.Decimal(10, 2)
+  setupFee                  Decimal?  @map("setup_fee") @db.Decimal(10, 2)
+  mandatoryInsuranceMonthly Decimal?  @map("mandatory_insurance_monthly") @db.Decimal(10, 2)
+  /// 24h | climate | vehicle_access | cctv | ground_floor | online_booking
+  features                  String[]  @default([])
+  lastReviewedAt            DateTime? @map("last_reviewed_at") @db.Timestamptz(6)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2346,16 +2370,55 @@ model CompetitorUnit {
   priceMonthly         Decimal  @map("price_monthly") @db.Decimal(10, 2)
   /// available | occupied
   status               String   @default("available")
+  /// Su código en el competidor (si lo publica), para reconocer el mismo trastero.
+  externalRef          String?  @map("external_ref")
   lastCheckedAt        DateTime @default(now()) @map("last_checked_at") @db.Timestamptz(6)
   notes                String?
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   competitorFacility CompetitorFacility @relation(fields: [competitorFacilityId], references: [id], onDelete: Cascade)
+  observations       CompetitorUnitObservation[]
 
   @@index([competitorFacilityId])
   @@index([tenantId, status])
   @@map("competitor_units")
+}
+
+/// Cada comprobación de un trastero de la competencia (precio y estado ese día).
+model CompetitorUnitObservation {
+  id               String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  competitorUnitId String   @map("competitor_unit_id") @db.Uuid
+  observedAt       DateTime @default(now()) @map("observed_at") @db.Timestamptz(6)
+  priceMonthly     Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  status           String
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit   CompetitorUnit @relation(fields: [competitorUnitId], references: [id], onDelete: Cascade)
+
+  @@index([competitorUnitId, observedAt], map: "competitor_unit_observations_unit_idx")
+  @@map("competitor_unit_observations")
+}
+
+/// Historial de precios de un trastero propio.
+model UnitPriceHistory {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  unitId          String   @map("unit_id") @db.Uuid
+  previousPrice   Decimal  @map("previous_price") @db.Decimal(10, 2)
+  newPrice        Decimal  @map("new_price") @db.Decimal(10, 2)
+  /// manual | suggestion | import
+  source          String
+  changedByUserId String?  @map("changed_by_user_id") @db.Uuid
+  changedAt       DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit      Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  changedBy User?  @relation("UnitPriceChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([unitId, changedAt], map: "unit_price_history_unit_idx")
+  @@map("unit_price_history")
 }
 
 /// Solicitud de derechos RGPD (acceso, rectificacion, supresion, etc.).

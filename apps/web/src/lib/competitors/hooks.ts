@@ -5,7 +5,9 @@ import { apiFetch } from '../auth/api';
 import type {
   CompetitorFacilityDto,
   CompetitorUnitDto,
+  CompetitorUnitObservationDto,
   CreateCompetitorFacilityInput,
+  ReviewCompetitorInput,
   CreateCompetitorUnitInput,
   MarketOccupancyDto,
   UpdateCompetitorFacilityInput,
@@ -106,5 +108,29 @@ export function useDeleteCompetitorUnit(facilityId: string) {
       void qc.invalidateQueries({ queryKey: unitsKey(facilityId) });
       void qc.invalidateQueries({ queryKey: facilitiesKey });
     },
+  });
+}
+
+/** Revisión: precio y estado de hoy de todos sus trasteros. */
+export function useReviewCompetitor(facilityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReviewCompetitorInput) =>
+      apiFetch<CompetitorUnitDto[]>(`/competitors/${facilityId}/review`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['competitors'] });
+    },
+  });
+}
+
+/** Histórico de comprobaciones de un trastero de la competencia. */
+export function useCompetitorUnitHistory(unitId: string | null) {
+  return useQuery({
+    queryKey: ['competitors', 'unit-history', unitId] as const,
+    queryFn: () => apiFetch<CompetitorUnitObservationDto[]>(`/competitors/units/${unitId}/history`),
+    enabled: !!unitId,
   });
 }

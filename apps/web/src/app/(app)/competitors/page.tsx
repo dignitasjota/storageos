@@ -1,14 +1,21 @@
 'use client';
 
-import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import {
+  COMPETITOR_CONTACT_METHOD_LABELS,
+  COMPETITOR_FEATURE_LABELS,
+  type CompetitorFacilityDto,
+  type CompetitorUnitDto,
+} from '@storageos/shared';
+import { ClipboardCheck, Globe, History, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { CompetitorFacilityDto, CompetitorUnitDto } from '@storageos/shared';
+import { CompetitorFormDialog } from './competitor-form-dialog';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -39,12 +46,12 @@ import {
   useCompetitorFacilities,
   useMarketOccupancy,
   useCompetitorUnits,
-  useCreateCompetitorFacility,
-  useUpdateCompetitorFacility,
   useCreateCompetitorUnit,
   useDeleteCompetitorFacility,
   useDeleteCompetitorUnit,
   useUpdateCompetitorUnit,
+  useCompetitorUnitHistory,
+  useReviewCompetitor,
 } from '@/lib/competitors/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
@@ -54,52 +61,18 @@ export default function CompetitorsPage() {
   const canManage = useHasPermission('units:manage');
   const { data: facilities } = useCompetitorFacilities();
   const myFacilities = useFacilities();
-  const createFacility = useCreateCompetitorFacility();
-  const updateFacility = useUpdateCompetitorFacility();
   const deleteFacility = useDeleteCompetitorFacility();
   const [selected, setSelected] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const emptyFacilityForm = { name: '', zone: '', facilityId: '', priceIncludesVat: true };
-  const [form, setForm] = useState(emptyFacilityForm);
+  const [editing, setEditing] = useState<CompetitorFacilityDto | null>(null);
 
   function openNewFacility() {
-    setEditingId(null);
-    setForm(emptyFacilityForm);
+    setEditing(null);
     setNewOpen(true);
   }
   function openEditFacility(f: CompetitorFacilityDto) {
-    setEditingId(f.id);
-    setForm({
-      name: f.name,
-      zone: f.zone ?? '',
-      facilityId: f.facilityId ?? '',
-      priceIncludesVat: f.priceIncludesVat,
-    });
+    setEditing(f);
     setNewOpen(true);
-  }
-
-  async function onSubmitFacility() {
-    if (form.name.trim().length === 0) return;
-    const input = {
-      name: form.name.trim(),
-      zone: form.zone.trim() || '',
-      priceIncludesVat: form.priceIncludesVat,
-      facilityId: form.facilityId || null,
-    };
-    try {
-      if (editingId) {
-        await updateFacility.mutateAsync({ id: editingId, input });
-      } else {
-        const created = await createFacility.mutateAsync(input);
-        setSelected(created.id);
-      }
-      setNewOpen(false);
-      setForm(emptyFacilityForm);
-      setEditingId(null);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
   }
 
   async function onDeleteFacility(id: string, name: string) {
@@ -148,78 +121,13 @@ export default function CompetitorsPage() {
 
       {current && <CompetitorUnits facility={current} canManage={canManage} />}
 
-      <Dialog open={newOpen} onOpenChange={setNewOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Editar competidor' : 'Nuevo competidor'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Nombre</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
-                placeholder="p. ej. BlueSpace Vallecas"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Zona (opcional)</Label>
-              <Input
-                value={form.zone}
-                onChange={(e) => setForm((s) => ({ ...s, zone: e.target.value }))}
-                placeholder="Barrio / dirección"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Sus precios</Label>
-              <Select
-                value={form.priceIncludesVat ? 'incl' : 'excl'}
-                onValueChange={(v) =>
-                  setForm((s) => ({ ...s, priceIncludesVat: v === 'incl' }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="incl">Incluyen IVA</SelectItem>
-                  <SelectItem value="excl">Sin IVA</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Para comparar en igualdad con tus precios (que son sin IVA).
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label>Compite con mi local (opcional)</Label>
-              <Select
-                value={form.facilityId || 'none'}
-                onValueChange={(v) => setForm((s) => ({ ...s, facilityId: v === 'none' ? '' : v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Ninguno" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Ninguno</SelectItem>
-                  {(myFacilities.data ?? []).map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={onSubmitFacility}
-              disabled={createFacility.isPending || updateFacility.isPending}
-            >
-              {editingId ? 'Guardar' : 'Crear'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CompetitorFormDialog
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        editing={editing}
+        myFacilities={(myFacilities.data ?? []).map((f) => ({ id: f.id, name: f.name }))}
+        onCreated={setSelected}
+      />
     </div>
   );
 }
@@ -237,6 +145,10 @@ function CompetitorCard({
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
+  const occupancy = competitorOccupancy(facility);
+  const reviewStale =
+    facility.lastReviewedAt != null &&
+    Date.now() - new Date(facility.lastReviewedAt).getTime() > 30 * 86_400_000;
   return (
     <Card className={active ? 'border-primary' : 'cursor-pointer hover:border-muted-foreground/40'}>
       <CardContent className="p-4" onClick={onSelect}>
@@ -246,6 +158,7 @@ function CompetitorCard({
             <p className="text-xs text-muted-foreground">
               {[
                 facility.zone,
+                facility.distanceKm != null ? `${facility.distanceKm} km` : null,
                 facility.facilityName ? `vs ${facility.facilityName}` : null,
                 facility.priceIncludesVat ? 'precios con IVA' : 'precios sin IVA',
               ]
@@ -284,20 +197,96 @@ function CompetitorCard({
             )}
           </div>
         </div>
+        <ContactLine facility={facility} />
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <Badge variant="outline">{facility.unitCount} trasteros</Badge>
+          <Badge variant="outline">{facility.unitCount} fichados</Badge>
           <Badge variant="outline">{facility.availableCount} disponibles</Badge>
-          {facility.unitCount > 0 && (
-            <Badge variant="outline">
-              {Math.round(
-                ((facility.unitCount - facility.availableCount) / facility.unitCount) * 100,
-              )}
-              % ocupación
-            </Badge>
+          {occupancy != null ? (
+            <Badge variant="outline">{occupancy}% ocupación</Badge>
+          ) : (
+            facility.unitCount > 0 && (
+              <Badge variant="outline" title="Marca el inventario como completo o indica su total">
+                Ocupación desconocida
+              </Badge>
+            )
+          )}
+          {facility.inventoryComplete && <Badge variant="secondary">Inventario completo</Badge>}
+          {facility.currentPromotion && (
+            <Badge variant="secondary">Promo: {facility.currentPromotion}</Badge>
           )}
         </div>
+        {facility.features.length > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {facility.features.map((f) => COMPETITOR_FEATURE_LABELS[f]).join(' · ')}
+          </p>
+        )}
+        <p
+          className={`mt-2 text-xs ${reviewStale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
+        >
+          {facility.lastReviewedAt
+            ? `Última revisión: ${new Date(facility.lastReviewedAt).toLocaleDateString('es-ES')}${reviewStale ? ' · conviene revisarlo' : ''}`
+            : 'Sin revisar todavía'}
+        </p>
       </CardContent>
     </Card>
+  );
+}
+
+/** Ocupación fiable (%): con inventario completo o total conocido; si no, null. */
+function competitorOccupancy(f: CompetitorFacilityDto): number | null {
+  if (f.inventoryComplete && f.unitCount > 0) {
+    return Math.round(((f.unitCount - f.availableCount) / f.unitCount) * 100);
+  }
+  if (f.knownTotalUnits && f.knownTotalUnits >= f.availableCount) {
+    return Math.round(((f.knownTotalUnits - f.availableCount) / f.knownTotalUnits) * 100);
+  }
+  return null;
+}
+
+/** Cómo contactar: teléfono, web y la forma en que se consultó la última vez. */
+function ContactLine({ facility }: { facility: CompetitorFacilityDto }) {
+  if (!facility.phone && !facility.website && !facility.contactMethod && !facility.contactNotes) {
+    return null;
+  }
+  const href = facility.website
+    ? /^https?:\/\//i.test(facility.website)
+      ? facility.website
+      : `https://${facility.website}`
+    : null;
+  return (
+    <div className="mt-2 space-y-1 text-xs" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {facility.phone && (
+          <a
+            href={`tel:${facility.phone}`}
+            className="inline-flex items-center gap-1 hover:underline"
+          >
+            <Phone className="size-3" /> {facility.phone}
+          </a>
+        )}
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 hover:underline"
+          >
+            <Globe className="size-3" /> Web
+          </a>
+        )}
+      </div>
+      {(facility.contactMethod || facility.contactNotes) && (
+        <p className="text-muted-foreground">
+          {facility.contactMethod && (
+            <span className="font-medium text-foreground">
+              {COMPETITOR_CONTACT_METHOD_LABELS[facility.contactMethod]}
+            </span>
+          )}
+          {facility.contactMethod && facility.contactNotes ? ': ' : ''}
+          {facility.contactNotes}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -314,6 +303,8 @@ function CompetitorUnits({
   const del = useDeleteCompetitorUnit(facility.id);
   const [edit, setEdit] = useState<CompetitorUnitDto | null>(null);
   const [open, setOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [historyUnit, setHistoryUnit] = useState<CompetitorUnitDto | null>(null);
   const emptyForm = {
     areaM2: 0,
     widthM: 0,
@@ -322,6 +313,7 @@ function CompetitorUnits({
     priceMonthly: 0,
     status: 'available',
     notes: '',
+    externalRef: '',
   };
   const [form, setForm] = useState(emptyForm);
   const hasDims = form.widthM > 0 && form.depthM > 0;
@@ -342,6 +334,7 @@ function CompetitorUnits({
       priceMonthly: u.priceMonthly,
       status: u.status,
       notes: u.notes ?? '',
+      externalRef: u.externalRef ?? '',
     });
     setOpen(true);
   }
@@ -361,6 +354,7 @@ function CompetitorUnits({
       priceMonthly: form.priceMonthly,
       status: form.status as 'available' | 'occupied',
       notes: form.notes.trim() || '',
+      externalRef: form.externalRef.trim(),
     };
     try {
       if (edit) await update.mutateAsync({ unitId: edit.id, input });
@@ -387,9 +381,16 @@ function CompetitorUnits({
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Trasteros de {facility.name}</CardTitle>
         {canManage && (
-          <Button size="sm" onClick={openNew}>
-            <Plus className="mr-1 size-4" /> Añadir trastero
-          </Button>
+          <div className="flex gap-2">
+            {(units ?? []).length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)}>
+                <ClipboardCheck className="mr-1 size-4" /> Revisar
+              </Button>
+            )}
+            <Button size="sm" onClick={openNew}>
+              <Plus className="mr-1 size-4" /> Añadir trastero
+            </Button>
+          </div>
         )}
       </CardHeader>
       <CardContent>
@@ -400,21 +401,27 @@ function CompetitorUnits({
               <TableHead>Medidas</TableHead>
               <TableHead>Precio/mes</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>Histórico</TableHead>
               <TableHead>Comprobado</TableHead>
-              {canManage && <TableHead />}
+              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
             {(units ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
                   Sin trasteros fichados todavía.
                 </TableCell>
               </TableRow>
             ) : (
               (units ?? []).map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell>{u.areaM2} m²</TableCell>
+                  <TableCell>
+                    {u.areaM2} m²
+                    {u.externalRef && (
+                      <span className="block text-xs text-muted-foreground">{u.externalRef}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {u.widthM && u.depthM
                       ? `${u.widthM}×${u.depthM}${u.heightM ? `×${u.heightM}` : ''} m`
@@ -434,30 +441,44 @@ function CompetitorUnits({
                     </button>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
+                    <HistorySummary unit={u} />
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
                     {new Date(u.lastCheckedAt).toLocaleDateString('es-ES')}
                   </TableCell>
-                  {canManage && (
-                    <TableCell className="space-x-1 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => openEdit(u)}
-                        aria-label="Editar"
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => del.mutate(u.id)}
-                        aria-label="Eliminar"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TableCell>
-                  )}
+                  <TableCell className="space-x-1 whitespace-nowrap text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setHistoryUnit(u)}
+                      aria-label="Ver histórico"
+                    >
+                      <History className="size-4" />
+                    </Button>
+                    {canManage && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => openEdit(u)}
+                          aria-label="Editar"
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => del.mutate(u.id)}
+                          aria-label="Eliminar"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -529,7 +550,15 @@ function CompetitorUnits({
                 }
               />
             </div>
-            <div className="col-span-2 space-y-1">
+            <div className="space-y-1">
+              <Label>Su referencia (opcional)</Label>
+              <Input
+                value={form.externalRef}
+                placeholder="p. ej. A-12"
+                onChange={(e) => setForm((s) => ({ ...s, externalRef: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
               <Label>Estado</Label>
               <Select
                 value={form.status}
@@ -552,14 +581,237 @@ function CompetitorUnits({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        facility={facility}
+        units={units ?? []}
+      />
+      <UnitHistoryDialog unit={historyUnit} onClose={() => setHistoryUnit(null)} />
     </Card>
+  );
+}
+
+const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+
+/** Resumen corto del histórico: tendencia de precio, tiempo en su estado y alquileres. */
+function HistorySummary({ unit }: { unit: CompetitorUnitDto }) {
+  const h = unit.history;
+  if (h.observations <= 1) return <span>1 comprobación</span>;
+  const parts: string[] = [];
+  if (h.priceChangePct != null && h.priceChangePct !== 0) {
+    parts.push(`${h.priceChangePct > 0 ? '▲' : '▼'} ${Math.abs(h.priceChangePct)}%`);
+  }
+  if (h.inCurrentStatusSince) {
+    const d = daysSince(h.inCurrentStatusSince);
+    parts.push(`${unit.status === 'available' ? 'libre' : 'ocupado'} ${d} d`);
+  }
+  if (h.timesRented > 0) parts.push(`${h.timesRented} alquiler${h.timesRented > 1 ? 'es' : ''}`);
+  return <span>{parts.join(' · ') || `${h.observations} comprobaciones`}</span>;
+}
+
+/** Histórico completo de comprobaciones de un trastero. */
+function UnitHistoryDialog({
+  unit,
+  onClose,
+}: {
+  unit: CompetitorUnitDto | null;
+  onClose: () => void;
+}) {
+  const { data } = useCompetitorUnitHistory(unit?.id ?? null);
+  return (
+    <Dialog open={!!unit} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Histórico · {unit?.areaM2} m²{unit?.externalRef ? ` (${unit.externalRef})` : ''}
+          </DialogTitle>
+        </DialogHeader>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Fecha</TableHead>
+              <TableHead>Precio</TableHead>
+              <TableHead>Estado</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(data ?? []).map((o, i, arr) => {
+              const prev = arr[i + 1];
+              const diff = prev ? o.priceMonthly - prev.priceMonthly : 0;
+              return (
+                <TableRow key={o.id}>
+                  <TableCell className="text-sm">
+                    {new Date(o.observedAt).toLocaleDateString('es-ES')}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {eur(o.priceMonthly)}
+                    {diff !== 0 && (
+                      <span
+                        className={`ml-1 text-xs ${diff > 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                      >
+                        {diff > 0 ? '+' : ''}
+                        {eur(diff)}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={o.status === 'available' ? 'default' : 'secondary'}>
+                      {o.status === 'available' ? 'Disponible' : 'Ocupado'}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Revisión rápida: precio y estado de hoy de todos sus trasteros. Al guardar,
+ * todos quedan comprobados hoy y suman una entrada a su histórico.
+ */
+function ReviewDialog({
+  open,
+  onOpenChange,
+  facility,
+  units,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  facility: CompetitorFacilityDto;
+  units: CompetitorUnitDto[];
+}) {
+  const review = useReviewCompetitor(facility.id);
+  const [rows, setRows] = useState<Record<string, { price: string; available: boolean }>>({});
+  useEffect(() => {
+    if (!open) return;
+    setRows(
+      Object.fromEntries(
+        units.map((u) => [
+          u.id,
+          { price: String(u.priceMonthly), available: u.status === 'available' },
+        ]),
+      ),
+    );
+  }, [open, units]);
+
+  async function onSave() {
+    try {
+      await review.mutateAsync({
+        units: units.map((u) => {
+          const r = rows[u.id];
+          const price = Number((r?.price ?? String(u.priceMonthly)).replace(',', '.'));
+          return {
+            id: u.id,
+            priceMonthly: Number.isFinite(price) && price >= 0 ? price : u.priceMonthly,
+            status: (r?.available ?? u.status === 'available') ? 'available' : 'occupied',
+          };
+        }),
+      });
+      toast.success('Revisión guardada');
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Revisar {facility.name}</DialogTitle>
+        </DialogHeader>
+        {(facility.contactMethod || facility.contactNotes || facility.phone) && (
+          <div className="rounded-md bg-muted p-3 text-xs">
+            <p className="font-medium">Cómo consultarlo</p>
+            <p className="text-muted-foreground">
+              {[
+                facility.contactMethod
+                  ? COMPETITOR_CONTACT_METHOD_LABELS[facility.contactMethod]
+                  : null,
+                facility.phone,
+                facility.contactNotes,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Actualiza lo que haya cambiado. Todos sus trasteros quedan comprobados con fecha de hoy.
+          {facility.inventoryComplete &&
+            ' Como tienes su inventario completo, marca como ocupados los que ya no ofrece.'}
+        </p>
+        <div className="space-y-2">
+          {units.map((u) => {
+            const r = rows[u.id];
+            return (
+              <div key={u.id} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm">
+                  {u.areaM2} m²
+                  {u.externalRef && (
+                    <span className="block text-xs text-muted-foreground">{u.externalRef}</span>
+                  )}
+                </span>
+                <Input
+                  inputMode="decimal"
+                  className="w-28"
+                  value={r?.price ?? ''}
+                  onChange={(e) =>
+                    setRows((s) => ({
+                      ...s,
+                      [u.id]: { available: r?.available ?? true, price: e.target.value },
+                    }))
+                  }
+                  aria-label="Precio mensual"
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={r?.available ?? false}
+                    onCheckedChange={(c) => {
+                      const v = c === true;
+                      setRows((s) => ({
+                        ...s,
+                        [u.id]: { price: r?.price ?? String(u.priceMonthly), available: v },
+                      }));
+                    }}
+                  />
+                  {r?.available ? 'Disponible' : 'Ocupado'}
+                </label>
+              </div>
+            );
+          })}
+        </div>
+        <DialogFooter>
+          <Button onClick={() => void onSave()} disabled={review.isPending}>
+            Guardar revisión
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 /** Comparativa de ocupación: la mía vs la de la competencia fichada. */
 function MarketOccupancyCard() {
   const { data } = useMarketOccupancy();
-  if (!data || data.competitionTotalUnits === 0) return null;
+  if (!data || data.competitors.length === 0) return null;
+  if (data.competitionTotalUnits === 0) {
+    return (
+      <Card>
+        <CardContent className="p-4 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Ocupación de mercado:</span> aún no se puede
+          calcular. Marca un competidor con el inventario completo (o indica su total de trasteros)
+          para saber qué parte de sus trasteros está ocupada.
+        </CardContent>
+      </Card>
+    );
+  }
 
   const mine = Math.round(data.myOccupancyPct * 100);
   const comp = Math.round((data.competitionOccupancyPct ?? 0) * 100);
@@ -603,8 +855,9 @@ function MarketOccupancyCard() {
             : delta < -3
               ? `Tu ocupación va ${Math.abs(delta)} puntos por debajo del mercado local: revisa precio y captación.`
               : 'Tu ocupación está en línea con el mercado local.'}{' '}
-          Ocupación de la competencia inferida de los trasteros fichados con su estado
-          (disponible/ocupado).
+          Solo cuentan los competidores con el inventario completo o con su total de trasteros
+          indicado ({data.competitors.filter((c) => c.occupancyPct !== null).length} de{' '}
+          {data.competitors.length}).
         </p>
       </CardContent>
     </Card>
