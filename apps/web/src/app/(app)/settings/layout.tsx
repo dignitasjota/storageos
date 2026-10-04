@@ -41,7 +41,10 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
             <SelectItem value="/settings">Inicio de Configuración</SelectItem>
             {groups.map((g) => (
               <SelectGroup key={g.label}>
-                <SelectLabel>{g.label}</SelectLabel>
+                <SelectLabel className="flex items-center gap-2 font-semibold text-foreground">
+                  <g.icon className="size-4 text-primary" aria-hidden />
+                  {g.label}
+                </SelectLabel>
                 {g.items.map((i) => (
                   <SelectItem key={i.href} value={i.href}>
                     {i.label}
@@ -70,10 +73,11 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
           <div className="space-y-4">
             {groups.map((g) => (
               <div key={g.label}>
-                <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="flex items-center gap-2 px-3 pb-1.5 text-sm font-semibold text-foreground">
+                  <g.icon className="size-4 text-primary" aria-hidden />
                   {g.label}
                 </div>
-                <ul className="space-y-0.5">
+                <ul className="ml-[1.2rem] space-y-0.5 border-l pl-2">
                   {g.items.map((i) => (
                     <li key={i.href}>
                       <Link
