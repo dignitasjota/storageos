@@ -4,6 +4,8 @@ import { apiFetch } from '../auth/api';
 
 import type {
   CreatePromotionInput,
+  CreateUnitOfferInput,
+  UnitOfferDto,
   PromotionDto,
   UpdatePromotionInput,
   ValidatePromotionInput,
@@ -50,5 +52,40 @@ export function useValidatePromotion() {
   return useMutation({
     mutationFn: (input: ValidatePromotionInput) =>
       apiFetch<ValidatePromotionResultDto>('/promotions/validate', { method: 'POST', json: input }),
+  });
+}
+
+/** Ofertas activas de trasteros concretos (`unitId` para uno). */
+export function useUnitOffers(unitId?: string | null, enabled = true) {
+  return useQuery({
+    queryKey: [...promotionsKey, 'unit-offers', unitId ?? 'all'] as const,
+    queryFn: () =>
+      apiFetch<UnitOfferDto[]>(`/promotions/unit-offers${unitId ? `?unitId=${unitId}` : ''}`),
+    enabled,
+  });
+}
+
+/** Crea a mano una oferta para un trastero concreto. */
+export function useCreateUnitOffer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateUnitOfferInput) =>
+      apiFetch<UnitOfferDto>('/promotions/unit-offers', { method: 'POST', json: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: promotionsKey });
+      void qc.invalidateQueries({ queryKey: ['analytics', 'unit-pricing-suggestions'] });
+    },
+  });
+}
+
+export function useCancelUnitOffer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (unitId: string) =>
+      apiFetch<void>(`/promotions/unit-offers/${unitId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: promotionsKey });
+      void qc.invalidateQueries({ queryKey: ['analytics', 'unit-pricing-suggestions'] });
+    },
   });
 }

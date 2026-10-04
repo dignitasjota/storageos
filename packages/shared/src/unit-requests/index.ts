@@ -32,6 +32,8 @@ export interface AvailableUnitDto {
   areaM2: number | null;
   /** Precio mensual de catálogo (del tipo), si está definido. */
   priceMonthly: number | null;
+  /** Oferta activa de este trastero (meses gratis), si la hay. */
+  offer: { code: string; freeMonths: number; validUntil: string } | null;
 }
 
 /** Vista del inquilino (portal). */

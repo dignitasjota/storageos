@@ -9,9 +9,12 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   CreatePromotionSchema,
+  CreateUnitOfferSchema,
+  type UnitOfferDto,
   type PromotionDto,
   UpdatePromotionSchema,
   ValidatePromotionSchema,
@@ -30,6 +33,7 @@ import { PromotionsService } from './promotions.service';
 class CreatePromotionDto extends createZodDto(CreatePromotionSchema) {}
 class UpdatePromotionDto extends createZodDto(UpdatePromotionSchema) {}
 class ValidatePromotionDto extends createZodDto(ValidatePromotionSchema) {}
+class CreateUnitOfferDto extends createZodDto(CreateUnitOfferSchema) {}
 
 @Controller('promotions')
 export class PromotionsController {
@@ -39,6 +43,36 @@ export class PromotionsController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<PromotionDto[]> {
     return this.promotions.list(user.tenantId);
+  }
+
+  /** Ofertas activas de trasteros concretos (`?unitId=` para uno). */
+  @RequirePermission('promotions:read')
+  @Get('unit-offers')
+  listUnitOffers(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('unitId') unitId?: string,
+  ): Promise<UnitOfferDto[]> {
+    return this.promotions.activeUnitOffers(user.tenantId, unitId ? [unitId] : undefined);
+  }
+
+  /** Crea a mano una oferta para un trastero concreto (meses gratis, un solo uso). */
+  @RequirePermission('promotions:manage')
+  @Post('unit-offers')
+  createUnitOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateUnitOfferDto,
+  ): Promise<UnitOfferDto> {
+    return this.promotions.createUnitOffer(user.tenantId, body);
+  }
+
+  @RequirePermission('promotions:manage')
+  @Delete('unit-offers/:unitId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async cancelUnitOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('unitId', new ParseUUIDPipe()) unitId: string,
+  ): Promise<void> {
+    await this.promotions.cancelUnitOffer(user.tenantId, unitId);
   }
 
   @RequirePermission('promotions:manage')
@@ -78,6 +112,6 @@ export class PromotionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ValidatePromotionDto,
   ): Promise<ValidatePromotionResultDto> {
-    return this.promotions.validate(user.tenantId, body.code, body.monthlyPrice);
+    return this.promotions.validate(user.tenantId, body.code, body.monthlyPrice, body.unitId);
   }
 }

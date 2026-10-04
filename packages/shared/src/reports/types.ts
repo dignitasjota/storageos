@@ -247,6 +247,8 @@ export interface UnitPricingSuggestionDto {
   holdReason: string | null;
   /** Lleva mucho tiempo libre: mejor una promoción que bajar el precio del tamaño. */
   promotionHint: string | null;
+  /** Oferta activa de este trastero, si ya se creó una. */
+  activeOffer: { promotionId: string; code: string; freeMonths: number; validUntil: string } | null;
 }
 
 export interface UnitPricingSuggestionsDto {

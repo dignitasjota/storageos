@@ -3,7 +3,9 @@ import {
   demandFactors,
   fitMarketCurve,
   marketConfidence,
+  median,
   observationWeight,
+  observedRentals,
 } from '../pricing-engine';
 
 const decide = (over: Partial<Parameters<typeof decidePrice>[0]> = {}) =>
@@ -125,6 +127,41 @@ describe('pricing-engine', () => {
       const f = demandFactors({ ...base, waitlist: 5, competitorOccupancy: 0.95 });
       expect(f.find((x) => x.key === 'waitlist')!.contribution).toBe(6);
       expect(f.find((x) => x.key === 'competitor_occupancy')!.contribution).toBe(3);
+    });
+  });
+
+  describe('ritmo de alquiler de la competencia', () => {
+    const d = (day: number) => new Date(Date.UTC(2026, 0, 1 + day));
+
+    it('cuenta cada paso de libre a ocupado desde la primera vez que se vio libre', () => {
+      expect(
+        observedRentals([
+          { observedAt: d(0), status: 'available' },
+          { observedAt: d(10), status: 'available' },
+          { observedAt: d(20), status: 'occupied' },
+          { observedAt: d(40), status: 'occupied' },
+          { observedAt: d(50), status: 'available' },
+          { observedAt: d(55), status: 'occupied' },
+        ]),
+      ).toEqual([20, 5]);
+      // Ocupado desde el principio: no hay alquiler observado.
+      expect(observedRentals([{ observedAt: d(0), status: 'occupied' }])).toEqual([]);
+    });
+
+    it('alquilar rápido suma y lento resta', () => {
+      const base = {
+        dimOccupied: 88,
+        dimTotal: 100,
+        facilityOccupancy: 0.88,
+        targetOccupancy: 0.88,
+        waitlist: 0,
+        competitorOccupancy: null,
+      };
+      const fast = demandFactors({ ...base, competitorDaysToRent: { medianDays: 15, rentals: 4 } });
+      expect(fast.find((f) => f.key === 'competitor_speed')!.contribution).toBe(1);
+      const slow = demandFactors({ ...base, competitorDaysToRent: { medianDays: 90, rentals: 4 } });
+      expect(slow.find((f) => f.key === 'competitor_speed')!.contribution).toBe(-3);
+      expect(median([5, 20, 9])).toBe(9);
     });
   });
 

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { toActiveUnitOffer } from '../promotions/promotions.service';
 
 import {
   daysBetween,
@@ -9,7 +10,10 @@ import {
   demandFactors,
   fitMarketCurve,
   marketConfidence,
+  median,
+  MIN_OBSERVED_RENTALS,
   observationWeight,
+  observedRentals,
   type MarketCurve,
 } from './pricing-engine';
 
@@ -393,7 +397,16 @@ export class InsightsService {
             mandatoryInsuranceMonthly: true,
             inventoryComplete: true,
             units: {
-              select: { areaM2: true, priceMonthly: true, status: true, lastCheckedAt: true },
+              select: {
+                areaM2: true,
+                priceMonthly: true,
+                status: true,
+                lastCheckedAt: true,
+                observations: {
+                  orderBy: { observedAt: 'asc' },
+                  select: { observedAt: true, status: true },
+                },
+              },
             },
           },
         }),
@@ -436,6 +449,7 @@ export class InsightsService {
           price: c.priceIncludesVat ? gross / 1.21 : gross,
           occupied: u.status === 'occupied',
           ageDays: daysBetween(u.lastCheckedAt, now),
+          rentals: observedRentals(u.observations),
         };
       }),
     }));
@@ -494,6 +508,28 @@ export class InsightsService {
       return total >= 3 ? occ / total : null;
     };
 
+    /**
+     * Cuánto tarda la competencia cercana en alquilar un tamaño (±25 % de m²),
+     * según los pasos de libre a ocupado de sus revisiones.
+     */
+    const competitorDaysToRent = (
+      facility: { id: string; city: string | null } | null,
+      areaM2: number,
+    ) => {
+      const durations: number[] = [];
+      for (const c of comparable) {
+        const near = observationWeight({ ageDays: 0, ...proximityFor(c, facility) }) >= 0.5;
+        if (!near) continue;
+        for (const u of c.units) {
+          if (Math.abs(u.areaM2 - areaM2) > areaM2 * 0.25) continue;
+          durations.push(...u.rentals);
+        }
+      }
+      return durations.length >= MIN_OBSERVED_RENTALS
+        ? { medianDays: median(durations), rentals: durations.length }
+        : null;
+    };
+
     return {
       now,
       targetOccupancy: (tenant?.pricingTargetOccupancy ?? 88) / 100,
@@ -513,6 +549,7 @@ export class InsightsService {
       },
       marketCurve,
       competitorOccupancy,
+      competitorDaysToRent,
     };
   }
 
@@ -550,6 +587,7 @@ export class InsightsService {
           targetOccupancy: ctx.targetOccupancy,
           waitlist: waiting,
           competitorOccupancy: area > 0 ? ctx.competitorOccupancy(null, area) : null,
+          competitorDaysToRent: area > 0 ? ctx.competitorDaysToRent(null, area) : null,
         });
         const demandPct = factors.reduce((s, f) => s + f.contribution, 0);
         const currentPrice = toNumber(ut.defaultPriceMonthly);
@@ -617,7 +655,7 @@ export class InsightsService {
 
       const ctx = await this.loadPricingContext(tx, tenantId);
       const unitIds = units.map((u) => u.id);
-      const [history, lastChanges] = await Promise.all([
+      const [history, lastChanges, promos] = await Promise.all([
         // Días vacío: último paso a `available` (si no hay, desde el alta).
         tx.unitStatusHistory.findMany({
           where: { unitId: { in: unitIds }, newStatus: 'available' },
@@ -629,7 +667,21 @@ export class InsightsService {
           where: { unitId: { in: unitIds } },
           _max: { changedAt: true },
         }),
+        // Ofertas de trastero activas (creadas a mano desde esta vista).
+        tx.promotion.findMany({
+          where: {
+            isActive: true,
+            discountType: 'free_months',
+            OR: [{ validUntil: null }, { validUntil: { gt: new Date() } }],
+          },
+        }),
       ]);
+      const offerByUnit = new Map(
+        promos
+          .map((p) => toActiveUnitOffer(p))
+          .filter((o): o is NonNullable<typeof o> => o !== null)
+          .map((o) => [o.unitId, o]),
+      );
       const vacantSince = new Map<string, Date>();
       for (const h of history)
         if (!vacantSince.has(h.unitId)) vacantSince.set(h.unitId, h.occurredAt);
@@ -659,6 +711,8 @@ export class InsightsService {
           waitlist: d.waitlist,
           competitorOccupancy:
             includeCompetition && area > 0 ? ctx.competitorOccupancy(facility, area) : null,
+          competitorDaysToRent:
+            includeCompetition && area > 0 ? ctx.competitorDaysToRent(facility, area) : null,
         });
         const demandPct = demand.reduce((s, f) => s + f.contribution, 0);
         const positioningPct = marketPrice != null ? facility.pricingPositioningPct : 0;
@@ -699,8 +753,9 @@ export class InsightsService {
 
         const since = vacantSince.get(u.id) ?? u.createdAt;
         const daysVacant = daysBetween(since, ctx.now);
+        const offer = offerByUnit.get(u.id) ?? null;
         const promotionHint =
-          daysVacant >= PROMOTION_AFTER_DAYS
+          !offer && daysVacant >= PROMOTION_AFTER_DAYS
             ? `Lleva ${daysVacant} días libre: mejor una promoción para este trastero (p. ej. el primer mes a mitad de precio) que bajar el precio de todo el tamaño.`
             : null;
 
@@ -723,6 +778,14 @@ export class InsightsService {
           targetPrice: decision.targetPrice,
           holdReason: decision.holdReason,
           promotionHint,
+          activeOffer: offer
+            ? {
+                promotionId: offer.promotionId,
+                code: offer.code,
+                freeMonths: offer.freeMonths,
+                validUntil: offer.validUntil,
+              }
+            : null,
         };
       });
 
