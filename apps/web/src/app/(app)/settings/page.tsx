@@ -30,7 +30,10 @@ export default function SettingsHomePage() {
         {groups.map((g) => (
           <Card key={g.label}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">{g.label}</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <g.icon className="size-4 text-primary" aria-hidden />
+                {g.label}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-1">
               {g.items.map((i) => (

@@ -1,3 +1,14 @@
+import {
+  Building2,
+  Globe,
+  Mail,
+  Plug,
+  Receipt,
+  Sparkles,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
+
 import type { Permission } from '@storageos/shared';
 
 /** Una página de Configuración. */
@@ -14,6 +25,7 @@ export interface SettingsNavItem {
 
 export interface SettingsNavGroup {
   label: string;
+  icon: LucideIcon;
   items: SettingsNavItem[];
 }
 
@@ -24,6 +36,7 @@ export interface SettingsNavGroup {
 export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
     label: 'Tu cuenta',
+    icon: UserRound,
     items: [
       {
         href: '/settings/profile',
@@ -34,6 +47,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Empresa',
+    icon: Building2,
     items: [
       {
         href: '/settings/users',
@@ -62,6 +76,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Facturación y cobros',
+    icon: Receipt,
     items: [
       {
         href: '/settings/billing',
@@ -99,6 +114,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Web pública y portal',
+    icon: Globe,
     items: [
       {
         href: '/settings/web',
@@ -139,6 +155,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Comunicación',
+    icon: Mail,
     items: [
       {
         href: '/settings/email',
@@ -151,6 +168,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Suscripción a TrasterOS',
+    icon: Sparkles,
     items: [
       {
         href: '/settings/saas-billing',
@@ -162,6 +180,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Integraciones',
+    icon: Plug,
     items: [
       {
         href: '/settings/integrations',
