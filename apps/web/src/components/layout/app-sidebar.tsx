@@ -648,7 +648,7 @@ export function AppSidebar() {
               isActive={pathname === '/settings' || pathname.startsWith('/settings/')}
               className="data-[active=true]:font-medium"
             >
-              <Link href="/settings/users">
+              <Link href="/settings">
                 <Settings />
                 <span>{t('settings')}</span>
               </Link>

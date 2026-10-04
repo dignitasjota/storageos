@@ -66,7 +66,7 @@ export default function RolesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Roles personalizados</h2>
+          <h1 className="text-2xl font-semibold tracking-tight">Roles personalizados</h1>
           <p className="text-sm text-muted-foreground">
             Define roles con permisos a medida y asígnalos a tus usuarios. El permiso fino aplica a
             las acciones protegidas por permiso (p. ej. reembolsos) y a la interfaz.

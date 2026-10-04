@@ -4,6 +4,8 @@ import { Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SettingsHeader } from '../settings-header';
+
 import { BlogPostDialog } from './blog-post-dialog';
 
 import type { BlogPostDto } from '@storageos/shared';
@@ -53,6 +55,10 @@ export default function BlogSettingsPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      <SettingsHeader
+        title="Blog"
+        description="Entradas de tu blog en la web pública: ayudan a que te encuentren en Google. Incluido en Web Premium."
+      />
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>Blog ({posts.data?.length ?? 0})</CardTitle>

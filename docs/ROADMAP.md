@@ -553,3 +553,7 @@ Serie propia de rectificativas, redondeo simétrico, abonos que compensan, tarje
 Inquilinos marcados sin fianza y fianza cobrada en efectivo en el local (el acceso llega al pagar la 1ª factura; la fianza queda en «Hoy» hasta registrar su cobro).
 
 **Pendiente antes de activar Veri\*Factu en producción**: marcar el negocio propio (mismo NIF que la SL) y subir su certificado; decidir qué hacer con las facturas emitidas con la huella antigua; en Stripe, TaxRate si se cobra «+IVA» y el evento `charge.dispute.closed` en el webhook.
+
+### Configuración reorganizada (2026-10-04) ✅
+
+Las 16 pestañas en fila pasan a un menú lateral agrupado por tema (Tu cuenta, Empresa, Facturación y cobros, Web pública y portal, Comunicación, Suscripción, Integraciones) con página de inicio que enlaza también los ajustes de cada módulo. «Facturación a inquilinos» se divide en Facturación, Cobros y Contabilidad; el dominio propio sale de Marca; la verificación en dos pasos personal pasa a Perfil y el informe mensual a Correo.

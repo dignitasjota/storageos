@@ -190,8 +190,8 @@ export default function WebSettingsPage() {
             {!domainVerified ? (
               <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
                 Necesitas un dominio propio verificado para usar una web externa.{' '}
-                <a href="/settings/branding" className="underline">
-                  Configúralo en Marca del portal →
+                <a href="/settings/domain" className="underline">
+                  Configúralo en «Dominio propio» →
                 </a>
               </p>
             ) : (
