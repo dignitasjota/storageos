@@ -531,3 +531,25 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 ## Criterio de "MVP listo para vender"
 
 Fases 0 a 4 completas + un subset esencial de la 5 (al menos email transaccional y recordatorios de pago) + Fase 8 mínima para poder cobrar suscripciones.
+
+### Segundo análisis de correos y notificaciones (2026-10-01/02, #580–#595) ✅
+
+PIN fuera del historial, baja y consentimiento en comunicaciones comerciales (LSSI), lista de supresión por rebotes y quejas de spam, WhatsApp simulado que ya no finge en producción, segundo recordatorio de impago con enlace de pago y formato legible, avisos al equipo por local y leído por usuario, campañas en segundo plano reanudables, automatizaciones que comprueban si siguen aplicando, correo de factura con la forma de pago, recordatorio de reservas sin firmar o sin pagar, constancia del preaviso SEPA, correos con la marca y el idioma del inquilino, responder a un lead, Comunicaciones paginadas, preferencias de aviso por usuario e historial de correos de la plataforma. CI del API en 5 trozos (#596).
+
+### Plantilla «OnePageMovil» para la web pública (2026-10-02, #597) ✅
+
+Sexta plantilla de Web Premium pensada para móvil (estructura y estilo inspirados en una web del sector, con textos e imágenes propios).
+
+### Auditoría de facturación (2026-10-02/03, #598–#607) ✅
+
+Bloqueos en todo lo que mueve dinero, Holded sin duplicados, remesas SEPA sin doble cobro, anular una factura emitida con rectificativa, Veri\*Factu conforme (huella oficial y cadena por emisor), fianza en un justificante aparte, abono automático al reembolsar con límites, casos límite de la recurrente, fecha de emisión local y Holded de la plataforma sin duplicados.
+
+### Segunda auditoría de facturación (2026-10-03/04, #608–#614) ✅
+
+Serie propia de rectificativas, redondeo simétrico, abonos que compensan, tarjeta de los inquilinos desactivada, el tenant elige dónde emite (app o Holded, por año), precios de suscripción con IVA incluido o +IVA, NIF único, suscripciones emitidas por el negocio propio, reembolsos y contracargos de suscripción con su abono y exportación para la asesoría del tenant (facturas, cobros y fianzas).
+
+### Fianza: sin fianza y en efectivo (2026-10-04, #615) ✅
+
+Inquilinos marcados sin fianza y fianza cobrada en efectivo en el local (el acceso llega al pagar la 1ª factura; la fianza queda en «Hoy» hasta registrar su cobro).
+
+**Pendiente antes de activar Veri\*Factu en producción**: marcar el negocio propio (mismo NIF que la SL) y subir su certificado; decidir qué hacer con las facturas emitidas con la huella antigua; en Stripe, TaxRate si se cobra «+IVA» y el evento `charge.dispute.closed` en el webhook.

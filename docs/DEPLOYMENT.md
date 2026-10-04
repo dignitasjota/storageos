@@ -1204,3 +1204,12 @@ desde el panel.
 - ~~Loki + Grafana para logs agregados.~~ ✅ Implementado — perfil `observability` (ver §13.1).
 - Política formal de rotación de secretos cada 90 días.
 - Runbook de recuperación ante desastre (RTO/RPO documentados).
+
+## 22. Antes de activar la facturación real (Veri\*Factu en producción)
+
+1. **Negocio propio**: en el panel admin → Facturación SaaS, «Negocio propio» = identificador del tenant de TrasterOS SL (mismo NIF que el emisor). Sin él y con `AEAT_MODE` real, las facturas de suscripción no se emiten (`own_tenant_required`). Recomendado: marcarlo como **exento de facturación**.
+2. **Certificados**: cada tenant que emita desde la app sube el suyo en Ajustes → Facturación → Veri\*Factu (incluido el negocio propio). Sin certificado, emitir en modo real da `aeat_certificate_required`.
+3. **Modo de emisión**: cada tenant elige app o Holded en Ajustes → Facturación (bloqueado durante el año natural si ya emitió).
+4. **Stripe**: si los precios de suscripción son «+IVA», crear el TaxRate y guardarlo en Facturación SaaS; añadir `charge.dispute.closed` a los eventos del webhook (además de `charge.refunded` y `charge.dispute.created`).
+5. **Variables**: `TENANT_CARD_PAYMENTS_ENABLED` (por defecto `false`, déjalo así mientras no haya Stripe Connect) y `RETENTION_SEPA_PRENOTICE_DAYS` (430 por defecto).
+6. Las facturas emitidas antes de la cadena nueva (2026-10-05) llevan la huella antigua: revisarlo con la asesoría antes del primer envío real.
