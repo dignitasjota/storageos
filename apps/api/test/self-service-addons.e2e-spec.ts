@@ -177,4 +177,64 @@ describe('Add-ons self-service del tenant (e2e)', () => {
     await request(app.getHttpServer()).get('/settings/saas-billing/addons').expect(401);
     void owner;
   });
+
+  it('un extra que ya incluye tu plan sale como «incluido» y no se contrata', async () => {
+    const owner = await registerVerifiedUser(app, 'selfaddonpro');
+    await setTenantPlan(owner.slug, 'pro'); // pro incluye ai_assistant
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const view = await request(app.getHttpServer())
+      .get('/settings/saas-billing/addons')
+      .set(auth)
+      .expect(200);
+    expect(view.body.available.some((a: { id: string }) => a.id === addonId)).toBe(false);
+    expect(view.body.includedInPlan.some((a: { id: string }) => a.id === addonId)).toBe(true);
+    // El de capacidad (sin función) sigue disponible.
+    expect(view.body.available.some((a: { id: string }) => a.id === capAddonId)).toBe(true);
+    const res = await request(app.getHttpServer())
+      .post('/settings/saas-billing/addons')
+      .set(auth)
+      .send({ addonId, quantity: 1 });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('addon_included_in_plan');
+  });
+
+  it('cuenta exenta: sin vencimiento, sin pago pendiente y sin poder pagar', async () => {
+    const owner = await registerVerifiedUser(app, 'selfaddonexempt');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await admin.tenant.update({ where: { slug: owner.slug }, data: { billingExempt: true } });
+    await admin.tenantSubscription.updateMany({
+      where: { tenant: { slug: owner.slug } },
+      data: { status: 'past_due' },
+    });
+
+    const sub = await request(app.getHttpServer())
+      .get('/settings/saas-billing')
+      .set(auth)
+      .expect(200);
+    expect(sub.body.billingExempt).toBe(true);
+
+    const status = await request(app.getHttpServer())
+      .get('/settings/billing-status')
+      .set(auth)
+      .expect(200);
+    expect(status.body.pastDue).toBe(false);
+
+    const view = await request(app.getHttpServer())
+      .get('/settings/saas-billing/addons')
+      .set(auth)
+      .expect(200);
+    expect(view.body.billingExempt).toBe(true);
+
+    const plans = await request(app.getHttpServer()).get('/subscription-plans').expect(200);
+    const res = await request(app.getHttpServer())
+      .post('/settings/saas-billing/checkout')
+      .set(auth)
+      .send({
+        planId: plans.body[0].id,
+        successUrl: 'https://example.com/ok',
+        cancelUrl: 'https://example.com/ko',
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('billing_exempt');
+  });
 });

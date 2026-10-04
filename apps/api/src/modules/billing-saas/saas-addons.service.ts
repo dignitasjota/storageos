@@ -6,7 +6,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { TenantFeatures } from '@storageos/shared';
+import { resolvePlanFeatures, type TenantFeature, TenantFeatures } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -76,7 +76,14 @@ export class SaasAddonsService {
         select: { addon: { select: { name: true, feature: true } } },
       }),
     ]);
-    const pastDue = subscription?.status === 'past_due';
+    const exempt = (
+      await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { billingExempt: true },
+      })
+    )?.billingExempt;
+    // Una cuenta exenta no paga: nunca está «pendiente de pago».
+    const pastDue = !exempt && subscription?.status === 'past_due';
     // Plan impagado sin Stripe = pago manual: no hay portal de pago online, el
     // tenant regulariza avisando a soporte («He realizado el pago»).
     const planManual = pastDue && !subscription?.stripeSubscriptionId;
@@ -306,14 +313,36 @@ export class SaasAddonsService {
       }),
     ]);
     const owned = new Set(summary.addons.map((a) => a.addonId));
-    const available = catalog.filter((a) => !owned.has(a.id)).map((a) => this.toCatalogDto(a));
+    const { planFeatures, billingExempt } = await this.planContext(tenantId);
+    const notOwned = catalog.filter((a) => !owned.has(a.id));
+    const inPlan = (a: { feature: string | null }) =>
+      !!a.feature && planFeatures.includes(a.feature as TenantFeature);
+    const available = notOwned.filter((a) => !inPlan(a)).map((a) => this.toCatalogDto(a));
+    const includedInPlan = notOwned.filter(inPlan).map((a) => this.toCatalogDto(a));
     // Las `notes` de la asignación son internas del super admin: no exponerlas al
     // tenant en su self-service.
     const tenantSummary = {
       ...summary,
       addons: summary.addons.map((a) => ({ ...a, notes: null })),
     };
-    return { summary: tenantSummary, available };
+    return { summary: tenantSummary, available, includedInPlan, billingExempt };
+  }
+
+  /** Funciones que incluye el plan del tenant y si su cuenta está exenta. */
+  private async planContext(
+    tenantId: string,
+  ): Promise<{ planFeatures: TenantFeature[]; billingExempt: boolean }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        billingExempt: true,
+        subscription: { select: { plan: { select: { slug: true, tenantFeatures: true } } } },
+      },
+    });
+    return {
+      planFeatures: tenant?.subscription ? resolvePlanFeatures(tenant.subscription.plan) : [],
+      billingExempt: tenant?.billingExempt ?? false,
+    };
   }
 
   /** Contratación por el tenant: solo add-ons ACTIVOS del catálogo, quantity>=1. */
@@ -323,6 +352,13 @@ export class SaasAddonsService {
       throw new BadRequestException({
         code: 'addon_not_available',
         message: 'Add-on no disponible',
+      });
+    }
+    const { planFeatures } = await this.planContext(tenantId);
+    if (addon.feature && planFeatures.includes(addon.feature as TenantFeature)) {
+      throw new BadRequestException({
+        code: 'addon_included_in_plan',
+        message: 'Tu plan ya incluye este extra: no hace falta contratarlo aparte.',
       });
     }
     const existing = await this.admin.tenantSubscriptionAddon.findUnique({

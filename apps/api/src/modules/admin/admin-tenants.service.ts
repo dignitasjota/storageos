@@ -1170,6 +1170,14 @@ export class AdminTenantsService {
         ? { billingExempt: true, status: 'active', trialEndsAt: null }
         : { billingExempt: false },
     });
+    // La suscripción también: si estaba en prueba o impagada, su panel seguía
+    // mostrando «En prueba» / «Pago pendiente» aunque ya no paga.
+    if (exempt) {
+      await this.admin.tenantSubscription.updateMany({
+        where: { tenantId, status: { in: ['trial', 'past_due', 'expired', 'cancelled'] } },
+        data: { status: 'active', cancelAtPeriodEnd: false },
+      });
+    }
     await this.audit.write({
       tenantId,
       userId: null,
