@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { toActiveUnitOffer } from '../promotions/promotions.service';
 
 import type {
   AvailableUnitDto,
@@ -48,14 +49,25 @@ export class UnitRequestsService {
       });
       const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
       if (facilityIds.length === 0) return [];
-      const units = await tx.unit.findMany({
-        where: { tenantId, facilityId: { in: facilityIds }, status: 'available' },
-        orderBy: [{ facilityId: 'asc' }, { code: 'asc' }],
-        include: {
-          facility: { select: { name: true } },
-          unitType: { select: { id: true, name: true } },
-        },
-      });
+      const [units, promos] = await Promise.all([
+        tx.unit.findMany({
+          where: { tenantId, facilityId: { in: facilityIds }, status: 'available' },
+          orderBy: [{ facilityId: 'asc' }, { code: 'asc' }],
+          include: {
+            facility: { select: { name: true } },
+            unitType: { select: { id: true, name: true } },
+          },
+        }),
+        tx.promotion.findMany({
+          where: { tenantId, isActive: true, discountType: 'free_months' },
+        }),
+      ]);
+      const offers = new Map(
+        promos
+          .map((p) => toActiveUnitOffer(p))
+          .filter((o): o is NonNullable<typeof o> => o !== null)
+          .map((o) => [o.unitId, o]),
+      );
       return units.map((u) => ({
         id: u.id,
         code: u.code,
@@ -65,6 +77,10 @@ export class UnitRequestsService {
         unitTypeName: u.unitType?.name ?? null,
         areaM2: num(u.areaM2),
         priceMonthly: num(u.basePriceMonthly),
+        offer: (() => {
+          const o = offers.get(u.id);
+          return o ? { code: o.code, freeMonths: o.freeMonths, validUntil: o.validUntil } : null;
+        })(),
       }));
     }, tenantId);
   }

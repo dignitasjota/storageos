@@ -266,6 +266,7 @@ export class ContractsService {
           tenantId,
           input.promotionCode,
           Number(input.priceMonthly),
+          input.unitId,
         );
         discountAmount = applied.discountAmount;
         discountReason = applied.discountReason;

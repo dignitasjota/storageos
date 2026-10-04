@@ -472,6 +472,8 @@ export type UpdatePromotionInput = z.infer<typeof UpdatePromotionSchema>;
 export const ValidatePromotionSchema = z.object({
   code: z.string().trim().toUpperCase().min(1).max(40),
   monthlyPrice: z.number().nonnegative(),
+  /** Trastero a contratar: una oferta de trastero solo vale para el suyo. */
+  unitId: z.string().uuid().optional(),
 });
 export type ValidatePromotionInput = z.infer<typeof ValidatePromotionSchema>;
 
@@ -540,3 +542,14 @@ export type PortalRegisterPaymentMethodInput = z.infer<typeof PortalRegisterPaym
 
 // Re-utilizado del shared/customers
 export { nonNegativeDecimal };
+
+/**
+ * Oferta para un trastero concreto (la crea el staff a mano, normalmente para
+ * uno que lleva tiempo libre): N meses gratis, un solo uso y caducidad.
+ */
+export const CreateUnitOfferSchema = z.object({
+  unitId: z.string().uuid(),
+  freeMonths: z.number().int().min(1).max(6),
+  validDays: z.number().int().min(1).max(180).default(30),
+});
+export type CreateUnitOfferInput = z.infer<typeof CreateUnitOfferSchema>;

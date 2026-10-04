@@ -352,3 +352,12 @@ export interface BulkInvoiceActionResultDto {
   succeeded: string[];
   failed: { id: string; error: string }[];
 }
+
+/** Oferta activa de un trastero concreto. */
+export interface UnitOfferDto {
+  promotionId: string;
+  unitId: string;
+  code: string;
+  freeMonths: number;
+  validUntil: string;
+}

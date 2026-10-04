@@ -177,6 +177,11 @@ export function AdditionalUnitCard({
                         })
                       : ''}
                   </div>
+                  {u.offer && (
+                    <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      {t('offer', { months: u.offer.freeMonths })}
+                    </div>
+                  )}
                 </div>
                 <Button
                   size="sm"
@@ -243,6 +248,11 @@ export function AdditionalUnitCard({
                   })
                 : ''}
               {t('bookingGenerates')}
+              {target?.offer && (
+                <span className="mt-1 block font-medium text-emerald-700 dark:text-emerald-400">
+                  {t('offer', { months: target.offer.freeMonths })}
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

@@ -325,6 +325,7 @@
         "subtitle": "Elige un trastero disponible en tu local, fírmalo y paga online. El acceso se activa al pagar la primera factura.",
         "noUnits": "Ahora mismo no hay trasteros disponibles en tu local. Puedes dejar una solicitud y te avisaremos cuando haya hueco.",
         "areaSuffix": " · {area} m²",
+        "offer": "Oferta: {months, plural, one {# mes gratis} other {# meses gratis}} al contratarlo",
         "priceSuffix": " · {price} €/mes (IVA incl.)",
         "bookNow": "Contratar ahora",
         "noMatchTitle": "¿No ves lo que buscas?",

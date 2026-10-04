@@ -325,6 +325,7 @@
         "subtitle": "Pick an available unit at your facility, sign it and pay online. Access is activated once you pay the first invoice.",
         "noUnits": "There are no units available at your facility right now. You can leave a request and we'll let you know when there's room.",
         "areaSuffix": " · {area} m²",
+        "offer": "Offer: {months, plural, one {# month free} other {# months free}} when you rent it",
         "priceSuffix": " · €{price}/mo (VAT incl.)",
         "bookNow": "Rent now",
         "noMatchTitle": "Not finding what you're looking for?",

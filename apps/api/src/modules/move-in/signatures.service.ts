@@ -19,6 +19,7 @@ import { CommunicationsService } from '../communications/communications.service'
 import { buildContractTermsText } from '../contracts/contract-terms';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { toActiveUnitOffer } from '../promotions/promotions.service';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
@@ -543,11 +544,19 @@ export class SignaturesService {
       });
     }
 
+    // Si el staff creó una oferta para este trastero (y se le muestra al
+    // inquilino en el portal), se aplica al contratarlo.
+    const promos = await this.admin.promotion.findMany({
+      where: { tenantId, isActive: true, discountType: 'free_months' },
+    });
+    const offer = promos.map((p) => toActiveUnitOffer(p)).find((o) => o?.unitId === unitId);
+
     const today = new Date().toISOString().slice(0, 10);
     const contract = await this.contracts.create({
       tenantId,
       userId: null,
       input: {
+        ...(offer ? { promotionCode: offer.code } : {}),
         customerId,
         unitId,
         startDate: today,

@@ -10,6 +10,16 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -29,6 +39,7 @@ import { useApplyUnitPricing, useUnitPricingSuggestions } from '@/lib/analytics/
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { useCancelUnitOffer, useCreateUnitOffer } from '@/lib/promotions/hooks';
 
 const ACTION: Record<
   UnitPricingSuggestionDto['action'],
@@ -57,6 +68,19 @@ export function UnitPricingPanel() {
   const apply = useApplyUnitPricing();
   const canApply = useHasPermission('units:manage');
   const facilities = useFacilities();
+  const canManageOffers = useHasPermission('promotions:manage');
+  const cancelOffer = useCancelUnitOffer();
+  const [offerFor, setOfferFor] = useState<UnitPricingSuggestionDto | null>(null);
+
+  async function onCancelOffer(s: UnitPricingSuggestionDto) {
+    if (!window.confirm(`¿Quitar la oferta del trastero ${s.code}?`)) return;
+    try {
+      await cancelOffer.mutateAsync(s.unitId);
+      toast.success('Oferta retirada');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
 
   async function onApply(s: UnitPricingSuggestionDto) {
     try {
@@ -207,8 +231,31 @@ export function UnitPricingPanel() {
                             {s.promotionHint}
                           </p>
                         )}
+                        {s.activeOffer && (
+                          <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                            Oferta activa: {s.activeOffer.freeMonths}{' '}
+                            {s.activeOffer.freeMonths === 1 ? 'mes gratis' : 'meses gratis'} hasta
+                            el {new Date(s.activeOffer.validUntil).toLocaleDateString('es-ES')} (
+                            {s.activeOffer.code})
+                          </p>
+                        )}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="space-y-1 text-right">
+                        {canManageOffers && s.promotionHint && !s.activeOffer && (
+                          <Button variant="outline" size="sm" onClick={() => setOfferFor(s)}>
+                            Crear oferta
+                          </Button>
+                        )}
+                        {canManageOffers && s.activeOffer && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={cancelOffer.isPending}
+                            onClick={() => void onCancelOffer(s)}
+                          >
+                            Quitar oferta
+                          </Button>
+                        )}
                         {canApply && s.action !== 'hold' && (
                           <Button
                             variant="outline"
@@ -228,6 +275,80 @@ export function UnitPricingPanel() {
           )}
         </CardContent>
       </Card>
+      <UnitOfferDialog suggestion={offerFor} onClose={() => setOfferFor(null)} />
     </div>
+  );
+}
+
+/** Crear a mano una oferta (meses gratis) para un trastero concreto. */
+function UnitOfferDialog({
+  suggestion,
+  onClose,
+}: {
+  suggestion: UnitPricingSuggestionDto | null;
+  onClose: () => void;
+}) {
+  const create = useCreateUnitOffer();
+  const [freeMonths, setFreeMonths] = useState('1');
+  const [validDays, setValidDays] = useState('30');
+
+  async function onCreate() {
+    if (!suggestion) return;
+    try {
+      const offer = await create.mutateAsync({
+        unitId: suggestion.unitId,
+        freeMonths: Number(freeMonths),
+        validDays: Number(validDays),
+      });
+      toast.success(`Oferta creada (código ${offer.code})`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Dialog open={!!suggestion} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Oferta para el trastero {suggestion?.code}</DialogTitle>
+          <DialogDescription>
+            Solo vale para este trastero y para un contrato. El precio del trastero no cambia: las
+            primeras facturas mensuales salen a 0 €. Se propone al contratarlo desde el panel y se
+            muestra en el portal.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label>Meses gratis</Label>
+            <Select value={freeMonths} onValueChange={setFreeMonths}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {['1', '2', '3'].map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m === '1' ? '1 mes' : `${m} meses`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>Válida durante (días)</Label>
+            <Input
+              inputMode="numeric"
+              value={validDays}
+              onChange={(e) => setValidDays(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => void onCreate()} disabled={create.isPending}>
+            Crear oferta
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

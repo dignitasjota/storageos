@@ -126,7 +126,7 @@ export function marketConfidence(curve: MarketCurve | null, areaM2: number): Pri
 }
 
 export interface DemandFactor {
-  key: 'occupancy' | 'waitlist' | 'competitor_occupancy';
+  key: 'occupancy' | 'waitlist' | 'competitor_occupancy' | 'competitor_speed';
   label: string;
   detail: string;
   contribution: number;
@@ -137,7 +137,9 @@ export interface DemandFactor {
  * - ocupación del tamaño frente a la objetivo (suavizada con la del local si
  *   hay pocos trasteros): 10 puntos por encima = +5 %, acotado a [−10, +8];
  * - lista de espera de ese tamaño: +2 % por persona, hasta +6 %;
- * - ocupación de la competencia (solo con inventario conocido): 95 % = +3 %.
+ * - ocupación de la competencia (solo con inventario conocido): 95 % = +3 %;
+ * - lo que tarda la competencia en alquilar ese tamaño (de sus revisiones):
+ *   15 días = +1 %, 30 = 0, 60 = −2 %, acotado a [−3, +3].
  */
 export function demandFactors(args: {
   dimOccupied: number;
@@ -146,6 +148,8 @@ export function demandFactors(args: {
   targetOccupancy: number;
   waitlist: number;
   competitorOccupancy: number | null;
+  /** Mediana de días hasta alquilarse en la competencia (null sin datos suficientes). */
+  competitorDaysToRent?: { medianDays: number; rentals: number } | null;
 }): DemandFactor[] {
   const factors: DemandFactor[] = [];
   const smoothed =
@@ -179,7 +183,48 @@ export function demandFactors(args: {
       });
     }
   }
+  const speed = args.competitorDaysToRent;
+  if (speed) {
+    const speedAdj = round1(clamp((30 - speed.medianDays) / 15, -3, 3));
+    if (speedAdj !== 0) {
+      factors.push({
+        key: 'competitor_speed',
+        label: 'Ritmo de alquiler de la competencia',
+        detail: `La competencia cercana alquila este tamaño en ~${Math.round(speed.medianDays)} días (${speed.rentals} alquileres vistos)`,
+        contribution: speedAdj,
+      });
+    }
+  }
   return factors;
+}
+
+/** Mínimo de alquileres observados para usar el ritmo de la competencia. */
+export const MIN_OBSERVED_RENTALS = 3;
+
+/**
+ * Alquileres observados en el histórico de un trastero de la competencia:
+ * cada paso de libre a ocupado, con los días que llevaba libre desde la
+ * primera revisión en que se vio libre. Observaciones en orden cronológico.
+ */
+export function observedRentals(observations: { observedAt: Date; status: string }[]): number[] {
+  const durations: number[] = [];
+  let freeSince: Date | null = null;
+  for (const o of observations) {
+    if (o.status === 'available') {
+      freeSince ??= o.observedAt;
+    } else if (freeSince) {
+      durations.push(daysBetween(freeSince, o.observedAt));
+      freeSince = null;
+    }
+  }
+  return durations;
+}
+
+/** Mediana simple. */
+export function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
 export interface PriceDecision {

@@ -23,7 +23,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useCreateContract, useCustomers } from '@/lib/customers/hooks';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
-import { useValidatePromotion } from '@/lib/promotions/hooks';
+import { useUnitOffers, useValidatePromotion } from '@/lib/promotions/hooks';
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -132,6 +132,7 @@ export default function NewContractWizardPage() {
       )}
       {step === 3 && unit && (
         <StepEconomics
+          unitId={unit.id}
           startDate={startDate}
           endDate={endDate}
           priceMonthly={priceMonthly}
@@ -290,6 +291,7 @@ function StepUnit({ onBack, onPick }: { onBack: () => void; onPick: (u: UnitDto)
 }
 
 function StepEconomics(props: {
+  unitId: string;
   startDate: string;
   endDate: string;
   priceMonthly: number;
@@ -322,16 +324,23 @@ function StepEconomics(props: {
 }) {
   const validate = useValidatePromotion();
   const [codeInput, setCodeInput] = useState(props.promotionCode);
+  // Oferta creada a mano para este trastero: se propone, el staff decide si la aplica.
+  const offers = useUnitOffers(props.unitId);
+  const offer = offers.data?.[0] ?? null;
 
-  async function applyCode() {
-    const code = codeInput.trim().toUpperCase();
+  async function applyCode(override?: string) {
+    const code = (override ?? codeInput).trim().toUpperCase();
     if (!code) return;
     if (props.priceMonthly <= 0) {
       toast.error('Indica primero la cuota mensual.');
       return;
     }
     try {
-      const res = await validate.mutateAsync({ code, monthlyPrice: props.priceMonthly });
+      const res = await validate.mutateAsync({
+        code,
+        monthlyPrice: props.priceMonthly,
+        unitId: props.unitId,
+      });
       if (!res.valid) {
         toast.error('Código no aplicable.');
         props.onChange({ promotionCode: '' });
@@ -455,7 +464,7 @@ function StepEconomics(props: {
             <Button
               type="button"
               variant="outline"
-              onClick={applyCode}
+              onClick={() => void applyCode()}
               disabled={validate.isPending || !codeInput.trim()}
             >
               {validate.isPending ? 'Aplicando...' : 'Aplicar'}
@@ -463,6 +472,27 @@ function StepEconomics(props: {
           </div>
           {props.promotionCode && (
             <p className="mt-1 text-xs text-green-600">Código {props.promotionCode} aplicado.</p>
+          )}
+          {offer && props.promotionCode !== offer.code && (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              <span>
+                Este trastero tiene una oferta: {offer.freeMonths}{' '}
+                {offer.freeMonths === 1 ? 'mes gratis' : 'meses gratis'} (código {offer.code}, hasta
+                el {new Date(offer.validUntil).toLocaleDateString('es-ES')}).
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={validate.isPending}
+                onClick={() => {
+                  setCodeInput(offer.code);
+                  void applyCode(offer.code);
+                }}
+              >
+                Aplicar oferta
+              </Button>
+            </div>
           )}
         </div>
         <InsuranceSelect
