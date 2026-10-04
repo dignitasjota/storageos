@@ -99,8 +99,16 @@ export default function UnitsPage() {
 
   const facilities = useFacilities();
   const types = useUnitTypes();
-  const occupancy = useOccupancyDashboard();
+  const occupancy = useOccupancyDashboard(facilityId);
   const floors = useFloors(view === 'plan' ? facilityId : undefined);
+
+  // El local recordado (en este navegador) puede ya no existir —borrado o de
+  // otra cuenta—: filtrar por él dejaba la lista vacía sin explicación.
+  useEffect(() => {
+    if (facilityId && facilities.data && !facilities.data.some((f) => f.id === facilityId)) {
+      selectFacility(undefined);
+    }
+  }, [facilities.data, facilityId, selectFacility]);
 
   // Si solo hay un local, lo selecciona automáticamente (no hace falta elegirlo).
   useEffect(() => {

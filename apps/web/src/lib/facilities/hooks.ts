@@ -372,10 +372,14 @@ export function useUpdateUnitsLayout() {
 // Dashboard
 // ============================================================================
 
-export function useOccupancyDashboard() {
+/** Ocupación agregada; con `facilityId`, solo de ese local. */
+export function useOccupancyDashboard(facilityId?: string) {
   return useQuery({
-    queryKey: dashboardOccupancyKey,
-    queryFn: () => apiFetch<OccupancyDashboardDto>('/dashboard/occupancy'),
+    queryKey: [...dashboardOccupancyKey, facilityId ?? 'all'],
+    queryFn: () =>
+      apiFetch<OccupancyDashboardDto>(
+        `/dashboard/occupancy${facilityId ? `?facilityId=${facilityId}` : ''}`,
+      ),
     staleTime: 60_000,
   });
 }

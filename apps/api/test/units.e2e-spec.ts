@@ -230,6 +230,23 @@ describe('Units + dashboard (e2e)', () => {
     expect(dash.body.byStatus.maintenance).toBe(1);
     expect(dash.body.byFacility).toHaveLength(1);
     expect(dash.body.byUnitType).toHaveLength(1);
+
+    // Filtrado por local: el suyo cuenta los 4; otro local, ninguno.
+    const facilityId = dash.body.byFacility[0].facilityId as string;
+    const own = await request(app.getHttpServer())
+      .get(`/dashboard/occupancy?facilityId=${facilityId}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    expect(own.body.totalUnits).toBe(4);
+    const other = await request(app.getHttpServer())
+      .get('/dashboard/occupancy?facilityId=00000000-0000-4000-8000-000000000000')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    expect(other.body.totalUnits).toBe(0);
+    await request(app.getHttpServer())
+      .get('/dashboard/occupancy?facilityId=no-es-un-id')
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(400);
   });
 
   it('plan-upload-url devuelve URL firmada PUT y publicUrl', async () => {

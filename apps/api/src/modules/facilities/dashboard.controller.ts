@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 
 import {
   type AuthenticatedUser,
@@ -14,7 +14,16 @@ export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
   @Get('occupancy')
-  async occupancy(@CurrentUser() user: AuthenticatedUser): Promise<OccupancyDashboardDto> {
-    return this.dashboard.occupancy(user.tenantId);
+  async occupancy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<OccupancyDashboardDto> {
+    if (facilityId && !/^[0-9a-f-]{36}$/i.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    return this.dashboard.occupancy(user.tenantId, {
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 }
