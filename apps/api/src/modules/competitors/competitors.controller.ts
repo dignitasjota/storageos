@@ -15,8 +15,10 @@ import {
   CreateCompetitorUnitSchema,
   UpdateCompetitorFacilitySchema,
   UpdateCompetitorUnitSchema,
+  ReviewCompetitorSchema,
   type CompetitorFacilityDto,
   type CompetitorUnitDto,
+  type CompetitorUnitObservationDto,
   type MarketOccupancyDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -33,6 +35,7 @@ class CreateCompetitorFacilityDto extends createZodDto(CreateCompetitorFacilityS
 class UpdateCompetitorFacilityDto extends createZodDto(UpdateCompetitorFacilitySchema) {}
 class CreateCompetitorUnitDto extends createZodDto(CreateCompetitorUnitSchema) {}
 class UpdateCompetitorUnitDto extends createZodDto(UpdateCompetitorUnitSchema) {}
+class ReviewCompetitorDto extends createZodDto(ReviewCompetitorSchema) {}
 
 /**
  * Fichar la competencia (locales + trasteros con m² y precio) para anclar la
@@ -123,5 +126,27 @@ export class CompetitorsController {
     @Param('unitId', new ParseUUIDPipe()) unitId: string,
   ): Promise<void> {
     await this.service.removeUnit(user.tenantId, unitId);
+  }
+
+  /** Revisión: precio y estado de hoy de cada trastero (todos quedan comprobados hoy). */
+  @RequirePermission('units:manage')
+  @Post(':id/review')
+  @HttpCode(HttpStatus.OK)
+  review(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ReviewCompetitorDto,
+  ): Promise<CompetitorUnitDto[]> {
+    return this.service.review(user.tenantId, id, body);
+  }
+
+  /** Histórico de comprobaciones de un trastero de la competencia. */
+  @RequirePermission('analytics:read')
+  @Get('units/:unitId/history')
+  unitHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('unitId', new ParseUUIDPipe()) unitId: string,
+  ): Promise<CompetitorUnitObservationDto[]> {
+    return this.service.unitHistory(user.tenantId, unitId);
   }
 }

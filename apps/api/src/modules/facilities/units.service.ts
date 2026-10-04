@@ -294,9 +294,24 @@ export class UnitsService {
       data.heightM = args.input.heightM;
       changes.heightM = args.input.heightM;
     }
+    const previousPrice = Number(existing.basePriceMonthly);
+    const priceChanged =
+      args.input.basePriceMonthly !== undefined && args.input.basePriceMonthly !== previousPrice;
     if (args.input.basePriceMonthly !== undefined) {
       data.basePriceMonthly = args.input.basePriceMonthly;
       changes.basePriceMonthly = args.input.basePriceMonthly;
+    }
+    if (priceChanged) {
+      // Historial de precios del trastero (para medir el efecto de cada cambio).
+      data.priceHistory = {
+        create: {
+          tenantId: args.tenantId,
+          previousPrice,
+          newPrice: args.input.basePriceMonthly!,
+          source: 'manual',
+          changedByUserId: args.userId,
+        },
+      };
     }
     if (args.input.notes !== undefined) {
       data.notes = args.input.notes.trim() || null;
