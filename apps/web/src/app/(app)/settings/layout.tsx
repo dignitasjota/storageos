@@ -1,117 +1,101 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { usePathname, useRouter } from 'next/navigation';
 
-import type { Permission } from '@storageos/shared';
+import { activeSettingsHref } from './settings-nav';
+import { useVisibleSettingsNav } from './use-settings-nav';
+
 import type { ReactNode } from 'react';
 
-import { useHasPermission } from '@/lib/auth/hooks';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-
-interface NavTab {
-  href: string;
-  labelKey:
-    | 'users'
-    | 'roles'
-    | 'profile'
-    | 'security'
-    | 'saasBilling'
-    | 'billing'
-    | 'verifactu'
-    | 'widget'
-    | 'branding'
-    | 'email'
-    | 'web'
-    | 'contractTemplate'
-    | 'faq'
-    | 'blog'
-    | 'integrations'
-    | 'audit';
-  /**
-   * Permiso requerido para ver la pestaña. Sin él, sólo se muestra a quien lo
-   * tiene (RBAC v2: el backend ya rechaza, esto evita pestañas muertas).
-   */
-  permission?: Permission;
-}
-
-const TABS: NavTab[] = [
-  { href: '/settings/users', labelKey: 'users' },
-  { href: '/settings/roles', labelKey: 'roles', permission: 'settings:manage' },
-  { href: '/settings/profile', labelKey: 'profile' },
-  { href: '/settings/security', labelKey: 'security', permission: 'settings:manage' },
-  { href: '/settings/saas-billing', labelKey: 'saasBilling', permission: 'billing:configure' },
-  { href: '/settings/billing', labelKey: 'billing', permission: 'billing:configure' },
-  { href: '/settings/billing/verifactu', labelKey: 'verifactu', permission: 'invoices:manage' },
-  { href: '/settings/widget', labelKey: 'widget' },
-  { href: '/settings/branding', labelKey: 'branding', permission: 'settings:manage' },
-  { href: '/settings/email', labelKey: 'email', permission: 'settings:manage' },
-  { href: '/settings/web', labelKey: 'web', permission: 'settings:manage' },
-  {
-    href: '/settings/contract-template',
-    labelKey: 'contractTemplate',
-    permission: 'settings:manage',
-  },
-  { href: '/settings/faq', labelKey: 'faq', permission: 'settings:manage' },
-  { href: '/settings/blog', labelKey: 'blog', permission: 'settings:manage' },
-  { href: '/settings/integrations', labelKey: 'integrations', permission: 'integrations:manage' },
-  { href: '/settings/audit', labelKey: 'audit', permission: 'settings:manage' },
-];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const t = useTranslations('settings.nav');
-
-  // Flags de permiso (hooks a nivel de componente; número fijo).
-  const canManageSettings = useHasPermission('settings:manage');
-  const canConfigureBilling = useHasPermission('billing:configure');
-  const canManageInvoices = useHasPermission('invoices:manage');
-  const canManageIntegrations = useHasPermission('integrations:manage');
-  const allowed: Partial<Record<Permission, boolean>> = {
-    'settings:manage': canManageSettings,
-    'billing:configure': canConfigureBilling,
-    'invoices:manage': canManageInvoices,
-    'integrations:manage': canManageIntegrations,
-  };
-  const visibleTabs = TABS.filter((tab) => !tab.permission || (allowed[tab.permission] ?? false));
+  const router = useRouter();
+  const groups = useVisibleSettingsNav();
+  const isHome = pathname === '/settings';
+  const active = activeSettingsHref(pathname);
 
   return (
-    <div className="flex flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6">
-      <nav className="flex gap-1 border-b">
-        {visibleTabs.map((tab) => {
-          // Para evitar que /settings/billing se marque activo cuando el path
-          // es /settings/billing/verifactu, comparamos coincidencia exacta o
-          // un sub-segmento. La tab más específica gana porque su href es
-          // prefijo más largo.
-          const isExact = pathname === tab.href;
-          const isPrefix = pathname.startsWith(`${tab.href}/`);
-          // El tab gana si es exacto o si su href es prefijo y NO hay otro
-          // tab con un href más largo que también sea prefijo.
-          const hasMoreSpecific = TABS.some(
-            (other) =>
-              other.href !== tab.href &&
-              other.href.startsWith(`${tab.href}/`) &&
-              (pathname === other.href || pathname.startsWith(`${other.href}/`)),
-          );
-          const active = isExact || (isPrefix && !hasMoreSpecific);
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              className={cn(
-                'border-b-2 px-3 py-2 text-sm transition-colors',
-                active
-                  ? 'border-foreground font-medium text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {t(tab.labelKey)}
-            </Link>
-          );
-        })}
-      </nav>
-      <div>{children}</div>
+    <div className="px-4 py-4 sm:px-6 sm:py-6">
+      {/* Móvil: desplegable agrupado. */}
+      <div className="mb-4 md:hidden">
+        <Select
+          value={isHome ? '/settings' : (active ?? '')}
+          onValueChange={(href) => router.push(href)}
+        >
+          <SelectTrigger className="text-base">
+            <SelectValue placeholder="Configuración" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="/settings">Inicio de Configuración</SelectItem>
+            {groups.map((g) => (
+              <SelectGroup key={g.label}>
+                <SelectLabel>{g.label}</SelectLabel>
+                {g.items.map((i) => (
+                  <SelectItem key={i.href} value={i.href}>
+                    {i.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex gap-8">
+        {/* Escritorio: menú lateral agrupado. */}
+        <nav className="hidden w-52 shrink-0 md:block" aria-label="Configuración">
+          <Link
+            href="/settings"
+            className={cn(
+              'mb-3 block rounded-md px-3 py-1.5 text-sm',
+              isHome
+                ? 'bg-accent font-medium text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+            )}
+          >
+            Inicio
+          </Link>
+          <div className="space-y-4">
+            {groups.map((g) => (
+              <div key={g.label}>
+                <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {g.label}
+                </div>
+                <ul className="space-y-0.5">
+                  {g.items.map((i) => (
+                    <li key={i.href}>
+                      <Link
+                        href={i.href}
+                        className={cn(
+                          'block rounded-md px-3 py-1.5 text-sm',
+                          active === i.href && !isHome
+                            ? 'bg-accent font-medium text-accent-foreground'
+                            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                        )}
+                      >
+                        {i.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </nav>
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
     </div>
   );
 }

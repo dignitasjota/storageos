@@ -381,3 +381,7 @@ cambio a enforcement.
 - **Fianza fuera de la factura**: justificante `deposit_receipt` (sin IVA ni Veri\*Factu). Por defecto se cobra en el mismo pago que la 1ª factura y el acceso llega con los dos pagados; en efectivo (`contracts.deposit_payment_method = cash`) va suelto, sin vencimiento, y se registra desde el contrato. Un inquilino puede estar marcado sin fianza.
 - **Suscripciones**: las factura el tenant «negocio propio» de TrasterOS SL como facturas suyas (misma serie, cadena y certificado), con el tenant cliente como inquilino; `platform_invoices` es la copia que ve el cliente. Precios con IVA incluido o +IVA; un NIF solo puede pertenecer a una empresa; reembolsos, contracargos perdidos y devoluciones SEPA abonan la factura.
 - **Tarjeta de los inquilinos desactivada** (`TENANT_CARD_PAYMENTS_ENABLED=false`): la cuenta de Stripe es la de la plataforma y sin Connect el dinero no sería del tenant. Redsys, Bizum, GoCardless y las remesas SEPA son de cada tenant.
+
+## Configuración del panel del tenant (2026-10-04)
+
+La navegación de `/settings` se define en un único sitio (`apps/web/src/app/(app)/settings/settings-nav.ts`): grupos, páginas, descripción y permiso de cada una, más los ajustes que viven en su módulo (`MODULE_SETTINGS`). El layout pinta el menú lateral (escritorio) o un desplegable (móvil) y la página `/settings` el resumen. Añadir una página de configuración = añadirla a `SETTINGS_NAV` en su grupo.

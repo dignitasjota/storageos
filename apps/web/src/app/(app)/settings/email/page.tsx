@@ -14,6 +14,9 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { MonthlyDigestCard } from '../billing/monthly-digest-card';
+import { SettingsHeader } from '../settings-header';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +42,10 @@ export default function EmailSettingsPage() {
 
   return (
     <div className="space-y-6">
+      <SettingsHeader
+        title="Correo"
+        description="Cómo salen tus correos (remitente y tu dominio), qué correos automáticos reciben tus inquilinos, los avisos a tu equipo y tu informe mensual."
+      />
       <Card>
         <CardHeader>
           <CardTitle>Correo a tus inquilinos</CardTitle>
@@ -73,6 +80,7 @@ export default function EmailSettingsPage() {
 
       <CustomerEmailsCard />
       <StaffEmailsCard />
+      <MonthlyDigestCard />
     </div>
   );
 }

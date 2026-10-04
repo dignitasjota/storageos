@@ -48,8 +48,8 @@ test.describe('Onboarding de tenant', () => {
     // Tras verificar, el frontend redirige al dashboard.
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
 
-    // 3. Activar 2FA en /settings/security
-    await page.goto('/settings/security');
+    // 3. Activar 2FA en Perfil → Verificación en dos pasos
+    await page.goto('/settings/profile?tab=2fa');
     await page.getByRole('button', { name: /Activar 2FA/i }).click();
 
     // El secret base32 se muestra dentro del único <code> de la tarjeta de

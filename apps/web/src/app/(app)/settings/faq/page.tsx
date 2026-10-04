@@ -4,6 +4,8 @@ import { Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SettingsHeader } from '../settings-header';
+
 import type { FaqEntryDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
@@ -44,6 +46,10 @@ export default function FaqSettingsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
+      <SettingsHeader
+        title="Preguntas frecuentes"
+        description="Las respuestas que publiques salen en tu web pública y en el área de clientes de tus inquilinos."
+      />
       <Card>
         <CardHeader>
           <CardTitle>Nueva pregunta</CardTitle>

@@ -8,11 +8,12 @@ import {
   UpdateProfileSchema,
 } from '@storageos/shared';
 import { useTranslations } from 'next-intl';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { EmailNoticesForm } from './email-notices-form';
+import { TwoFactorPanel } from './two-factor-panel';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -34,6 +35,12 @@ export default function ProfileSettingsPage() {
   const t = useTranslations('settings.profile');
   const tCommon = useTranslations('common');
   const me = useMe();
+  // `?tab=2fa` (o cualquier otra pestaña) abre directamente esa pestaña.
+  const [tab, setTab] = useState('profile');
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (wanted && ['profile', 'password', '2fa', 'notices'].includes(wanted)) setTab(wanted);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -42,10 +49,11 @@ export default function ProfileSettingsPage() {
         <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
       </div>
 
-      <Tabs defaultValue="profile">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="profile">{t('tabs.profile')}</TabsTrigger>
           <TabsTrigger value="password">{t('tabs.password')}</TabsTrigger>
+          <TabsTrigger value="2fa">Verificación en dos pasos</TabsTrigger>
           <TabsTrigger value="notices">Avisos por correo</TabsTrigger>
         </TabsList>
         <TabsContent value="profile" className="mt-6 max-w-lg">
@@ -63,6 +71,9 @@ export default function ProfileSettingsPage() {
         </TabsContent>
         <TabsContent value="password" className="mt-6 max-w-lg">
           <PasswordForm t={t} tCommon={tCommon} />
+        </TabsContent>
+        <TabsContent value="2fa" className="mt-6">
+          <TwoFactorPanel />
         </TabsContent>
         <TabsContent value="notices" className="mt-6 max-w-lg">
           <EmailNoticesForm />

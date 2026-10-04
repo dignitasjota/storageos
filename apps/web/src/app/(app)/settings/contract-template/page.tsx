@@ -49,7 +49,7 @@ export default function ContractTemplatePage() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">Plantilla de contrato</h2>
+        <h1 className="text-2xl font-semibold tracking-tight">Plantilla de contrato</h1>
         <p className="text-sm text-muted-foreground">
           Escribe tus propias cláusulas. Sustituyen a las condiciones por defecto en el PDF y en la
           firma. Déjalo vacío para usar las cláusulas estándar. La firma electrónica y su huella son
