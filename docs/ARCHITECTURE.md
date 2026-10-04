@@ -360,3 +360,24 @@ cambio a enforcement.
    dinámicamente todas las páginas (se pierde la caché estática y la web
    pública va más lenta). Reevaluar si aparece HTML enriquecido escrito por
    usuarios (hoy el Markdown se renderiza sin HTML crudo).
+
+## Correo y comunicaciones: privacidad y entregabilidad (2026-10-01/02, #580–#595)
+
+- **Secretos fuera del historial**: un valor sensible (el PIN) se sustituye por una marca antes de renderizar, se guarda cifrado aparte (`communications.secrets_encrypted`) y solo se pone al enviar. El staff ve el correo con `••••`.
+- **Comercial vs transaccional** (LSSI art. 21): `communications.is_marketing`. Un cliente recibe campañas mientras no se dé de baja; un lead solo con consentimiento expreso. La cola lo vuelve a comprobar al enviar; pie de baja + `List-Unsubscribe` de un clic con token HMAC sin estado.
+- **Lista de supresión global** (`email_suppressions`): la cuenta Brevo es compartida por todos los tenants, así que un rebote permanente bloquea la dirección para toda la plataforma y una queja de spam la quita de los comerciales de ese tenant. `EmailService.sendRendered` no envía a una dirección bloqueada.
+- **Proveedor simulado nunca finge en producción** (WhatsApp `stub` → `skipped`).
+- **Avisos por local y leído por usuario** (`notifications.facility_id` + `notification_reads`) y preferencias de correo por usuario (`users.email_notice_prefs`), sin que el usuario pueda reactivar lo que la empresa apaga.
+- **Marca e idioma del inquilino** en todo correo que le llega (`tenantEmailShell`, plantillas en inglés si no se editaron).
+- **Historial de los correos de la plataforma** (`platform_email_logs`) sin el cuerpo de los correos de cuenta (llevan enlaces de acceso).
+
+## Facturación: reglas fijadas en las dos auditorías (2026-10-02/04, #598–#615)
+
+- **Nada que mueva dinero sin bloqueo**: emitir, cobrar a mano, revertir, reembolsar y confirmar remesas trabajan con la fila de la factura bloqueada (`lockInvoiceRow`) o con transiciones condicionadas (`updateMany`); los avisos de pasarela son idempotentes y la copia en Holded se reserva antes de llamar.
+- **Veri\*Factu**: huella oficial, cadena **por emisor** (no por serie) con bloqueo por tenant, fecha del registro guardada al emitir, desglose por tipo de IVA y envíos que consultan antes de reenviar. Cada tenant emite con **su propio certificado**.
+- **Dónde se emite** (`tenants.invoicing_mode`): en la app (numera y registra en Veri\*Factu) o en Holded (Holded numera y registra; la app guarda el número y el PDF). El cambio solo vale desde el 1 de enero si ya emitió ese año. Las rectificativas en modo Holded se hacen allí y se enlazan (la API v2 no permite indicar la factura rectificada).
+- **Anular = rectificar**: una factura emitida nunca se borra; anularla emite una rectificativa de abono en la **serie propia de rectificativas**. Reembolsar emite el abono automático. Los abonos compensan el pendiente con un pago `credit_note` que no cuenta como dinero cobrado.
+- **Redondeo simétrico en céntimos** por línea (base, cuota y total), con `invoice.total ≡ Σ líneas`.
+- **Fianza fuera de la factura**: justificante `deposit_receipt` (sin IVA ni Veri\*Factu). Por defecto se cobra en el mismo pago que la 1ª factura y el acceso llega con los dos pagados; en efectivo (`contracts.deposit_payment_method = cash`) va suelto, sin vencimiento, y se registra desde el contrato. Un inquilino puede estar marcado sin fianza.
+- **Suscripciones**: las factura el tenant «negocio propio» de TrasterOS SL como facturas suyas (misma serie, cadena y certificado), con el tenant cliente como inquilino; `platform_invoices` es la copia que ve el cliente. Precios con IVA incluido o +IVA; un NIF solo puede pertenecer a una empresa; reembolsos, contracargos perdidos y devoluciones SEPA abonan la factura.
+- **Tarjeta de los inquilinos desactivada** (`TENANT_CARD_PAYMENTS_ENABLED=false`): la cuenta de Stripe es la de la plataforma y sin Connect el dinero no sería del tenant. Redsys, Bizum, GoCardless y las remesas SEPA son de cada tenant.

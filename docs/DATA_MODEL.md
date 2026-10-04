@@ -730,3 +730,8 @@ Variable de entorno booleana (default `true`).
 - `tenant_subscription_payments.refunded_amount`/`refunded_at`/`disputed_at`/`dispute_reason`, `platform_sepa_remittance_items.payment_id` (2026-10-06, migración `20261006200000_saas_payment_reversals`): devoluciones de los cobros de suscripción y su abono.
 
 - `customers.deposit_exempt` y `contracts.deposit_payment_method` (`online`|`cash`) (2026-10-04, migración `20261007100000_deposit_exempt_cash`): inquilinos sin fianza y fianza cobrada en efectivo en el local (justificante sin enlazar a la 1ª factura y sin vencimiento).
+
+- `communications.secrets_encrypted` (2026-10-03, migración `20261003100000_communication_secrets`): valores secretos de un envío (el PIN de acceso) cifrados AES-GCM con AAD = tenant; en `variables` y en el cuerpo guardado quedan tapados (`••••`) y solo se ponen al enviar.
+- `dunning_action_type` += `email_reminder_final` + plantilla `invoice_overdue_final_email` (2026-10-03, migración `20261003160000_dunning_reminders`): segundo recordatorio de impago (antes nunca se programaba por el índice único por tipo).
+- `tenants.transfer_iban` (2026-10-04, migración `20261004100000_tenant_transfer_iban`): IBAN para transferencias que sale en el correo de la factura cuando se paga a mano.
+- `contracts.booking_reminder_sent_at` (2026-10-04, migración `20261004120000_contract_booking_reminder`): recordatorio único de una reserva online enviada sin firmar o sin pagar.
