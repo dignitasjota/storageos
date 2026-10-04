@@ -308,7 +308,11 @@ export default function AdminTenantDetailPage() {
                   </p>
                 )}
                 {/* Exención de facturación (cuenta interna): fuera de las métricas. */}
-                <BillingExemptControl tenantId={id} exempt={t.billingExempt} />
+                <BillingExemptControl
+                  tenantId={id}
+                  exempt={t.billingExempt}
+                  onStripe={!!t.subscription?.stripeSubscriptionId}
+                />
               </CardContent>
             </Card>
 
@@ -1049,7 +1053,15 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
   );
 }
 
-function BillingExemptControl({ tenantId, exempt }: { tenantId: string; exempt: boolean }) {
+function BillingExemptControl({
+  tenantId,
+  exempt,
+  onStripe,
+}: {
+  tenantId: string;
+  exempt: boolean;
+  onStripe: boolean;
+}) {
   const setExempt = useSetBillingExempt();
   async function toggle() {
     try {
@@ -1080,6 +1092,12 @@ function BillingExemptControl({ tenantId, exempt }: { tenantId: string; exempt: 
           {exempt ? 'Quitar exención' : 'Marcar exenta'}
         </Button>
       </div>
+      {exempt && onStripe && (
+        <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Sigue suscrita en Stripe, que le seguirá cobrando. Usa «Pasar a pago manual» para cancelar
+          la suscripción de Stripe.
+        </p>
+      )}
     </div>
   );
 }

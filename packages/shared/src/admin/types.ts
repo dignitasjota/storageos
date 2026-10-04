@@ -583,6 +583,8 @@ export interface TenantSubscriptionDto {
   /** 'manual' | 'stripe' | 'sepa'. */
   billingMode: string;
   plan: SubscriptionPlanDto;
+  /** Cuenta exenta (no paga cuota ni vence): la marca el super admin. */
+  billingExempt: boolean;
 }
 
 /** Respuesta de POST /settings/saas-billing/checkout y .../portal. */
@@ -977,8 +979,12 @@ export interface TenantLimitsDto {
 /** Vista de add-ons para el self-service del tenant: lo suyo + lo disponible. */
 export interface TenantSelfAddonsDto {
   summary: TenantBillingSummaryDto;
-  /** Add-ons del catálogo activos que el tenant aún no tiene. */
+  /** Add-ons del catálogo activos que el tenant aún no tiene ni incluye su plan. */
   available: SaasAddonDto[];
+  /** Add-ons cuya función ya va en su plan: se muestran, pero no se contratan. */
+  includedInPlan: SaasAddonDto[];
+  /** Cuenta exenta: los extras no se le cobran. */
+  billingExempt: boolean;
 }
 
 /** Un add-on cuyo cobro manual toca (bandeja «Hoy» del super admin). */

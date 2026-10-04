@@ -185,7 +185,7 @@ export class BillingSaasService {
       (tx) =>
         tx.tenantSubscription.findUnique({
           where: { tenantId },
-          include: { plan: true },
+          include: { plan: true, tenant: { select: { billingExempt: true } } },
         }),
       tenantId,
     );
@@ -228,6 +228,20 @@ export class BillingSaasService {
     return taxRate.id;
   }
 
+  /** Una cuenta exenta no paga cuota: ni se suscribe ni cambia de plan pagando. */
+  private async assertNotExempt(tenantId: string): Promise<void> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { billingExempt: true },
+    });
+    if (t?.billingExempt) {
+      throw new BadRequestException({
+        code: 'billing_exempt',
+        message: 'Tu cuenta está exenta de cuota. Para cambiar de plan, contacta con soporte.',
+      });
+    }
+  }
+
   async createCheckoutSession(args: {
     tenantId: string;
     userId: string;
@@ -237,6 +251,7 @@ export class BillingSaasService {
     cancelUrl: string;
     meta: RequestMeta;
   }): Promise<BillingSessionResponseDto> {
+    await this.assertNotExempt(args.tenantId);
     // Resolver tenant + plan en paralelo. El tenant lo leemos por admin
     // porque necesitamos su email/nombre para Stripe Customer.
     const [tenant, plan, currentSub] = await Promise.all([
@@ -417,6 +432,7 @@ export class BillingSaasService {
     billingCycle?: BillingCycle;
     meta: RequestMeta;
   }): Promise<TenantSubscriptionDto> {
+    await this.assertNotExempt(args.tenantId);
     const [sub, plan] = await Promise.all([
       this.admin.tenantSubscription.findUnique({ where: { tenantId: args.tenantId } }),
       this.admin.subscriptionPlan.findUnique({ where: { id: args.planId } }),
@@ -898,6 +914,7 @@ export class BillingSaasService {
     stripeCustomerId: string | null;
     stripeSubscriptionId: string | null;
     billingMode: string;
+    tenant: { billingExempt: boolean };
     plan: {
       id: string;
       slug: string;
@@ -933,6 +950,7 @@ export class BillingSaasService {
       currentPeriodStart: row.currentPeriodStart.toISOString(),
       currentPeriodEnd: row.currentPeriodEnd.toISOString(),
       cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+      billingExempt: row.tenant.billingExempt,
       stripeCustomerId: row.stripeCustomerId,
       stripeSubscriptionId: row.stripeSubscriptionId,
       billingMode: row.billingMode,

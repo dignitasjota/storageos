@@ -30,15 +30,13 @@ import {
   useSubscriptionPlans,
 } from '@/lib/saas-billing/hooks';
 
-/** Traduce el estado de la suscripción de Stripe a español. */
+/** Estado de la suscripción (valores de la base de datos). */
 const STATUS_LABELS: Record<string, string> = {
+  trial: 'En prueba',
   active: 'Activa',
-  trialing: 'En prueba',
-  incomplete: 'Incompleta',
-  incomplete_expired: 'Caducada',
   past_due: 'Pago pendiente',
-  canceled: 'Cancelada',
-  unpaid: 'Impagada',
+  cancelled: 'Cancelada',
+  expired: 'Caducada',
 };
 const statusLabel = (s: string) => STATUS_LABELS[s] ?? s;
 
@@ -82,11 +80,15 @@ export default function SaasBillingPage() {
   }
 
   const sub = subscription.data;
-  const isTrialOrInactive = sub.status === 'trialing' || sub.status === 'incomplete';
+  const exempt = sub.billingExempt;
   const canOpenPortal = sub.stripeCustomerId !== null;
   // Con suscripción Stripe viva puede cambiar de plan in-app; si no (pago
   // manual) el cambio lo gestiona soporte.
   const hasStripeSub = sub.stripeSubscriptionId !== null;
+  // En prueba, cancelada o caducada y sin Stripe: puede suscribirse él mismo.
+  const canSubscribe =
+    !hasStripeSub &&
+    (sub.status === 'trial' || sub.status === 'cancelled' || sub.status === 'expired');
 
   function originUrl() {
     if (typeof window === 'undefined') return '';
@@ -146,25 +148,34 @@ export default function SaasBillingPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">Plan actual</CardTitle>
-          <Badge variant={sub.status === 'active' ? 'default' : 'secondary'}>
-            {statusLabel(sub.status)}
+          <Badge variant={exempt || sub.status === 'active' ? 'default' : 'secondary'}>
+            {exempt ? 'Exenta' : statusLabel(sub.status)}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <Row label="Plan" value={sub.plan.name} />
-          <Row
-            label="Precio"
-            value={sub.plan.priceMonthly.toLocaleString('es-ES', {
-              style: 'currency',
-              currency: sub.plan.currency,
-            })}
-          />
-          <Row
-            label="Periodo actual"
-            value={`${new Date(sub.currentPeriodStart).toLocaleDateString(
-              'es-ES',
-            )} → ${new Date(sub.currentPeriodEnd).toLocaleDateString('es-ES')}`}
-          />
+          {exempt ? (
+            <>
+              <Row label="Precio" value="Sin coste (cuenta exenta)" />
+              <Row label="Vencimiento" value="Sin vencimiento" />
+            </>
+          ) : (
+            <>
+              <Row
+                label="Precio"
+                value={sub.plan.priceMonthly.toLocaleString('es-ES', {
+                  style: 'currency',
+                  currency: sub.plan.currency,
+                })}
+              />
+              <Row
+                label="Periodo actual"
+                value={`${new Date(sub.currentPeriodStart).toLocaleDateString(
+                  'es-ES',
+                )} → ${new Date(sub.currentPeriodEnd).toLocaleDateString('es-ES')}`}
+              />
+            </>
+          )}
           {sub.cancelAtPeriodEnd && (
             <p className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-900/10 dark:text-yellow-200">
               Tu suscripción se cancelará al final del periodo actual.
@@ -172,7 +183,12 @@ export default function SaasBillingPage() {
           )}
 
           <div className="pt-3">
-            {canOpenPortal ? (
+            {exempt ? (
+              <p className="text-xs text-muted-foreground">
+                Tu cuenta está exenta de cuota: no pagas ni vence. Para cambiar de plan, contacta
+                con soporte.
+              </p>
+            ) : canOpenPortal ? (
               <Button onClick={onPortal} disabled={portal.isPending}>
                 {portal.isPending ? 'Abriendo portal...' : 'Gestionar suscripción'}
               </Button>
@@ -292,7 +308,13 @@ export default function SaasBillingPage() {
                             : p.stripePriceId !== null
                         }
                         pending={pending}
-                        mode={isTrialOrInactive ? 'subscribe' : hasStripeSub ? 'change' : 'manual'}
+                        mode={
+                          exempt || !(canSubscribe || hasStripeSub)
+                            ? 'manual'
+                            : canSubscribe
+                              ? 'subscribe'
+                              : 'change'
+                        }
                         onSubscribe={() => onCheckout(p.id)}
                         onChange={() => onChangePlan(p.id)}
                       />
@@ -305,7 +327,7 @@ export default function SaasBillingPage() {
       </section>
 
       <BillingDetailsSection />
-      <SepaMandateSection billingMode={sub.billingMode} />
+      {!exempt && <SepaMandateSection billingMode={sub.billingMode} />}
       <SelfAddonsSection />
       <SaasInvoicesSection />
     </div>
@@ -629,6 +651,9 @@ function SelfAddonsSection() {
   const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
   const owned = data.data?.summary.addons ?? [];
   const available = data.data?.available ?? [];
+  const includedInPlan = data.data?.includedInPlan ?? [];
+  const exempt = data.data?.billingExempt ?? false;
+  const price = (n: number) => (exempt ? 'Sin coste' : `${eur(n)}/mes`);
 
   return (
     <Card>
@@ -650,7 +675,7 @@ function SelfAddonsSection() {
                   >
                     <span className="font-medium">{a.name}</span>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">{eur(a.lineTotal)}/mes</span>
+                      <span className="font-semibold">{price(a.lineTotal)}</span>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -662,13 +687,15 @@ function SelfAddonsSection() {
                     </div>
                   </div>
                 ))}
-                <div className="flex justify-between border-t pt-2 text-sm font-semibold">
-                  <span>
-                    Total mensual (plan + extras)
-                    {data.data?.summary.pricesIncludeVat === false ? ' + IVA' : ', IVA incl.'}
-                  </span>
-                  <span>{eur(data.data?.summary.effectiveMonthly ?? 0)}</span>
-                </div>
+                {!exempt && (
+                  <div className="flex justify-between border-t pt-2 text-sm font-semibold">
+                    <span>
+                      Total mensual (plan + extras)
+                      {data.data?.summary.pricesIncludeVat === false ? ' + IVA' : ', IVA incl.'}
+                    </span>
+                    <span>{eur(data.data?.summary.effectiveMonthly ?? 0)}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -687,7 +714,7 @@ function SelfAddonsSection() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold">{eur(a.priceMonthly)}/mes</span>
+                      <span className="font-semibold">{price(a.priceMonthly)}</span>
                       <Button
                         size="sm"
                         onClick={() => doContract(a.id)}
@@ -699,12 +726,34 @@ function SelfAddonsSection() {
                   </div>
                 ))}
                 <p className="text-xs text-muted-foreground">
-                  Los extras se facturan con tu suscripción. Al contratarlos se activan al instante.
+                  {exempt
+                    ? 'Tu cuenta está exenta: los extras no se te cobran. Se activan al instante.'
+                    : 'Los extras se facturan con tu suscripción. Al contratarlos se activan al instante.'}
                 </p>
               </div>
             )}
 
-            {owned.length === 0 && available.length === 0 && (
+            {includedInPlan.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Incluidos en tu plan</p>
+                {includedInPlan.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 p-2 text-sm"
+                  >
+                    <div>
+                      <span className="font-medium">{a.name}</span>
+                      {a.description && (
+                        <p className="text-xs text-muted-foreground">{a.description}</p>
+                      )}
+                    </div>
+                    <Badge variant="secondary">Incluido</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {owned.length === 0 && available.length === 0 && includedInPlan.length === 0 && (
               <p className="text-sm text-muted-foreground">No hay extras disponibles.</p>
             )}
           </>
