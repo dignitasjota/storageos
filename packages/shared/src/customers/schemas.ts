@@ -34,6 +34,8 @@ const customerBase = {
   emergencyContactPhone: phoneSchema,
   notes: optionalText(2000),
   tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+  /** Sin fianza: sus contratos nuevos salen con fianza 0. */
+  depositExempt: z.boolean().optional(),
 };
 
 export const CreateCustomerSchema = z
@@ -173,6 +175,9 @@ const nonNegativeDecimal = z
   .finite();
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 
+export const DepositPaymentMethodEnum = z.enum(['online', 'cash']);
+export type DepositPaymentMethodValue = z.infer<typeof DepositPaymentMethodEnum>;
+
 export const CreateContractSchema = z.object({
   customerId: z.string().uuid(),
   unitId: z.string().uuid(),
@@ -196,6 +201,12 @@ export const CreateContractSchema = z.object({
    */
   promotionCode: z.string().trim().toUpperCase().max(32).optional(),
   depositAmount: nonNegativeDecimal.default(0),
+  /**
+   * Cómo se cobra la fianza: `online` (junto a la 1ª factura; el acceso llega
+   * con las dos pagadas) o `cash` (en el local: la 1ª factura se paga sola y da
+   * el acceso; la fianza queda pendiente hasta que el staff la cobre).
+   */
+  depositPaymentMethod: DepositPaymentMethodEnum.default('online'),
   /** Plan de seguro opcional; la prima se congela y se factura cada mes. */
   insurancePlanId: z.string().uuid().optional(),
   autoRenew: z.boolean().default(true),
@@ -241,6 +252,16 @@ export const AddContractNoteSchema = z.object({
   note: z.string().trim().min(1).max(2000),
 });
 export type AddContractNoteInput = z.infer<typeof AddContractNoteSchema>;
+
+/** Cambia cómo se cobra la fianza (solo antes de firmar el contrato). */
+export const SetDepositPaymentMethodSchema = z.object({ method: DepositPaymentMethodEnum });
+export type SetDepositPaymentMethodInput = z.infer<typeof SetDepositPaymentMethodSchema>;
+
+/** Registra el cobro de la fianza en el local (crea el justificante si no existe). */
+export const CollectDepositSchema = z.object({
+  methodType: z.enum(['cash', 'bank_transfer', 'other']).default('cash'),
+});
+export type CollectDepositInput = z.infer<typeof CollectDepositSchema>;
 
 /** Liquidación de la fianza al finalizar: importe a devolver + motivo si se retiene. */
 export const SettleDepositSchema = z.object({

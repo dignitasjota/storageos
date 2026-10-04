@@ -17,6 +17,8 @@ import {
   ChangeUnitSchema,
   RenewContractSchema,
   SettleDepositSchema,
+  SetDepositPaymentMethodSchema,
+  CollectDepositSchema,
   AssignInsuranceSchema,
   CancelContractSchema,
   ChangeContractPriceSchema,
@@ -48,6 +50,8 @@ class SignContractDto extends createZodDto(SignContractSchema) {}
 class AddContractNoteDto extends createZodDto(AddContractNoteSchema) {}
 class CancelContractDto extends createZodDto(CancelContractSchema) {}
 class SettleDepositDto extends createZodDto(SettleDepositSchema) {}
+class SetDepositPaymentMethodDto extends createZodDto(SetDepositPaymentMethodSchema) {}
+class CollectDepositDto extends createZodDto(CollectDepositSchema) {}
 class RenewContractDto extends createZodDto(RenewContractSchema) {}
 class ChangeUnitDto extends createZodDto(ChangeUnitSchema) {}
 class AssignInsuranceDto extends createZodDto(AssignInsuranceSchema) {}
@@ -212,6 +216,45 @@ export class ContractsController {
       tenantId: user.tenantId,
       userId: user.sub,
       contractId: id,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Fianza en efectivo u online (solo antes de firmar). */
+  @RequirePermission('contracts:write')
+  @Put(':id/deposit-payment-method')
+  async setDepositPaymentMethod(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SetDepositPaymentMethodDto,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.setDepositPaymentMethod({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      method: body.method,
+      facilityScope: user.facilityScope ?? null,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Registra el cobro de la fianza en el local (efectivo por defecto). */
+  @RequirePermission('payments:charge')
+  @Post(':id/deposit/collect')
+  @HttpCode(HttpStatus.OK)
+  async collectDeposit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: CollectDepositDto,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.collectDeposit({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      methodType: body.methodType,
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });

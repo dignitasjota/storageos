@@ -192,10 +192,17 @@ export function SignPageBody({
                 </span>
               </div>
             )}
+            {view.depositAmount > 0 && view.depositPaymentMethod === 'cash' && (
+              <p className="text-xs text-muted-foreground">{t('depositCash')}</p>
+            )}
             <div className="mt-1 border-t pt-1.5 flex items-center justify-between">
               <span className="font-medium">{t('toPayNow')}</span>
               <span className="font-semibold tabular-nums">
-                {formatPrice(view.priceMonthly * 1.21 + view.depositAmount, locale)}
+                {formatPrice(
+                  view.priceMonthly * 1.21 +
+                    (view.depositPaymentMethod === 'cash' ? 0 : view.depositAmount),
+                  locale,
+                )}
               </span>
             </div>
             <p className="pt-1 text-xs text-muted-foreground">{t('prorationNote')}</p>

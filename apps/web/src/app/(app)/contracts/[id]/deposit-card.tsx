@@ -21,7 +21,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useInvoices } from '@/lib/billing/hooks';
-import { useSettleDeposit } from '@/lib/customers/hooks';
+import {
+  useCollectDeposit,
+  useSetDepositPaymentMethod,
+  useSettleDeposit,
+} from '@/lib/customers/hooks';
 
 const DEPOSIT_STATUS_LABEL: Record<string, string> = {
   none: 'Sin fianza',
@@ -41,6 +45,29 @@ export function depositStatusLabel(status: string): string {
  */
 export function DepositCard({ contract }: { contract: ContractDto }) {
   const [open, setOpen] = useState(false);
+  const collect = useCollectDeposit();
+  const setMethod = useSetDepositPaymentMethod();
+  const [collectMethod, setCollectMethod] = useState<'cash' | 'bank_transfer' | 'other'>('cash');
+  const receipt = contract.depositReceipt;
+  const collected = receipt?.status === 'paid';
+  const live = contract.status !== 'cancelled' && contract.status !== 'ended';
+
+  async function onCollect() {
+    try {
+      await collect.mutateAsync({ id: contract.id, body: { methodType: collectMethod } });
+      toast.success('Cobro de la fianza registrado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar el cobro.');
+    }
+  }
+
+  async function onChangeMethod(method: 'online' | 'cash') {
+    try {
+      await setMethod.mutateAsync({ id: contract.id, method });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
 
   // No mostramos nada si el contrato no lleva fianza.
   if (contract.depositAmount <= 0) return null;
@@ -59,6 +86,64 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
           <span className="text-muted-foreground">Estado</span>
           <span>{depositStatusLabel(contract.depositStatus)}</span>
         </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Cobro</span>
+          {contract.status === 'draft' ? (
+            <select
+              className="rounded-md border bg-background px-2 py-1 text-sm"
+              value={contract.depositPaymentMethod}
+              disabled={setMethod.isPending}
+              onChange={(e) => void onChangeMethod(e.target.value as 'online' | 'cash')}
+            >
+              <option value="online">Con la 1ª factura (online)</option>
+              <option value="cash">En efectivo en el local</option>
+            </select>
+          ) : (
+            <span>
+              {contract.depositPaymentMethod === 'cash'
+                ? 'En efectivo en el local'
+                : 'Con la 1ª factura'}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Justificante</span>
+          <span>
+            {receipt ? (
+              <>
+                {receipt.number} · {collected ? 'cobrado' : 'pendiente de cobro'}
+              </>
+            ) : (
+              'aún no emitido'
+            )}
+          </span>
+        </div>
+
+        {live && !collected && (
+          <Can permission="payments:charge">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <select
+                className="rounded-md border bg-background px-2 py-1 text-sm"
+                value={collectMethod}
+                onChange={(e) =>
+                  setCollectMethod(e.target.value as 'cash' | 'bank_transfer' | 'other')
+                }
+              >
+                <option value="cash">Efectivo</option>
+                <option value="bank_transfer">Transferencia</option>
+                <option value="other">Otro</option>
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void onCollect()}
+                disabled={collect.isPending}
+              >
+                Registrar cobro de la fianza
+              </Button>
+            </div>
+          </Can>
+        )}
 
         {(contract.depositStatus === 'returned' ||
           contract.depositStatus === 'partially_returned') && (

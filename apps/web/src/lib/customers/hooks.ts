@@ -16,6 +16,7 @@ import type {
   RenewContractInput,
   ChangeUnitInput,
   SettleDepositInput,
+  CollectDepositInput,
   SignContractInput,
   SignedDownloadDto,
   InspectionPhotoDto,
@@ -300,6 +301,23 @@ export const useChangeContractPrice = makeContractAction<ChangeContractPriceInpu
 export const useRenewContract = makeContractAction<RenewContractInput>('renew');
 export const useChangeUnit = makeContractAction<ChangeUnitInput>('change-unit');
 export const useSettleDeposit = makeContractAction<SettleDepositInput>('settle-deposit');
+export const useCollectDeposit = makeContractAction<CollectDepositInput>('deposit/collect');
+
+/** Fianza online o en efectivo (solo antes de firmar). */
+export function useSetDepositPaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; method: 'online' | 'cash' }) =>
+      apiFetch<ContractDto>(`/contracts/${args.id}/deposit-payment-method`, {
+        method: 'PUT',
+        json: { method: args.method },
+      }),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: contractKey(data.id) });
+    },
+  });
+}
 
 export function useAddContractNote() {
   const qc = useQueryClient();

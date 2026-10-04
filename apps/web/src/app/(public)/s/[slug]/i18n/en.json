@@ -366,6 +366,7 @@
       "title": "Sign contract",
       "monthlyFee": "Monthly fee (VAT incl.)",
       "deposit": "Deposit (one-off, no VAT)",
+      "depositCash": "Paid in cash at the facility, separately from this payment.",
       "toPayNow": "To pay on activation",
       "prorationNote": "If you start mid-month, the first fee is prorated by days.",
       "signerNameLabel": "Signer's name",

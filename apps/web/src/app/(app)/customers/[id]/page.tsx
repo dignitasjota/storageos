@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContractsTab } from './contracts-tab';
+import { DepositExemptCard } from './deposit-exempt-card';
 import { CustomerDocumentsTab } from './documents-tab';
 import { EmailStatusCard } from './email-status-card';
 import { FollowupsCard } from './followups-card';
@@ -97,6 +98,7 @@ export default function CustomerDetailPage() {
             <Badge variant={c.kycVerified ? 'default' : 'outline'}>
               {c.kycVerified ? 'KYC verificado' : 'KYC pendiente'}
             </Badge>
+            {c.depositExempt && <Badge variant="secondary">Sin fianza</Badge>}
           </div>
           <p className="mt-2 break-words text-sm text-muted-foreground">
             {c.email ?? '—'} · {c.phone ?? 'Sin teléfono'}
@@ -232,6 +234,7 @@ export default function CustomerDetailPage() {
             </CardContent>
           </Card>
           <EmailStatusCard customerId={c.id} />
+          <DepositExemptCard customerId={c.id} exempt={c.depositExempt} />
           <MarketingPreferenceCard customerId={c.id} optOutAt={c.marketingOptOutAt} />
         </TabsContent>
       </Tabs>

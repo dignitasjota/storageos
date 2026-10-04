@@ -397,6 +397,15 @@ export default function TodayPage() {
               empty="Ninguna fianza pendiente de liquidar."
             />
             <SectionCard
+              title="Fianzas a cobrar en el local"
+              icon={PiggyBank}
+              count={data.depositsToCollect.count}
+              items={data.depositsToCollect.items}
+              href="/contracts"
+              itemHref={(it) => (it.linkId ? `/contracts/${it.linkId}` : '/contracts')}
+              empty="Ninguna fianza pendiente de cobro."
+            />
+            <SectionCard
               title="Renovaciones de marketing"
               icon={Radio}
               count={data.marketingRenewalsDue.count}

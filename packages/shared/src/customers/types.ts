@@ -32,6 +32,8 @@ export interface CustomerDto {
   tags: string[];
   kycVerified: boolean;
   kycVerifiedAt: string | null;
+  /** Sin fianza: sus contratos nuevos salen con fianza 0. */
+  depositExempt: boolean;
   /** true si el inquilino tiene el acceso por contraseña al portal activado. */
   portalAccessEnabled: boolean;
   activeContracts: number;
@@ -121,6 +123,10 @@ export interface ContractDto {
   depositReturnedAmount: number;
   depositSettledAt: string | null;
   depositRetentionReason: string | null;
+  /** `online` (con la 1ª factura) | `cash` (en el local). */
+  depositPaymentMethod: 'online' | 'cash';
+  /** Justificante de la fianza y si está cobrado (null = aún no existe). */
+  depositReceipt: { id: string; number: string; status: string } | null;
   /**
    * El PDF firmado NO viaja aquí como URL permanente (bucket privado, sin
    * firmar): pedir `GET /contracts/:id/signed-pdf` cuando `true` da una URL
