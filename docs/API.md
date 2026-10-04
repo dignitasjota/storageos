@@ -1932,3 +1932,6 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 - Webhook de Stripe: `charge.refunded`, `charge.dispute.created` y `charge.dispute.closed` de un cobro de **suscripción** (resuelto por `invoicePayments`) sincronizan el pago (`TenantSubscriptionPaymentDto.refundedAmount`/`disputed`) y abonan su factura; marcar un adeudo de la remesa SEPA de la plataforma como devuelto también la abona.
 
 - `GET /fiscal/accountant-export?from=&to=&format=json|csv|xlsx&kind=invoices|payments|deposits` (`invoices:manage`): exportación para la asesoría del tenant — facturas por tipo de IVA, cobros y fianzas (`AccountantExportDto.deposits`). La de la plataforma (`/admin/platform-billing/accountant-export`) admite también `kind=deposits`.
+
+- `PATCH /customers/:id {depositExempt}` — inquilino sin fianza (sus contratos nuevos salen con fianza 0). `CustomerDto.depositExempt`.
+- `PUT /contracts/:id/deposit-payment-method {method: online|cash}` (`contracts:write`, solo borrador; 400 `contract_already_signed`) y `POST /contracts/:id/deposit/collect {methodType: cash|bank_transfer|other}` (`payments:charge`; crea el justificante si no existe y lo marca cobrado; 400 `no_deposit`/`contract_closed`, 409 `deposit_already_collected`). `ContractDto.depositPaymentMethod`/`depositReceipt`; `TodayDto.depositsToCollect`; `ContractSignViewDto.depositPaymentMethod`.

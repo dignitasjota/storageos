@@ -53,6 +53,18 @@ export class TodayService {
     const facContract = facilityId ? { unit: { is: { facilityId } } } : {};
     const facTaskIncident = facilityId ? { facilityId } : {};
     const facInvoice = facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {};
+    const depositToCollectWhere = {
+      kind: 'deposit_receipt' as const,
+      status: { in: ['issued' as const, 'overdue' as const] },
+      bundledWithInvoiceId: null,
+      deletedAt: null,
+      contract: {
+        is: {
+          status: { in: ['draft' as const, 'active' as const, 'ending' as const] },
+          ...(facilityId ? { unit: { is: { facilityId } } } : {}),
+        },
+      },
+    };
 
     return this.prisma.withTenant(async (tx) => {
       const [
@@ -83,6 +95,8 @@ export class TodayService {
         collectionsDeadlinesCount,
         depositsToSettle,
         depositsToSettleCount,
+        depositsToCollect,
+        depositsToCollectCount,
         marketingRenewals,
         marketingRenewalsCount,
         retentionOffers,
@@ -260,6 +274,21 @@ export class TodayService {
             ...facContract,
           },
         }),
+        // Fianzas a cobrar en el local (efectivo): justificante sin pagar y
+        // fuera del pago online, de un contrato vivo.
+        tx.invoice.findMany({
+          where: depositToCollectWhere,
+          orderBy: [{ issueDate: 'asc' }],
+          take: TAKE,
+          select: {
+            id: true,
+            total: true,
+            issueDate: true,
+            customer: customerSelect,
+            contract: { select: { id: true, unit: { select: { code: true } } } },
+          },
+        }),
+        tx.invoice.count({ where: depositToCollectWhere }),
         // Canales de marketing activos que renuevan (suscripción/anuncio) pronto.
         tx.marketingChannel.findMany({
           where: {
@@ -358,6 +387,7 @@ export class TodayService {
         invoicesCount +
         collectionsDeadlinesCount +
         depositsToSettleCount +
+        depositsToCollectCount +
         marketingRenewalsCount +
         retentionOffersCount;
 
@@ -405,6 +435,16 @@ export class TodayService {
             label: customerName(c.customer),
             detail: c.unit?.code ?? null,
             date: (c.endedAt ?? c.cancelledAt ?? null)?.toISOString() ?? null,
+          })),
+        },
+        depositsToCollect: {
+          count: depositsToCollectCount,
+          items: depositsToCollect.map((d) => ({
+            id: d.id,
+            linkId: d.contract?.id ?? null,
+            label: d.customer ? customerName(d.customer) : 'Fianza',
+            detail: `${d.contract?.unit?.code ?? ''} · ${Number(d.total).toFixed(2)} €`,
+            date: d.issueDate ? d.issueDate.toISOString() : null,
           })),
         },
         incidentsOpen,

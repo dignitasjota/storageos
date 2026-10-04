@@ -265,6 +265,7 @@ export class BookingService {
         priceMonthly,
         discountAmount: 0,
         depositAmount,
+        depositPaymentMethod: 'online',
         autoRenew: true,
         cancellationNoticeDays: 15,
       },

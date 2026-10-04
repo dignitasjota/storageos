@@ -728,3 +728,5 @@ Variable de entorno booleana (default `true`).
 - `platform_invoices.invoice_id`, `invoices.platform_payment_id`, `customers.platform_tenant_id`, `tenant_subscription_payments.invoicing_claimed_at` (2026-10-06, migración `20261006180000_platform_invoices_own_tenant`): facturas de suscripción emitidas como facturas del negocio propio; el único `(series, number)` de `platform_invoices` pasa a parcial `WHERE series <> 'own'`.
 
 - `tenant_subscription_payments.refunded_amount`/`refunded_at`/`disputed_at`/`dispute_reason`, `platform_sepa_remittance_items.payment_id` (2026-10-06, migración `20261006200000_saas_payment_reversals`): devoluciones de los cobros de suscripción y su abono.
+
+- `customers.deposit_exempt` y `contracts.deposit_payment_method` (`online`|`cash`) (2026-10-04, migración `20261007100000_deposit_exempt_cash`): inquilinos sin fianza y fianza cobrada en efectivo en el local (justificante sin enlazar a la 1ª factura y sin vencimiento).

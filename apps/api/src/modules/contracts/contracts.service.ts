@@ -62,7 +62,16 @@ type ContractWithRelations = Contract & {
   };
   unit: { code: string; facilityId: string; facility: { name: string } };
   insurancePlan: { name: string } | null;
+  invoices?: { id: string; invoiceNumber: string; status: string }[];
 };
+
+/** El justificante de fianza vigente del contrato (para la ficha). */
+const DEPOSIT_RECEIPT_SELECT = {
+  where: { kind: 'deposit_receipt', deletedAt: null, status: { not: 'cancelled' } },
+  select: { id: true, invoiceNumber: true, status: true },
+  orderBy: { createdAt: 'desc' },
+  take: 1,
+} satisfies Prisma.Contract$invoicesArgs;
 
 interface ListFilters {
   status?: ContractStatusValue;
@@ -119,6 +128,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
       tenantId,
@@ -147,6 +157,7 @@ export class ContractsService {
               select: { code: true, facilityId: true, facility: { select: { name: true } } },
             },
             insurancePlan: { select: { name: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
       tenantId,
@@ -299,7 +310,9 @@ export class ContractsService {
           discountReason,
           promotionId,
           freeMonthsRemaining,
-          depositAmount: input.depositAmount,
+          // Inquilino «sin fianza»: sus contratos nuevos no llevan fianza.
+          depositAmount: customer.depositExempt ? 0 : input.depositAmount,
+          depositPaymentMethod: input.depositPaymentMethod ?? 'online',
           insurancePlanId,
           insurancePrice,
           autoRenew: input.autoRenew,
@@ -335,6 +348,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
     }, tenantId);
@@ -417,6 +431,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
       args.tenantId,
@@ -510,6 +525,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
           },
         });
         await tx.contractEvent.create({
@@ -692,6 +708,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -778,6 +795,7 @@ export class ContractsService {
         include: {
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       // Trasteros con candado por impago (expediente overlock no cerrado).
@@ -861,6 +879,7 @@ export class ContractsService {
           },
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -944,6 +963,7 @@ export class ContractsService {
         include: {
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -991,6 +1011,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1246,6 +1267,102 @@ export class ContractsService {
    * deuda pendiente en la UI). Reutiliza el evento `note_added` con payload
    * tipado (el enum no tiene `deposit_settled`, patrón del proyecto).
    */
+  /** Cómo se cobra la fianza (online con la 1ª factura o en efectivo). Solo antes de firmar. */
+  async setDepositPaymentMethod(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    method: 'online' | 'cash';
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    if (existing.status !== 'draft') {
+      throw new BadRequestException({
+        code: 'contract_already_signed',
+        message:
+          'Solo se puede cambiar antes de firmar. Después, cobra la fianza desde «Registrar cobro».',
+      });
+    }
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.update({
+          where: { id: existing.id },
+          data: { depositPaymentMethod: args.method },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.deposit_payment_method_changed',
+      entityType: 'Contract',
+      entityId: existing.id,
+      changes: { method: args.method },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toDto(await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope));
+  }
+
+  /**
+   * Registra el cobro de la fianza en el local (efectivo, transferencia…): usa
+   * su justificante o lo crea si aún no existe (p. ej. contrato firmado en el
+   * panel) y lo marca cobrado por el importe completo.
+   */
+  async collectDeposit(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    methodType: 'cash' | 'bank_transfer' | 'other';
+    facilityScope?: string[] | null;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    const deposit = Number(existing.depositAmount);
+    if (deposit <= 0) {
+      throw new BadRequestException({
+        code: 'no_deposit',
+        message: 'Este contrato no tiene fianza',
+      });
+    }
+    if (existing.status === 'cancelled' || existing.status === 'ended') {
+      throw new BadRequestException({
+        code: 'contract_closed',
+        message: 'El contrato ya no está vivo',
+      });
+    }
+    let receipt = existing.invoices?.[0] ?? null;
+    if (receipt?.status === 'paid') {
+      throw new ConflictException({
+        code: 'deposit_already_collected',
+        message: 'La fianza ya está cobrada',
+      });
+    }
+    if (!receipt) {
+      const created = await this.invoices.createDepositReceipt({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        contractId: existing.id,
+        customerId: existing.customerId,
+        contractNumber: existing.contractNumber,
+        amount: deposit,
+        dueDate: null,
+        bundledWithInvoiceId: null,
+      });
+      receipt = { id: created.id, invoiceNumber: created.invoiceNumber, status: created.status };
+    }
+    const doc = await this.invoices.detail(args.tenantId, receipt.id);
+    await this.invoices.markPaidManually({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      invoiceId: receipt.id,
+      input: { amount: doc.amountPending, methodType: args.methodType },
+      meta: args.meta,
+    });
+    return this.toDto(await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope));
+  }
+
   async settleDeposit(args: {
     tenantId: string;
     userId: string;
@@ -1324,6 +1441,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1392,6 +1510,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1478,6 +1597,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1531,6 +1651,7 @@ export class ContractsService {
         },
       },
       insurancePlan: { select: { name: true } },
+      invoices: DEPOSIT_RECEIPT_SELECT,
     } satisfies Prisma.ContractInclude;
   }
 
@@ -1845,6 +1966,7 @@ export class ContractsService {
               select: { code: true, facilityId: true, facility: { select: { name: true } } },
             },
             insurancePlan: { select: { name: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
       args.tenantId,
@@ -2005,6 +2127,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
       tenantId,
@@ -2120,6 +2243,14 @@ export class ContractsService {
       depositReturnedAmount: Number(row.depositReturnedAmount),
       depositSettledAt: row.depositSettledAt ? row.depositSettledAt.toISOString() : null,
       depositRetentionReason: row.depositRetentionReason,
+      depositPaymentMethod: row.depositPaymentMethod === 'cash' ? 'cash' : 'online',
+      depositReceipt: row.invoices?.[0]
+        ? {
+            id: row.invoices[0].id,
+            number: row.invoices[0].invoiceNumber,
+            status: row.invoices[0].status,
+          }
+        : null,
       hasSignedPdf: !!row.signedPdfUrl,
       insurancePlanId: row.insurancePlanId,
       insurancePlanName: row.insurancePlan?.name ?? null,

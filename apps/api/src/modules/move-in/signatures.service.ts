@@ -193,6 +193,7 @@ export class SignaturesService {
       facilityName: contract.unit.facility.name,
       priceMonthly: Number(contract.priceMonthly),
       depositAmount: Number(contract.depositAmount),
+      depositPaymentMethod: contract.depositPaymentMethod === 'cash' ? 'cash' : 'online',
       billingCycle: contract.billingCycle,
       startDate: contract.startDate.toISOString().slice(0, 10),
       termsText,
@@ -359,6 +360,7 @@ export class SignaturesService {
       const interval = contract.billingIntervalMonths;
       const fullPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
       const deposit = Number(contract.depositAmount);
+      const cashDeposit = contract.depositPaymentMethod === 'cash';
       const start = new Date(contract.startDate);
 
       let periodStart: Date;
@@ -472,8 +474,11 @@ export class SignaturesService {
           customerId,
           contractNumber: contract.contractNumber,
           amount: deposit,
-          dueDate,
-          bundledWithInvoiceId: invoice.id,
+          // En efectivo: se cobra en el local, aparte del pago online (el acceso
+          // llega con la factura pagada) y sin vencimiento (no entra en impagos).
+          ...(cashDeposit
+            ? { dueDate: null, bundledWithInvoiceId: null }
+            : { dueDate, bundledWithInvoiceId: invoice.id }),
         });
       }
     } catch (err) {
@@ -552,6 +557,7 @@ export class SignaturesService {
         priceMonthly: Number(unit.basePriceMonthly),
         discountAmount: 0,
         depositAmount: Number(unit.unitType.defaultDepositAmount ?? 0),
+        depositPaymentMethod: 'online',
         cancellationNoticeDays: 15,
         autoRenew: true,
       },

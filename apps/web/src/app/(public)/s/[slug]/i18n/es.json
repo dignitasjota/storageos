@@ -366,6 +366,7 @@
       "title": "Firma de contrato",
       "monthlyFee": "Cuota mensual (IVA incl.)",
       "deposit": "Fianza (una vez, sin IVA)",
+      "depositCash": "Se paga en efectivo en el local, aparte de este pago.",
       "toPayNow": "A pagar al activar",
       "prorationNote": "Si entras a mitad de mes, la primera cuota se prorratea por los días.",
       "signerNameLabel": "Nombre del firmante",

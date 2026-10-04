@@ -104,6 +104,7 @@ export class CustomersService {
       emergencyContactPhone: args.input.emergencyContactPhone?.trim() || null,
       notes: args.input.notes?.trim() || null,
       tags: args.input.tags,
+      depositExempt: args.input.depositExempt ?? false,
     };
     const created = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.create({
@@ -178,6 +179,10 @@ export class CustomersService {
     set('emergencyContactName');
     set('emergencyContactPhone');
     set('notes');
+    if (args.input.depositExempt !== undefined) {
+      data.depositExempt = args.input.depositExempt;
+      changes.depositExempt = args.input.depositExempt;
+    }
     if (args.input.tags !== undefined) {
       data.tags = args.input.tags;
       changes.tags = args.input.tags;
@@ -379,6 +384,7 @@ export class CustomersService {
       notes: row.notes,
       tags: row.tags,
       kycVerified: row.kycVerified,
+      depositExempt: row.depositExempt,
       kycVerifiedAt: row.kycVerifiedAt ? row.kycVerifiedAt.toISOString() : null,
       portalAccessEnabled: row.portalAccessEnabled,
       activeContracts: row._count?.contracts ?? 0,

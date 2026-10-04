@@ -39,6 +39,7 @@ export default function NewContractWizardPage() {
   const [discountReason, setDiscountReason] = useState('');
   const [promotionCode, setPromotionCode] = useState('');
   const [depositAmount, setDepositAmount] = useState(0);
+  const [depositPaymentMethod, setDepositPaymentMethod] = useState<'online' | 'cash'>('online');
   const [insurancePlanId, setInsurancePlanId] = useState('');
   const [billingIntervalMonths, setBillingIntervalMonths] = useState<1 | 6 | 12>(1);
   const [prepayDiscountPct, setPrepayDiscountPct] = useState(0);
@@ -59,7 +60,8 @@ export default function NewContractWizardPage() {
       discountAmount,
       ...(discountReason ? { discountReason } : {}),
       ...(promotionCode ? { promotionCode } : {}),
-      depositAmount,
+      depositAmount: customer.depositExempt ? 0 : depositAmount,
+      depositPaymentMethod,
       ...(insurancePlanId ? { insurancePlanId } : {}),
       autoRenew: true,
       cancellationNoticeDays: 15,
@@ -137,6 +139,8 @@ export default function NewContractWizardPage() {
           discountReason={discountReason}
           promotionCode={promotionCode}
           depositAmount={depositAmount}
+          depositExempt={customer?.depositExempt ?? false}
+          depositPaymentMethod={depositPaymentMethod}
           insurancePlanId={insurancePlanId}
           billingIntervalMonths={billingIntervalMonths}
           prepayDiscountPct={prepayDiscountPct}
@@ -148,6 +152,8 @@ export default function NewContractWizardPage() {
             if (p.discountReason !== undefined) setDiscountReason(p.discountReason);
             if (p.promotionCode !== undefined) setPromotionCode(p.promotionCode);
             if (p.depositAmount !== undefined) setDepositAmount(p.depositAmount);
+            if (p.depositPaymentMethod !== undefined)
+              setDepositPaymentMethod(p.depositPaymentMethod);
             if (p.insurancePlanId !== undefined) setInsurancePlanId(p.insurancePlanId);
             if (p.billingIntervalMonths !== undefined)
               setBillingIntervalMonths(p.billingIntervalMonths);
@@ -165,7 +171,8 @@ export default function NewContractWizardPage() {
           endDate={endDate || null}
           priceMonthly={priceMonthly}
           discountAmount={discountAmount}
-          depositAmount={depositAmount}
+          depositAmount={customer.depositExempt ? 0 : depositAmount}
+          depositPaymentMethod={depositPaymentMethod}
           billingIntervalMonths={billingIntervalMonths}
           prepayDiscountPct={prepayDiscountPct}
           submitting={create.isPending}
@@ -290,6 +297,8 @@ function StepEconomics(props: {
   discountReason: string;
   promotionCode: string;
   depositAmount: number;
+  depositExempt: boolean;
+  depositPaymentMethod: 'online' | 'cash';
   insurancePlanId: string;
   billingIntervalMonths: 1 | 6 | 12;
   prepayDiscountPct: number;
@@ -302,6 +311,7 @@ function StepEconomics(props: {
       discountReason: string;
       promotionCode: string;
       depositAmount: number;
+      depositPaymentMethod: 'online' | 'cash';
       insurancePlanId: string;
       billingIntervalMonths: 1 | 6 | 12;
       prepayDiscountPct: number;
@@ -393,10 +403,39 @@ function StepEconomics(props: {
             <Input
               type="number"
               step="0.01"
-              value={props.depositAmount}
+              value={props.depositExempt ? 0 : props.depositAmount}
+              disabled={props.depositExempt}
               onChange={(e) => props.onChange({ depositAmount: Number(e.target.value) })}
             />
+            {props.depositExempt && (
+              <p className="mt-1 text-xs text-muted-foreground">Inquilino sin fianza.</p>
+            )}
           </div>
+          {!props.depositExempt && props.depositAmount > 0 && (
+            <div>
+              <Label>Cobro de la fianza</Label>
+              <Select
+                value={props.depositPaymentMethod}
+                onValueChange={(v) =>
+                  props.onChange({ depositPaymentMethod: v as 'online' | 'cash' })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="online">Con la 1ª factura (online)</SelectItem>
+                  <SelectItem value="cash">En efectivo en el local</SelectItem>
+                </SelectContent>
+              </Select>
+              {props.depositPaymentMethod === 'cash' && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  El inquilino paga online solo el alquiler y recibe el acceso; la fianza queda
+                  pendiente hasta que registres el cobro en la ficha del contrato.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div>
           <Label>Motivo del descuento (opcional)</Label>
@@ -520,6 +559,7 @@ function StepReview(props: {
   priceMonthly: number;
   discountAmount: number;
   depositAmount: number;
+  depositPaymentMethod: 'online' | 'cash';
   billingIntervalMonths: 1 | 6 | 12;
   prepayDiscountPct: number;
   submitting: boolean;
@@ -561,7 +601,12 @@ function StepReview(props: {
           </div>
           <div>
             <dt className="text-muted-foreground">Fianza</dt>
-            <dd className="tabular-nums">{props.depositAmount.toFixed(2)} €</dd>
+            <dd className="tabular-nums">
+              {props.depositAmount.toFixed(2)} €
+              {props.depositAmount > 0 && props.depositPaymentMethod === 'cash' && (
+                <span className="text-muted-foreground"> · en efectivo en el local</span>
+              )}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Facturación</dt>

@@ -1100,6 +1100,8 @@ model Customer {
   portalSessionVersion  Int          @default(0) @map("portal_session_version")
   /// Se dio de baja de las comunicaciones comerciales (campañas, win-back).
   marketingOptOutAt     DateTime?    @map("marketing_opt_out_at") @db.Timestamptz(6)
+  /// Sin fianza: sus contratos nuevos salen con fianza 0.
+  depositExempt         Boolean      @default(false) @map("deposit_exempt")
   kycVerified           Boolean      @default(false) @map("kyc_verified")
   kycVerifiedAt         DateTime?    @map("kyc_verified_at") @db.Timestamptz(6)
   /// Codigo de referido que este cliente comparte (unico por tenant).
@@ -1213,6 +1215,8 @@ model Contract {
   depositReturnedAmount  Decimal               @default(0) @map("deposit_returned_amount") @db.Decimal(10, 2)
   depositSettledAt       DateTime?             @map("deposit_settled_at") @db.Timestamptz(6)
   depositRetentionReason String?               @map("deposit_retention_reason")
+  /// Cómo se cobra la fianza: `online` (junto a la 1ª factura) | `cash` (en el local).
+  depositPaymentMethod   String                @default("online") @map("deposit_payment_method")
   signedPdfUrl           String?               @map("signed_pdf_url")
   /// Snapshot del texto de condiciones que se firmó (con las cláusulas del tenant
   /// ya renderizadas). Congela lo firmado: editar la plantilla luego NO cambia el

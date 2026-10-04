@@ -6,6 +6,8 @@ export interface ContractSignViewDto {
   facilityName: string;
   priceMonthly: number;
   depositAmount: number;
+  /** `cash`: la fianza se paga en el local, no en el pago online. */
+  depositPaymentMethod: 'online' | 'cash';
   billingCycle: string;
   startDate: string;
   /** Texto de términos a aceptar (resumen legible). */
