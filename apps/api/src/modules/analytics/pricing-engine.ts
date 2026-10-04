@@ -1,0 +1,252 @@
+/**
+ * Motor de precio sugerido (funciones puras, sin BD).
+ *
+ * Precio objetivo = precio de mercado del tamaño exacto × posicionamiento del
+ * local × ajuste por demanda. Después se aplican los límites: cambio máximo
+ * por vez (la mitad si hay pocos datos), precio mínimo/máximo del tipo y espera
+ * mínima entre cambios.
+ */
+
+export type PricingConfidence = 'high' | 'medium' | 'low';
+
+const DAY_MS = 86_400_000;
+/** A los 60 días un dato de la competencia pesa la mitad; a partir de 180 no cuenta. */
+const FRESHNESS_HALF_LIFE_DAYS = 60;
+const FRESHNESS_CUTOFF_DAYS = 180;
+/** Exponente de la curva precio-tamaño: el precio crece menos que los m². */
+const MIN_EXPONENT = 0.3;
+const MAX_EXPONENT = 1.1;
+/** Peso de la ocupación del local al suavizar la de un tamaño con pocos trasteros. */
+const OCCUPANCY_PRIOR_UNITS = 3;
+/** Por debajo de este cambio no merece la pena tocar el precio. */
+export const MIN_CHANGE_PCT = 2;
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export function daysBetween(from: Date, to: Date): number {
+  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / DAY_MS));
+}
+
+/**
+ * Peso de un dato de la competencia para un local concreto: antigüedad ×
+ * cercanía. Un competidor ligado al local pesa 1; con distancia, cae con los
+ * km (a 3 km pesa la mitad); de la misma zona 0,6; el resto 0,3.
+ */
+export function observationWeight(args: {
+  ageDays: number;
+  linkedToFacility: boolean;
+  distanceKm: number | null;
+  sameZone: boolean;
+}): number {
+  if (args.ageDays > FRESHNESS_CUTOFF_DAYS) return 0;
+  const freshness = 0.5 ** (args.ageDays / FRESHNESS_HALF_LIFE_DAYS);
+  let proximity: number;
+  if (args.linkedToFacility) proximity = 1;
+  else if (args.distanceKm != null) proximity = 1 / (1 + args.distanceKm / 3);
+  else if (args.sameZone) proximity = 0.6;
+  else proximity = 0.3;
+  return freshness * proximity;
+}
+
+export interface MarketObservation {
+  areaM2: number;
+  /** Precio mensual comparable (sin IVA, con el seguro obligatorio incluido). */
+  price: number;
+  weight: number;
+}
+
+export interface MarketCurve {
+  /** Precio de mercado para un tamaño. */
+  priceAt(areaM2: number): number;
+  /** Nº efectivo de datos (tiene en cuenta los pesos). */
+  effectiveN: number;
+  points: number;
+  minArea: number;
+  maxArea: number;
+}
+
+function weightedMedian(values: { v: number; w: number }[]): number {
+  const sorted = [...values].sort((a, b) => a.v - b.v);
+  const total = sorted.reduce((s, x) => s + x.w, 0);
+  let acc = 0;
+  for (const x of sorted) {
+    acc += x.w;
+    if (acc >= total / 2) return x.v;
+  }
+  return sorted[sorted.length - 1]!.v;
+}
+
+/**
+ * Ajusta la curva de precio del mercado: ln(precio) = a + b·ln(m²) por mínimos
+ * cuadrados ponderados. Con menos de 3 datos o un único tamaño, usa la mediana
+ * ponderada del €/m² (b = 1).
+ */
+export function fitMarketCurve(observations: MarketObservation[]): MarketCurve | null {
+  const obs = observations.filter((o) => o.weight > 0 && o.areaM2 > 0 && o.price > 0);
+  if (obs.length === 0) return null;
+
+  const sumW = obs.reduce((s, o) => s + o.weight, 0);
+  const sumW2 = obs.reduce((s, o) => s + o.weight ** 2, 0);
+  const effectiveN = sumW2 > 0 ? sumW ** 2 / sumW2 : 0;
+  const areas = obs.map((o) => o.areaM2);
+  const minArea = Math.min(...areas);
+  const maxArea = Math.max(...areas);
+  const base = { effectiveN, points: obs.length, minArea, maxArea };
+
+  const distinctSizes = new Set(areas.map((a) => Math.round(a * 10))).size;
+  if (obs.length < 3 || distinctSizes < 2) {
+    const perM2 = weightedMedian(obs.map((o) => ({ v: o.price / o.areaM2, w: o.weight })));
+    return { ...base, priceAt: (area) => perM2 * area };
+  }
+
+  const xs = obs.map((o) => Math.log(o.areaM2));
+  const ys = obs.map((o) => Math.log(o.price));
+  const meanX = obs.reduce((s, o, i) => s + o.weight * xs[i]!, 0) / sumW;
+  const meanY = obs.reduce((s, o, i) => s + o.weight * ys[i]!, 0) / sumW;
+  let cov = 0;
+  let varX = 0;
+  obs.forEach((o, i) => {
+    cov += o.weight * (xs[i]! - meanX) * (ys[i]! - meanY);
+    varX += o.weight * (xs[i]! - meanX) ** 2;
+  });
+  const b = clamp(varX > 0 ? cov / varX : 1, MIN_EXPONENT, MAX_EXPONENT);
+  const a = meanY - b * meanX;
+  return { ...base, priceAt: (area) => Math.exp(a + b * Math.log(area)) };
+}
+
+/** Confianza en el precio de mercado de un tamaño. */
+export function marketConfidence(curve: MarketCurve | null, areaM2: number): PricingConfidence {
+  if (!curve) return 'low';
+  // Muy por fuera de los tamaños que tenemos es extrapolar.
+  if (areaM2 < curve.minArea / 1.5 || areaM2 > curve.maxArea * 1.5) return 'low';
+  if (curve.effectiveN >= 5) return 'high';
+  if (curve.effectiveN >= 2) return 'medium';
+  return 'low';
+}
+
+export interface DemandFactor {
+  key: 'occupancy' | 'waitlist' | 'competitor_occupancy';
+  label: string;
+  detail: string;
+  contribution: number;
+}
+
+/**
+ * Ajuste por demanda (en %), continuo:
+ * - ocupación del tamaño frente a la objetivo (suavizada con la del local si
+ *   hay pocos trasteros): 10 puntos por encima = +5 %, acotado a [−10, +8];
+ * - lista de espera de ese tamaño: +2 % por persona, hasta +6 %;
+ * - ocupación de la competencia (solo con inventario conocido): 95 % = +3 %.
+ */
+export function demandFactors(args: {
+  dimOccupied: number;
+  dimTotal: number;
+  facilityOccupancy: number;
+  targetOccupancy: number;
+  waitlist: number;
+  competitorOccupancy: number | null;
+}): DemandFactor[] {
+  const factors: DemandFactor[] = [];
+  const smoothed =
+    (args.dimOccupied + OCCUPANCY_PRIOR_UNITS * args.facilityOccupancy) /
+    (args.dimTotal + OCCUPANCY_PRIOR_UNITS);
+  const occAdj = round1(clamp((smoothed - args.targetOccupancy) * 50, -10, 8));
+  if (occAdj !== 0) {
+    factors.push({
+      key: 'occupancy',
+      label: 'Ocupación del tamaño',
+      detail: `${args.dimOccupied} de ${args.dimTotal} ocupados (objetivo ${Math.round(args.targetOccupancy * 100)} %)`,
+      contribution: occAdj,
+    });
+  }
+  if (args.waitlist > 0) {
+    factors.push({
+      key: 'waitlist',
+      label: 'Lista de espera',
+      detail: `${args.waitlist} ${args.waitlist === 1 ? 'persona espera' : 'personas esperan'} este tamaño`,
+      contribution: Math.min(args.waitlist * 2, 6),
+    });
+  }
+  if (args.competitorOccupancy != null) {
+    const compAdj = round1(clamp((args.competitorOccupancy - 0.85) * 30, -4, 4));
+    if (compAdj !== 0) {
+      factors.push({
+        key: 'competitor_occupancy',
+        label: 'Ocupación de la competencia',
+        detail: `La competencia cercana tiene este tamaño al ${Math.round(args.competitorOccupancy * 100)} %`,
+        contribution: compAdj,
+      });
+    }
+  }
+  return factors;
+}
+
+export interface PriceDecision {
+  targetPrice: number;
+  suggestedPrice: number;
+  changePct: number;
+  action: 'raise' | 'lower' | 'hold';
+  holdReason: string | null;
+}
+
+/** Aplica el objetivo y los límites al precio actual. */
+export function decidePrice(args: {
+  currentPrice: number;
+  marketPrice: number | null;
+  positioningPct: number;
+  demandPct: number;
+  confidence: PricingConfidence;
+  maxStepPct: number;
+  minPrice: number | null;
+  maxPrice: number | null;
+  daysSinceLastChange: number | null;
+  minDaysBetweenChanges: number;
+}): PriceDecision {
+  const current = args.currentPrice;
+  const base =
+    args.marketPrice != null ? args.marketPrice * (1 + args.positioningPct / 100) : current;
+  const targetPrice = Math.round(base * (1 + args.demandPct / 100));
+  const hold = (reason: string): PriceDecision => ({
+    targetPrice,
+    suggestedPrice: current,
+    changePct: 0,
+    action: 'hold',
+    holdReason: reason,
+  });
+  if (current <= 0) return hold('El trastero no tiene precio.');
+
+  // Con pocos datos, movimientos más pequeños.
+  const step = args.confidence === 'low' ? args.maxStepPct / 2 : args.maxStepPct;
+  const wanted = (targetPrice / current - 1) * 100;
+  let suggested = Math.round(current * (1 + clamp(wanted, -step, step) / 100));
+  let outOfBounds = false;
+  if (args.minPrice != null && suggested < args.minPrice) {
+    suggested = Math.round(args.minPrice);
+    outOfBounds = current < args.minPrice;
+  }
+  if (args.maxPrice != null && suggested > args.maxPrice) {
+    suggested = Math.round(args.maxPrice);
+    outOfBounds = current > args.maxPrice;
+  }
+
+  // Si el precio actual está fuera de tus límites, se corrige siempre.
+  if (!outOfBounds) {
+    if (args.daysSinceLastChange != null && args.daysSinceLastChange < args.minDaysBetweenChanges) {
+      return hold(`Su precio cambió hace ${args.daysSinceLastChange} días.`);
+    }
+    if (Math.abs((suggested / current - 1) * 100) < MIN_CHANGE_PCT) {
+      return hold('El precio ya está cerca del objetivo.');
+    }
+  }
+  if (suggested === current) return hold('El precio ya está en su límite.');
+
+  const changePct = round1((suggested / current - 1) * 100);
+  return {
+    targetPrice,
+    suggestedPrice: suggested,
+    changePct,
+    action: changePct > 0 ? 'raise' : 'lower',
+    holdReason: null,
+  };
+}

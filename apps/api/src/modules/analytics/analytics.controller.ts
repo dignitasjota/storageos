@@ -1,5 +1,9 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
-import { ApplyPricingSchema, ApplyUnitPricingSchema } from '@storageos/shared';
+import { Body, Controller, Get, Post, Put, Query, Req } from '@nestjs/common';
+import {
+  ApplyPricingSchema,
+  ApplyUnitPricingSchema,
+  UpdatePricingStrategySchema,
+} from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -17,6 +21,7 @@ import { SuggestedActionsService } from './suggested-actions.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
+  PricingStrategyDto,
   ApplyPricingResultDto,
   ApplyUnitPricingResultDto,
   BenchmarkDto,
@@ -39,6 +44,7 @@ import type { Request } from 'express';
 
 class ApplyPricingDto extends createZodDto(ApplyPricingSchema) {}
 class ApplyUnitPricingDto extends createZodDto(ApplyUnitPricingSchema) {}
+class UpdatePricingStrategyDto extends createZodDto(UpdatePricingStrategySchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -202,7 +208,7 @@ export class AnalyticsController {
     });
   }
 
-  /** Sugerencia de precio por trastero individual (ocupación + días vacío + competencia opcional). */
+  /** Sugerencia de precio por trastero (mercado + posicionamiento + demanda; `includeCompetition=false` la omite). */
   @Get('unit-pricing-suggestions')
   getUnitPricingSuggestions(
     @CurrentUser() user: AuthenticatedUser,
@@ -212,8 +218,29 @@ export class AnalyticsController {
     return this.insights.getUnitPricingSuggestions(
       user.tenantId,
       facilityId?.trim() || undefined,
-      includeCompetition === 'true',
+      includeCompetition !== 'false',
     );
+  }
+
+  /** Estrategia de precios: ocupación objetivo, límites y posicionamiento por local. */
+  @Get('pricing-strategy')
+  getPricingStrategy(@CurrentUser() user: AuthenticatedUser): Promise<PricingStrategyDto> {
+    return this.insights.getPricingStrategy(user.tenantId);
+  }
+
+  @RequirePermission('units:manage')
+  @Put('pricing-strategy')
+  updatePricingStrategy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdatePricingStrategyDto,
+    @Req() req: Request,
+  ): Promise<PricingStrategyDto> {
+    return this.insights.updatePricingStrategy({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      meta: extractMeta(req),
+    });
   }
 
   /** Aplica el precio sugerido a un trastero (fija su basePriceMonthly). */

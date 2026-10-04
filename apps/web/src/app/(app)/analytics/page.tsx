@@ -20,7 +20,8 @@ import {
 } from 'recharts';
 import { toast } from 'sonner';
 
-import { UnitPricingPanel } from './unit-pricing-panel';
+import { PricingStrategyButton } from './pricing-strategy-dialog';
+import { CONFIDENCE, UnitPricingPanel } from './unit-pricing-panel';
 
 import type {
   BenchmarkMetricDto,
@@ -149,10 +150,13 @@ export default function AnalyticsPage() {
         </TabsContent>
         <TabsContent value="pricing" className="mt-4">
           <Tabs defaultValue="by-type" className="w-full">
-            <TabsList>
-              <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
-              <TabsTrigger value="by-unit">Por trastero individual</TabsTrigger>
-            </TabsList>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <TabsList>
+                <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
+                <TabsTrigger value="by-unit">Por trastero individual</TabsTrigger>
+              </TabsList>
+              <PricingStrategyButton />
+            </div>
             <TabsContent value="by-type" className="mt-4">
               <PricingSuggestionsPanel />
             </TabsContent>
@@ -682,9 +686,10 @@ function PricingSuggestionsPanel() {
       <CardHeader>
         <CardTitle className="text-base">Sugerencias de precio</CardTitle>
         <CardDescription>
-          Recomendaciones de yield management según la ocupación de cada tipo de trastero. Aplicar
-          fija el <strong>precio de catálogo</strong> del tipo (nuevos contratos); los contratos
-          activos no cambian — para subir la cartera usa <em>Subidas de precio</em> (ECRI).
+          Precio de mercado del tamaño medio de cada tipo ajustado por la demanda (ocupación y lista
+          de espera de todos tus locales). Aplicar fija el <strong>precio de catálogo</strong> del
+          tipo (nuevos contratos); los contratos activos no cambian — para subir la cartera usa{' '}
+          <em>Subidas de precio</em>.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -698,6 +703,7 @@ function PricingSuggestionsPanel() {
               <TableRow>
                 <TableHead>Tipo</TableHead>
                 <TableHead className="text-right">Ocupación</TableHead>
+                <TableHead className="text-right">Mercado</TableHead>
                 <TableHead className="text-right">Precio actual</TableHead>
                 <TableHead className="text-right">Sugerido</TableHead>
                 <TableHead>Acción</TableHead>
@@ -715,6 +721,15 @@ function PricingSuggestionsPanel() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">{item.occupancy.toFixed(0)}%</TableCell>
+                  <TableCell className="text-right">
+                    {item.marketPrice != null ? formatCurrency(item.marketPrice) : '—'}
+                    <span
+                      className="block text-xs text-muted-foreground"
+                      title={CONFIDENCE[item.confidence].title}
+                    >
+                      {CONFIDENCE[item.confidence].label}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right">{formatCurrency(item.currentPrice)}</TableCell>
                   <TableCell className="text-right font-medium">
                     {formatCurrency(item.suggestedPrice)}

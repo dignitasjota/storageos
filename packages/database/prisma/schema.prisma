@@ -361,6 +361,10 @@ model Tenant {
   /// firmar el contrato. Opt-in para no enviar emails por sorpresa.
   reviewsAutoRequest           Boolean               @default(false) @map("reviews_auto_request")
   rentIncreaseMaxAnnualPct     Decimal               @default(0) @map("rent_increase_max_annual_pct") @db.Decimal(5, 2)
+  /// Estrategia de precios: ocupación objetivo (%), cambio máximo por vez (%) y días mínimos entre cambios.
+  pricingTargetOccupancy        Int                   @default(88) @map("pricing_target_occupancy")
+  pricingMaxStepPct             Int                   @default(8) @map("pricing_max_step_pct")
+  pricingMinDaysBetweenChanges  Int                   @default(30) @map("pricing_min_days_between_changes")
   rentIncreaseMinMonthsBetween Int                   @default(12) @map("rent_increase_min_months_between")
   reviewRequestDelayDays       Int                   @default(14) @map("review_request_delay_days")
   /// Link de "deja tu reseña" en Google Business Profile; se ofrece al promotor
@@ -896,6 +900,8 @@ model Facility {
   /// Toque de queda de acceso: franja "HH:MM"-"HH:MM" (en `timezone`) en la que
   /// se bloquea el acceso, salvo credenciales con `bypassCurfew`.
   accessCurfewEnabled Boolean   @default(false) @map("access_curfew_enabled")
+  /// Posicionamiento frente al mercado (%): −5 = por debajo, 0 = en mercado, +5 = por encima.
+  pricingPositioningPct Int     @default(0) @map("pricing_positioning_pct")
   accessCurfewStart   String?   @map("access_curfew_start")
   accessCurfewEnd     String?   @map("access_curfew_end")
   contactPhone        String?   @map("contact_phone")
@@ -973,6 +979,9 @@ model UnitType {
   description          String?
   defaultPriceMonthly  Decimal  @map("default_price_monthly") @db.Decimal(10, 2)
   defaultDepositAmount Decimal  @default(0) @map("default_deposit_amount") @db.Decimal(10, 2)
+  /// Límites de la sugerencia de precio (null = sin límite).
+  minPriceMonthly      Decimal? @map("min_price_monthly") @db.Decimal(10, 2)
+  maxPriceMonthly      Decimal? @map("max_price_monthly") @db.Decimal(10, 2)
   color                String   @default("#888888") @db.Char(7)
   features             Json     @default("{}")
   /// Taquillas u otros trasteros pequeños que se apilan de dos en dos en el

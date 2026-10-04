@@ -13,6 +13,10 @@ interface TxMock {
   paymentMethod: { findMany: jest.Mock };
   unitType: { findMany: jest.Mock };
   unit: { groupBy: jest.Mock; count: jest.Mock };
+  tenant: { findUnique: jest.Mock };
+  facility: { findMany: jest.Mock };
+  competitorFacility: { findMany: jest.Mock };
+  waitlistEntry: { groupBy: jest.Mock };
 }
 
 function buildTx(): TxMock {
@@ -24,6 +28,10 @@ function buildTx(): TxMock {
     paymentMethod: { findMany: jest.fn().mockResolvedValue([]) },
     unitType: { findMany: jest.fn().mockResolvedValue([]) },
     unit: { groupBy: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    tenant: { findUnique: jest.fn().mockResolvedValue(null) },
+    facility: { findMany: jest.fn().mockResolvedValue([]) },
+    competitorFacility: { findMany: jest.fn().mockResolvedValue([]) },
+    waitlistEntry: { groupBy: jest.fn().mockResolvedValue([]) },
   };
 }
 
@@ -108,44 +116,55 @@ describe('InsightsService.getChurnRisk', () => {
 });
 
 describe('InsightsService.getPricingSuggestions', () => {
-  it('mapea ocupación a acción y precio sugerido', async () => {
+  it('sin competencia mueve el precio por la demanda, con el cambio máximo por vez', async () => {
     const tx = buildTx();
+    tx.facility.findMany.mockResolvedValue([
+      { id: 'f1', name: 'Local', city: 'Madrid', pricingPositioningPct: 0 },
+    ]);
     tx.unitType.findMany.mockResolvedValue([
       { id: 'ut-high', name: 'Pequeño', defaultPriceMonthly: 50 },
       { id: 'ut-low', name: 'Grande', defaultPriceMonthly: 100 },
       { id: 'ut-empty', name: 'Vacío', defaultPriceMonthly: 30 },
     ]);
-    tx.unit.groupBy.mockImplementation(({ where }: { where?: { status?: string } }) => {
-      if (where?.status === 'occupied') {
+    tx.unit.groupBy.mockImplementation(
+      ({ where, _avg }: { where?: { status?: unknown }; _avg?: unknown }) => {
+        if (_avg) {
+          return Promise.resolve([
+            { unitTypeId: 'ut-high', _avg: { areaM2: 2 } },
+            { unitTypeId: 'ut-low', _avg: { areaM2: 10 } },
+          ]);
+        }
+        if (where?.status) {
+          return Promise.resolve([
+            { facilityId: 'f1', unitTypeId: 'ut-high', _count: { _all: 10 } }, // 100%
+            { facilityId: 'f1', unitTypeId: 'ut-low', _count: { _all: 3 } }, // 30%
+          ]);
+        }
         return Promise.resolve([
-          { unitTypeId: 'ut-high', _count: { _all: 10 } }, // 100%
-          { unitTypeId: 'ut-low', _count: { _all: 3 } }, // 30%
+          { facilityId: 'f1', unitTypeId: 'ut-high', _count: { _all: 10 } },
+          { facilityId: 'f1', unitTypeId: 'ut-low', _count: { _all: 10 } },
+          // ut-empty: 0 trasteros → se omite
         ]);
-      }
-      return Promise.resolve([
-        { unitTypeId: 'ut-high', _count: { _all: 10 } },
-        { unitTypeId: 'ut-low', _count: { _all: 10 } },
-        // ut-empty: 0 units → se omite
-      ]);
-    });
+      },
+    );
 
     const service = buildService(tx);
     const res = await service.getPricingSuggestions(TENANT);
 
     expect(res.items).toHaveLength(2);
+    // Sin datos de mercado la confianza es baja → paso de la mitad (4 %).
     const high = res.items.find((i) => i.unitTypeId === 'ut-high')!;
     expect(high.occupancy).toBe(100);
     expect(high.action).toBe('raise');
-    expect(high.changePct).toBe(10);
-    expect(high.suggestedPrice).toBe(55);
+    expect(high.suggestedPrice).toBe(52);
+    expect(high.marketPrice).toBeNull();
+    expect(high.confidence).toBe('low');
 
     const low = res.items.find((i) => i.unitTypeId === 'ut-low')!;
     expect(low.occupancy).toBe(30);
     expect(low.action).toBe('lower');
-    expect(low.changePct).toBe(-10);
-    expect(low.suggestedPrice).toBe(90);
+    expect(low.suggestedPrice).toBe(96);
 
-    // El primero ordenado es el de mayor ocupación.
     expect(res.items[0]!.unitTypeId).toBe('ut-high');
   });
 });

@@ -126,6 +126,8 @@ export interface ChurnRiskKpiDto {
 }
 
 export type PricingAction = 'raise' | 'lower' | 'hold';
+/** Cuánto respaldan los datos de la competencia el precio de mercado. */
+export type PricingConfidence = 'high' | 'medium' | 'low';
 
 export interface PricingSuggestionItemDto {
   unitTypeId: string;
@@ -142,6 +144,9 @@ export interface PricingSuggestionItemDto {
   changePct: number;
   action: PricingAction;
   rationale: string;
+  /** Precio de mercado del tamaño medio del tipo (sin IVA), null sin datos. */
+  marketPrice: number | null;
+  confidence: PricingConfidence;
 }
 
 export interface PricingSuggestionsDto {
@@ -231,6 +236,17 @@ export interface UnitPricingSuggestionDto {
   changePct: number;
   action: 'raise' | 'lower' | 'hold';
   factors: UnitPricingFactorDto[];
+  /** Precio de mercado de su tamaño exacto (sin IVA), null sin datos de competencia. */
+  marketPrice: number | null;
+  /** Trasteros de la competencia que respaldan el precio de mercado. */
+  marketReferences: number;
+  confidence: PricingConfidence;
+  /** Precio al que convendría llegar (puede necesitar varios cambios). */
+  targetPrice: number;
+  /** Por qué no se sugiere cambiar, si es el caso. */
+  holdReason: string | null;
+  /** Lleva mucho tiempo libre: mejor una promoción que bajar el precio del tamaño. */
+  promotionHint: string | null;
 }
 
 export interface UnitPricingSuggestionsDto {
@@ -355,4 +371,16 @@ export interface SeoChecklistDto {
   premium: SeoChecklistItemDto[];
   baseScore: { done: number; total: number };
   premiumScore: { done: number; total: number };
+}
+
+// --- Estrategia de precios ---
+export interface PricingStrategyDto {
+  /** Ocupación objetivo (%). */
+  targetOccupancy: number;
+  /** Cambio máximo por vez (%). */
+  maxStepPct: number;
+  /** Días mínimos entre dos cambios de precio de un trastero. */
+  minDaysBetweenChanges: number;
+  facilities: { id: string; name: string; positioningPct: number }[];
+  unitTypes: { id: string; name: string; minPrice: number | null; maxPrice: number | null }[];
 }

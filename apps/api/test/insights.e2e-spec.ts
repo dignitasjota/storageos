@@ -114,22 +114,23 @@ describe('Insights: churn risk + pricing suggestions (e2e)', () => {
     expect(item.occupancy).toBe(50);
     expect(item.currentPrice).toBe(80);
     expect(item.action).toBe('lower');
-    expect(item.changePct).toBe(-5);
-    expect(item.suggestedPrice).toBe(76);
+    // 50 % frente al 88 % objetivo → −10 % de demanda; sin competencia, paso de 4 %.
+    expect(item.changePct).toBe(-3.7);
+    expect(item.suggestedPrice).toBe(77);
 
-    // Aplicar la sugerencia: fija el precio de catálogo del tipo en 76.
+    // Aplicar la sugerencia: fija el precio de catálogo del tipo en 77.
     const applied = await request(app.getHttpServer())
       .post('/analytics/pricing-suggestions/apply')
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({ unitTypeId: item.unitTypeId, price: item.suggestedPrice });
     expect(applied.status).toBe(201);
-    expect(applied.body).toMatchObject({ previousPrice: 80, newPrice: 76 });
+    expect(applied.body).toMatchObject({ previousPrice: 80, newPrice: 77 });
 
     // La sugerencia recalculada ya muestra el precio nuevo como actual.
     const after = await request(app.getHttpServer())
       .get('/analytics/pricing-suggestions')
       .set('Authorization', `Bearer ${owner.accessToken}`);
-    expect(after.body.items[0].currentPrice).toBe(76);
+    expect(after.body.items[0].currentPrice).toBe(77);
   });
 
   it('forecast: refleja el MRR actual y proyecta el horizonte solicitado', async () => {

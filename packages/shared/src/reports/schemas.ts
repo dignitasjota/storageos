@@ -41,3 +41,29 @@ export const ApplyUnitPricingSchema = z.object({
   price: z.number().nonnegative().max(1_000_000),
 });
 export type ApplyUnitPricingInput = z.infer<typeof ApplyUnitPricingSchema>;
+
+export const UpdatePricingStrategySchema = z.object({
+  targetOccupancy: z.number().int().min(50).max(100).optional(),
+  maxStepPct: z.number().int().min(1).max(30).optional(),
+  minDaysBetweenChanges: z.number().int().min(0).max(365).optional(),
+  facilities: z
+    .array(z.object({ id: z.string().uuid(), positioningPct: z.number().int().min(-30).max(30) }))
+    .max(500)
+    .optional(),
+  unitTypes: z
+    .array(
+      z
+        .object({
+          id: z.string().uuid(),
+          minPrice: z.number().nonnegative().max(1_000_000).nullable(),
+          maxPrice: z.number().nonnegative().max(1_000_000).nullable(),
+        })
+        .refine((v) => v.minPrice == null || v.maxPrice == null || v.minPrice <= v.maxPrice, {
+          message: 'El mínimo no puede ser mayor que el máximo',
+          path: ['minPrice'],
+        }),
+    )
+    .max(500)
+    .optional(),
+});
+export type UpdatePricingStrategyInput = z.infer<typeof UpdatePricingStrategySchema>;
