@@ -421,6 +421,10 @@ export class CompetitorsService {
     if (input.knownTotalUnits !== undefined) data.knownTotalUnits = input.knownTotalUnits;
     if (input.currentPromotion !== undefined)
       data.currentPromotion = cleanText(input.currentPromotion);
+    if (input.promoFreeMonths !== undefined) data.promoFreeMonths = input.promoFreeMonths;
+    if (input.promoDiscountPct !== undefined) data.promoDiscountPct = input.promoDiscountPct;
+    if (input.promoDiscountMonths !== undefined)
+      data.promoDiscountMonths = input.promoDiscountMonths;
     if (input.depositAmount !== undefined) data.depositAmount = input.depositAmount;
     if (input.setupFee !== undefined) data.setupFee = input.setupFee;
     if (input.mandatoryInsuranceMonthly !== undefined)
@@ -455,6 +459,9 @@ export class CompetitorsService {
     inventoryCompletedAt: Date | null;
     knownTotalUnits: number | null;
     currentPromotion: string | null;
+    promoFreeMonths: number | null;
+    promoDiscountPct: number | null;
+    promoDiscountMonths: number | null;
     depositAmount: { toString(): string } | null;
     setupFee: { toString(): string } | null;
     mandatoryInsuranceMonthly: { toString(): string } | null;
@@ -481,6 +488,9 @@ export class CompetitorsService {
       inventoryCompletedAt: r.inventoryCompletedAt?.toISOString() ?? null,
       knownTotalUnits: r.knownTotalUnits,
       currentPromotion: r.currentPromotion,
+      promoFreeMonths: r.promoFreeMonths,
+      promoDiscountPct: r.promoDiscountPct,
+      promoDiscountMonths: r.promoDiscountMonths,
       depositAmount: opt(r.depositAmount),
       setupFee: opt(r.setupFee),
       mandatoryInsuranceMonthly: opt(r.mandatoryInsuranceMonthly),

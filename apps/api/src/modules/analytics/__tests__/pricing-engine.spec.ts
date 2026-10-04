@@ -1,6 +1,8 @@
 import {
   decidePrice,
   demandFactors,
+  effectiveMonthlyPrice,
+  featureMultiplier,
   fitMarketCurve,
   marketConfidence,
   median,
@@ -162,6 +164,60 @@ describe('pricing-engine', () => {
       const slow = demandFactors({ ...base, competitorDaysToRent: { medianDays: 90, rentals: 4 } });
       expect(slow.find((f) => f.key === 'competitor_speed')!.contribution).toBe(-3);
       expect(median([5, 20, 9])).toBe(9);
+    });
+  });
+
+  describe('precio comparable', () => {
+    const base = {
+      price: 60,
+      insuranceMonthly: 0,
+      setupFee: 0,
+      promoFreeMonths: 0,
+      promoDiscountPct: 0,
+      promoDiscountMonths: 0,
+    };
+
+    it('sin extras es su precio', () => {
+      expect(effectiveMonthlyPrice(base)).toBe(60);
+    });
+
+    it('el primer mes gratis y el descuento bajan el coste medio del primer año', () => {
+      expect(effectiveMonthlyPrice({ ...base, promoFreeMonths: 1 })).toBe(55);
+      expect(effectiveMonthlyPrice({ ...base, promoDiscountPct: 50, promoDiscountMonths: 2 })).toBe(
+        55,
+      );
+    });
+
+    it('el seguro obligatorio y el alta lo suben', () => {
+      expect(effectiveMonthlyPrice({ ...base, insuranceMonthly: 5, setupFee: 24 })).toBe(67);
+    });
+  });
+
+  describe('características', () => {
+    it('ajusta la referencia según lo que tiene cada uno', () => {
+      expect(featureMultiplier(['climate'], [])).toBeCloseTo(1.08);
+      expect(featureMultiplier([], ['climate', 'cctv'])).toBeCloseTo(0.9);
+      expect(featureMultiplier(['24h'], ['24h'])).toBe(1);
+    });
+  });
+
+  describe('tu ritmo de alquiler', () => {
+    const base = {
+      dimOccupied: 88,
+      dimTotal: 100,
+      facilityOccupancy: 0.88,
+      targetOccupancy: 0.88,
+      waitlist: 0,
+      competitorOccupancy: null,
+    };
+    it('poco stock para el ritmo de alquiler suma; mucho stock resta', () => {
+      const fast = demandFactors({ ...base, ownRentals: { rentals90: 6, available: 1 } });
+      expect(fast.find((f) => f.key === 'own_speed')!.contribution).toBe(2.3);
+      const slow = demandFactors({ ...base, ownRentals: { rentals90: 3, available: 10 } });
+      expect(slow.find((f) => f.key === 'own_speed')!.contribution).toBe(-3);
+      // Con menos de 2 alquileres no se usa.
+      const few = demandFactors({ ...base, ownRentals: { rentals90: 1, available: 10 } });
+      expect(few.some((f) => f.key === 'own_speed')).toBe(false);
     });
   });
 

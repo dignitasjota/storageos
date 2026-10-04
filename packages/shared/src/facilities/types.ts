@@ -18,6 +18,8 @@ export interface FacilityDto {
   accessCurfewEnabled: boolean;
   accessCurfewStart: string | null;
   accessCurfewEnd: string | null;
+  /** Características del local (24h, climatizado…), del mismo catálogo que la competencia. */
+  features: string[];
   contactPhone: string | null;
   contactEmail: string | null;
   /** Imágenes del local (key de objeto + URL pública) para la landing. */

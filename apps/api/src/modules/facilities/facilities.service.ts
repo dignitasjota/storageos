@@ -164,6 +164,9 @@ export class FacilitiesService {
           ? { accessCurfewStart: args.input.accessCurfewStart }
           : {}),
         ...(args.input.accessCurfewEnd ? { accessCurfewEnd: args.input.accessCurfewEnd } : {}),
+        ...(args.input.features !== undefined
+          ? { features: [...new Set(args.input.features)] }
+          : {}),
         contactPhone: args.input.contactPhone?.trim() || null,
         contactEmail: args.input.contactEmail?.trim() || null,
         videoUrl: args.input.videoUrl?.trim() || null,
@@ -214,6 +217,11 @@ export class FacilitiesService {
     set('accessCurfewEnabled');
     set('accessCurfewStart');
     set('accessCurfewEnd');
+    if (args.input.features !== undefined) {
+      const features = [...new Set(args.input.features)];
+      data.features = features;
+      changes.features = features;
+    }
     set('contactPhone');
     set('contactEmail');
     set('videoUrl');
@@ -378,6 +386,7 @@ export class FacilitiesService {
       accessCurfewEnabled: f.accessCurfewEnabled,
       accessCurfewStart: f.accessCurfewStart,
       accessCurfewEnd: f.accessCurfewEnd,
+      features: f.features ?? [],
       contactPhone: f.contactPhone,
       contactEmail: f.contactEmail,
       images: (f.images ?? []).map((key) => ({
