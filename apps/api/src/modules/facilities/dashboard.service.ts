@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type { OccupancyDashboardDto, UnitStatusValue } from '@storageos/shared';
@@ -10,9 +11,23 @@ const STATUSES: UnitStatusValue[] = ['available', 'occupied', 'reserved', 'maint
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async occupancy(tenantId: string): Promise<OccupancyDashboardDto> {
+  /**
+   * Ocupación agregada. Con `facilityId` cuenta solo ese local; con
+   * `facilityScope` (usuario restringido a ciertos locales) solo los suyos.
+   */
+  async occupancy(
+    tenantId: string,
+    opts: { facilityId?: string; facilityScope?: string[] | null } = {},
+  ): Promise<OccupancyDashboardDto> {
+    const facFilter = resolveFacilityFilter(opts.facilityScope, opts.facilityId);
     return this.prisma.withTenant(async (tx) => {
       const allUnits = await tx.unit.findMany({
+        where:
+          facFilter === null
+            ? { id: { in: [] } }
+            : facFilter
+              ? { facilityId: { in: facFilter } }
+              : {},
         select: {
           status: true,
           facilityId: true,

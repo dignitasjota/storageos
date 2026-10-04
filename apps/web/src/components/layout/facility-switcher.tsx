@@ -2,6 +2,7 @@
 
 import { Building2, ChevronsUpDown, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -30,6 +31,12 @@ export function FacilitySwitcher() {
 
   const list = facilities.data ?? [];
   const current = list.find((f) => f.id === currentFacilityId);
+
+  // Un local recordado que ya no existe (borrado o de otra cuenta) se olvida:
+  // si no, los listados quedan filtrados por un local invisible.
+  useEffect(() => {
+    if (facilities.data && currentFacilityId && !current) setCurrentFacility(null);
+  }, [facilities.data, currentFacilityId, current, setCurrentFacility]);
 
   if (facilities.isLoading) {
     return (
