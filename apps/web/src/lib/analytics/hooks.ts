@@ -13,8 +13,10 @@ import type {
   LeadsUtmKpiDto,
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
+  PricingStrategyDto,
   PricingSuggestionsDto,
   UnitPricingSuggestionsDto,
+  UpdatePricingStrategyInput,
   ApplyUnitPricingResultDto,
   RevenueForecastDto,
   RevenueKpiDto,
@@ -35,6 +37,7 @@ export const analyticsKey = (
     | 'churn-risk'
     | 'pricing-suggestions'
     | 'unit-pricing-suggestions'
+    | 'pricing-strategy'
     | 'suggested-actions'
     | 'forecast'
     | 'benchmark'
@@ -177,16 +180,16 @@ export function useApplyPricing() {
   });
 }
 
-/** Sugerencia de precio por trastero individual (ocupación + días vacío + competencia opcional). */
-export function useUnitPricingSuggestions(facilityId?: string, includeCompetition = false) {
+/** Sugerencia de precio por trastero (mercado + posicionamiento + demanda). */
+export function useUnitPricingSuggestions(facilityId?: string, includeCompetition = true) {
   const params = new URLSearchParams();
   if (facilityId) params.set('facilityId', facilityId);
-  if (includeCompetition) params.set('includeCompetition', 'true');
+  if (!includeCompetition) params.set('includeCompetition', 'false');
   const qs = params.toString() ? `?${params}` : '';
   return useQuery({
     queryKey: analyticsKey('unit-pricing-suggestions', {
       facilityId,
-      includeCompetition: includeCompetition ? 'true' : undefined,
+      includeCompetition: includeCompetition ? undefined : 'false',
     }),
     queryFn: () => apiFetch<UnitPricingSuggestionsDto>(`/analytics/unit-pricing-suggestions${qs}`),
   });
@@ -203,6 +206,27 @@ export function useApplyUnitPricing() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: analyticsKey('unit-pricing-suggestions') });
       void qc.invalidateQueries({ queryKey: ['units'] });
+    },
+  });
+}
+
+/** Estrategia de precios: ocupación objetivo, límites y posicionamiento por local. */
+export function usePricingStrategy() {
+  return useQuery({
+    queryKey: analyticsKey('pricing-strategy'),
+    queryFn: () => apiFetch<PricingStrategyDto>('/analytics/pricing-strategy'),
+  });
+}
+
+export function useUpdatePricingStrategy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePricingStrategyInput) =>
+      apiFetch<PricingStrategyDto>('/analytics/pricing-strategy', { method: 'PUT', json: input }),
+    onSuccess: (data) => {
+      qc.setQueryData(analyticsKey('pricing-strategy'), data);
+      void qc.invalidateQueries({ queryKey: analyticsKey('unit-pricing-suggestions') });
+      void qc.invalidateQueries({ queryKey: analyticsKey('pricing-suggestions') });
     },
   });
 }

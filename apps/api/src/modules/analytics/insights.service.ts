@@ -3,6 +3,16 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
+import {
+  daysBetween,
+  decidePrice,
+  demandFactors,
+  fitMarketCurve,
+  marketConfidence,
+  observationWeight,
+  type MarketCurve,
+} from './pricing-engine';
+
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma } from '@storageos/database';
 import type {
@@ -11,7 +21,7 @@ import type {
   ChurnRiskItemDto,
   ChurnRiskKpiDto,
   ChurnRiskLevel,
-  PricingAction,
+  PricingStrategyDto,
   PricingSuggestionItemDto,
   PricingSuggestionsDto,
   RevenueForecastDto,
@@ -21,6 +31,7 @@ import type {
   UnitPricingFactorDto,
   UnitPricingSuggestionDto,
   UnitPricingSuggestionsDto,
+  UpdatePricingStrategyInput,
 } from '@storageos/shared';
 
 function toNumber(value: Prisma.Decimal | number | null | undefined): number {
@@ -35,15 +46,10 @@ function round2(n: number): number {
 
 // Pricing por competencia: banda de tamaño (±%) para casar trasteros por m²,
 // margen de precio para decidir caro/barato, y el ajuste que aporta el factor.
-const COMP_BAND_PCT = 0.2;
-const COMP_MARGIN_PCT = 0.08;
-const COMP_ADJ = 6;
+/** A partir de estos días libre se propone una promoción en vez de bajar el precio. */
+const PROMOTION_AFTER_DAYS = 45;
 
-function medianOf(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
-}
+const signed = (n: number) => `${n > 0 ? '+' : ''}${n} %`;
 
 function levelFor(score: number): ChurnRiskLevel {
   if (score >= 60) return 'high';
@@ -347,63 +353,239 @@ export class InsightsService {
   }
 
   // ---------------------------------------------------------------------------
-  // Sugerencias de precio por ocupación (yield management heurístico).
+  // Precio sugerido (motor único: ver `pricing-engine.ts`).
+  // Precio objetivo = mercado del tamaño × posicionamiento del local × demanda,
+  // con límites (cambio máximo por vez, mínimo/máximo del tipo y espera entre
+  // cambios). Lo comparten la vista por tipo y la vista por trastero.
   // ---------------------------------------------------------------------------
-  async getPricingSuggestions(tenantId: string): Promise<PricingSuggestionsDto> {
-    return this.prisma.withTenant(async (tx) => {
-      const [unitTypes, byType, occupiedByType] = await Promise.all([
-        tx.unitType.findMany({ select: { id: true, name: true, defaultPriceMonthly: true } }),
-        tx.unit.groupBy({ by: ['unitTypeId'], _count: { _all: true } }),
+
+  /** Datos comunes del cálculo: estrategia, competencia, ocupación y listas de espera. */
+  private async loadPricingContext(tx: Prisma.TransactionClient, tenantId: string) {
+    const [tenant, facilities, unitTypes, competitors, totals, occupied, waitlist] =
+      await Promise.all([
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: {
+            pricingTargetOccupancy: true,
+            pricingMaxStepPct: true,
+            pricingMinDaysBetweenChanges: true,
+          },
+        }),
+        tx.facility.findMany({
+          where: { deletedAt: null },
+          select: { id: true, name: true, city: true, pricingPositioningPct: true },
+        }),
+        tx.unitType.findMany({
+          select: {
+            id: true,
+            name: true,
+            defaultPriceMonthly: true,
+            minPriceMonthly: true,
+            maxPriceMonthly: true,
+          },
+        }),
+        tx.competitorFacility.findMany({
+          select: {
+            facilityId: true,
+            zone: true,
+            distanceKm: true,
+            priceIncludesVat: true,
+            mandatoryInsuranceMonthly: true,
+            inventoryComplete: true,
+            units: {
+              select: { areaM2: true, priceMonthly: true, status: true, lastCheckedAt: true },
+            },
+          },
+        }),
+        tx.unit.groupBy({ by: ['facilityId', 'unitTypeId'], _count: { _all: true } }),
+        // Un reservado ya no está a la venta: cuenta como ocupado.
         tx.unit.groupBy({
-          by: ['unitTypeId'],
-          where: { status: 'occupied' },
+          by: ['facilityId', 'unitTypeId'],
+          where: { status: { in: ['occupied', 'reserved'] } },
+          _count: { _all: true },
+        }),
+        tx.waitlistEntry.groupBy({
+          by: ['facilityId', 'unitTypeId'],
+          where: { status: 'waiting' },
           _count: { _all: true },
         }),
       ]);
 
-      const totalByType = new Map(byType.map((g) => [g.unitTypeId, g._count._all]));
-      const occByType = new Map(occupiedByType.map((g) => [g.unitTypeId, g._count._all]));
+    const key = (f: string, t: string) => `${f}:${t}`;
+    const totalMap = new Map(totals.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
+    const occMap = new Map(occupied.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
+    const waitMap = new Map(waitlist.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
+    const facilityTotals = new Map<string, { total: number; occupied: number }>();
+    for (const g of totals) {
+      const acc = facilityTotals.get(g.facilityId) ?? { total: 0, occupied: 0 };
+      acc.total += g._count._all;
+      acc.occupied += occMap.get(key(g.facilityId, g.unitTypeId)) ?? 0;
+      facilityTotals.set(g.facilityId, acc);
+    }
+
+    const now = new Date();
+    const norm = (s: string | null | undefined) =>
+      (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+    // Precio comparable: sin IVA y con el seguro obligatorio incluido.
+    const comparable = competitors.map((c) => ({
+      ...c,
+      units: c.units.map((u) => {
+        const gross = toNumber(u.priceMonthly) + toNumber(c.mandatoryInsuranceMonthly);
+        return {
+          areaM2: toNumber(u.areaM2),
+          price: c.priceIncludesVat ? gross / 1.21 : gross,
+          occupied: u.status === 'occupied',
+          ageDays: daysBetween(u.lastCheckedAt, now),
+        };
+      }),
+    }));
+
+    /** Cercanía de un competidor a un local (null = vista general por tipo). */
+    const proximityFor = (
+      c: (typeof comparable)[number],
+      facility: { id: string; city: string | null } | null,
+    ) => ({
+      linkedToFacility: facility ? c.facilityId === facility.id : c.facilityId != null,
+      // La distancia es al local con el que compite: solo vale si no está ligado a otro.
+      distanceKm:
+        c.distanceKm != null && (c.facilityId == null || c.facilityId === facility?.id)
+          ? toNumber(c.distanceKm)
+          : null,
+      sameZone: facility != null && norm(c.zone) !== '' && norm(c.zone) === norm(facility.city),
+    });
+
+    const curveCache = new Map<string, MarketCurve | null>();
+    const marketCurve = (facility: { id: string; city: string | null } | null) => {
+      const cacheKey = facility?.id ?? '*';
+      if (!curveCache.has(cacheKey)) {
+        const obs = comparable.flatMap((c) => {
+          const prox = proximityFor(c, facility);
+          return c.units.map((u) => ({
+            areaM2: u.areaM2,
+            price: u.price,
+            weight: observationWeight({ ageDays: u.ageDays, ...prox }),
+          }));
+        });
+        curveCache.set(cacheKey, fitMarketCurve(obs));
+      }
+      return curveCache.get(cacheKey) ?? null;
+    };
+
+    /**
+     * Ocupación de la competencia cercana para un tamaño (±25 % de m²), solo de
+     * competidores con el inventario completo. Null con menos de 3 trasteros.
+     */
+    const competitorOccupancy = (
+      facility: { id: string; city: string | null } | null,
+      areaM2: number,
+    ) => {
+      let total = 0;
+      let occ = 0;
+      for (const c of comparable) {
+        if (!c.inventoryComplete) continue;
+        const near = observationWeight({ ageDays: 0, ...proximityFor(c, facility) }) >= 0.5;
+        if (!near) continue;
+        for (const u of c.units) {
+          if (Math.abs(u.areaM2 - areaM2) > areaM2 * 0.25) continue;
+          total += 1;
+          if (u.occupied) occ += 1;
+        }
+      }
+      return total >= 3 ? occ / total : null;
+    };
+
+    return {
+      now,
+      targetOccupancy: (tenant?.pricingTargetOccupancy ?? 88) / 100,
+      maxStepPct: tenant?.pricingMaxStepPct ?? 8,
+      minDaysBetweenChanges: tenant?.pricingMinDaysBetweenChanges ?? 30,
+      facilities,
+      unitTypes,
+      hasCompetitors: comparable.some((c) => c.units.length > 0),
+      dim: (facilityId: string, unitTypeId: string) => ({
+        total: totalMap.get(key(facilityId, unitTypeId)) ?? 0,
+        occupied: occMap.get(key(facilityId, unitTypeId)) ?? 0,
+        waitlist: waitMap.get(key(facilityId, unitTypeId)) ?? 0,
+      }),
+      facilityOccupancy: (facilityId: string) => {
+        const t = facilityTotals.get(facilityId);
+        return t && t.total > 0 ? t.occupied / t.total : 0;
+      },
+      marketCurve,
+      competitorOccupancy,
+    };
+  }
+
+  /** Sugerencia por TIPO de trastero (precio de catálogo para nuevos contratos). */
+  async getPricingSuggestions(tenantId: string): Promise<PricingSuggestionsDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const ctx = await this.loadPricingContext(tx, tenantId);
+      const areas = await tx.unit.groupBy({
+        by: ['unitTypeId'],
+        _avg: { areaM2: true },
+      });
+      const avgArea = new Map(areas.map((a) => [a.unitTypeId, toNumber(a._avg.areaM2)]));
+      const curve = ctx.marketCurve(null);
 
       const items: PricingSuggestionItemDto[] = [];
-      for (const ut of unitTypes) {
-        const total = totalByType.get(ut.id) ?? 0;
-        if (total === 0) continue; // sin trasteros de este tipo: no hay señal
-        const occupied = occByType.get(ut.id) ?? 0;
-        const occupancy = round2((occupied / total) * 100);
-        const currentPrice = toNumber(ut.defaultPriceMonthly);
-
-        let changePct = 0;
-        let action: PricingAction = 'hold';
-        let rationale = 'Ocupación equilibrada: mantener el precio.';
-        if (occupancy >= 90) {
-          changePct = 10;
-          action = 'raise';
-          rationale = 'Ocupación muy alta (≥90%): hay margen para subir el precio.';
-        } else if (occupancy >= 80) {
-          changePct = 5;
-          action = 'raise';
-          rationale = 'Ocupación alta (≥80%): subida moderada recomendada.';
-        } else if (occupancy <= 40) {
-          changePct = -10;
-          action = 'lower';
-          rationale = 'Ocupación baja (≤40%): bajar el precio para estimular la demanda.';
-        } else if (occupancy <= 60) {
-          changePct = -5;
-          action = 'lower';
-          rationale = 'Ocupación floja (≤60%): bajada moderada para captar demanda.';
+      for (const ut of ctx.unitTypes) {
+        // Agrega el tipo en todos los locales.
+        let total = 0;
+        let occupied = 0;
+        let waiting = 0;
+        for (const f of ctx.facilities) {
+          const d = ctx.dim(f.id, ut.id);
+          total += d.total;
+          occupied += d.occupied;
+          waiting += d.waitlist;
         }
+        if (total === 0) continue; // sin trasteros de este tipo: no hay señal
+        const area = avgArea.get(ut.id) ?? 0;
+        const marketPrice = curve && area > 0 ? curve.priceAt(area) : null;
+        const confidence = area > 0 ? marketConfidence(curve, area) : 'low';
+        const factors = demandFactors({
+          dimOccupied: occupied,
+          dimTotal: total,
+          facilityOccupancy: occupied / total,
+          targetOccupancy: ctx.targetOccupancy,
+          waitlist: waiting,
+          competitorOccupancy: area > 0 ? ctx.competitorOccupancy(null, area) : null,
+        });
+        const demandPct = factors.reduce((s, f) => s + f.contribution, 0);
+        const currentPrice = toNumber(ut.defaultPriceMonthly);
+        const decision = decidePrice({
+          currentPrice,
+          marketPrice,
+          positioningPct: 0,
+          demandPct,
+          confidence,
+          maxStepPct: ctx.maxStepPct,
+          minPrice: ut.minPriceMonthly != null ? toNumber(ut.minPriceMonthly) : null,
+          maxPrice: ut.maxPriceMonthly != null ? toNumber(ut.maxPriceMonthly) : null,
+          daysSinceLastChange: null,
+          minDaysBetweenChanges: ctx.minDaysBetweenChanges,
+        });
+
+        const parts: string[] = [];
+        if (marketPrice != null) parts.push(`mercado ~${Math.round(marketPrice)} €`);
+        for (const f of factors) parts.push(`${f.label.toLowerCase()} ${signed(f.contribution)}`);
+        const rationale =
+          decision.holdReason ??
+          (parts.length ? `Objetivo ${decision.targetPrice} €: ${parts.join(', ')}.` : '');
 
         items.push({
           unitTypeId: ut.id,
           unitTypeName: ut.name,
           totalUnits: total,
           occupiedUnits: occupied,
-          occupancy,
+          occupancy: round2((occupied / total) * 100),
           currentPrice,
-          suggestedPrice: round2(currentPrice * (1 + changePct / 100)),
-          changePct,
-          action,
+          suggestedPrice: decision.suggestedPrice,
+          changePct: decision.changePct,
+          action: decision.action,
           rationale,
+          marketPrice: marketPrice != null ? round2(marketPrice) : null,
+          confidence,
         });
       }
 
@@ -412,16 +594,16 @@ export class InsightsService {
     }, tenantId);
   }
 
-  // ---------------------------------------------------------------------------
-  // Sugerencia de precio POR TRASTERO individual (revenue management v1).
-  // Combina la ocupación de su dimensión (tipo+local) y los días que lleva
-  // vacío. Solo trasteros `available` (donde el precio es accionable). Aplicar
-  // fija `unit.basePriceMonthly` → afecta solo a NUEVOS contratos.
-  // ---------------------------------------------------------------------------
+  /**
+   * Sugerencia por TRASTERO disponible. Aplicar fija `unit.basePriceMonthly`
+   * (solo afecta a nuevos contratos). Dos trasteros iguales del mismo local
+   * reciben el mismo precio; el tiempo vacío no baja el precio, propone una
+   * promoción.
+   */
   async getUnitPricingSuggestions(
     tenantId: string,
     facilityId?: string,
-    includeCompetition = false,
+    includeCompetition = true,
   ): Promise<UnitPricingSuggestionsDto> {
     return this.prisma.withTenant(async (tx) => {
       const units = await tx.unit.findMany({
@@ -433,131 +615,94 @@ export class InsightsService {
       });
       if (units.length === 0) return { items: [] };
 
-      // Factor competencia (opcional): precios de trasteros DISPONIBLES de la
-      // competencia, para casar por banda de m² con cada trastero mío.
-      let competitorPrices: { areaM2: number; price: number }[] = [];
-      if (includeCompetition) {
-        const comp = await tx.competitorUnit.findMany({
-          where: { status: 'available' },
-          select: {
-            areaM2: true,
-            priceMonthly: true,
-            // Para comparar con NUESTRO precio (sin IVA), normalizamos el del
-            // competidor a neto cuando su precio incluye IVA.
-            competitorFacility: { select: { priceIncludesVat: true } },
-          },
-        });
-        competitorPrices = comp.map((c) => {
-          const gross = Number(c.priceMonthly);
-          const net = c.competitorFacility.priceIncludesVat ? gross / 1.21 : gross;
-          return { areaM2: Number(c.areaM2), price: net };
-        });
-      }
-
-      // Ocupación por dimensión = (tipo, local). No filtramos por facilityId aquí
-      // para poder resolver la dimensión de cada trastero disponible.
-      const [totalByDim, occByDim] = await Promise.all([
-        tx.unit.groupBy({ by: ['facilityId', 'unitTypeId'], _count: { _all: true } }),
-        tx.unit.groupBy({
-          by: ['facilityId', 'unitTypeId'],
-          where: { status: 'occupied' },
-          _count: { _all: true },
+      const ctx = await this.loadPricingContext(tx, tenantId);
+      const unitIds = units.map((u) => u.id);
+      const [history, lastChanges] = await Promise.all([
+        // Días vacío: último paso a `available` (si no hay, desde el alta).
+        tx.unitStatusHistory.findMany({
+          where: { unitId: { in: unitIds }, newStatus: 'available' },
+          orderBy: { occurredAt: 'desc' },
+          select: { unitId: true, occurredAt: true },
+        }),
+        tx.unitPriceHistory.groupBy({
+          by: ['unitId'],
+          where: { unitId: { in: unitIds } },
+          _max: { changedAt: true },
         }),
       ]);
-      const dimKey = (f: string, t: string) => `${f}:${t}`;
-      const totalMap = new Map(
-        totalByDim.map((g) => [dimKey(g.facilityId, g.unitTypeId), g._count._all]),
-      );
-      const occMap = new Map(
-        occByDim.map((g) => [dimKey(g.facilityId, g.unitTypeId), g._count._all]),
-      );
-
-      // Días vacío: último paso a `available` en el histórico (si no hay, desde el alta).
-      const history = await tx.unitStatusHistory.findMany({
-        where: { unitId: { in: units.map((u) => u.id) }, newStatus: 'available' },
-        orderBy: { occurredAt: 'desc' },
-        select: { unitId: true, occurredAt: true },
-      });
       const vacantSince = new Map<string, Date>();
       for (const h of history)
         if (!vacantSince.has(h.unitId)) vacantSince.set(h.unitId, h.occurredAt);
+      const lastChange = new Map(lastChanges.map((c) => [c.unitId, c._max.changedAt]));
+      const facilityById = new Map(ctx.facilities.map((f) => [f.id, f]));
+      const typeById = new Map(ctx.unitTypes.map((t) => [t.id, t]));
 
-      const now = Date.now();
       const items: UnitPricingSuggestionDto[] = units.map((u) => {
-        const key = dimKey(u.facilityId, u.unitTypeId);
-        const total = totalMap.get(key) ?? 1;
-        const occupied = occMap.get(key) ?? 0;
-        const occupancyPct = round2((occupied / total) * 100);
-        const since = vacantSince.get(u.id) ?? u.createdAt;
-        const daysVacant = Math.max(0, Math.floor((now - since.getTime()) / 86_400_000));
+        const facility = facilityById.get(u.facilityId) ?? {
+          id: u.facilityId,
+          name: u.facility.name,
+          city: null,
+          pricingPositioningPct: 0,
+        };
+        const type = typeById.get(u.unitTypeId);
+        const d = ctx.dim(u.facilityId, u.unitTypeId);
+        const area = toNumber(u.areaM2);
+        const curve = includeCompetition ? ctx.marketCurve(facility) : null;
+        const marketPrice = curve && area > 0 ? curve.priceAt(area) : null;
+        const confidence = includeCompetition && area > 0 ? marketConfidence(curve, area) : 'low';
+
+        const demand = demandFactors({
+          dimOccupied: d.occupied,
+          dimTotal: d.total,
+          facilityOccupancy: ctx.facilityOccupancy(u.facilityId),
+          targetOccupancy: ctx.targetOccupancy,
+          waitlist: d.waitlist,
+          competitorOccupancy:
+            includeCompetition && area > 0 ? ctx.competitorOccupancy(facility, area) : null,
+        });
+        const demandPct = demand.reduce((s, f) => s + f.contribution, 0);
+        const positioningPct = marketPrice != null ? facility.pricingPositioningPct : 0;
+
+        const currentPrice = toNumber(u.basePriceMonthly);
+        const changedAt = lastChange.get(u.id);
+        const decision = decidePrice({
+          currentPrice,
+          marketPrice,
+          positioningPct,
+          demandPct,
+          confidence,
+          maxStepPct: ctx.maxStepPct,
+          minPrice: type?.minPriceMonthly != null ? toNumber(type.minPriceMonthly) : null,
+          maxPrice: type?.maxPriceMonthly != null ? toNumber(type.maxPriceMonthly) : null,
+          daysSinceLastChange: changedAt ? daysBetween(changedAt, ctx.now) : null,
+          minDaysBetweenChanges: ctx.minDaysBetweenChanges,
+        });
 
         const factors: UnitPricingFactorDto[] = [];
-        // Factor 1: ocupación de la dimensión.
-        let occAdj = 0;
-        if (occupancyPct >= 90) occAdj = 8;
-        else if (occupancyPct >= 80) occAdj = 4;
-        else if (occupancyPct < 40) occAdj = -8;
-        else if (occupancyPct <= 60) occAdj = -4;
-        if (occAdj !== 0) {
+        if (marketPrice != null) {
           factors.push({
-            label: 'Ocupación del tamaño',
-            detail: `${occupancyPct}% ocupado en su local`,
-            contribution: occAdj,
+            label: 'Mercado',
+            detail: `~${Math.round(marketPrice)} €/mes para ${area} m² (${curve!.points} ref.)`,
+            contribution: 0,
           });
-        }
-        // Factor 2: días que lleva vacío.
-        let vacAdj = 0;
-        if (daysVacant > 90) vacAdj = -12;
-        else if (daysVacant >= 60) vacAdj = -8;
-        else if (daysVacant >= 30) vacAdj = -5;
-        else if (daysVacant >= 15) vacAdj = -2;
-        if (vacAdj !== 0) {
-          factors.push({
-            label: 'Tiempo vacío',
-            detail: `Lleva ${daysVacant} días disponible`,
-            contribution: vacAdj,
-          });
-        }
-
-        // Factor 3 (opcional): competencia. Casa por banda de m² (±20%) los
-        // trasteros disponibles de la competencia y compara con la mediana.
-        const currentPrice = toNumber(u.basePriceMonthly);
-        let compAdj = 0;
-        if (includeCompetition && competitorPrices.length > 0) {
-          const area = toNumber(u.areaM2);
-          if (area > 0) {
-            const band = competitorPrices
-              .filter((c) => Math.abs(c.areaM2 - area) <= area * COMP_BAND_PCT)
-              .map((c) => c.price);
-            if (band.length > 0) {
-              const median = medianOf(band);
-              if (currentPrice > median * (1 + COMP_MARGIN_PCT)) {
-                compAdj = -COMP_ADJ; // estás caro respecto a la competencia
-              } else if (currentPrice < median * (1 - COMP_MARGIN_PCT)) {
-                compAdj = COMP_ADJ; // hay hueco: estás barato
-              }
-              if (compAdj !== 0) {
-                factors.push({
-                  label: 'Competencia',
-                  detail: `Competencia ~${Math.round(median)} €/mes para ${area} m² (${band.length} ref.)`,
-                  contribution: compAdj,
-                });
-              }
-            }
+          if (positioningPct !== 0) {
+            factors.push({
+              label: 'Tu posicionamiento',
+              detail: positioningPct > 0 ? 'Por encima del mercado' : 'Por debajo del mercado',
+              contribution: positioningPct,
+            });
           }
         }
-
-        // Combinar + acotar (asimétrico: más cauto al subir).
-        const raw = occAdj + vacAdj + compAdj;
-        const changePct = Math.max(-20, Math.min(15, raw));
-        // Redondeo a euro entero (precio "bonito").
-        let suggestedPrice = Math.round(currentPrice * (1 + changePct / 100));
-        let action: 'raise' | 'lower' | 'hold' = 'hold';
-        if (Math.abs(changePct) >= 2 && suggestedPrice !== currentPrice) {
-          action = changePct > 0 ? 'raise' : 'lower';
-        } else {
-          suggestedPrice = currentPrice;
+        for (const f of demand) {
+          factors.push({ label: f.label, detail: f.detail, contribution: f.contribution });
         }
+
+        const since = vacantSince.get(u.id) ?? u.createdAt;
+        const daysVacant = daysBetween(since, ctx.now);
+        const promotionHint =
+          daysVacant >= PROMOTION_AFTER_DAYS
+            ? `Lleva ${daysVacant} días libre: mejor una promoción para este trastero (p. ej. el primer mes a mitad de precio) que bajar el precio de todo el tamaño.`
+            : null;
 
         return {
           unitId: u.id,
@@ -565,13 +710,19 @@ export class InsightsService {
           unitTypeName: u.unitType?.name ?? null,
           facilityId: u.facilityId,
           facilityName: u.facility.name,
-          occupancyPct,
+          occupancyPct: d.total > 0 ? round2((d.occupied / d.total) * 100) : 0,
           daysVacant,
           currentPrice,
-          suggestedPrice,
-          changePct,
-          action,
+          suggestedPrice: decision.suggestedPrice,
+          changePct: decision.changePct,
+          action: decision.action,
           factors,
+          marketPrice: marketPrice != null ? round2(marketPrice) : null,
+          marketReferences: curve?.points ?? 0,
+          confidence,
+          targetPrice: decision.targetPrice,
+          holdReason: decision.holdReason,
+          promotionHint,
         };
       });
 
@@ -581,6 +732,101 @@ export class InsightsService {
       );
       return { items };
     }, tenantId);
+  }
+
+  /** Estrategia de precios del tenant (objetivo, límites y posicionamiento). */
+  async getPricingStrategy(tenantId: string): Promise<PricingStrategyDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const [tenant, facilities, unitTypes] = await Promise.all([
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: {
+            pricingTargetOccupancy: true,
+            pricingMaxStepPct: true,
+            pricingMinDaysBetweenChanges: true,
+          },
+        }),
+        tx.facility.findMany({
+          where: { deletedAt: null },
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, pricingPositioningPct: true },
+        }),
+        tx.unitType.findMany({
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, minPriceMonthly: true, maxPriceMonthly: true },
+        }),
+      ]);
+      return {
+        targetOccupancy: tenant?.pricingTargetOccupancy ?? 88,
+        maxStepPct: tenant?.pricingMaxStepPct ?? 8,
+        minDaysBetweenChanges: tenant?.pricingMinDaysBetweenChanges ?? 30,
+        facilities: facilities.map((f) => ({
+          id: f.id,
+          name: f.name,
+          positioningPct: f.pricingPositioningPct,
+        })),
+        unitTypes: unitTypes.map((t) => ({
+          id: t.id,
+          name: t.name,
+          minPrice: t.minPriceMonthly != null ? toNumber(t.minPriceMonthly) : null,
+          maxPrice: t.maxPriceMonthly != null ? toNumber(t.maxPriceMonthly) : null,
+        })),
+      };
+    }, tenantId);
+  }
+
+  async updatePricingStrategy(args: {
+    tenantId: string;
+    userId: string;
+    input: UpdatePricingStrategyInput;
+    meta: RequestMeta;
+  }): Promise<PricingStrategyDto> {
+    const { input } = args;
+    await this.prisma.withTenant(async (tx) => {
+      if (
+        input.targetOccupancy !== undefined ||
+        input.maxStepPct !== undefined ||
+        input.minDaysBetweenChanges !== undefined
+      ) {
+        await tx.tenant.update({
+          where: { id: args.tenantId },
+          data: {
+            ...(input.targetOccupancy !== undefined
+              ? { pricingTargetOccupancy: input.targetOccupancy }
+              : {}),
+            ...(input.maxStepPct !== undefined ? { pricingMaxStepPct: input.maxStepPct } : {}),
+            ...(input.minDaysBetweenChanges !== undefined
+              ? { pricingMinDaysBetweenChanges: input.minDaysBetweenChanges }
+              : {}),
+          },
+        });
+      }
+      for (const f of input.facilities ?? []) {
+        // updateMany: ignora ids que no son del tenant (RLS) sin lanzar.
+        await tx.facility.updateMany({
+          where: { id: f.id, deletedAt: null },
+          data: { pricingPositioningPct: f.positioningPct },
+        });
+      }
+      for (const t of input.unitTypes ?? []) {
+        await tx.unitType.updateMany({
+          where: { id: t.id },
+          data: { minPriceMonthly: t.minPrice, maxPriceMonthly: t.maxPrice },
+        });
+      }
+    }, args.tenantId);
+
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'pricing.strategy_updated',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: input as unknown as Prisma.InputJsonValue,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.getPricingStrategy(args.tenantId);
   }
 
   /** Aplica el precio sugerido a un trastero (fija `basePriceMonthly`). */

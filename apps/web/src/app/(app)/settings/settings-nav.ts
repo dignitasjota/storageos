@@ -202,6 +202,13 @@ export const MODULE_SETTINGS: SettingsNavItem[] = [
     permission: 'units:read',
   },
   {
+    href: '/analytics?tab=pricing',
+    label: 'Estrategia de precios',
+    description:
+      'Ocupación objetivo, cambio máximo, precio mínimo/máximo por tipo y posicionamiento por local.',
+    permission: 'analytics:read',
+  },
+  {
     href: '/access/credentials',
     label: 'Accesos',
     description: 'Accesos adicionales que puede crear el inquilino y pase nocturno.',

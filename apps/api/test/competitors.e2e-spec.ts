@@ -45,7 +45,7 @@ describe('Competencia + precio por competencia (e2e)', () => {
     });
     const unitId = unit.body.id as string;
 
-    // Fichar un competidor con un trastero de ~5 m² a 100€ (yo estoy caro).
+    // Competidor con dos trasteros de 5 m² a 100 € con IVA (82,64 € sin IVA).
     const comp = await request(app.getHttpServer())
       .post('/competitors')
       .set(auth)
@@ -57,33 +57,41 @@ describe('Competencia + precio por competencia (e2e)', () => {
       .send({ areaM2: 5, priceMonthly: 100, status: 'available' });
     expect(compUnit.status).toBe(201);
     expect(compUnit.body.lastCheckedAt).toBeTruthy();
+    await request(app.getHttpServer())
+      .post(`/competitors/${comp.body.id}/units`)
+      .set(auth)
+      .send({ areaM2: 5, priceMonthly: 100, status: 'available' })
+      .expect(201);
 
-    // Sin competencia: 0% ocupación → −8%.
+    // Sin competencia: solo demanda (−10 %), confianza baja → paso del 4 %.
     const noComp = await request(app.getHttpServer())
-      .get('/analytics/unit-pricing-suggestions')
+      .get('/analytics/unit-pricing-suggestions?includeCompetition=false')
       .set(auth);
     const base = noComp.body.items.find((i: { unitId: string }) => i.unitId === unitId);
-    expect(base.changePct).toBe(-8);
+    expect(base.marketPrice).toBeNull();
+    expect(base.suggestedPrice).toBe(192);
 
-    // Con competencia: además, mi 200€ >> mediana 100 → factor competencia −6% → −14%.
+    // Con competencia: mercado ~83 € y confianza media → baja el máximo (8 %).
     const withComp = await request(app.getHttpServer())
-      .get('/analytics/unit-pricing-suggestions?includeCompetition=true')
+      .get('/analytics/unit-pricing-suggestions')
       .set(auth);
     const item = withComp.body.items.find((i: { unitId: string }) => i.unitId === unitId);
-    expect(item.changePct).toBe(-14);
-    expect(item.factors.some((f: { label: string }) => f.label === 'Competencia')).toBe(true);
+    expect(item.marketPrice).toBeCloseTo(82.64, 1);
+    expect(item.confidence).toBe('medium');
+    expect(item.suggestedPrice).toBe(184);
+    expect(item.factors.some((f: { label: string }) => f.label === 'Mercado')).toBe(true);
 
-    // Marcar el trastero de la competencia como ocupado → deja de contar.
+    // Un trastero ocupado de la competencia sigue siendo precio de mercado.
     await request(app.getHttpServer())
       .patch(`/competitors/units/${compUnit.body.id}`)
       .set(auth)
       .send({ status: 'occupied' })
       .expect(200);
     const afterOccupied = await request(app.getHttpServer())
-      .get('/analytics/unit-pricing-suggestions?includeCompetition=true')
+      .get('/analytics/unit-pricing-suggestions')
       .set(auth);
     const item2 = afterOccupied.body.items.find((i: { unitId: string }) => i.unitId === unitId);
-    expect(item2.changePct).toBe(-8); // sin referencias disponibles → vuelve al base
+    expect(item2.marketPrice).toBeCloseTo(82.64, 1);
   });
 
   it('editar un competidor existente (nombre, zona, flag de IVA)', async () => {

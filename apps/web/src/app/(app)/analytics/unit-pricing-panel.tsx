@@ -41,9 +41,18 @@ const ACTION: Record<
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
+export const CONFIDENCE: Record<
+  UnitPricingSuggestionDto['confidence'],
+  { label: string; title: string }
+> = {
+  high: { label: 'Fiable', title: 'Muchos datos recientes y cercanos de la competencia' },
+  medium: { label: 'Orientativo', title: 'Algunos datos de la competencia' },
+  low: { label: 'Pocos datos', title: 'Sin datos suficientes: los cambios son más pequeños' },
+};
+
 export function UnitPricingPanel() {
   const [facilityId, setFacilityId] = useState<string | undefined>();
-  const [includeCompetition, setIncludeCompetition] = useState(false);
+  const [includeCompetition, setIncludeCompetition] = useState(true);
   const { data, isLoading } = useUnitPricingSuggestions(facilityId, includeCompetition);
   const apply = useApplyUnitPricing();
   const canApply = useHasPermission('units:manage');
@@ -64,10 +73,11 @@ export function UnitPricingPanel() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Sugerencia de precio por trastero disponible según la{' '}
-          <strong>ocupación de su tamaño</strong> en el local y los{' '}
-          <strong>días que lleva vacío</strong>. Aplicar cambia su precio de catálogo (solo afecta a
-          nuevos contratos; para subir a la cartera actual usa las subidas de precio).
+          Parte del <strong>precio de mercado</strong> de cada tamaño (competencia cercana y
+          reciente), lo ajusta por tu <strong>posicionamiento</strong> y la <strong>demanda</strong>{' '}
+          (ocupación, lista de espera), y respeta los límites de tu estrategia. Aplicar cambia su
+          precio de catálogo (solo afecta a nuevos contratos; para subir a la cartera actual usa las
+          subidas de precio).
         </p>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
@@ -113,8 +123,7 @@ export function UnitPricingPanel() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Trastero</TableHead>
-                  <TableHead>Ocupación tamaño</TableHead>
-                  <TableHead>Días vacío</TableHead>
+                  <TableHead>Mercado</TableHead>
                   <TableHead>Actual → Sugerido</TableHead>
                   <TableHead>Motivo</TableHead>
                   <TableHead />
@@ -131,9 +140,26 @@ export function UnitPricingPanel() {
                           {s.unitTypeName ? `${s.unitTypeName} · ` : ''}
                           {s.facilityName}
                         </div>
+                        <div className="text-xs text-muted-foreground">
+                          Tamaño al {s.occupancyPct}% · {s.daysVacant} d libre
+                        </div>
                       </TableCell>
-                      <TableCell className="text-sm">{s.occupancyPct}%</TableCell>
-                      <TableCell className="text-sm">{s.daysVacant} d</TableCell>
+                      <TableCell className="text-sm">
+                        {s.marketPrice != null ? (
+                          <span className="font-medium">{eur(s.marketPrice)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">Sin datos</span>
+                        )}
+                        <div>
+                          <Badge
+                            variant="outline"
+                            className="mt-1 text-[10px]"
+                            title={CONFIDENCE[s.confidence].title}
+                          >
+                            {CONFIDENCE[s.confidence].label}
+                          </Badge>
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 text-sm">
                           <span className="text-muted-foreground">{eur(s.currentPrice)}</span>
@@ -153,6 +179,11 @@ export function UnitPricingPanel() {
                             </Badge>
                           )}
                         </div>
+                        {s.targetPrice !== s.suggestedPrice && s.targetPrice > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            Objetivo {eur(s.targetPrice)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-xs">
                         {s.factors.length === 0 ? (
@@ -161,11 +192,20 @@ export function UnitPricingPanel() {
                           <ul className="space-y-0.5">
                             {s.factors.map((f) => (
                               <li key={f.label} className="text-xs text-muted-foreground">
-                                {f.detail} ({f.contribution > 0 ? '+' : ''}
-                                {f.contribution}%)
+                                {f.detail}
+                                {f.contribution !== 0 &&
+                                  ` (${f.contribution > 0 ? '+' : ''}${f.contribution}%)`}
                               </li>
                             ))}
                           </ul>
+                        )}
+                        {s.holdReason && (
+                          <p className="mt-1 text-xs text-muted-foreground">{s.holdReason}</p>
+                        )}
+                        {s.promotionHint && (
+                          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                            {s.promotionHint}
+                          </p>
                         )}
                       </TableCell>
                       <TableCell className="text-right">
