@@ -49,6 +49,9 @@ interface FormState {
   inventoryComplete: boolean;
   knownTotalUnits: string;
   currentPromotion: string;
+  promoFreeMonths: string;
+  promoDiscountPct: string;
+  promoDiscountMonths: string;
   depositAmount: string;
   setupFee: string;
   mandatoryInsuranceMonthly: string;
@@ -70,6 +73,9 @@ const empty: FormState = {
   inventoryComplete: false,
   knownTotalUnits: '',
   currentPromotion: '',
+  promoFreeMonths: '',
+  promoDiscountPct: '',
+  promoDiscountMonths: '',
   depositAmount: '',
   setupFee: '',
   mandatoryInsuranceMonthly: '',
@@ -95,6 +101,9 @@ function fromDto(f: CompetitorFacilityDto): FormState {
     inventoryComplete: f.inventoryComplete,
     knownTotalUnits: str(f.knownTotalUnits),
     currentPromotion: f.currentPromotion ?? '',
+    promoFreeMonths: str(f.promoFreeMonths),
+    promoDiscountPct: str(f.promoDiscountPct),
+    promoDiscountMonths: str(f.promoDiscountMonths),
     depositAmount: str(f.depositAmount),
     setupFee: str(f.setupFee),
     mandatoryInsuranceMonthly: str(f.mandatoryInsuranceMonthly),
@@ -145,6 +154,9 @@ export function CompetitorFormDialog({
       inventoryComplete: form.inventoryComplete,
       knownTotalUnits: toNum(form.knownTotalUnits),
       currentPromotion: form.currentPromotion.trim(),
+      promoFreeMonths: toNum(form.promoFreeMonths),
+      promoDiscountPct: toNum(form.promoDiscountPct),
+      promoDiscountMonths: toNum(form.promoDiscountMonths),
       depositAmount: toNum(form.depositAmount),
       setupFee: toNum(form.setupFee),
       mandatoryInsuranceMonthly: toNum(form.mandatoryInsuranceMonthly),
@@ -332,13 +344,44 @@ export function CompetitorFormDialog({
                 />
               </Field>
             </div>
-            <Field label="Promoción actual">
+            <Field label="Promoción actual (descripción)">
               <Input
                 value={form.currentPromotion}
                 onChange={(e) => set({ currentPromotion: e.target.value })}
-                placeholder="p. ej. primer mes gratis"
+                placeholder="p. ej. primer mes gratis para nuevos clientes"
               />
             </Field>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Meses gratis">
+                <Input
+                  inputMode="numeric"
+                  value={form.promoFreeMonths}
+                  onChange={(e) => set({ promoFreeMonths: e.target.value })}
+                  placeholder="0"
+                />
+              </Field>
+              <Field label="Descuento (%)">
+                <Input
+                  inputMode="numeric"
+                  value={form.promoDiscountPct}
+                  onChange={(e) => set({ promoDiscountPct: e.target.value })}
+                  placeholder="0"
+                />
+              </Field>
+              <Field label="Durante (meses)">
+                <Input
+                  inputMode="numeric"
+                  value={form.promoDiscountMonths}
+                  onChange={(e) => set({ promoDiscountMonths: e.target.value })}
+                  placeholder="0"
+                />
+              </Field>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El precio que se compara es lo que paga de media un cliente el primer año: con el alta
+              y el seguro obligatorio, y descontando la promoción (la fianza no cuenta, se
+              devuelve).
+            </p>
           </Section>
 
           <Section title="Características">

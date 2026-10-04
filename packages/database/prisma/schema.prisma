@@ -902,6 +902,8 @@ model Facility {
   accessCurfewEnabled Boolean   @default(false) @map("access_curfew_enabled")
   /// Posicionamiento frente al mercado (%): −5 = por debajo, 0 = en mercado, +5 = por encima.
   pricingPositioningPct Int     @default(0) @map("pricing_positioning_pct")
+  /// Características del local (mismo catálogo que la competencia: 24h, climate…).
+  features              String[] @default([])
   accessCurfewStart   String?   @map("access_curfew_start")
   accessCurfewEnd     String?   @map("access_curfew_end")
   contactPhone        String?   @map("contact_phone")
@@ -2347,6 +2349,10 @@ model CompetitorFacility {
   /// Total de trasteros que se sabe que tiene (p. ej. lo dice su web).
   knownTotalUnits           Int?      @map("known_total_units")
   currentPromotion          String?   @map("current_promotion")
+  /// Promoción como dato (para el precio comparable): meses gratis y/o % de descuento durante N meses.
+  promoFreeMonths           Int?      @map("promo_free_months")
+  promoDiscountPct          Int?      @map("promo_discount_pct")
+  promoDiscountMonths       Int?      @map("promo_discount_months")
   depositAmount             Decimal?  @map("deposit_amount") @db.Decimal(10, 2)
   setupFee                  Decimal?  @map("setup_fee") @db.Decimal(10, 2)
   mandatoryInsuranceMonthly Decimal?  @map("mandatory_insurance_monthly") @db.Decimal(10, 2)

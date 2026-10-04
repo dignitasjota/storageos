@@ -65,6 +65,10 @@ export const CreateCompetitorFacilitySchema = z.object({
   /** Total de trasteros que se sabe que tiene (aunque no estén todos fichados). */
   knownTotalUnits: z.number().int().positive().max(100000).nullable().optional(),
   currentPromotion: optionalText(300),
+  /** Promoción como dato, para el precio comparable. */
+  promoFreeMonths: z.number().int().min(0).max(12).nullable().optional(),
+  promoDiscountPct: z.number().int().min(0).max(100).nullable().optional(),
+  promoDiscountMonths: z.number().int().min(0).max(12).nullable().optional(),
   depositAmount: optionalMoney,
   setupFee: optionalMoney,
   mandatoryInsuranceMonthly: optionalMoney,
@@ -95,6 +99,9 @@ export interface CompetitorFacilityDto {
   inventoryCompletedAt: string | null;
   knownTotalUnits: number | null;
   currentPromotion: string | null;
+  promoFreeMonths: number | null;
+  promoDiscountPct: number | null;
+  promoDiscountMonths: number | null;
   depositAmount: number | null;
   setupFee: number | null;
   mandatoryInsuranceMonthly: number | null;

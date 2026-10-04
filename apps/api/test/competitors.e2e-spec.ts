@@ -381,4 +381,55 @@ describe('Competencia + precio por competencia (e2e)', () => {
     expect(Number(rows[0]!.newPrice)).toBe(120);
     expect(rows[0]!.source).toBe('manual');
   });
+
+  it('precio comparable: promoción, alta y características del local', async () => {
+    const owner = await registerVerifiedUser(app, 'comp-comparable');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const facility = await request(app.getHttpServer())
+      .post('/facilities')
+      .set(auth)
+      .send({ name: 'Local Clima', addressLine1: 'C/ T 1', city: 'Madrid', postalCode: '28001' });
+    const patched = await request(app.getHttpServer())
+      .patch(`/facilities/${facility.body.id}`)
+      .set(auth)
+      .send({ features: ['climate'] });
+    expect(patched.status).toBe(200);
+    expect(patched.body.features).toEqual(['climate']);
+    const unitType = await request(app.getHttpServer())
+      .post('/unit-types')
+      .set(auth)
+      .send({ name: 'Mediano', defaultPriceMonthly: 100 });
+    const unit = await request(app.getHttpServer()).post('/units').set(auth).send({
+      facilityId: facility.body.id,
+      unitTypeId: unitType.body.id,
+      code: 'CC-001',
+      widthM: 2,
+      depthM: 2.5,
+      heightM: 2.5,
+      basePriceMonthly: 100,
+    });
+
+    // 60 € sin IVA con el primer mes gratis → 55 €/mes de media el primer año.
+    const comp = await request(app.getHttpServer()).post('/competitors').set(auth).send({
+      name: 'Rival sin clima',
+      facilityId: facility.body.id,
+      priceIncludesVat: false,
+      promoFreeMonths: 1,
+    });
+    expect(comp.body.promoFreeMonths).toBe(1);
+    for (let i = 0; i < 2; i++) {
+      await request(app.getHttpServer())
+        .post(`/competitors/${comp.body.id}/units`)
+        .set(auth)
+        .send({ areaM2: 5, priceMonthly: 60, status: 'available' })
+        .expect(201);
+    }
+
+    const sug = await request(app.getHttpServer())
+      .get('/analytics/unit-pricing-suggestions')
+      .set(auth);
+    const item = sug.body.items.find((i: { unitId: string }) => i.unitId === unit.body.id);
+    // Mi local está climatizado y el suyo no: su referencia sube un 8 % (55 × 1,08).
+    expect(item.marketPrice).toBeCloseTo(59.4, 1);
+  });
 });

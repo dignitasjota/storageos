@@ -126,7 +126,7 @@ export function marketConfidence(curve: MarketCurve | null, areaM2: number): Pri
 }
 
 export interface DemandFactor {
-  key: 'occupancy' | 'waitlist' | 'competitor_occupancy' | 'competitor_speed';
+  key: 'occupancy' | 'waitlist' | 'competitor_occupancy' | 'competitor_speed' | 'own_speed';
   label: string;
   detail: string;
   contribution: number;
@@ -150,6 +150,8 @@ export function demandFactors(args: {
   competitorOccupancy: number | null;
   /** Mediana de días hasta alquilarse en la competencia (null sin datos suficientes). */
   competitorDaysToRent?: { medianDays: number; rentals: number } | null;
+  /** Mis alquileres de este tamaño en los últimos 90 días y cuántos quedan libres. */
+  ownRentals?: { rentals90: number; available: number } | null;
 }): DemandFactor[] {
   const factors: DemandFactor[] = [];
   const smoothed =
@@ -195,7 +197,74 @@ export function demandFactors(args: {
       });
     }
   }
+  const own = args.ownRentals;
+  if (own && own.rentals90 >= MIN_OWN_RENTALS) {
+    // Meses que tardaría en alquilar lo que tiene libre al ritmo actual.
+    const perMonth = own.rentals90 / 3;
+    const monthsOfStock = own.available / perMonth;
+    const ownAdj = round1(clamp((2 - monthsOfStock) * 1.5, -3, 3));
+    if (ownAdj !== 0) {
+      factors.push({
+        key: 'own_speed',
+        label: 'Tu ritmo de alquiler',
+        detail: `${own.rentals90} alquilados en 90 días y ${own.available} libres (~${round1(monthsOfStock)} meses de stock)`,
+        contribution: ownAdj,
+      });
+    }
+  }
   return factors;
+}
+
+/** Mínimo de alquileres propios en 90 días para usar tu ritmo de alquiler. */
+export const MIN_OWN_RENTALS = 2;
+
+/**
+ * Precio mensual comparable de un trastero de la competencia: lo que paga de
+ * media un cliente el primer año (sin la fianza, que se devuelve). Suma el
+ * seguro obligatorio y el alta, y descuenta la promoción.
+ */
+export function effectiveMonthlyPrice(args: {
+  price: number;
+  insuranceMonthly: number;
+  setupFee: number;
+  promoFreeMonths: number;
+  promoDiscountPct: number;
+  promoDiscountMonths: number;
+}): number {
+  const free = clamp(args.promoFreeMonths, 0, 12);
+  const discounted = clamp(args.promoDiscountMonths, 0, 12 - free);
+  const pct = clamp(args.promoDiscountPct, 0, 100) / 100;
+  const year =
+    args.price * (12 - free) -
+    args.price * pct * discounted +
+    args.insuranceMonthly * 12 +
+    args.setupFee;
+  return Math.max(0, year / 12);
+}
+
+/**
+ * Lo que vale cada característica sobre el precio (%). Un competidor con una
+ * que mi local no tiene es «más caro de lo que parece» y su referencia baja.
+ */
+export const FEATURE_VALUE_PCT: Record<string, number> = {
+  climate: 8,
+  vehicle_access: 4,
+  '24h': 3,
+  ground_floor: 3,
+  cctv: 2,
+  online_booking: 1,
+};
+
+/** Multiplicador para llevar el precio de un competidor a las características de mi local. */
+export function featureMultiplier(mine: string[], theirs: string[]): number {
+  const a = new Set(mine);
+  const b = new Set(theirs);
+  let pct = 0;
+  for (const [feature, value] of Object.entries(FEATURE_VALUE_PCT)) {
+    if (a.has(feature) && !b.has(feature)) pct += value;
+    if (b.has(feature) && !a.has(feature)) pct -= value;
+  }
+  return 1 + pct / 100;
 }
 
 /** Mínimo de alquileres observados para usar el ritmo de la competencia. */

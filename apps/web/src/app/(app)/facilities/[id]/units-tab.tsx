@@ -210,89 +210,89 @@ export function FacilityUnitsTab({ facilityId }: Props) {
                 <Plus className="mr-1 h-4 w-4" /> Nuevo trastero
               </Button>
             </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Nuevo trastero</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                <FormField
-                  control={form.control}
-                  name="unitTypeId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecciona un tipo" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {activeTypes.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {t.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Código</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="A-12, B-203..." />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {(['widthM', 'depthM', 'heightM'] as const).map((k) => (
-                    <FormField
-                      key={k}
-                      control={form.control}
-                      name={k}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            {k === 'widthM'
-                              ? 'Ancho (m)'
-                              : k === 'depthM'
-                                ? 'Fondo (m)'
-                                : 'Alto (m)'}
-                          </FormLabel>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nuevo trastero</DialogTitle>
+              </DialogHeader>
+              <Form {...form}>
+                <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                  <FormField
+                    control={form.control}
+                    name="unitTypeId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tipo</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              {...field}
-                              onChange={(e) => field.onChange(Number(e.target.value))}
-                            />
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecciona un tipo" />
+                            </SelectTrigger>
                           </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  ))}
-                </div>
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                    Cerrar
-                  </Button>
-                  <Button type="submit" disabled={form.formState.isSubmitting}>
-                    {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
+                          <SelectContent>
+                            {activeTypes.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                {t.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="code"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Código</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="A-12, B-203..." />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {(['widthM', 'depthM', 'heightM'] as const).map((k) => (
+                      <FormField
+                        key={k}
+                        control={form.control}
+                        name={k}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              {k === 'widthM'
+                                ? 'Ancho (m)'
+                                : k === 'depthM'
+                                  ? 'Fondo (m)'
+                                  : 'Alto (m)'}
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                {...field}
+                                onChange={(e) => field.onChange(Number(e.target.value))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                      Cerrar
+                    </Button>
+                    <Button type="submit" disabled={form.formState.isSubmitting}>
+                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </Form>
+            </DialogContent>
           </Dialog>
         )
       }

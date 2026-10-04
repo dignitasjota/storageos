@@ -14,6 +14,8 @@ import {
   MIN_OBSERVED_RENTALS,
   observationWeight,
   observedRentals,
+  effectiveMonthlyPrice,
+  featureMultiplier,
   type MarketCurve,
 } from './pricing-engine';
 
@@ -365,69 +367,108 @@ export class InsightsService {
 
   /** Datos comunes del cálculo: estrategia, competencia, ocupación y listas de espera. */
   private async loadPricingContext(tx: Prisma.TransactionClient, tenantId: string) {
-    const [tenant, facilities, unitTypes, competitors, totals, occupied, waitlist] =
-      await Promise.all([
-        tx.tenant.findUnique({
-          where: { id: tenantId },
-          select: {
-            pricingTargetOccupancy: true,
-            pricingMaxStepPct: true,
-            pricingMinDaysBetweenChanges: true,
-          },
-        }),
-        tx.facility.findMany({
-          where: { deletedAt: null },
-          select: { id: true, name: true, city: true, pricingPositioningPct: true },
-        }),
-        tx.unitType.findMany({
-          select: {
-            id: true,
-            name: true,
-            defaultPriceMonthly: true,
-            minPriceMonthly: true,
-            maxPriceMonthly: true,
-          },
-        }),
-        tx.competitorFacility.findMany({
-          select: {
-            facilityId: true,
-            zone: true,
-            distanceKm: true,
-            priceIncludesVat: true,
-            mandatoryInsuranceMonthly: true,
-            inventoryComplete: true,
-            units: {
-              select: {
-                areaM2: true,
-                priceMonthly: true,
-                status: true,
-                lastCheckedAt: true,
-                observations: {
-                  orderBy: { observedAt: 'asc' },
-                  select: { observedAt: true, status: true },
-                },
+    const since90 = new Date(Date.now() - 90 * 86_400_000);
+    const [
+      tenant,
+      facilities,
+      unitTypes,
+      competitors,
+      totals,
+      occupied,
+      waitlist,
+      available,
+      recent,
+    ] = await Promise.all([
+      tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          pricingTargetOccupancy: true,
+          pricingMaxStepPct: true,
+          pricingMinDaysBetweenChanges: true,
+        },
+      }),
+      tx.facility.findMany({
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          name: true,
+          city: true,
+          pricingPositioningPct: true,
+          features: true,
+        },
+      }),
+      tx.unitType.findMany({
+        select: {
+          id: true,
+          name: true,
+          defaultPriceMonthly: true,
+          minPriceMonthly: true,
+          maxPriceMonthly: true,
+        },
+      }),
+      tx.competitorFacility.findMany({
+        select: {
+          facilityId: true,
+          zone: true,
+          distanceKm: true,
+          priceIncludesVat: true,
+          mandatoryInsuranceMonthly: true,
+          setupFee: true,
+          promoFreeMonths: true,
+          promoDiscountPct: true,
+          promoDiscountMonths: true,
+          features: true,
+          inventoryComplete: true,
+          units: {
+            select: {
+              areaM2: true,
+              priceMonthly: true,
+              status: true,
+              lastCheckedAt: true,
+              observations: {
+                orderBy: { observedAt: 'asc' },
+                select: { observedAt: true, status: true },
               },
             },
           },
-        }),
-        tx.unit.groupBy({ by: ['facilityId', 'unitTypeId'], _count: { _all: true } }),
-        // Un reservado ya no está a la venta: cuenta como ocupado.
-        tx.unit.groupBy({
-          by: ['facilityId', 'unitTypeId'],
-          where: { status: { in: ['occupied', 'reserved'] } },
-          _count: { _all: true },
-        }),
-        tx.waitlistEntry.groupBy({
-          by: ['facilityId', 'unitTypeId'],
-          where: { status: 'waiting' },
-          _count: { _all: true },
-        }),
-      ]);
+        },
+      }),
+      tx.unit.groupBy({ by: ['facilityId', 'unitTypeId'], _count: { _all: true } }),
+      // Un reservado ya no está a la venta: cuenta como ocupado.
+      tx.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { status: { in: ['occupied', 'reserved'] } },
+        _count: { _all: true },
+      }),
+      tx.waitlistEntry.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { status: 'waiting' },
+        _count: { _all: true },
+      }),
+      tx.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { status: 'available' },
+        _count: { _all: true },
+      }),
+      // Mis alquileres de los últimos 90 días (contratos firmados), por tamaño.
+      tx.contract.findMany({
+        where: { signedAt: { gte: since90 }, deletedAt: null, status: { not: 'cancelled' } },
+        select: { unit: { select: { facilityId: true, unitTypeId: true } } },
+      }),
+    ]);
 
     const key = (f: string, t: string) => `${f}:${t}`;
     const totalMap = new Map(totals.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
     const occMap = new Map(occupied.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
     const waitMap = new Map(waitlist.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
+    const availMap = new Map(
+      available.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]),
+    );
+    const rentalsMap = new Map<string, number>();
+    for (const c of recent) {
+      const k = key(c.unit.facilityId, c.unit.unitTypeId);
+      rentalsMap.set(k, (rentalsMap.get(k) ?? 0) + 1);
+    }
     const facilityTotals = new Map<string, { total: number; occupied: number }>();
     for (const g of totals) {
       const acc = facilityTotals.get(g.facilityId) ?? { total: 0, occupied: 0 };
@@ -439,11 +480,19 @@ export class InsightsService {
     const now = new Date();
     const norm = (s: string | null | undefined) =>
       (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
-    // Precio comparable: sin IVA y con el seguro obligatorio incluido.
+    // Precio comparable: lo que paga de media un cliente el primer año, sin IVA
+    // (seguro obligatorio y alta incluidos, promoción descontada).
     const comparable = competitors.map((c) => ({
       ...c,
       units: c.units.map((u) => {
-        const gross = toNumber(u.priceMonthly) + toNumber(c.mandatoryInsuranceMonthly);
+        const gross = effectiveMonthlyPrice({
+          price: toNumber(u.priceMonthly),
+          insuranceMonthly: toNumber(c.mandatoryInsuranceMonthly),
+          setupFee: toNumber(c.setupFee),
+          promoFreeMonths: c.promoFreeMonths ?? 0,
+          promoDiscountPct: c.promoDiscountPct ?? 0,
+          promoDiscountMonths: c.promoDiscountMonths ?? 0,
+        });
         return {
           areaM2: toNumber(u.areaM2),
           price: c.priceIncludesVat ? gross / 1.21 : gross,
@@ -469,14 +518,18 @@ export class InsightsService {
     });
 
     const curveCache = new Map<string, MarketCurve | null>();
-    const marketCurve = (facility: { id: string; city: string | null } | null) => {
+    const marketCurve = (
+      facility: { id: string; city: string | null; features?: string[] } | null,
+    ) => {
       const cacheKey = facility?.id ?? '*';
       if (!curveCache.has(cacheKey)) {
         const obs = comparable.flatMap((c) => {
           const prox = proximityFor(c, facility);
+          // Lleva su precio a las características de mi local (sin local: tal cual).
+          const mult = facility ? featureMultiplier(facility.features ?? [], c.features) : 1;
           return c.units.map((u) => ({
             areaM2: u.areaM2,
-            price: u.price,
+            price: u.price * mult,
             weight: observationWeight({ ageDays: u.ageDays, ...prox }),
           }));
         });
@@ -542,6 +595,8 @@ export class InsightsService {
         total: totalMap.get(key(facilityId, unitTypeId)) ?? 0,
         occupied: occMap.get(key(facilityId, unitTypeId)) ?? 0,
         waitlist: waitMap.get(key(facilityId, unitTypeId)) ?? 0,
+        available: availMap.get(key(facilityId, unitTypeId)) ?? 0,
+        rentals90: rentalsMap.get(key(facilityId, unitTypeId)) ?? 0,
       }),
       facilityOccupancy: (facilityId: string) => {
         const t = facilityTotals.get(facilityId);
@@ -570,11 +625,17 @@ export class InsightsService {
         let total = 0;
         let occupied = 0;
         let waiting = 0;
+        let free = 0;
+        let rentals90 = 0;
+        let positioningWeighted = 0;
         for (const f of ctx.facilities) {
           const d = ctx.dim(f.id, ut.id);
           total += d.total;
           occupied += d.occupied;
           waiting += d.waitlist;
+          free += d.available;
+          rentals90 += d.rentals90;
+          positioningWeighted += f.pricingPositioningPct * d.total;
         }
         if (total === 0) continue; // sin trasteros de este tipo: no hay señal
         const area = avgArea.get(ut.id) ?? 0;
@@ -588,13 +649,16 @@ export class InsightsService {
           waitlist: waiting,
           competitorOccupancy: area > 0 ? ctx.competitorOccupancy(null, area) : null,
           competitorDaysToRent: area > 0 ? ctx.competitorDaysToRent(null, area) : null,
+          ownRentals: { rentals90, available: free },
         });
         const demandPct = factors.reduce((s, f) => s + f.contribution, 0);
         const currentPrice = toNumber(ut.defaultPriceMonthly);
         const decision = decidePrice({
           currentPrice,
           marketPrice,
-          positioningPct: 0,
+          // Posicionamiento medio de los locales, ponderado por sus trasteros de este tipo.
+          positioningPct:
+            marketPrice != null && total > 0 ? Math.round(positioningWeighted / total) : 0,
           demandPct,
           confidence,
           maxStepPct: ctx.maxStepPct,
@@ -695,6 +759,7 @@ export class InsightsService {
           name: u.facility.name,
           city: null,
           pricingPositioningPct: 0,
+          features: [] as string[],
         };
         const type = typeById.get(u.unitTypeId);
         const d = ctx.dim(u.facilityId, u.unitTypeId);
@@ -713,6 +778,7 @@ export class InsightsService {
             includeCompetition && area > 0 ? ctx.competitorOccupancy(facility, area) : null,
           competitorDaysToRent:
             includeCompetition && area > 0 ? ctx.competitorDaysToRent(facility, area) : null,
+          ownRentals: { rentals90: d.rentals90, available: d.available },
         });
         const demandPct = demand.reduce((s, f) => s + f.contribution, 0);
         const positioningPct = marketPrice != null ? facility.pricingPositioningPct : 0;

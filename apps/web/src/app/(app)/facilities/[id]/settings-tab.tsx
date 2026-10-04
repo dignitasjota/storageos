@@ -1,6 +1,12 @@
 'use client';
 
-import { toEmbedVideoUrl, WEEKDAYS } from '@storageos/shared';
+import {
+  COMPETITOR_FEATURE_LABELS,
+  CompetitorFeatureEnum,
+  toEmbedVideoUrl,
+  WEEKDAYS,
+  type CompetitorFeature,
+} from '@storageos/shared';
 import { ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -9,6 +15,7 @@ import type { DayHours, FacilityDto, OpeningHours, Weekday } from '@storageos/sh
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
@@ -23,6 +30,7 @@ export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
     <div className="space-y-6">
       <OpeningHoursCard facility={facility} />
       <CurfewCard facility={facility} />
+      <FeaturesCard facility={facility} />
       <SlugCard facility={facility} />
       <ImagesCard facility={facility} />
       <VideoCard facility={facility} />
@@ -178,6 +186,53 @@ function OpeningHoursCard({ facility }: { facility: FacilityDto }) {
         })}
         <Button onClick={save} disabled={update.isPending} className="mt-2">
           {update.isPending ? 'Guardando...' : 'Guardar'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Características del local: la sugerencia de precio las compara con la competencia. */
+function FeaturesCard({ facility }: { facility: FacilityDto }) {
+  const update = useUpdateFacility();
+  const [features, setFeatures] = useState<CompetitorFeature[]>(
+    facility.features as CompetitorFeature[],
+  );
+
+  async function save() {
+    try {
+      await update.mutateAsync({ id: facility.id, input: { features } });
+      toast.success('Características actualizadas.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Características del local</CardTitle>
+        <CardDescription>
+          Se comparan con las de la competencia para que la sugerencia de precio compare lo
+          comparable (por ejemplo, un competidor climatizado frente a un local que no lo está).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          {CompetitorFeatureEnum.options.map((f) => (
+            <label key={f} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={features.includes(f)}
+                onCheckedChange={(v) =>
+                  setFeatures((prev) => (v === true ? [...prev, f] : prev.filter((x) => x !== f)))
+                }
+              />
+              {COMPETITOR_FEATURE_LABELS[f]}
+            </label>
+          ))}
+        </div>
+        <Button size="sm" onClick={() => void save()} disabled={update.isPending}>
+          Guardar
         </Button>
       </CardContent>
     </Card>

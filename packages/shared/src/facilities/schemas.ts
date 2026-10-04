@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { CompetitorFeatureEnum } from '../competitors';
+
 const hexColor = z
   .string()
   .trim()
@@ -86,6 +88,8 @@ export const CreateFacilitySchema = z.object({
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora HH:MM')
     .optional()
     .or(z.literal('')),
+  /** Características del local (las compara la sugerencia de precio con la competencia). */
+  features: z.array(CompetitorFeatureEnum).max(10).optional(),
 });
 export type CreateFacilityInput = z.infer<typeof CreateFacilitySchema>;
 
