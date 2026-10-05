@@ -29,8 +29,11 @@ export const PublicBookingSchema = z.object({
     firstName: z.string().trim().min(1, 'Obligatorio').max(100),
     lastName: z.string().trim().min(1, 'Obligatorio').max(120),
     email: z.string().trim().toLowerCase().email(),
-    phone: z.string().trim().max(40).optional().or(z.literal('')),
-    documentNumber: z.string().trim().max(40).optional().or(z.literal('')),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^\+?[\d\s().-]{9,20}$/, 'Teléfono no válido'),
+    documentNumber: z.string().trim().min(5, 'Documento no válido').max(40),
   }),
   /** Código de referido opcional (best-effort). */
   referralCode: z.string().trim().toUpperCase().max(32).optional().or(z.literal('')),

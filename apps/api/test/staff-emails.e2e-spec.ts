@@ -57,7 +57,13 @@ describe('Avisos por email al equipo (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-05-01',
-        customer: { firstName: 'Ana', lastName: 'Ruiz', email: `ana-${Date.now()}@e2e.local` },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Ana',
+          lastName: 'Ruiz',
+          email: `ana-${Date.now()}@e2e.local`,
+        },
       })
       .expect(201);
     const booking = await waitForEmail(owner.email, { subjectIncludes: 'Reserva online' });

@@ -108,13 +108,45 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     const facility = avail.body.facilities[0];
     expect(facility.unitTypes[0].available).toBeGreaterThan(0);
 
-    const booking = await request(app.getHttpServer())
+    // Todos los datos personales son obligatorios: sin teléfono ni documento → 400.
+    const incomplete = await request(app.getHttpServer())
       .post(`/public/move-in/book/${owner.slug}`)
       .send({
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-03-01',
         customer: { firstName: 'Bea', lastName: 'López', email: 'bea@e2e.local' },
+      });
+    expect(incomplete.status).toBe(400);
+    const badPhone = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: facility.id,
+        unitTypeId: facility.unitTypes[0].id,
+        startDate: '2026-03-01',
+        customer: {
+          firstName: 'Bea',
+          lastName: 'López',
+          email: 'bea@e2e.local',
+          phone: '123',
+          documentNumber: '12345678Z',
+        },
+      });
+    expect(badPhone.status).toBe(400);
+
+    const booking = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: facility.id,
+        unitTypeId: facility.unitTypes[0].id,
+        startDate: '2026-03-01',
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Bea',
+          lastName: 'López',
+          email: 'bea@e2e.local',
+        },
       });
     expect(booking.status).toBe(201);
     expect(booking.body.signingToken).toContain('.');
@@ -155,7 +187,13 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
         facilityId,
         unitTypeId,
         startDate: '2026-03-01',
-        customer: { firstName: 'Bot', lastName: 'Spam', email: 'bot@e2e.local' },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Bot',
+          lastName: 'Spam',
+          email: 'bot@e2e.local',
+        },
         website: 'http://spam.example',
       });
     expect(res.status).toBe(400);

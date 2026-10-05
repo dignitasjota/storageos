@@ -51,16 +51,13 @@ describe('Overlock badge (staff + portal) (e2e)', () => {
     const customerId = await createCustomer(app, owner.accessToken, { email });
 
     // Contrato firmado + factura vencida (deuda) para poder abrir el expediente.
-    const contract = await request(app.getHttpServer())
-      .post('/contracts')
-      .set(auth)
-      .send({
-        customerId,
-        unitId: unitIds[0],
-        startDate: '2026-01-01',
-        priceMonthly: 100,
-        depositAmount: 0,
-      });
+    const contract = await request(app.getHttpServer()).post('/contracts').set(auth).send({
+      customerId,
+      unitId: unitIds[0],
+      startDate: '2026-01-01',
+      priceMonthly: 100,
+      depositAmount: 0,
+    });
     const contractId = contract.body.id as string;
     await request(app.getHttpServer()).post(`/contracts/${contractId}/sign`).set(auth).expect(200);
     await ensureDefaultSeries(app, owner.accessToken);

@@ -39,15 +39,12 @@ describe('Cámaras: ingesta de eventos + snapshots (e2e)', () => {
     expect(facility.status).toBe(201);
 
     // Registrar la cámara → devuelve el token de ingesta una sola vez + la URL.
-    const dev = await request(app.getHttpServer())
-      .post('/cameras/devices')
-      .set(auth)
-      .send({
-        facilityId: facility.body.id,
-        name: 'Cámara pasillo 1',
-        channel: 3,
-        provider: 'dahua',
-      });
+    const dev = await request(app.getHttpServer()).post('/cameras/devices').set(auth).send({
+      facilityId: facility.body.id,
+      name: 'Cámara pasillo 1',
+      channel: 3,
+      provider: 'dahua',
+    });
     expect(dev.status).toBe(201);
     expect(dev.body.revealedIngestToken).toBeTruthy();
     expect(dev.body.provider).toBe('dahua');

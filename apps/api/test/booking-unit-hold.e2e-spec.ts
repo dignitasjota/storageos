@@ -55,7 +55,13 @@ describe('Booking: hold de la unidad (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-05-01',
-        customer: { firstName: 'Ana', lastName: 'Ruiz', email: `hold-${Date.now()}@e2e.local` },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Ana',
+          lastName: 'Ruiz',
+          email: `hold-${Date.now()}@e2e.local`,
+        },
       });
     expect(booking.status).toBe(201);
 
@@ -76,7 +82,13 @@ describe('Booking: hold de la unidad (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-05-01',
-        customer: { firstName: 'Leo', lastName: 'Paz', email: `hold2-${Date.now()}@e2e.local` },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Leo',
+          lastName: 'Paz',
+          email: `hold2-${Date.now()}@e2e.local`,
+        },
       });
     expect(second.status).toBe(409);
     expect(second.body.code).toBe('no_units_available');
@@ -105,7 +117,13 @@ describe('Booking: hold de la unidad (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-05-01',
-        customer: { firstName: 'Sin', lastName: 'Firma', email: `exp-${Date.now()}@e2e.local` },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Sin',
+          lastName: 'Firma',
+          email: `exp-${Date.now()}@e2e.local`,
+        },
       });
     expect(booking.status).toBe(201);
     expect((await adminClient.unit.findUnique({ where: { id: unitIds[0] } }))!.status).toBe(
