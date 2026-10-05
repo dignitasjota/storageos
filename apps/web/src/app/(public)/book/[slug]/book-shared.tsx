@@ -109,8 +109,15 @@ export function BookPageBody({
     if (Object.keys(next).length > 0) setUtm(next);
   }, []);
 
+  // Con un solo local no hace falta elegirlo: se selecciona solo.
+  const onlyFacility = data?.facilities.length === 1 ? data.facilities[0]! : null;
+  useEffect(() => {
+    if (onlyFacility && !facilityId) setFacilityId(onlyFacility.id);
+  }, [onlyFacility, facilityId]);
+
   const facility = data?.facilities.find((f) => f.id === facilityId);
   const selectedType = facility?.unitTypes.find((ut) => ut.id === unitTypeId);
+  const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
 
   // Email-first: en cuanto el visitante deja un email válido, guardamos un lead
@@ -182,13 +189,32 @@ export function BookPageBody({
     );
   }
 
-  const canSubmit =
-    facilityId &&
-    unitTypeId &&
-    startDate &&
-    form.firstName.trim() &&
-    form.lastName.trim() &&
-    /.+@.+\..+/.test(form.email);
+  // Todos los datos son obligatorios (salvo el código de referido): se avisa
+  // de los que faltan al intentar reservar, junto a cada campo.
+  const errors: Partial<Record<BookingField, string>> = {};
+  if (!facilityId) errors.facility = t('errorRequired');
+  if (!unitTypeId) errors.unitType = t('errorRequired');
+  if (!startDate) errors.startDate = t('errorRequired');
+  if (!form.firstName.trim()) errors.firstName = t('errorRequired');
+  if (!form.lastName.trim()) errors.lastName = t('errorRequired');
+  if (!form.email.trim()) errors.email = t('errorRequired');
+  else if (!EMAIL_RE.test(form.email.trim())) errors.email = t('errorEmail');
+  if (!form.phone.trim()) errors.phone = t('errorRequired');
+  else if (!PHONE_RE.test(form.phone.trim())) errors.phone = t('errorPhone');
+  if (!form.documentNumber.trim()) errors.documentNumber = t('errorRequired');
+  else if (form.documentNumber.trim().length < 5) errors.documentNumber = t('errorDocument');
+  const err = (field: BookingField) => (showErrors ? errors[field] : undefined);
+
+  function onSubmitClick() {
+    const first = BOOKING_FIELDS.find((f) => errors[f]);
+    if (first) {
+      setShowErrors(true);
+      toast.error(t('errorFix'));
+      document.getElementById(BOOKING_FIELD_IDS[first])?.focus();
+      return;
+    }
+    void submit();
+  }
 
   const brand = data.brandColor ?? '#2563EB';
 
@@ -209,32 +235,42 @@ export function BookPageBody({
             <p className="text-sm text-muted-foreground">{t('noAvailability')}</p>
           ) : (
             <>
-              <div className="space-y-1">
-                <Label htmlFor="book-facility">{t('facilityLabel')}</Label>
-                <select
-                  id="book-facility"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
-                  value={facilityId}
-                  onChange={(e) => {
-                    setFacilityId(e.target.value);
-                    setUnitTypeId('');
-                  }}
-                >
-                  <option value="">{t('facilityPlaceholder')}</option>
-                  {data.facilities.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <p className="text-xs text-muted-foreground">{t('requiredNote')}</p>
+              {onlyFacility ? (
+                <p className="text-sm text-muted-foreground">
+                  {t('singleFacility', { name: onlyFacility.name })}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  <Label htmlFor="book-facility">{t('facilityLabel')}</Label>
+                  <select
+                    id="book-facility"
+                    className={selectClass(err('facility'))}
+                    aria-invalid={!!err('facility')}
+                    value={facilityId}
+                    onChange={(e) => {
+                      setFacilityId(e.target.value);
+                      setUnitTypeId('');
+                    }}
+                  >
+                    <option value="">{t('facilityPlaceholder')}</option>
+                    {data.facilities.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldError message={err('facility')} />
+                </div>
+              )}
 
               {facility && (
                 <div className="space-y-1">
                   <Label htmlFor="book-unit-type">{t('unitTypeLabel')}</Label>
                   <select
                     id="book-unit-type"
-                    className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
+                    className={selectClass(err('unitType'))}
+                    aria-invalid={!!err('unitType')}
                     value={unitTypeId}
                     onChange={(e) => setUnitTypeId(e.target.value)}
                   >
@@ -249,6 +285,7 @@ export function BookPageBody({
                       </option>
                     ))}
                   </select>
+                  <FieldError message={err('unitType')} />
                   {selectedType && (
                     <p className="text-sm text-muted-foreground">
                       {t('quoteLabel')}{' '}
@@ -269,8 +306,11 @@ export function BookPageBody({
                   type="date"
                   min={new Date().toISOString().slice(0, 10)}
                   value={startDate}
+                  aria-invalid={!!err('startDate')}
+                  className={inputErrorClass(err('startDate'))}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
+                <FieldError message={err('startDate')} />
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -278,50 +318,65 @@ export function BookPageBody({
                   <Label htmlFor="book-first-name">{t('firstNameLabel')}</Label>
                   <Input
                     id="book-first-name"
+                    aria-invalid={!!err('firstName')}
+                    className={inputErrorClass(err('firstName'))}
                     autoComplete="given-name"
                     value={form.firstName}
                     onChange={(e) => setForm({ ...form, firstName: e.target.value })}
                   />
+                  <FieldError message={err('firstName')} />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="book-last-name">{t('lastNameLabel')}</Label>
                   <Input
                     id="book-last-name"
+                    aria-invalid={!!err('lastName')}
+                    className={inputErrorClass(err('lastName'))}
                     autoComplete="family-name"
                     value={form.lastName}
                     onChange={(e) => setForm({ ...form, lastName: e.target.value })}
                   />
+                  <FieldError message={err('lastName')} />
                 </div>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="book-email">{t('emailLabel')}</Label>
                 <Input
                   id="book-email"
+                  aria-invalid={!!err('email')}
+                  className={inputErrorClass(err('email'))}
                   type="email"
                   autoComplete="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   onBlur={() => void captureLead()}
                 />
+                <FieldError message={err('email')} />
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="book-phone">{t('phoneLabel')}</Label>
                   <Input
                     id="book-phone"
+                    aria-invalid={!!err('phone')}
+                    className={inputErrorClass(err('phone'))}
                     type="tel"
                     autoComplete="tel"
                     value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   />
+                  <FieldError message={err('phone')} />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="book-document">{t('documentLabel')}</Label>
                   <Input
                     id="book-document"
+                    aria-invalid={!!err('documentNumber')}
+                    className={inputErrorClass(err('documentNumber'))}
                     value={form.documentNumber}
                     onChange={(e) => setForm({ ...form, documentNumber: e.target.value })}
                   />
+                  <FieldError message={err('documentNumber')} />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="book-referral">{t('referralLabel')}</Label>
@@ -346,8 +401,8 @@ export function BookPageBody({
               />
 
               <Button
-                onClick={submit}
-                disabled={!canSubmit || submitting}
+                onClick={onSubmitClick}
+                disabled={submitting}
                 className="w-full text-white"
                 style={{ backgroundColor: brand }}
               >
@@ -404,9 +459,32 @@ function WaitlistSection({ slug }: { slug: string }) {
       .catch(() => setOptions(null));
   }, [slug]);
 
+  // Con un solo local no hace falta elegirlo: se selecciona solo.
+  const onlyFacility = options?.facilities.length === 1 ? options.facilities[0]! : null;
+  useEffect(() => {
+    if (onlyFacility && !facilityId) setFacilityId(onlyFacility.id);
+  }, [onlyFacility, facilityId]);
+
   const facility = options?.facilities.find((f) => f.id === facilityId);
-  const canJoin =
-    facilityId && unitTypeId && form.contactName.trim() && /.+@.+\..+/.test(form.contactEmail);
+  const [showErrors, setShowErrors] = useState(false);
+  const errors: Partial<Record<'facility' | 'unitType' | 'name' | 'email' | 'phone', string>> = {};
+  if (!facilityId) errors.facility = t('errorRequired');
+  if (!unitTypeId) errors.unitType = t('errorRequired');
+  if (!form.contactName.trim()) errors.name = t('errorRequired');
+  if (!form.contactEmail.trim()) errors.email = t('errorRequired');
+  else if (!EMAIL_RE.test(form.contactEmail.trim())) errors.email = t('errorEmail');
+  if (form.contactPhone.trim() && !PHONE_RE.test(form.contactPhone.trim()))
+    errors.phone = t('errorPhone');
+  const err = (field: keyof typeof errors) => (showErrors ? errors[field] : undefined);
+
+  function onJoinClick() {
+    if (Object.keys(errors).length > 0) {
+      setShowErrors(true);
+      toast.error(t('errorFix'));
+      return;
+    }
+    void join();
+  }
 
   async function join() {
     setSubmitting(true);
@@ -445,31 +523,40 @@ function WaitlistSection({ slug }: { slug: string }) {
         ) : (
           <>
             <p className="text-sm text-muted-foreground">{t('waitlistIntro')}</p>
-            <div className="space-y-1">
-              <Label htmlFor="waitlist-facility">{t('facilityLabel')}</Label>
-              <select
-                id="waitlist-facility"
-                className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
-                value={facilityId}
-                onChange={(e) => {
-                  setFacilityId(e.target.value);
-                  setUnitTypeId('');
-                }}
-              >
-                <option value="">{t('facilityPlaceholder')}</option>
-                {options.facilities.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {onlyFacility ? (
+              <p className="text-sm text-muted-foreground">
+                {t('singleFacility', { name: onlyFacility.name })}
+              </p>
+            ) : (
+              <div className="space-y-1">
+                <Label htmlFor="waitlist-facility">{t('facilityLabel')}</Label>
+                <select
+                  id="waitlist-facility"
+                  className={selectClass(err('facility'))}
+                  aria-invalid={!!err('facility')}
+                  value={facilityId}
+                  onChange={(e) => {
+                    setFacilityId(e.target.value);
+                    setUnitTypeId('');
+                  }}
+                >
+                  <option value="">{t('facilityPlaceholder')}</option>
+                  {options.facilities.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+                <FieldError message={err('facility')} />
+              </div>
+            )}
             {facility && (
               <div className="space-y-1">
                 <Label htmlFor="waitlist-unit-type">{t('unitTypeLabel')}</Label>
                 <select
                   id="waitlist-unit-type"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm"
+                  className={selectClass(err('unitType'))}
+                  aria-invalid={!!err('unitType')}
                   value={unitTypeId}
                   onChange={(e) => setUnitTypeId(e.target.value)}
                 >
@@ -483,37 +570,47 @@ function WaitlistSection({ slug }: { slug: string }) {
                     </option>
                   ))}
                 </select>
+                <FieldError message={err('unitType')} />
               </div>
             )}
             <div className="space-y-1">
               <Label htmlFor="waitlist-first-name">{t('firstNameLabel')}</Label>
               <Input
                 id="waitlist-first-name"
+                aria-invalid={!!err('name')}
+                className={inputErrorClass(err('name'))}
                 autoComplete="given-name"
                 value={form.contactName}
                 onChange={(e) => setForm({ ...form, contactName: e.target.value })}
               />
+              <FieldError message={err('name')} />
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="waitlist-email">{t('emailLabel')}</Label>
                 <Input
                   id="waitlist-email"
+                  aria-invalid={!!err('email')}
+                  className={inputErrorClass(err('email'))}
                   type="email"
                   autoComplete="email"
                   value={form.contactEmail}
                   onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
                 />
+                <FieldError message={err('email')} />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="waitlist-phone">{t('phoneLabel')}</Label>
+                <Label htmlFor="waitlist-phone">{t('waitlistPhoneOptional')}</Label>
                 <Input
                   id="waitlist-phone"
+                  aria-invalid={!!err('phone')}
+                  className={inputErrorClass(err('phone'))}
                   type="tel"
                   autoComplete="tel"
                   value={form.contactPhone}
                   onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
                 />
+                <FieldError message={err('phone')} />
               </div>
             </div>
             {/* Honeypot anti-bot. */}
@@ -527,8 +624,8 @@ function WaitlistSection({ slug }: { slug: string }) {
               aria-hidden="true"
             />
             <Button
-              onClick={join}
-              disabled={!canJoin || submitting}
+              onClick={onJoinClick}
+              disabled={submitting}
               variant="outline"
               className="w-full"
             >
@@ -539,6 +636,56 @@ function WaitlistSection({ slug }: { slug: string }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^\+?[\d\s().-]{9,20}$/;
+
+type BookingField =
+  | 'facility'
+  | 'unitType'
+  | 'startDate'
+  | 'firstName'
+  | 'lastName'
+  | 'email'
+  | 'phone'
+  | 'documentNumber';
+/** Orden en pantalla (para llevar el foco al primer error). */
+const BOOKING_FIELDS: BookingField[] = [
+  'facility',
+  'unitType',
+  'startDate',
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'documentNumber',
+];
+const BOOKING_FIELD_IDS: Record<BookingField, string> = {
+  facility: 'book-facility',
+  unitType: 'book-unit-type',
+  startDate: 'book-start-date',
+  firstName: 'book-first-name',
+  lastName: 'book-last-name',
+  email: 'book-email',
+  phone: 'book-phone',
+  documentNumber: 'book-document',
+};
+
+const selectClass = (error?: string) =>
+  `h-10 w-full rounded-md border bg-background px-3 text-base sm:text-sm ${
+    error ? 'border-destructive' : ''
+  }`;
+const inputErrorClass = (error?: string) =>
+  error ? 'border-destructive focus-visible:ring-destructive' : undefined;
+
+function FieldError({ message }: { message?: string | undefined }) {
+  if (!message) return null;
+  return (
+    <p className="text-xs text-destructive" role="alert">
+      {message}
+    </p>
   );
 }
 

@@ -58,7 +58,13 @@ describe('Reserva online con fianza (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-03-01',
-        customer: { firstName: 'Bea', lastName: 'López', email: `dep-${Date.now()}@e2e.local` },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Bea',
+          lastName: 'López',
+          email: `dep-${Date.now()}@e2e.local`,
+        },
       })
       .expect(201);
     await request(app.getHttpServer())

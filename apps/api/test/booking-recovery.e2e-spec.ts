@@ -94,7 +94,13 @@ describe('Recuperación de reservas abandonadas (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: new Date().toISOString().slice(0, 10),
-        customer: { firstName: 'Eva', lastName: 'Sanz', email },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Eva',
+          lastName: 'Sanz',
+          email,
+        },
       })
       .expect(201);
     return res.body as { contractId: string; signingToken: string };

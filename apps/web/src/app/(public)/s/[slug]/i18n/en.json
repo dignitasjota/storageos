@@ -355,6 +355,14 @@
       "waitlistSubmit": "Join the waitlist",
       "waitlistSuccessToast": "We'll let you know when a unit of that type becomes available.",
       "waitlistError": "Couldn't join the waitlist.",
+      "singleFacility": "Facility: {name}",
+      "requiredNote": "All fields are required, except the referral code.",
+      "errorRequired": "This field is required.",
+      "errorEmail": "Enter a valid email.",
+      "errorPhone": "Enter a valid phone number (at least 9 digits).",
+      "errorDocument": "Enter your ID card or passport number.",
+      "errorFix": "Please check the fields marked in red.",
+      "waitlistPhoneOptional": "Phone (optional)",
       "privacyNotice": "We only use your details to manage your booking and contact you."
     },
     "sign": {

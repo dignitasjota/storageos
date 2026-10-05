@@ -50,7 +50,13 @@ describe('Facturación: prorrateo del 1er mes + sin doble cobro (e2e)', () => {
         facilityId: facility.id,
         unitTypeId: facility.unitTypes[0].id,
         startDate: '2026-03-15',
-        customer: { firstName: 'Ana', lastName: 'Ruiz', email: `prorr-${Date.now()}@e2e.local` },
+        customer: {
+          phone: '600000000',
+          documentNumber: '12345678Z',
+          firstName: 'Ana',
+          lastName: 'Ruiz',
+          email: `prorr-${Date.now()}@e2e.local`,
+        },
       });
     expect(booking.status).toBe(201);
     const contractId = booking.body.contractId as string;

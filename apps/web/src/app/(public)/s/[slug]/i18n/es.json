@@ -355,6 +355,14 @@
       "waitlistSubmit": "Apuntarme a la lista de espera",
       "waitlistSuccessToast": "Te avisaremos cuando se libere un trastero de ese tipo.",
       "waitlistError": "No se pudo apuntar.",
+      "singleFacility": "Local: {name}",
+      "requiredNote": "Todos los datos son obligatorios, salvo el código de referido.",
+      "errorRequired": "Este dato es obligatorio.",
+      "errorEmail": "Escribe un email válido.",
+      "errorPhone": "Escribe un teléfono válido (al menos 9 cifras).",
+      "errorDocument": "Escribe tu DNI, NIE o pasaporte.",
+      "errorFix": "Revisa los datos marcados en rojo.",
+      "waitlistPhoneOptional": "Teléfono (opcional)",
       "privacyNotice": "Tus datos se usan solo para gestionar tu reserva y contactarte."
     },
     "sign": {
