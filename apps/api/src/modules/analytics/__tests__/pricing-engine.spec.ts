@@ -8,6 +8,9 @@ import {
   median,
   observationWeight,
   observedRentals,
+  marketTrend,
+  rentalIntervals,
+  statusAt,
 } from '../pricing-engine';
 
 const decide = (over: Partial<Parameters<typeof decidePrice>[0]> = {}) =>
@@ -238,6 +241,55 @@ describe('pricing-engine', () => {
       expect(one).toEqual([]);
       const many = demandFactors({ ...base, leads: { open: 0, lostTooExpensive: 9 } });
       expect(many.find((x) => x.key === 'lost_price')!.contribution).toBe(-4);
+    });
+  });
+
+  describe('tendencia del mercado', () => {
+    const now = new Date(Date.UTC(2026, 6, 1));
+    const ago = (days: number) => new Date(now.getTime() - days * 86_400_000);
+    const unit = (from: number, to: number) => ({
+      observations: [
+        { observedAt: ago(150), price: from },
+        { observedAt: ago(10), price: to },
+      ],
+    });
+
+    it('mediana de la variación con al menos 3 trasteros y 60 días entre revisiones', () => {
+      const t = marketTrend([unit(100, 106), unit(50, 53), unit(80, 80)], now)!;
+      expect(t.changePct).toBe(6);
+      expect(t.units).toBe(3);
+      expect(t.months).toBe(5);
+      expect(marketTrend([unit(100, 106), unit(50, 53)], now)).toBeNull();
+      // Revisiones demasiado juntas: no cuentan.
+      const close = {
+        observations: [
+          { observedAt: ago(20), price: 50 },
+          { observedAt: ago(10), price: 60 },
+        ],
+      };
+      expect(marketTrend([close, close, close], now)).toBeNull();
+    });
+  });
+
+  describe('historial de mis trasteros', () => {
+    const d = (day: number) => new Date(Date.UTC(2026, 0, 1 + day));
+    it('periodos libres que terminaron en alquiler y estado en una fecha', () => {
+      const history = [
+        { occurredAt: d(10), newStatus: 'occupied' },
+        { occurredAt: d(40), newStatus: 'available' },
+        { occurredAt: d(45), newStatus: 'maintenance' },
+        { occurredAt: d(50), newStatus: 'available' },
+        { occurredAt: d(70), newStatus: 'reserved' },
+      ];
+      expect(rentalIntervals(d(0), history).map((i) => [i.from.getTime(), i.to.getTime()])).toEqual(
+        [
+          [d(0).getTime(), d(10).getTime()],
+          [d(50).getTime(), d(70).getTime()],
+        ],
+      );
+      expect(statusAt(history, d(20))).toBe('occupied');
+      expect(statusAt(history, d(55))).toBe('available');
+      expect(statusAt(history, d(-1))).toBe('available');
     });
   });
 

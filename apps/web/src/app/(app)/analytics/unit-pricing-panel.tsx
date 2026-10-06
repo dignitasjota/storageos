@@ -174,6 +174,7 @@ export function UnitPricingPanel() {
                         ) : (
                           <span className="text-muted-foreground">Sin datos</span>
                         )}
+                        {s.marketTrend && <TrendNote trend={s.marketTrend} />}
                         <div>
                           <Badge
                             variant="outline"
@@ -350,5 +351,24 @@ function UnitOfferDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Tendencia de la competencia: «▲ 6 % en 5 meses». Solo informativa. */
+export function TrendNote({
+  trend,
+}: {
+  trend: { changePct: number; months: number; units: number };
+}) {
+  const up = trend.changePct > 0;
+  const flat = trend.changePct === 0;
+  return (
+    <div
+      className={`text-xs ${flat ? 'text-muted-foreground' : up ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}
+      title={`Variación de precio de ${trend.units} trasteros de la competencia en sus revisiones`}
+    >
+      {flat ? '= ' : up ? '▲ ' : '▼ '}
+      {Math.abs(trend.changePct)} % en {trend.months} {trend.months === 1 ? 'mes' : 'meses'}
+    </div>
   );
 }

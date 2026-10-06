@@ -15,6 +15,9 @@ import {
   observationWeight,
   observedRentals,
   effectiveMonthlyPrice,
+  marketTrend,
+  rentalIntervals,
+  statusAt,
   featureMultiplier,
   type MarketCurve,
 } from './pricing-engine';
@@ -27,6 +30,9 @@ import type {
   ChurnRiskItemDto,
   ChurnRiskKpiDto,
   ChurnRiskLevel,
+  PriceChangeEffectDto,
+  PriceChangeEffectsDto,
+  PriceChangeEffectsSummaryDto,
   PricingStrategyDto,
   PricingSuggestionItemDto,
   PricingSuggestionsDto,
@@ -429,7 +435,7 @@ export class InsightsService {
               lastCheckedAt: true,
               observations: {
                 orderBy: { observedAt: 'asc' },
-                select: { observedAt: true, status: true },
+                select: { observedAt: true, status: true, priceMonthly: true },
               },
             },
           },
@@ -513,6 +519,10 @@ export class InsightsService {
           occupied: u.status === 'occupied',
           ageDays: daysBetween(u.lastCheckedAt, now),
           rentals: observedRentals(u.observations),
+          priceObservations: u.observations.map((o) => ({
+            observedAt: o.observedAt,
+            price: toNumber(o.priceMonthly),
+          })),
         };
       }),
     }));
@@ -631,6 +641,16 @@ export class InsightsService {
       marketCurve,
       competitorOccupancy,
       competitorDaysToRent,
+      /** Tendencia de precios de la competencia cercana (sin local: toda). */
+      marketTrendFor: (facility: { id: string; city: string | null } | null) => {
+        const units = comparable
+          .filter(
+            (c) =>
+              !facility || observationWeight({ ageDays: 0, ...proximityFor(c, facility) }) >= 0.5,
+          )
+          .flatMap((c) => c.units.map((u) => ({ observations: u.priceObservations })));
+        return marketTrend(units, now);
+      },
     };
   }
 
@@ -715,6 +735,7 @@ export class InsightsService {
           rationale,
           marketPrice: marketPrice != null ? round2(marketPrice) : null,
           confidence,
+          marketTrend: ctx.marketTrendFor(null),
         });
       }
 
@@ -869,6 +890,7 @@ export class InsightsService {
           marketPrice: marketPrice != null ? round2(marketPrice) : null,
           marketReferences: curve?.points ?? 0,
           confidence,
+          marketTrend: includeCompetition ? ctx.marketTrendFor(facility) : null,
           targetPrice: decision.targetPrice,
           holdReason: decision.holdReason,
           promotionHint,
@@ -888,6 +910,118 @@ export class InsightsService {
         (a, b) => Math.abs(b.changePct) - Math.abs(a.changePct) || b.daysVacant - a.daysVacant,
       );
       return { items };
+    }, tenantId);
+  }
+
+  /**
+   * Efecto de tus cambios de precio en la demanda (informativo): por cada cambio
+   * de los últimos 12 meses en un trastero libre, cuánto tardó luego en
+   * alquilarse frente a lo que tardaba ese tamaño en los 180 días anteriores.
+   */
+  async getPriceChangeEffects(tenantId: string): Promise<PriceChangeEffectsDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const now = new Date();
+      const changes = await tx.unitPriceHistory.findMany({
+        where: { changedAt: { gte: new Date(now.getTime() - 365 * 86_400_000) } },
+        orderBy: { changedAt: 'desc' },
+        take: 200,
+        include: {
+          unit: {
+            select: {
+              id: true,
+              code: true,
+              facilityId: true,
+              unitTypeId: true,
+              unitType: { select: { name: true } },
+              facility: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const empty = { changes: 0, rented: 0, avgDaysAfter: null, avgBaselineDays: null };
+      if (changes.length === 0) return { items: [], raises: { ...empty }, lowers: { ...empty } };
+
+      // Historial de todos los trasteros de los tamaños afectados.
+      const dims = [...new Set(changes.map((c) => `${c.unit.facilityId}:${c.unit.unitTypeId}`))];
+      const dimUnits = await tx.unit.findMany({
+        where: {
+          OR: dims.map((d) => {
+            const [facilityId, unitTypeId] = d.split(':') as [string, string];
+            return { facilityId, unitTypeId };
+          }),
+        },
+        select: { id: true, facilityId: true, unitTypeId: true, createdAt: true },
+      });
+      const history = await tx.unitStatusHistory.findMany({
+        where: { unitId: { in: dimUnits.map((u) => u.id) } },
+        select: { unitId: true, occurredAt: true, newStatus: true },
+      });
+      const historyByUnit = new Map<string, { occurredAt: Date; newStatus: string }[]>();
+      for (const h of history) {
+        const list = historyByUnit.get(h.unitId) ?? [];
+        list.push({ occurredAt: h.occurredAt, newStatus: h.newStatus });
+        historyByUnit.set(h.unitId, list);
+      }
+      const intervalsByUnit = new Map(
+        dimUnits.map((u) => [u.id, rentalIntervals(u.createdAt, historyByUnit.get(u.id) ?? [])]),
+      );
+      const unitsByDim = new Map<string, string[]>();
+      for (const u of dimUnits) {
+        const k = `${u.facilityId}:${u.unitTypeId}`;
+        unitsByDim.set(k, [...(unitsByDim.get(k) ?? []), u.id]);
+      }
+
+      const items: PriceChangeEffectDto[] = [];
+      for (const c of changes) {
+        const unitHistory = historyByUnit.get(c.unitId) ?? [];
+        // Solo cuenta si estaba a la venta: el precio afecta a contratos nuevos.
+        if (statusAt(unitHistory, c.changedAt) !== 'available') continue;
+        const at = c.changedAt.getTime();
+        const after = (intervalsByUnit.get(c.unitId) ?? []).find(
+          (i) => i.from.getTime() <= at && i.to.getTime() >= at,
+        );
+        const baselineFrom = at - 180 * 86_400_000;
+        const baseline = (unitsByDim.get(`${c.unit.facilityId}:${c.unit.unitTypeId}`) ?? [])
+          .flatMap((id) => intervalsByUnit.get(id) ?? [])
+          .filter((i) => i.to.getTime() < at && i.to.getTime() >= baselineFrom)
+          .map((i) => daysBetween(i.from, i.to));
+        const previousPrice = toNumber(c.previousPrice);
+        const newPrice = toNumber(c.newPrice);
+        items.push({
+          unitId: c.unitId,
+          code: c.unit.code,
+          unitTypeName: c.unit.unitType?.name ?? null,
+          facilityName: c.unit.facility.name,
+          changedAt: c.changedAt.toISOString(),
+          previousPrice,
+          newPrice,
+          changePct:
+            previousPrice > 0 ? round2(((newPrice - previousPrice) / previousPrice) * 100) : 0,
+          source: c.source,
+          daysToRentAfter: after ? daysBetween(c.changedAt, after.to) : null,
+          stillFreeDays: after ? null : daysBetween(c.changedAt, now),
+          baselineMedianDays: baseline.length > 0 ? round2(median(baseline)) : null,
+          baselineRentals: baseline.length,
+        });
+      }
+
+      const summarize = (rows: PriceChangeEffectDto[]): PriceChangeEffectsSummaryDto => {
+        const rented = rows.filter((r) => r.daysToRentAfter !== null);
+        const withBase = rented.filter((r) => r.baselineMedianDays !== null);
+        const avg = (xs: number[]) =>
+          xs.length > 0 ? round2(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+        return {
+          changes: rows.length,
+          rented: rented.length,
+          avgDaysAfter: avg(rented.map((r) => r.daysToRentAfter!)),
+          avgBaselineDays: avg(withBase.map((r) => r.baselineMedianDays!)),
+        };
+      };
+      return {
+        items: items.slice(0, 50),
+        raises: summarize(items.filter((i) => i.changePct > 0)),
+        lowers: summarize(items.filter((i) => i.changePct < 0)),
+      };
     }, tenantId);
   }
 

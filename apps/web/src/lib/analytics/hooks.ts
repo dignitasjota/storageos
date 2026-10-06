@@ -13,6 +13,7 @@ import type {
   LeadsUtmKpiDto,
   MonthlyRevenueKpiDto,
   OccupancyKpiDto,
+  PriceChangeEffectsDto,
   PricingStrategyDto,
   PricingSuggestionsDto,
   UnitPricingSuggestionsDto,
@@ -38,6 +39,7 @@ export const analyticsKey = (
     | 'pricing-suggestions'
     | 'unit-pricing-suggestions'
     | 'pricing-strategy'
+    | 'price-change-effects'
     | 'suggested-actions'
     | 'forecast'
     | 'benchmark'
@@ -240,5 +242,13 @@ export function useRevenueForecast(params: { months?: number } = {}) {
     }),
     queryFn: () =>
       apiFetch<RevenueForecastDto>(`/analytics/forecast${qs.toString() ? `?${qs}` : ''}`),
+  });
+}
+
+/** Efecto de tus cambios de precio en la demanda (informativo). */
+export function usePriceChangeEffects() {
+  return useQuery({
+    queryKey: analyticsKey('price-change-effects'),
+    queryFn: () => apiFetch<PriceChangeEffectsDto>('/analytics/price-change-effects'),
   });
 }

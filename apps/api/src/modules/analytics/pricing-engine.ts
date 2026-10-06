@@ -396,3 +396,90 @@ export function decidePrice(args: {
     holdReason: null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Tendencia del mercado y efecto de los cambios de precio (informativo: no
+// mueve la sugerencia, solo se muestra).
+// ---------------------------------------------------------------------------
+
+/** Ventana de la tendencia y mínimos para que sea fiable. */
+const TREND_WINDOW_DAYS = 180;
+const TREND_MIN_SPAN_DAYS = 60;
+const TREND_MIN_UNITS = 3;
+
+export interface MarketTrend {
+  /** Variación mediana del precio (%) entre la primera y la última revisión. */
+  changePct: number;
+  /** Meses que abarca (mediana). */
+  months: number;
+  /** Trasteros de la competencia que la respaldan. */
+  units: number;
+}
+
+/**
+ * Tendencia de precios de la competencia: para cada trastero con revisiones
+ * separadas al menos 60 días dentro de los últimos 180, la variación entre la
+ * primera y la última; se devuelve la mediana (null con menos de 3 trasteros).
+ */
+export function marketTrend(
+  units: { observations: { observedAt: Date; price: number }[] }[],
+  now: Date,
+): MarketTrend | null {
+  const from = now.getTime() - TREND_WINDOW_DAYS * DAY_MS;
+  const changes: number[] = [];
+  const spans: number[] = [];
+  for (const u of units) {
+    const obs = u.observations
+      .filter((o) => o.observedAt.getTime() >= from && o.price > 0)
+      .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
+    if (obs.length < 2) continue;
+    const first = obs[0]!;
+    const last = obs[obs.length - 1]!;
+    const span = daysBetween(first.observedAt, last.observedAt);
+    if (span < TREND_MIN_SPAN_DAYS) continue;
+    changes.push(((last.price - first.price) / first.price) * 100);
+    spans.push(span);
+  }
+  if (changes.length < TREND_MIN_UNITS) return null;
+  return {
+    changePct: round1(median(changes)),
+    months: Math.max(1, Math.round(median(spans) / 30)),
+    units: changes.length,
+  };
+}
+
+/**
+ * Periodos libres de un trastero propio que terminaron en alquiler, a partir
+ * de su historial de estados (empieza libre desde el alta). Un reservado ya
+ * cuenta como alquilado.
+ */
+export function rentalIntervals(
+  createdAt: Date,
+  history: { occurredAt: Date; newStatus: string }[],
+): { from: Date; to: Date }[] {
+  const sorted = [...history].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+  const intervals: { from: Date; to: Date }[] = [];
+  let freeSince: Date | null = createdAt;
+  for (const h of sorted) {
+    if (h.newStatus === 'available') {
+      freeSince ??= h.occurredAt;
+    } else if (h.newStatus === 'occupied' || h.newStatus === 'reserved') {
+      if (freeSince) intervals.push({ from: freeSince, to: h.occurredAt });
+      freeSince = null;
+    } else {
+      // Mantenimiento / bloqueado: no está a la venta, no cuenta.
+      freeSince = null;
+    }
+  }
+  return intervals;
+}
+
+/** Estado de un trastero en una fecha según su historial (libre si no hay nada antes). */
+export function statusAt(history: { occurredAt: Date; newStatus: string }[], at: Date): string {
+  let status = 'available';
+  for (const h of [...history].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
+    if (h.occurredAt.getTime() > at.getTime()) break;
+    status = h.newStatus;
+  }
+  return status;
+}

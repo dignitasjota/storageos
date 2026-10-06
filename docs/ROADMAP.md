@@ -369,8 +369,8 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
 
 - **Motor de precios — pendientes del análisis** _(aparcado 2026-10-05, decisión de Jota; las partes 1-3 y el precio comparable ya están en `main`, #622–#625)_. Todo seguirá siendo **solo sugerencia**: nada cambia precios ni crea ofertas por su cuenta.
   1. ✅ _(hecho 2026-10-06)_ **Motivo de pérdida en los contactos** (p. ej. «muy caro», «encontró otro», «ya no lo necesita») + **tamaño pedido**: los contactos que piden un tamaño sin contratar suman demanda y muchos perdidos por «muy caro» restan algo en la sugerencia de ese tamaño. Necesita el campo de motivo en el formulario de leads (hoy no existe).
-  2. **Tendencia del mercado**: con el histórico de revisiones de la competencia (`competitor_unit_observations`), mostrar si sube o baja precios en los últimos meses (p. ej. «la competencia ha subido un 6 % en 6 meses»), como información junto a la sugerencia, no como ajuste automático. **Necesita varios meses de revisiones.**
-  3. **Reacción de la demanda a tus cambios de precio**: con `unit_price_history` + los alquileres, medir qué pasó tras cada cambio (p. ej. «tras subir un 8 %, ese tamaño tardó X días más en alquilarse») para afinar el cambio máximo y la ocupación objetivo. **Necesita meses de datos.**
+  2. ✅ _(hecho 2026-10-06, se llena con las revisiones)_ **Tendencia del mercado**: con el histórico de revisiones de la competencia (`competitor_unit_observations`), mostrar si sube o baja precios en los últimos meses (p. ej. «la competencia ha subido un 6 % en 6 meses»), como información junto a la sugerencia, no como ajuste automático. **Necesita varios meses de revisiones.**
+  3. ✅ _(hecho 2026-10-06, se llena con los cambios aplicados)_ **Reacción de la demanda a tus cambios de precio**: con `unit_price_history` + los alquileres, medir qué pasó tras cada cambio (p. ej. «tras subir un 8 %, ese tamaño tardó X días más en alquilarse») para afinar el cambio máximo y la ocupación objetivo. **Necesita meses de datos.**
 
 ### Quick wins (alto impacto / esfuerzo bajo-medio)
 

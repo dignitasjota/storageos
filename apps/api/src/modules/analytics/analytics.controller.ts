@@ -21,6 +21,7 @@ import { SuggestedActionsService } from './suggested-actions.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
+  PriceChangeEffectsDto,
   PricingStrategyDto,
   ApplyPricingResultDto,
   ApplyUnitPricingResultDto,
@@ -220,6 +221,12 @@ export class AnalyticsController {
       facilityId?.trim() || undefined,
       includeCompetition !== 'false',
     );
+  }
+
+  /** Efecto de tus cambios de precio: cuánto tardó luego en alquilarse cada trastero. */
+  @Get('price-change-effects')
+  getPriceChangeEffects(@CurrentUser() user: AuthenticatedUser): Promise<PriceChangeEffectsDto> {
+    return this.insights.getPriceChangeEffects(user.tenantId);
   }
 
   /** Estrategia de precios: ocupación objetivo, límites y posicionamiento por local. */
