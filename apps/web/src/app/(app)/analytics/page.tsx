@@ -21,8 +21,9 @@ import {
 } from 'recharts';
 import { toast } from 'sonner';
 
+import { PriceChangeEffectsPanel } from './price-change-effects-panel';
 import { PricingStrategyButton } from './pricing-strategy-dialog';
-import { CONFIDENCE, UnitPricingPanel } from './unit-pricing-panel';
+import { CONFIDENCE, TrendNote, UnitPricingPanel } from './unit-pricing-panel';
 
 import type {
   BenchmarkMetricDto,
@@ -155,6 +156,7 @@ export default function AnalyticsPage() {
               <TabsList>
                 <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
                 <TabsTrigger value="by-unit">Por trastero individual</TabsTrigger>
+                <TabsTrigger value="effects">Efecto de tus cambios</TabsTrigger>
               </TabsList>
               <PricingStrategyButton />
             </div>
@@ -163,6 +165,9 @@ export default function AnalyticsPage() {
             </TabsContent>
             <TabsContent value="by-unit" className="mt-4">
               <UnitPricingPanel />
+            </TabsContent>
+            <TabsContent value="effects" className="mt-4">
+              <PriceChangeEffectsPanel />
             </TabsContent>
           </Tabs>
         </TabsContent>
@@ -764,6 +769,7 @@ function PricingSuggestionsPanel() {
                   <TableCell className="text-right">{item.occupancy.toFixed(0)}%</TableCell>
                   <TableCell className="text-right">
                     {item.marketPrice != null ? formatCurrency(item.marketPrice) : '—'}
+                    {item.marketTrend && <TrendNote trend={item.marketTrend} />}
                     <span
                       className="block text-xs text-muted-foreground"
                       title={CONFIDENCE[item.confidence].title}

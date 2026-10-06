@@ -149,6 +149,16 @@ export interface PricingSuggestionItemDto {
   /** Precio de mercado del tamaño medio del tipo (sin IVA), null sin datos. */
   marketPrice: number | null;
   confidence: PricingConfidence;
+  marketTrend: MarketTrendDto | null;
+}
+
+/** Tendencia de precios de la competencia (informativa, no mueve la sugerencia). */
+export interface MarketTrendDto {
+  /** Variación mediana (%) entre la primera y la última revisión. */
+  changePct: number;
+  months: number;
+  /** Trasteros de la competencia que la respaldan. */
+  units: number;
 }
 
 export interface PricingSuggestionsDto {
@@ -249,6 +259,8 @@ export interface UnitPricingSuggestionDto {
   holdReason: string | null;
   /** Lleva mucho tiempo libre: mejor una promoción que bajar el precio del tamaño. */
   promotionHint: string | null;
+  /** Tendencia de precios de la competencia cercana (null sin revisiones suficientes). */
+  marketTrend: MarketTrendDto | null;
   /** Oferta activa de este trastero, si ya se creó una. */
   activeOffer: { promotionId: string; code: string; freeMonths: number; validUntil: string } | null;
 }
@@ -387,4 +399,40 @@ export interface PricingStrategyDto {
   minDaysBetweenChanges: number;
   facilities: { id: string; name: string; positioningPct: number }[];
   unitTypes: { id: string; name: string; minPrice: number | null; maxPrice: number | null }[];
+}
+
+// --- Efecto de los cambios de precio en la demanda ---
+export interface PriceChangeEffectDto {
+  unitId: string;
+  code: string;
+  unitTypeName: string | null;
+  facilityName: string;
+  changedAt: string;
+  previousPrice: number;
+  newPrice: number;
+  changePct: number;
+  /** manual | suggestion */
+  source: string;
+  /** Días que tardó en alquilarse tras el cambio (null si sigue libre). */
+  daysToRentAfter: number | null;
+  /** Días que lleva libre desde el cambio, si aún no se ha alquilado. */
+  stillFreeDays: number | null;
+  /** Mediana de días que tardaba en alquilarse ese tamaño en los 180 días anteriores. */
+  baselineMedianDays: number | null;
+  baselineRentals: number;
+}
+
+export interface PriceChangeEffectsSummaryDto {
+  changes: number;
+  rented: number;
+  /** Media de días hasta alquilarse tras el cambio (solo los alquilados). */
+  avgDaysAfter: number | null;
+  /** Media de la referencia anterior de esos mismos cambios. */
+  avgBaselineDays: number | null;
+}
+
+export interface PriceChangeEffectsDto {
+  items: PriceChangeEffectDto[];
+  raises: PriceChangeEffectsSummaryDto;
+  lowers: PriceChangeEffectsSummaryDto;
 }
