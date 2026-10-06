@@ -20,6 +20,7 @@ import type {
   ConvertLeadInput,
   CreateLeadInput,
   LeadDto,
+  LeadLostReason,
   LeadStatusValue,
   TransitionLeadInput,
   UpdateLeadInput,
@@ -401,6 +402,12 @@ export class LeadsService {
     if (args.input.status === 'lost') {
       data.lostAt = now;
       if (args.input.reason) data.lostReason = args.input.reason;
+      data.lostReasonCode = args.input.lostReasonCode ?? 'other';
+    }
+    // Reabierto: deja de contar como perdido (precios e informes).
+    if (existing.status === 'lost' && args.input.status !== 'lost') {
+      data.lostAt = null;
+      data.lostReasonCode = null;
     }
     const updated = await this.prisma.withTenant(
       (tx) =>
@@ -678,6 +685,7 @@ export class LeadsService {
       wonAt: l.wonAt?.toISOString() ?? null,
       lostAt: l.lostAt?.toISOString() ?? null,
       lostReason: l.lostReason,
+      lostReasonCode: (l.lostReasonCode as LeadLostReason | null) ?? null,
       convertedCustomerId: l.convertedCustomerId,
       convertedContractId: l.convertedContractId,
       convertedReservationId: l.convertedReservationId,

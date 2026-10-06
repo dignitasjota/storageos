@@ -1,5 +1,6 @@
 'use client';
 
+import { LEAD_LOST_REASON_LABELS, type LeadLostReason } from '@storageos/shared';
 import { CheckCircle2, CircleDashed, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -471,6 +472,46 @@ function LeadsPanel() {
                 <Bar dataKey="count" fill="#8b5cf6" />
               </BarChart>
             </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Por qué se pierden</CardTitle>
+          <CardDescription>
+            Motivo de los leads perdidos del periodo (se pide al pasarlos a «Perdidos»).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {d.lostReasons.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay leads perdidos en el periodo.</p>
+          ) : (
+            <ul className="space-y-2">
+              {d.lostReasons.map((r) => {
+                const pct = d.totals.lost > 0 ? (r.count / d.totals.lost) * 100 : 0;
+                return (
+                  <li key={r.reason} className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span>
+                        {r.reason in LEAD_LOST_REASON_LABELS
+                          ? LEAD_LOST_REASON_LABELS[r.reason as LeadLostReason]
+                          : 'Sin motivo indicado'}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {r.count} · {Math.round(pct)} %
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-rose-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </CardContent>
       </Card>

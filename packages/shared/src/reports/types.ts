@@ -74,6 +74,8 @@ export interface LeadsFunnelKpiDto {
     qualifiedToWon: number;
   };
   bySource: { source: string; count: number }[];
+  /** Perdidos del periodo por motivo (`unknown` = sin motivo, de antes de pedirlo). */
+  lostReasons: { reason: string; count: number }[];
 }
 
 export interface CustomerStatsKpiDto {

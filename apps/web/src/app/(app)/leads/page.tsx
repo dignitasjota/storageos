@@ -1,6 +1,13 @@
 'use client';
 
-import { type LeadDto, type LeadStatusValue, leadSourceLabel } from '@storageos/shared';
+import {
+  LEAD_LOST_REASON_LABELS,
+  LeadLostReasonEnum,
+  type LeadDto,
+  type LeadLostReason,
+  type LeadStatusValue,
+  leadSourceLabel,
+} from '@storageos/shared';
 import { Loader2, Pencil, Plus, UserPlus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -40,7 +47,7 @@ import {
   useTransitionLead,
   useUpdateLead,
 } from '@/lib/communications/hooks';
-import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
   { status: 'new', label: 'Nuevos' },
@@ -59,6 +66,8 @@ export default function LeadsPage() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [editing, setEditing] = useState<LeadDto | null>(null);
+  // Pasar a «Perdidos» pide el motivo (dato para precios e informes).
+  const [losing, setLosing] = useState<string | null>(null);
 
   async function onConvert(lead: LeadDto) {
     if (
@@ -106,6 +115,7 @@ export default function LeadsPage() {
 
       {newOpen && <LeadFormDialog onClose={() => setNewOpen(false)} />}
       {editing && <LeadFormDialog lead={editing} onClose={() => setEditing(null)} />}
+      {losing && <LostReasonDialog leadId={losing} onClose={() => setLosing(null)} />}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
         {COLUMNS.map((col) => {
@@ -118,10 +128,11 @@ export default function LeadsPage() {
               onDrop={(e) => {
                 e.preventDefault();
                 if (!dragging) return;
-                transition.mutate({
-                  id: dragging,
-                  input: { status: col.status },
-                });
+                if (col.status === 'lost') {
+                  setLosing(dragging);
+                } else {
+                  transition.mutate({ id: dragging, input: { status: col.status } });
+                }
                 setDragging(null);
               }}
             >
@@ -193,6 +204,11 @@ function LeadCard({
           /mes
         </div>
       )}
+      {lead.status === 'lost' && lead.lostReasonCode && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          Motivo: {LEAD_LOST_REASON_LABELS[lead.lostReasonCode]}
+        </div>
+      )}
       {lead.convertedCustomerId && (
         <div className="mt-1 text-[10px] font-medium uppercase tracking-wide text-green-600 dark:text-green-400">
           Convertido en cliente
@@ -246,6 +262,12 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
   const [phone, setPhone] = useState(lead?.phone ?? '');
   const [message, setMessage] = useState(lead?.message ?? '');
   const [facilityId, setFacilityId] = useState<string>(lead?.preferredFacilityId ?? '');
+  const [unitTypeId, setUnitTypeId] = useState<string>(lead?.preferredUnitTypeId ?? '');
+  const [lostReasonCode, setLostReasonCode] = useState<LeadLostReason | ''>(
+    lead?.lostReasonCode ?? '',
+  );
+  const [lostReason, setLostReason] = useState(lead?.lostReason ?? '');
+  const unitTypes = useUnitTypes();
   const [budget, setBudget] = useState(
     lead?.budgetMonthly != null ? String(lead.budgetMonthly) : '',
   );
@@ -257,7 +279,9 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
   const hasName = Boolean(firstName.trim() || lastName.trim() || companyName.trim());
   const pending =
     create.isPending || update.isPending || transition.isPending || setMarketing.isPending;
-  const canSubmit = Boolean(resolvedSource) && hasName && !pending;
+  const needsLostReason = isEdit && status === 'lost' && lead?.status !== 'lost';
+  const canSubmit =
+    Boolean(resolvedSource) && hasName && !pending && (!needsLostReason || !!lostReasonCode);
 
   async function submit() {
     if (!canSubmit) return;
@@ -271,6 +295,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
       ...(phone.trim() ? { phone: phone.trim() } : {}),
       ...(message.trim() ? { message: message.trim() } : {}),
       ...(facilityId ? { preferredFacilityId: facilityId } : {}),
+      ...(unitTypeId ? { preferredUnitTypeId: unitTypeId } : {}),
       ...(budget && Number(budget) > 0 ? { budgetMonthly: Number(budget) } : {}),
     };
     try {
@@ -278,7 +303,14 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
         await update.mutateAsync(input);
         // La fase se cambia por su propio endpoint (transition), no por el update.
         if (status !== lead.status) {
-          await transition.mutateAsync({ id: lead.id, input: { status } });
+          await transition.mutateAsync({
+            id: lead.id,
+            input: {
+              status,
+              ...(status === 'lost' && lostReasonCode ? { lostReasonCode } : {}),
+              ...(status === 'lost' && lostReason.trim() ? { reason: lostReason.trim() } : {}),
+            },
+          });
         }
         if (marketing !== initialMarketing) {
           await setMarketing.mutateAsync({ id: lead.id, consent: marketing });
@@ -344,6 +376,14 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
               </Select>
             </div>
           )}
+          {needsLostReason && (
+            <LostReasonFields
+              code={lostReasonCode}
+              detail={lostReason}
+              onCode={setLostReasonCode}
+              onDetail={setLostReason}
+            />
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
@@ -407,6 +447,21 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
               </Select>
             </div>
             <div className="space-y-1.5">
+              <Label>Tamaño que busca (opcional)</Label>
+              <Select value={unitTypeId} onValueChange={setUnitTypeId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(unitTypes.data ?? []).map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label>Presupuesto €/mes (opcional)</Label>
               <Input
                 type="number"
@@ -452,6 +507,90 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
           </Button>
           <Button type="button" onClick={() => void submit()} disabled={!canSubmit}>
             {pending ? 'Guardando…' : isEdit ? 'Guardar' : 'Crear lead'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LostReasonFields({
+  code,
+  detail,
+  onCode,
+  onDetail,
+}: {
+  code: LeadLostReason | '';
+  detail: string;
+  onCode: (c: LeadLostReason) => void;
+  onDetail: (d: string) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <div className="space-y-1.5">
+        <Label>¿Por qué se ha perdido?</Label>
+        <Select value={code} onValueChange={(v) => onCode(v as LeadLostReason)}>
+          <SelectTrigger>
+            <SelectValue placeholder="Elige el motivo" />
+          </SelectTrigger>
+          <SelectContent>
+            {LeadLostReasonEnum.options.map((r) => (
+              <SelectItem key={r} value={r}>
+                {LEAD_LOST_REASON_LABELS[r]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Si muchos se pierden porque les parece caro, la sugerencia de precio de ese tamaño lo
+          tiene en cuenta.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Detalle (opcional)</Label>
+        <Input
+          value={detail}
+          onChange={(e) => onDetail(e.target.value)}
+          className="text-base sm:text-sm"
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Motivo al arrastrar un contacto a «Perdidos». */
+function LostReasonDialog({ leadId, onClose }: { leadId: string; onClose: () => void }) {
+  const transition = useTransitionLead();
+  const [code, setCode] = useState<LeadLostReason | ''>('');
+  const [detail, setDetail] = useState('');
+
+  async function confirmLost() {
+    if (!code) return;
+    try {
+      await transition.mutateAsync({
+        id: leadId,
+        input: {
+          status: 'lost',
+          lostReasonCode: code,
+          ...(detail.trim() ? { reason: detail.trim() } : {}),
+        },
+      });
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo mover el lead');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Marcar como perdido</DialogTitle>
+        </DialogHeader>
+        <LostReasonFields code={code} detail={detail} onCode={setCode} onDetail={setDetail} />
+        <DialogFooter>
+          <Button onClick={() => void confirmLost()} disabled={!code || transition.isPending}>
+            Marcar como perdido
           </Button>
         </DialogFooter>
       </DialogContent>

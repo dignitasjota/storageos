@@ -368,6 +368,7 @@ export class InsightsService {
   /** Datos comunes del cálculo: estrategia, competencia, ocupación y listas de espera. */
   private async loadPricingContext(tx: Prisma.TransactionClient, tenantId: string) {
     const since90 = new Date(Date.now() - 90 * 86_400_000);
+    const since60 = new Date(Date.now() - 60 * 86_400_000);
     const [
       tenant,
       facilities,
@@ -378,6 +379,7 @@ export class InsightsService {
       waitlist,
       available,
       recent,
+      leadRows,
     ] = await Promise.all([
       tx.tenant.findUnique({
         where: { id: tenantId },
@@ -454,6 +456,18 @@ export class InsightsService {
       tx.contract.findMany({
         where: { signedAt: { gte: since90 }, deletedAt: null, status: { not: 'cancelled' } },
         select: { unit: { select: { facilityId: true, unitTypeId: true } } },
+      }),
+      // Contactos que piden un tamaño: abiertos recientes y perdidos por precio.
+      tx.lead.findMany({
+        where: {
+          deletedAt: null,
+          preferredUnitTypeId: { not: null },
+          OR: [
+            { status: { in: ['new', 'contacted', 'qualified'] }, createdAt: { gte: since60 } },
+            { status: 'lost', lostReasonCode: 'too_expensive', lostAt: { gte: since90 } },
+          ],
+        },
+        select: { status: true, preferredFacilityId: true, preferredUnitTypeId: true },
       }),
     ]);
 
@@ -591,6 +605,18 @@ export class InsightsService {
       facilities,
       unitTypes,
       hasCompetitors: comparable.some((c) => c.units.length > 0),
+      /** Contactos de un tamaño (de ese local o sin local; sin local = todos). */
+      leadsFor: (facilityId: string | null, unitTypeId: string) => {
+        let open = 0;
+        let lostTooExpensive = 0;
+        for (const l of leadRows) {
+          if (l.preferredUnitTypeId !== unitTypeId) continue;
+          if (facilityId && l.preferredFacilityId && l.preferredFacilityId !== facilityId) continue;
+          if (l.status === 'lost') lostTooExpensive += 1;
+          else open += 1;
+        }
+        return { open, lostTooExpensive };
+      },
       dim: (facilityId: string, unitTypeId: string) => ({
         total: totalMap.get(key(facilityId, unitTypeId)) ?? 0,
         occupied: occMap.get(key(facilityId, unitTypeId)) ?? 0,
@@ -650,6 +676,7 @@ export class InsightsService {
           competitorOccupancy: area > 0 ? ctx.competitorOccupancy(null, area) : null,
           competitorDaysToRent: area > 0 ? ctx.competitorDaysToRent(null, area) : null,
           ownRentals: { rentals90, available: free },
+          leads: ctx.leadsFor(null, ut.id),
         });
         const demandPct = factors.reduce((s, f) => s + f.contribution, 0);
         const currentPrice = toNumber(ut.defaultPriceMonthly);
@@ -779,6 +806,7 @@ export class InsightsService {
           competitorDaysToRent:
             includeCompetition && area > 0 ? ctx.competitorDaysToRent(facility, area) : null,
           ownRentals: { rentals90: d.rentals90, available: d.available },
+          leads: ctx.leadsFor(u.facilityId, u.unitTypeId),
         });
         const demandPct = demand.reduce((s, f) => s + f.contribution, 0);
         const positioningPct = marketPrice != null ? facility.pricingPositioningPct : 0;

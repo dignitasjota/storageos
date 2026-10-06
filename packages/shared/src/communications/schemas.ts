@@ -193,9 +193,32 @@ export interface UnsubscribeInfoDto {
   unsubscribed: boolean;
 }
 
+/** Motivo por el que se pierde un contacto (dato para precios e informes). */
+export const LeadLostReasonEnum = z.enum([
+  'too_expensive',
+  'found_other',
+  'not_needed',
+  'no_availability',
+  'location',
+  'no_response',
+  'other',
+]);
+export type LeadLostReason = z.infer<typeof LeadLostReasonEnum>;
+export const LEAD_LOST_REASON_LABELS: Record<LeadLostReason, string> = {
+  too_expensive: 'Le pareció caro',
+  found_other: 'Eligió otro trastero',
+  not_needed: 'Ya no lo necesita',
+  no_availability: 'No había el tamaño que buscaba',
+  location: 'Le pilla lejos',
+  no_response: 'No responde',
+  other: 'Otro motivo',
+};
+
 export const TransitionLeadSchema = z.object({
   status: LeadStatusEnum,
   reason: optionalText(500),
+  /** Al pasar a «perdido»: el motivo como dato. */
+  lostReasonCode: LeadLostReasonEnum.optional(),
 });
 export type TransitionLeadInput = z.infer<typeof TransitionLeadSchema>;
 
