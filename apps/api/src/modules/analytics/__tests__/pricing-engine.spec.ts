@@ -221,6 +221,26 @@ describe('pricing-engine', () => {
     });
   });
 
+  describe('contactos', () => {
+    const base = {
+      dimOccupied: 88,
+      dimTotal: 100,
+      facilityOccupancy: 0.88,
+      targetOccupancy: 0.88,
+      waitlist: 0,
+      competitorOccupancy: null,
+    };
+    it('los interesados suman (hasta +3 %) y los perdidos por precio restan (desde 2)', () => {
+      const f = demandFactors({ ...base, leads: { open: 5, lostTooExpensive: 2 } });
+      expect(f.find((x) => x.key === 'open_leads')!.contribution).toBe(3);
+      expect(f.find((x) => x.key === 'lost_price')!.contribution).toBe(-3);
+      const one = demandFactors({ ...base, leads: { open: 0, lostTooExpensive: 1 } });
+      expect(one).toEqual([]);
+      const many = demandFactors({ ...base, leads: { open: 0, lostTooExpensive: 9 } });
+      expect(many.find((x) => x.key === 'lost_price')!.contribution).toBe(-4);
+    });
+  });
+
   describe('decidePrice', () => {
     it('sube hacia el mercado, como mucho el cambio máximo', () => {
       const d = decide({ currentPrice: 80, marketPrice: 100 });

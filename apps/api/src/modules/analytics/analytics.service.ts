@@ -381,20 +381,32 @@ export class AnalyticsService {
     };
 
     return this.prisma.withTenant(async (tx) => {
-      const [newCount, contactedCount, qualifiedCount, wonCount, lostCount, bySourceRows] =
-        await Promise.all([
-          tx.lead.count({ where: { ...rangeWhere, status: 'new' } }),
-          // Leads que llegaron al menos a "contacted" (incluye qualified/won/lost si tienen contactedAt).
-          tx.lead.count({ where: { ...rangeWhere, contactedAt: { not: null } } }),
-          tx.lead.count({ where: { ...rangeWhere, qualifiedAt: { not: null } } }),
-          tx.lead.count({ where: { ...rangeWhere, status: 'won' } }),
-          tx.lead.count({ where: { ...rangeWhere, status: 'lost' } }),
-          tx.lead.groupBy({
-            by: ['source'],
-            where: rangeWhere,
-            _count: { _all: true },
-          }),
-        ]);
+      const [
+        newCount,
+        contactedCount,
+        qualifiedCount,
+        wonCount,
+        lostCount,
+        bySourceRows,
+        lostReasonRows,
+      ] = await Promise.all([
+        tx.lead.count({ where: { ...rangeWhere, status: 'new' } }),
+        // Leads que llegaron al menos a "contacted" (incluye qualified/won/lost si tienen contactedAt).
+        tx.lead.count({ where: { ...rangeWhere, contactedAt: { not: null } } }),
+        tx.lead.count({ where: { ...rangeWhere, qualifiedAt: { not: null } } }),
+        tx.lead.count({ where: { ...rangeWhere, status: 'won' } }),
+        tx.lead.count({ where: { ...rangeWhere, status: 'lost' } }),
+        tx.lead.groupBy({
+          by: ['source'],
+          where: rangeWhere,
+          _count: { _all: true },
+        }),
+        tx.lead.groupBy({
+          by: ['lostReasonCode'],
+          where: { ...rangeWhere, status: 'lost' },
+          _count: { _all: true },
+        }),
+      ]);
 
       const totalLeads = newCount + contactedCount + qualifiedCount + wonCount + lostCount;
       const newToContacted = totalLeads === 0 ? 0 : contactedCount / totalLeads;
@@ -416,6 +428,9 @@ export class AnalyticsService {
         },
         bySource: bySourceRows
           .map((r) => ({ source: r.source as string, count: r._count._all }))
+          .sort((a, b) => b.count - a.count),
+        lostReasons: lostReasonRows
+          .map((r) => ({ reason: r.lostReasonCode ?? 'unknown', count: r._count._all }))
           .sort((a, b) => b.count - a.count),
       };
     }, tenantId);

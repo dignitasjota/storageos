@@ -126,7 +126,14 @@ export function marketConfidence(curve: MarketCurve | null, areaM2: number): Pri
 }
 
 export interface DemandFactor {
-  key: 'occupancy' | 'waitlist' | 'competitor_occupancy' | 'competitor_speed' | 'own_speed';
+  key:
+    | 'occupancy'
+    | 'waitlist'
+    | 'competitor_occupancy'
+    | 'competitor_speed'
+    | 'own_speed'
+    | 'open_leads'
+    | 'lost_price';
   label: string;
   detail: string;
   contribution: number;
@@ -152,6 +159,11 @@ export function demandFactors(args: {
   competitorDaysToRent?: { medianDays: number; rentals: number } | null;
   /** Mis alquileres de este tamaño en los últimos 90 días y cuántos quedan libres. */
   ownRentals?: { rentals90: number; available: number } | null;
+  /**
+   * Contactos que piden este tamaño: abiertos (últimos 60 días) y perdidos por
+   * precio («le pareció caro», últimos 90 días).
+   */
+  leads?: { open: number; lostTooExpensive: number } | null;
 }): DemandFactor[] {
   const factors: DemandFactor[] = [];
   const smoothed =
@@ -212,8 +224,28 @@ export function demandFactors(args: {
       });
     }
   }
+  const leads = args.leads;
+  if (leads && leads.open > 0) {
+    factors.push({
+      key: 'open_leads',
+      label: 'Contactos interesados',
+      detail: `${leads.open} ${leads.open === 1 ? 'contacto pide' : 'contactos piden'} este tamaño (últimos 60 días)`,
+      contribution: Math.min(leads.open, 3),
+    });
+  }
+  if (leads && leads.lostTooExpensive >= MIN_LOST_BY_PRICE) {
+    factors.push({
+      key: 'lost_price',
+      label: 'Perdidos por precio',
+      detail: `${leads.lostTooExpensive} contactos se perdieron porque les pareció caro (últimos 90 días)`,
+      contribution: -Math.min(4, round1(leads.lostTooExpensive * 1.5)),
+    });
+  }
   return factors;
 }
+
+/** Mínimo de contactos perdidos por precio para restar (uno solo no es señal). */
+export const MIN_LOST_BY_PRICE = 2;
 
 /** Mínimo de alquileres propios en 90 días para usar tu ritmo de alquiler. */
 export const MIN_OWN_RENTALS = 2;

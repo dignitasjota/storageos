@@ -17,6 +17,7 @@ interface TxMock {
   facility: { findMany: jest.Mock };
   competitorFacility: { findMany: jest.Mock };
   waitlistEntry: { groupBy: jest.Mock };
+  lead: { findMany: jest.Mock };
 }
 
 function buildTx(): TxMock {
@@ -32,6 +33,7 @@ function buildTx(): TxMock {
     facility: { findMany: jest.fn().mockResolvedValue([]) },
     competitorFacility: { findMany: jest.fn().mockResolvedValue([]) },
     waitlistEntry: { groupBy: jest.fn().mockResolvedValue([]) },
+    lead: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 

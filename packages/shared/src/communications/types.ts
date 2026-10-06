@@ -6,6 +6,7 @@ import type {
   CommunicationDirectionValue,
   CommunicationStatusValue,
   LeadSourceValue,
+  LeadLostReason,
   LeadStatusValue,
   MessageTemplateKindValue,
 } from './schemas';
@@ -38,6 +39,7 @@ export interface LeadDto {
   wonAt: string | null;
   lostAt: string | null;
   lostReason: string | null;
+  lostReasonCode: LeadLostReason | null;
   convertedCustomerId: string | null;
   convertedContractId: string | null;
   convertedReservationId: string | null;
