@@ -13,6 +13,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   CLOSED_CASE_STATUSES,
   renderContractClauses,
+  rentTax,
   resolvePlanFeatures,
 } from '@storageos/shared';
 
@@ -1971,6 +1972,14 @@ export class ContractsService {
         const adjustment = Math.round((toCents(diff) * remainingDays) / daysInMonth) / 100;
         if (adjustment > 0) {
           try {
+            const newUnitKind = await this.prisma.withTenant(
+              (tx) =>
+                tx.unit.findUnique({
+                  where: { id: args.newUnitId },
+                  select: { unitType: { select: { propertyKind: true } } },
+                }),
+              args.tenantId,
+            );
             const draft = await this.invoices.create({
               tenantId: args.tenantId,
               userId: args.userId,
@@ -1984,7 +1993,7 @@ export class ContractsService {
                     description: `Ajuste por cambio de trastero (${remainingDays} días)`,
                     quantity: 1,
                     unitPrice: adjustment,
-                    taxRate: 21,
+                    ...rentTax(newUnitKind?.unitType.propertyKind),
                   },
                 ],
                 verifactuMode: 'verifactu',

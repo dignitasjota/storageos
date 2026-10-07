@@ -89,7 +89,8 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
   {
     slug: 'addon-facial-access',
     name: 'Acceso por reconocimiento facial',
-    description: '«Tu cara es la llave»: el inquilino entra con reconocimiento facial en el terminal.',
+    description:
+      '«Tu cara es la llave»: el inquilino entra con reconocimiento facial en el terminal.',
     priceMonthly: 20,
     feature: 'facial_access',
   },
@@ -100,5 +101,13 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
       'Web pública personalizable: elige plantilla de diseño y presenta tu empresa con reserva online integrada.',
     priceMonthly: 18,
     feature: 'web_premium',
+  },
+  {
+    slug: 'addon-housing',
+    name: 'Viviendas',
+    description:
+      'Alquila también viviendas: facturas exentas de IVA, contrato de arrendamiento (LAU), depósito de la fianza en la comunidad autónoma y actualización anual de la renta. Sin límite de viviendas.',
+    priceMonthly: 15,
+    feature: 'housing',
   },
 ];

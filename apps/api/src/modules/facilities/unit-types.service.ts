@@ -1,6 +1,13 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -36,7 +43,19 @@ export class UnitTypesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly admin: PrismaAdminService,
   ) {}
+
+  /** Marcar un tipo como vivienda requiere el extra «Viviendas». */
+  private async assertHousingAllowed(tenantId: string): Promise<void> {
+    if (!(await tenantHasFeature(this.admin, tenantId, 'housing'))) {
+      throw new ForbiddenException({
+        code: 'feature_not_in_plan',
+        message: 'Las viviendas requieren el extra «Viviendas»',
+        details: { requiredFeature: 'housing' },
+      });
+    }
+  }
 
   async list(tenantId: string): Promise<UnitTypeDto[]> {
     const rows = await this.prisma.withTenant(
@@ -51,6 +70,7 @@ export class UnitTypesService {
   }
 
   async create(args: CreateArgs): Promise<UnitTypeDto> {
+    if (args.input.propertyKind === 'housing') await this.assertHousingAllowed(args.tenantId);
     const data: Prisma.UnitTypeUncheckedCreateInput = {
       tenantId: args.tenantId,
       name: args.input.name.trim(),
@@ -60,6 +80,7 @@ export class UnitTypesService {
       color: args.input.color,
       features: args.input.features as Prisma.InputJsonValue,
       stackable: args.input.stackable,
+      propertyKind: args.input.propertyKind ?? 'storage',
     };
     let created: UnitType;
     try {
@@ -123,6 +144,22 @@ export class UnitTypesService {
     if (args.input.stackable !== undefined) {
       data.stackable = args.input.stackable;
       changes.stackable = args.input.stackable;
+    }
+    if (args.input.propertyKind !== undefined) {
+      // Pasar a vivienda exige el extra; volver a trastero, nunca.
+      if (args.input.propertyKind === 'housing') {
+        const current = await this.prisma.withTenant(
+          (tx) =>
+            tx.unitType.findUnique({
+              where: { id: args.unitTypeId },
+              select: { propertyKind: true },
+            }),
+          args.tenantId,
+        );
+        if (current?.propertyKind !== 'housing') await this.assertHousingAllowed(args.tenantId);
+      }
+      data.propertyKind = args.input.propertyKind;
+      changes.propertyKind = args.input.propertyKind;
     }
     if (args.input.isActive !== undefined) {
       data.isActive = args.input.isActive;
@@ -230,6 +267,7 @@ export class UnitTypesService {
       color: row.color,
       features: (row.features as Record<string, unknown>) ?? {},
       stackable: row.stackable,
+      propertyKind: row.propertyKind === 'housing' ? 'housing' : 'storage',
       isActive: row.isActive,
       unitsCount: row._count?.units ?? 0,
       createdAt: row.createdAt.toISOString(),

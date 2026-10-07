@@ -10,7 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { renderContractClauses } from '@storageos/shared';
+import { renderContractClauses, rentTax } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { InvoiceSeriesService } from '../billing/invoice-series.service';
@@ -354,11 +354,13 @@ export class SignaturesService {
       const contract = await this.admin.contract.findUniqueOrThrow({
         where: { id: contractId },
         include: {
-          unit: { select: { id: true } },
+          unit: { select: { id: true, unitType: { select: { propertyKind: true } } } },
           insurancePlan: { select: { name: true, taxRate: true } },
         },
       });
       const interval = contract.billingIntervalMonths;
+      // Vivienda: alquiler exento de IVA; trastero: 21 %.
+      const rent = rentTax(contract.unit.unitType?.propertyKind);
       const fullPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
       const deposit = Number(contract.depositAmount);
       const cashDeposit = contract.depositPaymentMethod === 'cash';
@@ -379,7 +381,7 @@ export class SignaturesService {
         );
         periodEnd.setUTCDate(periodEnd.getUTCDate() - 1);
         const pct = Number(contract.prepayDiscountPct);
-        const rent = Math.round(toCents(fullPrice) * interval * (1 - pct / 100)) / 100;
+        const rentAmount = Math.round(toCents(fullPrice) * interval * (1 - pct / 100)) / 100;
         items.push({
           description: `Alquiler ${contract.contractNumber} (${periodStart
             .toISOString()
@@ -387,8 +389,8 @@ export class SignaturesService {
             pct > 0 ? ` −${pct}%` : ''
           })`,
           quantity: 1,
-          unitPrice: rent,
-          taxRate: 21,
+          unitPrice: rentAmount,
+          ...rent,
           relatedContractId: contractId,
           relatedUnitId: contract.unit.id,
           periodStart: periodStart.toISOString().slice(0, 10),
@@ -436,7 +438,7 @@ export class SignaturesService {
                 .slice(0, 10)}, prorrateado ${daysOccupied}/${daysInMonth} d)`,
           quantity: 1,
           unitPrice,
-          taxRate: 21,
+          ...rent,
           relatedContractId: contractId,
           relatedUnitId: contract.unit.id,
           periodStart: periodStart.toISOString().slice(0, 10),

@@ -656,6 +656,7 @@ export class AdminTenantsService {
       userRows,
       collectionsRows,
       blogRows,
+      housingRows,
       overrideRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
@@ -694,6 +695,11 @@ export class AdminTenantsService {
       this.admin.user.groupBy({ by: ['tenantId'], _count: { _all: true } }),
       this.admin.delinquencyCase.groupBy({ by: ['tenantId'], _count: { _all: true } }),
       this.admin.blogPost.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.unitType.groupBy({
+        by: ['tenantId'],
+        where: { propertyKind: 'housing' },
+        _count: { _all: true },
+      }),
       this.admin.tenantFeatureOverride.findMany({
         select: { tenantId: true, feature: true, enabled: true },
       }),
@@ -717,6 +723,7 @@ export class AdminTenantsService {
     const users = countMap(userRows);
     const collections = countMap(collectionsRows);
     const blogPosts = countMap(blogRows);
+    const housing = countMap(housingRows);
     const overridesByTenant = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
     for (const o of overrideRows) {
       const list = overridesByTenant.get(o.tenantId) ?? [];
@@ -743,6 +750,7 @@ export class AdminTenantsService {
       if ((t && t.webTemplate !== 'default') || (blogPosts.get(id) ?? 0) > 0) {
         s.add('web_premium');
       }
+      if ((housing.get(id) ?? 0) > 0) s.add('housing');
       return s;
     };
 
