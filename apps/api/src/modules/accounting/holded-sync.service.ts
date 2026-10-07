@@ -340,7 +340,13 @@ export class HoldedSyncService {
 
   private async buildLines(
     client: HoldedClient,
-    items: { description: string; quantity: unknown; unitPrice: unknown; taxRate: unknown }[],
+    items: {
+      description: string;
+      quantity: unknown;
+      unitPrice: unknown;
+      taxRate: unknown;
+      taxCategory?: string;
+    }[],
     isCreditNote: boolean,
   ): Promise<HoldedLine[]> {
     const lines: HoldedLine[] = [];
@@ -351,7 +357,7 @@ export class HoldedSyncService {
         units: Number(it.quantity),
         // En Holded la rectificativa ya resta: sus líneas van en positivo.
         price: isCreditNote ? -price : price,
-        taxes: [await client.taxKeyFor(Number(it.taxRate))],
+        taxes: [await client.taxKeyFor(Number(it.taxRate), it.taxCategory)],
       });
     }
     return lines;

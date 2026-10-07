@@ -206,6 +206,7 @@ export class RealAeatClient extends AeatClient {
         taxRate: Number(it.taxRate),
         taxAmount: Number(it.taxAmount),
         total: Number(it.total),
+        taxCategory: it.taxCategory,
       })),
     );
 

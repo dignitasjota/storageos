@@ -1,3 +1,4 @@
+import type { InvoiceTaxCategory } from './tax-category';
 import type { InvoicingModeValue } from '../accounting';
 import type { PortalLocaleValue } from '../portal';
 import type {
@@ -39,6 +40,7 @@ export interface InvoiceItemDto {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  taxCategory: InvoiceTaxCategory;
   taxAmount: number;
   total: number;
   relatedContractId: string | null;

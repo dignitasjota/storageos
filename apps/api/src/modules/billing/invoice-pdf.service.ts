@@ -1,6 +1,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { INVOICE_TAX_CATEGORY_LEGAL_TEXT, isExemptCategory } from '@storageos/shared';
 
 import { HoldedSyncService } from '../accounting/holded-sync.service';
 import { PrismaService } from '../database/prisma.service';
@@ -212,11 +213,23 @@ export class InvoicePdfService implements OnModuleDestroy {
           }</td>
           <td class="num">${it.quantity}</td>
           <td class="num">${eur(it.unitPrice)}</td>
-          <td class="num">${it.taxRate}%</td>
+          <td class="num">${
+            it.taxCategory === 'S1'
+              ? `${it.taxRate}%`
+              : isExemptCategory(it.taxCategory)
+                ? 'Exenta'
+                : 'No sujeta'
+          }</td>
           <td class="num">${eur(it.total)}</td>
         </tr>`,
       )
       .join('');
+
+    // Mención legal de las líneas exentas o no sujetas (art. 6.1.j del
+    // Reglamento de facturación): una vez por tipo fiscal presente.
+    const legalNotes = [...new Set(i.items.map((it) => it.taxCategory))]
+      .map((c) => INVOICE_TAX_CATEGORY_LEGAL_TEXT[c])
+      .filter((t): t is string => Boolean(t));
 
     // Justificante de fianza: no es una factura (sin IVA ni Veri*Factu).
     const isReceipt = i.kind === 'deposit_receipt';
@@ -315,6 +328,11 @@ ${
 </div>`
 }
 
+${
+  !isReceipt && legalNotes.length > 0
+    ? `<div style="margin-top: 12pt; font-size: 9pt; color: #444;">${legalNotes.map(escapeHtml).join('<br />')}</div>`
+    : ''
+}
 ${i.notes ? `<div style="margin-top: 18pt; font-size: 9.5pt; color: #444;"><strong>Notas:</strong> ${escapeHtml(i.notes)}</div>` : ''}
 </body>
 </html>`;

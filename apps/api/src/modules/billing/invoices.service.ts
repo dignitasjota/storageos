@@ -12,7 +12,13 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
-import { isValidSpanishTaxId, normalizeTaxId } from '@storageos/shared';
+import {
+  defaultTaxCategory,
+  isValidSpanishTaxId,
+  normalizeTaxId,
+  taxCategoryAllowsRate,
+  type InvoiceTaxCategory,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
@@ -67,6 +73,18 @@ import type {
   SignedDownloadDto,
   UpdateInvoiceInput,
 } from '@storageos/shared';
+
+/** Tipo fiscal de la línea: el indicado (validado) o el de por defecto según el tipo. */
+function lineTaxCategory(taxRate: number, category?: InvoiceTaxCategory): InvoiceTaxCategory {
+  const c = category ?? defaultTaxCategory(taxRate);
+  if (!taxCategoryAllowsRate(c, taxRate)) {
+    throw new BadRequestException({
+      code: 'exempt_line_with_vat',
+      message: 'Una línea exenta o no sujeta va al 0 % de IVA',
+    });
+  }
+  return c;
+}
 
 const ALLOWED_TRANSITIONS: Record<InvoiceStatusValue, InvoiceStatusValue[]> = {
   draft: ['issued', 'cancelled'],
@@ -1458,6 +1476,7 @@ export class InvoicesService {
           ? Number(it.unitPrice)
           : Math.round(qty * Number(it.unitPrice) * 100) / 100),
         taxRate: Number(it.taxRate),
+        taxCategory: it.taxCategory as InvoiceTaxCategory,
         ...(it.relatedContractId ? { relatedContractId: it.relatedContractId } : {}),
         ...(it.relatedUnitId ? { relatedUnitId: it.relatedUnitId } : {}),
         ...(it.periodStart ? { periodStart: it.periodStart.toISOString().slice(0, 10) } : {}),
@@ -2070,14 +2089,22 @@ export class InvoicesService {
     void amount; // el importe del aviso solo informa: se recalcula sobre lo acumulado
 
     // Bruto por tipo de IVA y parte proporcional del reembolso.
-    const grossByRate = new Map<number, number>();
+    // Agrupado por tipo y por tipo fiscal (una línea exenta y otra no sujeta,
+    // ambas al 0 %, se abonan por separado).
+    const grossByRate = new Map<string, number>();
     for (const it of original.items) {
-      const rate = Number(it.taxRate);
-      grossByRate.set(rate, (grossByRate.get(rate) ?? 0) + toCents(it.total));
+      const key = `${Number(it.taxRate)}|${it.taxCategory}`;
+      grossByRate.set(key, (grossByRate.get(key) ?? 0) + toCents(it.total));
     }
-    const rates = [...grossByRate.entries()].filter(([, g]) => g > 0).sort(([a], [b]) => b - a);
+    const rates = [...grossByRate.entries()]
+      .filter(([, g]) => g > 0)
+      .map(([key, gross]) => {
+        const [rate, category] = key.split('|') as [string, InvoiceTaxCategory];
+        return [Number(rate), gross, category] as const;
+      })
+      .sort(([a], [b]) => b - a);
     let assigned = 0;
-    const items = rates.map(([rate, gross], idx) => {
+    const items = rates.map(([rate, gross, category], idx) => {
       const share =
         idx === rates.length - 1
           ? refundCents - assigned
@@ -2092,6 +2119,7 @@ export class InvoicesService {
         quantity: 1,
         unitPrice: -netCents / 100,
         taxRate: rate,
+        taxCategory: category,
       };
     });
 
@@ -2519,6 +2547,7 @@ export class InvoicesService {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       taxRate: item.taxRate,
+      taxCategory: lineTaxCategory(item.taxRate, item.taxCategory),
       taxAmount: line.taxCents / 100,
       total: line.totalCents / 100,
       ...(item.relatedContractId ? { relatedContractId: item.relatedContractId } : {}),
@@ -2570,6 +2599,7 @@ export class InvoicesService {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       taxRate: item.taxRate,
+      taxCategory: lineTaxCategory(item.taxRate, item.taxCategory),
       taxAmount: line.taxCents / 100,
       total: line.totalCents / 100,
       ...(item.relatedContractId ? { relatedContractId: item.relatedContractId } : {}),
@@ -2669,6 +2699,7 @@ export class InvoicesService {
       quantity: Number(item.quantity),
       unitPrice: Number(item.unitPrice),
       taxRate: Number(item.taxRate),
+      taxCategory: item.taxCategory as InvoiceTaxCategory,
       taxAmount: Number(item.taxAmount),
       total: Number(item.total),
       relatedContractId: item.relatedContractId,

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { InvoiceTaxCategoryEnum, taxCategoryAllowsRate } from './tax-category';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 const positiveDecimal = z.number({ invalid_type_error: 'Debe ser un numero' }).positive().finite();
@@ -224,16 +226,23 @@ export type UpdateInvoiceSeriesInput = z.infer<typeof UpdateInvoiceSeriesSchema>
 // Invoices
 // ============================================================================
 
-export const CreateInvoiceItemSchema = z.object({
-  description: z.string().trim().min(1).max(500),
-  quantity: positiveDecimal.default(1),
-  unitPrice: positiveDecimal,
-  taxRate: z.number().min(0).max(100).default(21),
-  relatedContractId: z.string().uuid().optional(),
-  relatedUnitId: z.string().uuid().optional(),
-  periodStart: dateOnly.optional(),
-  periodEnd: dateOnly.optional(),
-});
+export const CreateInvoiceItemSchema = z
+  .object({
+    description: z.string().trim().min(1).max(500),
+    quantity: positiveDecimal.default(1),
+    unitPrice: positiveDecimal,
+    taxRate: z.number().min(0).max(100).default(21),
+    /** Sin indicar: con IVA si lleva tipo, no sujeta al 0 %. */
+    taxCategory: InvoiceTaxCategoryEnum.optional(),
+    relatedContractId: z.string().uuid().optional(),
+    relatedUnitId: z.string().uuid().optional(),
+    periodStart: dateOnly.optional(),
+    periodEnd: dateOnly.optional(),
+  })
+  .refine((it) => !it.taxCategory || taxCategoryAllowsRate(it.taxCategory, it.taxRate), {
+    message: 'Una línea exenta o no sujeta va al 0 % de IVA',
+    path: ['taxCategory'],
+  });
 export type CreateInvoiceItemInput = z.infer<typeof CreateInvoiceItemSchema>;
 
 /**
@@ -303,16 +312,23 @@ export type BulkInvoiceActionInput = z.infer<typeof BulkInvoiceActionSchema>;
  * ser negativo (el usuario introduce la diferencia respecto al original; si
  * la rectificativa reduce importes, los signos seran negativos).
  */
-export const RectifyInvoiceItemSchema = z.object({
-  description: z.string().trim().min(1).max(500),
-  quantity: z.number().int().positive().finite().default(1),
-  unitPrice: z.number().finite(),
-  taxRate: z.number().min(0).max(100).default(21),
-  relatedContractId: z.string().uuid().optional(),
-  relatedUnitId: z.string().uuid().optional(),
-  periodStart: dateOnly.optional(),
-  periodEnd: dateOnly.optional(),
-});
+export const RectifyInvoiceItemSchema = z
+  .object({
+    description: z.string().trim().min(1).max(500),
+    quantity: z.number().int().positive().finite().default(1),
+    unitPrice: z.number().finite(),
+    taxRate: z.number().min(0).max(100).default(21),
+    /** Sin indicar: con IVA si lleva tipo, no sujeta al 0 %. */
+    taxCategory: InvoiceTaxCategoryEnum.optional(),
+    relatedContractId: z.string().uuid().optional(),
+    relatedUnitId: z.string().uuid().optional(),
+    periodStart: dateOnly.optional(),
+    periodEnd: dateOnly.optional(),
+  })
+  .refine((it) => !it.taxCategory || taxCategoryAllowsRate(it.taxCategory, it.taxRate), {
+    message: 'Una línea exenta o no sujeta va al 0 % de IVA',
+    path: ['taxCategory'],
+  });
 export type RectifyInvoiceItemInput = z.infer<typeof RectifyInvoiceItemSchema>;
 
 /** Enlazar la rectificativa creada en Holded (modo Holded). */

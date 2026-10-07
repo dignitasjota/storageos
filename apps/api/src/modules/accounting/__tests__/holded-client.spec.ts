@@ -62,12 +62,17 @@ describe('HoldedClient (API v2)', () => {
           { key: 's_rec_21', amount: 21 },
           { key: 's_iva_21', amount: 21 },
           { key: 's_iva_0', amount: '0' },
+          { key: 's_iva_exento', amount: 0 },
         ],
       },
     }));
     const c = new HoldedClient('k');
     expect(await c.taxKeyFor(21)).toBe('s_iva_21');
     expect(await c.taxKeyFor(0)).toBe('s_iva_0');
+    // Línea exenta: prefiere el impuesto de exento si la cuenta lo tiene.
+    expect(await c.taxKeyFor(0, 'E1')).toBe('s_iva_exento');
+    // No sujeta sin impuesto específico: el del 0 %.
+    expect(await c.taxKeyFor(0, 'N1')).toBe('s_iva_0');
     await expect(c.taxKeyFor(10)).rejects.toBeInstanceOf(HoldedApiError);
   });
 
