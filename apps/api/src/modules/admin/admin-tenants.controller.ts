@@ -20,6 +20,7 @@ import {
   type AdminCustomDomainDto,
   type AdminOnboardingDto,
   type AdminTenantConfigDto,
+  type TenantDataExportDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantsListResponseDto,
@@ -69,6 +70,7 @@ import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super
 import { ImpersonationService } from './impersonation.service';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 import { SuperAdminAuditService } from './super-admin-audit.service';
+import { TenantDataExportService } from './tenant-data-export.service';
 
 import type { Request } from 'express';
 
@@ -113,6 +115,7 @@ export class AdminTenantsController {
     private readonly support: AdminSupportService,
     private readonly sepaMandate: PlatformSepaMandateService,
     private readonly config: AdminTenantConfigService,
+    private readonly dataExporter: TenantDataExportService,
   ) {}
 
   /** Edita datos básicos del tenant (soporte). */
@@ -836,6 +839,30 @@ export class AdminTenantsController {
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
+  }
+
+  /** Descarga todos los datos del tenant (también si está de baja, antes de anonimizarlo). */
+  @RequireSuperadmin()
+  @Post(':id/data-export')
+  @HttpCode(HttpStatus.OK)
+  async dataExport(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<TenantDataExportDto> {
+    const result = await this.dataExporter.export(id);
+    const meta = extractMeta(req);
+    await this.audit.record({
+      superAdminId: admin.sub,
+      action: 'admin.tenant.data_exported',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+      changes: { fileBytes: result.fileBytes, counts: result.counts },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+    return result;
   }
 
   @RequireSuperadmin()

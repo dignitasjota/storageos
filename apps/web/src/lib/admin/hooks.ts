@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  TenantDataExportDto,
   AdminSupportStatsDto,
   SupportCannedResponseDto,
   UpsertSupportCannedResponseInput,
@@ -2234,5 +2235,15 @@ export function useDeleteCannedResponse() {
     mutationFn: (id: string) =>
       adminApiFetch<void>(`/admin/support/canned-responses/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'support', 'canned'] }),
+  });
+}
+
+/** Exportación completa de los datos de un tenant (Excel con enlace temporal). */
+export function useTenantDataExport(tenantId: string) {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<TenantDataExportDto>(`/admin/tenants/${tenantId}/data-export`, {
+        method: 'POST',
+      }),
   });
 }

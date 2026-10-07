@@ -72,6 +72,12 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         description: 'Quién hizo qué y cuándo en tu cuenta.',
         permission: 'settings:manage',
       },
+      {
+        href: '/settings/data-export',
+        label: 'Exportar tus datos',
+        description: 'Todo lo de tu cuenta en un Excel (por ejemplo, si te das de baja).',
+        permission: 'rgpd:manage',
+      },
     ],
   },
   {
