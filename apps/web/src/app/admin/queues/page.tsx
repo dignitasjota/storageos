@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  useAdminCrons,
   useAdminQueues,
   useAdminSystemHealth,
   useQueueFailedAction,
@@ -194,7 +195,69 @@ export default function AdminQueuesPage() {
           </>
         )}
       </section>
+
+      <CronsSection />
     </div>
+  );
+}
+
+/** Tareas programadas: última ejecución, siguiente prevista y si van con retraso. */
+function CronsSection() {
+  const crons = useAdminCrons();
+  const rows = crons.data ?? [];
+  const overdue = rows.filter((c) => c.overdue).length;
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-medium text-muted-foreground">
+        Tareas programadas{overdue > 0 ? ` · ${overdue} atrasada(s)` : ''}
+      </h2>
+      <Card>
+        <CardContent className="p-0">
+          {crons.isLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : rows.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              Aún no hay registros: aparecen cuando el API y el worker arrancan con esta versión.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tarea</TableHead>
+                  <TableHead>Proceso</TableHead>
+                  <TableHead>Programación</TableHead>
+                  <TableHead>Última ejecución</TableHead>
+                  <TableHead>Siguiente</TableHead>
+                  <TableHead>Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((c) => (
+                  <TableRow key={c.name}>
+                    <TableCell className="font-mono text-xs">{c.name}</TableCell>
+                    <TableCell className="text-xs">
+                      {c.process === 'worker' ? 'Worker' : 'API'}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{c.expression}</TableCell>
+                    <TableCell className="text-xs">{formatDate(c.lastRunAt)}</TableCell>
+                    <TableCell className="text-xs">{formatDate(c.nextRunAt)}</TableCell>
+                    <TableCell>
+                      {c.overdue ? (
+                        <Badge variant="destructive">Atrasada</Badge>
+                      ) : (
+                        <Badge variant="secondary">Al día</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 

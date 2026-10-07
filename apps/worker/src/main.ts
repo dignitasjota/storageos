@@ -6,6 +6,8 @@
 // momento de cargar `config/workers-enabled.ts` mediante el primer
 // import, asi que este override DEBE ir en primera linea.
 process.env.ENABLE_WORKERS_IN_API = 'true';
+// Identifica el proceso en el registro de tareas programadas (panel admin).
+process.env.APP_PROCESS = 'worker';
 
 // Sentry: tras el override de env (es solo lectura de process.env) y antes
 // de cargar cualquier modulo, para que la instrumentacion parchee primero.

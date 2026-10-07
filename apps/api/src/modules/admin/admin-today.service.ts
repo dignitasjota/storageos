@@ -17,6 +17,7 @@ import {
   QUEUE_WEBHOOKS,
 } from '../queues/queue-names';
 
+import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
 
@@ -58,6 +59,7 @@ export class AdminTodayService {
     private readonly tenants: AdminTenantsService,
     private readonly followups: AdminTenantFollowupsService,
     private readonly billing: BillingSaasService,
+    private readonly ops: AdminOpsHealthService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -92,6 +94,11 @@ export class AdminTodayService {
       openTickets,
       failedJobs,
       failedWebhooks,
+      aeatIssues,
+      certificatesExpiring,
+      holdedReview,
+      devicesOffline,
+      crons,
     ] = await Promise.all([
       this.addonChargesDue(now),
       this.manualRenewalsDue(now),
@@ -101,7 +108,13 @@ export class AdminTodayService {
       this.openTickets(now),
       this.countFailedJobs(),
       this.failedWebhooks(now),
+      this.ops.aeatIssues(now),
+      this.ops.certificatesExpiring(now),
+      this.ops.holdedReview(),
+      this.ops.devicesOffline(now),
+      this.ops.crons(now),
     ]);
+    const overdueCrons = crons.filter((c) => c.overdue);
 
     const urgentCount =
       addonCharges.length +
@@ -110,7 +123,12 @@ export class AdminTodayService {
       followupsDue.length +
       openTickets.length +
       failedWebhooks.length +
-      (failedJobs > 0 ? 1 : 0);
+      (failedJobs > 0 ? 1 : 0) +
+      aeatIssues.length +
+      certificatesExpiring.filter((c) => c.daysLeft <= 15).length +
+      holdedReview.length +
+      devicesOffline.length +
+      overdueCrons.length;
     return {
       date: now.toISOString(),
       addonCharges,
@@ -122,6 +140,11 @@ export class AdminTodayService {
       openTickets,
       failedWebhooks,
       failedJobs,
+      aeatIssues,
+      certificatesExpiring,
+      holdedReview,
+      devicesOffline,
+      overdueCrons,
       urgentCount,
     };
   }

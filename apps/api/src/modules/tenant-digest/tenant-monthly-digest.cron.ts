@@ -20,7 +20,7 @@ export class TenantMonthlyDigestCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 8 1 * *')
+  @Cron('0 8 1 * *', { name: 'tenant-monthly-digest.monthly' })
   async monthly(): Promise<void> {
     try {
       if (!(await claimDailyCronRun(this.admin, 'tenant-monthly-digest.monthly'))) return;

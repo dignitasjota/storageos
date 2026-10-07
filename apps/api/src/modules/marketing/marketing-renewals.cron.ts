@@ -23,7 +23,7 @@ export class MarketingRenewalsCron {
     private readonly notifications: NotificationsService,
   ) {}
 
-  @Cron('0 7 * * *')
+  @Cron('0 7 * * *', { name: 'marketing-renewals.daily' })
   async daily(): Promise<void> {
     try {
       if (!(await claimDailyCronRun(this.admin, 'marketing-renewals.daily'))) return;

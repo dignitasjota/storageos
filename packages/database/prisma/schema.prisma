@@ -3589,6 +3589,8 @@ model TenantAeatCredential {
   certIssuer            String    @map("cert_issuer")
   certValidFrom         DateTime  @map("cert_valid_from") @db.Timestamptz(6)
   certValidTo           DateTime  @map("cert_valid_to") @db.Timestamptz(6)
+  /// Último aviso de caducidad enviado (30, 15, 7 o 0 días antes).
+  expiryNotifiedDays    Int?      @map("expiry_notified_days")
   environment           String    @default("sandbox")
   uploadedById          String    @map("uploaded_by_id") @db.Uuid
   uploadedAt            DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
@@ -4706,6 +4708,19 @@ model PlatformLegalDocument {
 /// Dedupe de ejecuciones de crons entre réplicas: cada cron reclama su
 /// ejecución diaria insertando (name, run_on); la PK garantiza un solo ganador.
 /// Global (sin tenant, sin RLS).
+/// Última ejecución y siguiente prevista de cada tarea programada (global).
+model CronHeartbeat {
+  name       String    @id
+  /// api | worker
+  process    String
+  expression String
+  lastRunAt  DateTime? @map("last_run_at") @db.Timestamptz(6)
+  nextRunAt  DateTime? @map("next_run_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("cron_heartbeats")
+}
+
 model CronRun {
   name      String
   runOn     DateTime @map("run_on") @db.Date

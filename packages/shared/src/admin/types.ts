@@ -1057,8 +1057,80 @@ export interface AdminTodayDto {
   failedWebhooks: AdminFailedWebhooksDto[];
   /** Nº de jobs BullMQ en estado failed (colas rotas → revisar /admin/queues). */
   failedJobs: number;
-  /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas). */
+  /** Tenants con facturas rechazadas o con error en la AEAT, o pendientes >48 h. */
+  aeatIssues: AdminTenantIssueCountDto[];
+  /** Certificados de la AEAT que caducan en ≤30 días o ya caducados. */
+  certificatesExpiring: AdminCertificateExpiringDto[];
+  /** Tenants con envíos a Holded «para revisar». */
+  holdedReview: AdminTenantIssueCountDto[];
+  /** Tenants con cerraduras/lectores sin conexión (vistos antes y sin señal >1 h). */
+  devicesOffline: AdminTenantIssueCountDto[];
+  /** Tareas programadas que no se han ejecutado cuando tocaba. */
+  overdueCrons: AdminCronStatusDto[];
+  /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas + incidencias). */
   urgentCount: number;
+}
+
+/** Un tenant con N incidencias de un tipo. */
+export interface AdminTenantIssueCountDto {
+  tenantId: string;
+  tenantName: string;
+  count: number;
+}
+
+export interface AdminCertificateExpiringDto {
+  tenantId: string;
+  tenantName: string;
+  validTo: string;
+  /** Días que faltan (≤0 = caducado). */
+  daysLeft: number;
+}
+
+/** Estado de una tarea programada (cron). */
+export interface AdminCronStatusDto {
+  name: string;
+  /** api | worker */
+  process: string;
+  expression: string;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  /** La ejecución prevista ya pasó (con margen) y no se ha hecho. */
+  overdue: boolean;
+}
+
+/** Salud de la facturación de un tenant (Veri*Factu y Holded). */
+export interface AdminTenantBillingHealthDto {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  /** app | holded */
+  invoicingMode: string;
+  aeatRejected: number;
+  aeatError: number;
+  /** Enviadas hace más de 48 h y todavía pendientes de respuesta de la AEAT. */
+  aeatPendingStale: number;
+  holdedEnabled: boolean;
+  holdedReview: number;
+  certificateValidTo: string | null;
+  certificateDaysLeft: number | null;
+}
+
+export interface AdminBillingIssueInvoiceDto {
+  invoiceId: string;
+  tenantId: string;
+  tenantName: string;
+  invoiceNumber: string | null;
+  issueDate: string | null;
+  aeatStatus: string;
+  aeatSentAt: string | null;
+  /** Mensaje de la AEAT, si lo hay. */
+  message: string | null;
+}
+
+export interface AdminBillingHealthDto {
+  tenants: AdminTenantBillingHealthDto[];
+  /** Facturas con problema (rechazadas, con error o pendientes >48 h), más recientes primero. */
+  invoices: AdminBillingIssueInvoiceDto[];
 }
 
 /** Estado de cuenta del tenant para avisar de pagos pendientes en su panel. */

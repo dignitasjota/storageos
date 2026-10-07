@@ -15,7 +15,7 @@ export class AdSpendSyncCron {
 
   constructor(private readonly sync: AdSpendSyncService) {}
 
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { name: 'marketing.ad-spend-sync' })
   async daily(): Promise<void> {
     try {
       await this.sync.syncDueAll();
