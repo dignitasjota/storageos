@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { DepositCard, depositStatusLabel } from './deposit-card';
 import { DepositRegistryCard } from './deposit-registry-card';
 import { InspectionPhotosCard } from './inspection-photos-card';
+import { IrpfRetentionCard } from './irpf-retention-card';
 import { RetentionCard } from './retention-card';
 
 import { ContractStatusBadge } from '@/components/contract-status-badge';
@@ -351,6 +352,7 @@ export default function ContractDetailPage() {
 
       <DepositCard contract={c} />
       <DepositRegistryCard contract={c} />
+      <IrpfRetentionCard contract={c} />
 
       {/* Retención: solo sobre una baja en curso. */}
       {c.status === 'ending' && canManageC && <RetentionCard contractId={c.id} />}

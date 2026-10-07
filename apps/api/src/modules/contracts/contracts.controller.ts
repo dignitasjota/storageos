@@ -21,6 +21,7 @@ import {
   CollectDepositSchema,
   ActivateImportedContractsSchema,
   AssignInsuranceSchema,
+  SetIrpfRetentionSchema,
   CancelContractSchema,
   ChangeContractPriceSchema,
   type ActivateImportedContractsResultDto,
@@ -58,6 +59,7 @@ class RenewContractDto extends createZodDto(RenewContractSchema) {}
 class ChangeUnitDto extends createZodDto(ChangeUnitSchema) {}
 class AssignInsuranceDto extends createZodDto(AssignInsuranceSchema) {}
 class ActivateImportedContractsDto extends createZodDto(ActivateImportedContractsSchema) {}
+class SetIrpfRetentionDto extends createZodDto(SetIrpfRetentionSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -391,6 +393,26 @@ export class ContractsController {
       contractId: id,
       facilityScope: user.facilityScope ?? null,
       planId: input.planId,
+    });
+  }
+
+  /** Retención de IRPF del contrato (inquilino empresa o profesional). */
+  @RequirePermission('contracts:manage')
+  @Put(':id/irpf-retention')
+  @HttpCode(HttpStatus.OK)
+  async setIrpfRetention(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: SetIrpfRetentionDto,
+    @Req() req: Request,
+  ): Promise<ContractDto> {
+    return this.contracts.setIrpfRetention({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      contractId: id,
+      facilityScope: user.facilityScope ?? null,
+      pct: input.pct,
+      meta: extractMeta(req),
     });
   }
 

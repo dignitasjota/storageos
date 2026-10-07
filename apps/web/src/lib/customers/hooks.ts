@@ -656,3 +656,16 @@ export async function openDepositRegistryReceipt(contractId: string): Promise<vo
   );
   window.open(url, '_blank', 'noopener');
 }
+
+/** % de retención de IRPF de un contrato (facturas emitidas desde ahora). */
+export function useSetIrpfRetention(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pct: number) =>
+      apiFetch<ContractDto>(`/contracts/${contractId}/irpf-retention`, {
+        method: 'PUT',
+        json: { pct },
+      }),
+    onSuccess: (data) => qc.setQueryData(contractKey(contractId), data),
+  });
+}

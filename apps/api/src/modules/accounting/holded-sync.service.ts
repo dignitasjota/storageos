@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import {
   DOMAIN_EVENTS,
@@ -183,7 +184,7 @@ export class HoldedSyncService {
                 status: 'succeeded',
                 holdedSyncedAt: null,
                 holdedSyncStartedAt: null,
-                methodType: { not: 'credit_note' },
+                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
               },
             },
           },
@@ -219,7 +220,7 @@ export class HoldedSyncService {
             status: 'succeeded',
             holdedSyncedAt: null,
             holdedSyncStartedAt: null,
-            methodType: { not: 'credit_note' },
+            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
           },
         },
       },
@@ -668,7 +669,7 @@ export class HoldedSyncService {
             status: 'succeeded',
             holdedSyncedAt: null,
             holdedSyncStartedAt: null,
-            methodType: { not: 'credit_note' },
+            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
           },
           select: { id: true, amount: true, paidAt: true, createdAt: true },
         },

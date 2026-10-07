@@ -47,6 +47,7 @@ const METHOD_LABELS: Record<PaymentRecordMethodValue, string> = {
   cash: 'Efectivo',
   other: 'Otro',
   credit_note: 'Compensación (abono)',
+  withholding: 'Retención de IRPF',
 };
 
 const PAYMENT_STATUS: Record<
@@ -99,7 +100,7 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
 
   const summary = useMemo(() => {
     const all = invoicesQ.data ?? [];
-    const totalPaid = all.reduce((s, i) => s + i.amountPaid, 0);
+    const totalPaid = all.reduce((s, i) => s + i.amountPaid - i.withholdingAmount, 0);
     const pending = all
       .filter((i) => i.status === 'issued' || i.status === 'overdue')
       .reduce((s, i) => s + i.amountPending, 0);

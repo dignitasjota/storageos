@@ -45,6 +45,8 @@ export interface AccountantInvoiceRow {
   vat: number;
   lineTotal: number;
   invoiceTotal: number;
+  /** Retención de IRPF de la factura (solo en su primera fila, para no sumarla dos veces). */
+  withholding: number;
   status: string;
 }
 
@@ -124,6 +126,7 @@ export const ACCOUNTANT_INVOICE_COLUMNS: Column<AccountantInvoiceRow>[] = [
   { header: 'Cuota IVA', value: (r) => r.vat },
   { header: 'Total línea', value: (r) => r.lineTotal },
   { header: 'Total factura', value: (r) => r.invoiceTotal },
+  { header: 'Retención IRPF', value: (r) => r.withholding },
   { header: 'Estado', value: (r) => r.status },
 ];
 

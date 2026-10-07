@@ -213,6 +213,8 @@ enum PaymentMethodType {
   other
   /// Compensación con una rectificativa de abono (no es dinero cobrado).
   credit_note
+  /// Retención de IRPF practicada por el inquilino (no es dinero cobrado).
+  withholding
 
   @@map("payment_method_type")
 }
@@ -1235,6 +1237,8 @@ model Contract {
   depositRegistryRecoveredAt DateTime? @map("deposit_registry_recovered_at") @db.Date
   /// Último aniversario con la renta actualizada (o descartado).
   lastAnniversaryUpdateOn    DateTime? @map("last_anniversary_update_on") @db.Date
+  /// % de retención de IRPF que practica el inquilino (0 = sin retención).
+  irpfRetentionPct           Decimal   @default(0) @map("irpf_retention_pct") @db.Decimal(5, 2)
   prepayDiscountPct      Decimal               @default(0) @map("prepay_discount_pct") @db.Decimal(5, 2)
   /// Precio congelado al firmar (snapshot). Antes de firmar es el
   /// precio propuesto y puede cambiarse libremente. Tras firmar, solo
@@ -1629,6 +1633,9 @@ model Invoice {
   total               Decimal           @default(0) @db.Decimal(12, 2)
   amountPaid          Decimal           @default(0) @map("amount_paid") @db.Decimal(12, 2)
   amountRefunded      Decimal           @default(0) @map("amount_refunded") @db.Decimal(12, 2)
+  /// Retención de IRPF de la factura (se resta del total a pagar, no del total).
+  withholdingPct      Decimal           @default(0) @map("withholding_pct") @db.Decimal(5, 2)
+  withholdingAmount   Decimal           @default(0) @map("withholding_amount") @db.Decimal(12, 2)
   autoRetryCount      Int               @default(0) @map("auto_retry_count")
   autoRetryLastAt     DateTime?         @map("auto_retry_last_at") @db.Timestamptz(6)
   currency            String            @default("EUR") @db.Char(3)

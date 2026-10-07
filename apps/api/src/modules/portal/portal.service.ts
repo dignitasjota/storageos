@@ -853,7 +853,8 @@ export class PortalService {
     const byId = new Map(rows.map((r) => [r.id, r]));
     return rows.map((r) => {
       const total = Number(r.total);
-      const paid = Number(r.amountPaid);
+      // La retención de IRPF no es dinero pagado por el inquilino.
+      const paid = Number(r.amountPaid) - Number(r.withholdingAmount);
       // La factura se paga junto a su justificante de fianza (un solo pago).
       const bundledReceiptPending = rows
         .filter((x) => x.bundledWithInvoiceId === r.id)

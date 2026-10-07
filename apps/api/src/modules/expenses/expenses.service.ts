@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -181,7 +182,7 @@ export class ExpensesService {
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
             paidAt: { gte: fromD, lte: toD },
             invoice: { kind: 'invoice' },
-            methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
+            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
           },
           select: {
             amount: true,

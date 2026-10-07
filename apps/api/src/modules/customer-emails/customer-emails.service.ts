@@ -121,7 +121,8 @@ export class CustomerEmailsService {
         data: {
           kind: 'invoice_issued',
           invoiceNumber: inv.invoiceNumber,
-          total: Number(inv.total),
+          // Con retención de IRPF, lo que hay que pagar (total − retención).
+          total: Number(inv.total) - Number(inv.withholdingAmount),
           dueDate: inv.dueDate,
           payment: await this.paymentHint(p.tenantId, inv.customerId),
         },
@@ -151,7 +152,10 @@ export class CustomerEmailsService {
         },
         select: { total: true },
       });
-      const amount = receipts.reduce((sum, r) => sum + Number(r.total), Number(inv.total));
+      const amount = receipts.reduce(
+        (sum, r) => sum + Number(r.total),
+        Number(inv.total) - Number(inv.withholdingAmount),
+      );
       await this.send(p.tenantId, 'payment_received', 'invoice_paid', inv.customerId, {
         data: {
           kind: 'payment_received',
@@ -458,6 +462,7 @@ export class CustomerEmailsService {
         status: true,
         invoiceNumber: true,
         total: true,
+        withholdingAmount: true,
         dueDate: true,
         paidAt: true,
         customerId: true,

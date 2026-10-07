@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { subtractAmounts } from '../../common/money';
@@ -68,7 +69,7 @@ export class CashService {
       status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
       paidAt: { gte, lt },
       // Una compensación con abono no es dinero que entre en caja.
-      methodType: { not: 'credit_note' },
+      methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
       ...facilityFilter,
     };
     // Reembolsos del día: pagos con importe devuelto en esta fecha (restan de la
