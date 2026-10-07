@@ -562,3 +562,21 @@ Inquilinos marcados sin fianza y fianza cobrada en efectivo en el local (el acce
 ### Configuración reorganizada (2026-10-04) ✅
 
 Las 16 pestañas en fila pasan a un menú lateral agrupado por tema (Tu cuenta, Empresa, Facturación y cobros, Web pública y portal, Comunicación, Suscripción, Integraciones) con página de inicio que enlaza también los ajustes de cada módulo. «Facturación a inquilinos» se divide en Facturación, Cobros y Contabilidad; el dominio propio sale de Marca; la verificación en dos pasos personal pasa a Perfil y el informe mensual a Correo.
+
+### Gestores de cartera y viviendas (plan acordado el 2026-10-07)
+
+A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta de una propietaria. Una PR por punto, en este orden: A1 → A6, B1–B4, A7 y C1–C5.
+
+**A. Mejoras para todos**
+
+- ✅ **A1 — Facturas exentas bien declaradas**: tipo fiscal por línea (con IVA / exenta E1–E6 / no sujeta N1–N2). Veri\*Factu declara las exentas como `OperacionExenta` (antes toda línea al 0 % salía como no sujeta), el PDF lleva la mención legal y el libro de IVA, el 303 y las exportaciones las separan.
+- A2 — Activar en bloque los contratos importados (sin firma, fianza ya cobrada, sin primera factura, mes desde el que se factura).
+- A3 — Importar mandatos SEPA desde CSV o Excel.
+- A4 — Presentar a Veri\*Factu con el certificado del administrador apoderado (`<Representante>`).
+- A5 — Listado de recibos devueltos (remesas, extractos y pasarelas) con exportación.
+- A6 — Conciliación automática opcional de los cobros con coincidencia única exacta.
+- A7 — Retención de IRPF por contrato (va después del bloque B: toca cálculos auditados).
+
+**B. Add-on «Viviendas» (15 €/mes, sin límite)**: tipo de inmueble vivienda con facturación exenta, plantilla de contrato de vivienda, registro del depósito de la fianza en la comunidad autónoma y subida por aniversario con el índice que indique el tenant.
+
+**C. Plan «Administrador» (349 €/mes)**: todo Pro más varios propietarios en una cuenta, con emisor por propietario (series, cadena Veri\*Factu, certificado y acreedor SEPA propios), liquidación periódica al propietario por correo (PDF y Excel) e informes fiscales por propietario. Fuera de la primera versión: Holded por propietario y la factura de honorarios del administrador.

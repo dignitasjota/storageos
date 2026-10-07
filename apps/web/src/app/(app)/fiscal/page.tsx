@@ -1,5 +1,6 @@
 'use client';
 
+import { INVOICE_TAX_CATEGORY_LABELS, type InvoiceTaxCategory } from '@storageos/shared';
 import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -129,8 +130,8 @@ function VatBookTab() {
         {book.data && (
           <div className="flex flex-wrap gap-4 text-sm">
             {book.data.byRate.map((r) => (
-              <span key={r.rate} className="rounded-md border px-3 py-1">
-                IVA {r.rate}%: base {eur(r.base)} · cuota <strong>{eur(r.vat)}</strong>
+              <span key={`${r.rate}-${r.taxCategory}`} className="rounded-md border px-3 py-1">
+                {rateLabel(r)}: base {eur(r.base)} · cuota <strong>{eur(r.vat)}</strong>
               </span>
             ))}
             <span className="rounded-md border bg-muted px-3 py-1">
@@ -232,8 +233,8 @@ function Model303Tab() {
           </TableHeader>
           <TableBody>
             {(m303.data?.byRate ?? []).map((r) => (
-              <TableRow key={r.rate}>
-                <TableCell>{r.rate}%</TableCell>
+              <TableRow key={`${r.rate}-${r.taxCategory}`}>
+                <TableCell>{rateLabel(r)}</TableCell>
                 <TableCell className="text-right">{eur(r.base)}</TableCell>
                 <TableCell className="text-right">{eur(r.vat)}</TableCell>
               </TableRow>
@@ -502,7 +503,9 @@ function AccountantExportTab() {
                   <TableCell className="text-xs font-mono">{r.invoiceNumber}</TableCell>
                   <TableCell className="text-xs">{r.customerName}</TableCell>
                   <TableCell className="text-xs">{r.customerNif ?? '—'}</TableCell>
-                  <TableCell className="text-right text-xs">{r.taxRate}%</TableCell>
+                  <TableCell className="text-right text-xs">
+                    {rateLabel({ rate: r.taxRate, taxCategory: r.taxCategory })}
+                  </TableCell>
                   <TableCell className="text-right text-xs">{eur(r.base)}</TableCell>
                   <TableCell className="text-right text-xs">{eur(r.vat)}</TableCell>
                   <TableCell className="text-right text-xs">{eur(r.lineTotal)}</TableCell>
@@ -522,4 +525,9 @@ function AccountantExportTab() {
       </CardContent>
     </Card>
   );
+}
+
+/** «IVA 21 %», «Exenta (art. 20 LIVA)», «No sujeta». */
+function rateLabel(r: { rate: number; taxCategory: InvoiceTaxCategory }): string {
+  return r.taxCategory === 'S1' ? `IVA ${r.rate}%` : INVOICE_TAX_CATEGORY_LABELS[r.taxCategory];
 }

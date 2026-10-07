@@ -1,6 +1,13 @@
 'use client';
 
 import {
+  INVOICE_TAX_CATEGORY_LABELS,
+  type CorrectionMethodValue,
+  type InvoiceDto,
+  type InvoiceTaxCategory,
+  type RectificationTypeValue,
+} from '@storageos/shared';
+import {
   ArrowLeft,
   Ban,
   CheckCircle2,
@@ -15,8 +22,6 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
-
-import type { CorrectionMethodValue, InvoiceDto, RectificationTypeValue } from '@storageos/shared';
 
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Badge } from '@/components/ui/badge';
@@ -84,6 +89,8 @@ interface RectifyDraftItem {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** Tipo fiscal de la línea original (al 0 %: exenta o no sujeta). */
+  taxCategory?: InvoiceTaxCategory;
 }
 
 export default function InvoiceDetailPage() {
@@ -372,6 +379,7 @@ export default function InvoiceDetailPage() {
                         quantity: it.quantity,
                         unitPrice: it.unitPrice,
                         taxRate: it.taxRate,
+                        taxCategory: it.taxCategory,
                       })),
                     );
                     setRectifyOpen(true);
@@ -521,7 +529,11 @@ export default function InvoiceDetailPage() {
                     </td>
                     <td className="py-2 text-right">{item.quantity}</td>
                     <td className="py-2 text-right">{item.unitPrice.toFixed(2)} €</td>
-                    <td className="py-2 text-right">{item.taxRate}%</td>
+                    <td className="py-2 text-right">
+                      {item.taxCategory === 'S1'
+                        ? `${item.taxRate}%`
+                        : INVOICE_TAX_CATEGORY_LABELS[item.taxCategory]}
+                    </td>
                     <td className="py-2 text-right tabular-nums">{item.total.toFixed(2)} €</td>
                   </tr>
                 ))}
@@ -820,6 +832,12 @@ export default function InvoiceDetailPage() {
                         quantity: it.quantity,
                         unitPrice: it.unitPrice,
                         taxRate: it.taxRate,
+                        taxCategory:
+                          it.taxRate === 0
+                            ? it.taxCategory && it.taxCategory !== 'S1'
+                              ? it.taxCategory
+                              : 'N1'
+                            : 'S1',
                       })),
                     },
                   });

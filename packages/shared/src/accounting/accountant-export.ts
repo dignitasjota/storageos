@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { INVOICE_TAX_CATEGORY_LABELS, type InvoiceTaxCategory } from '../billing/tax-category';
+
 /**
  * Exportación para la asesoría: facturas emitidas y cobros de la SL en un
  * periodo, juntando sus dos actividades —las suscripciones que cobra a los
@@ -37,6 +39,8 @@ export interface AccountantInvoiceRow {
   customerName: string;
   customerAddress: string | null;
   taxRate: number;
+  /** S1 con IVA · E1–E6 exenta · N1/N2 no sujeta. */
+  taxCategory: InvoiceTaxCategory;
   base: number;
   vat: number;
   lineTotal: number;
@@ -115,6 +119,7 @@ export const ACCOUNTANT_INVOICE_COLUMNS: Column<AccountantInvoiceRow>[] = [
   { header: 'Cliente', value: (r) => r.customerName },
   { header: 'Domicilio', value: (r) => r.customerAddress },
   { header: '% IVA', value: (r) => r.taxRate },
+  { header: 'Operación', value: (r) => INVOICE_TAX_CATEGORY_LABELS[r.taxCategory] },
   { header: 'Base imponible', value: (r) => r.base },
   { header: 'Cuota IVA', value: (r) => r.vat },
   { header: 'Total línea', value: (r) => r.lineTotal },

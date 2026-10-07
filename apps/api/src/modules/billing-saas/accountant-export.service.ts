@@ -3,12 +3,14 @@ import {
   ACCOUNTANT_DEPOSIT_COLUMNS,
   ACCOUNTANT_INVOICE_COLUMNS,
   ACCOUNTANT_PAYMENT_COLUMNS,
+  defaultTaxCategory,
   withoutActivity,
   type AccountantDepositRow,
   type AccountantExportDto,
   type AccountantExportWarning,
   type AccountantInvoiceRow,
   type AccountantPaymentRow,
+  type InvoiceTaxCategory,
 } from '@storageos/shared';
 import ExcelJS from 'exceljs';
 
@@ -197,6 +199,8 @@ export class AccountantExportService {
           customerName: inv.tenantName,
           customerAddress: oneLine(inv.tenantAddress),
           taxRate: rate,
+          // Las cuotas de la suscripción siempre llevan IVA.
+          taxCategory: defaultTaxCategory(rate),
           base: round2(v.base),
           vat: round2(v.vat),
           lineTotal: round2(v.base + v.vat),
@@ -271,7 +275,7 @@ export class AccountantExportService {
           select: {
             invoiceNumber: true,
             total: true,
-            items: { select: { taxRate: true, taxAmount: true, total: true } },
+            items: { select: { taxRate: true, taxCategory: true, taxAmount: true, total: true } },
           },
         },
         customer: {
@@ -286,7 +290,7 @@ export class AccountantExportService {
             postalCode: true,
           },
         },
-        items: { select: { taxRate: true, taxAmount: true, total: true } },
+        items: { select: { taxRate: true, taxCategory: true, taxAmount: true, total: true } },
       },
       orderBy: [{ issueDate: 'asc' }, { invoiceNumber: 'asc' }],
     });
@@ -302,21 +306,29 @@ export class AccountantExportService {
         : null;
       // Una sustitutiva cuenta solo la diferencia con la factura que sustituye.
       const replaced = inv.correctionMethod === 'by_substitution' ? inv.rectifiesInvoice : null;
-      const byRate = new Map<number, { base: number; vat: number }>();
+      // Por tipo y tipo fiscal (exenta y no sujeta, ambas al 0 %, van aparte).
+      const byRate = new Map<
+        string,
+        { rate: number; taxCategory: InvoiceTaxCategory; base: number; vat: number }
+      >();
       for (const [items, sign] of [
         [inv.items, 1],
         [replaced?.items ?? [], -1],
       ] as const) {
         for (const item of items) {
           const rate = Number(item.taxRate);
-          const prev = byRate.get(rate) ?? { base: 0, vat: 0 };
-          byRate.set(rate, {
-            base: prev.base + sign * (Number(item.total) - Number(item.taxAmount)),
-            vat: prev.vat + sign * Number(item.taxAmount),
-          });
+          const taxCategory = item.taxCategory as InvoiceTaxCategory;
+          const key = `${rate}|${taxCategory}`;
+          const prev = byRate.get(key) ?? { rate, taxCategory, base: 0, vat: 0 };
+          prev.base += sign * (Number(item.total) - Number(item.taxAmount));
+          prev.vat += sign * Number(item.taxAmount);
+          byRate.set(key, prev);
         }
       }
-      for (const [rate, v] of [...byRate.entries()].sort((a, b) => b[0] - a[0])) {
+      for (const v of [...byRate.values()].sort(
+        (a, b) => b.rate - a.rate || a.taxCategory.localeCompare(b.taxCategory),
+      )) {
+        const rate = v.rate;
         out.push({
           source: 'own_business',
           invoiceNumber: inv.invoiceNumber,
@@ -327,6 +339,7 @@ export class AccountantExportService {
           customerName: name,
           customerAddress: address,
           taxRate: rate,
+          taxCategory: v.taxCategory,
           base: round2(v.base),
           vat: round2(v.vat),
           lineTotal: round2(v.base + v.vat),
@@ -422,12 +435,14 @@ export class AccountantExportService {
     toD: Date,
     out: AccountantDepositRow[],
   ): Promise<void> {
-    const name = (c: {
-      customerType: string;
-      firstName: string | null;
-      lastName: string | null;
-      companyName: string | null;
-    } | null) =>
+    const name = (
+      c: {
+        customerType: string;
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+      } | null,
+    ) =>
       !c
         ? 'Cliente'
         : c.customerType === 'business'
@@ -454,7 +469,9 @@ export class AccountantExportService {
         ],
       },
       include: {
-        invoice: { select: { invoiceNumber: true, contract: { select: { contractNumber: true } } } },
+        invoice: {
+          select: { invoiceNumber: true, contract: { select: { contractNumber: true } } },
+        },
         customer: { select: customerSelect },
       },
     });

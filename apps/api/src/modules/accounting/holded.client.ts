@@ -138,10 +138,14 @@ export class HoldedClient {
    * Clave de IVA repercutido (`s_…`) para un porcentaje. Lanza si la cuenta no
    * tiene ninguna: sin clave, Holded aplicaría el IVA por defecto del contacto.
    */
-  async taxKeyFor(rate: number): Promise<string> {
+  async taxKeyFor(rate: number, category?: string): Promise<string> {
     const taxes = await this.listTaxes();
     const sales = taxes.filter((t) => t.key.startsWith('s_') && Math.abs(t.amount - rate) < 0.001);
+    // Al 0 %, si la cuenta tiene un impuesto de «exento» o de «no sujeto», se
+    // usa el que corresponde a la línea; si no, el del 0 % de siempre.
+    const wanted = category?.startsWith('E') ? 'exen' : category?.startsWith('N') ? 'suje' : null;
     const pick =
+      (wanted ? sales.find((t) => t.key.toLowerCase().includes(wanted)) : undefined) ??
       sales.find((t) => t.key.startsWith('s_iva')) ??
       sales.find((t) => !t.key.startsWith('s_rec')) ??
       sales[0];

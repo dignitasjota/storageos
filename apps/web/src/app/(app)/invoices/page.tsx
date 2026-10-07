@@ -69,7 +69,17 @@ interface NewInvoiceDraftItem {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** Solo cuenta al 0 %: exenta o no sujeta (con tipo, siempre con IVA). */
+  zeroCategory: ZeroRateCategory;
 }
+
+/** Tipos fiscales que se ofrecen para una línea al 0 %. */
+type ZeroRateCategory = 'N1' | 'E1' | 'E6';
+const ZERO_RATE_OPTIONS: { value: ZeroRateCategory; label: string }[] = [
+  { value: 'N1', label: 'No sujeta (fianza, indemnización)' },
+  { value: 'E1', label: 'Exenta art. 20 (p. ej. alquiler de vivienda)' },
+  { value: 'E6', label: 'Exenta (otros)' },
+];
 
 export default function InvoicesPage() {
   const router = useRouter();
@@ -84,7 +94,7 @@ export default function InvoicesPage() {
   const [newCustomerId, setNewCustomerId] = useState<string>('');
   const [newJustification, setNewJustification] = useState<SimplifiedJustificationValue | ''>('');
   const [newItems, setNewItems] = useState<NewInvoiceDraftItem[]>([
-    { description: '', quantity: 1, unitPrice: 0, taxRate: 21 },
+    { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
   ]);
 
   const invoices = useInvoices({
@@ -274,7 +284,9 @@ export default function InvoicesPage() {
               setNewType('F1');
               setNewCustomerId('');
               setNewJustification('');
-              setNewItems([{ description: '', quantity: 1, unitPrice: 0, taxRate: 21 }]);
+              setNewItems([
+                { description: '', quantity: 1, unitPrice: 0, taxRate: 21, zeroCategory: 'N1' },
+              ]);
               setCreateOpen(true);
             }}
           >
@@ -460,7 +472,13 @@ export default function InvoicesPage() {
                   onClick={() =>
                     setNewItems((curr) => [
                       ...curr,
-                      { description: '', quantity: 1, unitPrice: 0, taxRate: 21 },
+                      {
+                        description: '',
+                        quantity: 1,
+                        unitPrice: 0,
+                        taxRate: 21,
+                        zeroCategory: 'N1',
+                      },
                     ])
                   }
                 >
@@ -540,6 +558,34 @@ export default function InvoicesPage() {
                             }
                             className="w-20"
                           />
+                          {it.taxRate === 0 && (
+                            <Select
+                              value={it.zeroCategory}
+                              onValueChange={(v) =>
+                                setNewItems((curr) =>
+                                  curr.map((row, i) =>
+                                    i === idx
+                                      ? { ...row, zeroCategory: v as ZeroRateCategory }
+                                      : row,
+                                  ),
+                                )
+                              }
+                            >
+                              <SelectTrigger
+                                className="mt-1 h-8 w-56 text-xs"
+                                aria-label="Tipo de operación"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ZERO_RATE_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={o.value}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -569,6 +615,7 @@ export default function InvoicesPage() {
                       quantity: it.quantity,
                       unitPrice: it.unitPrice,
                       taxRate: it.taxRate,
+                      taxCategory: it.taxRate === 0 ? it.zeroCategory : 'S1',
                     })),
                     verifactuMode: 'verifactu',
                   });

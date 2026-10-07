@@ -39,6 +39,7 @@ import type {
   ContractEventDto,
   ContractStatusValue,
   CreateContractInput,
+  InvoiceTaxCategory,
   PortalContractDto,
   SettleDepositInput,
   SignedDownloadDto,
@@ -1126,6 +1127,7 @@ export class ContractsService {
         quantity: 1,
         unitPrice: -creditForLine(Number(i.unitPrice) * Number(i.quantity), args.interval, unused),
         taxRate: Number(i.taxRate),
+        taxCategory: i.taxCategory as InvoiceTaxCategory,
         relatedContractId: args.contractId,
       }))
       .filter((i) => i.unitPrice < 0);

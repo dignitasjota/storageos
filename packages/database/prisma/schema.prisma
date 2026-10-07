@@ -1695,6 +1695,8 @@ model InvoiceItem {
   quantity          Decimal   @default(1) @db.Decimal(10, 3)
   unitPrice         Decimal   @map("unit_price") @db.Decimal(12, 2)
   taxRate           Decimal   @default(21) @map("tax_rate") @db.Decimal(5, 2)
+  /// S1 con IVA · E1-E6 exenta · N1/N2 no sujeta (códigos Veri*Factu).
+  taxCategory       String    @default("S1") @map("tax_category")
   taxAmount         Decimal   @default(0) @map("tax_amount") @db.Decimal(12, 2)
   total             Decimal   @default(0) @db.Decimal(12, 2)
   relatedContractId String?   @map("related_contract_id") @db.Uuid

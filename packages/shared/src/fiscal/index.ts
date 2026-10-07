@@ -1,3 +1,5 @@
+import type { InvoiceTaxCategory } from '../billing/tax-category';
+
 /**
  * Informes fiscales (España): libro registro de IVA emitido, resumen del
  * modelo 303 (IVA devengado/repercutido) y modelo 347 (operaciones con
@@ -23,6 +25,8 @@ export interface VatBookRow {
 
 export interface VatBookByRate {
   rate: number;
+  /** S1 con IVA · E1–E6 exenta · N1/N2 no sujeta. */
+  taxCategory: InvoiceTaxCategory;
   base: number;
   vat: number;
 }
@@ -41,7 +45,7 @@ export interface Model303Dto {
   year: number;
   quarter: number;
   /** Desglose del IVA devengado por tipo impositivo. */
-  byRate: { rate: number; base: number; vat: number }[];
+  byRate: VatBookByRate[];
   totalBase: number;
   totalVat: number;
   invoiceCount: number;
@@ -81,6 +85,8 @@ export interface AccountingExportRow {
   customerName: string;
   customerNif: string | null;
   taxRate: number;
+  /** S1 con IVA · E1–E6 exenta · N1/N2 no sujeta. */
+  taxCategory: InvoiceTaxCategory;
   base: number;
   vat: number;
   lineTotal: number;

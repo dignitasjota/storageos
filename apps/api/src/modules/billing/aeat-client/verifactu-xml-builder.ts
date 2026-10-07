@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { defaultTaxCategory, isExemptCategory, type InvoiceTaxCategory } from '@storageos/shared';
 
 import type { Env } from '../../../config/env.schema';
 
@@ -332,11 +333,11 @@ export interface BuildRegistroAltaArgs {
       recargo?: number;
     };
     /**
-     * Desglose por tipo de IVA (una línea por tipo). `subject: false` =
-     * operación no sujeta (N1: fianzas, indemnizaciones como el recargo por
-     * mora): sin tipo ni cuota.
+     * Desglose por tipo de IVA y tipo fiscal. `S1` lleva tipo y cuota; las
+     * exentas (`E1`–`E6`, p. ej. alquiler de vivienda) y las no sujetas
+     * (`N1`/`N2`: fianzas, indemnizaciones como el recargo por mora) solo base.
      */
-    breakdown: ReadonlyArray<{ taxRate: number; base: number; cuota: number; subject: boolean }>;
+    breakdown: ReadonlyArray<BreakdownLine>;
     taxAmount: number;
     total: number;
     /** FechaHoraHusoGenRegistro usada en la huella (se guarda al emitir). */
@@ -380,12 +381,28 @@ function recipientIdBlock(r: NonNullable<BuildRegistroAltaArgs['recipient']>): s
               </sum1:IDOtro>`;
 }
 
-/** Una `<DetalleDesglose>` por tipo de IVA; las no sujetas como N1. */
+/** Una línea del desglose de Veri*Factu. */
+export interface BreakdownLine {
+  taxRate: number;
+  base: number;
+  cuota: number;
+  /** S1 con IVA · E1–E6 exenta · N1/N2 no sujeta. */
+  category: InvoiceTaxCategory;
+}
+
+/** Una `<DetalleDesglose>` por tipo y tipo fiscal. */
 function buildDesglose(lines: BuildRegistroAltaArgs['invoice']['breakdown']): string {
   return lines
     .map((l) =>
-      l.subject
+      isExemptCategory(l.category)
         ? `            <sum1:DetalleDesglose>
+              <sum1:Impuesto>01</sum1:Impuesto>
+              <sum1:ClaveRegimen>01</sum1:ClaveRegimen>
+              <sum1:OperacionExenta>${l.category}</sum1:OperacionExenta>
+              <sum1:BaseImponibleOimporteNoSujeto>${l.base.toFixed(2)}</sum1:BaseImponibleOimporteNoSujeto>
+            </sum1:DetalleDesglose>`
+        : l.category === 'S1'
+          ? `            <sum1:DetalleDesglose>
               <sum1:Impuesto>01</sum1:Impuesto>
               <sum1:ClaveRegimen>01</sum1:ClaveRegimen>
               <sum1:CalificacionOperacion>S1</sum1:CalificacionOperacion>
@@ -393,10 +410,10 @@ function buildDesglose(lines: BuildRegistroAltaArgs['invoice']['breakdown']): st
               <sum1:BaseImponibleOimporteNoSujeto>${l.base.toFixed(2)}</sum1:BaseImponibleOimporteNoSujeto>
               <sum1:CuotaRepercutida>${l.cuota.toFixed(2)}</sum1:CuotaRepercutida>
             </sum1:DetalleDesglose>`
-        : `            <sum1:DetalleDesglose>
+          : `            <sum1:DetalleDesglose>
               <sum1:Impuesto>01</sum1:Impuesto>
               <sum1:ClaveRegimen>01</sum1:ClaveRegimen>
-              <sum1:CalificacionOperacion>N1</sum1:CalificacionOperacion>
+              <sum1:CalificacionOperacion>${l.category}</sum1:CalificacionOperacion>
               <sum1:BaseImponibleOimporteNoSujeto>${l.base.toFixed(2)}</sum1:BaseImponibleOimporteNoSujeto>
             </sum1:DetalleDesglose>`,
     )
@@ -404,29 +421,40 @@ function buildDesglose(lines: BuildRegistroAltaArgs['invoice']['breakdown']): st
 }
 
 /**
- * Desglose por tipo a partir de las líneas: base = total − cuota de cada
- * línea, agrupado por tipo; las líneas al 0 % son no sujetas (N1).
+ * Desglose a partir de las líneas: base = total − cuota de cada línea,
+ * agrupado por tipo y tipo fiscal. Sin tipo fiscal (líneas antiguas), al 0 %
+ * se toma como no sujeta (N1), como se declaraba antes.
  */
 export function breakdownFromItems(
-  items: ReadonlyArray<{ taxRate: number; taxAmount: number; total: number }>,
-): Array<{ taxRate: number; base: number; cuota: number; subject: boolean }> {
-  const byRate = new Map<number, { baseCents: number; cuotaCents: number }>();
+  items: ReadonlyArray<{
+    taxRate: number;
+    taxAmount: number;
+    total: number;
+    taxCategory?: InvoiceTaxCategory | string | null;
+  }>,
+): BreakdownLine[] {
+  const groups = new Map<
+    string,
+    { rate: number; category: InvoiceTaxCategory; baseCents: number; cuotaCents: number }
+  >();
   for (const it of items) {
     const rate = Math.round(it.taxRate * 100) / 100;
-    const cur = byRate.get(rate) ?? { baseCents: 0, cuotaCents: 0 };
+    const category = (it.taxCategory as InvoiceTaxCategory | null) ?? defaultTaxCategory(rate);
+    const key = `${rate}|${category}`;
+    const cur = groups.get(key) ?? { rate, category, baseCents: 0, cuotaCents: 0 };
     const totalCents = Math.round(it.total * 100);
     const taxCents = Math.round(it.taxAmount * 100);
     cur.baseCents += totalCents - taxCents;
     cur.cuotaCents += taxCents;
-    byRate.set(rate, cur);
+    groups.set(key, cur);
   }
-  return [...byRate.entries()]
-    .sort(([a], [b]) => b - a)
-    .map(([rate, v]) => ({
-      taxRate: rate,
+  return [...groups.values()]
+    .sort((a, b) => b.rate - a.rate || a.category.localeCompare(b.category))
+    .map((v) => ({
+      taxRate: v.rate,
       base: v.baseCents / 100,
       cuota: v.cuotaCents / 100,
-      subject: rate > 0,
+      category: v.category,
     }));
 }
 
