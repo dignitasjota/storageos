@@ -9,6 +9,8 @@ interface ContractTermsInput {
   startDate: string;
   /** Cláusulas particulares del tenant YA renderizadas (variables sustituidas). */
   customClauses?: string | null;
+  /** `housing` = contrato de vivienda (el de trastero no cambia, ni su huella). */
+  propertyKind?: string | null;
 }
 
 const CYCLE_LABEL: Record<string, string> = {
@@ -24,10 +26,13 @@ const CYCLE_LABEL: Record<string, string> = {
  */
 export function buildContractTermsText(t: ContractTermsInput): string {
   const cycle = CYCLE_LABEL[t.billingCycle] ?? t.billingCycle;
+  const housing = t.propertyKind === 'housing';
   const header = [
-    `Contrato de alquiler de trastero ${t.contractNumber}`,
+    housing
+      ? `Contrato de arrendamiento de vivienda ${t.contractNumber}`
+      : `Contrato de alquiler de trastero ${t.contractNumber}`,
     `Inquilino: ${t.customerName}`,
-    `Trastero: ${t.unitCode} — ${t.facilityName}`,
+    `${housing ? 'Vivienda' : 'Trastero'}: ${t.unitCode} — ${t.facilityName}`,
     `Cuota ${cycle}: ${t.priceMonthly.toFixed(2)} €`,
     `Fianza: ${t.depositAmount.toFixed(2)} €`,
     `Inicio: ${t.startDate}`,
@@ -40,7 +45,7 @@ export function buildContractTermsText(t: ContractTermsInput): string {
   const consent = [
     '',
     'El firmante declara haber leído y aceptado las condiciones del contrato de',
-    'arrendamiento del trastero indicado, reconociendo esta firma electrónica como',
+    `arrendamiento ${housing ? 'de la vivienda indicada' : 'del trastero indicado'}, reconociendo esta firma electrónica como`,
     'expresión de su consentimiento (firma electrónica simple, art. 25 Reglamento',
     'eIDAS y Ley 6/2020).',
   ];

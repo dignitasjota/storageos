@@ -395,10 +395,10 @@ export class TenantSettingsService {
   async getContractTemplate(tenantId: string): Promise<ContractTemplateDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { contractClauses: true, deletedAt: true },
+      select: { contractClauses: true, housingContractClauses: true, deletedAt: true },
     });
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
-    return { clauses: tenant.contractClauses };
+    return { clauses: tenant.contractClauses, housingClauses: tenant.housingContractClauses };
   }
 
   async updateContractTemplate(args: {
@@ -409,23 +409,33 @@ export class TenantSettingsService {
   }): Promise<ContractTemplateDto> {
     const tenant = await this.admin.tenant.findUnique({ where: { id: args.tenantId } });
     if (!tenant || tenant.deletedAt) throw new NotFoundException('Tenant no encontrado');
-    // '' o ausente = volver a la plantilla por defecto (null).
-    const clauses = args.input.clauses?.trim() ? args.input.clauses : null;
-    await this.admin.tenant.update({
+    // Cada plantilla solo cambia si viene; '' = volver a la de por defecto (null).
+    const norm = (v: string | undefined) => (v?.trim() ? v : null);
+    const data: { contractClauses?: string | null; housingContractClauses?: string | null } = {};
+    if (args.input.clauses !== undefined) data.contractClauses = norm(args.input.clauses);
+    if (args.input.housingClauses !== undefined) {
+      data.housingContractClauses = norm(args.input.housingClauses);
+    }
+    const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
-      data: { contractClauses: clauses },
+      data,
+      select: { contractClauses: true, housingContractClauses: true },
     });
+    const clauses = updated.contractClauses;
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.actorUserId,
       action: 'tenant.contract_template.changed',
       entityType: 'Tenant',
       entityId: args.tenantId,
-      changes: { hasCustomClauses: clauses !== null },
+      changes: {
+        hasCustomClauses: clauses !== null,
+        hasHousingClauses: updated.housingContractClauses !== null,
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return { clauses };
+    return { clauses, housingClauses: updated.housingContractClauses };
   }
 
   async getWebSettings(tenantId: string): Promise<WebSettingsResponse> {
