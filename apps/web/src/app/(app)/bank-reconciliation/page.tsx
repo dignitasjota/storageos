@@ -36,6 +36,9 @@ import {
   useImportN43,
   useMarkReturnTransaction,
   useMatchTransaction,
+  useBankReconciliationSettings,
+  useUndoAutoMatch,
+  useUpdateBankReconciliationSettings,
 } from '@/lib/bank-reconciliation/hooks';
 import { useInvoices } from '@/lib/billing/hooks';
 
@@ -54,7 +57,9 @@ export default function BankReconciliationPage() {
       const content = await file.text();
       const res = await importN43.mutateAsync({ filename: file.name, content });
       toast.success(
-        `Extracto importado. ${res.suggestedCount} abono(s) con sugerencia de factura.`,
+        res.autoMatchedCount > 0
+          ? `Extracto importado. ${res.autoMatchedCount} abono(s) conciliados automáticamente y ${res.suggestedCount} con sugerencia.`
+          : `Extracto importado. ${res.suggestedCount} abono(s) con sugerencia de factura.`,
       );
       if (res.statements[0]) setSelectedId(res.statements[0].id);
     } catch (err) {
@@ -82,7 +87,7 @@ export default function BankReconciliationPage() {
               El fichero Norma 43 / Cuaderno 43 que descargas de tu banca electrónica.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <input
               ref={fileRef}
               type="file"
@@ -96,6 +101,7 @@ export default function BankReconciliationPage() {
             <Button onClick={() => fileRef.current?.click()} disabled={importN43.isPending}>
               <Upload className="mr-1 h-4 w-4" /> Subir fichero N43
             </Button>
+            <AutoReconcileToggle />
           </CardContent>
         </Card>
       )}
@@ -149,6 +155,17 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
   const match = useMatchTransaction(statementId);
   const markReturn = useMarkReturnTransaction(statementId);
   const ignore = useIgnoreTransaction(statementId);
+  const undo = useUndoAutoMatch(statementId);
+
+  async function doUndo(transactionId: string) {
+    if (!window.confirm('¿Deshacer la conciliación? La factura volverá a estar pendiente.')) return;
+    try {
+      await undo.mutateAsync(transactionId);
+      toast.success('Conciliación deshecha.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
 
   async function doMatch(transactionId: string, invoiceId: string) {
     try {
@@ -241,7 +258,10 @@ function StatementDetail({ statementId, canManage }: { statementId: string; canM
                   <ReconcileCell
                     tx={t}
                     canManage={canManage}
-                    busy={match.isPending || ignore.isPending || markReturn.isPending}
+                    busy={
+                      match.isPending || ignore.isPending || markReturn.isPending || undo.isPending
+                    }
+                    onUndo={() => doUndo(t.id)}
                     onMatch={(invoiceId) => doMatch(t.id, invoiceId)}
                     onReturn={(invoiceId) => doReturn(t.id, invoiceId)}
                     onIgnore={() => doIgnore(t.id)}
@@ -357,6 +377,7 @@ function ReconcileCell({
   onReturn,
   onIgnore,
   onSplit,
+  onUndo,
 }: {
   tx: BankTransactionDto;
   canManage: boolean;
@@ -365,12 +386,25 @@ function ReconcileCell({
   onReturn: (invoiceId: string) => void;
   onIgnore: () => void;
   onSplit: () => void;
+  onUndo: () => void;
 }) {
   if (tx.status === 'matched') {
     return (
-      <Badge variant="default" className="gap-1">
-        <Check className="h-3 w-3" /> {tx.matchedInvoiceNumber ?? 'Conciliado'}
-      </Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="default" className="gap-1">
+          <Check className="h-3 w-3" /> {tx.matchedInvoiceNumber ?? 'Conciliado'}
+        </Badge>
+        {tx.autoMatched && (
+          <>
+            <Badge variant="outline">Automática</Badge>
+            {canManage && (
+              <Button variant="ghost" size="sm" onClick={onUndo} disabled={busy}>
+                Deshacer
+              </Button>
+            )}
+          </>
+        )}
+      </div>
     );
   }
   if (tx.status === 'returned') {
@@ -434,5 +468,39 @@ function ReconcileCell({
         <X className="h-3 w-3" />
       </Button>
     </div>
+  );
+}
+
+/** Conciliación automática al importar (ajuste del tenant). */
+function AutoReconcileToggle() {
+  const settings = useBankReconciliationSettings();
+  const update = useUpdateBankReconciliationSettings();
+  const canConfigure = useHasPermission('billing:configure');
+  if (!settings.data) return null;
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <Checkbox
+        checked={settings.data.autoReconcile}
+        disabled={!canConfigure || update.isPending}
+        onCheckedChange={async (v) => {
+          try {
+            await update.mutateAsync({ autoReconcile: v === true });
+            toast.success(
+              v ? 'Conciliación automática activada.' : 'Conciliación automática desactivada.',
+            );
+          } catch (err) {
+            toast.error(err instanceof ApiError ? err.body.message : 'Error');
+          }
+        }}
+      />
+      <span>
+        Conciliar automáticamente al importar
+        <span className="block text-xs text-muted-foreground">
+          Solo los abonos que coinciden con el importe pendiente exacto de una única factura y
+          llevan su número en el concepto. Quedan marcados como «Automática» y se pueden deshacer.
+          Las devoluciones siempre se revisan a mano.
+        </span>
+      </span>
+    </label>
   );
 }

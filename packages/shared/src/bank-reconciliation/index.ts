@@ -58,6 +58,8 @@ export interface BankTransactionDto {
   suggestions: BankTransactionSuggestionDto[];
   /** Sugerencias de factura pagada (solo cargos pendientes) → devolución SEPA. */
   returnSuggestions: BankTransactionSuggestionDto[];
+  /** Conciliado solo al importar (se puede deshacer). */
+  autoMatched: boolean;
 }
 
 export interface BankStatementDetailDto extends BankStatementDto {
@@ -68,4 +70,21 @@ export interface ImportN43ResultDto {
   statements: BankStatementDto[];
   /** Nº de movimientos de abono pendientes con al menos una sugerencia. */
   suggestedCount: number;
+  /** Abonos conciliados solos al importar (con la conciliación automática activa). */
+  autoMatchedCount: number;
 }
+
+export interface BankReconciliationSettingsDto {
+  /**
+   * Conciliar solos los abonos cuyo importe es exactamente lo pendiente de una
+   * única factura y que llevan su número en el concepto o la referencia.
+   */
+  autoReconcile: boolean;
+}
+
+export const UpdateBankReconciliationSettingsSchema = z.object({
+  autoReconcile: z.boolean(),
+});
+export type UpdateBankReconciliationSettingsInput = z.infer<
+  typeof UpdateBankReconciliationSettingsSchema
+>;

@@ -7,14 +7,17 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
 } from '@nestjs/common';
 import {
+  type BankReconciliationSettingsDto,
   type BankStatementDetailDto,
   type BankStatementDto,
   ImportN43Schema,
   type ImportN43ResultDto,
   MarkReturnTransactionSchema,
   MatchTransactionSchema,
+  UpdateBankReconciliationSettingsSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -30,6 +33,7 @@ import { BankReconciliationService } from './bank-reconciliation.service';
 class ImportN43Dto extends createZodDto(ImportN43Schema) {}
 class MatchTransactionDto extends createZodDto(MatchTransactionSchema) {}
 class MarkReturnTransactionDto extends createZodDto(MarkReturnTransactionSchema) {}
+class UpdateSettingsDto extends createZodDto(UpdateBankReconciliationSettingsSchema) {}
 
 @Controller('bank-statements')
 @RequireFeature('bank_reconciliation')
@@ -44,6 +48,26 @@ export class BankReconciliationController {
     @Body() body: ImportN43Dto,
   ): Promise<ImportN43ResultDto> {
     return this.service.import({ tenantId: user.tenantId, userId: user.sub, input: body });
+  }
+
+  /** Conciliación automática al importar (opcional). Antes de `:id`. */
+  @RequirePermission('payments:read')
+  @Get('settings')
+  getSettings(@CurrentUser() user: AuthenticatedUser): Promise<BankReconciliationSettingsDto> {
+    return this.service.getSettings(user.tenantId);
+  }
+
+  @RequirePermission('billing:configure')
+  @Put('settings')
+  updateSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateSettingsDto,
+  ): Promise<BankReconciliationSettingsDto> {
+    return this.service.updateSettings({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      autoReconcile: body.autoReconcile,
+    });
   }
 
   @RequirePermission('payments:read')
@@ -101,5 +125,20 @@ export class BankReconciliationController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<BankStatementDetailDto> {
     return this.service.ignoreTransaction(user.tenantId, id);
+  }
+
+  /** Deshace una conciliación automática. */
+  @RequirePermission('invoices:manage')
+  @Post('transactions/:id/undo')
+  @HttpCode(HttpStatus.OK)
+  undo(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<BankStatementDetailDto> {
+    return this.service.undoAutoMatch({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      transactionId: id,
+    });
   }
 }

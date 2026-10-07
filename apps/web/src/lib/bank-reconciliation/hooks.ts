@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  BankReconciliationSettingsDto,
   BankStatementDetailDto,
   BankStatementDto,
   ImportN43Input,
@@ -77,5 +78,40 @@ export function useIgnoreTransaction(statementId: string) {
         method: 'POST',
       }),
     onSuccess: (data) => qc.setQueryData(detailKey(statementId), data),
+  });
+}
+
+export function useUndoAutoMatch(statementId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (transactionId: string) =>
+      apiFetch<BankStatementDetailDto>(`/bank-statements/transactions/${transactionId}/undo`, {
+        method: 'POST',
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(detailKey(statementId), data);
+      void qc.invalidateQueries({ queryKey: listKey });
+    },
+  });
+}
+
+const settingsKey = ['bank-statements', 'settings'] as const;
+
+export function useBankReconciliationSettings() {
+  return useQuery({
+    queryKey: settingsKey,
+    queryFn: () => apiFetch<BankReconciliationSettingsDto>('/bank-statements/settings'),
+  });
+}
+
+export function useUpdateBankReconciliationSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BankReconciliationSettingsDto) =>
+      apiFetch<BankReconciliationSettingsDto>('/bank-statements/settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(settingsKey, data),
   });
 }
