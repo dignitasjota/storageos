@@ -24,7 +24,7 @@ interface AdoptionDto {
     isCandidate: boolean;
     usesFeatureOutsidePlan: boolean;
     recommendedPlanSlug: string | null;
-    features: { feature: string; inPlan: boolean; used: boolean }[];
+    features: { feature: string; inPlan: boolean; viaOverride: boolean; used: boolean }[];
   }[];
 }
 
@@ -96,5 +96,66 @@ describe('Admin adoption / upsell (e2e)', () => {
   it('exige token de super admin', async () => {
     const res = await request(app.getHttpServer()).get('/admin/tenants/adoption');
     expect(res.status).toBe(401);
+  });
+  it('una función de extra (web premium) en uso cuenta como contratada y no bloquea la recomendación', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-adopt-extra');
+    await adminClient.tenantFeatureOverride.create({
+      data: { tenantId: owner.tenantId, feature: 'web_premium', enabled: true },
+    });
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { webTemplate: 'modern' },
+    });
+    const user = await adminClient.user.findFirst({ where: { tenantId: owner.tenantId } });
+    // Además usa IA (solo pro): debe seguir saliendo como candidato a pro.
+    await adminClient.aiConversation.create({
+      data: { tenantId: owner.tenantId, userId: user!.id, title: 'test' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/admin/tenants/adoption')
+      .set('Authorization', `Bearer ${token}`);
+    const t = (res.body as AdoptionDto).tenants.find((x) => x.tenantId === owner.tenantId)!;
+    const web = t.features.find((f) => f.feature === 'web_premium')!;
+    expect(web).toMatchObject({ used: true, inPlan: false, viaOverride: true });
+    expect(t.isCandidate).toBe(true);
+    expect(t.recommendedPlanSlug).toBe('pro');
+  });
+
+  it('configuración del tenant: secciones sin secretos y avisos de lo que falta', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-adopt-config');
+    await adminClient.tenant.update({
+      where: { id: owner.tenantId },
+      data: { transferIban: 'ES9121000418450200051332' },
+    });
+    const res = await request(app.getHttpServer())
+      .get(`/admin/tenants/${owner.tenantId}/config`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    const sections = res.body.sections as {
+      key: string;
+      items: { label: string; value: string; tone: string }[];
+    }[];
+    expect(sections.map((s) => s.key)).toEqual([
+      'billing',
+      'payments',
+      'web',
+      'access',
+      'growth',
+      'security',
+    ]);
+    const payments = sections.find((s) => s.key === 'payments')!;
+    const iban = payments.items.find((i) => i.label === 'IBAN para transferencias')!;
+    // Solo los 4 últimos dígitos.
+    expect(iban.value).toBe('…1332');
+    expect(JSON.stringify(res.body)).not.toContain('ES9121000418450200051332');
+    const billing = sections.find((s) => s.key === 'billing')!;
+    expect(billing.items.find((i) => i.label === 'Certificado de la AEAT')?.tone).toBe('warn');
+
+    await request(app.getHttpServer())
+      .get('/admin/tenants/00000000-0000-0000-0000-000000000000/config')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+    await request(app.getHttpServer()).get(`/admin/tenants/${owner.tenantId}/config`).expect(401);
   });
 });

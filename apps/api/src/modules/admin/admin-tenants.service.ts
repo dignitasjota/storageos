@@ -654,6 +654,9 @@ export class AdminTenantsService {
       unitRows,
       facilityRows,
       userRows,
+      collectionsRows,
+      blogRows,
+      overrideRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
         where: { deletedAt: null, status: { in: ['active', 'trial'] } },
@@ -689,6 +692,11 @@ export class AdminTenantsService {
         _count: { _all: true },
       }),
       this.admin.user.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.delinquencyCase.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.blogPost.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.tenantFeatureOverride.findMany({
+        select: { tenantId: true, feature: true, enabled: true },
+      }),
     ]);
 
     const countMap = (
@@ -707,6 +715,15 @@ export class AdminTenantsService {
     const units = countMap(unitRows);
     const facilities = countMap(facilityRows);
     const users = countMap(userRows);
+    const collections = countMap(collectionsRows);
+    const blogPosts = countMap(blogRows);
+    const overridesByTenant = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
+    for (const o of overrideRows) {
+      const list = overridesByTenant.get(o.tenantId) ?? [];
+      list.push({ feature: o.feature as TenantFeature, enabled: o.enabled });
+      overridesByTenant.set(o.tenantId, list);
+    }
+    const tenantById = new Map(tenants.map((t) => [t.id, t]));
 
     /** Features que el tenant USA de verdad (señal por feature). */
     const usedFeaturesOf = (id: string): Set<TenantFeature> => {
@@ -720,11 +737,20 @@ export class AdminTenantsService {
       if ((cameras.get(id) ?? 0) > 0) s.add('cameras');
       if ((facialCredentials.get(id) ?? 0) > 0) s.add('facial_access');
       if ((automations.get(id) ?? 0) > 0) s.add('automations');
+      if ((collections.get(id) ?? 0) > 0) s.add('collections');
+      const t = tenantById.get(id);
+      if (t?.customDomainVerifiedAt) s.add('custom_domain');
+      if ((t && t.webTemplate !== 'default') || (blogPosts.get(id) ?? 0) > 0) {
+        s.add('web_premium');
+      }
       return s;
     };
 
     // Planes ordenados por precio asc para elegir el más barato que cubra.
     const sortedPlans = [...plans].sort((a, b) => Number(a.priceMonthly) - Number(b.priceMonthly));
+    // Las features que no entran en ningún plan (solo se venden como extra) no
+    // cuentan para recomendar plan: ninguno las cubre y el tenant nunca saldría.
+    const sellableInPlans = new Set(plans.flatMap((p) => resolvePlanFeatures(p)));
     const planCovers = (
       plan: (typeof plans)[number],
       used: Set<TenantFeature>,
@@ -733,7 +759,9 @@ export class AdminTenantsService {
       usr: number,
     ): boolean => {
       const feats = resolvePlanFeatures(plan);
-      for (const ft of used) if (!feats.includes(ft)) return false;
+      for (const ft of used) {
+        if (sellableInPlans.has(ft) && !feats.includes(ft)) return false;
+      }
       if (plan.maxUnits !== null && u > plan.maxUnits) return false;
       if (plan.maxFacilities !== null && f > plan.maxFacilities) return false;
       if (plan.maxUsers !== null && usr > plan.maxUsers) return false;
@@ -744,6 +772,7 @@ export class AdminTenantsService {
       const plan = t.subscription?.plan ?? null;
       const planSlug = plan?.slug ?? null;
       const inPlan = plan ? resolvePlanFeatures(plan) : [];
+      const effective = effectiveFeaturesFromList(inPlan, overridesByTenant.get(t.id) ?? []);
       const used = usedFeaturesOf(t.id);
       const u = units.get(t.id) ?? 0;
       const f = facilities.get(t.id) ?? 0;
@@ -753,9 +782,11 @@ export class AdminTenantsService {
         feature: ft,
         label: FEATURE_LABELS[ft],
         inPlan: inPlan.includes(ft),
+        viaOverride: !inPlan.includes(ft) && effective.includes(ft),
         used: used.has(ft),
       }));
-      const usesFeatureOutsidePlan = [...used].some((ft) => !inPlan.includes(ft));
+      // Fuera de plan = la usa sin tenerla contratada de ninguna forma.
+      const usesFeatureOutsidePlan = [...used].some((ft) => !effective.includes(ft));
       const tapsLimit =
         (plan?.maxUnits != null && u >= plan.maxUnits) ||
         (plan?.maxFacilities != null && f >= plan.maxFacilities) ||
@@ -793,8 +824,10 @@ export class AdminTenantsService {
       feature: ft,
       label: FEATURE_LABELS[ft],
       tenantsUsing: tenantDtos.filter((t) => t.features.find((x) => x.feature === ft)?.used).length,
-      tenantsWithAccess: tenantDtos.filter((t) => t.features.find((x) => x.feature === ft)?.inPlan)
-        .length,
+      tenantsWithAccess: tenantDtos.filter((t) => {
+        const f = t.features.find((x) => x.feature === ft);
+        return f?.inPlan || f?.viaOverride;
+      }).length,
     }));
 
     // Candidatos primero, luego por nombre.
@@ -1329,21 +1362,48 @@ export class AdminTenantsService {
   /** Checklist de puesta a punto del tenant (derivado de sus datos). */
   async getOnboarding(tenantId: string): Promise<AdminOnboardingDto> {
     await this.findOrThrow(tenantId);
-    const [tenant, ownerVerified, facilities, units, customers, contracts, aeat] =
-      await Promise.all([
-        this.admin.tenant.findUnique({
-          where: { id: tenantId },
-          select: { portalLogoUrl: true, portalBrandColor: true },
-        }),
-        this.admin.user.count({
-          where: { tenantId, role: 'owner', emailVerifiedAt: { not: null } },
-        }),
-        this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
-        this.admin.unit.count({ where: { tenantId } }),
-        this.admin.customer.count({ where: { tenantId, deletedAt: null } }),
-        this.admin.contract.count({ where: { tenantId } }),
-        this.admin.tenantAeatCredential.count({ where: { tenantId, revokedAt: null } }),
-      ]);
+    const [
+      tenant,
+      ownerVerified,
+      facilities,
+      units,
+      customers,
+      contracts,
+      aeat,
+      series,
+      issuedInvoices,
+      activeUsers,
+      redsys,
+      gocardless,
+      sepa,
+    ] = await Promise.all([
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          portalLogoUrl: true,
+          portalBrandColor: true,
+          invoicingMode: true,
+          transferIban: true,
+        },
+      }),
+      this.admin.user.count({
+        where: { tenantId, role: 'owner', emailVerifiedAt: { not: null } },
+      }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.customer.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.contract.count({ where: { tenantId } }),
+      this.admin.tenantAeatCredential.count({ where: { tenantId, revokedAt: null } }),
+      this.admin.invoiceSeries.count({ where: { tenantId, isActive: true } }),
+      this.admin.invoice.count({
+        where: { tenantId, status: { notIn: ['draft', 'cancelled'] } },
+      }),
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+      this.admin.redsysSettings.count({ where: { tenantId, enabled: true } }),
+      this.admin.goCardlessSettings.count({ where: { tenantId, enabled: true } }),
+      this.admin.sepaSettings.count({ where: { tenantId, enabled: true } }),
+    ]);
+    const paymentsReady = redsys + gocardless + sepa > 0 || Boolean(tenant?.transferIban);
     const items: AdminOnboardingDto['items'] = [
       { key: 'email_verified', label: 'Email del propietario verificado', done: ownerVerified > 0 },
       { key: 'facility', label: 'Primer local creado', done: facilities > 0 },
@@ -1355,7 +1415,18 @@ export class AdminTenantsService {
         label: 'Marca del portal configurada',
         done: Boolean(tenant?.portalLogoUrl || tenant?.portalBrandColor),
       },
-      { key: 'verifactu', label: 'Veri*Factu (certificado AEAT)', done: aeat > 0 },
+      { key: 'invoice_series', label: 'Serie de facturación creada', done: series > 0 },
+      { key: 'first_invoice', label: 'Primera factura emitida', done: issuedInvoices > 0 },
+      {
+        key: 'payments',
+        label: 'Forma de cobro configurada (Redsys, GoCardless, SEPA o IBAN)',
+        done: paymentsReady,
+      },
+      // En modo Holded la factura la registra Holded: no necesita certificado propio.
+      ...(tenant?.invoicingMode === 'holded'
+        ? []
+        : [{ key: 'verifactu', label: 'Veri*Factu (certificado AEAT)', done: aeat > 0 }]),
+      { key: 'team', label: 'Equipo invitado (2 o más usuarios)', done: activeUsers > 1 },
     ];
     return { items, completed: items.filter((i) => i.done).length, total: items.length };
   }

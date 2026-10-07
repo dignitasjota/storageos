@@ -111,7 +111,7 @@ function limitClass(value: number, max: number | null): string {
 
 function AdoptionRow({ t }: { t: AdminTenantAdoptionDto }) {
   const usedFeatures = t.features.filter((f) => f.used);
-  const availableUnused = t.features.filter((f) => f.inPlan && !f.used).length;
+  const availableUnused = t.features.filter((f) => (f.inPlan || f.viaOverride) && !f.used).length;
 
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
@@ -137,11 +137,20 @@ function AdoptionRow({ t }: { t: AdminTenantAdoptionDto }) {
                 className={`rounded px-1.5 py-0.5 text-xs ${
                   f.inPlan
                     ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 ring-1 ring-amber-300'
+                    : f.viaOverride
+                      ? 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'
+                      : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 ring-1 ring-amber-300'
                 }`}
-                title={f.inPlan ? 'En su plan' : 'Fuera de su plan'}
+                title={
+                  f.inPlan
+                    ? 'En su plan'
+                    : f.viaOverride
+                      ? 'Activada aparte (extra o cortesía)'
+                      : 'Fuera de su plan'
+                }
               >
                 {f.label}
+                {f.viaOverride ? ' · extra' : ''}
               </span>
             ))
           )}

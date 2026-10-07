@@ -59,11 +59,7 @@ export function AccountActivationBanner({
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button
-            size="sm"
-            onClick={() => run('verify')}
-            disabled={busy !== null}
-          >
+          <Button size="sm" onClick={() => run('verify')} disabled={busy !== null}>
             <MailCheck className="mr-1.5 size-4" />
             Activar cuenta ahora
           </Button>

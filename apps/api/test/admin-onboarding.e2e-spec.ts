@@ -38,7 +38,7 @@ describe('Admin: checklist de onboarding del tenant (e2e)', () => {
       .get(`/admin/tenants/${owner.tenantId}/onboarding`)
       .set(adminAuth);
     expect(res.status).toBe(200);
-    expect(res.body.total).toBe(7);
+    expect(res.body.total).toBe(11);
     expect(Array.isArray(res.body.items)).toBe(true);
     // El owner ya está verificado (registerVerifiedUser) → ese paso está hecho.
     const emailItem = res.body.items.find((i: { key: string }) => i.key === 'email_verified');
