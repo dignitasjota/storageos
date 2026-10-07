@@ -22,6 +22,10 @@ export class AnthropicAiProvider extends AiProvider {
   private readonly apiKey: string;
   private readonly model: string;
 
+  get modelName(): string {
+    return this.model;
+  }
+
   constructor(config: ConfigService<Env, true>) {
     super();
     this.apiKey = config.get('ANTHROPIC_API_KEY', { infer: true }) ?? '';
@@ -70,6 +74,7 @@ export class AnthropicAiProvider extends AiProvider {
     await this.assertOk(res);
     const data = (await res.json()) as {
       stop_reason: string;
+      usage?: { input_tokens?: number; output_tokens?: number };
       content: Array<
         | { type: 'text'; text: string }
         | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -82,7 +87,14 @@ export class AnthropicAiProvider extends AiProvider {
           ? { type: 'text', text: b.text }
           : { type: 'tool_use', id: b.id, name: b.name, input: b.input },
       );
-    return { stopReason: data.stop_reason, content };
+    return {
+      stopReason: data.stop_reason,
+      content,
+      usage: {
+        inputTokens: data.usage?.input_tokens ?? 0,
+        outputTokens: data.usage?.output_tokens ?? 0,
+      },
+    };
   }
 
   /**
@@ -131,6 +143,8 @@ type PartialBlock =
 export class AnthropicStreamAccumulator {
   private readonly blocks = new Map<number, PartialBlock>();
   private stopReason = 'end_turn';
+  private inputTokens = 0;
+  private outputTokens = 0;
 
   constructor(private readonly onText: (delta: string) => void) {}
 
@@ -177,9 +191,17 @@ export class AnthropicStreamAccumulator {
         }
         break;
       }
+      case 'message_start': {
+        const message = event.message as Record<string, unknown> | undefined;
+        const usage = message?.usage as Record<string, unknown> | undefined;
+        if (typeof usage?.input_tokens === 'number') this.inputTokens = usage.input_tokens;
+        break;
+      }
       case 'message_delta': {
         const delta = event.delta as Record<string, unknown> | undefined;
         if (typeof delta?.stop_reason === 'string') this.stopReason = delta.stop_reason;
+        const usage = event.usage as Record<string, unknown> | undefined;
+        if (typeof usage?.output_tokens === 'number') this.outputTokens = usage.output_tokens;
         break;
       }
       case 'error': {
@@ -204,6 +226,10 @@ export class AnthropicStreamAccumulator {
         }
         return { type: 'tool_use', id: b.id, name: b.name, input };
       });
-    return { stopReason: this.stopReason, content };
+    return {
+      stopReason: this.stopReason,
+      content,
+      usage: { inputTokens: this.inputTokens, outputTokens: this.outputTokens },
+    };
   }
 }

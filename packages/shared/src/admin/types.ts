@@ -1492,3 +1492,44 @@ export interface AdminTenantConfigSectionDto {
 export interface AdminTenantConfigDto {
   sections: AdminTenantConfigSectionDto[];
 }
+
+/** Uso de un tenant en los últimos días (correo, IA y almacenamiento). */
+export interface AdminTenantUsageRowDto {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  email: {
+    sent: number;
+    bounced: number;
+    failed: number;
+    /** Quejas de spam de sus destinatarios. */
+    complaints: number;
+    /** Rebotes / (enviados + rebotes), en %. null si no envió nada. */
+    bounceRate: number | null;
+  };
+  ai: {
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    /** Coste estimado en USD con el precio configurado. */
+    costUsd: number;
+  };
+  storage: {
+    bytes: number;
+    objects: number;
+    measuredAt: string | null;
+  };
+}
+
+export interface AdminUsageDto {
+  days: number;
+  rows: AdminTenantUsageRowDto[];
+  totals: {
+    emailsSent: number;
+    aiCostUsd: number;
+    storageBytes: number;
+  };
+  aiPricing: { inputPerMTokUsd: number; outputPerMTokUsd: number };
+  /** Última medición del almacenamiento (null si nunca se ha medido). */
+  storageMeasuredAt: string | null;
+}

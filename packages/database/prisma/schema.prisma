@@ -546,6 +546,8 @@ model Tenant {
   @@index([deletedAt, createdAt])
   @@index([status, updatedAt])
   @@map("tenants")
+  aiUsageEvents       AiUsageEvent[]
+  storageUsage        TenantStorageUsage?
 }
 
 /// Staff interno del tenant.
@@ -4708,6 +4710,38 @@ model PlatformLegalDocument {
 /// Dedupe de ejecuciones de crons entre réplicas: cada cron reclama su
 /// ejecución diaria insertando (name, run_on); la PK garantiza un solo ganador.
 /// Global (sin tenant, sin RLS).
+/// Consumo del asistente de IA por llamada al modelo (lo lee el super admin).
+model AiUsageEvent {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  /// chat | suggest_reply | ad_campaign | suggested_actions | portal
+  feature      String
+  model        String
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([createdAt])
+  @@map("ai_usage_events")
+}
+
+/// Espacio que ocupa cada tenant en MinIO (medido una vez al día).
+model TenantStorageUsage {
+  tenantId   String   @id @map("tenant_id") @db.Uuid
+  bytes      BigInt   @default(0)
+  objects    Int      @default(0)
+  byBucket   Json     @default("{}") @map("by_bucket")
+  measuredAt DateTime @default(now()) @map("measured_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_storage_usage")
+}
+
 /// Última ejecución y siguiente prevista de cada tarea programada (global).
 model CronHeartbeat {
   name       String    @id

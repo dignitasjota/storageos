@@ -8,11 +8,13 @@ import {
 } from '@nestjs/common';
 import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
 
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { AiActionsService } from './ai-actions.service';
 import {
   AI_PROVIDER,
+  type AiCompletion,
   type AiMessageParam,
   type AiProvider,
   type AiToolResultBlock,
@@ -130,7 +132,37 @@ export class AiService {
     private readonly tools: AiToolsService,
     private readonly actions: AiActionsService,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider,
+    private readonly admin: PrismaAdminService,
   ) {}
+
+  /**
+   * Guarda los tokens de una llamada al modelo (para el panel del super admin).
+   * Best-effort y sin esperar: un fallo nunca afecta a la respuesta.
+   */
+  private recordUsage(
+    tenantId: string,
+    userId: string | null,
+    feature: string,
+    completion: AiCompletion,
+  ): void {
+    if (!completion.usage) return;
+    void this.admin.aiUsageEvent
+      .create({
+        data: {
+          tenantId,
+          userId,
+          feature,
+          model: this.provider.modelName,
+          inputTokens: completion.usage.inputTokens,
+          outputTokens: completion.usage.outputTokens,
+        },
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `[ai-usage] no se pudo registrar: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+  }
 
   /** 503 si el provider no está configurado (antes de abrir un stream). */
   assertAvailable(): void {
@@ -206,6 +238,7 @@ export class AiService {
       const completion = hooks
         ? await this.provider.streamMessage(request, hooks.onText)
         : await this.provider.createMessage(request);
+      this.recordUsage(tenantId, userId, 'chat', completion);
       messages.push({ role: 'assistant', content: completion.content });
 
       const toolUses = completion.content.filter((b) => b.type === 'tool_use');
@@ -342,6 +375,7 @@ Redacta la respuesta al inquilino:`;
       messages: [{ role: 'user', content: contextText }],
       tools: [],
     });
+    this.recordUsage(args.tenantId, null, 'suggest_reply', completion);
     const suggestion = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)
@@ -441,6 +475,7 @@ Redacta el borrador de campaña:`;
       messages: [{ role: 'user', content: contextText }],
       tools: [],
     });
+    this.recordUsage(args.tenantId, null, 'ad_campaign', completion);
     const draft = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)
@@ -478,6 +513,7 @@ Redacta el borrador de campaña:`;
         }),
       ]);
       if (!completion) return null;
+      this.recordUsage(tenantId, null, 'suggested_actions', completion);
       const text = completion.content
         .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
         .map((b) => b.text)
@@ -606,6 +642,7 @@ Datos del inquilino (${custName}):
       messages: [...history, { role: 'user', content: input.message }],
       tools: [],
     });
+    this.recordUsage(args.tenantId, null, 'portal', completion);
     const answer = completion.content
       .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
       .map((b) => b.text)

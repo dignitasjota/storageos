@@ -10,8 +10,21 @@ import { type AiCompletion, type AiMessageParam, AiProvider } from './ai-provide
 @Injectable()
 export class StubAiProvider extends AiProvider {
   readonly available = true;
+  readonly modelName = 'stub';
 
-  createMessage(args: { messages: AiMessageParam[]; tools?: unknown[] }): Promise<AiCompletion> {
+  /** Respuesta simulada + consumo aproximado (≈4 caracteres por token). */
+  async createMessage(args: {
+    messages: AiMessageParam[];
+    tools?: unknown[];
+  }): Promise<AiCompletion> {
+    const completion = await this.respond(args);
+    const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
+    const inputTokens = tokens(JSON.stringify(args.messages));
+    const outputTokens = tokens(JSON.stringify(completion.content));
+    return { ...completion, usage: { inputTokens, outputTokens } };
+  }
+
+  private respond(args: { messages: AiMessageParam[]; tools?: unknown[] }): Promise<AiCompletion> {
     const last = args.messages[args.messages.length - 1];
 
     // Si el último mensaje trae resultados de herramienta → responde con texto.

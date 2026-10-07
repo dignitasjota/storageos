@@ -34,9 +34,17 @@ export interface AiToolDef {
   input_schema: Record<string, unknown>;
 }
 
+/** Tokens consumidos por una llamada (los devuelve el proveedor). */
+export interface AiUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface AiCompletion {
   stopReason: string;
   content: AiContentBlock[];
+  /** Consumo de la llamada, si el proveedor lo informa. */
+  usage?: AiUsage;
 }
 
 export const AI_PROVIDER = Symbol('AI_PROVIDER');
@@ -44,6 +52,9 @@ export const AI_PROVIDER = Symbol('AI_PROVIDER');
 export abstract class AiProvider {
   /** ¿Está configurado y operativo? (p.ej. hay API key). */
   abstract readonly available: boolean;
+
+  /** Modelo que se usa (para registrar el consumo). */
+  abstract readonly modelName: string;
 
   abstract createMessage(args: {
     system: string;
