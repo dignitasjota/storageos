@@ -10,6 +10,8 @@ import { ContractPdfController } from './contract-pdf.controller';
 import { ContractPdfService } from './contract-pdf.service';
 import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
+import { DepositRegistryController } from './deposit-registry.controller';
+import { DepositRegistryService } from './deposit-registry.service';
 import { InspectionPhotosController } from './inspection-photos.controller';
 import { InspectionPhotosService } from './inspection-photos.service';
 import { PricingService } from './pricing.service';
@@ -20,12 +22,14 @@ import { ReservationsService } from './reservations.service';
 @Module({
   imports: [AuthModule, PromotionsModule, BillingModule],
   controllers: [
+    DepositRegistryController,
     ContractsController,
     ReservationsController,
     ContractPdfController,
     InspectionPhotosController,
   ],
   providers: [
+    DepositRegistryService,
     ContractsService,
     ReservationsService,
     PricingService,

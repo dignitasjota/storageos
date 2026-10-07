@@ -1222,6 +1222,12 @@ model Contract {
   /// Contratos migrados: primer día que factura la app (null = desde el alta).
   billingStartsOn        DateTime?              @map("billing_starts_on") @db.Date
   billingIntervalMonths  Int                   @default(1) @map("billing_interval_months")
+  /// Vivienda: fianza depositada en el organismo autonómico.
+  depositRegistryBody        String?   @map("deposit_registry_body")
+  depositRegisteredAt        DateTime? @map("deposit_registered_at") @db.Date
+  depositRegistryReference   String?   @map("deposit_registry_reference")
+  depositRegistryReceiptKey  String?   @map("deposit_registry_receipt_key")
+  depositRegistryRecoveredAt DateTime? @map("deposit_registry_recovered_at") @db.Date
   prepayDiscountPct      Decimal               @default(0) @map("prepay_discount_pct") @db.Decimal(5, 2)
   /// Precio congelado al firmar (snapshot). Antes de firmar es el
   /// precio propuesto y puede cambiarse libremente. Tras firmar, solo

@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   ActivateImportedContractsInput,
   ActivateImportedContractsResultDto,
+  UpdateDepositRegistryInput,
   AddContractNoteInput,
   CancelContractInput,
   CancelReservationInput,
@@ -612,4 +613,46 @@ export function useActivateImportedContracts() {
       void qc.invalidateQueries({ queryKey: ['dashboard', 'occupancy'] });
     },
   });
+}
+
+/** Vivienda: guarda el depósito de la fianza en el organismo autonómico. */
+export function useUpdateDepositRegistry(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { input: UpdateDepositRegistryInput; file?: File | null }) => {
+      let receiptKey: string | undefined;
+      if (args.file) {
+        const presign = await apiFetch<{
+          uploadUrl: string;
+          key: string;
+          requiredHeaders: Record<string, string>;
+        }>(`/contracts/${contractId}/deposit-registry/receipt-upload-url`, {
+          method: 'POST',
+          json: { mimeType: args.file.type },
+        });
+        const put = await fetch(presign.uploadUrl, {
+          method: 'PUT',
+          headers: presign.requiredHeaders,
+          body: args.file,
+        });
+        if (!put.ok) throw new Error('No se pudo subir el justificante');
+        receiptKey = presign.key;
+      }
+      return apiFetch<ContractDto>(`/contracts/${contractId}/deposit-registry`, {
+        method: 'PUT',
+        json: { ...args.input, ...(receiptKey ? { receiptKey } : {}) },
+      });
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(contractKey(contractId), data);
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+export async function openDepositRegistryReceipt(contractId: string): Promise<void> {
+  const { url } = await apiFetch<{ url: string }>(
+    `/contracts/${contractId}/deposit-registry/receipt`,
+  );
+  window.open(url, '_blank', 'noopener');
 }

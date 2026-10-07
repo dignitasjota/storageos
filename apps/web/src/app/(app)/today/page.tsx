@@ -396,6 +396,17 @@ export default function TodayPage() {
               itemHref={(it) => `/contracts/${it.id}`}
               empty="Ninguna fianza pendiente de liquidar."
             />
+            {data.depositsToRegister.count > 0 && (
+              <SectionCard
+                title="Fianzas de vivienda sin depositar"
+                icon={PiggyBank}
+                count={data.depositsToRegister.count}
+                items={data.depositsToRegister.items}
+                href="/contracts"
+                itemHref={(it) => `/contracts/${it.id}`}
+                empty="Todas las fianzas de vivienda están depositadas."
+              />
+            )}
             <SectionCard
               title="Fianzas a cobrar en el local"
               icon={PiggyBank}
