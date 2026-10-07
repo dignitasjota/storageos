@@ -58,6 +58,7 @@ type TicketWithRelations = {
   assignedAdminId: string | null;
   resolvedAt: Date | null;
   closedAt: Date | null;
+  firstResponseAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   tenant: { name: string; slug: string };
@@ -325,11 +326,19 @@ export class SupportTicketsService {
     });
     // Si el admin responde (no interna) y el ticket estaba open, lo movemos
     // a waiting_user para reflejar que la pelota esta en el cliente.
-    const updates: { status?: SupportTicketStatusValue; updatedAt?: Date } = {
+    const updates: {
+      status?: SupportTicketStatusValue;
+      updatedAt?: Date;
+      firstResponseAt?: Date;
+    } = {
       updatedAt: new Date(),
     };
     if (!args.input.isInternal && ticket.status === 'open') {
       updates.status = 'waiting_user';
+    }
+    // La primera respuesta visible para el cliente marca el tiempo de respuesta.
+    if (!args.input.isInternal && !ticket.firstResponseAt) {
+      updates.firstResponseAt = message.createdAt;
     }
     await this.admin.supportTicket.update({
       where: { id: args.ticketId },
@@ -511,6 +520,7 @@ export class SupportTicketsService {
       assignedAdminName: row.assignedAdmin?.fullName ?? null,
       resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+      firstResponseAt: row.firstResponseAt ? row.firstResponseAt.toISOString() : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

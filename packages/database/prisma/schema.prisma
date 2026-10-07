@@ -3465,6 +3465,7 @@ model SuperAdmin {
 
   @@map("super_admins")
   productUpdates ProductUpdate[] @relation("ProductUpdateAuthor")
+  supportCannedResponses SupportCannedResponse[] @relation("SupportCannedAuthor")
 }
 
 /// Codigos de recuperacion 2FA para super admin. 10 codigos `XXXX-XXXX`
@@ -3518,6 +3519,8 @@ model SupportTicket {
   priority        SupportTicketPriority @default(normal)
   category        String?
   closedAt        DateTime?             @map("closed_at") @db.Timestamptz(6)
+  /// Primera respuesta del equipo (no cuenta las notas internas).
+  firstResponseAt DateTime?             @map("first_response_at") @db.Timestamptz(6)
   resolvedAt      DateTime?             @map("resolved_at") @db.Timestamptz(6)
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -4713,6 +4716,20 @@ model PlatformLegalDocument {
 /// Dedupe de ejecuciones de crons entre réplicas: cada cron reclama su
 /// ejecución diaria insertando (name, run_on); la PK garantiza un solo ganador.
 /// Global (sin tenant, sin RLS).
+/// Respuestas guardadas del soporte (globales). Admiten {empresa} y {nombre}.
+model SupportCannedResponse {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  title       String
+  body        String
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy SuperAdmin? @relation("SupportCannedAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("support_canned_responses")
+}
+
 /// «Novedades» que publica el super admin para todos los tenants (global).
 model ProductUpdate {
   id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid

@@ -4,6 +4,9 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminSupportStatsDto,
+  SupportCannedResponseDto,
+  UpsertSupportCannedResponseInput,
   AdminProductUpdateDto,
   UpsertProductUpdateInput,
   AdminUsageDto,
@@ -2192,5 +2195,44 @@ export function useDeleteProductUpdate() {
     mutationFn: (id: string) =>
       adminApiFetch<void>(`/admin/product-updates/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'product-updates'] }),
+  });
+}
+
+/** Tiempos de respuesta del soporte. */
+export function useAdminSupportStats(days = 30) {
+  return useQuery({
+    queryKey: ['admin', 'support', 'stats', days],
+    queryFn: () => adminApiFetch<AdminSupportStatsDto>(`/admin/support/stats?days=${days}`),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Respuestas guardadas del soporte. */
+export function useSupportCannedResponses() {
+  return useQuery({
+    queryKey: ['admin', 'support', 'canned'],
+    queryFn: () => adminApiFetch<SupportCannedResponseDto[]>('/admin/support/canned-responses'),
+  });
+}
+
+export function useSaveCannedResponse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: UpsertSupportCannedResponseInput }) =>
+      adminApiFetch<SupportCannedResponseDto>(
+        id ? `/admin/support/canned-responses/${id}` : '/admin/support/canned-responses',
+        { method: id ? 'PUT' : 'POST', json: input },
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'support', 'canned'] }),
+  });
+}
+
+export function useDeleteCannedResponse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/support/canned-responses/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'support', 'canned'] }),
   });
 }

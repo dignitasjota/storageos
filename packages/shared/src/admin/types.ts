@@ -527,6 +527,8 @@ export interface SupportTicketDto {
   assignedAdminName: string | null;
   resolvedAt: string | null;
   closedAt: string | null;
+  /** Primera respuesta del equipo (null = aún sin responder). */
+  firstResponseAt: string | null;
   createdAt: string;
   updatedAt: string;
   /** Pre-cargado en detail. */
@@ -1532,4 +1534,29 @@ export interface AdminUsageDto {
   aiPricing: { inputPerMTokUsd: number; outputPerMTokUsd: number };
   /** Última medición del almacenamiento (null si nunca se ha medido). */
   storageMeasuredAt: string | null;
+}
+
+/** Respuesta guardada del soporte. Admite {empresa} y {nombre}. */
+export interface SupportCannedResponseDto {
+  id: string;
+  title: string;
+  body: string;
+  authorName: string | null;
+  updatedAt: string;
+}
+
+/** Tiempos de respuesta del soporte en un periodo. */
+export interface AdminSupportStatsDto {
+  days: number;
+  ticketsOpened: number;
+  ticketsAnswered: number;
+  /** Media y mediana en minutos hasta la primera respuesta (null sin datos). */
+  avgFirstResponseMinutes: number | null;
+  medianFirstResponseMinutes: number | null;
+  /** % de tickets respondidos en menos de 24 h. */
+  answeredWithinDayPct: number | null;
+  /** Tickets abiertos que siguen sin ninguna respuesta. */
+  awaitingFirstResponse: number;
+  /** Horas que lleva esperando el más antiguo sin respuesta. */
+  oldestAwaitingHours: number | null;
 }
