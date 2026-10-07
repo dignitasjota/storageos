@@ -1,10 +1,17 @@
 import { randomBytes } from 'node:crypto';
 
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { subtractAmounts, toCents } from '../../common/money';
+import { isUniqueViolation } from '../../common/prisma-errors';
 import { DOMAIN_EVENTS, type SepaRemittanceCreatedPayload } from '../automations/domain-events';
 import { InvoicesService, lockInvoiceRow } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
@@ -161,38 +168,57 @@ export class SepaService {
     return rows.map((r) => this.mandateDto(r));
   }
 
-  async createMandate(tenantId: string, input: CreateSepaMandateInput): Promise<SepaMandateDto> {
-    const reference = `MND-${rand(12)}`;
-    const created = await this.prisma.withTenant(async (tx) => {
-      const customer = await tx.customer.findFirst({
-        where: { id: input.customerId, tenantId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!customer) {
-        throw new NotFoundException({
-          code: 'customer_not_found',
-          message: 'Cliente no encontrado',
+  async createMandate(
+    tenantId: string,
+    input: CreateSepaMandateInput,
+    /**
+     * Mandatos migrados de otro sistema: conservan su referencia original
+     * (cambiarla obligaría a un mandato nuevo) y, si ya tuvieron cobros, van
+     * como recurrentes (RCUR) y no como primer adeudo.
+     */
+    opts: { reference?: string; sequenceType?: 'FRST' | 'RCUR' } = {},
+  ): Promise<SepaMandateDto> {
+    const reference = opts.reference ?? `MND-${rand(12)}`;
+    const created = await this.prisma
+      .withTenant(async (tx) => {
+        const customer = await tx.customer.findFirst({
+          where: { id: input.customerId, tenantId, deletedAt: null },
+          select: { id: true },
         });
-      }
-      // Solo un mandato activo por cliente: cancela el anterior si lo hay.
-      await tx.sepaMandate.updateMany({
-        where: { customerId: input.customerId, status: 'active' },
-        data: { status: 'cancelled' },
+        if (!customer) {
+          throw new NotFoundException({
+            code: 'customer_not_found',
+            message: 'Cliente no encontrado',
+          });
+        }
+        // Solo un mandato activo por cliente: cancela el anterior si lo hay.
+        await tx.sepaMandate.updateMany({
+          where: { customerId: input.customerId, status: 'active' },
+          data: { status: 'cancelled' },
+        });
+        return tx.sepaMandate.create({
+          data: {
+            tenantId,
+            customerId: input.customerId,
+            reference,
+            ibanEncrypted: this.crypto.encryptString(input.iban, tenantId),
+            ibanLast4: input.iban.slice(-4),
+            bic: input.bic || null,
+            signedAt: new Date(`${input.signedAt}T00:00:00Z`),
+            sequenceType: opts.sequenceType ?? 'FRST',
+            status: 'active',
+          },
+        });
+      }, tenantId)
+      .catch((err: unknown) => {
+        if (isUniqueViolation(err)) {
+          throw new ConflictException({
+            code: 'mandate_reference_taken',
+            message: `Ya existe un mandato con la referencia ${reference}`,
+          });
+        }
+        throw err;
       });
-      return tx.sepaMandate.create({
-        data: {
-          tenantId,
-          customerId: input.customerId,
-          reference,
-          ibanEncrypted: this.crypto.encryptString(input.iban, tenantId),
-          ibanLast4: input.iban.slice(-4),
-          bic: input.bic || null,
-          signedAt: new Date(`${input.signedAt}T00:00:00Z`),
-          sequenceType: 'FRST',
-          status: 'active',
-        },
-      });
-    }, tenantId);
     return this.mandateDto(created);
   }
 
