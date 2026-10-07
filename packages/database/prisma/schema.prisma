@@ -333,6 +333,11 @@ model Tenant {
   autoChargeOnIssue            Boolean               @default(false) @map("auto_charge_on_issue")
   /// Concilia solo los abonos N43 con coincidencia única exacta.
   bankAutoReconcile Boolean @default(false) @map("bank_auto_reconcile")
+  /// Actualización de la renta en el aniversario (propuesta; la aplica el gestor).
+  anniversaryUpdateEnabled Boolean @default(false) @map("anniversary_update_enabled")
+  anniversaryUpdatePct     Decimal @default(0) @map("anniversary_update_pct") @db.Decimal(5, 2)
+  /// housing | all
+  anniversaryUpdateScope   String  @default("housing") @map("anniversary_update_scope")
   /// IBAN para pagos por transferencia (sale en el correo de «Nueva factura»).
   transferIban            String?  @map("transfer_iban")
   /// Dónde se emiten las facturas: 'app' (Veri*Factu) | 'holded'.
@@ -1228,6 +1233,8 @@ model Contract {
   depositRegistryReference   String?   @map("deposit_registry_reference")
   depositRegistryReceiptKey  String?   @map("deposit_registry_receipt_key")
   depositRegistryRecoveredAt DateTime? @map("deposit_registry_recovered_at") @db.Date
+  /// Último aniversario con la renta actualizada (o descartado).
+  lastAnniversaryUpdateOn    DateTime? @map("last_anniversary_update_on") @db.Date
   prepayDiscountPct      Decimal               @default(0) @map("prepay_discount_pct") @db.Decimal(5, 2)
   /// Precio congelado al firmar (snapshot). Antes de firmar es el
   /// precio propuesto y puede cambiarse libremente. Tras firmar, solo

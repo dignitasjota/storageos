@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 
+import { AnniversaryCard } from './anniversary-card';
+
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,6 +37,8 @@ export default function RenewalsPage() {
           al inquilino.
         </p>
       </div>
+
+      <AnniversaryCard />
 
       <Card>
         <CardHeader className="pb-2">
