@@ -4,6 +4,8 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminBillingHealthDto,
+  AdminCronStatusDto,
   AccountantExportDto,
   RectifyPlatformInvoiceInput,
   HoldedSeriesListDto,
@@ -2110,5 +2112,25 @@ export function useExtendTrialsBatch() {
       qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
       qc.invalidateQueries({ queryKey: ['admin', 'trials'] });
     },
+  });
+}
+
+/** Facturación de los tenants: Veri*Factu, Holded y certificados. */
+export function useAdminBillingHealth() {
+  return useQuery({
+    queryKey: ['admin', 'billing-health'],
+    queryFn: () => adminApiFetch<AdminBillingHealthDto>('/admin/billing-health'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Tareas programadas: última ejecución y si van con retraso. */
+export function useAdminCrons() {
+  return useQuery({
+    queryKey: ['admin', 'crons'],
+    queryFn: () => adminApiFetch<AdminCronStatusDto[]>('/admin/crons'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }

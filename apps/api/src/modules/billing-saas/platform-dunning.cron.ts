@@ -22,7 +22,7 @@ export class PlatformDunningCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { name: 'platform-dunning.daily' })
   async daily(): Promise<void> {
     try {
       // Con varias réplicas del API, solo una debe ejecutar el dunning del día.

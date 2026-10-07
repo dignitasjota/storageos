@@ -9,6 +9,7 @@ import {
   Building2,
   Eye,
   FileText,
+  FileWarning,
   CalendarCheck,
   CalendarClock,
   Globe,
@@ -106,6 +107,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/tenants', label: 'Tenants', icon: Building2 },
       { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
       { href: '/admin/custom-domains', label: 'Dominios propios', icon: Globe },
+      { href: '/admin/billing-health', label: 'Facturación de los tenants', icon: FileWarning },
     ],
   },
   {

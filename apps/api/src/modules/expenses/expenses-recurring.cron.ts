@@ -21,7 +21,7 @@ export class ExpensesRecurringCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 6 * * *')
+  @Cron('0 6 * * *', { name: 'expenses-recurring.daily' })
   async daily(): Promise<void> {
     try {
       if (!(await claimDailyCronRun(this.admin, 'expenses-recurring.daily'))) return;

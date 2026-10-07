@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
+import { AccountingModule } from '../accounting/accounting.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
 import { EmailModule } from '../email/email.module';
 import { EmailDomainsModule } from '../email-domains/email-domains.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PlatformModule } from '../platform/platform.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
@@ -20,6 +22,8 @@ import { AdminImpersonationAuditController } from './admin-impersonation-audit.c
 import { AdminImpersonationAuditService } from './admin-impersonation-audit.service';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
+import { AdminOpsHealthController } from './admin-ops-health.controller';
+import { AdminOpsHealthService } from './admin-ops-health.service';
 import { AdminQueuesController } from './admin-queues.controller';
 import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
@@ -31,6 +35,8 @@ import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayController } from './admin-today.controller';
 import { AdminTodayService } from './admin-today.service';
 import { AdminGuard } from './admin.guard';
+import { AeatCertExpiryCron } from './aeat-cert-expiry.cron';
+import { AeatCertExpiryService } from './aeat-cert-expiry.service';
 import { ImpersonationService } from './impersonation.service';
 import { MrrModule } from './mrr.module';
 import { PlatformAlertsController } from './platform-alerts.controller';
@@ -78,6 +84,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     BillingSaasModule,
     EmailModule,
     MrrModule,
+    AccountingModule,
+    NotificationsModule,
   ],
   controllers: [
     AdminCommsController,
@@ -102,6 +110,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminFinanceController,
     TenantLifecycleEmailsController,
     WeeklyDigestController,
+    AdminOpsHealthController,
   ],
   providers: [
     AdminGuard,
@@ -126,6 +135,9 @@ import { WeeklyDigestService } from './weekly-digest.service';
     ImpersonationService,
     SuperAdminAuditService,
     SupportTicketsService,
+    AdminOpsHealthService,
+    AeatCertExpiryService,
+    AeatCertExpiryCron,
   ],
   exports: [SuperAdminService, SuperAdminAuditService],
 })

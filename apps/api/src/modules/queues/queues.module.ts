@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+import { CronMonitorModule } from '../cron-monitor/cron-monitor.module';
 
 import {
   QUEUE_AUTOMATIONS,
@@ -68,6 +69,8 @@ export const JOB_WEBHOOK_DELIVER = 'deliver';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    // Registra cada ejecución de las tareas programadas (panel del super admin).
+    CronMonitorModule,
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => ({

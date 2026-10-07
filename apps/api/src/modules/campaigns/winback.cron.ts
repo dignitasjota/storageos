@@ -20,7 +20,7 @@ export class WinbackCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { name: 'winback.daily' })
   async daily(): Promise<void> {
     try {
       if (!(await claimDailyCronRun(this.admin, 'winback.daily'))) return;

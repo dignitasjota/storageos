@@ -14,7 +14,7 @@ export class CampaignsResumeCron {
 
   constructor(private readonly campaigns: CampaignsService) {}
 
-  @Cron('*/5 * * * *')
+  @Cron('*/5 * * * *', { name: 'campaigns.resume' })
   async tick(): Promise<void> {
     try {
       await this.campaigns.resumeStale();

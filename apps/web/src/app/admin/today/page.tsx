@@ -1,6 +1,17 @@
 'use client';
 
-import { AlertTriangle, CalendarClock, CreditCard, LifeBuoy, Loader2, Lock } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  Clock,
+  CreditCard,
+  FileWarning,
+  KeyRound,
+  LifeBuoy,
+  Loader2,
+  Lock,
+  WifiOff,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -23,6 +34,8 @@ import { ApiError } from '@/lib/auth/api';
 const eur = (n: number, c = 'EUR') =>
   n.toLocaleString('es-ES', { style: 'currency', currency: c || 'EUR' });
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
+const fmtDateTime = (iso: string) =>
+  new Date(iso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
 
 const PROVIDERS: { value: SaasPaymentProviderValue; label: string }[] = [
   { value: 'cash', label: 'Efectivo' },
@@ -56,7 +69,12 @@ export default function AdminTodayPage() {
     data.staleSuspendedAddons.length === 0 &&
     data.openTickets.length === 0 &&
     data.failedWebhooks.length === 0 &&
-    data.failedJobs === 0;
+    data.failedJobs === 0 &&
+    data.aeatIssues.length === 0 &&
+    data.certificatesExpiring.length === 0 &&
+    data.holdedReview.length === 0 &&
+    data.devicesOffline.length === 0 &&
+    data.overdueCrons.length === 0;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -125,6 +143,101 @@ export default function AdminTodayPage() {
               </div>
               <span className="shrink-0 text-xs text-muted-foreground">
                 {t.waitingDays === 0 ? 'hoy' : `${t.waitingDays} d`}
+              </span>
+            </div>
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Facturas con problemas en la AEAT */}
+      {data && data.aeatIssues.length > 0 && (
+        <SimpleCard
+          title={`Facturas con problemas en Veri*Factu (${data.aeatIssues.length})`}
+          icon={<FileWarning className="size-4 text-red-500" />}
+          action={{ href: '/admin/billing-health', label: 'Ver detalle →' }}
+        >
+          {data.aeatIssues.map((t) => (
+            <TenantRow
+              key={t.tenantId}
+              id={t.tenantId}
+              name={t.tenantName}
+              detail={`${t.count} factura(s) rechazada(s), con error o sin respuesta`}
+            />
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Certificados de la AEAT que caducan */}
+      {data && data.certificatesExpiring.length > 0 && (
+        <SimpleCard
+          title={`Certificados de la AEAT que caducan (${data.certificatesExpiring.length})`}
+          icon={<KeyRound className="size-4 text-amber-500" />}
+        >
+          {data.certificatesExpiring.map((c) => (
+            <TenantRow
+              key={c.tenantId}
+              id={c.tenantId}
+              name={c.tenantName}
+              detail={
+                c.daysLeft <= 0
+                  ? `Caducado el ${fmtDate(c.validTo)}`
+                  : `Caduca en ${c.daysLeft} d (${fmtDate(c.validTo)})`
+              }
+            />
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Holded: envíos para revisar */}
+      {data && data.holdedReview.length > 0 && (
+        <SimpleCard
+          title={`Holded: envíos para revisar (${data.holdedReview.length})`}
+          icon={<FileWarning className="size-4 text-amber-500" />}
+          action={{ href: '/admin/billing-health', label: 'Ver detalle →' }}
+        >
+          {data.holdedReview.map((t) => (
+            <TenantRow
+              key={t.tenantId}
+              id={t.tenantId}
+              name={t.tenantName}
+              detail={`${t.count} para revisar`}
+            />
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Cerraduras y lectores sin conexión */}
+      {data && data.devicesOffline.length > 0 && (
+        <SimpleCard
+          title={`Dispositivos de acceso sin conexión (${data.devicesOffline.length})`}
+          icon={<WifiOff className="size-4 text-red-500" />}
+        >
+          {data.devicesOffline.map((t) => (
+            <TenantRow
+              key={t.tenantId}
+              id={t.tenantId}
+              name={t.tenantName}
+              detail={`${t.count} sin señal desde hace más de 1 h`}
+            />
+          ))}
+        </SimpleCard>
+      )}
+
+      {/* Tareas programadas atrasadas */}
+      {data && data.overdueCrons.length > 0 && (
+        <SimpleCard
+          title={`Tareas programadas sin ejecutarse (${data.overdueCrons.length})`}
+          icon={<Clock className="size-4 text-red-500" />}
+          action={{ href: '/admin/queues', label: 'Ver tareas →' }}
+        >
+          {data.overdueCrons.map((c) => (
+            <div
+              key={c.name}
+              className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+            >
+              <span className="font-mono text-xs">{c.name}</span>
+              <span className="text-xs text-muted-foreground">
+                {c.process} · tocaba {c.nextRunAt ? fmtDateTime(c.nextRunAt) : '—'}
               </span>
             </div>
           ))}
@@ -333,19 +446,29 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
 function SimpleCard({
   title,
   icon,
+  action,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
+  action?: { href: string; label: string };
   children: React.ReactNode;
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
           {icon}
           {title}
         </CardTitle>
+        {action && (
+          <Link
+            href={action.href}
+            className="shrink-0 text-xs font-medium text-primary hover:underline"
+          >
+            {action.label}
+          </Link>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">{children}</CardContent>
     </Card>
