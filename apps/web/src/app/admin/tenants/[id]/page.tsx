@@ -77,6 +77,7 @@ import { CHURN_REASONS } from '@/lib/admin/churn';
 import {
   useAdminSubscriptionPlans,
   useAdminTenant,
+  useTenantDataExport,
   useAnonymizeTenant,
   useChangePlan,
   useChangePlanPreview,
@@ -107,6 +108,7 @@ export default function AdminTenantDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const tenant = useAdminTenant(id);
+  const dataExport = useTenantDataExport(id);
 
   const [dialog, setDialog] = useState<
     'suspend' | 'reactivate' | 'extendTrial' | 'endTrial' | 'impersonate' | 'anonymize' | null
@@ -197,6 +199,20 @@ export default function AdminTenantDetailPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => setDialog('impersonate')}>
                 Impersonar
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={dataExport.isPending}
+                onClick={() =>
+                  dataExport.mutate(undefined, {
+                    onSuccess: (r) => {
+                      toast.success('Exportación lista. Se descarga el Excel.');
+                      window.location.href = r.url;
+                    },
+                    onError: () => toast.error('No se pudo generar la exportación.'),
+                  })
+                }
+              >
+                {dataExport.isPending ? 'Exportando datos…' : 'Exportar datos (Excel)'}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
@@ -906,7 +922,8 @@ function AnonymizeDialog({
           <DialogDescription>
             Acción <strong>irreversible</strong>. Se anonimizan todos los inquilinos y usuarios del
             tenant, se borran sus documentos y métodos de pago, se revocan las sesiones y la cuenta
-            queda cancelada. Las facturas se conservan por obligación fiscal.
+            queda cancelada. Las facturas se conservan por obligación fiscal. Si el cliente quiere
+            sus datos, descárgalos antes con «Exportar datos (Excel)» del menú.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

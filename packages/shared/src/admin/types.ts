@@ -1560,3 +1560,18 @@ export interface AdminSupportStatsDto {
   /** Horas que lleva esperando el más antiguo sin respuesta. */
   oldestAwaitingHours: number | null;
 }
+
+/** Exportación completa de los datos de un tenant (Excel, enlace temporal). */
+export interface TenantDataExportDto {
+  url: string;
+  expiresAt: string;
+  fileBytes: number;
+  counts: {
+    facilities: number;
+    units: number;
+    customers: number;
+    contracts: number;
+    invoices: number;
+    payments: number;
+  };
+}

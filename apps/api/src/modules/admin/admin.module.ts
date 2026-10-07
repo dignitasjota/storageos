@@ -57,6 +57,8 @@ import { SupportAgilityService } from './support-agility.service';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
+import { TenantDataExportController } from './tenant-data-export.controller';
+import { TenantDataExportService } from './tenant-data-export.service';
 import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
 import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
@@ -118,6 +120,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     WeeklyDigestController,
     AdminOpsHealthController,
     SupportAgilityController,
+    TenantDataExportController,
   ],
   providers: [
     AdminGuard,
@@ -146,6 +149,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminTenantConfigService,
     AdminUsageService,
     SupportAgilityService,
+    TenantDataExportService,
     AeatCertExpiryService,
     AeatCertExpiryCron,
   ],
