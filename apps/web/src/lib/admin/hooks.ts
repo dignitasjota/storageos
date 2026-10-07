@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminTenantConfigDto,
   AdminBillingHealthDto,
   AdminCronStatusDto,
   AccountantExportDto,
@@ -1481,6 +1482,14 @@ export function useSetTenantFeatures(id: string) {
 }
 
 /** Checklist de puesta a punto de un tenant. */
+/** Configuración del tenant (solo lectura). */
+export function useAdminTenantConfig(id: string) {
+  return useQuery({
+    queryKey: ['admin', 'tenant', id, 'config'] as const,
+    queryFn: () => adminApiFetch<AdminTenantConfigDto>(`/admin/tenants/${id}/config`),
+  });
+}
+
 export function useAdminTenantOnboarding(id: string, enabled = true) {
   return useQuery({
     queryKey: ['admin', 'tenant', id, 'onboarding'] as const,

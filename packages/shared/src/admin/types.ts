@@ -214,6 +214,8 @@ export interface AdminTenantAdoptionFeatureDto {
   label: string;
   /** Incluida en el plan actual del tenant. */
   inPlan: boolean;
+  /** Activada aparte del plan (extra contratado o cortesía del admin). */
+  viaOverride: boolean;
   /** La usa de verdad (hay datos/config). */
   used: boolean;
 }
@@ -1470,4 +1472,23 @@ export interface PlatformEmailLogDto {
 export interface PlatformEmailLogPageDto {
   items: PlatformEmailLogDto[];
   nextCursor: string | null;
+}
+
+/** Un ajuste del tenant visto desde el panel del super admin. */
+export interface AdminTenantConfigItemDto {
+  label: string;
+  value: string;
+  /** ok = configurado · warn = a revisar · off = desactivado o sin configurar. */
+  tone: 'ok' | 'warn' | 'off';
+}
+
+export interface AdminTenantConfigSectionDto {
+  key: string;
+  title: string;
+  items: AdminTenantConfigItemDto[];
+}
+
+/** Resumen de la configuración del tenant (solo lectura, para soporte). */
+export interface AdminTenantConfigDto {
+  sections: AdminTenantConfigSectionDto[];
 }

@@ -19,6 +19,7 @@ import {
   type AdminAtRiskDto,
   type AdminCustomDomainDto,
   type AdminOnboardingDto,
+  type AdminTenantConfigDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantsListResponseDto,
@@ -59,6 +60,7 @@ import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PlatformSepaMandateService } from '../billing-saas/platform-sepa/platform-sepa-mandate.service';
 
 import { AdminSupportService } from './admin-support.service';
+import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
@@ -110,6 +112,7 @@ export class AdminTenantsController {
     private readonly audit: SuperAdminAuditService,
     private readonly support: AdminSupportService,
     private readonly sepaMandate: PlatformSepaMandateService,
+    private readonly config: AdminTenantConfigService,
   ) {}
 
   /** Edita datos básicos del tenant (soporte). */
@@ -770,6 +773,11 @@ export class AdminTenantsController {
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
+  }
+
+  @Get(':id/config')
+  async getConfig(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantConfigDto> {
+    return this.config.getConfig(id);
   }
 
   @Get(':id/onboarding')

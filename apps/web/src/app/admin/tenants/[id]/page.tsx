@@ -23,6 +23,7 @@ import { OnboardingCard } from './onboarding-card';
 import { PlatformInvoicesCard } from './platform-invoices-card';
 import { SaasPaymentsCard } from './saas-payments-card';
 import { TenantAddonsCard } from './tenant-addons-card';
+import { TenantConfigCard } from './tenant-config-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
 import { TenantEmailDialog } from './tenant-email-dialog';
@@ -215,6 +216,7 @@ export default function AdminTenantDetailPage() {
       <Tabs defaultValue="general" className="w-full">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="config">Configuración</TabsTrigger>
           <TabsTrigger value="payments">Pagos</TabsTrigger>
           <TabsTrigger value="conversations">Conversaciones</TabsTrigger>
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
@@ -355,6 +357,10 @@ export default function AdminTenantDetailPage() {
 
         <TabsContent value="conversations" className="mt-4">
           <TenantInteractionsCard tenantId={id} />
+        </TabsContent>
+
+        <TabsContent value="config" className="mt-4">
+          <TenantConfigCard tenantId={id} />
         </TabsContent>
 
         <TabsContent value="followups" className="mt-4">

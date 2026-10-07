@@ -28,6 +28,7 @@ import { AdminQueuesController } from './admin-queues.controller';
 import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
 import { AdminSystemController } from './admin-system.controller';
+import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantsController } from './admin-tenants.controller';
@@ -136,6 +137,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SuperAdminAuditService,
     SupportTicketsService,
     AdminOpsHealthService,
+    AdminTenantConfigService,
     AeatCertExpiryService,
     AeatCertExpiryCron,
   ],
