@@ -28,6 +28,7 @@ import {
   Package,
   PackagePlus,
   ScrollText,
+  Sparkles,
   UserCog,
   ShieldCheck,
   Ticket,
@@ -130,6 +131,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
     icon: Megaphone,
     children: [
       { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
+      { href: '/admin/product-updates', label: 'Novedades', icon: Sparkles },
       { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
       { href: '/admin/platform-alerts', label: 'Alertas', icon: BellRing },
       { href: '/admin/email', label: 'Correo saliente', icon: Mail },

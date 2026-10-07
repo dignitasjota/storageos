@@ -71,6 +71,7 @@ import {
 import { useFeatures, usePermissions } from '@/lib/auth/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
 import { useIncidentPendingCounts } from '@/lib/operations/hooks';
+import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 import { useUnitRequestPendingCount } from '@/lib/unit-requests/hooks';
@@ -403,6 +404,7 @@ export function AppSidebar() {
     useCustomerUnreadSummary(permissions.includes('customers:read')).data?.total ?? 0;
   // Tickets de soporte esperando respuesta del tenant (el admin ya contestó).
   const supportWaiting = useSupportWaitingCount().data?.count ?? 0;
+  const updatesUnread = useProductUpdatesUnread().data?.count ?? 0;
 
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
@@ -625,6 +627,23 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === '/updates'}
+              className="data-[active=true]:font-medium"
+            >
+              <Link href="/updates">
+                <Sparkles />
+                <span>{t('updates')}</span>
+              </Link>
+            </SidebarMenuButton>
+            {updatesUnread > 0 && (
+              <SidebarMenuBadge className="bg-primary text-primary-foreground">
+                {updatesUnread}
+              </SidebarMenuBadge>
+            )}
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
