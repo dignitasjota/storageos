@@ -1734,6 +1734,8 @@ model Payment {
   gatewayResponse  Json?                  @map("gateway_response")
   paidAt           DateTime?              @map("paid_at") @db.Timestamptz(6)
   refundedAt       DateTime?              @map("refunded_at") @db.Timestamptz(6)
+  /// Cobro ya cobrado que luego se devolvió (banco, contracargo, fallo tardío).
+  returnedAt       DateTime?              @map("returned_at") @db.Timestamptz(6)
   /// Cobro ya copiado a Holded (la integración no lo envía dos veces).
   holdedSyncedAt   DateTime?              @map("holded_synced_at") @db.Timestamptz(6)
   /// Copia del cobro a Holded en curso (reserva; si Holded no respondió, queda para revisar).

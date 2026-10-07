@@ -363,3 +363,48 @@ export interface UnitOfferDto {
   freeMonths: number;
   validUntil: string;
 }
+
+/**
+ * Recibo devuelto: un cobro ya cobrado que se ha devuelto (banco, contracargo
+ * de tarjeta, fallo tardío de la domiciliación) o un adeudo que el banco
+ * rechazó al confirmar la remesa SEPA.
+ */
+export type ReturnedReceiptKind =
+  | 'bank_return'
+  | 'chargeback'
+  | 'direct_debit_return'
+  | 'sepa_rejected';
+
+export interface ReturnedReceiptDto {
+  /** Id del cobro devuelto o del adeudo rechazado. */
+  id: string;
+  kind: ReturnedReceiptKind;
+  /** ISO. Fecha de la devolución (o de la confirmación de la remesa). */
+  date: string;
+  amount: number;
+  reason: string | null;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  /** Estado actual de la factura (si ya se volvió a cobrar, `paid`). */
+  invoiceStatus: string | null;
+  /** Lo que sigue pendiente de esa factura. */
+  invoicePending: number;
+  customerId: string | null;
+  customerName: string | null;
+  facilityName: string | null;
+  /** Remesa SEPA del adeudo, si viene de una. */
+  remittanceName: string | null;
+}
+
+export interface ReturnedReceiptsDto {
+  from: string;
+  to: string;
+  items: ReturnedReceiptDto[];
+  totals: {
+    count: number;
+    amount: number;
+    /** Importe que sigue sin cobrar de las facturas afectadas. */
+    stillPending: number;
+    byKind: { kind: ReturnedReceiptKind; count: number; amount: number }[];
+  };
+}

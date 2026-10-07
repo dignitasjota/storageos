@@ -573,7 +573,7 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 - ✅ **A2 — Activar en bloque los contratos importados**: al terminar la importación, «Activar los N contratos»: activos con su fecha de alta original, trastero ocupado, fianza retenida si ya estaba cobrada, sin firma ni avisos al inquilino, y la factura mensual empieza el día indicado.
 - ✅ **A3 — Importar mandatos SEPA** (CSV/Excel): Remesas SEPA → «Importar mandatos». Inquilino por email o documento, IBAN validado, BIC, fecha de firma; conserva la referencia original y, si ya se cobró algún recibo, el mandato queda recurrente (RCUR). Quien ya tiene mandato activo se omite salvo «crear igualmente» (lo sustituye).
 - ✅ **A4 — Certificado de un administrador o gestoría apoderada**: si el NIF del certificado (o la entidad que lo emite) no es el del tenant, los envíos a Veri*Factu llevan `<Representante>` en la cabecera, y las consultas `IndicadorRepresentante`. El nombre del representante se puede corregir en Ajustes → Veri*Factu. De paso se corrigió la consulta de estado a la AEAT, que no seguía el esquema.
-- A5 — Listado de recibos devueltos (remesas, extractos y pasarelas) con exportación.
+- ✅ **A5 — Recibos devueltos**: Facturación → Cobros por banco → «Recibos devueltos». Devoluciones bancarias (N43 o a mano), contracargos, domiciliaciones devueltas y fallos tardíos de GoCardless, más los adeudos rechazados al confirmar una remesa; lo que sigue sin cobrar de cada factura; filtros por periodo, tipo y local y exportación a Excel.
 - A6 — Conciliación automática opcional de los cobros con coincidencia única exacta.
 - A7 — Retención de IRPF por contrato (va después del bloque B: toca cálculos auditados).
 

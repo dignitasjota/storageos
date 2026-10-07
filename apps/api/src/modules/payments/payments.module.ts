@@ -14,6 +14,7 @@ import { PaymentRetryCron } from './payment-retry.cron';
 import { PaymentRetryService } from './payment-retry.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { ReturnedReceiptsService } from './returned-receipts.service';
 import { StripeEventsCleanupCron } from './stripe-events-cleanup.cron';
 import { StripeEventsService } from './stripe-events.service';
 import { StripeWebhookController } from './stripe-webhook.controller';
@@ -26,6 +27,7 @@ import { StripeGateway } from './stripe.gateway';
   imports: [AuthModule, forwardRef(() => BillingSaasModule), GoCardlessCoreModule],
   controllers: [PaymentMethodsController, PaymentsController, StripeWebhookController],
   providers: [
+    ReturnedReceiptsService,
     StripeGateway,
     { provide: PAYMENT_GATEWAY, useExisting: StripeGateway },
     PaymentMethodsService,
