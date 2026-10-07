@@ -4,6 +4,7 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminUsageDto,
   AdminTenantConfigDto,
   AdminBillingHealthDto,
   AdminCronStatusDto,
@@ -2141,5 +2142,24 @@ export function useAdminCrons() {
     queryFn: () => adminApiFetch<AdminCronStatusDto[]>('/admin/crons'),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
+  });
+}
+
+/** Correo, IA y almacenamiento por tenant. */
+export function useAdminUsage(days: number) {
+  return useQuery({
+    queryKey: ['admin', 'usage', days],
+    queryFn: () => adminApiFetch<AdminUsageDto>(`/admin/usage?days=${days}`),
+  });
+}
+
+export function useMeasureStorage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<{ tenants: number; bytes: number }>('/admin/usage/measure-storage', {
+        method: 'POST',
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'usage'] }),
   });
 }

@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   PutBucketPolicyCommand,
   PutObjectCommand,
   S3Client,
@@ -101,6 +102,41 @@ export class FilesService implements OnModuleInit {
       reports: config.get('MINIO_BUCKET_REPORTS', { infer: true }),
       public: config.get('MINIO_BUCKET_PUBLIC', { infer: true }),
     };
+  }
+
+  /**
+   * Espacio que ocupa cada tenant: recorre todos los objetos de cada bucket y los
+   * agrupa por el primer segmento de la clave (`<tenantId>/…`). Las claves que no
+   * empiezan por un UUID se ignoran.
+   */
+  async usageByTenant(): Promise<
+    Map<string, { bytes: number; objects: number; byBucket: Record<string, number> }>
+  > {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const result = new Map<
+      string,
+      { bytes: number; objects: number; byBucket: Record<string, number> }
+    >();
+    for (const [name, bucket] of Object.entries(this.bucketMap)) {
+      let token: string | undefined;
+      do {
+        const page = await this.s3.send(
+          new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token, MaxKeys: 1000 }),
+        );
+        for (const obj of page.Contents ?? []) {
+          const tenantId = obj.Key?.split('/')[0] ?? '';
+          if (!uuid.test(tenantId)) continue;
+          const size = obj.Size ?? 0;
+          const entry = result.get(tenantId) ?? { bytes: 0, objects: 0, byBucket: {} };
+          entry.bytes += size;
+          entry.objects += 1;
+          entry.byBucket[name] = (entry.byBucket[name] ?? 0) + size;
+          result.set(tenantId, entry);
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+    }
+    return result;
   }
 
   async onModuleInit(): Promise<void> {

@@ -13,6 +13,7 @@ import {
   CalendarCheck,
   CalendarClock,
   Globe,
+  HardDrive,
   Gauge,
   HeartPulse,
   Hourglass,
@@ -108,6 +109,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/followups', label: 'Seguimientos', icon: CalendarClock },
       { href: '/admin/custom-domains', label: 'Dominios propios', icon: Globe },
       { href: '/admin/billing-health', label: 'Facturación de los tenants', icon: FileWarning },
+      { href: '/admin/usage', label: 'Uso por tenant', icon: HardDrive },
     ],
   },
   {

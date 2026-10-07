@@ -35,6 +35,7 @@ import { AdminTenantsController } from './admin-tenants.controller';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayController } from './admin-today.controller';
 import { AdminTodayService } from './admin-today.service';
+import { AdminUsageService } from './admin-usage.service';
 import { AdminGuard } from './admin.guard';
 import { AeatCertExpiryCron } from './aeat-cert-expiry.cron';
 import { AeatCertExpiryService } from './aeat-cert-expiry.service';
@@ -57,6 +58,7 @@ import { SupportTicketsService } from './support-tickets.service';
 import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
 import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
+import { UsageModule } from './usage.module';
 import { WebhooksCleanupController } from './webhooks-cleanup.controller';
 import { WeeklyDigestController } from './weekly-digest.controller';
 import { WeeklyDigestCron } from './weekly-digest.cron';
@@ -85,6 +87,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     BillingSaasModule,
     EmailModule,
     MrrModule,
+    UsageModule,
     AccountingModule,
     NotificationsModule,
   ],
@@ -138,6 +141,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SupportTicketsService,
     AdminOpsHealthService,
     AdminTenantConfigService,
+    AdminUsageService,
     AeatCertExpiryService,
     AeatCertExpiryCron,
   ],

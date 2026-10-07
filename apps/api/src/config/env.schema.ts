@@ -290,6 +290,10 @@ const envSchemaBase = z.object({
   AI_PROVIDER: z.enum(['stub', 'anthropic']).default('stub'),
   ANTHROPIC_API_KEY: z.string().optional(),
   AI_MODEL: z.string().default('claude-sonnet-4-6'),
+  // Precio del modelo (USD por millón de tokens) para estimar el coste de IA
+  // por tenant en el panel del super admin. Solo informativo.
+  AI_COST_INPUT_PER_MTOK_USD: z.coerce.number().min(0).default(3),
+  AI_COST_OUTPUT_PER_MTOK_USD: z.coerce.number().min(0).default(15),
 
   // --- Notificaciones push (Web Push / VAPID) ---
   // Sin claves, el push queda desactivado (no-op). Generar con
