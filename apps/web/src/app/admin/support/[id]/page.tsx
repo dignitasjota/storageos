@@ -16,6 +16,7 @@ import { useParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { ResponseTime } from '@/components/admin/support-ticket-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,6 +41,7 @@ import { useAdminAuthStore } from '@/lib/admin/auth-store';
 import {
   useAddAdminTicketMessage,
   useAdminSupportTicket,
+  useSupportCannedResponses,
   useAssignTicket,
   useTransitionTicket,
 } from '@/lib/admin/hooks';
@@ -128,7 +130,8 @@ export default function AdminSupportTicketPage() {
           <Link href={`/admin/tenants/${t.tenantId}`} className="hover:underline">
             {t.tenantName}
           </Link>{' '}
-          · {t.tenantSlug} · {new Date(t.createdAt).toLocaleString('es-ES')}
+          · {t.tenantSlug} · {new Date(t.createdAt).toLocaleString('es-ES')} ·{' '}
+          <ResponseTime ticket={t} />
         </p>
       </div>
 
@@ -184,7 +187,7 @@ export default function AdminSupportTicketPage() {
         </CardContent>
       </Card>
 
-      <ReplyForm ticketId={t.id} />
+      <ReplyForm ticketId={t.id} tenantName={t.tenantName} contactName={t.createdByName} />
     </div>
   );
 }
@@ -221,8 +224,17 @@ function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
   );
 }
 
-function ReplyForm({ ticketId }: { ticketId: string }) {
+function ReplyForm({
+  ticketId,
+  tenantName,
+  contactName,
+}: {
+  ticketId: string;
+  tenantName: string;
+  contactName: string | null;
+}) {
   const add = useAddAdminTicketMessage();
+  const canned = useSupportCannedResponses();
   const form = useForm<AddTicketMessageInput>({
     resolver: zodResolver(AddTicketMessageSchema),
     defaultValues: { body: '', isInternal: false },
@@ -247,6 +259,45 @@ function ReplyForm({ ticketId }: { ticketId: string }) {
       <CardContent>
         <Form {...form}>
           <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value=""
+                onValueChange={(id) => {
+                  const r = canned.data?.find((c) => c.id === id);
+                  if (!r) return;
+                  const text = r.body
+                    .replaceAll('{empresa}', tenantName)
+                    .replaceAll('{nombre}', contactName?.split(' ')[0] ?? '');
+                  const current = form.getValues('body');
+                  form.setValue('body', current ? `${current}\n\n${text}` : text, {
+                    shouldValidate: true,
+                  });
+                }}
+              >
+                <SelectTrigger className="h-8 w-full text-xs sm:w-64">
+                  <SelectValue
+                    placeholder={
+                      canned.data && canned.data.length > 0
+                        ? 'Insertar respuesta guardada…'
+                        : 'Sin respuestas guardadas'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(canned.data ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Link
+                href="/admin/support/canned"
+                className="text-xs text-muted-foreground hover:underline"
+              >
+                Gestionar respuestas
+              </Link>
+            </div>
             <FormField
               control={form.control}
               name="body"

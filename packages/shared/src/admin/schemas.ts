@@ -765,3 +765,9 @@ export const SendTestEmailSchema = z.object({
   to: z.string().trim().email(),
 });
 export type SendTestEmailInput = z.infer<typeof SendTestEmailSchema>;
+
+export const UpsertSupportCannedResponseSchema = z.object({
+  title: z.string().trim().min(2).max(100),
+  body: z.string().trim().min(2).max(5000),
+});
+export type UpsertSupportCannedResponseInput = z.infer<typeof UpsertSupportCannedResponseSchema>;

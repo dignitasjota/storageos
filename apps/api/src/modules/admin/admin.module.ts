@@ -52,6 +52,8 @@ import { SuperAdminAuthController } from './super-admin-auth.controller';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
 import { SuperAdminService } from './super-admin.service';
+import { SupportAgilityController } from './support-agility.controller';
+import { SupportAgilityService } from './support-agility.service';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
@@ -115,6 +117,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantLifecycleEmailsController,
     WeeklyDigestController,
     AdminOpsHealthController,
+    SupportAgilityController,
   ],
   providers: [
     AdminGuard,
@@ -142,6 +145,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminOpsHealthService,
     AdminTenantConfigService,
     AdminUsageService,
+    SupportAgilityService,
     AeatCertExpiryService,
     AeatCertExpiryCron,
   ],

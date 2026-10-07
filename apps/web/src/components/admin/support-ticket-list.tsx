@@ -1,6 +1,10 @@
 'use client';
 
-import { type SupportTicketPriorityValue, type SupportTicketStatusValue } from '@storageos/shared';
+import {
+  type SupportTicketDto,
+  type SupportTicketPriorityValue,
+  type SupportTicketStatusValue,
+} from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -81,6 +85,8 @@ export function SupportTicketList({
                     <div className="mt-1 text-xs text-muted-foreground">
                       {showTenant ? `${t.tenantName} · ${t.tenantSlug} · ` : ''}
                       {new Date(t.createdAt).toLocaleString('es-ES')}
+                      {' · '}
+                      <ResponseTime ticket={t} />
                     </div>
                   </div>
                   <div className="shrink-0 text-right text-xs text-muted-foreground">
@@ -110,5 +116,28 @@ export function SupportTicketList({
         </div>
       )}
     </div>
+  );
+}
+
+/** «2 h», «35 min», «3 d». */
+export function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${Math.max(1, Math.round(minutes))} min`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h`;
+  return `${Math.round(minutes / (24 * 60))} d`;
+}
+
+/** Tiempo hasta la primera respuesta, o lo que lleva esperando. */
+export function ResponseTime({ ticket }: { ticket: SupportTicketDto }) {
+  const created = new Date(ticket.createdAt).getTime();
+  if (ticket.firstResponseAt) {
+    const minutes = (new Date(ticket.firstResponseAt).getTime() - created) / 60_000;
+    return <span>respondido en {formatDuration(minutes)}</span>;
+  }
+  if (ticket.status === 'resolved' || ticket.status === 'closed') return <span>sin respuesta</span>;
+  const waiting = (Date.now() - created) / 60_000;
+  return (
+    <span className={waiting > 24 * 60 ? 'font-medium text-red-600' : 'font-medium text-amber-600'}>
+      sin responder desde hace {formatDuration(waiting)}
+    </span>
   );
 }
