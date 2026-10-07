@@ -264,6 +264,20 @@ export const CollectDepositSchema = z.object({
 export type CollectDepositInput = z.infer<typeof CollectDepositSchema>;
 
 /** Liquidación de la fianza al finalizar: importe a devolver + motivo si se retiene. */
+/**
+ * Activar en bloque contratos migrados de otro sistema (importados como
+ * borradores): quedan activos con su fecha de alta original, sin firma ni
+ * avisos al inquilino.
+ */
+export const ActivateImportedContractsSchema = z.object({
+  contractIds: z.array(z.string().uuid()).min(1).max(1000),
+  /** La fianza ya se cobró en el sistema anterior (queda retenida). */
+  depositCollected: z.boolean().default(true),
+  /** Primer día que factura la app (lo anterior lo facturó el sistema viejo). */
+  billingStartsOn: dateOnly,
+});
+export type ActivateImportedContractsInput = z.infer<typeof ActivateImportedContractsSchema>;
+
 export const SettleDepositSchema = z.object({
   returnedAmount: z.number().min(0),
   retentionReason: z.string().trim().max(500).optional(),

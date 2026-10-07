@@ -570,7 +570,7 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 **A. Mejoras para todos**
 
 - ✅ **A1 — Facturas exentas bien declaradas**: tipo fiscal por línea (con IVA / exenta E1–E6 / no sujeta N1–N2). Veri\*Factu declara las exentas como `OperacionExenta` (antes toda línea al 0 % salía como no sujeta), el PDF lleva la mención legal y el libro de IVA, el 303 y las exportaciones las separan.
-- A2 — Activar en bloque los contratos importados (sin firma, fianza ya cobrada, sin primera factura, mes desde el que se factura).
+- ✅ **A2 — Activar en bloque los contratos importados**: al terminar la importación, «Activar los N contratos»: activos con su fecha de alta original, trastero ocupado, fianza retenida si ya estaba cobrada, sin firma ni avisos al inquilino, y la factura mensual empieza el día indicado.
 - A3 — Importar mandatos SEPA desde CSV o Excel.
 - A4 — Presentar a Veri\*Factu con el certificado del administrador apoderado (`<Representante>`).
 - A5 — Listado de recibos devueltos (remesas, extractos y pasarelas) con exportación.

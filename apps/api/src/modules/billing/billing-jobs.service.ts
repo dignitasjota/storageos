@@ -130,15 +130,20 @@ export class BillingJobsService {
           orderBy: { periodEnd: 'desc' },
           select: { periodEnd: true },
         });
+        // Sin facturas previas: desde el alta, o desde el primer día que factura
+        // la app si el contrato viene migrado de otro sistema.
         cStart = last?.periodEnd
           ? this.addDays(new Date(last.periodEnd), 1)
-          : new Date(c.startDate);
+          : new Date(c.billingStartsOn ?? c.startDate);
         if (cStart > periodEnd) continue; // cobertura aún vigente / periodo futuro
         cEnd = this.addDays(this.addMonths(cStart, interval), -1);
       } else {
         // Alta a mitad de mes: se factura desde el alta (prorrateado); un
-        // contrato que empieza después de este mes no se factura aún.
-        const start = new Date(c.startDate);
+        // contrato que empieza después de este mes no se factura aún. Un
+        // contrato migrado empieza a facturar en su `billingStartsOn`.
+        const startDate = new Date(c.startDate);
+        const billingFrom = c.billingStartsOn ? new Date(c.billingStartsOn) : null;
+        const start = billingFrom && billingFrom > startDate ? billingFrom : startDate;
         if (start > periodEnd) continue;
         if (start > cStart) cStart = start;
       }

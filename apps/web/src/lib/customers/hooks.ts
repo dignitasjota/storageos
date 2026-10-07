@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  ActivateImportedContractsInput,
+  ActivateImportedContractsResultDto,
   AddContractNoteInput,
   CancelContractInput,
   CancelReservationInput,
@@ -592,5 +594,22 @@ export function useSendCustomerMessage(customerId: string) {
         json: { body },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers', customerId, 'messages'] }),
+  });
+}
+
+/** Activa en bloque contratos migrados (importados como borradores). */
+export function useActivateImportedContracts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ActivateImportedContractsInput) =>
+      apiFetch<ActivateImportedContractsResultDto>('/contracts/activate-imported', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['units'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard', 'occupancy'] });
+    },
   });
 }

@@ -2,7 +2,7 @@
 
 import { ArrowLeft, Download, Loader2, Upload } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import type {
@@ -53,6 +53,8 @@ interface ImportWizardProps {
   doneLabel: string;
   /** Texto informativo extra (p. ej. "los contratos se importan como borradores"). */
   note?: string;
+  /** Contenido extra tras importar (p. ej. activar los contratos creados). */
+  afterCommit?: (result: ImportCommitDto) => ReactNode;
 }
 
 export function ImportWizard({
@@ -64,6 +66,7 @@ export function ImportWizard({
   doneHref,
   doneLabel,
   note,
+  afterCommit,
 }: ImportWizardProps) {
   const [csv, setCsv] = useState('');
   const [format, setFormat] = useState<ImportFormat>('csv');
@@ -303,6 +306,7 @@ export function ImportWizard({
                   ))}
               </div>
             )}
+            {afterCommit?.(result)}
             <Button asChild>
               <Link href={doneHref}>{doneLabel}</Link>
             </Button>

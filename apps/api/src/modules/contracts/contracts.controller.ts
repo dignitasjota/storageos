@@ -19,9 +19,11 @@ import {
   SettleDepositSchema,
   SetDepositPaymentMethodSchema,
   CollectDepositSchema,
+  ActivateImportedContractsSchema,
   AssignInsuranceSchema,
   CancelContractSchema,
   ChangeContractPriceSchema,
+  type ActivateImportedContractsResultDto,
   type ContractDto,
   type ContractEventDto,
   ContractStatusEnum,
@@ -55,6 +57,7 @@ class CollectDepositDto extends createZodDto(CollectDepositSchema) {}
 class RenewContractDto extends createZodDto(RenewContractSchema) {}
 class ChangeUnitDto extends createZodDto(ChangeUnitSchema) {}
 class AssignInsuranceDto extends createZodDto(AssignInsuranceSchema) {}
+class ActivateImportedContractsDto extends createZodDto(ActivateImportedContractsSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -136,6 +139,24 @@ export class ContractsController {
       input,
       meta: extractMeta(req),
       facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Activa en bloque contratos migrados (importados como borradores). */
+  @RequirePermission('contracts:manage')
+  @Post('activate-imported')
+  @HttpCode(HttpStatus.OK)
+  async activateImported(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: ActivateImportedContractsDto,
+    @Req() req: Request,
+  ): Promise<ActivateImportedContractsResultDto> {
+    return this.contracts.activateImported({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
+      input,
+      meta: extractMeta(req),
     });
   }
 
