@@ -71,6 +71,7 @@ import { RedsysModule } from './modules/payments/redsys/redsys.module';
 import { PlanLimitsModule } from './modules/plan-limits/plan-limits.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PortalModule } from './modules/portal/portal.module';
+import { ProductUpdatesModule } from './modules/product-updates/product-updates.module';
 import { ProductsModule } from './modules/products/products.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { PushModule } from './modules/push/push.module';
@@ -215,6 +216,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AccessModule,
     AdminModule,
     PlatformModule,
+    ProductUpdatesModule,
     BillingSaasModule,
     IntegrationsModule,
     ImportsModule,

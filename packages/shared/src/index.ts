@@ -64,3 +64,4 @@ export * from './routing';
 export * from './collections';
 export * from './security';
 export * from './marketing';
+export * from './product-updates';

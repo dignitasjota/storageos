@@ -566,6 +566,8 @@ model User {
   emailVerifiedAt                 DateTime? @map("email_verified_at") @db.Timestamptz(6)
   twoFactorSecretEncrypted        String?   @map("two_factor_secret")
   twoFactorPendingSecretEncrypted String?   @map("two_factor_pending_secret")
+  /// Hasta cuándo ha visto las «Novedades».
+  productUpdatesSeenAt            DateTime?      @map("product_updates_seen_at") @db.Timestamptz(6)
   twoFactorEnabled                Boolean   @default(false) @map("two_factor_enabled")
   /// Anti-replay TOTP: último paso de 30 s aceptado en un login.
   twoFactorLastStep               BigInt?   @map("two_factor_last_step")
@@ -3462,6 +3464,7 @@ model SuperAdmin {
   tenantFollowups    TenantFollowup[]         @relation("TenantFollowupAuthor")
 
   @@map("super_admins")
+  productUpdates ProductUpdate[] @relation("ProductUpdateAuthor")
 }
 
 /// Codigos de recuperacion 2FA para super admin. 10 codigos `XXXX-XXXX`
@@ -4710,6 +4713,30 @@ model PlatformLegalDocument {
 /// Dedupe de ejecuciones de crons entre réplicas: cada cron reclama su
 /// ejecución diaria insertando (name, run_on); la PK garantiza un solo ganador.
 /// Global (sin tenant, sin RLS).
+/// «Novedades» que publica el super admin para todos los tenants (global).
+model ProductUpdate {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  title       String
+  /// Markdown.
+  body        String
+  /// new | improvement | fix
+  category    String    @default("new")
+  /// Funcionalidad de pago relacionada (TenantFeature), si la hay.
+  feature     String?
+  /// Enlace dentro del panel del tenant (p. ej. /settings/web).
+  link        String?
+  /// null = borrador.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy SuperAdmin? @relation("ProductUpdateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([publishedAt])
+  @@map("product_updates")
+}
+
 /// Consumo del asistente de IA por llamada al modelo (lo lee el super admin).
 model AiUsageEvent {
   id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid

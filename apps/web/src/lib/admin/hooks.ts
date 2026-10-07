@@ -4,6 +4,8 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  AdminProductUpdateDto,
+  UpsertProductUpdateInput,
   AdminUsageDto,
   AdminTenantConfigDto,
   AdminBillingHealthDto,
@@ -2161,5 +2163,34 @@ export function useMeasureStorage() {
         method: 'POST',
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'usage'] }),
+  });
+}
+
+/** «Novedades» de la plataforma (gestión del super admin). */
+export function useAdminProductUpdates() {
+  return useQuery({
+    queryKey: ['admin', 'product-updates'],
+    queryFn: () => adminApiFetch<AdminProductUpdateDto[]>('/admin/product-updates'),
+  });
+}
+
+export function useSaveProductUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: UpsertProductUpdateInput }) =>
+      adminApiFetch<AdminProductUpdateDto>(
+        id ? `/admin/product-updates/${id}` : '/admin/product-updates',
+        { method: id ? 'PUT' : 'POST', json: input },
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'product-updates'] }),
+  });
+}
+
+export function useDeleteProductUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/product-updates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'product-updates'] }),
   });
 }

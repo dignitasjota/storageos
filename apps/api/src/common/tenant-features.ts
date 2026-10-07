@@ -16,6 +16,14 @@ export async function tenantHasFeature(
   tenantId: string,
   feature: TenantFeature,
 ): Promise<boolean> {
+  return (await tenantFeatures(admin, tenantId)).includes(feature);
+}
+
+/** Funcionalidades efectivas del tenant (plan + overrides). */
+export async function tenantFeatures(
+  admin: PrismaAdminService,
+  tenantId: string,
+): Promise<TenantFeature[]> {
   const [subscription, overrides] = await Promise.all([
     admin.tenantSubscription.findUnique({
       where: { tenantId },
@@ -30,5 +38,5 @@ export async function tenantHasFeature(
   return effectiveFeaturesFromList(
     base,
     overrides as { feature: TenantFeature; enabled: boolean }[],
-  ).includes(feature);
+  );
 }
