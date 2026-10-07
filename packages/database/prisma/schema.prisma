@@ -1213,6 +1213,8 @@ model Contract {
   /// Frecuencia de facturación en meses: 1 (mensual, por defecto), 6 (semestral),
   /// 12 (anual). Con >1 la recurrente emite UNA factura que cubre N meses con
   /// `prepayDiscountPct` de descuento sobre el alquiler (prepago).
+  /// Contratos migrados: primer día que factura la app (null = desde el alta).
+  billingStartsOn        DateTime?              @map("billing_starts_on") @db.Date
   billingIntervalMonths  Int                   @default(1) @map("billing_interval_months")
   prepayDiscountPct      Decimal               @default(0) @map("prepay_discount_pct") @db.Decimal(5, 2)
   /// Precio congelado al firmar (snapshot). Antes de firmar es el

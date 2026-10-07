@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -32,6 +33,8 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { DomainEventPayload, UnitAvailablePayload } from '../automations/domain-events';
 import type { Contract, ContractStatus, Prisma, UnitStatus } from '@storageos/database';
 import type {
+  ActivateImportedContractsInput,
+  ActivateImportedContractsResultDto,
   AddContractNoteInput,
   CancelContractInput,
   ChangeContractPriceInput,
@@ -678,6 +681,110 @@ export class ContractsService {
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);
     return this.toDto(updated);
+  }
+
+  /**
+   * Activa en bloque contratos migrados de otro sistema (importados como
+   * borradores). Quedan activos con su fecha de alta original y el trastero
+   * ocupado, sin firma electrónica ni avisos: NO se emite `contract_signed`
+   * (evita 200 correos de «contrato firmado», PIN nuevos y automatizaciones al
+   * migrar una cartera). La facturación empieza en `billingStartsOn`. Cada
+   * contrato va por separado: uno que falla no impide los demás.
+   */
+  async activateImported(args: {
+    tenantId: string;
+    userId: string;
+    facilityScope?: string[] | null;
+    input: ActivateImportedContractsInput;
+    meta: RequestMeta;
+  }): Promise<ActivateImportedContractsResultDto> {
+    const billingStartsOn = new Date(`${args.input.billingStartsOn}T00:00:00.000Z`);
+    let activated = 0;
+    const failed: ActivateImportedContractsResultDto['failed'] = [];
+    for (const contractId of [...new Set(args.input.contractIds)]) {
+      let contractNumber: string | null = null;
+      try {
+        const existing = await this.findOrThrow(args.tenantId, contractId, args.facilityScope);
+        contractNumber = existing.contractNumber;
+        if (existing.status !== 'draft') {
+          throw new BadRequestException({
+            code: 'contract_not_draft',
+            message: 'Solo se activan contratos en borrador',
+          });
+        }
+        await this.prisma.withTenant(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${existing.unitId}::text))`;
+          const unit = await tx.unit.findUnique({ where: { id: existing.unitId } });
+          if (!unit || (unit.status !== 'available' && unit.status !== 'reserved')) {
+            throw new ConflictException({
+              code: 'unit_not_available',
+              message: `El trastero está ${unit?.status ?? 'perdido'}`,
+            });
+          }
+          const hasDeposit = Number(existing.depositAmount) > 0;
+          await tx.contract.update({
+            where: { id: contractId },
+            data: {
+              status: 'active',
+              // Alta original: la del sistema anterior.
+              signedAt: existing.startDate,
+              billingStartsOn,
+              ...(hasDeposit && args.input.depositCollected && existing.depositStatus === 'none'
+                ? { depositStatus: 'held' as const }
+                : {}),
+            },
+          });
+          await tx.contractEvent.create({
+            data: {
+              tenantId: args.tenantId,
+              contractId,
+              eventType: 'signed',
+              payload: {
+                migrated: true,
+                billingStartsOn: args.input.billingStartsOn,
+                depositCollected: hasDeposit ? args.input.depositCollected : null,
+              },
+              createdByUserId: args.userId,
+            },
+          });
+          await this.syncUnitStatus(
+            tx,
+            args,
+            existing.unitId,
+            unit.status as UnitStatus,
+            'occupied',
+            `Contrato ${existing.contractNumber} migrado`,
+          );
+        }, args.tenantId);
+        activated += 1;
+      } catch (err) {
+        const code =
+          err && typeof err === 'object' && 'code' in err && err.code === 'P2002'
+            ? 'El trastero ya tiene un contrato activo'
+            : err instanceof HttpException
+              ? ((err.getResponse() as { message?: string }).message ?? err.message)
+              : err instanceof Error
+                ? err.message
+                : String(err);
+        failed.push({ contractId, contractNumber, error: code });
+      }
+    }
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.imported_activated',
+      entityType: 'Contract',
+      entityId: null,
+      changes: {
+        activated,
+        failed: failed.length,
+        billingStartsOn: args.input.billingStartsOn,
+        depositCollected: args.input.depositCollected,
+      },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { activated, failed };
   }
 
   async requestEnd(args: {
@@ -2234,6 +2341,7 @@ export class ContractsService {
       cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
       billingCycle: row.billingCycle,
       billingIntervalMonths: row.billingIntervalMonths,
+      billingStartsOn: row.billingStartsOn ? row.billingStartsOn.toISOString().slice(0, 10) : null,
       prepayDiscountPct: Number(row.prepayDiscountPct),
       priceMonthly: base,
       discountAmount: discount,

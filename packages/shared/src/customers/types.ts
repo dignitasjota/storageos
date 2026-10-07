@@ -108,6 +108,8 @@ export interface ContractDto {
   billingCycle: ContractBillingCycleValue;
   /** Frecuencia de facturación en meses: 1 (mensual), 6 (semestral), 12 (anual). */
   billingIntervalMonths: number;
+  /** Contrato migrado: primer día que factura la app (null = desde el alta). */
+  billingStartsOn: string | null;
   /** Descuento % por prepagar (solo aplica si billingIntervalMonths>1). */
   prepayDiscountPct: number;
   priceMonthly: number;
@@ -225,4 +227,10 @@ export interface CustomerFollowupDto {
   completedAt: string | null;
   authorName: string | null;
   createdAt: string;
+}
+
+/** Resultado de activar contratos migrados en bloque. */
+export interface ActivateImportedContractsResultDto {
+  activated: number;
+  failed: { contractId: string; contractNumber: string | null; error: string }[];
 }

@@ -1,3 +1,7 @@
+'use client';
+
+import { ActivateImportedCard } from './activate-imported-card';
+
 import { ImportWizard } from '@/components/imports/import-wizard';
 
 export default function ImportContractsPage() {
@@ -10,7 +14,8 @@ export default function ImportContractsPage() {
       backHref="/contracts"
       doneHref="/contracts"
       doneLabel="Ver contratos"
-      note="Los contratos se importan como BORRADORES. Revísalos y fírmalos desde cada contrato para activarlos (el trastero se ocupa al firmar). El inquilino debe existir (por email o documento) y el trastero por su código."
+      note="Los contratos se importan como BORRADORES. Si ya estaban en vigor en tu sistema anterior, al terminar podrás activarlos todos de una vez; si no, fírmalos desde cada contrato. El inquilino debe existir (por email o documento) y el trastero por su código."
+      afterCommit={(result) => <ActivateImportedCard result={result} />}
     />
   );
 }
