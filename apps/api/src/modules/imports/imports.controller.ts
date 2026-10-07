@@ -11,11 +11,13 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { ContractsImportService } from './contracts-import.service';
 import { resolveImportCsv } from './import-engine';
 import { ImportsService } from './imports.service';
+import { SepaMandatesImportService } from './sepa-mandates-import.service';
 import { UnitsImportService } from './units-import.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -40,6 +42,7 @@ export class ImportsController {
     private readonly imports: ImportsService,
     private readonly unitsImport: UnitsImportService,
     private readonly contractsImport: ContractsImportService,
+    private readonly sepaMandatesImport: SepaMandatesImportService,
   ) {}
 
   // ----------------------------- Inquilinos --------------------------------
@@ -139,6 +142,40 @@ export class ImportsController {
       tenantId: user.tenantId,
       userId: user.sub,
       meta: extractMeta(req),
+      csv,
+      onDuplicate: body.onDuplicate,
+    });
+  }
+
+  // ---------------------------- Mandatos SEPA ------------------------------
+
+  @RequireFeature('sepa')
+  @Get('sepa-mandates/template')
+  sepaMandatesTemplate(): { csv: string } {
+    return { csv: this.sepaMandatesImport.template() };
+  }
+
+  @RequireFeature('sepa')
+  @RequirePermission('imports:manage')
+  @Post('sepa-mandates/preview')
+  async previewSepaMandates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportPreviewBody,
+  ): Promise<ImportPreviewDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.sepaMandatesImport.preview(user.tenantId, csv);
+  }
+
+  @RequireFeature('sepa')
+  @RequirePermission('imports:manage')
+  @Post('sepa-mandates/commit')
+  async commitSepaMandates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportCommitBody,
+  ): Promise<ImportCommitDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.sepaMandatesImport.commit({
+      tenantId: user.tenantId,
       csv,
       onDuplicate: body.onDuplicate,
     });

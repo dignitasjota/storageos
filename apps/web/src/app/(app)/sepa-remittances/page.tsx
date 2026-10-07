@@ -7,13 +7,15 @@ import {
   type SepaRemittanceDto,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { CheckCircle2, Download, FileText, Plus } from 'lucide-react';
+import { CheckCircle2, Download, FileText, Plus, Upload } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { ConfirmRemittanceDialog } from './confirm-dialog';
 import { PrenoticesDialog } from './prenotices-dialog';
 
+import { Can } from '@/components/auth/can';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -207,7 +209,18 @@ export default function SepaRemittancesPage() {
         isLoading={list.isLoading}
         searchPlaceholder="Buscar remesa..."
         emptyText="Aún no has generado ninguna remesa."
-        toolbarRight={canManage && configured ? <CreateRemittanceDialog /> : null}
+        toolbarRight={
+          <>
+            <Can permission="imports:manage">
+              <Button asChild variant="outline">
+                <Link href="/sepa-remittances/import-mandates">
+                  <Upload className="mr-1 h-4 w-4" /> Importar mandatos
+                </Link>
+              </Button>
+            </Can>
+            {canManage && configured ? <CreateRemittanceDialog /> : null}
+          </>
+        }
       />
       <PrenoticesDialog remittance={prenoticeFor} onClose={() => setPrenoticeFor(null)} />
       <ConfirmRemittanceDialog remittance={confirmFor} onClose={() => setConfirmFor(null)} />
