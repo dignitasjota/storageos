@@ -841,7 +841,6 @@ export class AdminTenantsController {
     });
   }
 
-  @RequireSuperadmin()
   /** Descarga todos los datos del tenant (también si está de baja, antes de anonimizarlo). */
   @RequireSuperadmin()
   @Post(':id/data-export')
@@ -866,6 +865,7 @@ export class AdminTenantsController {
     return result;
   }
 
+  @RequireSuperadmin()
   @Post(':id/anonymize')
   @HttpCode(HttpStatus.OK)
   async anonymize(
