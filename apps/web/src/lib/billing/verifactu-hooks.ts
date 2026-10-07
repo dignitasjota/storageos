@@ -27,6 +27,14 @@ export interface AeatCredentialMetadata {
   /** ISO-8601 si está revocada, null si está activa. */
   revokedAt: string | null;
   revokedReason: string | null;
+  /** NIF de la entidad del certificado (certificado de representante), si lo trae. */
+  certOrganizationNif: string | null;
+  representativeName: string | null;
+  /**
+   * Si el certificado no es del tenant, los envíos van como su representante
+   * (administrador, gestoría o asesor apoderado).
+   */
+  representative: { name: string; taxId: string } | null;
 }
 
 export const verifactuCredentialKey = ['billing', 'aeat-credential'] as const;
@@ -93,6 +101,21 @@ export function useRevokeVerifactuCredentialMutation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: verifactuCredentialKey });
       void qc.invalidateQueries({ queryKey: verifactuCredentialHistoryKey });
+    },
+  });
+}
+
+/** PATCH del nombre del representante (vacío = el del certificado). */
+export function useSetAeatRepresentativeMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string | null }) =>
+      apiFetch<AeatCredentialMetadata>('/billing/aeat-credentials/me/representative', {
+        method: 'PATCH',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: verifactuCredentialKey });
     },
   });
 }

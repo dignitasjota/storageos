@@ -121,7 +121,13 @@ interface BuildClientArgs {
   decryptedCert?: {
     p12Buffer: Buffer;
     password: string;
-    record: { certValidTo: Date };
+    record: {
+      certValidTo: Date;
+      certNif: string;
+      certOrganizationNif: string | null;
+      certCommonName: string;
+      representativeName: string | null;
+    };
   } | null;
   config?: Partial<Record<keyof Env, unknown>>;
 }
@@ -203,7 +209,13 @@ describe('RealAeatClient', () => {
       decryptedCert: {
         p12Buffer: expired.p12Buffer,
         password: expired.password,
-        record: { certValidTo: new Date(Date.now() - 24 * 3600 * 1000) },
+        record: {
+          certValidTo: new Date(Date.now() - 24 * 3600 * 1000),
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
       },
     });
     const res = await client.sendInvoice(baseSendArgs);
@@ -234,7 +246,13 @@ describe('RealAeatClient', () => {
       decryptedCert: {
         p12Buffer: validCert.p12Buffer,
         password: validCert.password,
-        record: { certValidTo: validCert.notAfter },
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
       },
     });
     const res = await client.sendInvoice(baseSendArgs);
@@ -260,7 +278,13 @@ describe('RealAeatClient', () => {
       decryptedCert: {
         p12Buffer: validCert.p12Buffer,
         password: validCert.password,
-        record: { certValidTo: validCert.notAfter },
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
       },
     });
     const res = await client.sendInvoice(baseSendArgs);
@@ -287,7 +311,13 @@ describe('RealAeatClient', () => {
       decryptedCert: {
         p12Buffer: validCert.p12Buffer,
         password: validCert.password,
-        record: { certValidTo: validCert.notAfter },
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
       },
     });
     const res = await client.sendInvoice(baseSendArgs);
@@ -303,7 +333,13 @@ describe('RealAeatClient', () => {
       decryptedCert: {
         p12Buffer: validCert.p12Buffer,
         password: validCert.password,
-        record: { certValidTo: validCert.notAfter },
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
       },
     });
     const res = await client.sendInvoice(baseSendArgs);
@@ -330,7 +366,13 @@ describe('RealAeatClient', () => {
         decryptedCert: {
           p12Buffer: validCert.p12Buffer,
           password: validCert.password,
-          record: { certValidTo: validCert.notAfter },
+          record: {
+            certValidTo: validCert.notAfter,
+            certNif: 'B12345678',
+            certOrganizationNif: null,
+            certCommonName: 'TEST CERT',
+            representativeName: null,
+          },
         },
       });
       const res = await client.getStatus({ invoiceId: INVOICE_ID });
@@ -355,7 +397,13 @@ describe('RealAeatClient', () => {
         decryptedCert: {
           p12Buffer: validCert.p12Buffer,
           password: validCert.password,
-          record: { certValidTo: validCert.notAfter },
+          record: {
+            certValidTo: validCert.notAfter,
+            certNif: 'B12345678',
+            certOrganizationNif: null,
+            certCommonName: 'TEST CERT',
+            representativeName: null,
+          },
         },
       });
       const res = await client.getStatus({ invoiceId: INVOICE_ID });
@@ -382,7 +430,13 @@ describe('RealAeatClient', () => {
       decryptedCert: {
         p12Buffer: validCert.p12Buffer,
         password: validCert.password,
-        record: { certValidTo: validCert.notAfter },
+        record: {
+          certValidTo: validCert.notAfter,
+          certNif: 'B12345678',
+          certOrganizationNif: null,
+          certCommonName: 'TEST CERT',
+          representativeName: null,
+        },
       },
       config: { AEAT_TIMEOUT_MS: 50 },
     });

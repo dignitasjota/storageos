@@ -417,35 +417,62 @@ describe('VerifactuXmlBuilder', () => {
     });
   });
 
+  describe('representante', () => {
+    it('añade <Representante> tras el obligado solo si lo hay', () => {
+      const builder = new VerifactuXmlBuilder(createConfig());
+      const sin = builder.buildRegistroAlta(baseArgs());
+      expect(sin).not.toContain('Representante');
+
+      const xml = builder.buildRegistroAlta({
+        ...baseArgs(),
+        representative: { name: 'Gestoría & Asesores SL', taxId: 'B87654321' },
+      });
+      assertWellFormedXml(xml);
+      const obligado = xml.indexOf('</sum1:ObligadoEmision>');
+      const rep = xml.indexOf('<sum1:Representante>');
+      expect(rep).toBeGreaterThan(obligado);
+      expect(rep).toBeLessThan(xml.indexOf('</sum:Cabecera>'));
+      expect(xml).toContain('<sum1:NombreRazon>Gestoría &amp; Asesores SL</sum1:NombreRazon>');
+      expect(xml).toContain('<sum1:NIF>B87654321</sum1:NIF>');
+    });
+  });
+
   describe('buildConsultaFactu', () => {
-    it('genera XML well-formed con IDEmisorFactura, NumSerieFactura y FechaExpedicionFactura', () => {
+    it('sigue ConsultaLR.xsd: cabecera con el obligado, periodo de imputación y fecha', () => {
       const builder = new VerifactuXmlBuilder(createConfig());
       const xml = builder.buildConsultaFactu({
+        emitterName: 'Trasteros & Co',
         emitterTaxId: 'B12345678',
         invoiceNumber: 'F-2026-0001',
         issueDate: new Date('2026-05-20T00:00:00.000Z'),
       });
 
       assertWellFormedXml(xml);
-
-      // Cabecera SOAP + namespace de consulta.
-      expect(xml).toContain('<soapenv:Envelope');
-      expect(xml).toContain('xmlns:con="https://www2.agenciatributaria.gob.es');
       expect(xml).toContain('<con:ConsultaFactuSistemaFacturacion>');
-      expect(xml).toContain('<con:FiltroConsulta>');
-
-      // Campos clave.
-      expect(xml).toContain('<con:IDEmisorFactura>B12345678</con:IDEmisorFactura>');
+      expect(xml).toContain('xmlns:sum1="https://www2.agenciatributaria.gob.es');
+      // Cabecera obligatoria antes del filtro.
+      expect(xml.indexOf('<con:Cabecera>')).toBeLessThan(xml.indexOf('<con:FiltroConsulta>'));
+      expect(xml).toContain('<sum1:IDVersion>1.0</sum1:IDVersion>');
+      expect(xml).toContain('<sum1:NombreRazon>Trasteros &amp; Co</sum1:NombreRazon>');
+      expect(xml).toContain('<sum1:NIF>B12345678</sum1:NIF>');
+      expect(xml).not.toContain('IndicadorRepresentante');
+      expect(xml).not.toContain('IDEmisorFactura');
+      expect(xml).toContain('<sum1:Ejercicio>2026</sum1:Ejercicio>');
+      expect(xml).toContain('<sum1:Periodo>05</sum1:Periodo>');
       expect(xml).toContain('<con:NumSerieFactura>F-2026-0001</con:NumSerieFactura>');
-      expect(xml).toContain('<con:FechaExpedicionFactura>20-05-2026</con:FechaExpedicionFactura>');
+      expect(xml).toMatch(
+        /<con:FechaExpedicionFactura>\s*<sum1:FechaExpedicionFactura>20-05-2026<\/sum1:FechaExpedicionFactura>\s*<\/con:FechaExpedicionFactura>/,
+      );
 
-      // Escape XML: si el numero llevara caracteres especiales tambien.
       const xml2 = builder.buildConsultaFactu({
+        emitterName: 'X',
         emitterTaxId: 'B12345678',
         invoiceNumber: 'F&2026/0001',
         issueDate: new Date('2026-05-20T00:00:00.000Z'),
+        asRepresentative: true,
       });
       expect(xml2).toContain('<con:NumSerieFactura>F&amp;2026/0001</con:NumSerieFactura>');
+      expect(xml2).toContain('<sum1:IndicadorRepresentante>S</sum1:IndicadorRepresentante>');
     });
   });
 
