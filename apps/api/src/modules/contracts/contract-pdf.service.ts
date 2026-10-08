@@ -1,7 +1,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { renderContractClauses } from '@storageos/shared';
+import { contractClausesTemplate, renderContractClauses } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -82,6 +82,7 @@ export class ContractPdfService implements OnModuleDestroy {
             country: true,
             taxId: true,
             contractClauses: true,
+            housingContractClauses: true,
           },
         }),
       args.tenantId,
@@ -113,7 +114,10 @@ export class ContractPdfService implements OnModuleDestroy {
       (tx) =>
         tx.contract.findUnique({
           where: { id: contract.id },
-          select: { signedClausesText: true },
+          select: {
+            signedClausesText: true,
+            unit: { select: { unitType: { select: { propertyKind: true } } } },
+          },
         }),
       args.tenantId,
     );
@@ -122,6 +126,7 @@ export class ContractPdfService implements OnModuleDestroy {
       tenant,
       customer,
       signedClausesText: signed?.signedClausesText ?? null,
+      propertyKind: signed?.unit.unitType.propertyKind ?? 'storage',
     });
 
     const browser = await this.getBrowser();
@@ -190,9 +195,12 @@ export class ContractPdfService implements OnModuleDestroy {
       country: string;
       taxId: string | null;
       contractClauses: string | null;
+      housingContractClauses: string | null;
     };
     /** Snapshot de las cláusulas firmadas (contratos ya firmados con cláusulas propias). */
     signedClausesText?: string | null;
+    /** `housing` = contrato de vivienda (título y plantilla LAU). */
+    propertyKind?: string;
     customer: {
       firstName: string | null;
       lastName: string | null;
@@ -235,10 +243,16 @@ export class ContractPdfService implements OnModuleDestroy {
     // firmado aunque la plantilla haya cambiado. Si aún es borrador, se renderiza
     // la plantilla vigente del tenant. En ambos casos sustituyen a las cláusulas
     // por defecto.
+    const housing = args.propertyKind === 'housing';
+    const clausesTemplate = contractClausesTemplate({
+      propertyKind: args.propertyKind,
+      clauses: args.tenant.contractClauses,
+      housingClauses: args.tenant.housingContractClauses,
+    });
     const customClauses =
       args.signedClausesText ??
-      (args.tenant.contractClauses
-        ? renderContractClauses(args.tenant.contractClauses, {
+      (clausesTemplate
+        ? renderContractClauses(clausesTemplate, {
             contractNumber: c.contractNumber,
             customerName,
             unitCode: c.unitCode,
@@ -281,7 +295,7 @@ export class ContractPdfService implements OnModuleDestroy {
 </style>
 </head>
 <body>
-<h1>Contrato de alquiler de trastero</h1>
+<h1>${housing ? 'Contrato de arrendamiento de vivienda' : 'Contrato de alquiler de trastero'}</h1>
 <div class="meta">N.º ${c.contractNumber} · Emitido el ${formatDate(c.createdAt)}</div>
 
 <div class="grid">
@@ -304,7 +318,7 @@ export class ContractPdfService implements OnModuleDestroy {
 <h2>Objeto del contrato</h2>
 <div class="box">
   <dt>Local</dt><dd>${c.facilityName}</dd>
-  <dt>Trastero</dt><dd>${c.unitCode}</dd>
+  <dt>${housing ? 'Vivienda' : 'Trastero'}</dt><dd>${c.unitCode}</dd>
   <dt>Inicio</dt><dd>${formatDate(c.startDate)}</dd>
   <dt>Finalización</dt><dd>${c.endDate ? formatDate(c.endDate) : 'Sin fecha de finalización (renovación automática)'}</dd>
 </div>

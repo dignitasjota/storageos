@@ -10,7 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { renderContractClauses, rentTax } from '@storageos/shared';
+import { contractClausesTemplate, renderContractClauses, rentTax } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { InvoiceSeriesService } from '../billing/invoice-series.service';
@@ -156,13 +156,20 @@ export class SignaturesService {
         name: true,
         slug: true,
         contractClauses: true,
+        housingContractClauses: true,
         portalBrandColor: true,
         portalLogoUrl: true,
         googleAnalyticsId: true,
       },
     });
-    const renderedClauses = tenant?.contractClauses
-      ? renderContractClauses(tenant.contractClauses, {
+    const propertyKind = contract.unit.unitType?.propertyKind ?? 'storage';
+    const clausesTemplate = contractClausesTemplate({
+      propertyKind,
+      clauses: tenant?.contractClauses,
+      housingClauses: tenant?.housingContractClauses,
+    });
+    const renderedClauses = clausesTemplate
+      ? renderContractClauses(clausesTemplate, {
           contractNumber: contract.contractNumber,
           customerName,
           unitCode: contract.unit.code,
@@ -171,12 +178,13 @@ export class SignaturesService {
           depositAmount: `${Number(contract.depositAmount).toFixed(2)} €`,
           startDate: contract.startDate.toISOString().slice(0, 10),
           cancellationNoticeDays: String(contract.cancellationNoticeDays),
-          tenantName: tenant.name,
+          tenantName: tenant?.name ?? '',
         })
       : null;
     const termsText =
       contract.signedTermsText ??
       buildContractTermsText({
+        propertyKind,
         contractNumber: contract.contractNumber,
         customerName,
         unitCode: contract.unit.code,
@@ -293,7 +301,13 @@ export class SignaturesService {
             companyName: true,
           },
         },
-        unit: { select: { code: true, facility: { select: { name: true } } } },
+        unit: {
+          select: {
+            code: true,
+            facility: { select: { name: true } },
+            unitType: { select: { propertyKind: true } },
+          },
+        },
       },
     });
     if (!contract || !contract.signingTokenHash || !contract.signingTokenExpiresAt) {

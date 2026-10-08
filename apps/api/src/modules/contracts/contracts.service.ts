@@ -12,6 +12,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   CLOSED_CASE_STATUSES,
+  contractClausesTemplate,
   renderContractClauses,
   rentTax,
   resolvePlanFeatures,
@@ -557,14 +558,24 @@ export class ContractsService {
         // para que editar la plantilla después no altere este contrato.
         const tenantRow = await tx.tenant.findUnique({
           where: { id: args.tenantId },
-          select: { name: true, contractClauses: true },
+          select: { name: true, contractClauses: true, housingContractClauses: true },
+        });
+        const signedUnit = await tx.unit.findUnique({
+          where: { id: existing.unitId },
+          select: { unitType: { select: { propertyKind: true } } },
+        });
+        const propertyKind = signedUnit?.unitType.propertyKind ?? 'storage';
+        const clausesTemplate = contractClausesTemplate({
+          propertyKind,
+          clauses: tenantRow?.contractClauses,
+          housingClauses: tenantRow?.housingContractClauses,
         });
         const signerCustomerName =
           row.customer.customerType === 'business'
             ? (row.customer.companyName ?? '')
             : [row.customer.firstName, row.customer.lastName].filter(Boolean).join(' ');
-        const renderedClauses = tenantRow?.contractClauses
-          ? renderContractClauses(tenantRow.contractClauses, {
+        const renderedClauses = clausesTemplate
+          ? renderContractClauses(clausesTemplate, {
               contractNumber: row.contractNumber,
               customerName: signerCustomerName,
               unitCode: row.unit.code,
@@ -573,10 +584,11 @@ export class ContractsService {
               depositAmount: `${Number(row.depositAmount).toFixed(2)} €`,
               startDate: row.startDate.toISOString().slice(0, 10),
               cancellationNoticeDays: String(row.cancellationNoticeDays),
-              tenantName: tenantRow.name,
+              tenantName: tenantRow?.name ?? '',
             })
           : null;
         const termsText = buildContractTermsText({
+          propertyKind,
           contractNumber: row.contractNumber,
           customerName: signerCustomerName,
           unitCode: row.unit.code,
