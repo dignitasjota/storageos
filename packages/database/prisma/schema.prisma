@@ -331,6 +331,8 @@ model Tenant {
   /// Si true, al emitir una factura se intenta cobrar automaticamente al
   /// metodo de pago predeterminado del cliente (cola BullMQ `payments`).
   autoChargeOnIssue            Boolean               @default(false) @map("auto_charge_on_issue")
+  /// Concilia solo los abonos N43 con coincidencia única exacta.
+  bankAutoReconcile Boolean @default(false) @map("bank_auto_reconcile")
   /// IBAN para pagos por transferencia (sale en el correo de «Nueva factura»).
   transferIban            String?  @map("transfer_iban")
   /// Dónde se emiten las facturas: 'app' (Veri*Factu) | 'holded'.
@@ -1752,6 +1754,7 @@ model Payment {
   invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  bankTransactions BankStatementTransaction[]
 
   @@index([tenantId])
   @@index([invoiceId])
@@ -2162,10 +2165,15 @@ model BankStatementTransaction {
   status           String    @default("pending")
   matchedInvoiceId String?   @map("matched_invoice_id") @db.Uuid
   matchedAt        DateTime? @map("matched_at") @db.Timestamptz(6)
+  /// Conciliado solo al importar (se puede deshacer).
+  autoMatched      Boolean   @default(false) @map("auto_matched")
+  /// Cobro creado al conciliar.
+  matchedPaymentId String?   @map("matched_payment_id") @db.Uuid
 
-  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
-  invoice   Invoice?      @relation(fields: [matchedInvoiceId], references: [id], onDelete: SetNull)
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  statement      BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  invoice        Invoice?      @relation(fields: [matchedInvoiceId], references: [id], onDelete: SetNull)
+  matchedPayment Payment?      @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([statementId])

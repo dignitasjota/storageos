@@ -1741,6 +1741,13 @@ export class InvoicesService {
     amount: number;
     reason: string;
     facilityScope?: string[] | null;
+    /** Revertir exactamente este cobro (si no, se elige por importe). */
+    paymentId?: string;
+    /**
+     * Deshacer un cobro registrado por error (p. ej. una conciliación
+     * automática): no cuenta como recibo devuelto.
+     */
+    undo?: boolean;
     meta: RequestMeta;
   }): Promise<InvoiceDto> {
     await this.findOrThrow(args.tenantId, args.invoiceId, args.facilityScope);
@@ -1780,7 +1787,15 @@ export class InvoicesService {
         select: { id: true, amount: true },
       });
       const target = toCents(args.amount);
-      const exact = live.find((p) => toCents(p.amount) === target);
+      const exact = args.paymentId
+        ? live.find((p) => p.id === args.paymentId)
+        : live.find((p) => toCents(p.amount) === target);
+      if (args.paymentId && !exact) {
+        throw new BadRequestException({
+          code: 'payment_not_found',
+          message: 'Ese cobro ya no está en la factura',
+        });
+      }
       const reverted: string[] = [];
       if (exact) {
         reverted.push(exact.id);
@@ -1797,7 +1812,11 @@ export class InvoicesService {
       if (reverted.length > 0) {
         await tx.payment.updateMany({
           where: { id: { in: reverted } },
-          data: { status: 'failed', failureReason: args.reason, returnedAt: new Date() },
+          data: {
+            status: 'failed',
+            failureReason: args.reason,
+            ...(args.undo ? {} : { returnedAt: new Date() }),
+          },
         });
       }
       return tx.invoice.update({
@@ -1814,7 +1833,7 @@ export class InvoicesService {
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
-      action: 'invoice.payment_reverted',
+      action: args.undo ? 'invoice.payment_undone' : 'invoice.payment_reverted',
       entityType: 'Invoice',
       entityId: args.invoiceId,
       changes: { amount: args.amount, reason: args.reason, revertedStatus },

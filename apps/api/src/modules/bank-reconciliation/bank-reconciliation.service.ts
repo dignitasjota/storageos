@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { toCents } from '../../common/money';
+import { AuditService } from '../auth/audit.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../database/prisma.service';
 import { markSepaItemReturned } from '../sepa/sepa-items';
@@ -8,6 +9,7 @@ import { markSepaItemReturned } from '../sepa/sepa-items';
 import { parseN43 } from './n43-parser';
 
 import type {
+  BankReconciliationSettingsDto,
   BankStatementDetailDto,
   BankStatementDto,
   BankTransactionDto,
@@ -38,9 +40,12 @@ function customerName(
 
 @Injectable()
 export class BankReconciliationService {
+  private readonly logger = new Logger(BankReconciliationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
+    private readonly audit: AuditService,
   ) {}
 
   async import(args: {
@@ -92,6 +97,15 @@ export class BankReconciliationService {
       );
       statements.push(this.toDto(created, 0));
     }
+    // Conciliación automática (si el tenant la activó) de los abonos con una
+    // única coincidencia exacta.
+    const autoMatchedCount = (await this.autoReconcileEnabled(args.tenantId))
+      ? await this.autoMatch(
+          args.tenantId,
+          args.userId,
+          statements.map((s) => s.id),
+        )
+      : 0;
     // Cuenta los abonos pendientes con sugerencia (informativo).
     const detail = await Promise.all(statements.map((s) => this.getStatement(args.tenantId, s.id)));
     const suggestedCount = detail.reduce(
@@ -100,7 +114,7 @@ export class BankReconciliationService {
         d.transactions.filter((t) => t.status === 'pending' && t.suggestions.length > 0).length,
       0,
     );
-    return { statements, suggestedCount };
+    return { statements, suggestedCount, autoMatchedCount };
   }
 
   async listStatements(tenantId: string): Promise<BankStatementDto[]> {
@@ -163,6 +177,7 @@ export class BankReconciliationService {
           : null,
         suggestions,
         returnSuggestions,
+        autoMatched: t.autoMatched,
       };
     });
     const matchedCount = statement.transactions.filter((t) => t.status === 'matched').length;
@@ -392,6 +407,221 @@ export class BankReconciliationService {
     return this.getStatement(tenantId, found!.statementId);
   }
 
+  // ------------------------------------------------- conciliación automática
+
+  async getSettings(tenantId: string): Promise<BankReconciliationSettingsDto> {
+    return { autoReconcile: await this.autoReconcileEnabled(tenantId) };
+  }
+
+  async updateSettings(args: {
+    tenantId: string;
+    userId: string;
+    autoReconcile: boolean;
+  }): Promise<BankReconciliationSettingsDto> {
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.update({
+          where: { id: args.tenantId },
+          data: { bankAutoReconcile: args.autoReconcile },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'bank_reconciliation.settings_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { autoReconcile: args.autoReconcile },
+    });
+    return { autoReconcile: args.autoReconcile };
+  }
+
+  private async autoReconcileEnabled(tenantId: string): Promise<boolean> {
+    const tenant = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.findUnique({ where: { id: tenantId }, select: { bankAutoReconcile: true } }),
+      tenantId,
+    );
+    return tenant?.bankAutoReconcile ?? false;
+  }
+
+  /**
+   * Concilia solos los abonos pendientes de estos extractos que casan con UNA
+   * sola factura: importe exacto de lo pendiente y su número en el concepto o
+   * la referencia. Ante cualquier duda (ninguna o varias) se deja a mano. Cada
+   * apunte se reclama antes de cobrar (sin dobles cobros con otra persona
+   * conciliando a la vez) y queda marcado como automático.
+   */
+  private async autoMatch(
+    tenantId: string,
+    userId: string,
+    statementIds: string[],
+  ): Promise<number> {
+    const txs = await this.prisma.withTenant(
+      (tx) =>
+        tx.bankStatementTransaction.findMany({
+          where: { statementId: { in: statementIds }, status: 'pending', amount: { gt: 0 } },
+          orderBy: { operationDate: 'asc' },
+        }),
+      tenantId,
+    );
+    if (txs.length === 0) return 0;
+    const candidates = await this.loadCandidates(tenantId);
+    const used = new Set<string>();
+    let matched = 0;
+    for (const t of txs) {
+      const hits = uniqueAutoMatch(t.amount, t, candidates).filter((c) => !used.has(c.id));
+      if (hits.length !== 1) continue;
+      const invoice = hits[0]!;
+      const { count } = await this.prisma.withTenant(
+        (tx) =>
+          tx.bankStatementTransaction.updateMany({
+            where: { id: t.id, status: 'pending' },
+            data: {
+              status: 'matched',
+              matchedInvoiceId: invoice.id,
+              matchedAt: new Date(),
+              autoMatched: true,
+            },
+          }),
+        tenantId,
+      );
+      if (count === 0) continue;
+      used.add(invoice.id);
+      try {
+        await this.invoices.markPaidManually({
+          tenantId,
+          userId,
+          invoiceId: invoice.id,
+          input: {
+            amount: t.amount / 100,
+            methodType: 'bank_transfer',
+            notes: 'Conciliación N43 automática',
+            overridePaymentInFlight: true,
+            allowInSepaRemittance: true,
+            allowPartialNonCash: true,
+          },
+          meta: {},
+        });
+        const payment = await this.prisma.withTenant(
+          (tx) =>
+            tx.payment.findFirst({
+              where: { invoiceId: invoice.id, notes: 'Conciliación N43 automática' },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true },
+            }),
+          tenantId,
+        );
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.bankStatementTransaction.update({
+              where: { id: t.id },
+              data: { matchedPaymentId: payment?.id ?? null },
+            }),
+          tenantId,
+        );
+        matched += 1;
+      } catch (err) {
+        this.logger.warn(
+          `[bank] conciliación automática fallida (${t.id}): ${err instanceof Error ? err.message : String(err)}`,
+        );
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.bankStatementTransaction.updateMany({
+              where: { id: t.id, status: 'matched' },
+              data: {
+                status: 'pending',
+                matchedInvoiceId: null,
+                matchedAt: null,
+                autoMatched: false,
+              },
+            }),
+          tenantId,
+        );
+      }
+    }
+    return matched;
+  }
+
+  /** Deshace una conciliación automática: anula ese cobro y el apunte vuelve a pendiente. */
+  async undoAutoMatch(args: {
+    tenantId: string;
+    userId: string;
+    transactionId: string;
+  }): Promise<BankStatementDetailDto> {
+    const t = await this.prisma.withTenant(
+      (tx) =>
+        tx.bankStatementTransaction.findFirst({
+          where: { id: args.transactionId, tenantId: args.tenantId },
+        }),
+      args.tenantId,
+    );
+    if (!t) {
+      throw new NotFoundException({
+        code: 'transaction_not_found',
+        message: 'Movimiento no encontrado',
+      });
+    }
+    if (t.status !== 'matched' || !t.autoMatched || !t.matchedInvoiceId || !t.matchedPaymentId) {
+      throw new BadRequestException({
+        code: 'not_auto_matched',
+        message: 'Solo se deshacen las conciliaciones automáticas',
+      });
+    }
+    // Reclamar el deshacer: dos clics no anulan el cobro dos veces.
+    const { count } = await this.prisma.withTenant(
+      (tx) =>
+        tx.bankStatementTransaction.updateMany({
+          where: { id: t.id, status: 'matched', autoMatched: true },
+          data: { status: 'pending', matchedInvoiceId: null, matchedAt: null, autoMatched: false },
+        }),
+      args.tenantId,
+    );
+    if (count === 0) {
+      throw new BadRequestException({
+        code: 'not_auto_matched',
+        message: 'Solo se deshacen las conciliaciones automáticas',
+      });
+    }
+    try {
+      await this.invoices.revertPayment({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: t.matchedInvoiceId,
+        amount: t.amount / 100,
+        paymentId: t.matchedPaymentId,
+        undo: true,
+        reason: 'Conciliación automática deshecha',
+        meta: {},
+      });
+    } catch (err) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.bankStatementTransaction.update({
+            where: { id: t.id },
+            data: {
+              status: 'matched',
+              matchedInvoiceId: t.matchedInvoiceId,
+              matchedAt: t.matchedAt,
+              autoMatched: true,
+            },
+          }),
+        args.tenantId,
+      );
+      throw err;
+    }
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.bankStatementTransaction.update({
+          where: { id: t.id },
+          data: { matchedPaymentId: null },
+        }),
+      args.tenantId,
+    );
+    return this.getStatement(args.tenantId, t.statementId);
+  }
+
   // -------------------------------------------------------------------------
 
   private async loadCandidates(tenantId: string): Promise<CandidateInvoice[]> {
@@ -549,4 +779,32 @@ export class BankReconciliationService {
       createdAt: s.createdAt.toISOString(),
     };
   }
+}
+
+/**
+ * El número de factura aparece como palabra suelta en el texto del apunte
+ * (`F-2026-1` no casa dentro de `F-2026-12`).
+ */
+export function containsInvoiceNumber(haystack: string, invoiceNumber: string): boolean {
+  const escaped = invoiceNumber.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Z0-9])${escaped}($|[^A-Z0-9])`).test(haystack.toUpperCase());
+}
+
+/** Facturas que casan para la conciliación automática: importe exacto + número en el texto. */
+export function uniqueAutoMatch<T extends { invoiceNumber: string; amountPendingCents: number }>(
+  amountCents: number,
+  tx: {
+    reference1: string | null;
+    reference2: string | null;
+    documentNumber: string | null;
+    description: string | null;
+  },
+  candidates: T[],
+): T[] {
+  const haystack = [tx.reference1, tx.reference2, tx.documentNumber, tx.description]
+    .filter(Boolean)
+    .join(' ');
+  return candidates.filter(
+    (c) => c.amountPendingCents === amountCents && containsInvoiceNumber(haystack, c.invoiceNumber),
+  );
 }
