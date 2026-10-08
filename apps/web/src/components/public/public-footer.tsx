@@ -6,7 +6,13 @@ import { PlatformLogo } from '@/components/public/platform-logo';
 const CONTACT_EMAIL = 'info@trasteros.pro';
 
 /** Pie de la web de TrasterOS: gris oscuro, con columnas de enlaces. */
-export function PublicFooter({ logoUrl }: { logoUrl: string | null }) {
+export function PublicFooter({
+  logoUrl,
+  hasContact = false,
+}: {
+  logoUrl: string | null;
+  hasContact?: boolean;
+}) {
   const t = useTranslations('publicFooter');
   const year = new Date().getUTCFullYear();
   const columns: { title: string; links: { href: string; label: string }[] }[] = [
@@ -16,6 +22,7 @@ export function PublicFooter({ logoUrl }: { logoUrl: string | null }) {
         { href: '/#funcionalidades', label: t('features') },
         { href: '/#precios', label: t('pricing') },
         { href: '/#faq', label: t('faq') },
+        ...(hasContact ? [{ href: '/#contacto', label: t('contactForm') }] : []),
       ],
     },
     {

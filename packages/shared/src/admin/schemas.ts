@@ -555,6 +555,53 @@ export type RequestPlatformLogoUploadInput = z.infer<typeof RequestPlatformLogoU
 export const SetPlatformLogoSchema = z.object({ key: z.string().max(300).nullable() });
 export type SetPlatformLogoInput = z.infer<typeof SetPlatformLogoSchema>;
 
+/** Opciones del formulario de contacto de la web de TrasterOS. */
+export const CONTACT_UNITS_OPTIONS = [
+  'Menos de 50',
+  'De 50 a 200',
+  'De 200 a 500',
+  'Más de 500',
+] as const;
+export const CONTACT_PROFILE_OPTIONS = [
+  'Tengo uno o varios locales de trasteros',
+  'Gestiono trasteros o viviendas de otros propietarios',
+  'Quiero alquilar viviendas además de trasteros',
+  'Estoy abriendo mi primer local',
+  'Otro',
+] as const;
+
+/** Ajustes del formulario de contacto (panel admin → Web de TrasterOS). */
+export const UpdatePlatformContactSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** A dónde llegan los mensajes; vacío = el formulario no se muestra. */
+  email: z.string().trim().toLowerCase().email().or(z.literal('')),
+  title: z.string().trim().min(1).max(80),
+  subtitle: z.string().trim().max(300),
+  showPhone: z.boolean(),
+  requirePhone: z.boolean(),
+  showCompany: z.boolean(),
+  showUnits: z.boolean(),
+  showProfile: z.boolean(),
+});
+export type UpdatePlatformContactSettingsInput = z.infer<
+  typeof UpdatePlatformContactSettingsSchema
+>;
+
+/** Envío del formulario de contacto de la web (público). */
+export const SubmitPlatformContactSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  email: z.string().trim().toLowerCase().email().max(200),
+  phone: z.string().trim().max(30).optional().or(z.literal('')),
+  company: z.string().trim().max(160).optional().or(z.literal('')),
+  units: z.string().trim().max(40).optional().or(z.literal('')),
+  profile: z.string().trim().max(120).optional().or(z.literal('')),
+  message: z.string().trim().min(10).max(4000),
+  acceptPrivacy: z.literal(true),
+  /** Trampa para bots: un humano no la rellena. */
+  hp: z.string().max(200).optional(),
+});
+export type SubmitPlatformContactInput = z.infer<typeof SubmitPlatformContactSchema>;
+
 // --- Add-ons facturables del SaaS ---------------------------------------
 export const UpsertSaasAddonSchema = z.object({
   slug: z

@@ -5090,7 +5090,36 @@ model PlatformWebsite {
   id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   /// Imagen en el bucket público; null = el logo de la marca de la aplicación.
   logoKey   String?  @map("logo_key")
+  /// Formulario de contacto: sin email de destino no se muestra.
+  contactEnabled      Boolean  @default(true) @map("contact_enabled")
+  contactEmail        String?  @map("contact_email")
+  contactTitle        String   @default("¿Hablamos?") @map("contact_title")
+  contactSubtitle     String   @default("Cuéntanos tu caso y te respondemos en menos de 24 horas laborables.") @map("contact_subtitle")
+  contactShowPhone    Boolean  @default(true) @map("contact_show_phone")
+  contactRequirePhone Boolean  @default(false) @map("contact_require_phone")
+  contactShowCompany  Boolean  @default(true) @map("contact_show_company")
+  contactShowUnits    Boolean  @default(true) @map("contact_show_units")
+  contactShowProfile  Boolean  @default(true) @map("contact_show_profile")
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_website")
+}
+
+/// Mensaje del formulario de contacto de la web de TrasterOS.
+model PlatformContactMessage {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name      String
+  email     String
+  phone     String?
+  company   String?
+  units     String?
+  profile   String?
+  message   String
+  ipAddress String?   @map("ip_address")
+  emailSent Boolean   @default(false) @map("email_sent")
+  handledAt DateTime? @map("handled_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "platform_contact_messages_created_idx")
+  @@map("platform_contact_messages")
 }

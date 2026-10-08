@@ -62,6 +62,8 @@ export interface SendMailRenderedArgs {
   tags?: Record<string, string>;
   /** Cabeceras extra (p. ej. `List-Unsubscribe`). */
   headers?: Record<string, string>;
+  /** «Responder a» de este envío (p. ej. quien rellenó un formulario de contacto). */
+  replyTo?: EmailAddress;
 }
 
 /**
@@ -155,7 +157,11 @@ export class EmailService {
     try {
       return await this.provider.send({
         from: sender.from,
-        ...(sender.replyTo ? { replyTo: sender.replyTo } : {}),
+        ...(args.replyTo
+          ? { replyTo: args.replyTo }
+          : sender.replyTo
+            ? { replyTo: sender.replyTo }
+            : {}),
         ...(sender.forceProvider ? { forceProvider: sender.forceProvider } : {}),
         to: args.to,
         subject: args.subject,

@@ -23,7 +23,8 @@
       "features": "Funcionalidades",
       "audiences": "Para quién",
       "pricing": "Precios",
-      "faq": "Preguntas"
+      "faq": "Preguntas",
+      "contact": "Contacto"
     }
   },
   "publicFooter": {
@@ -33,6 +34,7 @@
     "features": "Funcionalidades",
     "pricing": "Precios",
     "faq": "Preguntas frecuentes",
+    "contactForm": "Escríbenos",
     "solutions": "Para quién",
     "operators": "Operadores de self-storage",
     "managers": "Administradores de cartera",

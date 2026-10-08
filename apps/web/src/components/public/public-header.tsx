@@ -16,7 +16,13 @@ const NAV = [
 ] as const;
 
 /** Cabecera de la web de TrasterOS: fondo del color de marca y logo configurable. */
-export function PublicHeader({ logoUrl }: { logoUrl: string | null }) {
+export function PublicHeader({
+  logoUrl,
+  hasContact = false,
+}: {
+  logoUrl: string | null;
+  hasContact?: boolean;
+}) {
   const t = useTranslations('publicHeader');
   const common = useTranslations('common');
   const pathname = usePathname();
@@ -26,6 +32,7 @@ export function PublicHeader({ logoUrl }: { logoUrl: string | null }) {
   // En el portal del inquilino (acceso por magic link) no tienen sentido los
   // CTA de iniciar sesión / crear cuenta del staff.
   const isPortal = pathname?.startsWith('/portal') ?? false;
+  const nav = hasContact ? [...NAV, { href: '/#contacto', key: 'contact' } as const] : NAV;
 
   return (
     <header className="sticky top-0 z-30 bg-primary text-primary-foreground shadow-sm">
@@ -35,7 +42,7 @@ export function PublicHeader({ logoUrl }: { logoUrl: string | null }) {
         </Link>
         {!isPortal && (
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Principal">
-            {NAV.map((item) => (
+            {nav.map((item) => (
               <Link
                 key={item.key}
                 href={item.href}

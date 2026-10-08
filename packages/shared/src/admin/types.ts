@@ -897,9 +897,41 @@ export interface DunningRunResultDto {
 }
 
 // --- Banner global + notificaciones del super admin ---
+/** Lo que la web necesita para pintar el formulario de contacto (sin el email). */
+export interface PublicContactFormDto {
+  title: string;
+  subtitle: string;
+  showPhone: boolean;
+  requirePhone: boolean;
+  showCompany: boolean;
+  showUnits: boolean;
+  showProfile: boolean;
+}
+
 export interface PlatformWebsiteDto {
   /** URL pública del logo subido; null = el logo de la marca de la aplicación. */
   logoUrl: string | null;
+  /** Formulario de contacto; null = desactivado o sin email de destino. */
+  contactForm: PublicContactFormDto | null;
+}
+
+export interface PlatformContactSettingsDto extends PublicContactFormDto {
+  enabled: boolean;
+  email: string;
+}
+
+export interface PlatformContactMessageDto {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  company: string | null;
+  units: string | null;
+  profile: string | null;
+  message: string;
+  emailSent: boolean;
+  handledAt: string | null;
+  createdAt: string;
 }
 
 export interface PlatformLogoUploadDto {

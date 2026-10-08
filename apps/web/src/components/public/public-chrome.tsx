@@ -27,11 +27,14 @@ export function PublicChrome({
   children,
   forcedBare = false,
   logoUrl = null,
+  hasContact = false,
 }: {
   children: ReactNode;
   forcedBare?: boolean;
   /** Logo de la web (panel admin → Web de TrasterOS); null = el de la marca. */
   logoUrl?: string | null;
+  /** Hay formulario de contacto en la portada (enlace «Contacto»). */
+  hasContact?: boolean;
 }) {
   const pathname = usePathname();
   const bare =
@@ -46,9 +49,9 @@ export function PublicChrome({
   }
   return (
     <div className="flex min-h-screen flex-col">
-      <PublicHeader logoUrl={logoUrl} />
+      <PublicHeader logoUrl={logoUrl} hasContact={hasContact} />
       <main className="flex-1">{children}</main>
-      <PublicFooter logoUrl={logoUrl} />
+      <PublicFooter logoUrl={logoUrl} hasContact={hasContact} />
       <CookieBanner />
     </div>
   );

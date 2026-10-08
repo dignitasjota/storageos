@@ -36,6 +36,19 @@ export class PlatformService {
     const row = await this.admin.platformWebsite.findFirst();
     return {
       logoUrl: row?.logoKey ? this.files.buildPublicUrl('public', row.logoKey) : null,
+      // Sin email de destino el formulario no se muestra (los mensajes no llegarían).
+      contactForm:
+        row?.contactEnabled && row.contactEmail
+          ? {
+              title: row.contactTitle,
+              subtitle: row.contactSubtitle,
+              showPhone: row.contactShowPhone,
+              requirePhone: row.contactShowPhone && row.contactRequirePhone,
+              showCompany: row.contactShowCompany,
+              showUnits: row.contactShowUnits,
+              showProfile: row.contactShowProfile,
+            }
+          : null,
     };
   }
 

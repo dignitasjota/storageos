@@ -25,10 +25,12 @@ import { useTranslations } from 'next-intl';
 
 import type { Metadata } from 'next';
 
+import { PlatformContactForm } from '@/components/public/platform-contact-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchFounderOffer } from '@/lib/founder-offer';
 import { safeJsonLd } from '@/lib/json-ld';
+import { fetchPlatformWebsite } from '@/lib/platform-website';
 
 const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ??
@@ -464,6 +466,8 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <ContactSection />
+
       {/* CTA final */}
       <section className="container pb-24 text-center">
         <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{t('cta.title')}</h2>
@@ -476,6 +480,27 @@ export default function LandingPage() {
         </Button>
       </section>
     </>
+  );
+}
+
+/** Formulario de contacto (panel admin → Web de TrasterOS). */
+async function ContactSection() {
+  const { contactForm } = await fetchPlatformWebsite();
+  if (!contactForm) return null;
+  return (
+    <section id="contacto" className="container scroll-mt-20 pb-20" aria-labelledby="contact-title">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-8 text-center">
+          <h2 id="contact-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
+            {contactForm.title}
+          </h2>
+          {contactForm.subtitle && (
+            <p className="mt-2 text-muted-foreground">{contactForm.subtitle}</p>
+          )}
+        </div>
+        <PlatformContactForm config={contactForm} />
+      </div>
+    </section>
   );
 }
 

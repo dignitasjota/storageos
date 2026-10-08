@@ -84,7 +84,9 @@ describe('Oferta fundador de la web (e2e)', () => {
 
   it('logo de la web: subir, guardar y volver al de la marca', async () => {
     const http = () => request(app.getHttpServer());
-    expect((await http().get('/platform-website').expect(200)).body).toEqual({ logoUrl: null });
+    expect((await http().get('/platform-website').expect(200)).body).toMatchObject({
+      logoUrl: null,
+    });
 
     const up = await http()
       .post('/admin/platform/website/logo-upload-url')

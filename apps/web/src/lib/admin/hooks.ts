@@ -4,6 +4,9 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  PlatformContactMessageDto,
+  PlatformContactSettingsDto,
+  UpdatePlatformContactSettingsInput,
   TenantDataExportDto,
   AdminSupportStatsDto,
   SupportCannedResponseDto,
@@ -2003,6 +2006,48 @@ export function useResetPlatformLogo() {
         json: { key: null },
       }),
     onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+// --- Formulario de contacto de la web de TrasterOS ---
+export function useAdminContactSettings() {
+  return useQuery({
+    queryKey: ['admin', 'platform', 'contact'] as const,
+    queryFn: () => adminApiFetch<PlatformContactSettingsDto>('/admin/platform/contact'),
+  });
+}
+
+export function useUpdateContactSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformContactSettingsInput) =>
+      adminApiFetch<PlatformContactSettingsDto>('/admin/platform/contact', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'contact'], data),
+  });
+}
+
+export function useAdminContactMessages() {
+  return useQuery({
+    queryKey: ['admin', 'platform', 'contact', 'messages'] as const,
+    queryFn: () => adminApiFetch<PlatformContactMessageDto[]>('/admin/platform/contact/messages'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useSetContactMessageHandled() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; handled: boolean }) =>
+      adminApiFetch<PlatformContactMessageDto>(
+        `/admin/platform/contact/messages/${input.id}/handled`,
+        { method: 'POST', json: { handled: input.handled } },
+      ),
+    onSuccess: () =>
+      void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'contact', 'messages'] }),
   });
 }
 
