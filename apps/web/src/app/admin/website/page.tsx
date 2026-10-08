@@ -1,17 +1,23 @@
 'use client';
 
+import { PLATFORM_LOGO_MAX_BYTES, type PlatformFounderOfferDto } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { PlatformFounderOfferDto } from '@storageos/shared';
-
+import { PlatformLogo } from '@/components/public/platform-logo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useAdminFounderOffer, useUpdateFounderOffer } from '@/lib/admin/hooks';
+import {
+  useAdminFounderOffer,
+  useAdminPlatformWebsite,
+  useResetPlatformLogo,
+  useUpdateFounderOffer,
+  useUploadPlatformLogo,
+} from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 /** Ajustes de la web pública de TrasterOS (no las webs de los tenants). */
@@ -46,6 +52,8 @@ export default function AdminWebsitePage() {
           Lo que aparece en trasteros.pro (no afecta a las webs de los tenants).
         </p>
       </div>
+
+      <LogoCard />
 
       <Card>
         <CardHeader className="pb-2">
@@ -147,5 +155,80 @@ export default function AdminWebsitePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** Logo del header (azul) y del footer (gris oscuro) de la web. */
+function LogoCard() {
+  const { data } = useAdminPlatformWebsite();
+  const upload = useUploadPlatformLogo();
+  const reset = useResetPlatformLogo();
+  const input = useRef<HTMLInputElement>(null);
+  const logoUrl = data?.logoUrl ?? null;
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      toast.error('Sube un PNG, JPG o WebP.');
+      return;
+    }
+    if (file.size > PLATFORM_LOGO_MAX_BYTES) {
+      toast.error('El logo no puede pasar de 1 MB.');
+      return;
+    }
+    try {
+      await upload.mutateAsync(file);
+      toast.success('Logo guardado. La web lo mostrará en un minuto como mucho.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo subir el logo.');
+    } finally {
+      if (input.current) input.current.value = '';
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Logo de la web</CardTitle>
+        <CardDescription>
+          Se muestra en el header (fondo azul) y en el footer (fondo gris oscuro): usa una versión
+          clara o blanca, con fondo transparente. PNG, JPG o WebP de hasta 1 MB.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex h-16 items-center rounded-lg bg-primary px-4">
+            <PlatformLogo logoUrl={logoUrl} />
+          </div>
+          <div className="flex h-16 items-center rounded-lg bg-slate-900 px-4">
+            <PlatformLogo logoUrl={logoUrl} />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={input}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => void onFile(e.target.files?.[0])}
+          />
+          <Button onClick={() => input.current?.click()} disabled={upload.isPending}>
+            {upload.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+            Subir logo
+          </Button>
+          {data?.logoUrl && (
+            <Button
+              variant="outline"
+              disabled={reset.isPending}
+              onClick={() =>
+                void reset.mutateAsync().then(() => toast.success('Vuelve el logo de TrasterOS.'))
+              }
+            >
+              Volver al logo de TrasterOS
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

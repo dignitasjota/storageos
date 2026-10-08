@@ -15,10 +15,14 @@ import {
   UpdateLegalDocumentSchema,
   UpdatePlatformBannerSchema,
   UpdatePlatformFounderOfferSchema,
+  RequestPlatformLogoUploadSchema,
+  SetPlatformLogoSchema,
   type LegalDocumentDto,
   type LegalSlug,
   type PlatformBannerDto,
   type PlatformFounderOfferDto,
+  type PlatformLogoUploadDto,
+  type PlatformWebsiteDto,
   type SuperAdminNotificationDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -32,6 +36,8 @@ import { PlatformService } from './platform.service';
 class UpdateBannerDto extends createZodDto(UpdatePlatformBannerSchema) {}
 class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
 class UpdateFounderOfferDto extends createZodDto(UpdatePlatformFounderOfferSchema) {}
+class RequestLogoUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
+class SetLogoDto extends createZodDto(SetPlatformLogoSchema) {}
 
 function parseSlug(slug: string): LegalSlug {
   const parsed = LegalSlugEnum.safeParse(slug);
@@ -76,6 +82,18 @@ export class PlatformFounderOfferPublicController {
   }
 }
 
+/** Ajustes de la web de TrasterOS (logo). Públicos: los lee la landing. */
+@Public()
+@Controller('platform-website')
+export class PlatformWebsitePublicController {
+  constructor(private readonly service: PlatformService) {}
+
+  @Get()
+  get(): Promise<PlatformWebsiteDto> {
+    return this.service.getWebsite();
+  }
+}
+
 /** Gestión del banner + feed de notificaciones. Solo super admin. */
 @Public()
 @UseGuards(AdminGuard)
@@ -102,6 +120,24 @@ export class PlatformAdminController {
   @Put('founder-offer')
   updateFounderOffer(@Body() body: UpdateFounderOfferDto): Promise<PlatformFounderOfferDto> {
     return this.service.updateFounderOffer(body);
+  }
+
+  @Get('website')
+  getWebsite(): Promise<PlatformWebsiteDto> {
+    return this.service.getWebsite();
+  }
+
+  @RequireSuperadmin()
+  @Post('website/logo-upload-url')
+  @HttpCode(HttpStatus.OK)
+  requestLogoUpload(@Body() body: RequestLogoUploadDto): Promise<PlatformLogoUploadDto> {
+    return this.service.requestLogoUpload(body.mimeType);
+  }
+
+  @RequireSuperadmin()
+  @Put('website/logo')
+  setLogo(@Body() body: SetLogoDto): Promise<PlatformWebsiteDto> {
+    return this.service.setLogo(body.key);
   }
 
   @Get('notifications')

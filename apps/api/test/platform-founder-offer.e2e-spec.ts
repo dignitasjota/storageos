@@ -21,6 +21,7 @@ describe('Oferta fundador de la web (e2e)', () => {
     await cleanupSuperAdmins();
     prisma = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     await prisma.platformFounderOffer.deleteMany();
+    await prisma.platformWebsite.deleteMany();
     app = await createTestApp();
     const admin = await seedSuperAdmin('founder');
     const login = await request(app.getHttpServer())
@@ -31,6 +32,7 @@ describe('Oferta fundador de la web (e2e)', () => {
 
   afterAll(async () => {
     await prisma.platformFounderOffer.deleteMany();
+    await prisma.platformWebsite.deleteMany();
     await prisma.$disconnect();
     await app.close();
     await cleanupSuperAdmins();
@@ -78,5 +80,45 @@ describe('Oferta fundador de la web (e2e)', () => {
       .put('/admin/platform/founder-offer')
       .send({ enabled: false, title: 'a', text: 'b', setupStrike: '', setupText: '' })
       .expect(401);
+  });
+
+  it('logo de la web: subir, guardar y volver al de la marca', async () => {
+    const http = () => request(app.getHttpServer());
+    expect((await http().get('/platform-website').expect(200)).body).toEqual({ logoUrl: null });
+
+    const up = await http()
+      .post('/admin/platform/website/logo-upload-url')
+      .set(adminAuth)
+      .send({ mimeType: 'image/png', sizeBytes: 2048 })
+      .expect(200);
+    expect(up.body.key).toMatch(/^platform\/logo\/.+\.png$/);
+    expect(up.body.uploadUrl).toEqual(expect.any(String));
+    // Sin SVG (puede llevar scripts).
+    await http()
+      .post('/admin/platform/website/logo-upload-url')
+      .set(adminAuth)
+      .send({ mimeType: 'image/svg+xml', sizeBytes: 2048 })
+      .expect(400);
+
+    const set = await http()
+      .put('/admin/platform/website/logo')
+      .set(adminAuth)
+      .send({ key: up.body.key })
+      .expect(200);
+    expect(set.body.logoUrl).toContain(up.body.key);
+    expect((await http().get('/platform-website').expect(200)).body.logoUrl).toContain(up.body.key);
+
+    await http()
+      .put('/admin/platform/website/logo')
+      .set(adminAuth)
+      .send({ key: 'tenant-x/otra-cosa.png' })
+      .expect(400);
+    await http().put('/admin/platform/website/logo').send({ key: null }).expect(401);
+    const reset = await http()
+      .put('/admin/platform/website/logo')
+      .set(adminAuth)
+      .send({ key: null })
+      .expect(200);
+    expect(reset.body.logoUrl).toBeNull();
   });
 });

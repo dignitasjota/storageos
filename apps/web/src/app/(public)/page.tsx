@@ -2,16 +2,22 @@ import {
   ArrowRight,
   BarChart3,
   CalendarCheck,
+  Cctv,
   Check,
   CreditCard,
   FileSignature,
   Globe,
+  Home,
   KeyRound,
   Map,
   Megaphone,
   ReceiptText,
   ShieldCheck,
   Smartphone,
+  TrendingUp,
+  Upload,
+  Users,
+  Warehouse,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -48,6 +54,9 @@ export const metadata: Metadata = {
     'control de accesos trastero',
     'alquiler de trasteros software',
     'CRM self-storage España',
+    'software administrador de cartera de alquileres',
+    'gestión de alquiler de viviendas',
+    'liquidación a propietarios',
   ],
   alternates: { canonical: '/' },
   openGraph: {
@@ -78,7 +87,16 @@ const FEATURES = [
   { key: 'operations', icon: Wrench },
   { key: 'analytics', icon: BarChart3 },
   { key: 'insurance', icon: ShieldCheck },
+  { key: 'pricing', icon: TrendingUp },
+  { key: 'migration', icon: Upload },
+  { key: 'cameras', icon: Cctv },
 ] as const;
+
+const AUDIENCE_ICONS: Record<string, typeof Warehouse> = {
+  operators: Warehouse,
+  managers: Users,
+  housing: Home,
+};
 
 const EXTRAS = [
   'multiLocal',
@@ -89,6 +107,9 @@ const EXTRAS = [
   'reservations',
   'dunning',
   'messaging',
+  'returns',
+  'waitlist',
+  'deposits',
 ] as const;
 
 export default function LandingPage() {
@@ -98,6 +119,14 @@ export default function LandingPage() {
   const steps = t.raw('howItWorks.steps') as { title: string; description: string }[];
   const compliancePoints = t.raw('compliance.points') as string[];
   const seoPoints = t.raw('seoLocal.points') as string[];
+  const audiences = t.raw('audiences.items') as {
+    key: string;
+    title: string;
+    badge?: string;
+    description: string;
+    points: string[];
+    cta: string;
+  }[];
   const faqItems = t.raw('faq.items') as { q: string; a: string }[];
   const plans = t.raw('pricing.plans') as {
     name: string;
@@ -189,7 +218,11 @@ export default function LandingPage() {
       </section>
 
       {/* Funcionalidades */}
-      <section className="container pb-16" aria-labelledby="features-title">
+      <section
+        id="funcionalidades"
+        className="container scroll-mt-20 pb-16"
+        aria-labelledby="features-title"
+      >
         <div className="mb-10 text-center">
           <h2 id="features-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
             {t('features.title')}
@@ -210,6 +243,66 @@ export default function LandingPage() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      </section>
+
+      {/* Para quién */}
+      <section
+        id="para-quien"
+        className="container scroll-mt-20 pb-16"
+        aria-labelledby="audiences-title"
+      >
+        <div className="mb-10 text-center">
+          <h2 id="audiences-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
+            {t('audiences.title')}
+          </h2>
+          <p className="mx-auto mt-2 max-w-2xl text-muted-foreground">{t('audiences.subtitle')}</p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {audiences.map((a) => {
+            const Icon = AUDIENCE_ICONS[a.key] ?? Warehouse;
+            return (
+              <Card
+                key={a.key}
+                id={
+                  a.key === 'managers'
+                    ? 'administradores'
+                    : a.key === 'housing'
+                      ? 'viviendas'
+                      : undefined
+                }
+                className={`flex scroll-mt-20 flex-col ${a.key === 'managers' ? 'border-primary shadow-lg' : 'border-border/60'}`}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Icon className="size-5" aria-hidden />
+                    </span>
+                    {a.badge && (
+                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                        {a.badge}
+                      </span>
+                    )}
+                  </div>
+                  <CardTitle className="mt-3 text-lg">{a.title}</CardTitle>
+                  <p className="text-sm text-muted-foreground">{a.description}</p>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col justify-between gap-4">
+                  <ul className="space-y-2 text-sm">
+                    {a.points.map((point) => (
+                      <li key={point} className="flex items-start gap-2">
+                        <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                        <span>{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button asChild variant={a.key === 'managers' ? 'default' : 'outline'}>
+                    <Link href="#precios">{a.cta}</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </section>
 
@@ -291,7 +384,11 @@ export default function LandingPage() {
       </section>
 
       {/* Precios */}
-      <section className="container pb-16" aria-labelledby="pricing-title">
+      <section
+        id="precios"
+        className="container scroll-mt-20 pb-16"
+        aria-labelledby="pricing-title"
+      >
         <div className="mb-8 text-center">
           <h2 id="pricing-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
             {t('pricing.title')}
@@ -348,7 +445,7 @@ export default function LandingPage() {
       </section>
 
       {/* Preguntas frecuentes */}
-      <section className="container pb-20" aria-labelledby="faq-title">
+      <section id="faq" className="container scroll-mt-20 pb-20" aria-labelledby="faq-title">
         <div className="mx-auto max-w-3xl">
           <div className="mb-8 text-center">
             <h2 id="faq-title" className="text-2xl font-semibold tracking-tight md:text-3xl">

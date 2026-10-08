@@ -540,6 +540,21 @@ export const UpdatePlatformFounderOfferSchema = z.object({
 });
 export type UpdatePlatformFounderOfferInput = z.infer<typeof UpdatePlatformFounderOfferSchema>;
 
+/**
+ * Logo de la web de TrasterOS. Sin SVG a propósito: se sirve desde el dominio
+ * de ficheros (mismo sitio que la app) y un SVG puede llevar scripts.
+ */
+export const PLATFORM_LOGO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export const PLATFORM_LOGO_MAX_BYTES = 1024 * 1024;
+export const RequestPlatformLogoUploadSchema = z.object({
+  mimeType: z.enum(PLATFORM_LOGO_MIME_TYPES),
+  sizeBytes: z.number().int().positive().max(PLATFORM_LOGO_MAX_BYTES),
+});
+export type RequestPlatformLogoUploadInput = z.infer<typeof RequestPlatformLogoUploadSchema>;
+/** Fija el logo subido (su key) o lo quita (null = logo de la marca). */
+export const SetPlatformLogoSchema = z.object({ key: z.string().max(300).nullable() });
+export type SetPlatformLogoInput = z.infer<typeof SetPlatformLogoSchema>;
+
 // --- Add-ons facturables del SaaS ---------------------------------------
 export const UpsertSaasAddonSchema = z.object({
   slug: z

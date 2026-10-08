@@ -26,9 +26,12 @@ import { PublicHeader } from '@/components/public/public-header';
 export function PublicChrome({
   children,
   forcedBare = false,
+  logoUrl = null,
 }: {
   children: ReactNode;
   forcedBare?: boolean;
+  /** Logo de la web (panel admin → Web de TrasterOS); null = el de la marca. */
+  logoUrl?: string | null;
 }) {
   const pathname = usePathname();
   const bare =
@@ -43,9 +46,9 @@ export function PublicChrome({
   }
   return (
     <div className="flex min-h-screen flex-col">
-      <PublicHeader />
+      <PublicHeader logoUrl={logoUrl} />
       <main className="flex-1">{children}</main>
-      <PublicFooter />
+      <PublicFooter logoUrl={logoUrl} />
       <CookieBanner />
     </div>
   );

@@ -1,13 +1,19 @@
+import { randomUUID } from 'node:crypto';
+
 import { Injectable } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { DEFAULT_LEGAL_DOCUMENTS } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { FilesService } from '../files/files.service';
 
 import type {
   LegalDocumentDto,
   LegalSlug,
   PlatformBannerDto,
   PlatformFounderOfferDto,
+  PlatformLogoUploadDto,
+  PlatformWebsiteDto,
   SuperAdminNotificationDto,
   UpdateLegalDocumentInput,
   UpdatePlatformBannerInput,
@@ -17,7 +23,49 @@ import type {
 /** Banner global + feed de notificaciones del super admin. */
 @Injectable()
 export class PlatformService {
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly files: FilesService,
+  ) {}
+
+  // ---- web de TrasterOS: logo ----
+
+  private static readonly LOGO_PREFIX = 'platform/logo/';
+
+  async getWebsite(): Promise<PlatformWebsiteDto> {
+    const row = await this.admin.platformWebsite.findFirst();
+    return {
+      logoUrl: row?.logoKey ? this.files.buildPublicUrl('public', row.logoKey) : null,
+    };
+  }
+
+  /** URL firmada para subir el logo directo al bucket público. */
+  async requestLogoUpload(mimeType: string): Promise<PlatformLogoUploadDto> {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const key = `${PlatformService.LOGO_PREFIX}${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': mimeType } };
+  }
+
+  async setLogo(key: string | null): Promise<PlatformWebsiteDto> {
+    if (key && (!key.startsWith(PlatformService.LOGO_PREFIX) || key.includes('..'))) {
+      throw new BadRequestException({ code: 'invalid_logo_key', message: 'Logo no válido' });
+    }
+    const existing = await this.admin.platformWebsite.findFirst();
+    if (existing) {
+      await this.admin.platformWebsite.update({
+        where: { id: existing.id },
+        data: { logoKey: key },
+      });
+    } else {
+      await this.admin.platformWebsite.create({ data: { logoKey: key } });
+    }
+    return this.getWebsite();
+  }
 
   // ---- banner global ----
 

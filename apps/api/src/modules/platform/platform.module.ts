@@ -8,6 +8,7 @@ import {
   PlatformBannerPublicController,
   PlatformFounderOfferPublicController,
   PlatformLegalPublicController,
+  PlatformWebsitePublicController,
 } from './platform.controller';
 import { PlatformService } from './platform.service';
 
@@ -19,6 +20,7 @@ import { PlatformService } from './platform.service';
     PlatformBannerPublicController,
     PlatformFounderOfferPublicController,
     PlatformLegalPublicController,
+    PlatformWebsitePublicController,
   ],
   providers: [PlatformService, AdminGuard],
   exports: [PlatformService],
