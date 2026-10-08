@@ -19,35 +19,66 @@
     "login": "Iniciar sesión",
     "register": "Crear cuenta",
     "goToApp": "Ir al panel",
-    "nav": {
-      "features": "Funcionalidades",
-      "audiences": "Para quién",
+    "menu": {
+      "title": "Menú",
+      "open": "Abrir el menú",
+      "product": "Producto",
+      "solutions": "Soluciones",
       "pricing": "Precios",
-      "faq": "Preguntas",
-      "contact": "Contacto"
+      "resources": "Recursos",
+      "allFeatures": "Ver todas las funcionalidades",
+      "groups": {
+        "manage": "Gestión del día a día",
+        "money": "Cobros y fiscalidad",
+        "growth": "Captación y crecimiento",
+        "security": "Accesos y seguridad"
+      },
+      "links": {
+        "operators": {
+          "title": "Operadores de self-storage",
+          "description": "Uno o varios locales propios, con cobros y accesos automáticos."
+        },
+        "managers": {
+          "title": "Administradores de cartera",
+          "description": "Locales de varios propietarios con su facturación y liquidación."
+        },
+        "housing": {
+          "title": "Viviendas",
+          "description": "Alquila viviendas junto a tus trasteros, con contrato y fianza."
+        },
+        "howItWorks": {
+          "title": "Cómo funciona",
+          "description": "Pon en marcha tu cuenta en cuatro pasos."
+        },
+        "compliance": {
+          "title": "Cumplimiento fiscal",
+          "description": "Veri*Factu, IVA, retenciones y exportación para tu asesoría."
+        },
+        "faq": {
+          "title": "Preguntas frecuentes",
+          "description": "Lo que más nos preguntan antes de empezar."
+        },
+        "contact": {
+          "title": "Contacto",
+          "description": "Escríbenos y te respondemos en menos de 24 horas."
+        },
+        "tenantPortal": {
+          "title": "Área de clientes",
+          "description": "Acceso para los inquilinos de nuestros clientes."
+        }
+      }
     }
   },
   "publicFooter": {
     "copyright": "© {year} TrasterOS",
-    "tagline": "Software de gestión para self-storage, trasteros y alquileres. En la nube, en español y conforme a Veri*Factu.",
-    "product": "Producto",
-    "features": "Funcionalidades",
-    "pricing": "Precios",
-    "faq": "Preguntas frecuentes",
-    "contactForm": "Escríbenos",
-    "solutions": "Para quién",
-    "operators": "Operadores de self-storage",
-    "managers": "Administradores de cartera",
-    "housing": "Viviendas",
-    "account": "Cuenta",
-    "login": "Iniciar sesión",
-    "register": "Crear cuenta",
-    "tenantPortal": "Área de clientes",
     "legal": "Legal",
     "terms": "Términos",
     "privacy": "Privacidad",
     "cookies": "Cookies",
-    "contact": "Contacto"
+    "ctaTitle": "¿Listo para ordenar tu negocio?",
+    "ctaSubtitle": "Prueba TrasterOS gratis durante 30 días, sin tarjeta y con tus datos importados.",
+    "ctaPrimary": "Empieza gratis",
+    "ctaSecondary": "Hablar con nosotros"
   },
   "landing": {
     "heroTitle": "Software de gestión para self-storage y trasteros",

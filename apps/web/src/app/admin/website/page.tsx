@@ -9,6 +9,8 @@ import { Check, Loader2, Mail, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { FooterCard } from './footer-card';
+
 import { PlatformLogo } from '@/components/public/platform-logo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,6 +65,8 @@ export default function AdminWebsitePage() {
       </div>
 
       <LogoCard />
+
+      <FooterCard />
 
       <ContactSettingsCard />
 

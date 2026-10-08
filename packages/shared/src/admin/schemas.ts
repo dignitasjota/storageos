@@ -845,3 +845,103 @@ export const UpsertSupportCannedResponseSchema = z.object({
   body: z.string().trim().min(2).max(5000),
 });
 export type UpsertSupportCannedResponseInput = z.infer<typeof UpsertSupportCannedResponseSchema>;
+
+/**
+ * Enlace del pie de la web: ruta interna (`/…`, sin `//`), ancla (`#…`),
+ * `https://`, `mailto:` o `tel:`. Nada de `javascript:` ni enlaces que
+ * empiecen por `//` (saltarían a otro dominio).
+ */
+export const FooterHrefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(300)
+  .refine((v) => /^(\/(?!\/)|#|https:\/\/|mailto:|tel:)/.test(v), {
+    message: 'Usa una ruta (/…), un ancla (#…), https://, mailto: o tel:',
+  });
+
+/** Red social con URL https o vacía (no se muestra). */
+const SocialUrlSchema = z
+  .string()
+  .trim()
+  .max(300)
+  .refine((v) => v === '' || v.startsWith('https://'), { message: 'Debe empezar por https://' });
+
+export const FOOTER_SOCIAL_NETWORKS = [
+  'linkedin',
+  'instagram',
+  'facebook',
+  'x',
+  'youtube',
+] as const;
+export type FooterSocialNetwork = (typeof FOOTER_SOCIAL_NETWORKS)[number];
+
+export const FooterLinkSchema = z.object({
+  label: z.string().trim().min(1).max(60),
+  href: FooterHrefSchema,
+});
+export const FooterColumnSchema = z.object({
+  title: z.string().trim().min(1).max(40),
+  links: z.array(FooterLinkSchema).max(12),
+});
+
+/** Pie de la web de TrasterOS (panel admin → Web de TrasterOS). */
+export const UpdatePlatformFooterSchema = z.object({
+  tagline: z.string().trim().max(300),
+  email: z.string().trim().toLowerCase().email().or(z.literal('')),
+  phone: z.string().trim().max(40),
+  address: z.string().trim().max(200),
+  columns: z.array(FooterColumnSchema).max(5),
+  social: z.object({
+    linkedin: SocialUrlSchema,
+    instagram: SocialUrlSchema,
+    facebook: SocialUrlSchema,
+    x: SocialUrlSchema,
+    youtube: SocialUrlSchema,
+  }),
+});
+export type UpdatePlatformFooterInput = z.infer<typeof UpdatePlatformFooterSchema>;
+
+/** Pie por defecto (mientras el super admin no lo cambie). */
+export const DEFAULT_PLATFORM_FOOTER: UpdatePlatformFooterInput = {
+  tagline:
+    'Software de gestión para self-storage, trasteros y alquileres. En la nube, en español y conforme a Veri*Factu.',
+  email: 'info@trasteros.pro',
+  phone: '',
+  address: '',
+  columns: [
+    {
+      title: 'Producto',
+      links: [
+        { label: 'Funcionalidades', href: '/#funcionalidades' },
+        { label: 'Cómo funciona', href: '/#como-funciona' },
+        { label: 'Cumplimiento fiscal', href: '/#cumplimiento' },
+        { label: 'Precios', href: '/#precios' },
+      ],
+    },
+    {
+      title: 'Soluciones',
+      links: [
+        { label: 'Operadores de self-storage', href: '/#para-quien' },
+        { label: 'Administradores de cartera', href: '/#administradores' },
+        { label: 'Viviendas', href: '/#viviendas' },
+      ],
+    },
+    {
+      title: 'Recursos',
+      links: [
+        { label: 'Preguntas frecuentes', href: '/#faq' },
+        { label: 'Contacto', href: '/#contacto' },
+        { label: 'Área de clientes', href: '/portal/login' },
+      ],
+    },
+    {
+      title: 'Cuenta',
+      links: [
+        { label: 'Iniciar sesión', href: '/login' },
+        { label: 'Crear cuenta', href: '/register' },
+      ],
+    },
+  ],
+  social: { linkedin: '', instagram: '', facebook: '', x: '', youtube: '' },
+};

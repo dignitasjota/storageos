@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 
 import { Injectable } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
-import { DEFAULT_LEGAL_DOCUMENTS } from '@storageos/shared';
+import { Prisma } from '@storageos/database';
+import {
+  DEFAULT_LEGAL_DOCUMENTS,
+  DEFAULT_PLATFORM_FOOTER,
+  UpdatePlatformFooterSchema,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
@@ -17,6 +22,7 @@ import type {
   SuperAdminNotificationDto,
   UpdateLegalDocumentInput,
   UpdatePlatformBannerInput,
+  UpdatePlatformFooterInput,
   UpdatePlatformFounderOfferInput,
 } from '@storageos/shared';
 
@@ -49,7 +55,26 @@ export class PlatformService {
               showProfile: row.contactShowProfile,
             }
           : null,
+      footer: PlatformService.parseFooter(row?.footer),
     };
+  }
+
+  /** El pie guardado si es válido; si no (o no hay), el de por defecto. */
+  private static parseFooter(raw: unknown): UpdatePlatformFooterInput {
+    if (raw == null) return DEFAULT_PLATFORM_FOOTER;
+    const parsed = UpdatePlatformFooterSchema.safeParse(raw);
+    return parsed.success ? parsed.data : DEFAULT_PLATFORM_FOOTER;
+  }
+
+  async updateFooter(input: UpdatePlatformFooterInput): Promise<PlatformWebsiteDto> {
+    const footer = input as unknown as Prisma.InputJsonValue;
+    const existing = await this.admin.platformWebsite.findFirst();
+    if (existing) {
+      await this.admin.platformWebsite.update({ where: { id: existing.id }, data: { footer } });
+    } else {
+      await this.admin.platformWebsite.create({ data: { footer } });
+    }
+    return this.getWebsite();
   }
 
   /** URL firmada para subir el logo directo al bucket público. */

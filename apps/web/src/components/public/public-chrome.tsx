@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 
+import type { UpdatePlatformFooterInput } from '@storageos/shared';
 import type { ReactNode } from 'react';
 
 import { CookieBanner } from '@/components/public/cookie-banner';
@@ -28,6 +29,7 @@ export function PublicChrome({
   forcedBare = false,
   logoUrl = null,
   hasContact = false,
+  footer = null,
 }: {
   children: ReactNode;
   forcedBare?: boolean;
@@ -35,6 +37,8 @@ export function PublicChrome({
   logoUrl?: string | null;
   /** Hay formulario de contacto en la portada (enlace «Contacto»). */
   hasContact?: boolean;
+  /** Pie gestionado desde el panel admin; null = el de por defecto. */
+  footer?: UpdatePlatformFooterInput | null;
 }) {
   const pathname = usePathname();
   const bare =
@@ -51,7 +55,7 @@ export function PublicChrome({
     <div className="flex min-h-screen flex-col">
       <PublicHeader logoUrl={logoUrl} hasContact={hasContact} />
       <main className="flex-1">{children}</main>
-      <PublicFooter logoUrl={logoUrl} hasContact={hasContact} />
+      <PublicFooter logoUrl={logoUrl} hasContact={hasContact} footer={footer} />
       <CookieBanner />
     </div>
   );

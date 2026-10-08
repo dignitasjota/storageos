@@ -1,4 +1,4 @@
-import type { PlatformWebsiteDto } from '@storageos/shared';
+import { DEFAULT_PLATFORM_FOOTER, type PlatformWebsiteDto } from '@storageos/shared';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -19,5 +19,5 @@ export async function fetchPlatformWebsite(): Promise<PlatformWebsiteDto> {
   } catch {
     /* logo de la marca */
   }
-  return { logoUrl: null, contactForm: null };
+  return { logoUrl: null, contactForm: null, footer: DEFAULT_PLATFORM_FOOTER };
 }
