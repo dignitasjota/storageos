@@ -308,7 +308,7 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <div className="grid items-start gap-4 md:grid-cols-3">
+        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
           {plans.map((plan) => (
             <Card
               key={plan.name}

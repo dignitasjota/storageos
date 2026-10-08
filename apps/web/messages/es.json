@@ -197,6 +197,20 @@
             "Domiciliación SEPA + conciliación bancaria (N43)",
             "Cámaras y alarma · dominio propio (white-label)"
           ]
+        },
+        {
+          "name": "Administrador",
+          "price": "349€",
+          "yearly": 3490,
+          "tagline": "Para gestores de cartera de varios propietarios",
+          "cta": "Empezar 30 días gratis",
+          "features": [
+            "Todo lo de Pro, y además:",
+            "Varios propietarios: cada local, de su dueño",
+            "Facturas emitidas a nombre de cada propietario (Veri*Factu)",
+            "Liquidación mensual a cada propietario por email",
+            "Libro de IVA, 303 y 347 por propietario"
+          ]
         }
       ]
     },

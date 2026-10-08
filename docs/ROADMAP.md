@@ -591,3 +591,4 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 - ✅ **C2b — Certificado propio del propietario**: si lo sube, sus facturas se envían con el suyo; si no, con el del administrador.
 - ✅ **C3 — Liquidación mensual al propietario por email**: lo cobrado de sus contratos menos tus honorarios con IVA y los gastos de sus locales.
 - ✅ **C4 — Informes fiscales por propietario**: libro de IVA, 303, 347 y exportaciones separados por emisor.
+- ✅ **C5 — Plan Administrador a la venta**: cuarta tarjeta en precios (349 €/mes o 3.490 €/año).
