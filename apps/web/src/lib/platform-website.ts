@@ -19,5 +19,5 @@ export async function fetchPlatformWebsite(): Promise<PlatformWebsiteDto> {
   } catch {
     /* logo de la marca */
   }
-  return { logoUrl: null };
+  return { logoUrl: null, contactForm: null };
 }
