@@ -133,6 +133,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/announcements', label: 'Anuncios', icon: Megaphone },
       { href: '/admin/product-updates', label: 'Novedades', icon: Sparkles },
       { href: '/admin/platform-banner', label: 'Banner y avisos', icon: BellRing },
+      { href: '/admin/website', label: 'Web de TrasterOS', icon: Globe },
       { href: '/admin/platform-alerts', label: 'Alertas', icon: BellRing },
       { href: '/admin/email', label: 'Correo saliente', icon: Mail },
       { href: '/admin/email-log', label: 'Correos enviados', icon: Inbox },

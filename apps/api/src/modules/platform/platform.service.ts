@@ -7,9 +7,11 @@ import type {
   LegalDocumentDto,
   LegalSlug,
   PlatformBannerDto,
+  PlatformFounderOfferDto,
   SuperAdminNotificationDto,
   UpdateLegalDocumentInput,
   UpdatePlatformBannerInput,
+  UpdatePlatformFounderOfferInput,
 } from '@storageos/shared';
 
 /** Banner global + feed de notificaciones del super admin. */
@@ -47,6 +49,30 @@ export class PlatformService {
       level: row.level as PlatformBannerDto['level'],
       enabled: row.enabled,
     };
+  }
+
+  // ---- oferta fundador de la web de TrasterOS ----
+
+  async getFounderOffer(): Promise<PlatformFounderOfferDto> {
+    let row = await this.admin.platformFounderOffer.findFirst();
+    row ??= await this.admin.platformFounderOffer.create({ data: {} });
+    return toFounderOfferDto(row);
+  }
+
+  /** La que se ve en la web: solo si está activada. */
+  async getPublicFounderOffer(): Promise<PlatformFounderOfferDto | null> {
+    const row = await this.admin.platformFounderOffer.findFirst();
+    return row?.enabled ? toFounderOfferDto(row) : null;
+  }
+
+  async updateFounderOffer(
+    input: UpdatePlatformFounderOfferInput,
+  ): Promise<PlatformFounderOfferDto> {
+    const existing = await this.admin.platformFounderOffer.findFirst();
+    const row = existing
+      ? await this.admin.platformFounderOffer.update({ where: { id: existing.id }, data: input })
+      : await this.admin.platformFounderOffer.create({ data: input });
+    return toFounderOfferDto(row);
   }
 
   // ---- notificaciones del super admin ----
@@ -132,4 +158,20 @@ export class PlatformService {
       updatedAt: row.updatedAt.toISOString(),
     };
   }
+}
+
+function toFounderOfferDto(row: {
+  enabled: boolean;
+  title: string;
+  text: string;
+  setupStrike: string;
+  setupText: string;
+}): PlatformFounderOfferDto {
+  return {
+    enabled: row.enabled,
+    title: row.title,
+    text: row.text,
+    setupStrike: row.setupStrike,
+    setupText: row.setupText,
+  };
 }

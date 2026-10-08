@@ -46,10 +46,12 @@ import type {
   PlatformSepaRemittancePreviewDto,
   CreatePlatformSepaRemittanceInput,
   PlatformBannerDto,
+  PlatformFounderOfferDto,
   LegalDocumentDto,
   LegalSlug,
   UpdateLegalDocumentInput,
   UpdatePlatformBannerInput,
+  UpdatePlatformFounderOfferInput,
   SuperAdminNotificationDto,
   AddTicketMessageInput,
   AdminAdoptionDto,
@@ -1955,6 +1957,26 @@ export function useUpdatePlatformBanner() {
     mutationFn: (input: UpdatePlatformBannerInput) =>
       adminApiFetch<PlatformBannerDto>('/admin/platform/banner', { method: 'PUT', json: input }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'banner'] }),
+  });
+}
+
+// --- Oferta fundador de la web de TrasterOS ---
+export function useAdminFounderOffer() {
+  return useQuery({
+    queryKey: ['admin', 'platform', 'founder-offer'] as const,
+    queryFn: () => adminApiFetch<PlatformFounderOfferDto>('/admin/platform/founder-offer'),
+  });
+}
+
+export function useUpdateFounderOffer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformFounderOfferInput) =>
+      adminApiFetch<PlatformFounderOfferDto>('/admin/platform/founder-offer', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'founder-offer'], data),
   });
 }
 
