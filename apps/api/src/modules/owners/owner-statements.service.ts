@@ -76,7 +76,7 @@ export class OwnerStatementsService {
     const ownerInvoice = { ownerId, kind: 'invoice' as const, deletedAt: null };
     const notCash = { notIn: [...NON_CASH_PAYMENT_METHODS] };
 
-    const [paid, refunds, expenses, withheld, pendingRows] = await this.prisma.withTenant(
+    const [paid, refunds, returned, expenses, withheld, pendingRows] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
           tx.payment.findMany({
@@ -117,6 +117,18 @@ export class OwnerStatementsService {
               invoice: ownerInvoice,
             },
             select: { id: true, refundedAmount: true },
+          }),
+          // Devueltos por el banco (o contracargo) en el periodo de cobros de
+          // periodos anteriores: ya se liquidaron y ahora hay que descontarlos.
+          // (Los cobrados y devueltos dentro del periodo ya no cuentan como cobro.)
+          tx.payment.findMany({
+            where: {
+              methodType: notCash,
+              returnedAt: { gte: start, lt: endExclusive },
+              paidAt: { lt: start },
+              invoice: ownerInvoice,
+            },
+            select: { amount: true },
           }),
           tx.expense.findMany({
             where: {
@@ -164,7 +176,10 @@ export class OwnerStatementsService {
       };
     });
     const collected = sum(paid.map((p) => Number(p.amount)));
-    const refunded = sum(refunds.map((r) => Number(r.refundedAmount)));
+    const refunded = round2(
+      sum(refunds.map((r) => Number(r.refundedAmount))) +
+        sum(returned.map((r) => Number(r.amount))),
+    );
     const collectedNet = subtractAmounts(collected, refunded);
     const feeType = owner.feeType === 'fixed' ? 'fixed' : 'percentage';
     const fee = ownerFee(feeType, Number(owner.feeValue), collectedNet, monthsInPeriod(from, to));

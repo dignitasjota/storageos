@@ -265,7 +265,9 @@ export class TenantAeatCredentialsService {
       async (tx) =>
         (ownerId
           ? await tx.tenantAeatCredential.findFirst({
-              where: { tenantId, ownerId, revokedAt: null },
+              // Si el del propietario ha caducado se envía con el del tenant
+              // (como al emitir, que da por bueno cualquiera de los dos).
+              where: { tenantId, ownerId, revokedAt: null, certValidTo: { gt: new Date() } },
               orderBy: { uploadedAt: 'desc' },
             })
           : null) ??

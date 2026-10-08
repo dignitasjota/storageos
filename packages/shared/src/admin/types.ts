@@ -1137,8 +1137,12 @@ export interface AdminTenantIssueCountDto {
 }
 
 export interface AdminCertificateExpiringDto {
+  /** Id del certificado (un tenant puede tener el suyo y los de sus propietarios). */
+  id: string;
   tenantId: string;
   tenantName: string;
+  /** Propietario (plan Administrador) si el certificado es suyo. */
+  ownerName: string | null;
   validTo: string;
   /** Días que faltan (≤0 = caducado). */
   daysLeft: number;

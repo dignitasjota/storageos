@@ -22,7 +22,7 @@ export const UpsertProductUpdateSchema = z.object({
     .string()
     .trim()
     .max(200)
-    .regex(/^\/[A-Za-z0-9/_?=&.-]*$/, 'Debe ser una ruta del panel, p. ej. /settings/web')
+    .regex(/^\/(?!\/)[A-Za-z0-9/_?=&.-]*$/, 'Debe ser una ruta del panel, p. ej. /settings/web')
     .nullable()
     .optional(),
   /** true = publicar ahora; false = dejar en borrador. */
