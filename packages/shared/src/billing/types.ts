@@ -31,6 +31,8 @@ export interface InvoiceSeriesDto {
   isDefault: boolean;
   /** Serie de rectificativas (la crea la app; las rectificativas van siempre aquí). */
   isRectification: boolean;
+  /** Serie de un propietario (plan Administrador); null = del tenant. */
+  ownerId: string | null;
   createdAt: string;
 }
 
@@ -100,6 +102,9 @@ export interface InvoiceDto {
   amountPaid: number;
   amountRefunded: number;
   /** % de retención de IRPF (0 = sin retención). */
+  /** Emisor (plan Administrador): el propietario; null = el propio tenant. */
+  ownerId: string | null;
+  ownerName: string | null;
   withholdingPct: number;
   /** Retención de IRPF: se resta del total a pagar (el total no cambia). */
   withholdingAmount: number;

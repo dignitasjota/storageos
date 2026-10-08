@@ -587,3 +587,4 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 **C. Plan «Administrador» (349 €/mes)**: todo Pro más varios propietarios en una cuenta, con emisor por propietario (serie, cadena Veri\*Factu y certificado propios), liquidación mensual al propietario por correo e informes fiscales por propietario. Fuera de la primera versión: acreedor SEPA y Holded por propietario, liquidación en PDF/Excel y la factura de honorarios del administrador.
 
 - ✅ **C1 — Propietarios y plan Administrador (349 €)**: cada local pertenece a un propietario (NIF, cuenta, honorarios); el contrato guarda el propietario al crearse.
+- ✅ **C2 — Facturas a nombre de cada propietario**: serie propia, cadena Veri\*Factu propia y sus datos en el registro y en el PDF; se envían con el certificado del administrador como representante.

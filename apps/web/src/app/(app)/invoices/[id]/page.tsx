@@ -277,6 +277,7 @@ export default function InvoiceDetailPage() {
                   </Link>
                 </>
               )}
+              {i.ownerName && <> · emitida por {i.ownerName}</>}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

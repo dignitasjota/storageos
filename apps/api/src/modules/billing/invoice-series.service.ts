@@ -33,7 +33,7 @@ export class InvoiceSeriesService {
     return this.prisma.withTenant(
       (tx) =>
         tx.invoiceSeries.findFirst({
-          where: { isDefault: true, isActive: true, isRectification: false },
+          where: { isDefault: true, isActive: true, isRectification: false, ownerId: null },
           orderBy: { code: 'asc' },
         }),
       tenantId,
@@ -50,7 +50,7 @@ export class InvoiceSeriesService {
       // Si es default, desmarcar la anterior.
       if (args.input.isDefault) {
         await tx.invoiceSeries.updateMany({
-          where: { isDefault: true },
+          where: { isDefault: true, ownerId: null },
           data: { isDefault: false },
         });
       }
@@ -107,7 +107,7 @@ export class InvoiceSeriesService {
     const updated = await this.prisma.withTenant(async (tx) => {
       if (args.input.isDefault === true && !existing.isDefault) {
         await tx.invoiceSeries.updateMany({
-          where: { isDefault: true },
+          where: { isDefault: true, ownerId: existing.ownerId },
           data: { isDefault: false },
         });
       }
@@ -170,16 +170,18 @@ export class InvoiceSeriesService {
   async rectificationSeries(
     tx: Prisma.TransactionClient,
     tenantId: string,
+    ownerId: string | null = null,
   ): Promise<InvoiceSeries> {
+    if (ownerId) return this.ownerSeries(tx, tenantId, ownerId, true);
     const existing = await tx.invoiceSeries.findFirst({
-      where: { isRectification: true, isActive: true },
+      where: { isRectification: true, isActive: true, ownerId: null },
       orderBy: { createdAt: 'asc' },
     });
     if (existing) return existing;
     // Serializa la creación (dos rectificativas a la vez no crean dos series).
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rect_series:${tenantId}`}))`;
     const again = await tx.invoiceSeries.findFirst({
-      where: { isRectification: true, isActive: true },
+      where: { isRectification: true, isActive: true, ownerId: null },
     });
     if (again) return again;
     const taken = await tx.invoiceSeries.findMany({ select: { prefix: true, code: true } });
@@ -197,6 +199,54 @@ export class InvoiceSeriesService {
         yearScope: true,
         isDefault: false,
         isRectification: true,
+      },
+    });
+  }
+
+  /**
+   * Serie de un propietario (plan Administrador): la de facturas o la de
+   * rectificativas. Se crea sola la primera vez con un prefijo libre
+   * (`P1`, `P2`… y `RP1`, `RP2`…) para que sus números no choquen con los
+   * del tenant ni con los de otros propietarios.
+   */
+  async ownerSeries(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    ownerId: string,
+    rectification = false,
+  ): Promise<InvoiceSeries> {
+    const where = { ownerId, isRectification: rectification, isActive: true };
+    const existing = await tx.invoiceSeries.findFirst({
+      where: { ...where, ...(rectification ? {} : { isDefault: true }) },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (existing) return existing;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`owner_series:${tenantId}`}))`;
+    const again = await tx.invoiceSeries.findFirst({ where, orderBy: { createdAt: 'asc' } });
+    if (again) return again;
+    const owner = await tx.owner.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: { legalName: true },
+    });
+    const taken = await tx.invoiceSeries.findMany({ select: { prefix: true, code: true } });
+    const prefixes = new Set(taken.map((t) => t.prefix.toUpperCase()));
+    const codes = new Set(taken.map((t) => t.code.toUpperCase()));
+    const base = rectification ? 'RP' : 'P';
+    let n = 1;
+    while (prefixes.has(`${base}${n}`) || codes.has(`${base}${n}`)) n++;
+    return tx.invoiceSeries.create({
+      data: {
+        tenantId,
+        ownerId,
+        code: `${base}${n}`,
+        name: `${rectification ? 'Rectificativas' : 'Facturas'} de ${owner.legalName}`.slice(
+          0,
+          120,
+        ),
+        prefix: `${base}${n}`,
+        yearScope: true,
+        isDefault: !rectification,
+        isRectification: rectification,
       },
     });
   }
@@ -240,6 +290,7 @@ export class InvoiceSeriesService {
       isActive: row.isActive,
       isDefault: row.isDefault,
       isRectification: row.isRectification,
+      ownerId: row.ownerId,
       createdAt: row.createdAt.toISOString(),
     };
   }

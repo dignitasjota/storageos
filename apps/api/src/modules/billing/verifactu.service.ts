@@ -58,6 +58,8 @@ export class VerifactuService {
     tx: Prisma.TransactionClient,
     args: {
       tenantId: string;
+      /** Emisor propietario (plan Administrador): su propia cadena. */
+      ownerId?: string | null;
       tenantTaxId: string;
       invoiceNumber: string;
       issueDate: Date;
@@ -72,9 +74,11 @@ export class VerifactuService {
     chainSeq: number;
     recordTimestamp: string;
   }> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`verifactu-chain:${args.tenantId}`}))`;
+    // Una cadena por emisor: el tenant (owner null) o cada propietario.
+    const ownerId = args.ownerId ?? null;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`verifactu-chain:${args.tenantId}:${ownerId ?? 'self'}`}))`;
     const previous = await tx.invoice.findFirst({
-      where: { tenantId: args.tenantId, chainSeq: { not: null } },
+      where: { tenantId: args.tenantId, ownerId, chainSeq: { not: null } },
       orderBy: { chainSeq: 'desc' },
       select: { id: true, hash: true, chainSeq: true },
     });
@@ -150,6 +154,7 @@ export class VerifactuService {
         aeatStatus: true,
         aeatSentAt: true,
         aeatCsv: true,
+        owner: { select: { taxId: true } },
         previousInvoice: { select: { id: true, aeatStatus: true } },
       },
     });
@@ -191,7 +196,7 @@ export class VerifactuService {
       total: Number(invoice.total),
       previousHash: invoice.previousHash,
       hash: invoice.hash,
-      emitterTaxId: tenant?.taxId ?? '',
+      emitterTaxId: invoice.owner?.taxId ?? tenant?.taxId ?? '',
     });
     // «Registro duplicado» (código 3000): ya estaba en la AEAT → su estado real.
     if (result.status === 'rejected' && /\b3000\b/.test(result.message ?? '')) {
