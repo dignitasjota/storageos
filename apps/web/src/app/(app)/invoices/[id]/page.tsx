@@ -330,7 +330,7 @@ export default function InvoiceDetailPage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setRefundAmount(i.amountPaid - i.amountRefunded);
+                  setRefundAmount(i.amountPaid - i.withholdingAmount - i.amountRefunded);
                   setRefundReason('');
                   setRefundOpen(true);
                 }}
@@ -461,6 +461,12 @@ export default function InvoiceDetailPage() {
           <CardContent>
             <p className="text-xl font-semibold tabular-nums">{i.total.toFixed(2)} €</p>
             <p className="text-xs text-muted-foreground">IVA {i.taxAmount.toFixed(2)} €</p>
+            {i.withholdingAmount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Retención IRPF ({i.withholdingPct} %) −{i.withholdingAmount.toFixed(2)} € · a pagar{' '}
+                {i.amountDue.toFixed(2)} €
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -468,7 +474,9 @@ export default function InvoiceDetailPage() {
             <CardTitle className="text-sm font-normal text-muted-foreground">Cobrado</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xl font-semibold tabular-nums">{i.amountPaid.toFixed(2)} €</p>
+            <p className="text-xl font-semibold tabular-nums">
+              {(i.amountPaid - i.withholdingAmount).toFixed(2)} €
+            </p>
             {i.amountRefunded > 0 && (
               <p className="text-xs text-muted-foreground">
                 Reembolsado {i.amountRefunded.toFixed(2)} €

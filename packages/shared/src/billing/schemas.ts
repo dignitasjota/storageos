@@ -97,7 +97,13 @@ export type PaymentMethodTypeValue = z.infer<typeof PaymentMethodTypeEnum>;
  * compensación con una rectificativa de abono (lo crea la app; no es dinero
  * cobrado y no se puede elegir a mano).
  */
-export type PaymentRecordMethodValue = PaymentMethodTypeValue | 'credit_note';
+export type PaymentRecordMethodValue = PaymentMethodTypeValue | 'credit_note' | 'withholding';
+
+/**
+ * Pagos que no son dinero cobrado: compensación con abono y retención de IRPF
+ * practicada por el inquilino. Fuera de caja, cobrado, reembolsos y contabilidad.
+ */
+export const NON_CASH_PAYMENT_METHODS = ['credit_note', 'withholding'] as const;
 
 export const PaymentGatewayProviderEnum = z.enum(['stripe', 'gocardless', 'redsys', 'manual']);
 export type PaymentGatewayProviderValue = z.infer<typeof PaymentGatewayProviderEnum>;

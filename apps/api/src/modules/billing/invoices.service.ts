@@ -18,6 +18,7 @@ import {
   normalizeTaxId,
   taxCategoryAllowsRate,
   type InvoiceTaxCategory,
+  NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
@@ -495,6 +496,9 @@ export class InvoicesService {
           },
           include: this.includeRelations(),
         });
+        const holdedWithheld = isCredit
+          ? holdedRow
+          : await this.applyWithholding(tx, args.tenantId, holdedRow);
         if (isCredit && existing.rectifiesInvoiceId) {
           compensatedOriginal = await this.compensateWithCredit(tx, {
             tenantId: args.tenantId,
@@ -503,7 +507,7 @@ export class InvoicesService {
             creditNumber: fromHolded.number,
           });
         }
-        return holdedRow;
+        return holdedWithheld;
       }
 
       const { sequenceNumber, series } = await this.series.reserveNextNumber(tx, existing.seriesId);
@@ -567,7 +571,7 @@ export class InvoicesService {
         total,
       });
 
-      const row = await tx.invoice.update({
+      const issuedRow = await tx.invoice.update({
         where: { id: args.invoiceId },
         data: {
           status: isCredit ? 'paid' : 'issued',
@@ -586,6 +590,8 @@ export class InvoicesService {
         },
         include: this.includeRelations(),
       });
+      // Retención de IRPF del contrato (si el inquilino la practica).
+      const row = isCredit ? issuedRow : await this.applyWithholding(tx, args.tenantId, issuedRow);
       // Un abono por diferencias sobre una factura con importe pendiente lo
       // compensa: la original deja de reclamar lo abonado.
       if (
@@ -1440,7 +1446,8 @@ export class InvoicesService {
           message: 'Una rectificativa no se anula: emite otra rectificativa',
         });
       }
-      if (isGreaterThan(fresh.amountPaid, 0)) {
+      // La retención de IRPF no es un cobro: no impide anular.
+      if (isGreaterThan(subtractAmounts(fresh.amountPaid, fresh.withholdingAmount), 0)) {
         throw new BadRequestException({
           code: 'invoice_has_payments',
           message:
@@ -1781,7 +1788,7 @@ export class InvoicesService {
         where: {
           invoiceId: args.invoiceId,
           status: 'succeeded',
-          methodType: { not: 'credit_note' },
+          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
         },
         orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
         select: { id: true, amount: true },
@@ -1893,7 +1900,7 @@ export class InvoicesService {
           where: {
             invoiceId: args.invoiceId,
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-            methodType: { not: 'credit_note' },
+            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
           },
           select: { amount: true },
         });
@@ -1989,7 +1996,7 @@ export class InvoicesService {
               invoiceId: args.invoiceId,
               gatewayPaymentId: null,
               status: { in: ['succeeded', 'partially_refunded'] },
-              methodType: { not: 'credit_note' },
+              methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
             },
             orderBy: { createdAt: 'desc' },
           });
@@ -2637,6 +2644,65 @@ export class InvoicesService {
     return due;
   }
 
+  /**
+   * Retención de IRPF al emitir: si la factura es de un contrato con retención,
+   * se calcula sobre la base de las líneas sujetas o exentas (no sobre la fianza
+   * ni el recargo, que no son renta) y se registra como un «pago» no monetario
+   * (`withholding`). El total no cambia (es lo que se declara en Veri*Factu);
+   * lo pendiente pasa a ser total − retención. Solo facturas completas o
+   * simplificadas de contrato; nunca rectificativas ni justificantes de fianza.
+   */
+  private async applyWithholding<
+    T extends {
+      id: string;
+      contractId: string | null;
+      customerId: string | null;
+      invoiceType: string;
+      kind: string;
+    },
+  >(tx: Prisma.TransactionClient, tenantId: string, row: T): Promise<T> {
+    if (!row.contractId || row.kind !== 'invoice') return row;
+    if (row.invoiceType !== 'F1' && row.invoiceType !== 'F2') return row;
+    const contract = await tx.contract.findUnique({
+      where: { id: row.contractId },
+      select: { irpfRetentionPct: true },
+    });
+    const pct = Number(contract?.irpfRetentionPct ?? 0);
+    if (pct <= 0) return row;
+    const items = await tx.invoiceItem.findMany({
+      where: { invoiceId: row.id },
+      select: { total: true, taxAmount: true, taxCategory: true },
+    });
+    const baseCents = items
+      .filter((it) => it.taxCategory === 'S1' || it.taxCategory.startsWith('E'))
+      .reduce((sum, it) => sum + toCents(it.total) - toCents(it.taxAmount), 0);
+    const withholdingCents = Math.round((baseCents * pct) / 100);
+    if (withholdingCents <= 0) return row;
+    const amount = withholdingCents / 100;
+    await tx.payment.create({
+      data: {
+        tenantId,
+        invoiceId: row.id,
+        customerId: row.customerId,
+        amount,
+        status: 'succeeded',
+        methodType: 'withholding',
+        gateway: 'manual',
+        paidAt: new Date(),
+        notes: `Retención de IRPF (${pct} %)`,
+      },
+    });
+    return (await tx.invoice.update({
+      where: { id: row.id },
+      data: {
+        withholdingPct: pct,
+        withholdingAmount: amount,
+        amountPaid: { increment: amount },
+      },
+      include: this.includeRelations(),
+    })) as unknown as T;
+  }
+
   private toDto(row: InvoiceWithRelations): InvoiceDto {
     // F2 puede no tener customer: el DTO devuelve null para que el front
     // muestre un placeholder "Sin identificar".
@@ -2691,6 +2757,9 @@ export class InvoicesService {
       amountPaid,
       amountRefunded,
       amountPending: Math.max(0, total - amountPaid),
+      withholdingPct: Number(row.withholdingPct),
+      withholdingAmount: Number(row.withholdingAmount),
+      amountDue: Math.round((total - Number(row.withholdingAmount)) * 100) / 100,
       currency: row.currency,
       hasPdf: !!row.pdfUrl,
       notes: row.notes,

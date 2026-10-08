@@ -11,6 +11,7 @@ import {
   type AccountantInvoiceRow,
   type AccountantPaymentRow,
   type InvoiceTaxCategory,
+  NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
 import ExcelJS from 'exceljs';
 
@@ -205,6 +206,7 @@ export class AccountantExportService {
           vat: round2(v.vat),
           lineTotal: round2(v.base + v.vat),
           invoiceTotal: round2(Number(inv.total)),
+          withholding: 0,
           status: STATUS_LABELS[inv.status] ?? inv.status,
         });
       }
@@ -270,6 +272,7 @@ export class AccountantExportService {
         invoiceType: true,
         status: true,
         total: true,
+        withholdingAmount: true,
         correctionMethod: true,
         rectifiesInvoice: {
           select: {
@@ -325,12 +328,16 @@ export class AccountantExportService {
           byRate.set(key, prev);
         }
       }
+      let first = true;
       for (const v of [...byRate.values()].sort(
         (a, b) => b.rate - a.rate || a.taxCategory.localeCompare(b.taxCategory),
       )) {
         const rate = v.rate;
+        const withholding = first ? round2(Number(inv.withholdingAmount)) : 0;
+        first = false;
         out.push({
           source: 'own_business',
+          withholding,
           invoiceNumber: inv.invoiceNumber,
           issueDate: ddmmyyyy(inv.issueDate ?? fromD),
           invoiceType: inv.invoiceType,
@@ -369,7 +376,7 @@ export class AccountantExportService {
     const rows = await this.admin.payment.findMany({
       where: {
         tenantId,
-        methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
+        methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
         // Las fianzas no son ingresos: van en su propia hoja.
         NOT: { invoice: { kind: 'deposit_receipt' } },
         OR: [

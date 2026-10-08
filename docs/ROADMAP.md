@@ -575,7 +575,7 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 - ✅ **A4 — Certificado de un administrador o gestoría apoderada**: si el NIF del certificado (o la entidad que lo emite) no es el del tenant, los envíos a Veri*Factu llevan `<Representante>` en la cabecera, y las consultas `IndicadorRepresentante`. El nombre del representante se puede corregir en Ajustes → Veri*Factu. De paso se corrigió la consulta de estado a la AEAT, que no seguía el esquema.
 - ✅ **A5 — Recibos devueltos**: Facturación → Cobros por banco → «Recibos devueltos». Devoluciones bancarias (N43 o a mano), contracargos, domiciliaciones devueltas y fallos tardíos de GoCardless, más los adeudos rechazados al confirmar una remesa; lo que sigue sin cobrar de cada factura; filtros por periodo, tipo y local y exportación a Excel.
 - ✅ **A6 — Conciliación N43 automática** (opcional por tenant, desactivada por defecto): al importar, un abono con el importe pendiente exacto de UNA factura y su número en el concepto se concilia solo; queda marcado «Automática» y se puede deshacer. Las devoluciones siguen siendo a mano.
-- A7 — Retención de IRPF por contrato (va después del bloque B: toca cálculos auditados).
+- ✅ **A7 — Retención de IRPF por contrato**: el total y el IVA de la factura no cambian (es lo que va a Veri\*Factu); se cobra el total menos la retención. PDF con «Total a pagar», columna en la exportación para la asesoría.
 
 **B. Add-on «Viviendas» (15 €/mes, sin límite)**: tipo de inmueble vivienda con facturación exenta, plantilla de contrato de vivienda, registro del depósito de la fianza en la comunidad autónoma y subida por aniversario con el índice que indique el tenant.
 

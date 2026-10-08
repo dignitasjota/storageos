@@ -8,6 +8,7 @@ import {
   effectiveFeaturesFromList,
   missingFiscalData,
   resolvePlanFeatures,
+  NON_CASH_PAYMENT_METHODS,
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
@@ -933,7 +934,7 @@ export class AdminTenantsService {
           tenantId,
           status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
           invoice: { kind: 'invoice' },
-          methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
+          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
         },
         _sum: { amount: true, refundedAmount: true },
       }),
@@ -953,7 +954,7 @@ export class AdminTenantsService {
           status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
           paidAt: { gte: fromDate, lt: toExclusive },
           invoice: { kind: 'invoice' },
-          methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
+          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
         },
         select: { paidAt: true, amount: true, refundedAmount: true },
       }),

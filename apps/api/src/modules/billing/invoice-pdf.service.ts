@@ -310,7 +310,13 @@ export class InvoicePdfService implements OnModuleDestroy {
   <div class="row"><span>Base imponible</span><span class="num">${eur(i.subtotal)}</span></div>
   <div class="row"><span>IVA</span><span class="num">${eur(i.taxAmount)}</span></div>
   <div class="row grand"><span>Total</span><span class="num">${eur(i.total)}</span></div>
-  ${i.amountPaid > 0 ? `<div class="row"><span>Pagado</span><span class="num">${eur(i.amountPaid)}</span></div>` : ''}
+  ${
+    i.withholdingAmount > 0
+      ? `<div class="row"><span>Retención IRPF (${i.withholdingPct.toLocaleString('es-ES')} %)</span><span class="num">−${eur(i.withholdingAmount)}</span></div>
+  <div class="row grand"><span>Total a pagar</span><span class="num">${eur(i.amountDue)}</span></div>`
+      : ''
+  }
+  ${i.amountPaid - i.withholdingAmount > 0.004 ? `<div class="row"><span>Pagado</span><span class="num">${eur(i.amountPaid - i.withholdingAmount)}</span></div>` : ''}
   ${i.amountPending > 0 && i.status !== 'paid' ? `<div class="row" style="color: #c00;"><span>Pendiente</span><span class="num">${eur(i.amountPending)}</span></div>` : ''}
 </div>
 

@@ -316,6 +316,7 @@ export class ContractsService {
           ...(input.endDate ? { endDate: new Date(input.endDate) } : {}),
           billingCycle: input.billingCycle,
           billingIntervalMonths: input.billingIntervalMonths,
+          irpfRetentionPct: input.irpfRetentionPct ?? 0,
           // El descuento por prepago solo aplica con interval>1 (mensual = 0).
           prepayDiscountPct: input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0,
           priceMonthly: input.priceMonthly,
@@ -2071,6 +2072,37 @@ export class ContractsService {
     }
   }
 
+  /** % de retención de IRPF del contrato: aplica a las facturas que se emitan desde ahora. */
+  async setIrpfRetention(args: {
+    tenantId: string;
+    userId: string;
+    contractId: string;
+    facilityScope?: string[] | null;
+    pct: number;
+    meta: RequestMeta;
+  }): Promise<ContractDto> {
+    const existing = await this.findOrThrow(args.tenantId, args.contractId, args.facilityScope);
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.update({
+          where: { id: args.contractId },
+          data: { irpfRetentionPct: args.pct },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'contract.irpf_retention_changed',
+      entityType: 'Contract',
+      entityId: args.contractId,
+      changes: { from: Number(existing.irpfRetentionPct), to: args.pct },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.detail(args.tenantId, args.contractId, args.facilityScope);
+  }
+
   async setInsurance(args: {
     tenantId: string;
     contractId: string;
@@ -2379,6 +2411,7 @@ export class ContractsService {
       billingCycle: row.billingCycle,
       billingIntervalMonths: row.billingIntervalMonths,
       billingStartsOn: row.billingStartsOn ? row.billingStartsOn.toISOString().slice(0, 10) : null,
+      irpfRetentionPct: Number(row.irpfRetentionPct),
       prepayDiscountPct: Number(row.prepayDiscountPct),
       priceMonthly: base,
       discountAmount: discount,

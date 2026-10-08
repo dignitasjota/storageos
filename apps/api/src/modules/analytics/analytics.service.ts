@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { effectiveFeaturesFromList, resolvePlanFeatures } from '@storageos/shared';
+import {
+  effectiveFeaturesFromList,
+  resolvePlanFeatures,
+  NON_CASH_PAYMENT_METHODS,
+} from '@storageos/shared';
 
 import { resolveFacilityFilter } from '../../common/facility-scope';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -630,7 +634,7 @@ export class AnalyticsService {
               status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
               paidAt: { gte: fromDate, lt: toExclusive },
               invoice: { kind: 'invoice' },
-              methodType: { not: 'credit_note' }, // una compensación con abono no es dinero cobrado
+              methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
             },
             select: { paidAt: true, amount: true, refundedAmount: true },
           }),

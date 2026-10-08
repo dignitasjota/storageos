@@ -110,6 +110,8 @@ export interface ContractDto {
   billingIntervalMonths: number;
   /** Contrato migrado: primer día que factura la app (null = desde el alta). */
   billingStartsOn: string | null;
+  /** % de retención de IRPF que practica el inquilino (0 = sin retención). */
+  irpfRetentionPct: number;
   /** Descuento % por prepagar (solo aplica si billingIntervalMonths>1). */
   prepayDiscountPct: number;
   priceMonthly: number;

@@ -99,6 +99,12 @@ export interface InvoiceDto {
   total: number;
   amountPaid: number;
   amountRefunded: number;
+  /** % de retención de IRPF (0 = sin retención). */
+  withholdingPct: number;
+  /** Retención de IRPF: se resta del total a pagar (el total no cambia). */
+  withholdingAmount: number;
+  /** Total a pagar = total − retención. */
+  amountDue: number;
   amountPending: number;
   currency: string;
   /**

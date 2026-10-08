@@ -189,6 +189,8 @@ export const CreateContractSchema = z.object({
    * Con >1 el inquilino prepaga N meses con `prepayDiscountPct` de descuento.
    */
   billingIntervalMonths: z.union([z.literal(1), z.literal(6), z.literal(12)]).default(1),
+  /** % de retención de IRPF que practica el inquilino (empresa/profesional). */
+  irpfRetentionPct: z.number().min(0).max(50).optional(),
   /** Descuento % sobre el alquiler por prepagar (solo aplica si interval>1). */
   prepayDiscountPct: z.number().min(0).max(90).default(0),
   priceMonthly: positiveDecimal,
@@ -292,6 +294,12 @@ export type UpdateDepositRegistryInput = z.infer<typeof UpdateDepositRegistrySch
 export const DepositRegistryReceiptUploadSchema = z.object({
   mimeType: z.enum(['application/pdf', 'image/jpeg', 'image/png']),
 });
+
+/** % de retención de IRPF de un contrato (afecta a las facturas que se emitan después). */
+export const SetIrpfRetentionSchema = z.object({
+  pct: z.number().min(0).max(50),
+});
+export type SetIrpfRetentionInput = z.infer<typeof SetIrpfRetentionSchema>;
 
 export const SettleDepositSchema = z.object({
   returnedAmount: z.number().min(0),
