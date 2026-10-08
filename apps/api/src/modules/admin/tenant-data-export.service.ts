@@ -49,8 +49,14 @@ export class TenantDataExportService {
       leads,
       expenses,
       incidents,
+      owners,
+      statements,
     ] = await Promise.all([
-      this.admin.facility.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.facility.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: { owner: { select: { taxId: true } } },
+      }),
       this.admin.unitType.findMany({ where, orderBy: { createdAt: 'asc' } }),
       this.admin.unit.findMany({
         where,
@@ -67,12 +73,16 @@ export class TenantDataExportService {
         include: {
           unit: { select: { code: true, facility: { select: { name: true } } } },
           customer: { select: { email: true, documentNumber: true } },
+          owner: { select: { taxId: true } },
         },
       }),
       this.admin.invoice.findMany({
         where,
         orderBy: [{ issueDate: 'asc' }, { createdAt: 'asc' }],
-        include: { customer: { select: { email: true, documentNumber: true } } },
+        include: {
+          customer: { select: { email: true, documentNumber: true } },
+          owner: { select: { taxId: true } },
+        },
       }),
       this.admin.invoiceItem.findMany({
         where,
@@ -96,6 +106,12 @@ export class TenantDataExportService {
         include: { facility: { select: { name: true } } },
       }),
       this.admin.incident.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.owner.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.ownerStatement.findMany({
+        where,
+        orderBy: [{ periodStart: 'asc' }, { createdAt: 'asc' }],
+        include: { owner: { select: { taxId: true } } },
+      }),
     ]);
 
     const wb = new ExcelJS.Workbook();
@@ -124,12 +140,14 @@ export class TenantDataExportService {
       { header: 'Código postal', value: (f) => f.postalCode },
       { header: 'Teléfono', value: (f) => f.contactPhone },
       { header: 'Email', value: (f) => f.contactEmail },
+      { header: 'Propietario (NIF)', value: (f) => f.owner?.taxId ?? null },
       { header: 'Activo', value: (f) => f.isActive && !f.deletedAt },
     ]);
     this.sheet(wb, 'Tipos de trastero', unitTypes, [
       { header: 'Nombre', width: 24, value: (u) => u.name },
       { header: 'Precio mensual', value: (u) => num(u.defaultPriceMonthly) },
       { header: 'Fianza', value: (u) => num(u.defaultDepositAmount) },
+      { header: 'Tipo de inmueble', value: (u) => u.propertyKind },
       { header: 'Activo', value: (u) => u.isActive },
     ]);
     this.sheet(wb, 'Trasteros', units, [
@@ -179,6 +197,12 @@ export class TenantDataExportService {
       { header: 'Fianza devuelta', value: (c) => num(c.depositReturnedAmount) },
       { header: 'Preaviso (días)', value: (c) => c.cancellationNoticeDays },
       { header: 'Renovación automática', value: (c) => c.autoRenew },
+      { header: 'Propietario (NIF)', value: (c) => c.owner?.taxId ?? null },
+      { header: 'Retención IRPF %', value: (c) => num(c.irpfRetentionPct) },
+      { header: 'Factura desde', value: (c) => c.billingStartsOn },
+      { header: 'Fianza depositada en', value: (c) => c.depositRegistryBody },
+      { header: 'Fecha del depósito', value: (c) => c.depositRegisteredAt },
+      { header: 'Referencia del depósito', value: (c) => c.depositRegistryReference },
     ]);
     this.sheet(wb, 'Facturas', invoices, [
       { header: 'Número', value: (i) => i.invoiceNumber },
@@ -193,6 +217,9 @@ export class TenantDataExportService {
       { header: 'Base', value: (i) => num(i.subtotal) },
       { header: 'IVA', value: (i) => num(i.taxAmount) },
       { header: 'Total', value: (i) => num(i.total) },
+      { header: 'Retención IRPF', value: (i) => num(i.withholdingAmount) },
+      { header: 'Emisor (NIF del propietario)', value: (i) => i.owner?.taxId ?? null },
+      { header: 'Emitida en', value: (i) => i.issuedBy },
       { header: 'Cobrado', value: (i) => num(i.amountPaid) },
       { header: 'Reembolsado', value: (i) => num(i.amountRefunded) },
       { header: 'Veri*Factu', value: (i) => text(i.aeatStatus) },
@@ -204,6 +231,7 @@ export class TenantDataExportService {
       { header: 'Cantidad', value: (i) => num(i.quantity) },
       { header: 'Precio', value: (i) => num(i.unitPrice) },
       { header: '% IVA', value: (i) => num(i.taxRate) },
+      { header: 'Tipo fiscal', value: (i) => i.taxCategory },
       { header: 'IVA', value: (i) => num(i.taxAmount) },
       { header: 'Total', value: (i) => num(i.total) },
     ]);
@@ -249,6 +277,32 @@ export class TenantDataExportService {
       { header: 'Descripción', width: 40, value: (i) => i.description },
       { header: 'Estado', value: (i) => i.status },
       { header: 'Gravedad', value: (i) => i.severity },
+    ]);
+    this.sheet(wb, 'Propietarios', owners, [
+      { header: 'Razón social', width: 28, value: (o) => o.legalName },
+      { header: 'NIF', value: (o) => o.taxId },
+      { header: 'Dirección', width: 32, value: (o) => o.address },
+      { header: 'Ciudad', value: (o) => o.city },
+      { header: 'Código postal', value: (o) => o.postalCode },
+      { header: 'Email', width: 28, value: (o) => o.email },
+      { header: 'Teléfono', value: (o) => o.phone },
+      { header: 'Cuenta (últimos 4)', value: (o) => o.ibanLast4 },
+      { header: 'Honorarios', value: (o) => o.feeType },
+      { header: 'Valor de los honorarios', value: (o) => num(o.feeValue) },
+      { header: 'Activo', value: (o) => o.isActive },
+    ]);
+    this.sheet(wb, 'Liquidaciones', statements, [
+      { header: 'Propietario (NIF)', value: (s) => s.owner.taxId },
+      { header: 'Desde', value: (s) => s.periodStart },
+      { header: 'Hasta', value: (s) => s.periodEnd },
+      { header: 'Cobrado', value: (s) => num(s.collected) },
+      { header: 'Devuelto', value: (s) => num(s.refunded) },
+      { header: 'Honorarios', value: (s) => num(s.feeBase) },
+      { header: 'IVA de los honorarios', value: (s) => num(s.feeVat) },
+      { header: 'Gastos', value: (s) => num(s.expenses) },
+      { header: 'Retención IRPF', value: (s) => num(s.withholding) },
+      { header: 'A liquidar', value: (s) => num(s.net) },
+      { header: 'Enviada', value: (s) => s.sentAt },
     ]);
 
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());

@@ -101,6 +101,35 @@ export class FacilitiesController {
     });
   }
 
+  /** Contratos vivos del local sin propietario (creados antes de asignárselo). */
+  @RequirePermission('facilities:read')
+  @Get(':id/contracts-without-owner')
+  async contractsWithoutOwner(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ count: number }> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return { count: await this.facilities.countContractsWithoutOwner(user.tenantId, id) };
+  }
+
+  /** Pone el propietario del local a esos contratos (sus facturas futuras las emite él). */
+  @RequirePermission('facilities:manage')
+  @Post(':id/apply-owner-to-contracts')
+  @HttpCode(HttpStatus.OK)
+  async applyOwnerToContracts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<{ updated: number }> {
+    assertFacilityAllowed(user.facilityScope, id);
+    return this.facilities.applyOwnerToContracts({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      facilityId: id,
+      meta: extractMeta(req),
+    });
+  }
+
   @RequirePermission('facilities:manage')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)

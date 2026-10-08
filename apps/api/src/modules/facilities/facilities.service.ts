@@ -14,7 +14,7 @@ import { FilesService } from '../files/files.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { Facility, Prisma } from '@storageos/database';
+import type { ContractStatus, Facility, Prisma } from '@storageos/database';
 import type {
   CreateFacilityInput,
   FacilityDto,
@@ -84,6 +84,76 @@ export class FacilitiesService {
     private readonly limits: PlanLimitsService,
     private readonly admin: PrismaAdminService,
   ) {}
+
+  /** Contratos vivos (borrador, activos o en baja) del local sin propietario. */
+  private contractsWithoutOwnerWhere(tenantId: string, facilityId: string) {
+    return {
+      tenantId,
+      ownerId: null,
+      deletedAt: null,
+      status: { in: ['draft', 'active', 'ending'] as ContractStatus[] },
+      unit: { facilityId },
+    } satisfies Prisma.ContractWhereInput;
+  }
+
+  async countContractsWithoutOwner(tenantId: string, facilityId: string): Promise<number> {
+    return this.prisma.withTenant(
+      (tx) => tx.contract.count({ where: this.contractsWithoutOwnerWhere(tenantId, facilityId) }),
+      tenantId,
+    );
+  }
+
+  /**
+   * El contrato copia el propietario del local al crearse; los creados antes
+   * de asignárselo (p. ej. importados) se quedan sin él. Esto se lo pone: las
+   * facturas que se creen a partir de ahora las emitirá el propietario (las ya
+   * creadas no cambian de emisor).
+   */
+  async applyOwnerToContracts(args: {
+    tenantId: string;
+    userId: string;
+    facilityId: string;
+    meta: RequestMeta;
+  }): Promise<{ updated: number }> {
+    const facility = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({
+          where: { id: args.facilityId, tenantId: args.tenantId, deletedAt: null },
+          select: { ownerId: true },
+        }),
+      args.tenantId,
+    );
+    if (!facility) {
+      throw new NotFoundException({ code: 'facility_not_found', message: 'Local no encontrado' });
+    }
+    if (!facility.ownerId) {
+      throw new BadRequestException({
+        code: 'facility_without_owner',
+        message: 'Este local no tiene propietario',
+      });
+    }
+    await this.assertOwner(args.tenantId, facility.ownerId);
+    const ownerId = facility.ownerId;
+    const res = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.updateMany({
+          where: this.contractsWithoutOwnerWhere(args.tenantId, args.facilityId),
+          data: { ownerId },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'facility.owner_applied_to_contracts',
+      entityType: 'Facility',
+      entityId: args.facilityId,
+      changes: { ownerId, contracts: res.count } as Prisma.InputJsonValue,
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return { updated: res.count };
+  }
 
   /**
    * Valida el propietario que se asigna a un local (plan Administrador):
