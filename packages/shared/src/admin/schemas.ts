@@ -681,16 +681,24 @@ export type UpdatePlatformEmailSettingsInput = z.infer<typeof UpdatePlatformEmai
 
 /**
  * Tipos de correo de la plataforma a los tenants, cada uno con su remitente
- * opcional (si no, el común; si no, las variables EMAIL_FROM_*).
+ * opcional (si no, el común; si no, las variables EMAIL_FROM_*). El del
+ * formulario de contacto, si no tiene, usa antes el de «Mensajes del
+ * administrador» (`PLATFORM_SENDER_PARENT`).
  */
 export const PLATFORM_SENDER_CATEGORIES = [
   'account',
   'subscription',
   'billing',
   'admin_messages',
+  'web_contact',
   'staff_notices',
 ] as const;
 export type PlatformSenderCategory = (typeof PLATFORM_SENDER_CATEGORIES)[number];
+
+/** Tipo del que hereda un tipo que no tiene remitente propio (antes que el común). */
+export const PLATFORM_SENDER_PARENT: Partial<
+  Record<PlatformSenderCategory, PlatformSenderCategory>
+> = { web_contact: 'admin_messages' };
 
 export const PLATFORM_SENDER_LABELS: Record<
   PlatformSenderCategory,
@@ -712,6 +720,11 @@ export const PLATFORM_SENDER_LABELS: Record<
     label: 'Mensajes del administrador',
     description: 'Los emails y anuncios que envías desde este panel.',
   },
+  web_contact: {
+    label: 'Formulario de contacto de la web',
+    description:
+      'Los mensajes del formulario de trasteros.pro que te llegan a ti. Vacío = el de «Mensajes del administrador».',
+  },
   staff_notices: {
     label: 'Avisos al equipo del tenant',
     description: 'Contacto nuevo, reserva online, baja, incidencia e informe mensual.',
@@ -732,6 +745,7 @@ export const PLATFORM_EMAIL_KINDS = [
   'saas_invoice',
   'payment_pending',
   'admin_message',
+  'web_contact',
   'staff_notice',
   'monthly_report',
 ] as const;
@@ -764,6 +778,11 @@ export const PLATFORM_EMAIL_KIND_INFO: Record<
     category: 'admin_messages',
     label: 'Email directo y anuncios',
     defaultTipo: 'Comunicado',
+  },
+  web_contact: {
+    category: 'web_contact',
+    label: 'Mensaje del formulario de contacto',
+    defaultTipo: 'Contacto web',
   },
   staff_notice: {
     category: 'staff_notices',
@@ -818,6 +837,7 @@ export const UpdatePlatformSendersSchema = z
     subscription: PlatformSenderSchema.optional(),
     billing: PlatformSenderSchema.optional(),
     admin_messages: PlatformSenderSchema.optional(),
+    web_contact: PlatformSenderSchema.optional(),
     staff_notices: PlatformSenderSchema.optional(),
     /**
      * Texto de `{tipo}` por correo. `null` (o ausente) = el de por defecto;
