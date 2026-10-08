@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
+import { rentTax } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { toCents } from '../../common/money';
@@ -98,7 +99,14 @@ export class BillingJobsService {
         deletedAt: null,
       },
       include: {
-        unit: { select: { id: true, facilityId: true, unitTypeId: true } },
+        unit: {
+          select: {
+            id: true,
+            facilityId: true,
+            unitTypeId: true,
+            unitType: { select: { propertyKind: true } },
+          },
+        },
         insurancePlan: { select: { name: true, taxRate: true } },
       },
     });
@@ -229,7 +237,8 @@ export class BillingJobsService {
                 description: rentDesc,
                 quantity: 1,
                 unitPrice: rentUnitPrice,
-                taxRate: 21,
+                // Vivienda: alquiler exento de IVA (art. 20.1.23.º LIVA).
+                ...rentTax(c.unit.unitType?.propertyKind),
                 relatedContractId: c.id,
                 relatedUnitId: c.unit.id,
                 periodStart: cStart.toISOString().slice(0, 10),

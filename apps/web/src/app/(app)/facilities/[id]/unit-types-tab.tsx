@@ -40,7 +40,15 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature } from '@/lib/auth/hooks';
 import {
   useCreateUnitType,
   useDeleteUnitType,
@@ -65,8 +73,10 @@ export function FacilityUnitTypesTab() {
       color: '#3366ff',
       features: {},
       stackable: false,
+      propertyKind: 'storage',
     },
   });
+  const hasHousing = useHasFeature('housing');
 
   useEffect(() => {
     if (editing) {
@@ -78,6 +88,7 @@ export function FacilityUnitTypesTab() {
         color: editing.color,
         features: editing.features,
         stackable: editing.stackable,
+        propertyKind: editing.propertyKind,
       });
     }
   }, [editing, form]);
@@ -128,7 +139,16 @@ export function FacilityUnitTypesTab() {
         />
       ),
     },
-    { accessorKey: 'name', header: 'Nombre' },
+    {
+      accessorKey: 'name',
+      header: 'Nombre',
+      cell: ({ row }) => (
+        <span className="flex items-center gap-2">
+          {row.original.name}
+          {row.original.propertyKind === 'housing' && <Badge variant="secondary">Vivienda</Badge>}
+        </span>
+      ),
+    },
     {
       accessorKey: 'defaultPriceMonthly',
       header: 'Precio mensual',
@@ -277,6 +297,33 @@ export function FacilityUnitTypesTab() {
                     </FormItem>
                   )}
                 />
+                {(hasHousing || editing?.propertyKind === 'housing') && (
+                  <FormField
+                    control={form.control}
+                    name="propertyKind"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tipo de inmueble</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="storage">Trastero</SelectItem>
+                            <SelectItem value="housing">Vivienda</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          El alquiler de una vivienda se factura exento de IVA (art. 20.1.23.º de la
+                          Ley del IVA); el de un trastero, al 21 %.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="stackable"

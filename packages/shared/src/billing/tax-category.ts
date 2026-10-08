@@ -58,3 +58,25 @@ export function isExemptCategory(c: InvoiceTaxCategory): boolean {
 export function taxCategoryAllowsRate(c: InvoiceTaxCategory, taxRate: number): boolean {
   return c === 'S1' || taxRate === 0;
 }
+
+/** Tipo de inmueble de un tipo de unidad: trastero (por defecto) o vivienda. */
+export const PropertyKindEnum = z.enum(['storage', 'housing']);
+export type PropertyKind = z.infer<typeof PropertyKindEnum>;
+
+export const PROPERTY_KIND_LABELS: Record<PropertyKind, string> = {
+  storage: 'Trastero',
+  housing: 'Vivienda',
+};
+
+/**
+ * IVA del alquiler según el inmueble: un trastero lleva el 21 %; el
+ * arrendamiento de vivienda está exento (art. 20.1.23.º de la Ley del IVA).
+ */
+export function rentTax(kind: string | null | undefined): {
+  taxRate: number;
+  taxCategory: InvoiceTaxCategory;
+} {
+  return kind === 'housing'
+    ? { taxRate: 0, taxCategory: 'E1' }
+    : { taxRate: 21, taxCategory: 'S1' };
+}

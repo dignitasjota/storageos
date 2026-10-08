@@ -579,4 +579,6 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 
 **B. Add-on «Viviendas» (15 €/mes, sin límite)**: tipo de inmueble vivienda con facturación exenta, plantilla de contrato de vivienda, registro del depósito de la fianza en la comunidad autónoma y subida por aniversario con el índice que indique el tenant.
 
+- ✅ **B1 — Extra «Viviendas»** (`housing`, 15 €/mes, fuera de los planes): un tipo de unidad puede ser vivienda; su alquiler se factura exento de IVA (E1, art. 20.1.23.º LIVA).
+
 **C. Plan «Administrador» (349 €/mes)**: todo Pro más varios propietarios en una cuenta, con emisor por propietario (series, cadena Veri\*Factu, certificado y acreedor SEPA propios), liquidación periódica al propietario por correo (PDF y Excel) e informes fiscales por propietario. Fuera de la primera versión: Holded por propietario y la factura de honorarios del administrador.

@@ -20,6 +20,7 @@ export const TenantFeatures = [
   'cameras', // /cameras (videovigilancia + alarma; hardware Dahua/NVR)
   'facial_access', // reconocimiento facial ("tu cara es la llave") — SOLO add-on
   'web_premium', // web pública personalizable (plantillas + secciones) — SOLO add-on
+  'housing', // alquiler de viviendas (exento de IVA, contrato LAU, fianza depositada) — SOLO add-on
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -118,4 +119,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   cameras: 'Cámaras y alarma',
   facial_access: 'Acceso por reconocimiento facial',
   web_premium: 'Web Premium (plantillas)',
+  housing: 'Viviendas',
 };

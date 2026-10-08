@@ -56,6 +56,8 @@ export interface UnitTypeDto {
   features: Record<string, unknown>;
   /** Taquillas apilables de dos en dos (mismo hueco del plano). */
   stackable: boolean;
+  /** `storage` (trastero) o `housing` (vivienda, alquiler exento de IVA). */
+  propertyKind: 'storage' | 'housing';
   isActive: boolean;
   unitsCount: number;
   createdAt: string;

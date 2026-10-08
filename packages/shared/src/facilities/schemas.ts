@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { PropertyKindEnum } from '../billing/tax-category';
 import { CompetitorFeatureEnum } from '../competitors';
 
 const hexColor = z
@@ -113,6 +114,8 @@ export const CreateUnitTypeSchema = z.object({
   features: z.record(z.unknown()).default({}),
   /** Taquillas apilables de dos en dos (mismo hueco del plano). */
   stackable: z.boolean().default(false),
+  /** Trastero o vivienda (la vivienda requiere el extra «Viviendas»). */
+  propertyKind: PropertyKindEnum.default('storage'),
 });
 export type CreateUnitTypeInput = z.infer<typeof CreateUnitTypeSchema>;
 
