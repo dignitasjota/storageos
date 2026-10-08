@@ -97,3 +97,43 @@ export function contractClausesTemplate(args: {
   }
   return args.clauses?.trim() ? args.clauses : null;
 }
+
+// ------------------------------------------------ renta: aniversario
+
+export const AnniversaryUpdateScopeEnum = z.enum(['housing', 'all']);
+
+export const UpdateAnniversarySettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** % de actualización (índice pactado). Puede ser negativo. */
+  pct: z.number().min(-20).max(30),
+  /** `housing` = solo viviendas; `all` = también trasteros. */
+  scope: AnniversaryUpdateScopeEnum,
+});
+export type UpdateAnniversarySettingsInput = z.infer<typeof UpdateAnniversarySettingsSchema>;
+export type AnniversarySettingsDto = UpdateAnniversarySettingsInput;
+
+export interface AnniversaryUpdateDto {
+  contractId: string;
+  contractNumber: string;
+  customerId: string;
+  customerName: string;
+  unitCode: string;
+  propertyKind: 'storage' | 'housing';
+  /** Fecha del aniversario (YYYY-MM-DD). */
+  anniversary: string;
+  currentPrice: number;
+  newPrice: number;
+}
+
+export const ApplyAnniversaryUpdatesSchema = z.object({
+  contractIds: z.array(z.string().uuid()).min(1).max(500),
+  /** `apply` = cambia la renta; `skip` = no actualizar este año. */
+  action: z.enum(['apply', 'skip']).default('apply'),
+});
+export type ApplyAnniversaryUpdatesInput = z.infer<typeof ApplyAnniversaryUpdatesSchema>;
+
+export interface ApplyAnniversaryUpdatesResultDto {
+  applied: number;
+  skipped: number;
+  failed: { contractId: string; error: string }[];
+}

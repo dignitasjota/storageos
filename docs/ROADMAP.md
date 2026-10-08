@@ -579,6 +579,8 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 
 **B. Add-on «Viviendas» (15 €/mes, sin límite)**: tipo de inmueble vivienda con facturación exenta, plantilla de contrato de vivienda, registro del depósito de la fianza en la comunidad autónoma y subida por aniversario con el índice que indique el tenant.
 
+- ✅ **B4 — Actualización anual de la renta** en el aniversario con el % del tenant (solo viviendas o todo); el sistema propone y el gestor aplica o descarta.
+
 - ✅ **B3 — Depósito de la fianza** en el organismo autonómico: organismo, fecha, resguardo, justificante y devolución; aviso en «Hoy».
 
 - ✅ **B2 — Contrato de vivienda**: plantilla propia (base LAU de la aplicación o la del tenant), separada de la de trasteros.
