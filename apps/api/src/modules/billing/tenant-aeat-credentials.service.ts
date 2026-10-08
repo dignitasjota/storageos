@@ -33,6 +33,8 @@ interface UploadArgs {
   p12Buffer: Buffer;
   password: string;
   environment: AeatEnvironment;
+  /** Certificado de un propietario (plan Administrador); sin indicar, del tenant. */
+  ownerId?: string | null;
 }
 
 interface DecryptedCredential {
@@ -117,6 +119,7 @@ export class TenantAeatCredentialsService {
    */
   async upload(args: UploadArgs): Promise<TenantAeatCredentialMetadata> {
     const { tenantId, userId, p12Buffer, password, environment } = args;
+    const ownerId = args.ownerId ?? null;
 
     // 1. Parsear PKCS#12.
     let p12: forge.pkcs12.Pkcs12Pfx;
@@ -204,7 +207,7 @@ export class TenantAeatCredentialsService {
     // transacción de `withTenant`. Así conservamos el histórico.
     const record = await this.prisma.withTenant(async (tx) => {
       await tx.tenantAeatCredential.updateMany({
-        where: { tenantId, revokedAt: null },
+        where: { tenantId, ownerId, revokedAt: null },
         data: {
           revokedAt: new Date(),
           revokedReason: 'replaced_by_new_upload',
@@ -213,6 +216,7 @@ export class TenantAeatCredentialsService {
       return tx.tenantAeatCredential.create({
         data: {
           tenantId,
+          ownerId,
           certP12Encrypted,
           certPasswordEncrypted,
           certCommonName: commonName,
@@ -240,21 +244,33 @@ export class TenantAeatCredentialsService {
         certNif: nif,
         certIssuer: issuer,
         certValidTo: validTo.toISOString(),
+        ...(ownerId ? { ownerId } : {}),
       },
     });
 
-    return this.toMetadata(record, await this.tenantTaxId(tenantId));
+    return this.toMetadata(record, await this.issuerTaxId(tenantId, ownerId));
   }
 
   /**
    * Desencripta la credencial activa del tenant (sin `revokedAt`). Uso
    * interno del cliente AEAT al firmar/enviar; nunca se expone por HTTP.
    */
-  async getDecrypted(tenantId: string): Promise<DecryptedCredential | null> {
+  async getDecrypted(
+    tenantId: string,
+    ownerId: string | null = null,
+  ): Promise<DecryptedCredential | null> {
+    // El del propietario si lo subió; si no, el del tenant (que envía como
+    // su representante).
     const record = await this.prisma.withTenant(
-      (tx) =>
+      async (tx) =>
+        (ownerId
+          ? await tx.tenantAeatCredential.findFirst({
+              where: { tenantId, ownerId, revokedAt: null },
+              orderBy: { uploadedAt: 'desc' },
+            })
+          : null) ??
         tx.tenantAeatCredential.findFirst({
-          where: { tenantId, revokedAt: null },
+          where: { tenantId, ownerId: null, revokedAt: null },
           orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
@@ -272,17 +288,20 @@ export class TenantAeatCredentialsService {
   }
 
   /** Metadatos publicos para UI. Devuelve null si no hay credencial activa. */
-  async getMetadata(tenantId: string): Promise<TenantAeatCredentialMetadata | null> {
+  async getMetadata(
+    tenantId: string,
+    ownerId: string | null = null,
+  ): Promise<TenantAeatCredentialMetadata | null> {
     const record = await this.prisma.withTenant(
       (tx) =>
         tx.tenantAeatCredential.findFirst({
-          where: { tenantId, revokedAt: null },
+          where: { tenantId, ownerId, revokedAt: null },
           orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
     );
     if (!record) return null;
-    return this.toMetadata(record, await this.tenantTaxId(tenantId));
+    return this.toMetadata(record, await this.issuerTaxId(tenantId, ownerId));
   }
 
   /**
@@ -293,7 +312,7 @@ export class TenantAeatCredentialsService {
     const records = await this.prisma.withTenant(
       (tx) =>
         tx.tenantAeatCredential.findMany({
-          where: { tenantId },
+          where: { tenantId, ownerId: null },
           orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
@@ -303,11 +322,16 @@ export class TenantAeatCredentialsService {
   }
 
   /** Marca como revocada la credencial activa. Idempotente: si no hay, devuelve false. */
-  async revoke(tenantId: string, userId: string, reason: string): Promise<boolean> {
+  async revoke(
+    tenantId: string,
+    userId: string,
+    reason: string,
+    ownerId: string | null = null,
+  ): Promise<boolean> {
     const record = await this.prisma.withTenant(
       (tx) =>
         tx.tenantAeatCredential.findFirst({
-          where: { tenantId, revokedAt: null },
+          where: { tenantId, ownerId, revokedAt: null },
           orderBy: { uploadedAt: 'desc' },
         }),
       tenantId,
@@ -343,7 +367,7 @@ export class TenantAeatCredentialsService {
   }): Promise<TenantAeatCredentialMetadata> {
     const record = await this.prisma.withTenant(async (tx) => {
       const active = await tx.tenantAeatCredential.findFirst({
-        where: { tenantId: args.tenantId, revokedAt: null },
+        where: { tenantId: args.tenantId, ownerId: null, revokedAt: null },
         orderBy: { uploadedAt: 'desc' },
       });
       if (!active) {
@@ -366,6 +390,16 @@ export class TenantAeatCredentialsService {
       changes: { representativeName: record.representativeName },
     });
     return this.toMetadata(record, await this.tenantTaxId(args.tenantId));
+  }
+
+  /** NIF del obligado del certificado: el propietario o el tenant. */
+  private async issuerTaxId(tenantId: string, ownerId: string | null): Promise<string | null> {
+    if (!ownerId) return this.tenantTaxId(tenantId);
+    const owner = await this.prisma.withTenant(
+      (tx) => tx.owner.findUnique({ where: { id: ownerId }, select: { taxId: true } }),
+      tenantId,
+    );
+    return owner?.taxId ?? null;
   }
 
   private async tenantTaxId(tenantId: string): Promise<string | null> {

@@ -81,7 +81,12 @@ export class RealAeatClient extends AeatClient {
 
   async sendInvoice(args: SendInvoiceArgs): Promise<SendInvoiceResult> {
     // 1. Cargar credencial activa del tenant.
-    const cred = await this.credentials.getDecrypted(args.tenantId);
+    // El del propietario (plan Administrador) si lo tiene; si no, el del tenant.
+    const ownerRow = await this.admin.invoice.findUnique({
+      where: { id: args.invoiceId },
+      select: { ownerId: true },
+    });
+    const cred = await this.credentials.getDecrypted(args.tenantId, ownerRow?.ownerId ?? null);
     if (!cred) {
       this.logger.warn(
         `[aeat_${this.aeatMode}] tenant ${args.tenantId} sin credencial AEAT activa`,
@@ -342,7 +347,7 @@ export class RealAeatClient extends AeatClient {
       return { status: 'error', message: 'tenant_no_tax_id' };
     }
 
-    const cred = await this.credentials.getDecrypted(invoice.tenantId);
+    const cred = await this.credentials.getDecrypted(invoice.tenantId, invoice.ownerId);
     if (!cred) {
       return { status: 'error', message: 'tenant_no_aeat_credential' };
     }

@@ -586,7 +586,12 @@ export class InvoicesService {
         // Sin un certificado vigente la factura se emitiría y se quedaría sin
         // registrar en la AEAT (el registro debe hacerse al emitir).
         const cert = await tx.tenantAeatCredential.findFirst({
-          where: { revokedAt: null, certValidTo: { gt: new Date() } },
+          where: {
+            revokedAt: null,
+            certValidTo: { gt: new Date() },
+            // El del tenant o, si la emite un propietario, el suyo.
+            OR: [{ ownerId: null }, ...(existing.ownerId ? [{ ownerId: existing.ownerId }] : [])],
+          },
           select: { id: true },
         });
         if (!cert) {

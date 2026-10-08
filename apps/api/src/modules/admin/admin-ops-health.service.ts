@@ -125,7 +125,7 @@ export class AdminOpsHealthService {
         select: { tenantId: true },
       }),
       this.admin.tenantAeatCredential.findMany({
-        where: { revokedAt: null },
+        where: { revokedAt: null, ownerId: null },
         orderBy: { certValidTo: 'desc' },
         select: { tenantId: true, certValidTo: true },
       }),

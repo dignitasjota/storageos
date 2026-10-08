@@ -27,7 +27,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useCreateOwner, useOwners, useUpdateOwner } from '@/lib/owners/hooks';
+import { useHasPermission } from '@/lib/auth/hooks';
+import {
+  useCreateOwner,
+  useOwnerCertificate,
+  useOwners,
+  useRemoveOwnerCertificate,
+  useUpdateOwner,
+  useUploadOwnerCertificate,
+} from '@/lib/owners/hooks';
 
 export default function OwnersPage() {
   const owners = useOwners();
@@ -92,6 +100,7 @@ export default function OwnersPage() {
                     : `${o.feeValue} % de lo cobrado`}
                   {o.ibanLast4 && <> · Cuenta …{o.ibanLast4}</>}
                 </p>
+                <OwnerCertificateRow ownerId={o.id} />
                 {(o.email || o.phone) && (
                   <p className="text-muted-foreground">
                     {[o.email, o.phone].filter(Boolean).join(' · ')}
@@ -251,5 +260,102 @@ function OwnerDialog({ owner, onClose }: { owner: OwnerDto | null; onClose: () =
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Certificado para Veri*Factu: el del propietario si lo sube; si no, sus
+ * facturas se envían con el tuyo como su representante (debes estar
+ * apoderado por él en la AEAT).
+ */
+function OwnerCertificateRow({ ownerId }: { ownerId: string }) {
+  const canSee = useHasPermission('invoices:manage');
+  const canEdit = useHasPermission('billing:configure');
+  const cert = useOwnerCertificate(ownerId, canSee);
+  const upload = useUploadOwnerCertificate(ownerId);
+  const remove = useRemoveOwnerCertificate(ownerId);
+  const [open, setOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [password, setPassword] = useState('');
+  if (!canSee) return null;
+
+  async function send() {
+    if (!file) return;
+    try {
+      await upload.mutateAsync({ file, password, environment: 'production' });
+      toast.success('Certificado guardado.');
+      setOpen(false);
+      setPassword('');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo subir.');
+    }
+  }
+
+  const c = cert.data;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+      <p className="text-xs text-muted-foreground">
+        {c
+          ? `Certificado propio · ${c.certNif} · caduca ${new Date(c.certValidTo).toLocaleDateString('es-ES')}`
+          : 'Veri*Factu: se envía con tu certificado como su representante'}
+      </p>
+      {canEdit && (
+        <div className="flex gap-1">
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+            {c ? 'Cambiar' : 'Subir el suyo'}
+          </Button>
+          {c && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={remove.isPending}
+              onClick={() => {
+                if (window.confirm('¿Quitar su certificado? Se usará el tuyo.')) {
+                  remove.mutate();
+                }
+              }}
+            >
+              Quitar
+            </Button>
+          )}
+        </div>
+      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Certificado del propietario</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor={`cert-${ownerId}`}>Fichero .p12 / .pfx</Label>
+              <Input
+                id={`cert-${ownerId}`}
+                type="file"
+                accept=".p12,.pfx,application/x-pkcs12"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`pass-${ownerId}`}>Contraseña del certificado</Label>
+              <Input
+                id={`pass-${ownerId}`}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void send()} disabled={!file || !password || upload.isPending}>
+              {upload.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+              Subir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
