@@ -528,6 +528,18 @@ export const UpdatePlatformBannerSchema = z.object({
 });
 export type UpdatePlatformBannerInput = z.infer<typeof UpdatePlatformBannerSchema>;
 
+/** Oferta fundador de la web de TrasterOS (sección de precios). */
+export const UpdatePlatformFounderOfferSchema = z.object({
+  enabled: z.boolean(),
+  title: z.string().trim().min(1).max(80),
+  text: z.string().trim().min(1).max(400),
+  /** Precio tachado de la puesta en marcha (p. ej. «490€»); vacío = sin esa línea. */
+  setupStrike: z.string().trim().max(30),
+  /** Texto junto al precio tachado; vacío = sin esa línea. */
+  setupText: z.string().trim().max(200),
+});
+export type UpdatePlatformFounderOfferInput = z.infer<typeof UpdatePlatformFounderOfferSchema>;
+
 // --- Add-ons facturables del SaaS ---------------------------------------
 export const UpsertSaasAddonSchema = z.object({
   slug: z

@@ -151,10 +151,6 @@
       "yearlyLabel": "o {yearly}€/año",
       "ivaNote": "IVA no incluido",
       "mostPopular": "Más popular",
-      "founderTitle": "Oferta fundador",
-      "founderText": "Los primeros 15 operadores: −40% para siempre + puesta en marcha y migración de datos gratis (valor 490€). Plazas limitadas.",
-      "setupStrike": "490€",
-      "setupText": "Puesta en marcha y migración de tus datos: gratis mientras dure la oferta.",
       "trialNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia. Te migramos tus datos.",
       "plans": [
         {

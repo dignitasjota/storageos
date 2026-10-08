@@ -21,6 +21,7 @@ import type { Metadata } from 'next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { fetchFounderOffer } from '@/lib/founder-offer';
 import { safeJsonLd } from '@/lib/json-ld';
 
 const SITE_URL = (
@@ -298,15 +299,8 @@ export default function LandingPage() {
           <p className="mx-auto mt-2 max-w-2xl text-muted-foreground">{t('pricing.subtitle')}</p>
         </div>
 
-        {/* Oferta fundador */}
-        <div className="mx-auto mb-8 max-w-3xl rounded-2xl border border-primary/30 bg-primary/5 p-5 text-center">
-          <p className="text-sm font-semibold text-primary">🚀 {t('pricing.founderTitle')}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{t('pricing.founderText')}</p>
-          <p className="mt-2 text-sm">
-            <s className="text-muted-foreground">{t('pricing.setupStrike')}</s>{' '}
-            <span className="font-medium">{t('pricing.setupText')}</span>
-          </p>
-        </div>
+        {/* Oferta fundador (panel admin → Web de TrasterOS; oculta si está desactivada) */}
+        <FounderOffer />
 
         <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
           {plans.map((plan) => (
@@ -385,5 +379,22 @@ export default function LandingPage() {
         </Button>
       </section>
     </>
+  );
+}
+
+async function FounderOffer() {
+  const offer = await fetchFounderOffer();
+  if (!offer) return null;
+  return (
+    <div className="mx-auto mb-8 max-w-3xl rounded-2xl border border-primary/30 bg-primary/5 p-5 text-center">
+      <p className="text-sm font-semibold text-primary">🚀 {offer.title}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{offer.text}</p>
+      {(offer.setupStrike || offer.setupText) && (
+        <p className="mt-2 text-sm">
+          {offer.setupStrike && <s className="text-muted-foreground">{offer.setupStrike}</s>}{' '}
+          {offer.setupText && <span className="font-medium">{offer.setupText}</span>}
+        </p>
+      )}
+    </div>
   );
 }

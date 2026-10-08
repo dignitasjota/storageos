@@ -897,6 +897,14 @@ export interface DunningRunResultDto {
 }
 
 // --- Banner global + notificaciones del super admin ---
+export interface PlatformFounderOfferDto {
+  enabled: boolean;
+  title: string;
+  text: string;
+  setupStrike: string;
+  setupText: string;
+}
+
 export interface PlatformBannerDto {
   message: string;
   level: 'info' | 'warning' | 'critical';

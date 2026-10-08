@@ -14,20 +14,24 @@ import {
   LegalSlugEnum,
   UpdateLegalDocumentSchema,
   UpdatePlatformBannerSchema,
+  UpdatePlatformFounderOfferSchema,
   type LegalDocumentDto,
   type LegalSlug,
   type PlatformBannerDto,
+  type PlatformFounderOfferDto,
   type SuperAdminNotificationDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin/admin.guard';
+import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
 import { PlatformService } from './platform.service';
 
 class UpdateBannerDto extends createZodDto(UpdatePlatformBannerSchema) {}
 class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
+class UpdateFounderOfferDto extends createZodDto(UpdatePlatformFounderOfferSchema) {}
 
 function parseSlug(slug: string): LegalSlug {
   const parsed = LegalSlugEnum.safeParse(slug);
@@ -60,6 +64,18 @@ export class PlatformLegalPublicController {
   }
 }
 
+/** Oferta fundador de la web de TrasterOS (pública: la lee la landing). */
+@Public()
+@Controller('platform-founder-offer')
+export class PlatformFounderOfferPublicController {
+  constructor(private readonly service: PlatformService) {}
+
+  @Get()
+  async get(): Promise<{ offer: PlatformFounderOfferDto | null }> {
+    return { offer: await this.service.getPublicFounderOffer() };
+  }
+}
+
 /** Gestión del banner + feed de notificaciones. Solo super admin. */
 @Public()
 @UseGuards(AdminGuard)
@@ -75,6 +91,17 @@ export class PlatformAdminController {
   @Put('banner')
   updateBanner(@Body() body: UpdateBannerDto): Promise<PlatformBannerDto> {
     return this.service.updateBanner(body);
+  }
+
+  @Get('founder-offer')
+  getFounderOffer(): Promise<PlatformFounderOfferDto> {
+    return this.service.getFounderOffer();
+  }
+
+  @RequireSuperadmin()
+  @Put('founder-offer')
+  updateFounderOffer(@Body() body: UpdateFounderOfferDto): Promise<PlatformFounderOfferDto> {
+    return this.service.updateFounderOffer(body);
   }
 
   @Get('notifications')

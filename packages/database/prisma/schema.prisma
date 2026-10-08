@@ -5070,3 +5070,17 @@ model OwnerStatement {
   @@index([tenantId, ownerId], map: "owner_statements_tenant_idx")
   @@map("owner_statements")
 }
+
+/// Oferta fundador de la web de TrasterOS (sección de precios). Un único
+/// registro, editable desde el panel admin; desactivada por defecto.
+model PlatformFounderOffer {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  enabled     Boolean  @default(false)
+  title       String   @default("Oferta fundador")
+  text        String   @default("Los primeros 15 operadores: −40% para siempre + puesta en marcha y migración de datos gratis (valor 490€). Plazas limitadas.")
+  setupStrike String   @default("490€") @map("setup_strike")
+  setupText   String   @default("Puesta en marcha y migración de tus datos: gratis mientras dure la oferta.") @map("setup_text")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_founder_offer")
+}

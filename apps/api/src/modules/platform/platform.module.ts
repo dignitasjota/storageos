@@ -6,6 +6,7 @@ import { AdminGuard } from '../admin/admin.guard';
 import {
   PlatformAdminController,
   PlatformBannerPublicController,
+  PlatformFounderOfferPublicController,
   PlatformLegalPublicController,
 } from './platform.controller';
 import { PlatformService } from './platform.service';
@@ -16,6 +17,7 @@ import { PlatformService } from './platform.service';
   controllers: [
     PlatformAdminController,
     PlatformBannerPublicController,
+    PlatformFounderOfferPublicController,
     PlatformLegalPublicController,
   ],
   providers: [PlatformService, AdminGuard],
