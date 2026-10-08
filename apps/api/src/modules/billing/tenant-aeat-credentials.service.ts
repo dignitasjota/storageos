@@ -1,9 +1,15 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as forge from 'node-forge';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+
+import {
+  type AeatRepresentative,
+  nifFromCertValue,
+  resolveRepresentative,
+} from './aeat-client/representative';
 
 import type { TenantAeatCredential } from '@storageos/database';
 
@@ -16,7 +22,10 @@ export type AeatEnvironment = 'sandbox' | 'production';
 export type TenantAeatCredentialMetadata = Omit<
   TenantAeatCredential,
   'certP12Encrypted' | 'certPasswordEncrypted'
->;
+> & {
+  /** Con quién se firman los envíos si el certificado no es del tenant. */
+  representative: AeatRepresentative | null;
+};
 
 interface UploadArgs {
   tenantId: string;
@@ -79,6 +88,15 @@ function extractNifFromSubject(cert: forge.pki.Certificate): string | null {
     if (match?.[1]) return match[1].toUpperCase();
   }
   return null;
+}
+
+/** Valor de un atributo del subject por OID (o null). */
+function subjectValue(cert: forge.pki.Certificate, oid: string): string | null {
+  const attrs = (
+    cert.subject as unknown as { attributes: Array<{ type?: string; value?: unknown }> }
+  ).attributes;
+  const found = (attrs ?? []).find((a) => a.type === oid && typeof a.value === 'string');
+  return (found?.value as string | undefined) ?? null;
 }
 
 @Injectable()
@@ -167,6 +185,10 @@ export class TenantAeatCredentialsService {
     // 5. CommonName e Issuer.
     const cnField = cert.subject.getField('CN');
     const commonName = (cnField?.value as string | undefined) ?? 'UNKNOWN';
+    // Entidad del certificado (certificado de representante de una empresa):
+    // si es otra (una gestoría), los envíos irán con <Representante>.
+    const organizationNif = nifFromCertValue(subjectValue(cert, '2.5.4.97'));
+    const organizationName = subjectValue(cert, '2.5.4.10');
     const issuerCnField = cert.issuer.getField('CN');
     const issuer = (issuerCnField?.value as string | undefined) ?? 'UNKNOWN';
 
@@ -195,6 +217,8 @@ export class TenantAeatCredentialsService {
           certPasswordEncrypted,
           certCommonName: commonName,
           certNif: nif,
+          certOrganizationNif: organizationNif,
+          representativeName: organizationNif && organizationName ? organizationName : null,
           certIssuer: issuer,
           certValidFrom: validFrom,
           certValidTo: validTo,
@@ -219,7 +243,7 @@ export class TenantAeatCredentialsService {
       },
     });
 
-    return this.toMetadata(record);
+    return this.toMetadata(record, await this.tenantTaxId(tenantId));
   }
 
   /**
@@ -258,7 +282,7 @@ export class TenantAeatCredentialsService {
       tenantId,
     );
     if (!record) return null;
-    return this.toMetadata(record);
+    return this.toMetadata(record, await this.tenantTaxId(tenantId));
   }
 
   /**
@@ -274,7 +298,8 @@ export class TenantAeatCredentialsService {
         }),
       tenantId,
     );
-    return records.map((r) => this.toMetadata(r));
+    const taxId = await this.tenantTaxId(tenantId);
+    return records.map((r) => this.toMetadata(r, taxId));
   }
 
   /** Marca como revocada la credencial activa. Idempotente: si no hay, devuelve false. */
@@ -307,9 +332,56 @@ export class TenantAeatCredentialsService {
     return true;
   }
 
-  private toMetadata(record: TenantAeatCredential): TenantAeatCredentialMetadata {
+  /**
+   * Nombre del representante (cuando el certificado no es del tenant). Vacío =
+   * se deduce del certificado.
+   */
+  async setRepresentativeName(args: {
+    tenantId: string;
+    userId: string;
+    name: string | null;
+  }): Promise<TenantAeatCredentialMetadata> {
+    const record = await this.prisma.withTenant(async (tx) => {
+      const active = await tx.tenantAeatCredential.findFirst({
+        where: { tenantId: args.tenantId, revokedAt: null },
+        orderBy: { uploadedAt: 'desc' },
+      });
+      if (!active) {
+        throw new NotFoundException({
+          code: 'no_active_credential',
+          message: 'No hay un certificado activo',
+        });
+      }
+      return tx.tenantAeatCredential.update({
+        where: { id: active.id },
+        data: { representativeName: args.name?.trim() || null },
+      });
+    }, args.tenantId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'billing.aeat_credential.representative_changed',
+      entityType: 'tenant_aeat_credential',
+      entityId: record.id,
+      changes: { representativeName: record.representativeName },
+    });
+    return this.toMetadata(record, await this.tenantTaxId(args.tenantId));
+  }
+
+  private async tenantTaxId(tenantId: string): Promise<string | null> {
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { taxId: true } }),
+      tenantId,
+    );
+    return tenant?.taxId ?? null;
+  }
+
+  private toMetadata(
+    record: TenantAeatCredential,
+    tenantTaxId: string | null,
+  ): TenantAeatCredentialMetadata {
     // Stripping de los campos sensibles.
     const { certP12Encrypted: _p12, certPasswordEncrypted: _pw, ...rest } = record;
-    return rest;
+    return { ...rest, representative: resolveRepresentative(tenantTaxId, record) };
   }
 }

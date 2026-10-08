@@ -48,6 +48,15 @@ export class VerifactuXmlBuilder {
 
     const tenantName = escapeXml(tenant.name);
     const tenantNif = escapeXml(tenant.taxId);
+    // Certificado de un representante (administrador, gestoría): va justo
+    // después del obligado, como pide CabeceraType.
+    const representanteBlock = args.representative
+      ? `
+        <sum1:Representante>
+          <sum1:NombreRazon>${escapeXml(args.representative.name)}</sum1:NombreRazon>
+          <sum1:NIF>${escapeXml(args.representative.taxId)}</sum1:NIF>
+        </sum1:Representante>`
+      : '';
     const invoiceNumber = escapeXml(invoice.invoiceNumber);
     const issueDate = formatSpanishDate(invoice.issueDate);
     const description = escapeXml(invoice.description);
@@ -108,7 +117,7 @@ ${recipientIdBlock(recipient)}
         <sum1:ObligadoEmision>
           <sum1:NombreRazon>${tenantName}</sum1:NombreRazon>
           <sum1:NIF>${tenantNif}</sum1:NIF>
-        </sum1:ObligadoEmision>
+        </sum1:ObligadoEmision>${representanteBlock}
       </sum:Cabecera>
       <sum:RegistroFactura>
         <sum:RegistroAlta>
@@ -237,23 +246,48 @@ ${items}
    * exhaustivo via `escapeXml` para todos los strings inyectados.
    */
   buildConsultaFactu(args: {
+    emitterName: string;
     emitterTaxId: string;
     invoiceNumber: string;
     issueDate: Date;
+    /** La consulta la hace un representante del emisor con su certificado. */
+    asRepresentative?: boolean;
   }): string {
+    const emitterName = escapeXml(args.emitterName);
     const emitterTaxId = escapeXml(args.emitterTaxId);
     const invoiceNumber = escapeXml(args.invoiceNumber);
     const issueDate = formatSpanishDate(args.issueDate);
+    // Periodo de imputación (obligatorio en el filtro): año y mes de expedición.
+    const year = String(args.issueDate.getUTCFullYear());
+    const month = String(args.issueDate.getUTCMonth() + 1).padStart(2, '0');
+    const indicador = args.asRepresentative
+      ? `
+        <sum1:IndicadorRepresentante>S</sum1:IndicadorRepresentante>`
+      : '';
 
+    // ConsultaLR.xsd: Cabecera (CabeceraConsultaSf) + FiltroConsulta; los
+    // elementos de los tipos de SuministroInformacion van en su namespace.
     return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:con="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/ConsultaLR.xsd">
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:con="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/ConsultaLR.xsd" xmlns:sum1="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/SuministroInformacion.xsd">
   <soapenv:Header/>
   <soapenv:Body>
     <con:ConsultaFactuSistemaFacturacion>
+      <con:Cabecera>
+        <sum1:IDVersion>1.0</sum1:IDVersion>
+        <sum1:ObligadoEmision>
+          <sum1:NombreRazon>${emitterName}</sum1:NombreRazon>
+          <sum1:NIF>${emitterTaxId}</sum1:NIF>
+        </sum1:ObligadoEmision>${indicador}
+      </con:Cabecera>
       <con:FiltroConsulta>
-        <con:IDEmisorFactura>${emitterTaxId}</con:IDEmisorFactura>
+        <con:PeriodoImputacion>
+          <sum1:Ejercicio>${year}</sum1:Ejercicio>
+          <sum1:Periodo>${month}</sum1:Periodo>
+        </con:PeriodoImputacion>
         <con:NumSerieFactura>${invoiceNumber}</con:NumSerieFactura>
-        <con:FechaExpedicionFactura>${issueDate}</con:FechaExpedicionFactura>
+        <con:FechaExpedicionFactura>
+          <sum1:FechaExpedicionFactura>${issueDate}</sum1:FechaExpedicionFactura>
+        </con:FechaExpedicionFactura>
       </con:FiltroConsulta>
     </con:ConsultaFactuSistemaFacturacion>
   </soapenv:Body>
@@ -290,6 +324,8 @@ export interface BuildRegistroAltaArgs {
     /** NIF del emisor. */
     taxId: string;
   };
+  /** Representante que envía con su certificado (administrador, gestoría). */
+  representative?: { name: string; taxId: string } | null;
   invoice: {
     /** Serie de facturacion (ej. `F`). */
     series: string;

@@ -572,7 +572,7 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 - ✅ **A1 — Facturas exentas bien declaradas**: tipo fiscal por línea (con IVA / exenta E1–E6 / no sujeta N1–N2). Veri\*Factu declara las exentas como `OperacionExenta` (antes toda línea al 0 % salía como no sujeta), el PDF lleva la mención legal y el libro de IVA, el 303 y las exportaciones las separan.
 - ✅ **A2 — Activar en bloque los contratos importados**: al terminar la importación, «Activar los N contratos»: activos con su fecha de alta original, trastero ocupado, fianza retenida si ya estaba cobrada, sin firma ni avisos al inquilino, y la factura mensual empieza el día indicado.
 - ✅ **A3 — Importar mandatos SEPA** (CSV/Excel): Remesas SEPA → «Importar mandatos». Inquilino por email o documento, IBAN validado, BIC, fecha de firma; conserva la referencia original y, si ya se cobró algún recibo, el mandato queda recurrente (RCUR). Quien ya tiene mandato activo se omite salvo «crear igualmente» (lo sustituye).
-- A4 — Presentar a Veri\*Factu con el certificado del administrador apoderado (`<Representante>`).
+- ✅ **A4 — Certificado de un administrador o gestoría apoderada**: si el NIF del certificado (o la entidad que lo emite) no es el del tenant, los envíos a Veri*Factu llevan `<Representante>` en la cabecera, y las consultas `IndicadorRepresentante`. El nombre del representante se puede corregir en Ajustes → Veri*Factu. De paso se corrigió la consulta de estado a la AEAT, que no seguía el esquema.
 - A5 — Listado de recibos devueltos (remesas, extractos y pasarelas) con exportación.
 - A6 — Conciliación automática opcional de los cobros con coincidencia única exacta.
 - A7 — Retención de IRPF por contrato (va después del bloque B: toca cálculos auditados).

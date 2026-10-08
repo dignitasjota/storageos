@@ -16,6 +16,7 @@ import {
   type SendInvoiceArgs,
   type SendInvoiceResult,
 } from './aeat-client';
+import { resolveRepresentative } from './representative';
 import { breakdownFromItems, VerifactuXmlBuilder } from './verifactu-xml-builder';
 
 import type { Env } from '../../../config/env.schema';
@@ -221,6 +222,7 @@ export class RealAeatClient extends AeatClient {
 
     const xml = this.xmlBuilder.buildRegistroAlta({
       tenant: { name: tenant.name, taxId: tenant.taxId ?? '' },
+      representative: resolveRepresentative(tenant.taxId, cred.record),
       invoice: {
         series: invoice.invoiceNumber.split('-')[0] ?? 'F',
         invoiceNumber: invoice.invoiceNumber,
@@ -313,7 +315,7 @@ export class RealAeatClient extends AeatClient {
 
     const tenant = await this.admin.tenant.findUnique({
       where: { id: invoice.tenantId },
-      select: { taxId: true },
+      select: { taxId: true, name: true },
     });
     if (!tenant?.taxId) {
       return { status: 'error', message: 'tenant_no_tax_id' };
@@ -336,7 +338,9 @@ export class RealAeatClient extends AeatClient {
     }
 
     const xml = this.xmlBuilder.buildConsultaFactu({
+      emitterName: tenant.name,
       emitterTaxId: tenant.taxId,
+      asRepresentative: resolveRepresentative(tenant.taxId, cred.record) !== null,
       invoiceNumber: invoice.invoiceNumber,
       issueDate: invoice.issueDate,
     });

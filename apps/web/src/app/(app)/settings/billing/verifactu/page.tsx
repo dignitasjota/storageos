@@ -40,6 +40,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -52,6 +53,7 @@ import { ApiError } from '@/lib/auth/api';
 import {
   type AeatCredentialMetadata,
   useRevokeVerifactuCredentialMutation,
+  useSetAeatRepresentativeMutation,
   useUploadVerifactuCredentialMutation,
   useVerifactuCredentialHistoryQuery,
   useVerifactuCredentialQuery,
@@ -309,7 +311,64 @@ function CredentialDetails({
           </dl>
         </CardContent>
       </Card>
+      {credential.representative && <RepresentativeCard credential={credential} />}
     </div>
+  );
+}
+
+/**
+ * El certificado es de otra persona o entidad (administrador, gestoría): los
+ * envíos llevan sus datos como representante del emisor.
+ */
+function RepresentativeCard({ credential }: { credential: AeatCredentialMetadata }) {
+  const save = useSetAeatRepresentativeMutation();
+  const [name, setName] = useState(credential.representative?.name ?? '');
+  const rep = credential.representative!;
+
+  async function onSave() {
+    try {
+      await save.mutateAsync({ name: name.trim() || null });
+      toast.success('Representante guardado.');
+    } catch {
+      toast.error('No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Envío como representante</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Este certificado no es de tu empresa (NIF {rep.taxId}). Las facturas se enviarán a la AEAT
+          en tu nombre con estos datos como representante. El titular tiene que estar dado de alta
+          como apoderado tuyo en la Agencia Tributaria para este trámite, o la AEAT rechazará los
+          envíos.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="rep-name">Nombre o razón social del representante</Label>
+            <Input
+              id="rep-name"
+              value={name}
+              maxLength={120}
+              onChange={(e) => setName(e.target.value)}
+              className="text-base sm:text-sm"
+            />
+          </div>
+          <Button
+            onClick={() => void onSave()}
+            disabled={save.isPending || name.trim() === rep.name}
+          >
+            Guardar
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Debe coincidir con el nombre que consta en la AEAT para el NIF {rep.taxId}.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

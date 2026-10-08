@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Patch,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -36,6 +37,10 @@ import {
 const UploadFieldsSchema = z.object({
   password: z.string().min(1, 'password requerido'),
   environment: z.enum(['sandbox', 'production']).default('sandbox'),
+});
+
+const RepresentativeBodySchema = z.object({
+  name: z.string().trim().max(120).nullable(),
 });
 
 const RevokeBodySchema = z.object({
@@ -111,6 +116,30 @@ export class TenantAeatCredentialsController {
       });
     }
     return meta;
+  }
+
+  /**
+   * Nombre del representante con el que se envía a Veri*Factu cuando el
+   * certificado es de otra persona o entidad (administrador, gestoría).
+   */
+  @RequirePermission('billing:configure')
+  @Patch('me/representative')
+  async setRepresentative(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: Record<string, unknown>,
+  ): Promise<TenantAeatCredentialMetadata> {
+    const parsed = RepresentativeBodySchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_fields',
+        message: 'Nombre del representante no válido.',
+      });
+    }
+    return this.service.setRepresentativeName({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      name: parsed.data.name,
+    });
   }
 
   @RequirePermission('billing:configure')

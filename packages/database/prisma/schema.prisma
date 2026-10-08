@@ -3598,6 +3598,10 @@ model TenantAeatCredential {
   certPasswordEncrypted String    @map("cert_password_encrypted")
   certCommonName        String    @map("cert_common_name")
   certNif               String    @map("cert_nif")
+  /// NIF de la entidad del certificado (organizationIdentifier), si lo trae.
+  certOrganizationNif   String?   @map("cert_organization_nif")
+  /// Nombre del representante cuando el certificado no es del propio tenant.
+  representativeName    String?   @map("representative_name")
   certIssuer            String    @map("cert_issuer")
   certValidFrom         DateTime  @map("cert_valid_from") @db.Timestamptz(6)
   certValidTo           DateTime  @map("cert_valid_to") @db.Timestamptz(6)
