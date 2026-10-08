@@ -6,6 +6,7 @@ import type { UpdatePlatformFooterInput } from '@storageos/shared';
 import type { ReactNode } from 'react';
 
 import { CookieBanner } from '@/components/public/cookie-banner';
+import { PlatformAnalytics } from '@/components/public/platform-analytics';
 import { PublicFooter } from '@/components/public/public-footer';
 import { PublicHeader } from '@/components/public/public-header';
 
@@ -30,6 +31,7 @@ export function PublicChrome({
   logoUrl = null,
   hasContact = false,
   footer = null,
+  analyticsId = null,
 }: {
   children: ReactNode;
   forcedBare?: boolean;
@@ -39,6 +41,8 @@ export function PublicChrome({
   hasContact?: boolean;
   /** Pie gestionado desde el panel admin; null = el de por defecto. */
   footer?: UpdatePlatformFooterInput | null;
+  /** Google Analytics 4 de la web (solo se carga con el consentimiento). */
+  analyticsId?: string | null;
 }) {
   const pathname = usePathname();
   const bare =
@@ -55,8 +59,14 @@ export function PublicChrome({
     <div className="flex min-h-screen flex-col">
       <PublicHeader logoUrl={logoUrl} hasContact={hasContact} />
       <main className="flex-1">{children}</main>
-      <PublicFooter logoUrl={logoUrl} hasContact={hasContact} footer={footer} />
-      <CookieBanner />
+      <PublicFooter
+        logoUrl={logoUrl}
+        hasContact={hasContact}
+        footer={footer}
+        analytics={Boolean(analyticsId)}
+      />
+      <CookieBanner analytics={Boolean(analyticsId)} />
+      {analyticsId && <PlatformAnalytics measurementId={analyticsId} />}
     </div>
   );
 }

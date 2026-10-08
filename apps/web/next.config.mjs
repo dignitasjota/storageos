@@ -65,6 +65,8 @@ const cspDirectives = {
     "'unsafe-inline'",
     ...(isDev ? ["'unsafe-eval'"] : []),
     'https://js.stripe.com',
+    // Google Analytics 4 (web de TrasterOS y webs de los tenants que lo configuran).
+    'https://www.googletagmanager.com',
   ],
   'style-src': ["'self'", "'unsafe-inline'"],
   'img-src': ["'self'", 'data:', 'blob:', 'https:'],

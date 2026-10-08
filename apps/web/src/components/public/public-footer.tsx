@@ -19,6 +19,7 @@ import {
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
+import { CookieSettingsLink } from '@/components/public/cookie-settings-link';
 import { PlatformLogo } from '@/components/public/platform-logo';
 import { Button } from '@/components/ui/button';
 
@@ -73,10 +74,13 @@ export function PublicFooter({
   logoUrl,
   hasContact = false,
   footer,
+  analytics = false,
 }: {
   logoUrl: string | null;
   hasContact?: boolean;
   footer?: UpdatePlatformFooterInput | null;
+  /** Con analítica, enlace para cambiar el consentimiento de cookies. */
+  analytics?: boolean;
 }) {
   const t = useTranslations('publicFooter');
   const year = new Date().getUTCFullYear();
@@ -206,6 +210,7 @@ export function PublicFooter({
             <Link href="/cookies" className="hover:text-white">
               {t('cookies')}
             </Link>
+            {analytics && <CookieSettingsLink label={t('cookieSettings')} />}
           </nav>
         </div>
       </div>

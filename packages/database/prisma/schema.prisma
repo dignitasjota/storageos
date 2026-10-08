@@ -5102,6 +5102,10 @@ model PlatformWebsite {
   contactShowProfile  Boolean  @default(true) @map("contact_show_profile")
   /// Pie de la web (columnas de enlaces, contacto, redes); null = el de por defecto.
   footer              Json?
+  /// SEO de la portada (título, descripción, verificaciones, GA4, indexable); null = por defecto.
+  seo                 Json?
+  /// Imagen para redes (bucket público, `platform/og/…`); null = la generada con la marca.
+  ogImageKey          String?  @map("og_image_key")
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_website")

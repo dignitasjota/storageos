@@ -10,6 +10,7 @@ import type {
   TenantFollowupStatusValue,
   TenantInteractionTypeValue,
   UpdatePlatformFooterInput,
+  UpdatePlatformSeoInput,
 } from './schemas';
 
 export interface SuperAdminDto {
@@ -916,6 +917,13 @@ export interface PlatformWebsiteDto {
   contactForm: PublicContactFormDto | null;
   /** Pie de la web (el guardado o el de por defecto). */
   footer: UpdatePlatformFooterInput;
+  /** SEO de la web (guardado o por defecto) + imagen para redes subida. */
+  seo: PlatformSeoDto;
+}
+
+export interface PlatformSeoDto extends UpdatePlatformSeoInput {
+  /** Imagen para compartir en redes (1200×630); null = la generada con la marca. */
+  ogImageUrl: string | null;
 }
 
 export interface PlatformContactSettingsDto extends PublicContactFormDto {

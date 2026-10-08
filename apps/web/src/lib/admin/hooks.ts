@@ -53,6 +53,7 @@ import type {
   PlatformLogoUploadDto,
   PlatformWebsiteDto,
   UpdatePlatformFooterInput,
+  UpdatePlatformSeoInput,
   LegalDocumentDto,
   LegalSlug,
   UpdateLegalDocumentInput,
@@ -1994,6 +1995,54 @@ export function useUploadPlatformLogo() {
         json: { key: up.key },
       });
     },
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+export function useUpdatePlatformSeo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformSeoInput) =>
+      adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/seo', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+/** Sube la imagen para redes (1200×630) al bucket público y la fija. */
+export function useUploadPlatformOgImage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const up = await adminApiFetch<PlatformLogoUploadDto>(
+        '/admin/platform/website/og-image-upload-url',
+        { method: 'POST', json: { mimeType: file.type, sizeBytes: file.size } },
+      );
+      const put = await fetch(up.uploadUrl, {
+        method: 'PUT',
+        headers: up.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('No se pudo subir la imagen');
+      return adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/og-image', {
+        method: 'PUT',
+        json: { key: up.key },
+      });
+    },
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+export function useResetPlatformOgImage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/og-image', {
+        method: 'PUT',
+        json: { key: null },
+      }),
     onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
   });
 }

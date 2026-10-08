@@ -5,7 +5,8 @@ import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Política de Privacidad · TrasterOS',
+  alternates: { canonical: '/privacidad' },
+  title: 'Política de Privacidad',
   description:
     'Cómo TrasterOS trata los datos personales conforme al RGPD y la LOPDGDD: responsable, finalidades, base jurídica, encargados, derechos y contacto.',
 };

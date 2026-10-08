@@ -5,7 +5,8 @@ import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Política de Cookies · TrasterOS',
+  alternates: { canonical: '/cookies' },
+  title: 'Política de Cookies',
   description:
     'Qué cookies y tecnologías equivalentes utiliza TrasterOS, su finalidad, base jurídica y cómo gestionarlas.',
 };

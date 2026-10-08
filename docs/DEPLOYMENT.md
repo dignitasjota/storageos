@@ -1223,3 +1223,4 @@ desde el panel.
 5. **Almacenamiento por tenant**: se mide de madrugada; para verlo antes, «Medir ahora» en Uso por tenant.
 6. **Coste de la IA**: opcionalmente `AI_COST_INPUT_PER_MTOK_USD` / `AI_COST_OUTPUT_PER_MTOK_USD` (3 y 15 por defecto) para el coste estimado en Uso por tenant.
 7. **Pendiente de la asesoría**: confirmar si las facturas con retención de IRPF salen del modelo 347 y cómo copiar la retención a Holded.
+8. **SEO de la web** (Web de TrasterOS → SEO de la web): dar de alta trasteros.pro en **Google Search Console** y **Bing Webmaster Tools** con la «etiqueta HTML», pegar los códigos, guardar y, cuando verifiquen, enviar `https://trasteros.pro/sitemap.xml`. Si se pone el ID de Google Analytics 4, añadirlo a la Política de Cookies (Comunicación → Páginas legales).

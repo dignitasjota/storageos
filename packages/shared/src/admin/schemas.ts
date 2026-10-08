@@ -945,3 +945,44 @@ export const DEFAULT_PLATFORM_FOOTER: UpdatePlatformFooterInput = {
   ],
   social: { linkedin: '', instagram: '', facebook: '', x: '', youtube: '' },
 };
+
+/** SEO de la web de TrasterOS (panel admin → Web de TrasterOS). */
+export const UpdatePlatformSeoSchema = z.object({
+  /** Título de la portada (resultados de Google y pestaña). Vacío = el de por defecto. */
+  title: z.string().trim().max(70),
+  /** Descripción de la portada (el texto bajo el título en Google). Vacío = la de por defecto. */
+  description: z.string().trim().max(200),
+  /** Código de verificación de Google Search Console (solo el `content` de la meta). */
+  googleVerification: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[A-Za-z0-9_-]*$/, 'Pega solo el código (lo que va en content="…")'),
+  /** Código de verificación de Bing Webmaster Tools (`msvalidate.01`). */
+  bingVerification: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[A-Za-z0-9_-]*$/, 'Pega solo el código (lo que va en content="…")'),
+  /** ID de medición de Google Analytics 4 (G-XXXXXXX); vacío = sin analítica. */
+  ga4MeasurementId: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^(G-[A-Z0-9]{4,15})?$/, 'Debe tener el formato G-XXXXXXX'),
+  /** false = pide a los buscadores que no indexen la web (la de los tenants no cambia). */
+  indexable: z.boolean(),
+  /** Nombre de la empresa para los datos estructurados (Organization). */
+  organizationName: z.string().trim().max(120),
+});
+export type UpdatePlatformSeoInput = z.infer<typeof UpdatePlatformSeoSchema>;
+
+export const DEFAULT_PLATFORM_SEO: UpdatePlatformSeoInput = {
+  title: '',
+  description: '',
+  googleVerification: '',
+  bingVerification: '',
+  ga4MeasurementId: '',
+  indexable: true,
+  organizationName: '',
+};
