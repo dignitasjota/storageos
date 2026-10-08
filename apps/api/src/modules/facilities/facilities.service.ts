@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { RESERVED_FACILITY_SLUGS } from '@storageos/shared';
 
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
@@ -18,7 +25,13 @@ import type {
 type FacilityWithStats = Facility & {
   _count?: { units: number };
   units?: Array<{ status: string }>;
+  owner?: { legalName: string } | null;
 };
+
+const FACILITY_INCLUDE = {
+  units: { select: { status: true } },
+  owner: { select: { legalName: true } },
+} as const;
 
 /** Slug URL-safe a partir de un texto (sin acentos, minúsculas, guiones). */
 function slugify(s: string): string {
@@ -69,7 +82,31 @@ export class FacilitiesService {
     private readonly audit: AuditService,
     private readonly files: FilesService,
     private readonly limits: PlanLimitsService,
+    private readonly admin: PrismaAdminService,
   ) {}
+
+  /**
+   * Valida el propietario que se asigna a un local (plan Administrador):
+   * exige la funcionalidad y que sea un propietario activo del tenant.
+   * Quitarlo (`null`) siempre se permite, también tras bajar de plan.
+   */
+  private async assertOwner(tenantId: string, ownerId: string | null | undefined): Promise<void> {
+    if (!ownerId) return;
+    if (!(await tenantHasFeature(this.admin, tenantId, 'multi_owner'))) {
+      throw new ForbiddenException({
+        code: 'feature_not_in_plan',
+        message: 'Varios propietarios no está incluido en tu plan',
+        details: { requiredFeature: 'multi_owner' },
+      });
+    }
+    const owner = await this.admin.owner.findFirst({
+      where: { id: ownerId, tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new BadRequestException({ code: 'owner_not_found', message: 'Propietario no válido' });
+    }
+  }
 
   async list(tenantId: string, facilityScope?: string[] | null): Promise<FacilityDto[]> {
     const facilities = await this.prisma.withTenant(
@@ -77,11 +114,7 @@ export class FacilitiesService {
         tx.facility.findMany({
           where: { deletedAt: null, ...(facilityScope ? { id: { in: facilityScope } } : {}) },
           orderBy: [{ name: 'asc' }],
-          include: {
-            units: {
-              select: { status: true },
-            },
-          },
+          include: FACILITY_INCLUDE,
         }),
       tenantId,
     );
@@ -93,7 +126,7 @@ export class FacilitiesService {
       (tx) =>
         tx.facility.findFirst({
           where: { id: facilityId, deletedAt: null },
-          include: { units: { select: { status: true } } },
+          include: FACILITY_INCLUDE,
         }),
       tenantId,
     );
@@ -132,6 +165,7 @@ export class FacilitiesService {
   }
 
   async create(args: CreateArgs): Promise<FacilityDto> {
+    await this.assertOwner(args.tenantId, args.input.ownerId);
     const facility = await this.prisma.withTenant(async (tx) => {
       // Enforcement del límite de locales (+ add-ons) DENTRO de la tx, con un
       // lock por tenant para que dos altas concurrentes no se salten el tope.
@@ -170,8 +204,9 @@ export class FacilitiesService {
         contactPhone: args.input.contactPhone?.trim() || null,
         contactEmail: args.input.contactEmail?.trim() || null,
         videoUrl: args.input.videoUrl?.trim() || null,
+        ownerId: args.input.ownerId ?? null,
       };
-      return tx.facility.create({ data, include: { units: { select: { status: true } } } });
+      return tx.facility.create({ data, include: FACILITY_INCLUDE });
     }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
@@ -226,6 +261,13 @@ export class FacilitiesService {
     set('contactEmail');
     set('videoUrl');
     set('isActive');
+    if (args.input.ownerId !== undefined) {
+      await this.assertOwner(args.tenantId, args.input.ownerId);
+      data.owner = args.input.ownerId
+        ? { connect: { id: args.input.ownerId } }
+        : { disconnect: true };
+      changes.ownerId = args.input.ownerId;
+    }
 
     const facility = await this.prisma.withTenant(async (tx) => {
       // publicSlug solo se cambia si se envía explícitamente (no se regenera
@@ -240,7 +282,7 @@ export class FacilitiesService {
       return tx.facility.update({
         where: { id: args.facilityId },
         data,
-        include: { units: { select: { status: true } } },
+        include: FACILITY_INCLUDE,
       });
     }, args.tenantId);
     await this.audit.write({
@@ -341,7 +383,7 @@ export class FacilitiesService {
         tx.facility.update({
           where: { id: args.facilityId },
           data: { images: args.images },
-          include: { units: { select: { status: true } } },
+          include: FACILITY_INCLUDE,
         }),
       args.tenantId,
     );
@@ -375,6 +417,8 @@ export class FacilitiesService {
       id: f.id,
       name: f.name,
       publicSlug: f.publicSlug,
+      ownerId: f.ownerId,
+      ownerName: f.owner?.legalName ?? null,
       address: f.address,
       city: f.city,
       postalCode: f.postalCode,

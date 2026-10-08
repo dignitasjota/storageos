@@ -9,11 +9,11 @@ afterAll(async () => {
 });
 
 describe('seed dev', () => {
-  it('deja los 3 planes esperados', async () => {
+  it('deja los 4 planes esperados', async () => {
     const slugs = (
       await prisma.subscriptionPlan.findMany({ orderBy: { priceMonthly: 'asc' } })
     ).map((p) => p.slug);
-    expect(slugs).toEqual(['free', 'starter', 'pro']);
+    expect(slugs).toEqual(['free', 'starter', 'pro', 'administrador']);
   });
 
   it('siembra el catálogo de add-ons (uno por feature premium)', async () => {

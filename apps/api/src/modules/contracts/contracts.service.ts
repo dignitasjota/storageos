@@ -73,6 +73,7 @@ type ContractWithRelations = Contract & {
     unitType?: { propertyKind: string };
   };
   insurancePlan: { name: string } | null;
+  owner?: { legalName: string } | null;
   invoices?: { id: string; invoiceNumber: string; status: string }[];
 };
 
@@ -140,6 +141,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
@@ -169,6 +171,7 @@ export class ContractsService {
               select: { code: true, facilityId: true, facility: { select: { name: true } } },
             },
             insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
@@ -261,6 +264,12 @@ export class ContractsService {
         throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
       }
       assertFacilityAllowed(args.facilityScope, unit.facilityId);
+      // El contrato guarda el propietario del local al crearse (plan
+      // Administrador): reasignar luego el local no cambia sus facturas.
+      const facilityOwner = await tx.facility.findUnique({
+        where: { id: unit.facilityId },
+        select: { ownerId: true },
+      });
       // En draft permitimos crear el contrato aunque el unit no este available
       // (p.ej. esta reserved para este mismo customer). Sera al firmar
       // cuando bloqueemos si esta occupied/maintenance/blocked.
@@ -317,6 +326,7 @@ export class ContractsService {
           billingCycle: input.billingCycle,
           billingIntervalMonths: input.billingIntervalMonths,
           irpfRetentionPct: input.irpfRetentionPct ?? 0,
+          ownerId: facilityOwner?.ownerId ?? null,
           // El descuento por prepago solo aplica con interval>1 (mensual = 0).
           prepayDiscountPct: input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0,
           priceMonthly: input.priceMonthly,
@@ -363,6 +373,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -447,6 +458,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
@@ -542,6 +554,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
           },
         });
@@ -841,6 +854,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -928,6 +942,7 @@ export class ContractsService {
         include: {
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1012,6 +1027,7 @@ export class ContractsService {
           },
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1096,6 +1112,7 @@ export class ContractsService {
         include: {
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1145,6 +1162,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1577,6 +1595,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1647,6 +1666,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1735,6 +1755,7 @@ export class ContractsService {
             },
           },
           insurancePlan: { select: { name: true } },
+          owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
         },
       });
@@ -1790,6 +1811,7 @@ export class ContractsService {
         },
       },
       insurancePlan: { select: { name: true } },
+      owner: { select: { legalName: true } },
       invoices: DEPOSIT_RECEIPT_SELECT,
     } satisfies Prisma.ContractInclude;
   }
@@ -2144,6 +2166,7 @@ export class ContractsService {
               select: { code: true, facilityId: true, facility: { select: { name: true } } },
             },
             insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
@@ -2306,6 +2329,7 @@ export class ContractsService {
               },
             },
             insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
           },
         }),
@@ -2412,6 +2436,8 @@ export class ContractsService {
       billingIntervalMonths: row.billingIntervalMonths,
       billingStartsOn: row.billingStartsOn ? row.billingStartsOn.toISOString().slice(0, 10) : null,
       irpfRetentionPct: Number(row.irpfRetentionPct),
+      ownerId: row.ownerId,
+      ownerName: row.owner?.legalName ?? null,
       prepayDiscountPct: Number(row.prepayDiscountPct),
       priceMonthly: base,
       discountAmount: discount,

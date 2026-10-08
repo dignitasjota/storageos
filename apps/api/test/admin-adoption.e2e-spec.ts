@@ -67,7 +67,7 @@ describe('Admin adoption / upsell (e2e)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     const body = res.body as AdoptionDto;
-    expect(body.featureAdoption).toHaveLength(13);
+    expect(body.featureAdoption).toHaveLength(14);
     expect(Array.isArray(body.tenants)).toBe(true);
     expect(typeof body.candidateCount).toBe('number');
   });

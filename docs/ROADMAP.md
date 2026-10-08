@@ -579,12 +579,11 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 
 **B. Add-on «Viviendas» (15 €/mes, sin límite)**: tipo de inmueble vivienda con facturación exenta, plantilla de contrato de vivienda, registro del depósito de la fianza en la comunidad autónoma y subida por aniversario con el índice que indique el tenant.
 
+- ✅ **B1 — Extra «Viviendas»** (`housing`, 15 €/mes, fuera de los planes): un tipo de unidad puede ser vivienda; su alquiler se factura exento de IVA (E1, art. 20.1.23.º LIVA).
+- ✅ **B2 — Contrato de vivienda**: plantilla propia (base LAU de la aplicación o la del tenant), separada de la de trasteros.
+- ✅ **B3 — Depósito de la fianza** en el organismo autonómico: organismo, fecha, resguardo, justificante y devolución; aviso en «Hoy».
 - ✅ **B4 — Actualización anual de la renta** en el aniversario con el % del tenant (solo viviendas o todo); el sistema propone y el gestor aplica o descarta.
 
-- ✅ **B3 — Depósito de la fianza** en el organismo autonómico: organismo, fecha, resguardo, justificante y devolución; aviso en «Hoy».
+**C. Plan «Administrador» (349 €/mes)**: todo Pro más varios propietarios en una cuenta, con emisor por propietario (serie, cadena Veri\*Factu y certificado propios), liquidación mensual al propietario por correo e informes fiscales por propietario. Fuera de la primera versión: acreedor SEPA y Holded por propietario, liquidación en PDF/Excel y la factura de honorarios del administrador.
 
-- ✅ **B2 — Contrato de vivienda**: plantilla propia (base LAU de la aplicación o la del tenant), separada de la de trasteros.
-
-- ✅ **B1 — Extra «Viviendas»** (`housing`, 15 €/mes, fuera de los planes): un tipo de unidad puede ser vivienda; su alquiler se factura exento de IVA (E1, art. 20.1.23.º LIVA).
-
-**C. Plan «Administrador» (349 €/mes)**: todo Pro más varios propietarios en una cuenta, con emisor por propietario (series, cadena Veri\*Factu, certificado y acreedor SEPA propios), liquidación periódica al propietario por correo (PDF y Excel) e informes fiscales por propietario. Fuera de la primera versión: Holded por propietario y la factura de honorarios del administrador.
+- ✅ **C1 — Propietarios y plan Administrador (349 €)**: cada local pertenece a un propietario (NIF, cuenta, honorarios); el contrato guarda el propietario al crearse.

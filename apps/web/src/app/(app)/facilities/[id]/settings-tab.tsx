@@ -18,16 +18,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature } from '@/lib/auth/hooks';
 import {
   uploadFacilityImage,
   useSetFacilityImages,
   useUpdateFacility,
 } from '@/lib/facilities/hooks';
+import { useOwners } from '@/lib/owners/hooks';
 
 export function FacilitySettingsTab({ facility }: { facility: FacilityDto }) {
   return (
     <div className="space-y-6">
+      <OwnerCard facility={facility} />
       <OpeningHoursCard facility={facility} />
       <CurfewCard facility={facility} />
       <FeaturesCard facility={facility} />
@@ -309,6 +319,61 @@ function CurfewCard({ facility }: { facility: FacilityDto }) {
         <Button onClick={save} disabled={update.isPending}>
           {update.isPending ? 'Guardando...' : 'Guardar'}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Propietario del local (plan Administrador). */
+function OwnerCard({ facility }: { facility: FacilityDto }) {
+  const hasFeature = useHasFeature('multi_owner');
+  const owners = useOwners();
+  const update = useUpdateFacility();
+  if (!hasFeature && !facility.ownerId) return null;
+
+  async function change(value: string) {
+    const ownerId = value === 'none' ? null : value;
+    try {
+      await update.mutateAsync({ id: facility.id, input: { ownerId } });
+      toast.success(ownerId ? 'Propietario asignado.' : 'Sin propietario: es del propio negocio.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  const active = (owners.data ?? []).filter((o) => o.isActive || o.id === facility.ownerId);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Propietario</CardTitle>
+        <CardDescription>
+          Los contratos nuevos de este local quedan a nombre de este propietario. Los ya creados
+          conservan el suyo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Select
+          value={facility.ownerId ?? 'none'}
+          onValueChange={(v) => void change(v)}
+          disabled={update.isPending}
+        >
+          <SelectTrigger className="max-w-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Del propio negocio</SelectItem>
+            {facility.ownerId && !active.some((o) => o.id === facility.ownerId) && (
+              <SelectItem value={facility.ownerId}>
+                {facility.ownerName ?? 'Propietario'}
+              </SelectItem>
+            )}
+            {active.map((o) => (
+              <SelectItem key={o.id} value={o.id} disabled={!hasFeature}>
+                {o.legalName} · {o.taxId}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </CardContent>
     </Card>
   );

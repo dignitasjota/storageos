@@ -171,6 +171,7 @@ export default function ContractDetailPage() {
               <Link href={`/units/${c.unitId}`} className="hover:underline">
                 {c.unitCode}
               </Link>
+              {c.ownerName && <> · Propietario: {c.ownerName}</>}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
