@@ -1213,3 +1213,13 @@ desde el panel.
 4. **Stripe**: si los precios de suscripción son «+IVA», crear el TaxRate y guardarlo en Facturación SaaS; añadir `charge.dispute.closed` a los eventos del webhook (además de `charge.refunded` y `charge.dispute.created`).
 5. **Variables**: `TENANT_CARD_PAYMENTS_ENABLED` (por defecto `false`, déjalo así mientras no haya Stripe Connect) y `RETENTION_SEPA_PRENOTICE_DAYS` (430 por defecto).
 6. Las facturas emitidas antes de la cadena nueva (2026-10-05) llevan la huella antigua: revisarlo con la asesoría antes del primer envío real.
+
+## 23. Tras desplegar las novedades de octubre de 2026 (#617–#656)
+
+1. **Migraciones**: el redespliegue aplica las de `20261007100000` a `20261014100000` (todas aditivas). El bootstrap crea el plan **Administrador** y el extra **Viviendas**.
+2. **Panel admin → Planes**: revisar el precio del plan Administrador (349 €/mes, 3.490 €/año) si en la instancia viva se editan los precios a mano.
+3. **Panel admin → Web de TrasterOS**: poner el **email que recibe el formulario de contacto** (sin él no se muestra), revisar el pie (enlaces, teléfono, dirección, redes), subir el logo si se quiere otro y decidir si se muestra la oferta fundador (desactivada por defecto).
+4. **Tareas programadas**: la tabla de Sistema y colas se llena cuando arrancan el API y el worker con esta versión.
+5. **Almacenamiento por tenant**: se mide de madrugada; para verlo antes, «Medir ahora» en Uso por tenant.
+6. **Coste de la IA**: opcionalmente `AI_COST_INPUT_PER_MTOK_USD` / `AI_COST_OUTPUT_PER_MTOK_USD` (3 y 15 por defecto) para el coste estimado en Uso por tenant.
+7. **Pendiente de la asesoría**: confirmar si las facturas con retención de IRPF salen del modelo 347 y cómo copiar la retención a Holded.

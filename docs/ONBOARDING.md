@@ -124,6 +124,9 @@ según lo que use el cliente.
   - [ ] Pasarela de cobro (Stripe self-service de IBAN/tarjeta, y/o Redsys, y/o SEPA acreedor).
   - [ ] Sus **locales, tipos de trastero, trasteros** (o importación CSV desde su software anterior: `/units/import`, `/customers/import`, `/contracts/import`).
   - [ ] **Usuarios** de su equipo (invitaciones) con roles/permisos y, si aplica, scope por local.
+  - [ ] **Si viene de otro programa**: tras importar los contratos, «Activar los N contratos» (con la fecha desde la que factura la app y si las fianzas ya están cobradas) e importar los **mandatos SEPA** en Remesas SEPA → «Importar mandatos» (conserva las referencias). Ver Configuración → Facturación para elegir dónde se emiten las facturas (app o Holded).
+  - [ ] **Si es un administrador de cartera** (plan Administrador): alta de **propietarios** en `/owners`, asignar cada local a su propietario y, si el propietario tiene certificado, subirlo; si no, se envía con el del administrador como representante.
+  - [ ] **Si alquila viviendas** (extra Viviendas): marcar los tipos de vivienda, revisar la plantilla de contrato de vivienda y, si quiere, activar la actualización anual de la renta.
 - [ ] (Recomendado) Forzar **2FA** a owner/manager del tenant (`/settings/security`).
 
 ---

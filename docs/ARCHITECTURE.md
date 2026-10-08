@@ -385,3 +385,29 @@ cambio a enforcement.
 ## Configuración del panel del tenant (2026-10-04)
 
 La navegación de `/settings` se define en un único sitio (`apps/web/src/app/(app)/settings/settings-nav.ts`): grupos, páginas, descripción y permiso de cada una, más los ajustes que viven en su módulo (`MODULE_SETTINGS`). El layout pinta el menú lateral (escritorio) o un desplegable (móvil) y la página `/settings` el resumen. Añadir una página de configuración = añadirla a `SETTINGS_NAV` en su grupo.
+
+## Precios: el sistema sugiere, el operador decide (2026-10-04/06, #622–#629)
+
+Un único motor (`apps/api/src/modules/analytics/pricing-engine.ts`, funciones puras con tests) calcula la sugerencia para la vista por tipo, la vista por trastero y «Sugerencias de hoy». **Nunca** cambia un precio ni crea una oferta por su cuenta: el operador pulsa «Aplicar» o «Crear oferta». Cada cambio aplicado se guarda en `unit_price_history` y cada comprobación de la competencia en `competitor_unit_observations`, para que las sugerencias futuras (espera entre cambios, tendencia, efecto de los cambios) salgan de datos reales.
+
+## Vigilancia de las tareas programadas (2026-10-07, #630)
+
+`CronMonitorModule` (cargado por `QueuesModule` en el API y en el worker) recorre los `@Cron` registrados al arrancar y, con `job.addCallback`, anota cada ejecución y la siguiente prevista en `cron_heartbeats`, sin tocar cada cron. El proceso se identifica con `APP_PROCESS` (el worker lo fija solo). Una tarea cuya ejecución prevista pasó hace más de 15 minutos sale como atrasada en el panel admin.
+
+## Emisor por propietario (plan Administrador, 2026-10-07/08, #647–#653)
+
+Con la funcionalidad `multi_owner`, cada local puede pertenecer a un propietario y sus facturas las **emite el propietario**, no el tenant:
+
+- El contrato copia el propietario del local al crearse; la factura, del contrato. Recargos, justificantes de fianza y rectificativas heredan el de su factura.
+- Cada propietario tiene **sus propias series** (`P1`, `RP1`…), creadas solas, y **su propia cadena Veri\*Factu** (bloqueo y secuencia por emisor).
+- Se envía con el certificado del propietario si lo subió; si no, con el del tenant como **representante** (`<Representante>` en la cabecera).
+- Las facturas de propietarios se emiten **siempre en la app** (aunque el tenant use Holded) y no van a su copia contable.
+- Los informes fiscales y las exportaciones se filtran por emisor (`?ownerId=`).
+
+## Retención de IRPF sin tocar los cálculos de pendiente (2026-10-07, #646)
+
+Al emitir una factura con retención se registra un pago `withholding` no monetario por el importe retenido. Así, todo lo que calcula «lo que falta por cobrar» (remesas, pasarelas, recordatorios, portal) ya descuenta la retención sin cambiar ninguno de esos cálculos. Lo que mide dinero real (caja, cobrado, reembolsos, Holded, exportaciones) excluye los métodos no monetarios (`NON_CASH_PAYMENT_METHODS`: `credit_note` y `withholding`).
+
+## Web de TrasterOS gestionada desde el panel (2026-10-08, #649, #654–#656)
+
+La portada pública (`apps/web/src/app/(public)/page.tsx`) lee en el servidor, con caché de 60 s, la oferta fundador y los ajustes de la web (logo, formulario de contacto y pie) de tablas globales de un solo registro. Si la API no responde, se pinta lo de por defecto (sin oferta, logo de la marca, pie de `DEFAULT_PLATFORM_FOOTER`). El menú de secciones vive en `apps/web/src/components/public/site-nav.ts`. El logo no admite SVG (se sirve desde el mismo sitio que la app y podría llevar scripts) y los enlaces del pie se validan (solo rutas, anclas, `https://`, `mailto:` y `tel:`).

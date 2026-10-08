@@ -735,3 +735,60 @@ Variable de entorno booleana (default `true`).
 - `dunning_action_type` += `email_reminder_final` + plantilla `invoice_overdue_final_email` (2026-10-03, migración `20261003160000_dunning_reminders`): segundo recordatorio de impago (antes nunca se programaba por el índice único por tipo).
 - `tenants.transfer_iban` (2026-10-04, migración `20261004100000_tenant_transfer_iban`): IBAN para transferencias que sale en el correo de la factura cuando se paga a mano.
 - `contracts.booking_reminder_sent_at` (2026-10-04, migración `20261004120000_contract_booking_reminder`): recordatorio único de una reserva online enviada sin firmar o sin pagar.
+
+## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261014100000`)
+
+> Las tablas **globales** (sin `tenant_id` o leídas solo por el super admin) llevan `REVOKE ALL … FROM storageos_app`; las de tenant, RLS `tenant_isolation`.
+
+### Fianza (`20261007100000_deposit_exempt_cash`)
+
+- `customers.deposit_exempt` (bool): sus contratos nuevos salen con fianza 0.
+- `contracts.deposit_payment_method` (`online`|`cash`): en efectivo el justificante sale sin enlazar a la 1ª factura y la fianza queda en «Hoy».
+
+### Motor de precios (`20261008100000` – `20261009100000`)
+
+- `competitor_facilities`: `phone`, `website`, `address`, `contact_method` (phone/web/visit/email/whatsapp/other) + `contact_notes`, `distance_km`, `inventory_complete` + `inventory_completed_at`, `known_total_units`, `current_promotion`, `promo_free_months`/`promo_discount_pct`/`promo_discount_months`, `deposit_amount`, `setup_fee`, `mandatory_insurance_monthly`, características y `last_reviewed_at`.
+- `competitor_units.external_ref`.
+- **`competitor_unit_observations`** (RLS): cada comprobación de un trastero de la competencia (precio y estado). Alimenta el histórico, la tendencia del mercado y el ritmo de alquiler.
+- **`unit_price_history`** (RLS): cambios de precio de mis trasteros (`source` manual/suggestion). Alimenta la espera mínima entre cambios y el efecto de los cambios.
+- `tenants.pricing_target_occupancy` (88), `pricing_max_step_pct` (8), `pricing_min_days_between_changes` (30); `facilities.pricing_positioning_pct` y `facilities.features` (text[]); `unit_types.min_price_monthly`/`max_price_monthly`.
+- `leads.lost_reason_code` (too_expensive, found_other, not_needed, no_availability, location, no_response, other).
+
+### Panel de administración (`20261010100000` – `20261010160000`)
+
+- **`cron_heartbeats`** (global): `name`, `process` (api/worker), `expression`, `last_run_at`, `next_run_at`. Atrasada = la prevista pasó hace más de 15 min.
+- `tenant_aeat_credentials.expiry_notified_days`: último hito avisado de caducidad (30/15/7/0).
+- **`ai_usage_events`** (global): tokens de entrada/salida por llamada al modelo (`feature`, `model`, `user_id`).
+- **`tenant_storage_usage`** (global): bytes y ficheros por tenant (`by_bucket` jsonb), medido a diario.
+- **`product_updates`** (global): título, cuerpo Markdown, `category` new/improvement/fix, `feature` de pago opcional, `link` interno, `published_at` (null = borrador). `users.product_updates_seen_at`.
+- `support_tickets.first_response_at` + **`support_canned_responses`** (global).
+
+### Facturación, cobros y migración (`20261011100000` – `20261011180000`, `20261011280000`)
+
+- `invoice_items.tax_category`: `S1` (con IVA), `E1`–`E6` (exenta, por artículo de la Ley del IVA), `N1`/`N2` (no sujeta). Las líneas al 0 % anteriores pasan a `N1`.
+- `contracts.billing_starts_on`: primer día que factura la app (contratos activados tras importar).
+- `tenant_aeat_credentials.cert_organization_nif` (NIF de la entidad del certificado) y `representative_name`.
+- `payments.returned_at`: fecha en que se devolvió un cobro ya cobrado (devolución bancaria, contracargo, fallo tardío).
+- `tenants.bank_auto_reconcile`; `bank_statement_transactions.auto_matched` + `matched_payment_id` (FK SET NULL) para deshacer.
+- IRPF: valor `withholding` en el enum `payment_method_type` (pago no monetario), `contracts.irpf_retention_pct`, `invoices.withholding_pct`/`withholding_amount`.
+
+### Viviendas (`20261011200000` – `20261011260000`)
+
+- `unit_types.property_kind` (`storage`|`housing`): el alquiler de una vivienda se factura exento (E1).
+- `tenants.housing_contract_clauses`: plantilla de contrato de vivienda.
+- `contracts.deposit_registry_body`, `deposit_registered_at`, `deposit_registry_reference`, `deposit_registry_receipt_key` (bucket privado), `deposit_registry_recovered_at`.
+- `tenants.anniversary_update_enabled`/`anniversary_update_pct`/`anniversary_update_scope` (housing|all); `contracts.last_anniversary_update_on`.
+
+### Propietarios — plan Administrador (`20261012100000` – `20261012160000`)
+
+- **`owners`** (RLS): razón social, NIF (único por tenant), dirección, email, teléfono, IBAN cifrado AES-GCM + últimos 4, honorarios (`fee_type` percentage|fixed + `fee_value`), notas, activo.
+- `facilities.owner_id` y `contracts.owner_id` (FK SET NULL): el contrato copia el propietario del local al crearse.
+- `invoices.owner_id` e `invoice_series.owner_id` (FK RESTRICT): el propietario es el emisor. La cadena Veri\*Factu es por emisor: índice único `invoices_tenant_chain_seq` sobre `(tenant_id, COALESCE(owner_id, 0…), chain_seq)`.
+- `tenant_aeat_credentials.owner_id`: certificado propio del propietario (si no tiene, se usa el del tenant como representante).
+- **`owner_statements`** (RLS): foto de cada liquidación guardada o enviada (cobrado, devuelto, honorarios + IVA, gastos, retención, neto, pendiente, `detail` jsonb, `sent_at`/`sent_to`); única por propietario y periodo.
+
+### Web de TrasterOS (`20261013100000` – `20261014100000`)
+
+- **`platform_founder_offer`** (global, un registro): `enabled` (false), `title`, `text`, `setup_strike`, `setup_text`.
+- **`platform_website`** (global, un registro): `logo_key` (bucket público, `platform/logo/…`), formulario de contacto (`contact_enabled`, `contact_email`, `contact_title`, `contact_subtitle`, `contact_show_phone`/`contact_require_phone`/`contact_show_company`/`contact_show_units`/`contact_show_profile`) y `footer` jsonb (null = `DEFAULT_PLATFORM_FOOTER` de shared).
+- **`platform_contact_messages`** (global): mensajes del formulario (`email_sent`, `handled_at`, `ip_address`).
