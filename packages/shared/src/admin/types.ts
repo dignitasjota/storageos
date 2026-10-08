@@ -897,6 +897,17 @@ export interface DunningRunResultDto {
 }
 
 // --- Banner global + notificaciones del super admin ---
+export interface PlatformWebsiteDto {
+  /** URL pública del logo subido; null = el logo de la marca de la aplicación. */
+  logoUrl: string | null;
+}
+
+export interface PlatformLogoUploadDto {
+  uploadUrl: string;
+  key: string;
+  requiredHeaders: Record<string, string>;
+}
+
 export interface PlatformFounderOfferDto {
   enabled: boolean;
   title: string;

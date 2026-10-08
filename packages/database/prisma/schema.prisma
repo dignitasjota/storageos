@@ -5084,3 +5084,13 @@ model PlatformFounderOffer {
 
   @@map("platform_founder_offer")
 }
+
+/// Ajustes de la web de TrasterOS (un registro): el logo del header y el footer.
+model PlatformWebsite {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// Imagen en el bucket público; null = el logo de la marca de la aplicación.
+  logoKey   String?  @map("logo_key")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_website")
+}

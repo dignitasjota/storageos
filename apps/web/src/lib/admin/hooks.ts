@@ -47,6 +47,8 @@ import type {
   CreatePlatformSepaRemittanceInput,
   PlatformBannerDto,
   PlatformFounderOfferDto,
+  PlatformLogoUploadDto,
+  PlatformWebsiteDto,
   LegalDocumentDto,
   LegalSlug,
   UpdateLegalDocumentInput,
@@ -1957,6 +1959,50 @@ export function useUpdatePlatformBanner() {
     mutationFn: (input: UpdatePlatformBannerInput) =>
       adminApiFetch<PlatformBannerDto>('/admin/platform/banner', { method: 'PUT', json: input }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'platform', 'banner'] }),
+  });
+}
+
+// --- Logo de la web de TrasterOS ---
+export function useAdminPlatformWebsite() {
+  return useQuery({
+    queryKey: ['admin', 'platform', 'website'] as const,
+    queryFn: () => adminApiFetch<PlatformWebsiteDto>('/admin/platform/website'),
+  });
+}
+
+/** Sube el logo directo al bucket público y lo fija como logo de la web. */
+export function useUploadPlatformLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const up = await adminApiFetch<PlatformLogoUploadDto>(
+        '/admin/platform/website/logo-upload-url',
+        { method: 'POST', json: { mimeType: file.type, sizeBytes: file.size } },
+      );
+      const put = await fetch(up.uploadUrl, {
+        method: 'PUT',
+        headers: up.requiredHeaders,
+        body: file,
+      });
+      if (!put.ok) throw new Error('No se pudo subir la imagen');
+      return adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/logo', {
+        method: 'PUT',
+        json: { key: up.key },
+      });
+    },
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+export function useResetPlatformLogo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/logo', {
+        method: 'PUT',
+        json: { key: null },
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
   });
 }
 

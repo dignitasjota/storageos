@@ -18,29 +18,51 @@
   "publicHeader": {
     "login": "Iniciar sesión",
     "register": "Crear cuenta",
-    "goToApp": "Ir al panel"
+    "goToApp": "Ir al panel",
+    "nav": {
+      "features": "Funcionalidades",
+      "audiences": "Para quién",
+      "pricing": "Precios",
+      "faq": "Preguntas"
+    }
   },
   "publicFooter": {
     "copyright": "© {year} TrasterOS",
+    "tagline": "Software de gestión para self-storage, trasteros y alquileres. En la nube, en español y conforme a Veri*Factu.",
+    "product": "Producto",
+    "features": "Funcionalidades",
+    "pricing": "Precios",
+    "faq": "Preguntas frecuentes",
+    "solutions": "Para quién",
+    "operators": "Operadores de self-storage",
+    "managers": "Administradores de cartera",
+    "housing": "Viviendas",
+    "account": "Cuenta",
+    "login": "Iniciar sesión",
+    "register": "Crear cuenta",
+    "tenantPortal": "Área de clientes",
+    "legal": "Legal",
     "terms": "Términos",
     "privacy": "Privacidad",
-    "cookies": "Cookies"
+    "cookies": "Cookies",
+    "contact": "Contacto"
   },
   "landing": {
     "heroTitle": "Software de gestión para self-storage y trasteros",
-    "heroSubtitle": "Inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros, control de accesos, CRM y analítica. Todo en una sola plataforma, en español y lista para varios locales.",
+    "heroSubtitle": "Inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros, control de accesos, CRM y analítica. Para tus propios locales, para carteras de varios propietarios y también para viviendas.",
     "heroNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia.",
     "primaryCta": "Crear cuenta gratis",
     "secondaryCta": "Iniciar sesión",
     "badges": [
       "Conforme a Veri*Factu y AEAT",
       "Cobros por SEPA, tarjeta y Bizum",
+      "Trasteros, viviendas y varios propietarios",
       "En español y multi-local",
       "Cumple el RGPD"
     ],
     "features": {
       "title": "Todo lo que necesita tu negocio, en un solo sitio",
-      "subtitle": "Desde el alta del inquilino hasta el cobro y el acceso al trastero, sin hojas de cálculo ni papeleo.",
+      "subtitle": "Desde el alta del inquilino hasta el cobro, el acceso y la liquidación al propietario, sin hojas de cálculo ni papeleo.",
       "plan": {
         "title": "Inventario y plano interactivo",
         "description": "Varios locales, tipos de trastero y un editor visual del plano: ve cada plaza, su estado, su precio y su ocupación en tiempo real."
@@ -55,11 +77,11 @@
       },
       "payments": {
         "title": "Cobros sin esfuerzo",
-        "description": "Tarjeta (Stripe), domiciliación SEPA, Bizum y Redsys, recargos por mora automáticos y conciliación bancaria con la Norma 43."
+        "description": "Tarjeta, domiciliación SEPA (remesas o GoCardless), Bizum y Redsys, reintentos de cobro, recargos por mora y conciliación bancaria Norma 43, también automática."
       },
       "access": {
         "title": "Control de accesos",
-        "description": "PIN, QR y RFID, toque de queda por local, pases nocturnos de pago, apertura remota y bloqueo automático al impago — sin pasar por el local."
+        "description": "PIN, QR y RFID, toque de queda por local, pases nocturnos de pago, apertura desde el móvil del inquilino y bloqueo automático al impago."
       },
       "portal": {
         "title": "Portal del inquilino (app)",
@@ -88,6 +110,18 @@
       "insurance": {
         "title": "Seguros y extras recurrentes",
         "description": "Añade protección de contenido y servicios recurrentes a la cuota mensual, y vende accesorios desde el panel y el portal del inquilino."
+      },
+      "pricing": {
+        "title": "Precios con datos del mercado",
+        "description": "Ficha a tu competencia y el sistema te sugiere el precio de cada tamaño y local según el mercado, tu ocupación y la demanda. Tú decides si lo aplicas."
+      },
+      "migration": {
+        "title": "Migración desde tu programa actual",
+        "description": "Importa inquilinos, trasteros, contratos y mandatos SEPA desde CSV o Excel, y activa en bloque los contratos que ya facturabas sin avisar a nadie."
+      },
+      "cameras": {
+        "title": "Cámaras, alarma y acceso facial",
+        "description": "Eventos y capturas de tus cámaras y alarmas convertidos en incidencias, y acceso por reconocimiento facial como extra."
       }
     },
     "howItWorks": {
@@ -118,8 +152,10 @@
       "points": [
         "Sistema de facturación Veri*Factu con envío a la AEAT",
         "Facturas F1/F2, rectificativas y numeración encadenada con hash",
-        "Libro registro de IVA y modelos 303 y 347",
-        "Integración contable con Holded"
+        "Operaciones exentas y no sujetas bien declaradas",
+        "Retención de IRPF por contrato cuando el inquilino es una empresa",
+        "Envío como representante con el certificado de tu gestoría",
+        "Libro de IVA, modelos 303 y 347 y exportación para tu asesoría"
       ]
     },
     "seoLocal": {
@@ -142,7 +178,10 @@
       "ai": "Asistente IA que responde sobre tus datos del negocio",
       "reservations": "Reservas online con pago y fianza, y move-out self-service",
       "dunning": "Reclamación de impagos automática (dunning) por email",
-      "messaging": "Avisos por email y WhatsApp a tus inquilinos"
+      "messaging": "Avisos por email y WhatsApp a tus inquilinos",
+      "returns": "Recibos devueltos y contracargos en un solo listado",
+      "waitlist": "Lista de espera y ofertas para los trasteros que llevan tiempo vacíos",
+      "deposits": "Fianzas, liquidación al terminar y expedientes de impago"
     },
     "pricing": {
       "title": "Precios claros, sin sorpresas",
@@ -231,6 +270,14 @@
           "a": "Sí. TrasterOS es multi-local desde el primer día, con equipos, roles y permisos por local, y analítica consolidada o por establecimiento."
         },
         {
+          "q": "¿Sirve para administradores que gestionan trasteros de varios propietarios?",
+          "a": "Sí. Con el plan Administrador asignas cada local a su propietario: sus facturas salen con su NIF y su propia serie, se registran en Veri*Factu a su nombre (con su certificado o con el tuyo como representante apoderado), le envías cada mes su liquidación por email y sacas su libro de IVA, 303 y 347 por separado."
+        },
+        {
+          "q": "¿Puedo gestionar viviendas además de trasteros?",
+          "a": "Sí, con el extra Viviendas. Marcas un tipo de unidad como vivienda y su alquiler se factura exento de IVA, con un contrato de vivienda propio, el registro del depósito de la fianza en tu comunidad autónoma y la actualización anual de la renta."
+        },
+        {
           "q": "¿Tiene control de accesos?",
           "a": "Sí. Genera credenciales PIN, QR y RFID, aplica toque de queda por local, vende pases nocturnos, abre puertas en remoto y bloquea el acceso automáticamente cuando hay un impago."
         },
@@ -240,7 +287,7 @@
         },
         {
           "q": "¿Puedo migrar mis datos desde otro programa?",
-          "a": "Sí. Importa inquilinos, trasteros y contratos por CSV/Excel con vista previa antes de confirmar, para migrar desde tu software anterior sin perder información."
+          "a": "Sí. Importas inquilinos, trasteros, contratos y mandatos SEPA desde CSV o Excel, con las cabeceras de tu programa anterior, y activas en bloque los contratos que ya estaban en marcha (con su fecha de alta original y sin enviar avisos a los inquilinos)."
         },
         {
           "q": "¿Hay prueba gratuita?",
@@ -249,8 +296,51 @@
       ]
     },
     "cta": {
-      "title": "Moderniza la gestión de tu self-storage",
+      "title": "Moderniza la gestión de tus trasteros y alquileres",
       "subtitle": "Empieza hoy y ten tus trasteros, contratos y cobros bajo control en minutos. Prueba 30 días gratis, sin tarjeta."
+    },
+    "audiences": {
+      "title": "Hecho para cómo trabajas",
+      "subtitle": "Gestiona tus propios locales, los de tus clientes o mezcla trasteros y viviendas en la misma cuenta.",
+      "items": [
+        {
+          "key": "operators",
+          "title": "Operadores de self-storage",
+          "description": "Uno o varios locales propios: plano, contratos, cobros automáticos, accesos y reserva online para llenar los trasteros libres.",
+          "points": [
+            "Facturación y cobros en automático",
+            "Control de accesos y portal del inquilino",
+            "Web con reserva online por local"
+          ],
+          "cta": "Ver planes"
+        },
+        {
+          "key": "managers",
+          "title": "Administradores de cartera",
+          "badge": "Plan Administrador",
+          "description": "Gestiona los trasteros y viviendas de varios propietarios desde una sola cuenta, con cada factura emitida a nombre de su dueño.",
+          "points": [
+            "Cada local, de su propietario: facturas con su NIF y su serie",
+            "Veri*Factu con su certificado o el tuyo como representante",
+            "Liquidación mensual a cada propietario por email",
+            "Libro de IVA, 303 y 347 por propietario"
+          ],
+          "cta": "Ver el plan Administrador"
+        },
+        {
+          "key": "housing",
+          "title": "Viviendas además de trasteros",
+          "badge": "Extra Viviendas",
+          "description": "Alquila viviendas y locales junto a tus trasteros: el sistema aplica la fiscalidad y los trámites de un alquiler de vivienda.",
+          "points": [
+            "Alquiler exento de IVA bien declarado",
+            "Contrato de vivienda (base LAU) separado del de trasteros",
+            "Depósito de la fianza en el organismo de tu comunidad",
+            "Actualización anual de la renta en el aniversario"
+          ],
+          "cta": "Ver los extras"
+        }
+      ]
     }
   },
   "auth": {
