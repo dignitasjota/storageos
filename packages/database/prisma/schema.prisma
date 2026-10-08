@@ -3641,6 +3641,8 @@ model ImpersonationLog {
 model TenantAeatCredential {
   id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId              String    @map("tenant_id") @db.Uuid
+  /// Certificado de un propietario (plan Administrador); null = del tenant.
+  ownerId               String?   @map("owner_id") @db.Uuid
   certP12Encrypted      Bytes     @map("cert_p12_encrypted")
   certPasswordEncrypted String    @map("cert_password_encrypted")
   certCommonName        String    @map("cert_common_name")
@@ -3661,6 +3663,7 @@ model TenantAeatCredential {
   revokedReason         String?   @map("revoked_reason")
 
   tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner                 Owner?    @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   uploadedBy User   @relation("AeatCredentialUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([tenantId, revokedAt], map: "tenant_aeat_credentials_tenant_id_active_idx")
@@ -5029,6 +5032,7 @@ model Owner {
   contracts  Contract[]
   invoices   Invoice[]
   invoiceSeries InvoiceSeries[]
+  aeatCredentials TenantAeatCredential[]
 
   @@unique([tenantId, taxId])
   @@index([tenantId])

@@ -72,7 +72,7 @@ export class InvoicingModeService {
           select: { invoicingModePending: true, invoicingModePendingFrom: true, timezone: true },
         });
         const cert = await tx.tenantAeatCredential.findFirst({
-          where: { tenantId, revokedAt: null, certValidTo: { gt: new Date() } },
+          where: { tenantId, ownerId: null, revokedAt: null, certValidTo: { gt: new Date() } },
           select: { id: true },
         });
         return {

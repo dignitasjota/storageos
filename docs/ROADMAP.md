@@ -588,3 +588,4 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 
 - ✅ **C1 — Propietarios y plan Administrador (349 €)**: cada local pertenece a un propietario (NIF, cuenta, honorarios); el contrato guarda el propietario al crearse.
 - ✅ **C2 — Facturas a nombre de cada propietario**: serie propia, cadena Veri\*Factu propia y sus datos en el registro y en el PDF; se envían con el certificado del administrador como representante.
+- ✅ **C2b — Certificado propio del propietario**: si lo sube, sus facturas se envían con el suyo; si no, con el del administrador.

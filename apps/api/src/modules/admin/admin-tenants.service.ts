@@ -1410,7 +1410,9 @@ export class AdminTenantsService {
       this.admin.unit.count({ where: { tenantId } }),
       this.admin.customer.count({ where: { tenantId, deletedAt: null } }),
       this.admin.contract.count({ where: { tenantId } }),
-      this.admin.tenantAeatCredential.count({ where: { tenantId, revokedAt: null } }),
+      this.admin.tenantAeatCredential.count({
+        where: { tenantId, ownerId: null, revokedAt: null },
+      }),
       this.admin.invoiceSeries.count({ where: { tenantId, isActive: true } }),
       this.admin.invoice.count({
         where: { tenantId, status: { notIn: ['draft', 'cancelled'] } },

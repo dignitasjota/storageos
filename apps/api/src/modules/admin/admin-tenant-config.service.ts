@@ -62,7 +62,7 @@ export class AdminTenantConfigService {
     ] = await Promise.all([
       this.admin.invoiceSeries.count({ where: { tenantId, isActive: true } }),
       this.admin.tenantAeatCredential.findFirst({
-        where: { tenantId, revokedAt: null },
+        where: { tenantId, ownerId: null, revokedAt: null },
         orderBy: { certValidTo: 'desc' },
         select: { certValidTo: true, environment: true },
       }),
