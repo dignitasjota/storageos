@@ -101,6 +101,38 @@ describe('Propietario como emisor (e2e)', () => {
     const ownIssued = await http().post(`/invoices/${own.body.id}/issue`).set(auth).expect(200);
     expect(ownIssued.body.invoiceNumber).not.toMatch(/^P1\//);
 
+    // Cada emisor declara lo suyo: los informes van por emisor.
+    const range = { from: '2026-01-01', to: '2099-12-31' };
+    const ownBook = await http().get('/fiscal/vat-book').query(range).set(auth).expect(200);
+    const ownNumbers = (ownBook.body.rows as { invoiceNumber: string }[]).map(
+      (r) => r.invoiceNumber,
+    );
+    expect(ownNumbers).toEqual([ownIssued.body.invoiceNumber]);
+    const ownerBook = await http()
+      .get('/fiscal/vat-book')
+      .query({ ...range, ownerId: owner.body.id })
+      .set(auth)
+      .expect(200);
+    expect(
+      (ownerBook.body.rows as { invoiceNumber: string }[]).map((r) => r.invoiceNumber),
+    ).toEqual([issued.body.invoiceNumber]);
+    const ownerExport = await http()
+      .get('/fiscal/accountant-export')
+      .query({ ...range, ownerId: owner.body.id })
+      .set(auth)
+      .expect(200);
+    expect(ownerExport.body.ownBusinessName).toBe('Inversiones Pérez SL');
+    expect(
+      (ownerExport.body.invoices as { invoiceNumber: string }[]).every(
+        (r) => r.invoiceNumber === issued.body.invoiceNumber,
+      ),
+    ).toBe(true);
+    await http()
+      .get('/fiscal/vat-book')
+      .query({ ...range, ownerId: 'nope' })
+      .set(auth)
+      .expect(400);
+
     const rows = await admin.invoice.findMany({
       where: { id: { in: [draft.body.id, own.body.id] } },
       select: { id: true, chainSeq: true, previousInvoiceId: true, ownerId: true },

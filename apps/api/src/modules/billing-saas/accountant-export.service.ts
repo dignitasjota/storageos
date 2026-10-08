@@ -92,19 +92,37 @@ export class AccountantExportService {
    * de IVA), sus cobros y sus fianzas, con los avisos de facturas sin NIF o
    * domicilio del cliente.
    */
-  async buildForTenant(tenantId: string, from: string, to: string): Promise<AccountantExportDto> {
+  /**
+   * Exportación del tenant. Con propietarios (plan Administrador), una por
+   * emisor: `ownerId` null = lo del propio negocio; un id = lo de ese propietario.
+   */
+  async buildForTenant(
+    tenantId: string,
+    from: string,
+    to: string,
+    ownerId: string | null = null,
+  ): Promise<AccountantExportDto> {
     const { fromD, toD } = this.range(from, to);
-    const tenant = await this.admin.tenant.findUniqueOrThrow({
-      where: { id: tenantId },
-      select: { name: true },
-    });
+    const tenant = ownerId
+      ? {
+          name: (
+            await this.admin.owner.findFirstOrThrow({
+              where: { id: ownerId, tenantId },
+              select: { legalName: true },
+            })
+          ).legalName,
+        }
+      : await this.admin.tenant.findUniqueOrThrow({
+          where: { id: tenantId },
+          select: { name: true },
+        });
     const invoices: AccountantInvoiceRow[] = [];
     const payments: AccountantPaymentRow[] = [];
     const deposits: AccountantDepositRow[] = [];
     const warnings: AccountantExportWarning[] = [];
-    await this.addOwnInvoices(tenantId, fromD, toD, invoices, warnings);
-    await this.addOwnPayments(tenantId, fromD, toD, payments);
-    await this.addDeposits(tenantId, fromD, toD, deposits);
+    await this.addOwnInvoices(tenantId, fromD, toD, invoices, warnings, ownerId);
+    await this.addOwnPayments(tenantId, fromD, toD, payments, ownerId);
+    await this.addDeposits(tenantId, fromD, toD, deposits, ownerId);
     return this.sorted({
       from,
       to,
@@ -257,10 +275,12 @@ export class AccountantExportService {
     toD: Date,
     out: AccountantInvoiceRow[],
     warnings: AccountantExportWarning[],
+    ownerId: string | null = null,
   ): Promise<void> {
     const rows = await this.admin.invoice.findMany({
       where: {
         tenantId,
+        ownerId,
         deletedAt: null,
         status: { not: 'draft' },
         kind: 'invoice', // los justificantes de fianza no son facturas
@@ -372,10 +392,17 @@ export class AccountantExportService {
     fromD: Date,
     toD: Date,
     out: AccountantPaymentRow[],
+    ownerId: string | null = null,
   ): Promise<void> {
     const rows = await this.admin.payment.findMany({
       where: {
         tenantId,
+        // Del emisor pedido (un cobro sin factura es del propio negocio).
+        AND: [
+          ownerId
+            ? { invoice: { ownerId } }
+            : { OR: [{ invoiceId: null }, { invoice: { ownerId: null } }] },
+        ],
         methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
         // Las fianzas no son ingresos: van en su propia hoja.
         NOT: { invoice: { kind: 'deposit_receipt' } },
@@ -441,6 +468,7 @@ export class AccountantExportService {
     fromD: Date,
     toD: Date,
     out: AccountantDepositRow[],
+    ownerId: string | null = null,
   ): Promise<void> {
     const name = (
       c: {
@@ -466,7 +494,7 @@ export class AccountantExportService {
     const received = await this.admin.payment.findMany({
       where: {
         tenantId,
-        invoice: { kind: 'deposit_receipt' },
+        invoice: { kind: 'deposit_receipt', ownerId },
         OR: [
           {
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
@@ -512,7 +540,12 @@ export class AccountantExportService {
 
     // Liquidación al terminar el contrato: lo devuelto y lo que se queda el negocio.
     const settled = await this.admin.contract.findMany({
-      where: { tenantId, depositSettledAt: { gte: fromD, lte: toD }, depositAmount: { gt: 0 } },
+      where: {
+        tenantId,
+        ownerId,
+        depositSettledAt: { gte: fromD, lte: toD },
+        depositAmount: { gt: 0 },
+      },
       select: {
         contractNumber: true,
         depositAmount: true,

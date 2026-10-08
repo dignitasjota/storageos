@@ -132,7 +132,12 @@ export class FiscalService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Libro registro de facturas expedidas (IVA emitido) en un rango de fechas. */
-  async vatBook(tenantId: string, from: string, to: string): Promise<VatBookDto> {
+  async vatBook(
+    tenantId: string,
+    from: string,
+    to: string,
+    ownerId: string | null = null,
+  ): Promise<VatBookDto> {
     const { fromD, toD } = parseRange(from, to);
     const invoices = await this.prisma.withTenant(
       (tx) =>
@@ -140,6 +145,7 @@ export class FiscalService {
           where: {
             tenantId,
             deletedAt: null,
+            ownerId,
             status: { in: [...FISCAL_STATUSES] },
             kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: fromD, lte: toD },
@@ -221,7 +227,12 @@ export class FiscalService {
   }
 
   /** Modelo 303 — IVA devengado (repercutido) por tipo, de un trimestre. */
-  async model303(tenantId: string, year: number, quarter: number): Promise<Model303Dto> {
+  async model303(
+    tenantId: string,
+    year: number,
+    quarter: number,
+    ownerId: string | null = null,
+  ): Promise<Model303Dto> {
     if (quarter < 1 || quarter > 4) {
       throw new BadRequestException({ code: 'invalid_quarter', message: 'Trimestre 1-4' });
     }
@@ -233,6 +244,7 @@ export class FiscalService {
             tenantId,
             invoice: {
               deletedAt: null,
+              ownerId,
               status: { in: [...FISCAL_STATUSES] },
               kind: 'invoice', // los justificantes de fianza no son facturas
               issueDate: { gte: from, lte: to },
@@ -251,6 +263,7 @@ export class FiscalService {
             invoice: {
               rectifiedBy: {
                 some: {
+                  ownerId,
                   correctionMethod: 'by_substitution',
                   deletedAt: null,
                   status: { in: [...FISCAL_STATUSES] },
@@ -278,6 +291,7 @@ export class FiscalService {
           where: {
             tenantId,
             deletedAt: null,
+            ownerId,
             status: { in: [...FISCAL_STATUSES] },
             kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: from, lte: to },
@@ -297,7 +311,11 @@ export class FiscalService {
   }
 
   /** Modelo 347 — clientes con operaciones > 3.005,06 €/año, desglose trimestral. */
-  async model347(tenantId: string, year: number): Promise<Model347Dto> {
+  async model347(
+    tenantId: string,
+    year: number,
+    ownerId: string | null = null,
+  ): Promise<Model347Dto> {
     const from = new Date(Date.UTC(year, 0, 1));
     const to = new Date(Date.UTC(year, 11, 31));
     const invoices = await this.prisma.withTenant(
@@ -306,6 +324,7 @@ export class FiscalService {
           where: {
             tenantId,
             deletedAt: null,
+            ownerId,
             status: { in: [...FISCAL_STATUSES] },
             kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: from, lte: to },
@@ -377,7 +396,12 @@ export class FiscalService {
    * en su software y mapee las columnas la primera vez (plantilla
    * reutilizable después — ni A3 ni Sage exigen un layout fijo).
    */
-  async accountingExport(tenantId: string, from: string, to: string): Promise<AccountingExportDto> {
+  async accountingExport(
+    tenantId: string,
+    from: string,
+    to: string,
+    ownerId: string | null = null,
+  ): Promise<AccountingExportDto> {
     const { fromD, toD } = parseRange(from, to);
     const invoices = await this.prisma.withTenant(
       (tx) =>
@@ -385,6 +409,7 @@ export class FiscalService {
           where: {
             tenantId,
             deletedAt: null,
+            ownerId,
             status: { in: [...FISCAL_STATUSES] },
             kind: 'invoice', // los justificantes de fianza no son facturas
             issueDate: { gte: fromD, lte: toD },

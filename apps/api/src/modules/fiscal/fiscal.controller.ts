@@ -20,7 +20,6 @@ import { FiscalService } from './fiscal.service';
 import type { AccountingExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
 import type { Response } from 'express';
 
-
 function parseYear(raw: string | undefined): number {
   const y = Number(raw);
   if (!Number.isInteger(y) || y < 2000 || y > 2100) {
@@ -56,7 +55,12 @@ export class FiscalController {
       });
     }
     const { from, to, format, kind } = parsed.data;
-    const dto = await this.accountant.buildForTenant(user.tenantId, from, to);
+    const dto = await this.accountant.buildForTenant(
+      user.tenantId,
+      from,
+      to,
+      parseOwner(query.ownerId),
+    );
     if (format === 'json') {
       res.json(dto);
       return;
@@ -89,11 +93,12 @@ export class FiscalController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('from') from: string,
     @Query('to') to: string,
+    @Query('ownerId') ownerId?: string,
   ): Promise<VatBookDto> {
     if (!from || !to) {
       throw new BadRequestException({ code: 'range_required', message: 'Indica from y to' });
     }
-    return this.fiscal.vatBook(user.tenantId, from, to);
+    return this.fiscal.vatBook(user.tenantId, from, to, parseOwner(ownerId));
   }
 
   @Get('model-303')
@@ -101,16 +106,23 @@ export class FiscalController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('year') year: string,
     @Query('quarter') quarter: string,
+    @Query('ownerId') ownerId?: string,
   ): Promise<Model303Dto> {
-    return this.fiscal.model303(user.tenantId, parseYear(year), Number(quarter));
+    return this.fiscal.model303(
+      user.tenantId,
+      parseYear(year),
+      Number(quarter),
+      parseOwner(ownerId),
+    );
   }
 
   @Get('model-347')
   model347(
     @CurrentUser() user: AuthenticatedUser,
     @Query('year') year: string,
+    @Query('ownerId') ownerId?: string,
   ): Promise<Model347Dto> {
-    return this.fiscal.model347(user.tenantId, parseYear(year));
+    return this.fiscal.model347(user.tenantId, parseYear(year), parseOwner(ownerId));
   }
 
   /** Exportación contable genérica (A3/Sage y similares): una fila por factura×tipo de IVA. */
@@ -119,10 +131,23 @@ export class FiscalController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('from') from: string,
     @Query('to') to: string,
+    @Query('ownerId') ownerId?: string,
   ): Promise<AccountingExportDto> {
     if (!from || !to) {
       throw new BadRequestException({ code: 'range_required', message: 'Indica from y to' });
     }
-    return this.fiscal.accountingExport(user.tenantId, from, to);
+    return this.fiscal.accountingExport(user.tenantId, from, to, parseOwner(ownerId));
   }
+}
+
+/**
+ * Emisor de los informes (plan Administrador): vacío o `self` = el propio
+ * negocio; un id = ese propietario (cada uno declara lo suyo).
+ */
+function parseOwner(value: string | undefined): string | null {
+  if (!value || value === 'self') return null;
+  if (!/^[0-9a-f-]{36}$/i.test(value)) {
+    throw new BadRequestException({ code: 'invalid_owner', message: 'Propietario no válido' });
+  }
+  return value;
 }

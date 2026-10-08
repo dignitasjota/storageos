@@ -1,36 +1,60 @@
 import { useQuery } from '@tanstack/react-query';
+import { create } from 'zustand';
 
 import { apiFetch } from '../auth/api';
+
+/**
+ * Emisor de los informes (plan Administrador): null = tu empresa; un id = ese
+ * propietario (cada uno declara lo suyo).
+ */
+export const useFiscalOwner = create<{
+  ownerId: string | null;
+  setOwnerId: (id: string | null) => void;
+}>((set) => ({ ownerId: null, setOwnerId: (ownerId) => set({ ownerId }) }));
+
+/** `&ownerId=…` para las peticiones fiscales del emisor elegido. */
+export function ownerQs(ownerId: string | null): string {
+  return ownerId ? `&ownerId=${ownerId}` : '';
+}
 
 import type { AccountantExportDto, Model303Dto, Model347Dto, VatBookDto } from '@storageos/shared';
 
 export function useVatBook(from: string, to: string, enabled = true) {
+  const ownerId = useFiscalOwner((st) => st.ownerId);
   return useQuery({
-    queryKey: ['fiscal', 'vat-book', from, to] as const,
-    queryFn: () => apiFetch<VatBookDto>(`/fiscal/vat-book?from=${from}&to=${to}`),
+    queryKey: ['fiscal', 'vat-book', from, to, ownerId] as const,
+    queryFn: () =>
+      apiFetch<VatBookDto>(`/fiscal/vat-book?from=${from}&to=${to}${ownerQs(ownerId)}`),
     enabled: enabled && !!from && !!to,
   });
 }
 
 export function useModel303(year: number, quarter: number) {
+  const ownerId = useFiscalOwner((st) => st.ownerId);
   return useQuery({
-    queryKey: ['fiscal', 'model-303', year, quarter] as const,
-    queryFn: () => apiFetch<Model303Dto>(`/fiscal/model-303?year=${year}&quarter=${quarter}`),
+    queryKey: ['fiscal', 'model-303', year, quarter, ownerId] as const,
+    queryFn: () =>
+      apiFetch<Model303Dto>(`/fiscal/model-303?year=${year}&quarter=${quarter}${ownerQs(ownerId)}`),
   });
 }
 
 export function useModel347(year: number) {
+  const ownerId = useFiscalOwner((st) => st.ownerId);
   return useQuery({
-    queryKey: ['fiscal', 'model-347', year] as const,
-    queryFn: () => apiFetch<Model347Dto>(`/fiscal/model-347?year=${year}`),
+    queryKey: ['fiscal', 'model-347', year, ownerId] as const,
+    queryFn: () => apiFetch<Model347Dto>(`/fiscal/model-347?year=${year}${ownerQs(ownerId)}`),
   });
 }
 
 /** Vista previa de la exportación para la asesoría (facturas, cobros y fianzas). */
 export function useAccountantExport(from: string, to: string, enabled = true) {
+  const ownerId = useFiscalOwner((st) => st.ownerId);
   return useQuery({
-    queryKey: ['fiscal', 'accountant-export', from, to] as const,
-    queryFn: () => apiFetch<AccountantExportDto>(`/fiscal/accountant-export?from=${from}&to=${to}`),
+    queryKey: ['fiscal', 'accountant-export', from, to, ownerId] as const,
+    queryFn: () =>
+      apiFetch<AccountantExportDto>(
+        `/fiscal/accountant-export?from=${from}&to=${to}${ownerQs(ownerId)}`,
+      ),
     enabled: enabled && !!from && !!to,
   });
 }
