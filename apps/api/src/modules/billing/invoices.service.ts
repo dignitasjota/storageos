@@ -101,6 +101,7 @@ const ALLOWED_TRANSITIONS: Record<InvoiceStatusValue, InvoiceStatusValue[]> = {
 
 type InvoiceWithRelations = Invoice & {
   items: InvoiceItem[];
+  owner?: { legalName: string } | null;
   // Nullable desde Fase 13A.3 (F2 sin destinatario identificado).
   customer: {
     firstName: string | null;
@@ -217,6 +218,11 @@ export class InvoicesService {
     userId: string | null;
     input: CreateInvoiceInput;
     meta: RequestMeta;
+    /**
+     * Emisor (plan Administrador). Sin indicar, el del contrato (si lo hay).
+     * Uso interno: el recargo por mora lo emite el emisor de la vencida.
+     */
+    ownerId?: string | null;
   }): Promise<InvoiceDto> {
     const invoiceType: 'F1' | 'F2' = args.input.invoiceType ?? 'F1';
     const { subtotal, taxAmount, total } = this.computeTotals(args.input.items);
@@ -259,11 +265,35 @@ export class InvoicesService {
             });
           }
         }
-        const series = args.input.seriesId
+        // Emisor: el propietario del contrato (plan Administrador) o el tenant.
+        let ownerId: string | null = args.ownerId ?? null;
+        if (args.ownerId === undefined && args.input.contractId) {
+          const contract = await tx.contract.findFirst({
+            where: { id: args.input.contractId },
+            select: { ownerId: true },
+          });
+          ownerId = contract?.ownerId ?? null;
+        }
+        let series = args.input.seriesId
           ? await tx.invoiceSeries.findUniqueOrThrow({ where: { id: args.input.seriesId } })
-          : await tx.invoiceSeries.findFirst({
-              where: { isDefault: true, isActive: true },
-            });
+          : ownerId
+            ? await this.series.ownerSeries(tx, args.tenantId, ownerId)
+            : await tx.invoiceSeries.findFirst({
+                where: { isDefault: true, isActive: true, ownerId: null },
+              });
+        // Los procesos automáticos (recurrente, reserva online…) pasan la
+        // serie por defecto del tenant: para un propietario va a la suya.
+        if (ownerId && series && series.ownerId === null && series.isDefault) {
+          series = await this.series.ownerSeries(tx, args.tenantId, ownerId);
+        }
+        if (series && series.ownerId !== ownerId) {
+          throw new BadRequestException({
+            code: 'series_owner_mismatch',
+            message: ownerId
+              ? 'Esta factura la emite el propietario del contrato: usa su serie'
+              : 'Esa serie es de un propietario; elige una serie de tu empresa',
+          });
+        }
         if (!series) {
           throw new BadRequestException({
             code: 'no_default_series',
@@ -285,6 +315,7 @@ export class InvoicesService {
             tenantId: args.tenantId,
             ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
             ...(args.input.contractId ? { contractId: args.input.contractId } : {}),
+            ...(ownerId ? { ownerId } : {}),
             seriesId: series.id,
             sequenceNumber: 0,
             invoiceNumber: placeholderNumber,
@@ -413,10 +444,14 @@ export class InvoicesService {
     // Modo Holded: Holded numera la factura y la registra en Veri*Factu. Se
     // emite allí primero (fuera de la transacción: es una llamada externa) y
     // luego se guarda aquí con su número.
-    const mode = await this.prisma.withTenant(
-      (tx) => this.invoicingMode.current(tx, args.tenantId),
-      args.tenantId,
-    );
+    // Las facturas de un propietario (plan Administrador) se emiten siempre
+    // aquí: la cuenta de Holded es la del tenant (otro NIF).
+    const mode = existing.ownerId
+      ? 'app'
+      : await this.prisma.withTenant(
+          (tx) => this.invoicingMode.current(tx, args.tenantId),
+          args.tenantId,
+        );
     if (mode === 'holded' && existing.rectifiesInvoiceId && !args.holdedDocument) {
       // La API de Holded no permite indicar qué factura rectifica: la
       // rectificativa la hace el tenant en Holded desde la original y luego se
@@ -527,8 +562,16 @@ export class InvoicesService {
       const invoiceNumber = this.series.formatInvoiceNumber(series, sequenceNumber, issueDate);
       const dueDate = existing.dueDate ?? this.computeDefaultDueDate(issueDate);
 
-      // Veri*Factu: huella oficial encadenada con el último registro del emisor.
-      const emitterTaxId = tenant.taxId ? normalizeTaxId(tenant.taxId) : '';
+      // Veri*Factu: huella oficial encadenada con el último registro del emisor
+      // (el propietario en el plan Administrador; si no, el tenant).
+      const owner = existing.ownerId
+        ? await tx.owner.findUnique({
+            where: { id: existing.ownerId },
+            select: { taxId: true },
+          })
+        : null;
+      const issuerTaxId = owner ? owner.taxId : tenant.taxId;
+      const emitterTaxId = issuerTaxId ? normalizeTaxId(issuerTaxId) : '';
       if (this.verifactu.realMode) {
         // Envío real a la AEAT: sin NIF válido del emisor el registro se
         // rechazaría (antes la huella llevaba «PENDIENTE»).
@@ -556,6 +599,7 @@ export class InvoicesService {
       }
       const chain = await this.verifactu.computeChainedHash(tx, {
         tenantId: args.tenantId,
+        ownerId: existing.ownerId,
         tenantTaxId: emitterTaxId || 'PENDIENTE',
         invoiceNumber,
         issueDate,
@@ -1020,7 +1064,7 @@ export class InvoicesService {
     const { tenantId, invoiceId } = args;
     // Alcance por local: asertar antes de crear el recargo.
     await this.findOrThrow(tenantId, invoiceId, args.facilityScope);
-    const { customerId, invoiceLabel, fee } = await this.prisma.withTenant(async (tx) => {
+    const { customerId, invoiceLabel, fee, ownerId } = await this.prisma.withTenant(async (tx) => {
       const original = await tx.invoice.findFirst({
         where: { id: invoiceId, tenantId },
         select: {
@@ -1030,6 +1074,7 @@ export class InvoicesService {
           customerId: true,
           total: true,
           kind: true,
+          ownerId: true,
           lateFeeInvoice: { select: { id: true } },
         },
       });
@@ -1084,11 +1129,13 @@ export class InvoicesService {
         customerId: original.customerId,
         invoiceLabel: original.invoiceNumber ?? original.id,
         fee,
+        ownerId: original.ownerId,
       };
     }, tenantId);
 
-    const series = await this.series.getDefault(tenantId);
-    if (!series) {
+    // Lo emite el mismo emisor que la vencida (el propietario, si lo hay).
+    const series = ownerId ? null : await this.series.getDefault(tenantId);
+    if (!ownerId && !series) {
       throw new BadRequestException({
         code: 'no_default_series',
         message: 'No hay serie de facturación por defecto',
@@ -1098,10 +1145,11 @@ export class InvoicesService {
     const created = await this.create({
       tenantId,
       userId: args.userId,
+      ownerId,
       input: {
         invoiceType: 'F1',
         customerId,
-        seriesId: series.id,
+        ...(series ? { seriesId: series.id } : {}),
         items: [
           {
             description: `Recargo por mora — factura ${invoiceLabel}`,
@@ -1362,11 +1410,17 @@ export class InvoicesService {
       const taken = await tx.invoice.count({
         where: { invoiceNumber: { startsWith: base } },
       });
+      const ownerOfContract = await tx.contract.findFirst({
+        where: { id: args.contractId },
+        select: { ownerId: true },
+      });
       return tx.invoice.create({
         data: {
           tenantId: args.tenantId,
           customerId: args.customerId,
           contractId: args.contractId,
+          // Del propietario del contrato (para su liquidación), aunque no sea fiscal.
+          ...(ownerOfContract?.ownerId ? { ownerId: ownerOfContract.ownerId } : {}),
           seriesId: series.id,
           sequenceNumber: 0,
           invoiceNumber: taken === 0 ? base : `${base}-${taken + 1}`,
@@ -2244,10 +2298,12 @@ export class InvoicesService {
         method: correctionMethod,
       });
       // Serie propia de rectificativas (RD 1619/2012, art. 6).
-      const rectSeries = await this.series.rectificationSeries(tx, args.tenantId);
+      // (Del mismo emisor que la original: un propietario rectifica en la suya.)
+      const rectSeries = await this.series.rectificationSeries(tx, args.tenantId, original.ownerId);
       return tx.invoice.create({
         data: {
           tenantId: args.tenantId,
+          ...(original.ownerId ? { ownerId: original.ownerId } : {}),
           ...(original.customerId ? { customerId: original.customerId } : {}),
           ...(original.contractId ? { contractId: original.contractId } : {}),
           seriesId: rectSeries.id,
@@ -2510,6 +2566,7 @@ export class InvoicesService {
   private includeRelations() {
     return {
       items: { orderBy: { position: 'asc' as const } },
+      owner: { select: { legalName: true } },
       customer: {
         select: {
           firstName: true,
@@ -2758,6 +2815,8 @@ export class InvoicesService {
       amountRefunded,
       amountPending: Math.max(0, total - amountPaid),
       withholdingPct: Number(row.withholdingPct),
+      ownerId: row.ownerId,
+      ownerName: row.owner?.legalName ?? null,
       withholdingAmount: Number(row.withholdingAmount),
       amountDue: Math.round((total - Number(row.withholdingAmount)) * 100) / 100,
       currency: row.currency,

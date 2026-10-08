@@ -109,7 +109,7 @@ export class RealAeatClient extends AeatClient {
     //    PrismaAdminService bypassa RLS pero ya validamos tenantId arriba.
     const invoice = await this.admin.invoice.findUnique({
       where: { id: args.invoiceId },
-      include: { items: true, customer: true },
+      include: { items: true, customer: true, owner: true },
     });
     if (!invoice || invoice.tenantId !== args.tenantId) {
       return {
@@ -140,6 +140,11 @@ export class RealAeatClient extends AeatClient {
         raw: { tenantId: args.tenantId },
       };
     }
+
+    // Emisor: el propietario (plan Administrador) o el propio tenant.
+    const issuer = invoice.owner
+      ? { name: invoice.owner.legalName, taxId: invoice.owner.taxId }
+      : { name: tenant.name, taxId: tenant.taxId ?? '' };
 
     if (!invoice.aeatRecordTimestamp) {
       return { status: 'error', message: 'invoice_missing_record_timestamp' };
@@ -183,7 +188,7 @@ export class RealAeatClient extends AeatClient {
       if (originalRow?.invoiceNumber && originalRow.issueDate) {
         rectifies = [
           {
-            emitterTaxId: tenant.taxId ?? '',
+            emitterTaxId: issuer.taxId,
             invoiceNumber: originalRow.invoiceNumber,
             issueDate: originalRow.issueDate,
           },
@@ -221,8 +226,8 @@ export class RealAeatClient extends AeatClient {
     const hasRecipient = Boolean(invoice.customer);
 
     const xml = this.xmlBuilder.buildRegistroAlta({
-      tenant: { name: tenant.name, taxId: tenant.taxId ?? '' },
-      representative: resolveRepresentative(tenant.taxId, cred.record),
+      tenant: issuer,
+      representative: resolveRepresentative(issuer.taxId, cred.record),
       invoice: {
         series: invoice.invoiceNumber.split('-')[0] ?? 'F',
         invoiceNumber: invoice.invoiceNumber,
@@ -237,7 +242,7 @@ export class RealAeatClient extends AeatClient {
         previousHash: args.previousHash,
         ...(previousInvoiceNumber !== undefined ? { previousInvoiceNumber } : {}),
         ...(previousInvoiceDate !== undefined ? { previousInvoiceDate } : {}),
-        previousEmitterNif: tenant.taxId ?? '',
+        previousEmitterNif: issuer.taxId,
         ...(rectifies ? { rectifies } : {}),
         ...(correctionMethodXml ? { correctionMethod: correctionMethodXml } : {}),
         ...(originalAmounts ? { originalAmounts } : {}),
@@ -304,7 +309,13 @@ export class RealAeatClient extends AeatClient {
   async getStatus(args: GetStatusArgs): Promise<GetStatusResult> {
     const invoice = await this.admin.invoice.findUnique({
       where: { id: args.invoiceId },
-      select: { tenantId: true, invoiceNumber: true, issueDate: true },
+      select: {
+        tenantId: true,
+        invoiceNumber: true,
+        issueDate: true,
+        ownerId: true,
+        owner: { select: { taxId: true } },
+      },
     });
     if (!invoice) {
       return { status: 'error', message: 'invoice_not_found' };
@@ -317,7 +328,17 @@ export class RealAeatClient extends AeatClient {
       where: { id: invoice.tenantId },
       select: { taxId: true, name: true },
     });
-    if (!tenant?.taxId) {
+    // Emisor: el propietario (plan Administrador) o el propio tenant.
+    const owner = invoice.owner
+      ? await this.admin.owner.findUnique({
+          where: { id: invoice.ownerId ?? '' },
+          select: { legalName: true, taxId: true },
+        })
+      : null;
+    const issuer = owner
+      ? { name: owner.legalName, taxId: owner.taxId }
+      : { name: tenant?.name ?? '', taxId: tenant?.taxId ?? '' };
+    if (!issuer.taxId) {
       return { status: 'error', message: 'tenant_no_tax_id' };
     }
 
@@ -338,9 +359,9 @@ export class RealAeatClient extends AeatClient {
     }
 
     const xml = this.xmlBuilder.buildConsultaFactu({
-      emitterName: tenant.name,
-      emitterTaxId: tenant.taxId,
-      asRepresentative: resolveRepresentative(tenant.taxId, cred.record) !== null,
+      emitterName: issuer.name,
+      emitterTaxId: issuer.taxId,
+      asRepresentative: resolveRepresentative(issuer.taxId, cred.record) !== null,
       invoiceNumber: invoice.invoiceNumber,
       issueDate: invoice.issueDate,
     });

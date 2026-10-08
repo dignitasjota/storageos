@@ -73,6 +73,37 @@ export class InvoicePdfService implements OnModuleDestroy {
         }),
       tenantId,
     );
+    // Plan Administrador: emite el propietario (sus datos) por cuenta del tenant.
+    const owner = invoice.ownerId
+      ? await this.prisma.withTenant(
+          (tx) =>
+            tx.owner.findUnique({
+              where: { id: invoice.ownerId ?? '' },
+              select: {
+                legalName: true,
+                taxId: true,
+                email: true,
+                address: true,
+                postalCode: true,
+                city: true,
+              },
+            }),
+          tenantId,
+        )
+      : null;
+    const issuer = owner
+      ? {
+          name: owner.legalName,
+          slug: tenant.slug,
+          taxId: owner.taxId,
+          country: tenant.country,
+          billingEmail: owner.email,
+          address: [owner.address, [owner.postalCode, owner.city].filter(Boolean).join(' ')]
+            .filter(Boolean)
+            .join(', '),
+          managedBy: tenant.name,
+        }
+      : tenant;
     // En F2 puede no haber destinatario: customerId nullable desde
     // Fase 13A.3. Usamos un placeholder "Cliente sin identificar"
     // cuando no exista, manteniendo el PDF emitible.
@@ -111,7 +142,7 @@ export class InvoicePdfService implements OnModuleDestroy {
           country: 'ES',
         };
 
-    const html = this.renderHtml({ invoice, tenant, customer });
+    const html = this.renderHtml({ invoice, tenant: issuer, customer });
     const browser = await this.getBrowser();
     const page = await browser.newPage();
     try {
@@ -180,6 +211,8 @@ export class InvoicePdfService implements OnModuleDestroy {
       taxId: string | null;
       country: string;
       billingEmail: string | null;
+      address?: string;
+      managedBy?: string;
     };
     customer: {
       firstName: string | null;
@@ -282,7 +315,9 @@ export class InvoicePdfService implements OnModuleDestroy {
     <strong>Emisor</strong>
     <div class="row">${escapeHtml(args.tenant.name)}</div>
     ${args.tenant.taxId ? `<div class="row">NIF/CIF: ${args.tenant.taxId}</div>` : ''}
+    ${args.tenant.address ? `<div class="row">${escapeHtml(args.tenant.address)}</div>` : ''}
     <div class="row">País: ${args.tenant.country}</div>
+    ${args.tenant.managedBy ? `<div class="row">Gestionado por ${escapeHtml(args.tenant.managedBy)}</div>` : ''}
   </div>
   <div class="party">
     <strong>Cliente</strong>

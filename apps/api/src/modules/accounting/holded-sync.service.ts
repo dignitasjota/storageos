@@ -151,6 +151,7 @@ export class HoldedSyncService {
         deletedAt: null,
         kind: 'invoice', // los justificantes de fianza no van a la contabilidad como facturas
         issuedBy: 'app', // las emitidas por Holded ya están allí
+        ownerId: null, // las de los propietarios no son de la empresa del tenant
         status: {
           in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
         },
@@ -564,6 +565,9 @@ export class HoldedSyncService {
       }
       return false;
     }
+    // Las de un propietario (plan Administrador) son de otra empresa: no van a
+    // la contabilidad del tenant.
+    if (invoice.ownerId) return false;
     // Rectificativa con importe negativo → rectificativa (credit note) en Holded.
     const isCreditNote = Number(invoice.total) < 0;
     const kind = isCreditNote ? 'creditnote' : 'invoice';

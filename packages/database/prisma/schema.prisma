@@ -1585,10 +1585,13 @@ model InvoiceSeries {
   isDefault  Boolean  @default(false) @map("is_default")
   /// Serie de facturas rectificativas (RD 1619/2012, art. 6: serie propia).
   isRectification Boolean @default(false) @map("is_rectification")
+  /// Serie de un propietario (plan Administrador); null = del tenant.
+  ownerId    String?  @map("owner_id") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner    Owner?    @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   invoices Invoice[]
 
   @@unique([tenantId, code])
@@ -1608,6 +1611,8 @@ model InvoiceSeries {
 model Invoice {
   id                  String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId            String            @map("tenant_id") @db.Uuid
+  /// Emisor (plan Administrador): el propietario; null = el propio tenant.
+  ownerId                String?   @map("owner_id") @db.Uuid
   /// Nullable desde Fase 13A.3: en F2 (factura simplificada) el destinatario
   /// puede no identificarse. En F1 sigue siendo obligatorio (validado en
   /// `InvoicesService.create`, no a nivel de schema).
@@ -1675,6 +1680,7 @@ model Invoice {
   platformPaymentId   String?           @unique @map("platform_payment_id") @db.Uuid
 
   tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner                  Owner?    @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   customer           Customer?                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   platformPayment    TenantSubscriptionPayment? @relation("InvoicePlatformPayment", fields: [platformPaymentId], references: [id], onDelete: SetNull)
   platformInvoice    PlatformInvoice?           @relation("PlatformInvoiceSource")
@@ -5021,6 +5027,8 @@ model Owner {
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facilities Facility[]
   contracts  Contract[]
+  invoices   Invoice[]
+  invoiceSeries InvoiceSeries[]
 
   @@unique([tenantId, taxId])
   @@index([tenantId])
