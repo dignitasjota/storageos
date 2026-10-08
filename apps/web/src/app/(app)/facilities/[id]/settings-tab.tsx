@@ -29,6 +29,8 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasFeature } from '@/lib/auth/hooks';
 import {
   uploadFacilityImage,
+  useApplyOwnerToContracts,
+  useContractsWithoutOwner,
   useSetFacilityImages,
   useUpdateFacility,
 } from '@/lib/facilities/hooks';
@@ -329,7 +331,21 @@ function OwnerCard({ facility }: { facility: FacilityDto }) {
   const hasFeature = useHasFeature('multi_owner');
   const owners = useOwners();
   const update = useUpdateFacility();
+  const pending = useContractsWithoutOwner(facility.id, hasFeature && !!facility.ownerId);
+  const apply = useApplyOwnerToContracts();
   if (!hasFeature && !facility.ownerId) return null;
+
+  async function applyToContracts() {
+    try {
+      const res = await apply.mutateAsync(facility.id);
+      toast.success(
+        `${res.updated} ${res.updated === 1 ? 'contrato pasa' : 'contratos pasan'} a nombre de ${facility.ownerName ?? 'su propietario'}.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+  const pendingCount = pending.data?.count ?? 0;
 
   async function change(value: string) {
     const ownerId = value === 'none' ? null : value;
@@ -348,7 +364,7 @@ function OwnerCard({ facility }: { facility: FacilityDto }) {
         <CardTitle className="text-base">Propietario</CardTitle>
         <CardDescription>
           Los contratos nuevos de este local quedan a nombre de este propietario. Los ya creados
-          conservan el suyo.
+          conservan el suyo (si no tenían, puedes ponérselo abajo).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -374,6 +390,29 @@ function OwnerCard({ facility }: { facility: FacilityDto }) {
             ))}
           </SelectContent>
         </Select>
+        {facility.ownerId && pendingCount > 0 && (
+          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
+            <p>
+              {pendingCount === 1
+                ? 'Hay 1 contrato de este local sin propietario'
+                : `Hay ${pendingCount} contratos de este local sin propietario`}{' '}
+              (se crearon antes de asignárselo, por ejemplo al importarlos). Sus facturas se emiten
+              a nombre de tu empresa.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2"
+              disabled={apply.isPending || !hasFeature}
+              onClick={() => void applyToContracts()}
+            >
+              Ponerlos a nombre de {facility.ownerName ?? 'este propietario'}
+            </Button>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Las facturas que ya estén creadas no cambian de emisor; las siguientes las emitirá el
+              propietario.
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

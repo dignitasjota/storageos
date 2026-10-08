@@ -79,6 +79,31 @@ export function useUpdateFacility() {
   });
 }
 
+const contractsWithoutOwnerKey = (id: string) => ['facilities', id, 'contracts-without-owner'];
+
+/** Contratos vivos del local sin propietario (creados antes de asignárselo). */
+export function useContractsWithoutOwner(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: contractsWithoutOwnerKey(id),
+    queryFn: () => apiFetch<{ count: number }>(`/facilities/${id}/contracts-without-owner`),
+    enabled,
+  });
+}
+
+export function useApplyOwnerToContracts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ updated: number }>(`/facilities/${id}/apply-owner-to-contracts`, {
+        method: 'POST',
+      }),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: contractsWithoutOwnerKey(id) });
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
+  });
+}
+
 export function useSetFacilityImages() {
   const qc = useQueryClient();
   return useMutation({

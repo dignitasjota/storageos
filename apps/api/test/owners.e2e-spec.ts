@@ -95,4 +95,60 @@ describe('Propietarios (e2e)', () => {
       .expect(403);
     await http().patch(`/facilities/${facilityId}`).set(auth).send({ ownerId: null }).expect(200);
   });
+
+  it('los contratos creados antes de asignar el propietario se le pueden pasar', async () => {
+    const user = await registerVerifiedUser(app, 'ownerslate');
+    const auth = { Authorization: `Bearer ${user.accessToken}` };
+    const http = () => request(app.getHttpServer());
+    await setTenantFeatureOverride(user.slug, 'multi_owner', true);
+    const { facilityId, unitIds } = await createFacilityWithUnits(app, user.accessToken, {
+      unitsCount: 2,
+      pricePerUnit: 100,
+    });
+    const customerId = await createCustomer(app, user.accessToken);
+    // Contratos importados/creados sin propietario.
+    const contracts: string[] = [];
+    for (const unitId of unitIds) {
+      const c = await http()
+        .post('/contracts')
+        .set(auth)
+        .send({ customerId, unitId, startDate: '2026-01-01', priceMonthly: 100, depositAmount: 0 })
+        .expect(201);
+      expect(c.body.ownerId).toBeNull();
+      contracts.push(c.body.id);
+    }
+    // Sin propietario en el local no hay nada que aplicar.
+    await http().post(`/facilities/${facilityId}/apply-owner-to-contracts`).set(auth).expect(400);
+
+    const created = await http()
+      .post('/owners')
+      .set(auth)
+      .send({ legalName: 'Inversiones Pérez SL', taxId: 'B12345674' })
+      .expect(201);
+    await http()
+      .patch(`/facilities/${facilityId}`)
+      .set(auth)
+      .send({ ownerId: created.body.id })
+      .expect(200);
+    const pending = await http()
+      .get(`/facilities/${facilityId}/contracts-without-owner`)
+      .set(auth)
+      .expect(200);
+    expect(pending.body).toEqual({ count: 2 });
+
+    const applied = await http()
+      .post(`/facilities/${facilityId}/apply-owner-to-contracts`)
+      .set(auth)
+      .expect(200);
+    expect(applied.body).toEqual({ updated: 2 });
+    for (const id of contracts) {
+      const c = await http().get(`/contracts/${id}`).set(auth).expect(200);
+      expect(c.body.ownerId).toBe(created.body.id);
+    }
+    const after = await http()
+      .get(`/facilities/${facilityId}/contracts-without-owner`)
+      .set(auth)
+      .expect(200);
+    expect(after.body).toEqual({ count: 0 });
+  });
 });
