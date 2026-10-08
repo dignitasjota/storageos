@@ -10,6 +10,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -21,11 +28,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError, apiFetchBlob } from '@/lib/auth/api';
 import {
   downloadCsv,
+  ownerQs,
   useAccountantExport,
+  useFiscalOwner,
   useModel303,
   useModel347,
   useVatBook,
 } from '@/lib/fiscal/hooks';
+import { useOwners } from '@/lib/owners/hooks';
 
 const eur = (n: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
@@ -44,6 +54,7 @@ export default function FiscalPage() {
         </p>
       </div>
 
+      <IssuerPicker />
       <Tabs defaultValue="vat-book">
         <TabsList>
           <TabsTrigger value="vat-book">Libro de IVA</TabsTrigger>
@@ -344,7 +355,7 @@ function AccountantExportTab() {
   async function download(format: 'xlsx' | 'csv', kind?: 'invoices' | 'payments' | 'deposits') {
     setBusy(kind ?? format);
     try {
-      const qs = `from=${from}&to=${to}&format=${format}${kind ? `&kind=${kind}` : ''}`;
+      const qs = `from=${from}&to=${to}&format=${format}${kind ? `&kind=${kind}` : ''}${ownerQs(useFiscalOwner.getState().ownerId)}`;
       const blob = await apiFetchBlob(`/fiscal/accountant-export?${qs}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -530,4 +541,31 @@ function AccountantExportTab() {
 /** «IVA 21 %», «Exenta (art. 20 LIVA)», «No sujeta». */
 function rateLabel(r: { rate: number; taxCategory: InvoiceTaxCategory }): string {
   return r.taxCategory === 'S1' ? `IVA ${r.rate}%` : INVOICE_TAX_CATEGORY_LABELS[r.taxCategory];
+}
+
+/** Plan Administrador: de quién son los informes (tu empresa o un propietario). */
+function IssuerPicker() {
+  const owners = useOwners();
+  const ownerId = useFiscalOwner((st) => st.ownerId);
+  const setOwnerId = useFiscalOwner((st) => st.setOwnerId);
+  const list = owners.data ?? [];
+  if (list.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm text-muted-foreground">Emisor</span>
+      <Select value={ownerId ?? 'self'} onValueChange={(v) => setOwnerId(v === 'self' ? null : v)}>
+        <SelectTrigger className="w-72">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="self">Tu empresa</SelectItem>
+          {list.map((o) => (
+            <SelectItem key={o.id} value={o.id}>
+              {o.legalName} · {o.taxId}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
