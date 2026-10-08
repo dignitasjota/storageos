@@ -1,8 +1,10 @@
 'use client';
 
-import { Loader2, Pencil, Plus } from 'lucide-react';
+import { FileText, Loader2, Pencil, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import { OwnerStatementDialog } from './statement-dialog';
 
 import type { OwnerDto } from '@storageos/shared';
 
@@ -40,6 +42,8 @@ import {
 export default function OwnersPage() {
   const owners = useOwners();
   const [editing, setEditing] = useState<OwnerDto | 'new' | null>(null);
+  const [statementOf, setStatementOf] = useState<OwnerDto | null>(null);
+  const canStatements = useHasPermission('invoices:manage');
 
   return (
     <div className="space-y-4">
@@ -101,6 +105,11 @@ export default function OwnersPage() {
                   {o.ibanLast4 && <> · Cuenta …{o.ibanLast4}</>}
                 </p>
                 <OwnerCertificateRow ownerId={o.id} />
+                {canStatements && (
+                  <Button size="sm" variant="outline" onClick={() => setStatementOf(o)}>
+                    <FileText className="mr-1 size-4" /> Liquidación
+                  </Button>
+                )}
                 {(o.email || o.phone) && (
                   <p className="text-muted-foreground">
                     {[o.email, o.phone].filter(Boolean).join(' · ')}
@@ -112,6 +121,9 @@ export default function OwnersPage() {
         </div>
       )}
 
+      {statementOf && (
+        <OwnerStatementDialog owner={statementOf} onClose={() => setStatementOf(null)} />
+      )}
       {editing && (
         <OwnerDialog owner={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
