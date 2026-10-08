@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -14,6 +15,7 @@ import {
   BulkInvoiceActionSchema,
   type BulkInvoiceActionResultDto,
   ChargeInvoiceSchema,
+  type ReturnedReceiptsDto,
   type PaymentDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -25,6 +27,7 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { PaymentsService } from './payments.service';
+import { ReturnedReceiptsService } from './returned-receipts.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
@@ -43,7 +46,32 @@ function extractMeta(req: Request): RequestMeta {
 
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly payments: PaymentsService) {}
+  constructor(
+    private readonly payments: PaymentsService,
+    private readonly returnedReceipts: ReturnedReceiptsService,
+  ) {}
+
+  /** Recibos devueltos y adeudos rechazados en un periodo. */
+  @RequirePermission('payments:read')
+  @Get('returns')
+  async returns(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('kind') kind?: string,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<ReturnedReceiptsDto> {
+    if (facilityId && !/^[0-9a-f-]{36}$/i.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    return this.returnedReceipts.list(user.tenantId, {
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      ...(kind ? { kind } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
 
   @RequirePermission('payments:read')
   @Get()

@@ -896,6 +896,7 @@ export class PaymentsService {
         data: {
           status: 'failed',
           failureReason: `disputed: ${args.reason ?? 'unknown'}`,
+          returnedAt: new Date(),
         },
       });
       if (moved.count === 0) return;

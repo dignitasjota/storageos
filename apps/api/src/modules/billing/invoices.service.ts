@@ -1797,7 +1797,7 @@ export class InvoicesService {
       if (reverted.length > 0) {
         await tx.payment.updateMany({
           where: { id: { in: reverted } },
-          data: { status: 'failed', failureReason: args.reason },
+          data: { status: 'failed', failureReason: args.reason, returnedAt: new Date() },
         });
       }
       return tx.invoice.update({

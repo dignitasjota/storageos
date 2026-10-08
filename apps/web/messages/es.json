@@ -409,7 +409,8 @@
     "updates": "Novedades",
     "settings": "Configuración",
     "collections": "Impagos",
-    "waitlist": "Lista de espera"
+    "waitlist": "Lista de espera",
+    "returnedReceipts": "Recibos devueltos"
   },
   "settings": {
     "nav": {

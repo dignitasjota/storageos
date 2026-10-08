@@ -20,6 +20,7 @@ import {
   KeyRound,
   Cctv,
   Landmark,
+  Undo2,
   Lock,
   LayoutDashboard,
   LifeBuoy,
@@ -213,6 +214,12 @@ const GROUPS: NavGroup[] = [
         labelKey: 'billingBank',
         icon: Landmark,
         children: [
+          {
+            href: '/returned-receipts',
+            labelKey: 'returnedReceipts',
+            icon: Undo2,
+            permission: 'payments:read',
+          },
           {
             href: '/sepa-remittances',
             labelKey: 'sepaRemittances',

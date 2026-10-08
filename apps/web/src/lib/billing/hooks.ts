@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  ReturnedReceiptsDto,
   BulkInvoiceActionResultDto,
   CancelInvoiceInput,
   ChargeInvoiceInput,
@@ -326,5 +327,26 @@ export function useDataSubjectRequests() {
     queryKey: rgpdKey,
     queryFn: () => apiFetch<DataSubjectRequestDto[]>('/rgpd/requests'),
     staleTime: 60_000,
+  });
+}
+
+export interface ReturnedReceiptsFilters {
+  from?: string;
+  to?: string;
+  kind?: string;
+  facilityId?: string;
+}
+
+/** Recibos devueltos y adeudos rechazados del periodo. */
+export function useReturnedReceipts(filters: ReturnedReceiptsFilters) {
+  return useQuery({
+    queryKey: ['payments', 'returns', filters],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v);
+      const qs = params.toString();
+      return apiFetch<ReturnedReceiptsDto>(`/payments/returns${qs ? `?${qs}` : ''}`);
+    },
+    staleTime: 30_000,
   });
 }
