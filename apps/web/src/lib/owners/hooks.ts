@@ -3,7 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { AeatCredentialMetadata } from '@/lib/billing/verifactu-hooks';
-import type { CreateOwnerInput, OwnerDto, UpdateOwnerInput } from '@storageos/shared';
+import type {
+  CreateOwnerInput,
+  OwnerDto,
+  OwnerStatementDto,
+  SaveOwnerStatementInput,
+  UpdateOwnerInput,
+} from '@storageos/shared';
 
 import { apiFetch } from '@/lib/auth/api';
 import { useHasFeature } from '@/lib/auth/hooks';
@@ -80,5 +86,39 @@ export function useRemoveOwnerCertificate(ownerId: string) {
   return useMutation({
     mutationFn: () => apiFetch<void>(`/owners/${ownerId}/aeat-credential`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ownerCertKey(ownerId) }),
+  });
+}
+
+export function useOwnerStatementPreview(
+  ownerId: string,
+  from: string,
+  to: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['owners', ownerId, 'statement-preview', from, to],
+    queryFn: () =>
+      apiFetch<OwnerStatementDto>(`/owners/${ownerId}/statements/preview?from=${from}&to=${to}`),
+    enabled,
+  });
+}
+
+export function useOwnerStatements(ownerId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['owners', ownerId, 'statements'],
+    queryFn: () => apiFetch<OwnerStatementDto[]>(`/owners/${ownerId}/statements`),
+    enabled,
+  });
+}
+
+export function useSaveOwnerStatement(ownerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveOwnerStatementInput) =>
+      apiFetch<OwnerStatementDto>(`/owners/${ownerId}/statements`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['owners', ownerId, 'statements'] }),
   });
 }

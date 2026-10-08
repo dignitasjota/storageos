@@ -553,6 +553,7 @@ model Tenant {
   competitorUnitObservations CompetitorUnitObservation[]
   unitPriceHistory           UnitPriceHistory[]
   owners                         Owner[]
+  ownerStatements                OwnerStatement[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -5033,8 +5034,39 @@ model Owner {
   invoices   Invoice[]
   invoiceSeries InvoiceSeries[]
   aeatCredentials TenantAeatCredential[]
+  statements OwnerStatement[]
 
   @@unique([tenantId, taxId])
   @@index([tenantId])
   @@map("owners")
+}
+
+/// Liquidación enviada a un propietario (plan Administrador): foto del periodo.
+model OwnerStatement {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  ownerId         String    @map("owner_id") @db.Uuid
+  periodStart     DateTime  @map("period_start") @db.Date
+  periodEnd       DateTime  @map("period_end") @db.Date
+  collected       Decimal   @db.Decimal(12, 2)
+  refunded        Decimal   @db.Decimal(12, 2)
+  feeBase         Decimal   @map("fee_base") @db.Decimal(12, 2)
+  feeVat          Decimal   @map("fee_vat") @db.Decimal(12, 2)
+  expenses        Decimal   @db.Decimal(12, 2)
+  withholding     Decimal   @db.Decimal(12, 2)
+  net             Decimal   @db.Decimal(12, 2)
+  pending         Decimal   @db.Decimal(12, 2)
+  detail          Json
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  sentTo          String?   @map("sent_to")
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner  Owner  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, periodStart, periodEnd], map: "owner_statements_period_key")
+  @@index([tenantId, ownerId], map: "owner_statements_tenant_idx")
+  @@map("owner_statements")
 }
