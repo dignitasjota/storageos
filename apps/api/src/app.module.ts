@@ -65,6 +65,7 @@ import { MarketingModule } from './modules/marketing/marketing.module';
 import { MoveInModule } from './modules/move-in/move-in.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OperationsModule } from './modules/operations/operations.module';
+import { OwnersModule } from './modules/owners/owners.module';
 import { GoCardlessModule } from './modules/payments/gocardless/gocardless.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { RedsysModule } from './modules/payments/redsys/redsys.module';
@@ -217,6 +218,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     AdminModule,
     PlatformModule,
     ProductUpdatesModule,
+    OwnersModule,
     BillingSaasModule,
     IntegrationsModule,
     ImportsModule,

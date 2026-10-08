@@ -69,6 +69,29 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
       'cameras',
     ],
   },
+  {
+    name: 'Administrador',
+    slug: 'administrador',
+    priceMonthly: 349,
+    priceYearly: 3490,
+    maxUnits: null,
+    maxFacilities: null,
+    maxUsers: null,
+    features: { support: 'priority', branding: true, api: true },
+    tenantFeatures: [
+      'ai_assistant',
+      'sepa',
+      'bank_reconciliation',
+      'rent_increases',
+      'insurance',
+      'access_control',
+      'automations',
+      'custom_domain',
+      'collections',
+      'cameras',
+      'multi_owner',
+    ],
+  },
 ];
 
 async function main(): Promise<void> {

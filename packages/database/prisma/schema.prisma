@@ -552,6 +552,7 @@ model Tenant {
   // por estado/borrado + ventanas temporales de métricas/cohortes/trials).
   competitorUnitObservations CompetitorUnitObservation[]
   unitPriceHistory           UnitPriceHistory[]
+  owners                         Owner[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -904,6 +905,8 @@ model Facility {
   /// Slug público para la landing SEO por local (`/s/<tenant>/<slug>`). Único
   /// por tenant. Se genera del nombre al crear; null en casos sin slug válido.
   publicSlug          String?   @map("public_slug")
+  /// Propietario del local (plan Administrador); null = el propio tenant.
+  ownerId              String?   @map("owner_id") @db.Uuid
   address             String?
   city                String?
   postalCode          String?   @map("postal_code")
@@ -934,6 +937,7 @@ model Facility {
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner           Owner?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   floors               FacilityFloor[]
   units                Unit[]
   unitRequests         UnitRequest[]
@@ -1239,6 +1243,8 @@ model Contract {
   lastAnniversaryUpdateOn    DateTime? @map("last_anniversary_update_on") @db.Date
   /// % de retención de IRPF que practica el inquilino (0 = sin retención).
   irpfRetentionPct           Decimal   @default(0) @map("irpf_retention_pct") @db.Decimal(5, 2)
+  /// Propietario al crear el contrato (plan Administrador).
+  ownerId                    String?   @map("owner_id") @db.Uuid
   prepayDiscountPct      Decimal               @default(0) @map("prepay_discount_pct") @db.Decimal(5, 2)
   /// Precio congelado al firmar (snapshot). Antes de firmar es el
   /// precio propuesto y puede cambiarse libremente. Tras firmar, solo
@@ -1289,6 +1295,7 @@ model Contract {
   updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant             Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner             Owner?                     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   customer           Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   unit               Unit                      @relation(fields: [unitId], references: [id], onDelete: Restrict)
   events             ContractEvent[]
@@ -4988,4 +4995,34 @@ model TenantSubscriptionAddon {
   @@unique([tenantId, addonId])
   @@index([tenantId])
   @@map("tenant_subscription_addons")
+}
+
+/// Plan «Administrador»: propietario de uno o varios locales del tenant.
+model Owner {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  legalName     String   @map("legal_name")
+  taxId         String   @map("tax_id")
+  address       String?
+  city          String?
+  postalCode    String?  @map("postal_code")
+  email         String?
+  phone         String?
+  ibanEncrypted String?  @map("iban_encrypted")
+  ibanLast4     String?  @map("iban_last4")
+  /// percentage | fixed
+  feeType       String   @default("percentage") @map("fee_type")
+  feeValue      Decimal  @default(0) @map("fee_value") @db.Decimal(10, 2)
+  notes         String?
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facilities Facility[]
+  contracts  Contract[]
+
+  @@unique([tenantId, taxId])
+  @@index([tenantId])
+  @@map("owners")
 }

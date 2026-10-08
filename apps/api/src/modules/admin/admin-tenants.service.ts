@@ -658,6 +658,7 @@ export class AdminTenantsService {
       collectionsRows,
       blogRows,
       housingRows,
+      ownerRows,
       overrideRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
@@ -701,6 +702,11 @@ export class AdminTenantsService {
         where: { propertyKind: 'housing' },
         _count: { _all: true },
       }),
+      this.admin.facility.groupBy({
+        by: ['tenantId'],
+        where: { ownerId: { not: null }, deletedAt: null },
+        _count: { _all: true },
+      }),
       this.admin.tenantFeatureOverride.findMany({
         select: { tenantId: true, feature: true, enabled: true },
       }),
@@ -725,6 +731,7 @@ export class AdminTenantsService {
     const collections = countMap(collectionsRows);
     const blogPosts = countMap(blogRows);
     const housing = countMap(housingRows);
+    const ownedFacilities = countMap(ownerRows);
     const overridesByTenant = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
     for (const o of overrideRows) {
       const list = overridesByTenant.get(o.tenantId) ?? [];
@@ -752,6 +759,7 @@ export class AdminTenantsService {
         s.add('web_premium');
       }
       if ((housing.get(id) ?? 0) > 0) s.add('housing');
+      if ((ownedFacilities.get(id) ?? 0) > 0) s.add('multi_owner');
       return s;
     };
 

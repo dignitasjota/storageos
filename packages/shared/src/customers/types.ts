@@ -112,6 +112,9 @@ export interface ContractDto {
   billingStartsOn: string | null;
   /** % de retención de IRPF que practica el inquilino (0 = sin retención). */
   irpfRetentionPct: number;
+  /** Propietario (plan Administrador); null = el propio tenant. */
+  ownerId: string | null;
+  ownerName: string | null;
   /** Descuento % por prepagar (solo aplica si billingIntervalMonths>1). */
   prepayDiscountPct: number;
   priceMonthly: number;

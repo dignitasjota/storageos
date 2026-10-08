@@ -5,6 +5,8 @@ export interface FacilityDto {
   name: string;
   /** Slug público para la landing SEO (`/s/<tenant>/<slug>`). */
   publicSlug: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
   address: string | null;
   city: string | null;
   postalCode: string | null;

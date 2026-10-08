@@ -53,6 +53,8 @@ export const CreateFacilitySchema = z.object({
   name: facilityName,
   /** Slug público opcional para la landing SEO; si se omite, se genera del nombre. */
   publicSlug: z.string().trim().max(60).optional().or(z.literal('')),
+  /** Propietario del local (plan Administrador); null = el propio tenant. */
+  ownerId: z.string().uuid().nullable().optional(),
   address: optionalShortText,
   city: optionalShortText,
   postalCode: z.string().trim().max(20).optional().or(z.literal('')),
