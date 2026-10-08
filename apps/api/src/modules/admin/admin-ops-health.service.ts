@@ -60,8 +60,10 @@ export class AdminOpsHealthService {
 
   async certificatesExpiring(now = new Date()): Promise<AdminCertificateExpiringDto[]> {
     return (await this.certificates.expiring(now)).map((c) => ({
+      id: c.id,
       tenantId: c.tenantId,
       tenantName: c.tenantName,
+      ownerName: c.ownerName,
       validTo: c.validTo.toISOString(),
       daysLeft: c.daysLeft,
     }));

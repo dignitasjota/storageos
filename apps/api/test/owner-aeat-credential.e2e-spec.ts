@@ -2,6 +2,9 @@ import { PrismaClient } from '@storageos/database';
 import * as forge from 'node-forge';
 import request from 'supertest';
 
+import { AeatCertExpiryService } from '../src/modules/admin/aeat-cert-expiry.service';
+import { TenantAeatCredentialsService } from '../src/modules/billing/tenant-aeat-credentials.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -91,6 +94,28 @@ describe('Certificado de un propietario (e2e)', () => {
     expect(tenantCert.body.certNif).toBe('B87654321');
     const got = await http().get(`/owners/${owner.body.id}/aeat-credential`).set(auth).expect(200);
     expect(got.body.credential.certNif).toBe('B12345674');
+
+    // Si el del propietario caduca, se envía con el del administrador (como
+    // representante) en vez de fallar en la AEAT.
+    const certs = app.get(TenantAeatCredentialsService);
+    expect((await certs.getDecrypted(user.tenantId, owner.body.id))?.record.certNif).toBe(
+      'B12345674',
+    );
+    await admin.tenantAeatCredential.updateMany({
+      where: { tenantId: user.tenantId, ownerId: owner.body.id },
+      data: { certValidTo: new Date(Date.now() - 24 * 3600 * 1000) },
+    });
+    expect((await certs.getDecrypted(user.tenantId, owner.body.id))?.record.certNif).toBe(
+      'B87654321',
+    );
+    // El aviso de caducidad dice de quién es y lleva a Propietarios.
+    await app.get(AeatCertExpiryService).run();
+    const notice = await admin.notification.findFirst({
+      where: { tenantId: user.tenantId, type: 'aeat.certificate_expiring' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(notice?.title).toContain('Inversiones Pérez SL');
+    expect(notice?.link).toBe('/owners');
 
     await http().delete(`/owners/${owner.body.id}/aeat-credential`).set(auth).expect(204);
     const after = await http()

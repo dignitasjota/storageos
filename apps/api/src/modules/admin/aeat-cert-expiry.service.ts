@@ -25,8 +25,11 @@ export function certExpiryMilestone(daysLeft: number): number | null {
 }
 
 export interface ExpiringCertificate {
+  id: string;
   tenantId: string;
   tenantName: string;
+  /** Propietario (plan Administrador) si el certificado es suyo. */
+  ownerName: string | null;
   validTo: Date;
   daysLeft: number;
 }
@@ -41,6 +44,7 @@ export interface ExpiringCertificate {
 export class AeatCertExpiryService {
   private readonly logger = new Logger(AeatCertExpiryService.name);
   private readonly settingsUrl: string;
+  private readonly ownersUrl: string;
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -48,7 +52,9 @@ export class AeatCertExpiryService {
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
     config: ConfigService<Env, true>,
   ) {
-    this.settingsUrl = `${config.get('WEB_BASE_URL', { infer: true })}/settings/billing/verifactu`;
+    const web = config.get('WEB_BASE_URL', { infer: true });
+    this.settingsUrl = `${web}/settings/billing/verifactu`;
+    this.ownersUrl = `${web}/owners`;
   }
 
   /** Certificados vigentes que caducan en ≤30 días o caducados hace ≤30 días. */
@@ -63,11 +69,19 @@ export class AeatCertExpiryService {
         tenant: { deletedAt: null },
       },
       orderBy: { certValidTo: 'asc' },
-      select: { tenantId: true, certValidTo: true, tenant: { select: { name: true } } },
+      select: {
+        id: true,
+        tenantId: true,
+        certValidTo: true,
+        tenant: { select: { name: true } },
+        owner: { select: { legalName: true } },
+      },
     });
     return rows.map((r) => ({
+      id: r.id,
       tenantId: r.tenantId,
       tenantName: r.tenant.name,
+      ownerName: r.owner?.legalName ?? null,
       validTo: r.certValidTo,
       daysLeft: Math.ceil((r.certValidTo.getTime() - now.getTime()) / DAY_MS),
     }));
@@ -90,6 +104,7 @@ export class AeatCertExpiryService {
         certValidTo: true,
         expiryNotifiedDays: true,
         tenant: { select: { name: true } },
+        owner: { select: { legalName: true } },
       },
     });
     let sent = 0;
@@ -108,7 +123,13 @@ export class AeatCertExpiryService {
       });
       if (claimed.count === 0) continue;
       try {
-        await this.notify(r.tenantId, r.tenant.name, r.certValidTo, daysLeft);
+        await this.notify(
+          r.tenantId,
+          r.tenant.name,
+          r.certValidTo,
+          daysLeft,
+          r.owner?.legalName ?? null,
+        );
         sent += 1;
       } catch (err) {
         this.logger.warn(
@@ -124,21 +145,31 @@ export class AeatCertExpiryService {
     tenantName: string,
     validTo: Date,
     daysLeft: number,
+    ownerName: string | null = null,
   ): Promise<void> {
     const date = validTo.toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' });
+    // El de un propietario (plan Administrador) se sube en Propietarios; mientras
+    // no lo renueve, sus facturas se envían con el certificado del tenant.
+    const whose = ownerName
+      ? `El certificado de la AEAT de ${ownerName}`
+      : 'Tu certificado de la AEAT';
     const title =
       daysLeft <= 0
-        ? 'Tu certificado de la AEAT ha caducado'
-        : `Tu certificado de la AEAT caduca en ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}`;
-    const body =
+        ? `${whose} ha caducado`
+        : `${whose} caduca en ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}`;
+    const baseBody =
       daysLeft <= 0
         ? `Caducó el ${date}. Sin un certificado vigente no se pueden enviar las facturas a Veri*Factu: sube uno nuevo cuanto antes.`
         : `Caduca el ${date}. Renuévalo y súbelo antes para que el envío de facturas a Veri*Factu no se interrumpa.`;
+    const body = ownerName
+      ? `${baseBody} Mientras tanto, sus facturas se envían con tu certificado como representante.`
+      : baseBody;
+    const link = ownerName ? '/owners' : '/settings/billing/verifactu';
     await this.notifications.create(tenantId, {
       type: 'aeat.certificate_expiring',
       title,
       body,
-      link: '/settings/billing/verifactu',
+      link,
     });
 
     const owners = await this.admin.user.findMany({
@@ -151,7 +182,7 @@ export class AeatCertExpiryService {
       '',
       body,
       '',
-      `Puedes subir el certificado nuevo en: ${this.settingsUrl}`,
+      `Puedes subir el certificado nuevo en: ${ownerName ? this.ownersUrl : this.settingsUrl}`,
       '',
       'Un saludo,',
       'El equipo de TrasterOS',

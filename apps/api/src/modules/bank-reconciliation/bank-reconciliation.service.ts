@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
@@ -348,13 +349,23 @@ export class BankReconciliationService {
       (tx) =>
         tx.invoice.findFirst({
           where: { id: invoiceId, tenantId },
-          select: { amountPaid: true },
+          select: {
+            amountPaid: true,
+            payments: {
+              where: { status: 'succeeded', methodType: { in: [...NON_CASH_PAYMENT_METHODS] } },
+              select: { amount: true },
+            },
+          },
         }),
       tenantId,
     );
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
     }
+    // Lo cobrado en dinero (sin retención de IRPF ni abonos): es lo único que
+    // el banco puede devolver.
+    const cashPaidCents =
+      toCents(invoice.amountPaid) - invoice.payments.reduce((sum, p) => sum + toCents(p.amount), 0);
     await this.claimTransaction(tenantId, transactionId, 'returned', invoiceId);
     try {
       // Se revierte el importe DEVUELTO por el banco (el cargo), no todo lo
@@ -364,7 +375,7 @@ export class BankReconciliationService {
         tenantId,
         userId: args.userId,
         invoiceId,
-        amount: Math.min(Math.abs(txRow.amount) / 100, Number(invoice.amountPaid)),
+        amount: Math.min(Math.abs(txRow.amount), Math.max(0, cashPaidCents)) / 100,
         reason: 'Devolución SEPA (conciliación N43)',
         meta: {},
       });
@@ -696,6 +707,12 @@ export class BankReconciliationService {
             customer: {
               select: { customerType: true, firstName: true, lastName: true, companyName: true },
             },
+            // Retenciones de IRPF y abonos: cuentan como pagado pero no son
+            // dinero del banco (una devolución nunca los incluye).
+            payments: {
+              where: { status: 'succeeded', methodType: { in: [...NON_CASH_PAYMENT_METHODS] } },
+              select: { amount: true },
+            },
           },
           orderBy: { issueDate: 'desc' },
           take: 500,
@@ -706,7 +723,8 @@ export class BankReconciliationService {
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
       customerName: customerName(inv.customer),
-      paidCents: Math.round(Number(inv.amountPaid) * 100),
+      paidCents:
+        toCents(inv.amountPaid) - inv.payments.reduce((sum, p) => sum + toCents(p.amount), 0),
     }));
   }
 

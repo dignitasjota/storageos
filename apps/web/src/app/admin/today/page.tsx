@@ -175,9 +175,9 @@ export default function AdminTodayPage() {
         >
           {data.certificatesExpiring.map((c) => (
             <TenantRow
-              key={c.tenantId}
+              key={c.id}
               id={c.tenantId}
-              name={c.tenantName}
+              name={c.ownerName ? `${c.tenantName} · propietario ${c.ownerName}` : c.tenantName}
               detail={
                 c.daysLeft <= 0
                   ? `Caducado el ${fmtDate(c.validTo)}`

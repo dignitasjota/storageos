@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -10,17 +11,24 @@ import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
 
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
+
 /** Plan Administrador: liquidación al propietario por email. */
 describe('Liquidaciones al propietario (e2e)', () => {
   let app: INestApplication;
+  let admin: PrismaClient;
 
   beforeAll(async () => {
     await cleanupTestTenants();
+    admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
     app = await createTestApp();
   });
 
   afterAll(async () => {
     await app.close();
+    await admin.$disconnect();
     await cleanupTestTenants();
   });
 
@@ -124,6 +132,23 @@ describe('Liquidaciones al propietario (e2e)', () => {
     const list = await http().get(`/owners/${owner.body.id}/statements`).set(auth).expect(200);
     expect(list.body).toHaveLength(1);
     expect(list.body[0].net).toBe(59.29);
+
+    // Ese cobro lo devuelve el banco dos meses después: se descuenta en la
+    // liquidación del mes de la devolución (el propietario ya lo había cobrado).
+    await admin.payment.updateMany({
+      where: { invoiceId: draft.body.id, methodType: 'cash' },
+      data: {
+        status: 'failed',
+        paidAt: new Date('2026-01-15T10:00:00Z'),
+        returnedAt: new Date('2026-03-10T10:00:00Z'),
+      },
+    });
+    const march = await http()
+      .get(`/owners/${owner.body.id}/statements/preview`)
+      .query({ from: '2026-03-01', to: '2026-03-31' })
+      .set(auth)
+      .expect(200);
+    expect(march.body).toMatchObject({ collected: 0, refunded: 121 });
 
     // Sin email del propietario no se puede enviar (sí guardar).
     const other = await http()
