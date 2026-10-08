@@ -1,31 +1,11 @@
-import {
-  ArrowRight,
-  BarChart3,
-  CalendarCheck,
-  Cctv,
-  Check,
-  CreditCard,
-  FileSignature,
-  Globe,
-  Home,
-  KeyRound,
-  Map,
-  Megaphone,
-  ReceiptText,
-  ShieldCheck,
-  Smartphone,
-  TrendingUp,
-  Upload,
-  Users,
-  Warehouse,
-  Wrench,
-} from 'lucide-react';
+import { ArrowRight, Check, Home, Users, Warehouse } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import type { Metadata } from 'next';
 
 import { PlatformContactForm } from '@/components/public/platform-contact-form';
+import { FEATURE_ICONS, type FeatureKey } from '@/components/public/site-nav';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchFounderOffer } from '@/lib/founder-offer';
@@ -76,23 +56,10 @@ export const metadata: Metadata = {
   },
 };
 
-const FEATURES = [
-  { key: 'plan', icon: Map },
-  { key: 'contracts', icon: FileSignature },
-  { key: 'billing', icon: ReceiptText },
-  { key: 'payments', icon: CreditCard },
-  { key: 'access', icon: KeyRound },
-  { key: 'portal', icon: Smartphone },
-  { key: 'booking', icon: CalendarCheck },
-  { key: 'crm', icon: Megaphone },
-  { key: 'whitelabel', icon: Globe },
-  { key: 'operations', icon: Wrench },
-  { key: 'analytics', icon: BarChart3 },
-  { key: 'insurance', icon: ShieldCheck },
-  { key: 'pricing', icon: TrendingUp },
-  { key: 'migration', icon: Upload },
-  { key: 'cameras', icon: Cctv },
-] as const;
+const FEATURES = (Object.keys(FEATURE_ICONS) as FeatureKey[]).map((key) => ({
+  key,
+  icon: FEATURE_ICONS[key],
+}));
 
 const AUDIENCE_ICONS: Record<string, typeof Warehouse> = {
   operators: Warehouse,
@@ -233,14 +200,20 @@ export default function LandingPage() {
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ key, icon: Icon }) => (
-            <Card key={key} className="border-border/60">
+            <Card
+              key={key}
+              id={`func-${key}`}
+              className="group scroll-mt-24 border-border/60 transition-colors duration-200 hover:border-primary hover:bg-primary hover:shadow-lg"
+            >
               <CardHeader>
-                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <span className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors duration-200 group-hover:bg-white/15 group-hover:text-primary-foreground">
                   <Icon className="size-5" aria-hidden />
                 </span>
-                <CardTitle className="mt-3 text-lg">{t(`features.${key}.title`)}</CardTitle>
+                <CardTitle className="mt-3 text-lg transition-colors duration-200 group-hover:text-primary-foreground">
+                  {t(`features.${key}.title`)}
+                </CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
+              <CardContent className="text-sm text-muted-foreground transition-colors duration-200 group-hover:text-primary-foreground/85">
                 {t(`features.${key}.description`)}
               </CardContent>
             </Card>
@@ -309,7 +282,11 @@ export default function LandingPage() {
       </section>
 
       {/* Cómo funciona */}
-      <section className="container pb-16" aria-labelledby="how-title">
+      <section
+        id="como-funciona"
+        className="container scroll-mt-20 pb-16"
+        aria-labelledby="how-title"
+      >
         <div className="mb-10 text-center">
           <h2 id="how-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
             {t('howItWorks.title')}
@@ -330,7 +307,11 @@ export default function LandingPage() {
       </section>
 
       {/* Cumplimiento fiscal */}
-      <section className="container pb-16" aria-labelledby="compliance-title">
+      <section
+        id="cumplimiento"
+        className="container scroll-mt-20 pb-16"
+        aria-labelledby="compliance-title"
+      >
         <div className="rounded-2xl border bg-primary/5 p-8 md:p-10">
           <h2 id="compliance-title" className="text-xl font-semibold tracking-tight md:text-2xl">
             {t('compliance.title')}

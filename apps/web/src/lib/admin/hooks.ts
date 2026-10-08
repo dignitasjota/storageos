@@ -52,6 +52,7 @@ import type {
   PlatformFounderOfferDto,
   PlatformLogoUploadDto,
   PlatformWebsiteDto,
+  UpdatePlatformFooterInput,
   LegalDocumentDto,
   LegalSlug,
   UpdateLegalDocumentInput,
@@ -1993,6 +1994,18 @@ export function useUploadPlatformLogo() {
         json: { key: up.key },
       });
     },
+    onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
+  });
+}
+
+export function useUpdatePlatformFooter() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformFooterInput) =>
+      adminApiFetch<PlatformWebsiteDto>('/admin/platform/website/footer', {
+        method: 'PUT',
+        json: input,
+      }),
     onSuccess: (data) => qc.setQueryData(['admin', 'platform', 'website'], data),
   });
 }

@@ -9,6 +9,7 @@ import type {
   SupportTicketStatusValue,
   TenantFollowupStatusValue,
   TenantInteractionTypeValue,
+  UpdatePlatformFooterInput,
 } from './schemas';
 
 export interface SuperAdminDto {
@@ -913,6 +914,8 @@ export interface PlatformWebsiteDto {
   logoUrl: string | null;
   /** Formulario de contacto; null = desactivado o sin email de destino. */
   contactForm: PublicContactFormDto | null;
+  /** Pie de la web (el guardado o el de por defecto). */
+  footer: UpdatePlatformFooterInput;
 }
 
 export interface PlatformContactSettingsDto extends PublicContactFormDto {

@@ -17,6 +17,7 @@ import {
   UpdatePlatformFounderOfferSchema,
   RequestPlatformLogoUploadSchema,
   SetPlatformLogoSchema,
+  UpdatePlatformFooterSchema,
   type LegalDocumentDto,
   type LegalSlug,
   type PlatformBannerDto,
@@ -38,6 +39,7 @@ class UpdateLegalDto extends createZodDto(UpdateLegalDocumentSchema) {}
 class UpdateFounderOfferDto extends createZodDto(UpdatePlatformFounderOfferSchema) {}
 class RequestLogoUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
 class SetLogoDto extends createZodDto(SetPlatformLogoSchema) {}
+class UpdateFooterDto extends createZodDto(UpdatePlatformFooterSchema) {}
 
 function parseSlug(slug: string): LegalSlug {
   const parsed = LegalSlugEnum.safeParse(slug);
@@ -132,6 +134,12 @@ export class PlatformAdminController {
   @HttpCode(HttpStatus.OK)
   requestLogoUpload(@Body() body: RequestLogoUploadDto): Promise<PlatformLogoUploadDto> {
     return this.service.requestLogoUpload(body.mimeType);
+  }
+
+  @RequireSuperadmin()
+  @Put('website/footer')
+  updateFooter(@Body() body: UpdateFooterDto): Promise<PlatformWebsiteDto> {
+    return this.service.updateFooter(body);
   }
 
   @RequireSuperadmin()

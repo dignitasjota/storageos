@@ -5100,6 +5100,8 @@ model PlatformWebsite {
   contactShowCompany  Boolean  @default(true) @map("contact_show_company")
   contactShowUnits    Boolean  @default(true) @map("contact_show_units")
   contactShowProfile  Boolean  @default(true) @map("contact_show_profile")
+  /// Pie de la web (columnas de enlaces, contacto, redes); null = el de por defecto.
+  footer              Json?
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_website")

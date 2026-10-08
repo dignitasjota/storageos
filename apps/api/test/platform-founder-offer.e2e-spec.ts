@@ -123,4 +123,60 @@ describe('Oferta fundador de la web (e2e)', () => {
       .expect(200);
     expect(reset.body.logoUrl).toBeNull();
   });
+
+  it('pie de la web: por defecto, editable y con enlaces seguros', async () => {
+    const http = () => request(app.getHttpServer());
+    const initial = (await http().get('/platform-website').expect(200)).body.footer;
+    expect(initial.email).toBe('info@trasteros.pro');
+    expect(initial.columns.length).toBeGreaterThan(0);
+
+    const footer = {
+      tagline: 'Gestiona tus trasteros',
+      email: 'Hola@Trasteros.pro',
+      phone: '+34 600 000 000',
+      address: 'Calle Mayor 1, Madrid',
+      columns: [
+        {
+          title: 'Empresa',
+          links: [
+            { label: 'Sobre nosotros', href: '/sobre-nosotros' },
+            { label: 'Blog', href: 'https://blog.trasteros.pro' },
+            { label: 'Escríbenos', href: 'mailto:hola@trasteros.pro' },
+          ],
+        },
+      ],
+      social: {
+        linkedin: 'https://www.linkedin.com/company/trasteros',
+        instagram: '',
+        facebook: '',
+        x: '',
+        youtube: '',
+      },
+    };
+    const saved = await http()
+      .put('/admin/platform/website/footer')
+      .set(adminAuth)
+      .send(footer)
+      .expect(200);
+    expect(saved.body.footer).toMatchObject({
+      email: 'hola@trasteros.pro',
+      tagline: footer.tagline,
+    });
+    expect((await http().get('/platform-website')).body.footer.columns[0].links).toHaveLength(3);
+
+    // Enlaces peligrosos o a otro dominio sin protocolo: 400.
+    for (const href of ['javascript:alert(1)', '//evil.example', 'http://inseguro.example']) {
+      await http()
+        .put('/admin/platform/website/footer')
+        .set(adminAuth)
+        .send({ ...footer, columns: [{ title: 'X', links: [{ label: 'Mal', href }] }] })
+        .expect(400);
+    }
+    await http()
+      .put('/admin/platform/website/footer')
+      .set(adminAuth)
+      .send({ ...footer, social: { ...footer.social, x: 'http://x.com/a' } })
+      .expect(400);
+    await http().put('/admin/platform/website/footer').send(footer).expect(401);
+  });
 });
