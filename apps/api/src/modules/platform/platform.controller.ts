@@ -18,6 +18,7 @@ import {
   RequestPlatformLogoUploadSchema,
   SetPlatformLogoSchema,
   UpdatePlatformFooterSchema,
+  UpdatePlatformSeoSchema,
   type LegalDocumentDto,
   type LegalSlug,
   type PlatformBannerDto,
@@ -40,6 +41,7 @@ class UpdateFounderOfferDto extends createZodDto(UpdatePlatformFounderOfferSchem
 class RequestLogoUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
 class SetLogoDto extends createZodDto(SetPlatformLogoSchema) {}
 class UpdateFooterDto extends createZodDto(UpdatePlatformFooterSchema) {}
+class UpdateSeoDto extends createZodDto(UpdatePlatformSeoSchema) {}
 
 function parseSlug(slug: string): LegalSlug {
   const parsed = LegalSlugEnum.safeParse(slug);
@@ -134,6 +136,25 @@ export class PlatformAdminController {
   @HttpCode(HttpStatus.OK)
   requestLogoUpload(@Body() body: RequestLogoUploadDto): Promise<PlatformLogoUploadDto> {
     return this.service.requestLogoUpload(body.mimeType);
+  }
+
+  @RequireSuperadmin()
+  @Put('website/seo')
+  updateSeo(@Body() body: UpdateSeoDto): Promise<PlatformWebsiteDto> {
+    return this.service.updateSeo(body);
+  }
+
+  @RequireSuperadmin()
+  @Post('website/og-image-upload-url')
+  @HttpCode(HttpStatus.OK)
+  requestOgImageUpload(@Body() body: RequestLogoUploadDto): Promise<PlatformLogoUploadDto> {
+    return this.service.requestOgImageUpload(body.mimeType);
+  }
+
+  @RequireSuperadmin()
+  @Put('website/og-image')
+  setOgImage(@Body() body: SetLogoDto): Promise<PlatformWebsiteDto> {
+    return this.service.setOgImage(body.key);
   }
 
   @RequireSuperadmin()

@@ -16,6 +16,7 @@ export default async function PublicLayout({ children }: { children: ReactNode }
       logoUrl={website?.logoUrl ?? null}
       hasContact={Boolean(website?.contactForm)}
       footer={website?.footer ?? null}
+      analyticsId={website?.seo.ga4MeasurementId || null}
     >
       {children}
     </PublicChrome>

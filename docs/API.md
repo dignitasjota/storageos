@@ -1985,4 +1985,5 @@ Todo con la feature `multi_owner`.
 ### Web de TrasterOS (#649, #654–#656)
 
 - Públicos: `GET /platform-founder-offer` → `{offer}` (null si está desactivada), `GET /platform-website` → `{logoUrl, contactForm, footer}` y `POST /platform-contact` (formulario; honeypot `hp`, `acceptPrivacy` obligatorio; 404 `contact_form_disabled`, 400 `phone_required`; límite por IP).
+- SEO: `PUT /admin/platform/website/seo` (título, descripción, verificaciones de Google y Bing, GA4 `G-…`, `indexable`, nombre de la empresa), `POST /admin/platform/website/og-image-upload-url` y `PUT /admin/platform/website/og-image {key|null}` (superadmin). `GET /platform-website` incluye `seo` (con `ogImageUrl`).
 - Admin (`/admin/platform/...`, escribir: superadmin): `GET/PUT founder-offer`; `GET website`, `POST website/logo-upload-url`, `PUT website/logo {key|null}` (sin SVG), `PUT website/footer` (enlaces solo `/ruta`, `#ancla`, `https://`, `mailto:` o `tel:`; redes solo `https://`); `GET/PUT contact`, `GET contact/messages` (100 últimos) y `POST contact/messages/:id/handled {handled}`.

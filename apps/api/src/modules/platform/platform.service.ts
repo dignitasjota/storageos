@@ -6,7 +6,9 @@ import { Prisma } from '@storageos/database';
 import {
   DEFAULT_LEGAL_DOCUMENTS,
   DEFAULT_PLATFORM_FOOTER,
+  DEFAULT_PLATFORM_SEO,
   UpdatePlatformFooterSchema,
+  UpdatePlatformSeoSchema,
 } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -24,6 +26,7 @@ import type {
   UpdatePlatformBannerInput,
   UpdatePlatformFooterInput,
   UpdatePlatformFounderOfferInput,
+  UpdatePlatformSeoInput,
 } from '@storageos/shared';
 
 /** Banner global + feed de notificaciones del super admin. */
@@ -56,7 +59,31 @@ export class PlatformService {
             }
           : null,
       footer: PlatformService.parseFooter(row?.footer),
+      seo: {
+        ...PlatformService.parseSeo(row?.seo),
+        ogImageUrl: row?.ogImageKey ? this.files.buildPublicUrl('public', row.ogImageKey) : null,
+      },
     };
+  }
+
+  private static parseSeo(raw: unknown): UpdatePlatformSeoInput {
+    if (raw == null) return DEFAULT_PLATFORM_SEO;
+    const parsed = UpdatePlatformSeoSchema.safeParse(raw);
+    return parsed.success ? parsed.data : DEFAULT_PLATFORM_SEO;
+  }
+
+  async updateSeo(input: UpdatePlatformSeoInput): Promise<PlatformWebsiteDto> {
+    await this.upsertWebsite({ seo: input as unknown as Prisma.InputJsonValue });
+    return this.getWebsite();
+  }
+
+  private async upsertWebsite(data: Prisma.PlatformWebsiteUpdateInput): Promise<void> {
+    const existing = await this.admin.platformWebsite.findFirst();
+    if (existing) {
+      await this.admin.platformWebsite.update({ where: { id: existing.id }, data });
+    } else {
+      await this.admin.platformWebsite.create({ data: data as Prisma.PlatformWebsiteCreateInput });
+    }
   }
 
   /** El pie guardado si es válido; si no (o no hay), el de por defecto. */
@@ -87,6 +114,28 @@ export class PlatformService {
       contentType: mimeType,
     });
     return { uploadUrl, key, requiredHeaders: { 'Content-Type': mimeType } };
+  }
+
+  private static readonly OG_PREFIX = 'platform/og/';
+
+  /** URL firmada para subir la imagen para redes (1200×630) al bucket público. */
+  async requestOgImageUpload(mimeType: string): Promise<PlatformLogoUploadDto> {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const key = `${PlatformService.OG_PREFIX}${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': mimeType } };
+  }
+
+  async setOgImage(key: string | null): Promise<PlatformWebsiteDto> {
+    if (key && (!key.startsWith(PlatformService.OG_PREFIX) || key.includes('..'))) {
+      throw new BadRequestException({ code: 'invalid_image_key', message: 'Imagen no válida' });
+    }
+    await this.upsertWebsite({ ogImageKey: key });
+    return this.getWebsite();
   }
 
   async setLogo(key: string | null): Promise<PlatformWebsiteDto> {

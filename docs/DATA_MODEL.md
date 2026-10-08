@@ -792,3 +792,4 @@ Variable de entorno booleana (default `true`).
 - **`platform_founder_offer`** (global, un registro): `enabled` (false), `title`, `text`, `setup_strike`, `setup_text`.
 - **`platform_website`** (global, un registro): `logo_key` (bucket público, `platform/logo/…`), formulario de contacto (`contact_enabled`, `contact_email`, `contact_title`, `contact_subtitle`, `contact_show_phone`/`contact_require_phone`/`contact_show_company`/`contact_show_units`/`contact_show_profile`) y `footer` jsonb (null = `DEFAULT_PLATFORM_FOOTER` de shared).
 - **`platform_contact_messages`** (global): mensajes del formulario (`email_sent`, `handled_at`, `ip_address`).
+- `platform_website.seo` (jsonb; null = valores por defecto) y `platform_website.og_image_key` (imagen para redes, `platform/og/…`) — migración `20261015100000_platform_seo`.

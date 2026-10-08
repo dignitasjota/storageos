@@ -3,32 +3,33 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import {
+  CONSENT_EVENT,
+  needsConsentPrompt,
+  saveConsent,
+  type CookieConsent,
+} from '@/components/public/cookie-consent';
 import { Button } from '@/components/ui/button';
 
-const STORAGE_KEY = 'storageos.cookies-accepted';
-
 /**
- * Aviso de cookies: aparece abajo hasta que el visitante lo acepta (se recuerda
- * en localStorage). Solo cubre cookies estrictamente necesarias, así que ofrece
- * «Aceptar» + enlace a la política; no bloquea la navegación.
+ * Aviso de cookies de la web de TrasterOS. Sin analítica configurada solo hay
+ * cookies necesarias («Aceptar»); con Google Analytics, el visitante elige entre
+ * «Solo necesarias» y «Aceptar todas» (la analítica no se carga sin su permiso).
  */
-export function CookieBanner() {
+export function CookieBanner({ analytics = false }: { analytics?: boolean }) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    try {
-      if (!localStorage.getItem(STORAGE_KEY)) setVisible(true);
-    } catch {
-      /* sin localStorage no mostramos el banner */
-    }
-  }, []);
+    setVisible(needsConsentPrompt(analytics));
+    const onChange = (e: Event) => {
+      if ((e as CustomEvent<CookieConsent | null>).detail === null) setVisible(true);
+    };
+    window.addEventListener(CONSENT_EVENT, onChange);
+    return () => window.removeEventListener(CONSENT_EVENT, onChange);
+  }, [analytics]);
 
-  function accept() {
-    try {
-      localStorage.setItem(STORAGE_KEY, new Date().toISOString());
-    } catch {
-      /* ignore */
-    }
+  function choose(value: CookieConsent) {
+    saveConsent(value);
     setVisible(false);
   }
 
@@ -38,20 +39,35 @@ export function CookieBanner() {
     <div className="fixed inset-x-0 bottom-0 z-50 p-3 sm:p-4">
       <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-border bg-background/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          Usamos cookies estrictamente necesarias para que la plataforma funcione y sea segura. Al
-          continuar, aceptas su uso. Más información en nuestra{' '}
+          {analytics
+            ? 'Usamos cookies necesarias para que la web funcione y, si lo aceptas, cookies de analítica (Google Analytics) para saber cómo se usa y mejorarla. '
+            : 'Usamos cookies estrictamente necesarias para que la plataforma funcione y sea segura. Al continuar, aceptas su uso. '}
+          Más información en nuestra{' '}
           <Link href="/cookies" className="font-medium text-foreground underline">
             Política de Cookies
           </Link>
           .
         </p>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/cookies">Más información</Link>
-          </Button>
-          <Button size="sm" onClick={accept}>
-            Aceptar
-          </Button>
+          {analytics ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => choose('necessary')}>
+                Solo necesarias
+              </Button>
+              <Button size="sm" onClick={() => choose('all')}>
+                Aceptar todas
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/cookies">Más información</Link>
+              </Button>
+              <Button size="sm" onClick={() => choose('necessary')}>
+                Aceptar
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

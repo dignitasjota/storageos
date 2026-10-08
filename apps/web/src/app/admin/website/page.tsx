@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { FooterCard } from './footer-card';
+import { SeoCard } from './seo-card';
 
 import { PlatformLogo } from '@/components/public/platform-logo';
 import { Badge } from '@/components/ui/badge';
@@ -63,6 +64,8 @@ export default function AdminWebsitePage() {
           Lo que aparece en trasteros.pro (no afecta a las webs de los tenants).
         </p>
       </div>
+
+      <SeoCard />
 
       <LogoCard />
 

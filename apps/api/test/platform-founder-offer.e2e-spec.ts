@@ -179,4 +179,65 @@ describe('Oferta fundador de la web (e2e)', () => {
       .expect(400);
     await http().put('/admin/platform/website/footer').send(footer).expect(401);
   });
+
+  it('SEO de la web: por defecto, editable, validado e imagen para redes', async () => {
+    const http = () => request(app.getHttpServer());
+    const initial = (await http().get('/platform-website').expect(200)).body.seo;
+    expect(initial).toMatchObject({ title: '', indexable: true, ogImageUrl: null });
+
+    const seo = {
+      title: 'Software para trasteros | TrasterOS',
+      description: 'Gestiona tus trasteros en la nube.',
+      googleVerification: 'abc123_XYZ-9',
+      bingVerification: 'B1NG',
+      ga4MeasurementId: 'g-abc1234',
+      indexable: false,
+      organizationName: 'TrasterOS SL',
+    };
+    const saved = await http()
+      .put('/admin/platform/website/seo')
+      .set(adminAuth)
+      .send(seo)
+      .expect(200);
+    expect(saved.body.seo).toMatchObject({ ...seo, ga4MeasurementId: 'G-ABC1234' });
+    expect((await http().get('/platform-website')).body.seo.indexable).toBe(false);
+
+    // Códigos con caracteres raros (p. ej. la etiqueta entera pegada) o GA4 mal escrito: 400.
+    await http()
+      .put('/admin/platform/website/seo')
+      .set(adminAuth)
+      .send({ ...seo, googleVerification: '<meta name="x">' })
+      .expect(400);
+    await http()
+      .put('/admin/platform/website/seo')
+      .set(adminAuth)
+      .send({ ...seo, ga4MeasurementId: 'UA-1234' })
+      .expect(400);
+    await http().put('/admin/platform/website/seo').send(seo).expect(401);
+
+    const up = await http()
+      .post('/admin/platform/website/og-image-upload-url')
+      .set(adminAuth)
+      .send({ mimeType: 'image/png', sizeBytes: 1000 })
+      .expect(200);
+    expect(up.body.key).toMatch(/^platform\/og\//);
+    const withImage = await http()
+      .put('/admin/platform/website/og-image')
+      .set(adminAuth)
+      .send({ key: up.body.key })
+      .expect(200);
+    expect(withImage.body.seo.ogImageUrl).toContain(up.body.key);
+    // Solo claves de la carpeta de imágenes para redes.
+    await http()
+      .put('/admin/platform/website/og-image')
+      .set(adminAuth)
+      .send({ key: 'otro-tenant/x.png' })
+      .expect(400);
+    const reset = await http()
+      .put('/admin/platform/website/og-image')
+      .set(adminAuth)
+      .send({ key: null })
+      .expect(200);
+    expect(reset.body.seo.ogImageUrl).toBeNull();
+  });
 });

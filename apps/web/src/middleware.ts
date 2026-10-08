@@ -13,6 +13,39 @@ import { type NextRequest, NextResponse } from 'next/server';
  * 3. Para /widget/*: aplica cabeceras CSP que permiten el embebido en iframe.
  */
 const PROTECTED = ['/dashboard', '/settings'];
+
+/**
+ * Páginas de la plataforma sin valor para los buscadores (acceso, enlaces de un
+ * solo uso, pagos, portal…): se piden «no indexar» con `X-Robots-Tag` (muchas
+ * son componentes de cliente que no pueden declarar metadatos).
+ */
+const NOINDEX_PREFIXES = [
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  '/invite',
+  '/security',
+  '/pay',
+  '/review',
+  '/unsubscribe',
+  '/sign',
+  '/g/',
+  '/portal',
+  '/book',
+];
+
+function withNoindex(pathname: string, res: NextResponse): NextResponse {
+  if (
+    NOINDEX_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(p.endsWith('/') ? p : `${p}/`),
+    )
+  ) {
+    res.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+  return res;
+}
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 function hostFromUrl(u: string | undefined): string | null {
@@ -79,7 +112,7 @@ function platformProtection(req: NextRequest): NextResponse {
   }
 
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-  if (!isProtected) return NextResponse.next();
+  if (!isProtected) return withNoindex(pathname, NextResponse.next());
 
   const refresh = req.cookies.get('refresh_token');
   if (refresh && refresh.value) return NextResponse.next();

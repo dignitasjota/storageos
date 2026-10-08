@@ -31,7 +31,6 @@ export const metadata: Metadata = {
   creator: 'TrasterOS',
   publisher: 'TrasterOS',
   formatDetection: { telephone: false, email: false, address: false },
-  alternates: { canonical: '/' },
   robots: {
     index: true,
     follow: true,

@@ -5,7 +5,8 @@ import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Términos y Condiciones · TrasterOS',
+  alternates: { canonical: '/terminos' },
+  title: 'Términos y Condiciones',
   description:
     'Condiciones de uso del servicio TrasterOS: objeto, cuenta, planes y pagos, obligaciones, responsabilidad, cancelación, protección de datos y ley aplicable.',
 };

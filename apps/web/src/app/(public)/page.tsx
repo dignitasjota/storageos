@@ -19,42 +19,56 @@ const SITE_URL = (
 ).replace(/\/$/, '');
 
 const TITLE = 'TrasterOS — Software de gestión para self-storage y trasteros';
+/** Descripción por defecto (≈155 caracteres: lo que Google muestra sin cortar). */
 const DESCRIPTION =
+  'Gestiona tu self-storage en la nube: contratos con firma electrónica, facturación Veri*Factu, cobros por SEPA y Bizum, accesos y CRM. Prueba gratis 30 días.';
+/** Descripción larga para los datos estructurados. */
+const LONG_DESCRIPTION =
   'Software todo-en-uno para gestionar tu self-storage: inventario y planos, inquilinos, contratos con firma electrónica, facturación conforme a Veri*Factu, cobros por SEPA, tarjeta y Bizum, control de accesos, CRM y analítica. En español, multi-local y con prueba gratis de 30 días.';
 
-export const metadata: Metadata = {
-  title: { absolute: TITLE },
-  description: DESCRIPTION,
-  keywords: [
-    'software self-storage',
-    'software para trasteros',
-    'programa de gestión de trasteros',
-    'software gestión self-storage',
-    'software guardamuebles',
-    'gestión de trasteros',
-    'facturación Veri*Factu trasteros',
-    'control de accesos trastero',
-    'alquiler de trasteros software',
-    'CRM self-storage España',
-    'software administrador de cartera de alquileres',
-    'gestión de alquiler de viviendas',
-    'liquidación a propietarios',
-  ],
-  alternates: { canonical: '/' },
-  openGraph: {
-    type: 'website',
-    url: SITE_URL,
-    title: TITLE,
-    description: DESCRIPTION,
-    siteName: 'TrasterOS',
-    locale: 'es_ES',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: TITLE,
-    description: DESCRIPTION,
-  },
-};
+const KEYWORDS = [
+  'software self-storage',
+  'software para trasteros',
+  'programa de gestión de trasteros',
+  'software gestión self-storage',
+  'software guardamuebles',
+  'gestión de trasteros',
+  'facturación Veri*Factu trasteros',
+  'control de accesos trastero',
+  'alquiler de trasteros software',
+  'CRM self-storage España',
+  'software administrador de cartera de alquileres',
+  'gestión de alquiler de viviendas',
+  'liquidación a propietarios',
+];
+
+/** Título, descripción, verificaciones e indexación: panel admin → Web de TrasterOS → SEO. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { seo } = await fetchPlatformWebsite();
+  const title = seo.title || TITLE;
+  const description = seo.description || DESCRIPTION;
+  const verification: Metadata['verification'] = {
+    ...(seo.googleVerification ? { google: seo.googleVerification } : {}),
+    ...(seo.bingVerification ? { other: { 'msvalidate.01': seo.bingVerification } } : {}),
+  };
+  return {
+    title: { absolute: title },
+    description,
+    keywords: KEYWORDS,
+    alternates: { canonical: '/' },
+    ...(seo.indexable ? {} : { robots: { index: false, follow: false } }),
+    verification,
+    openGraph: {
+      type: 'website',
+      url: SITE_URL,
+      title,
+      description,
+      siteName: 'TrasterOS',
+      locale: 'es_ES',
+    },
+    twitter: { card: 'summary_large_image', title, description },
+  };
+}
 
 const FEATURES = (Object.keys(FEATURE_ICONS) as FeatureKey[]).map((key) => ({
   key,
@@ -107,56 +121,15 @@ export default function LandingPage() {
     features: string[];
   }[];
 
-  // Datos estructurados (schema.org) para SEO / rich results.
-  const jsonLd = [
-    {
-      '@context': 'https://schema.org',
-      '@type': 'SoftwareApplication',
-      name: 'TrasterOS',
-      applicationCategory: 'BusinessApplication',
-      operatingSystem: 'Web',
-      url: SITE_URL,
-      inLanguage: 'es-ES',
-      description: DESCRIPTION,
-      featureList: FEATURES.map((f) => t(`features.${f.key}.title`)),
-      offers: {
-        '@type': 'Offer',
-        price: '0',
-        priceCurrency: 'EUR',
-        description: 'Prueba gratuita de 30 días, sin tarjeta.',
-      },
-      provider: { '@type': 'Organization', name: 'TrasterOS', url: SITE_URL },
-    },
-    {
-      '@context': 'https://schema.org',
-      '@type': 'Organization',
-      name: 'TrasterOS',
-      url: SITE_URL,
-      logo: `${SITE_URL}/icon-512.png`,
-      description:
-        'TrasterOS es un software en la nube para la gestión integral de negocios de self-storage y trasteros en España.',
-    },
-    {
-      '@context': 'https://schema.org',
-      '@type': 'WebSite',
-      name: 'TrasterOS',
-      url: SITE_URL,
-      inLanguage: 'es-ES',
-    },
-    {
-      '@context': 'https://schema.org',
-      '@type': 'FAQPage',
-      mainEntity: faqItems.map((item) => ({
-        '@type': 'Question',
-        name: item.q,
-        acceptedAnswer: { '@type': 'Answer', text: item.a },
-      })),
-    },
-  ];
-
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
+      <PlatformJsonLd
+        features={FEATURES.map((f) => t(`features.${f.key}.title`))}
+        faq={faqItems}
+        prices={plans.map((p) =>
+          Number.parseFloat(p.price.replace(/[^\d.,]/g, '').replace(',', '.')),
+        )}
+      />
 
       {/* Hero */}
       <section className="container flex flex-col items-center gap-6 py-20 text-center md:py-28">
@@ -499,5 +472,103 @@ async function FounderOffer() {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Datos estructurados (schema.org) para los resultados enriquecidos de Google:
+ * la aplicación con sus precios, la empresa (con su contacto y redes del pie de
+ * la web) y las preguntas frecuentes.
+ */
+async function PlatformJsonLd({
+  features,
+  faq,
+  prices,
+}: {
+  features: string[];
+  faq: { q: string; a: string }[];
+  prices: number[];
+}) {
+  const { seo, footer } = await fetchPlatformWebsite();
+  const orgName = seo.organizationName || 'TrasterOS';
+  const sameAs = Object.values(footer.social).filter((u) => u);
+  const valid = prices.filter((p) => Number.isFinite(p));
+  const organization = {
+    '@type': 'Organization',
+    '@id': `${SITE_URL}/#organization`,
+    name: orgName,
+    url: SITE_URL,
+    logo: `${SITE_URL}/icon-512.png`,
+    description:
+      'TrasterOS es un software en la nube para la gestión integral de negocios de self-storage, trasteros y alquileres en España.',
+    ...(sameAs.length ? { sameAs } : {}),
+    ...(footer.email || footer.phone
+      ? {
+          contactPoint: {
+            '@type': 'ContactPoint',
+            contactType: 'customer support',
+            areaServed: 'ES',
+            availableLanguage: ['es'],
+            ...(footer.email ? { email: footer.email } : {}),
+            ...(footer.phone ? { telephone: footer.phone } : {}),
+          },
+        }
+      : {}),
+    ...(footer.address
+      ? {
+          address: {
+            '@type': 'PostalAddress',
+            streetAddress: footer.address,
+            addressCountry: 'ES',
+          },
+        }
+      : {}),
+  };
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      organization,
+      {
+        '@type': 'WebSite',
+        '@id': `${SITE_URL}/#website`,
+        name: 'TrasterOS',
+        url: SITE_URL,
+        inLanguage: 'es-ES',
+        publisher: { '@id': `${SITE_URL}/#organization` },
+      },
+      {
+        '@type': 'SoftwareApplication',
+        name: 'TrasterOS',
+        applicationCategory: 'BusinessApplication',
+        operatingSystem: 'Web',
+        url: SITE_URL,
+        inLanguage: 'es-ES',
+        description: LONG_DESCRIPTION,
+        featureList: features,
+        publisher: { '@id': `${SITE_URL}/#organization` },
+        offers:
+          valid.length > 0
+            ? {
+                '@type': 'AggregateOffer',
+                priceCurrency: 'EUR',
+                lowPrice: Math.min(...valid),
+                highPrice: Math.max(...valid),
+                offerCount: valid.length,
+                description: 'Precio mensual por plan. Prueba gratuita de 30 días, sin tarjeta.',
+              }
+            : { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+      },
+      {
+        '@type': 'FAQPage',
+        mainEntity: faq.map((item) => ({
+          '@type': 'Question',
+          name: item.q,
+          acceptedAnswer: { '@type': 'Answer', text: item.a },
+        })),
+      },
+    ],
+  };
+  return (
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
   );
 }
