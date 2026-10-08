@@ -1935,3 +1935,53 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 
 - `PATCH /customers/:id {depositExempt}` — inquilino sin fianza (sus contratos nuevos salen con fianza 0). `CustomerDto.depositExempt`.
 - `PUT /contracts/:id/deposit-payment-method {method: online|cash}` (`contracts:write`, solo borrador; 400 `contract_already_signed`) y `POST /contracts/:id/deposit/collect {methodType: cash|bank_transfer|other}` (`payments:charge`; crea el justificante si no existe y lo marca cobrado; 400 `no_deposit`/`contract_closed`, 409 `deposit_already_collected`). `ContractDto.depositPaymentMethod`/`depositReceipt`; `TodayDto.depositsToCollect`; `ContractSignViewDto.depositPaymentMethod`.
+
+## Novedades de octubre de 2026 (#617–#656)
+
+### Motor de precios y competencia (#622–#629)
+
+- `GET/PUT /analytics/pricing-strategy` (leer `analytics:read`, guardar `units:manage`): ocupación objetivo, cambio máximo por vez, días mínimos entre cambios, posicionamiento por local y mínimo/máximo por tipo.
+- `GET /analytics/pricing-suggestions` y `GET /analytics/unit-pricing-suggestions?facilityId=&includeCompetition=` (la competencia se incluye por defecto): `marketPrice`, `marketReferences`, `confidence`, `targetPrice`, `holdReason`, `promotionHint`, `marketTrend` y desglose de factores.
+- `GET /analytics/price-change-effects`: por cada cambio de precio de los últimos 12 meses con el trastero libre, días hasta alquilarse frente a la mediana previa del tamaño.
+- `POST /competitors/:id/review` (`units:manage`): marca todos sus trasteros como comprobados hoy. `GET /competitors/units/:unitId/history` (`analytics:read`). Cambiar precio o estado de un trastero de la competencia añade una observación.
+- Ofertas por trastero: `GET /promotions/unit-offers` (`promotions:read`), `POST /promotions/unit-offers {unitId, freeMonths, validDays}` y `DELETE /promotions/unit-offers/:unitId` (`promotions:manage`); 409 `unit_offer_exists`, 400 `unit_not_available`; usarla en otro trastero → 409 `promotion_not_for_unit`. `AvailableUnitDto.offer` en el portal.
+- Leads: `TransitionLeadSchema.lostReasonCode` (a «perdido» sin código → `other`); `LeadsFunnelKpiDto.lostReasons`.
+
+### Panel de administración (#630–#636)
+
+- `GET /admin/crons` (tareas programadas: última ejecución, siguiente prevista, atrasada), `GET /admin/billing-health` (facturas con problemas en Veri\*Factu, Holded para revisar, certificados), `GET /admin/usage?days=` (correo, IA y almacenamiento por tenant) y `POST /admin/usage/measure-storage` (superadmin).
+- `GET /admin/tenants/:id/config` (configuración del tenant, solo lectura y sin secretos).
+- Novedades: `GET /product-updates`, `GET /product-updates/unread-count`, `POST /product-updates/seen` (cualquier usuario del tenant); `GET/POST /admin/product-updates`, `PUT/DELETE /admin/product-updates/:id` (escribir: superadmin).
+- Soporte: `GET /admin/support/stats?days=` y CRUD `/admin/support/canned-responses` (también el rol soporte). `SupportTicketDto.firstResponseAt`.
+- Exportar datos: `POST /settings/data-export` (`rgpd:manage`) y `POST /admin/tenants/:id/data-export` (superadmin) → `TenantDataExportDto {url, expiresAt, counts}` (Excel, enlace de 1 h).
+
+### Facturación, cobros y migración (#635–#646)
+
+- Tipo fiscal por línea: `taxCategory` (`S1`, `E1`–`E6`, `N1`, `N2`) en las líneas de crear y rectificar factura; 400 `exempt_line_with_vat` si una exenta o no sujeta lleva IVA.
+- `POST /contracts/activate-imported {contractIds, depositCollected, billingStartsOn}` (`contracts:manage`): activa borradores importados sin firma ni avisos; devuelve los que fallan. `ContractDto.billingStartsOn`.
+- Importar mandatos SEPA: `GET /imports/sepa-mandates/template`, `POST /imports/sepa-mandates/preview|commit` (`imports:manage` + feature `sepa`). `POST /sepa/mandates` acepta `reference` y `sequenceType`; 409 `mandate_reference_taken`.
+- `PATCH /billing/aeat-credentials/me/representative {name}` (`billing:configure`): nombre del representante cuando el certificado es de un administrador o gestoría. `TenantAeatCredentialMetadata.representative`/`certOrganizationNif`.
+- `GET /payments/returns?from=&to=&kind=&facilityId=` (`payments:read`): recibos devueltos (devolución bancaria, contracargo, domiciliación devuelta, adeudo rechazado en remesa).
+- Conciliación N43: `GET/PUT /bank-statements/settings` (guardar: `billing:configure`) y `POST /bank-statements/transactions/:id/undo` (`invoices:manage`, solo las automáticas). `ImportN43ResultDto.autoMatchedCount`, `BankTransactionDto.autoMatched`.
+- `PUT /contracts/:id/irpf-retention {pct}` (`contracts:manage`): aplica a las facturas que se emitan después. `InvoiceDto.withholdingPct`/`withholdingAmount`/`amountDue`; pago `methodType: withholding` no monetario.
+
+### Viviendas (#642–#645)
+
+- `unit_types.propertyKind` (`storage`|`housing`); marcar un tipo como vivienda exige la feature `housing` (403 `feature_not_in_plan`).
+- `PATCH /settings/tenant/contract-template` acepta `housingClauses` (plantilla de vivienda aparte).
+- Depósito de la fianza: `PUT /contracts/:id/deposit-registry`, `POST /contracts/:id/deposit-registry/receipt-upload-url` (`contracts:write`) y `GET /contracts/:id/deposit-registry/receipt` (`contracts:read`); 400 `not_housing`. `TodayDto.depositsToRegister`.
+- Actualización anual: `GET/PUT /contract-anniversaries/settings`, `GET /contract-anniversaries/due` (`contracts:read`) y `POST /contract-anniversaries/apply {contractIds, action: apply|skip}` (`contracts:manage`).
+
+### Propietarios — plan Administrador (#647–#653)
+
+Todo con la feature `multi_owner`.
+
+- `GET/POST /owners`, `PATCH /owners/:id` (leer `facilities:read`, cambiar `facilities:manage`; 409 `owner_tax_id_taken`). Asignar un propietario a un local: `PATCH /facilities/:id {ownerId}` (400 `owner_not_found`). `FacilityDto`/`ContractDto`/`InvoiceDto` llevan `ownerId`/`ownerName`.
+- Certificado del propietario: `GET /owners/:ownerId/aeat-credential` (`invoices:manage`), `POST`/`DELETE` (`billing:configure`).
+- Liquidaciones: `GET /owners/:ownerId/statements/preview?from=&to=`, `GET /owners/:ownerId/statements` y `POST /owners/:ownerId/statements {from, to, send}` (`invoices:manage`; 400 `owner_without_email`).
+- Fiscalidad por emisor: `?ownerId=` (vacío o `self` = el propio negocio) en `/fiscal/vat-book`, `/fiscal/model-303`, `/fiscal/model-347`, `/fiscal/accounting-export` y `/fiscal/accountant-export`; 400 `invalid_owner`. Crear una factura con una serie de otro emisor → 400 `series_owner_mismatch`.
+
+### Web de TrasterOS (#649, #654–#656)
+
+- Públicos: `GET /platform-founder-offer` → `{offer}` (null si está desactivada), `GET /platform-website` → `{logoUrl, contactForm, footer}` y `POST /platform-contact` (formulario; honeypot `hp`, `acceptPrivacy` obligatorio; 404 `contact_form_disabled`, 400 `phone_required`; límite por IP).
+- Admin (`/admin/platform/...`, escribir: superadmin): `GET/PUT founder-offer`; `GET website`, `POST website/logo-upload-url`, `PUT website/logo {key|null}` (sin SVG), `PUT website/footer` (enlaces solo `/ruta`, `#ancla`, `https://`, `mailto:` o `tel:`; redes solo `https://`); `GET/PUT contact`, `GET contact/messages` (100 últimos) y `POST contact/messages/:id/handled {handled}`.

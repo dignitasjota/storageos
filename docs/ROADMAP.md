@@ -372,6 +372,9 @@ Análisis de funcionalidades y mejoras para diferenciar el producto, ordenado po
   2. ✅ _(hecho 2026-10-06, se llena con las revisiones)_ **Tendencia del mercado**: con el histórico de revisiones de la competencia (`competitor_unit_observations`), mostrar si sube o baja precios en los últimos meses (p. ej. «la competencia ha subido un 6 % en 6 meses»), como información junto a la sugerencia, no como ajuste automático. **Necesita varios meses de revisiones.**
   3. ✅ _(hecho 2026-10-06, se llena con los cambios aplicados)_ **Reacción de la demanda a tus cambios de precio**: con `unit_price_history` + los alquileres, medir qué pasó tras cada cambio (p. ej. «tras subir un 8 %, ese tamaño tardó X días más en alquilarse») para afinar el cambio máximo y la ocupación objetivo. **Necesita meses de datos.**
 
+- **Plan Administrador — fuera de la primera versión** _(2026-10-08)_: acreedor SEPA y copia en Holded por propietario, liquidación al propietario en PDF/Excel (hoy va por correo) y factura de los honorarios del administrador al propietario. El envío de la liquidación es manual (sin cron).
+- **Retención de IRPF — pendiente de confirmar con la asesoría** _(2026-10-08)_: si las operaciones con retención salen del modelo 347 y cómo copiarla a Holded (hoy la factura de Holded no la lleva).
+
 ### Quick wins (alto impacto / esfuerzo bajo-medio)
 
 - ~~**Importador de datos (CSV/Excel)** para onboarding~~ ✅ **Implementado**: `ImportsModule` con preview (dry-run) + commit + plantilla para **inquilinos, trasteros y contratos** (`/imports/{customers,units,contracts}/...`). Parser papaparse + alias de cabeceras ES/EN + validación con los schemas existentes + dedup; resuelve referencias por nombre (local/tipo) y email/documento/código (cliente/trastero). Los contratos se importan como borradores. Wizard en `/{customers,units,contracts}/import`. **Formato `.xlsx` ✅** (2026-07-22, #382): además de CSV, el importador acepta Excel — conversión server-side con exceljs (XLSX→CSV→mismo pipeline), retrocompatible; el wizard acepta `.xlsx`/`.xls`.
@@ -563,7 +566,30 @@ Inquilinos marcados sin fianza y fianza cobrada en efectivo en el local (el acce
 
 Las 16 pestañas en fila pasan a un menú lateral agrupado por tema (Tu cuenta, Empresa, Facturación y cobros, Web pública y portal, Comunicación, Suscripción, Integraciones) con página de inicio que enlaza también los ajustes de cada módulo. «Facturación a inquilinos» se divide en Facturación, Cobros y Contabilidad; el dominio propio sale de Marca; la verificación en dos pasos personal pasa a Perfil y el informe mensual a Correo.
 
-### Gestores de cartera y viviendas (plan acordado el 2026-10-07)
+### Nuevo motor de precios (2026-10-04/06, #622–#629) ✅
+
+Todo es **sugerencia**: el sistema nunca cambia un precio ni crea una oferta por su cuenta (decisión de Jota).
+
+- **Datos de la competencia** (#622): contacto y cómo se consultó, distancia, inventario completo o total conocido, promoción, fianza/alta/seguro obligatorio, características, histórico de cada trastero (`competitor_unit_observations`) y botón «Revisar». La ocupación de un competidor solo cuenta si su inventario está completo.
+- **Motor único** (#623, `analytics/pricing-engine.ts`): precio de mercado del tamaño exacto (curva precio/m² ponderada por antigüedad y cercanía) × posicionamiento del local × demanda (ocupación frente a la objetivo, lista de espera, ocupación de la competencia), con límites (cambio máximo, mínimo/máximo del tipo, espera entre cambios) y confianza. El tiempo vacío ya no baja el precio: sugiere una oferta. Botón «Estrategia de precios».
+- **Ofertas por trastero** (#624): meses gratis para un trastero concreto, de un solo uso y con caducidad, que el asistente de contrato y el portal proponen. Factor «ritmo de alquiler de la competencia».
+- **Precio comparable** (#625): lo que paga un cliente el primer año (seguro y alta incluidos, promoción descontada), ajustado por las características del local; factor «tu ritmo de alquiler».
+- **Motivo de pérdida de los contactos** (#628) y su efecto en la sugerencia; **tendencia del mercado** y **efecto de tus cambios de precio** (#629), informativos.
+
+### Reserva online más sencilla (2026-10-05, #627) ✅
+
+Con un solo local no se pide elegirlo; todos los datos son obligatorios (salvo el código de referido) y se marca en rojo lo que falta.
+
+### Revisión del panel de administración (2026-10-07, #630–#636) ✅
+
+- **Vigilancia operativa** (#630): tareas programadas vigiladas (`cron_heartbeats`, avisa de las atrasadas), aviso al tenant cuando caduca su certificado de la AEAT (30/15/7 días), página «Facturación de los tenants» (rechazos y esperas de la AEAT, Holded para revisar) y «Hoy» del admin ampliado.
+- **Configuración y adopción del tenant** (#631): pestaña «Configuración» en la ficha (solo lectura, sin secretos), checklist de puesta a punto de 11 puntos y señales de adopción de expedientes, dominio propio y Web Premium.
+- **Uso por tenant** (#632): reputación de correo (rebotes y quejas), tokens y coste de IA y espacio en MinIO por tenant.
+- **Novedades dentro de la app** (#633): el super admin publica novedades (Markdown) y el tenant las ve con contador de no leídas.
+- **Soporte más ágil** (#634): tiempo de primera respuesta, indicadores y respuestas guardadas.
+- **Exportar los datos del tenant** (#636): Excel con 13 hojas, desde Configuración (propietario) o desde la ficha del tenant (super admin).
+
+### Gestores de cartera y viviendas (2026-10-07/08, #635–#653) ✅
 
 A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta de una propietaria. Una PR por punto, en este orden: A1 → A6, B1–B4, A7 y C1–C5.
 
@@ -592,3 +618,14 @@ A raíz de un administrador que gestiona ~200 trasteros y 3 viviendas por cuenta
 - ✅ **C3 — Liquidación mensual al propietario por email**: lo cobrado de sus contratos menos tus honorarios con IVA y los gastos de sus locales.
 - ✅ **C4 — Informes fiscales por propietario**: libro de IVA, 303, 347 y exportaciones separados por emisor.
 - ✅ **C5 — Plan Administrador a la venta**: cuarta tarjeta en precios (349 €/mes o 3.490 €/año).
+
+### Web de TrasterOS (2026-10-08, #649, #654–#656) ✅
+
+Todo se gestiona desde panel admin → Comunicación → **Web de TrasterOS**.
+
+- **Oferta fundador configurable** (#649): textos y activar/desactivar (desactivada por defecto).
+- **Portada renovada** (#654): sección «Hecho para cómo trabajas» (operadores, administradores de cartera, viviendas), funcionalidades y preguntas nuevas, header azul y logo configurable.
+- **Formulario de contacto** (#655): email de destino y campos configurables; los mensajes llegan por correo (responder contesta al visitante) y quedan en una bandeja del panel.
+- **Menú desplegable, tarjetas con hover y pie gestionable** (#656): menú Producto/Soluciones/Precios/Recursos (nuevas secciones en `apps/web/src/components/public/site-nav.ts`), tarjetas de funcionalidades en azul al pasar el ratón y pie amplio con columnas de enlaces, contacto y redes editables.
+
+**Tras desplegar**: poner el email del formulario, revisar el pie y el logo, y el precio del plan Administrador en `/admin/plans`.
