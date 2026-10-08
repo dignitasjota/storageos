@@ -53,6 +53,19 @@ export class TodayService {
     const facContract = facilityId ? { unit: { is: { facilityId } } } : {};
     const facTaskIncident = facilityId ? { facilityId } : {};
     const facInvoice = facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {};
+    const depositToRegisterWhere = {
+      status: { in: ['active', 'ending'] as ('active' | 'ending')[] },
+      deletedAt: null,
+      depositAmount: { gt: 0 },
+      depositStatus: 'held' as const,
+      depositRegisteredAt: null,
+      unit: {
+        is: {
+          unitType: { is: { propertyKind: 'housing' } },
+          ...(facilityId ? { facilityId } : {}),
+        },
+      },
+    };
     const depositToCollectWhere = {
       kind: 'deposit_receipt' as const,
       status: { in: ['issued' as const, 'overdue' as const] },
@@ -101,6 +114,8 @@ export class TodayService {
         marketingRenewalsCount,
         retentionOffers,
         retentionOffersCount,
+        depositsToRegister,
+        depositsToRegisterCount,
       ] = await Promise.all([
         tx.task.findMany({
           where: {
@@ -330,6 +345,14 @@ export class TodayService {
             ...(facilityId ? { contract: { is: { unit: { is: { facilityId } } } } } : {}),
           },
         }),
+        // Viviendas con la fianza cobrada y aún sin depositar en el organismo.
+        tx.contract.findMany({
+          where: depositToRegisterWhere,
+          orderBy: [{ signedAt: 'asc' }],
+          take: TAKE,
+          include: { customer: customerSelect, unit: { select: { code: true } } },
+        }),
+        tx.contract.count({ where: depositToRegisterWhere }),
       ]);
 
       const totalPending =
@@ -388,6 +411,7 @@ export class TodayService {
         collectionsDeadlinesCount +
         depositsToSettleCount +
         depositsToCollectCount +
+        depositsToRegisterCount +
         marketingRenewalsCount +
         retentionOffersCount;
 
@@ -445,6 +469,18 @@ export class TodayService {
             label: d.customer ? customerName(d.customer) : 'Fianza',
             detail: `${d.contract?.unit?.code ?? ''} · ${Number(d.total).toFixed(2)} €`,
             date: d.issueDate ? d.issueDate.toISOString() : null,
+          })),
+        },
+        depositsToRegister: {
+          count: depositsToRegisterCount,
+          items: depositsToRegister.map((c) => ({
+            id: c.id,
+            linkId: c.id,
+            label: customerName(c.customer),
+            detail: `${c.unit.code} · fianza ${Number(c.depositAmount).toFixed(2)} €`,
+            date: c.signedAt ? c.signedAt.toISOString() : null,
+            // El plazo habitual para depositarla es de un mes desde la firma.
+            overdue: !!c.signedAt && c.signedAt.getTime() < now.getTime() - 30 * 86_400_000,
           })),
         },
         incidentsOpen,

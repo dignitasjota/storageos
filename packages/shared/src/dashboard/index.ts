@@ -39,6 +39,8 @@ export interface TodayDto {
   depositsToSettle: { count: number; items: TodayItemDto[] };
   /** Fianzas a cobrar en el local (justificante sin pagar fuera del pago online). */
   depositsToCollect: { count: number; items: TodayItemDto[] };
+  /** Viviendas: fianzas aún sin depositar en el organismo autonómico. */
+  depositsToRegister: { count: number; items: TodayItemDto[] };
   /** Reservas pendientes que expiran en los próximos 7 días. */
   reservationsExpiring: { count: number; items: TodayItemDto[] };
   /** Facturas que vencen hoy (issued con dueDate = hoy). */

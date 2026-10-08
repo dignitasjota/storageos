@@ -66,7 +66,12 @@ type ContractWithRelations = Contract & {
     companyName: string | null;
     customerType: 'individual' | 'business';
   };
-  unit: { code: string; facilityId: string; facility: { name: string } };
+  unit: {
+    code: string;
+    facilityId: string;
+    facility: { name: string };
+    unitType?: { propertyKind: string };
+  };
   insurancePlan: { name: string } | null;
   invoices?: { id: string; invoiceNumber: string; status: string }[];
 };
@@ -131,6 +136,7 @@ export class ContractsService {
                 code: true,
                 facilityId: true,
                 facility: { select: { name: true } },
+                unitType: { select: { propertyKind: true } },
               },
             },
             insurancePlan: { select: { name: true } },
@@ -352,6 +358,7 @@ export class ContractsService {
               code: true,
               facilityId: true,
               facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
             },
           },
           insurancePlan: { select: { name: true } },
@@ -435,6 +442,7 @@ export class ContractsService {
                 code: true,
                 facilityId: true,
                 facility: { select: { name: true } },
+                unitType: { select: { propertyKind: true } },
               },
             },
             insurancePlan: { select: { name: true } },
@@ -529,6 +537,7 @@ export class ContractsService {
                 code: true,
                 facilityId: true,
                 facility: { select: { name: true } },
+                unitType: { select: { propertyKind: true } },
               },
             },
             insurancePlan: { select: { name: true } },
@@ -827,6 +836,7 @@ export class ContractsService {
               code: true,
               facilityId: true,
               facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
             },
           },
           insurancePlan: { select: { name: true } },
@@ -1130,6 +1140,7 @@ export class ContractsService {
               code: true,
               facilityId: true,
               facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
             },
           },
           insurancePlan: { select: { name: true } },
@@ -1561,6 +1572,7 @@ export class ContractsService {
               code: true,
               facilityId: true,
               facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
             },
           },
           insurancePlan: { select: { name: true } },
@@ -1630,6 +1642,7 @@ export class ContractsService {
               code: true,
               facilityId: true,
               facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
             },
           },
           insurancePlan: { select: { name: true } },
@@ -1717,6 +1730,7 @@ export class ContractsService {
               code: true,
               facilityId: true,
               facility: { select: { name: true } },
+              unitType: { select: { propertyKind: true } },
             },
           },
           insurancePlan: { select: { name: true } },
@@ -1771,6 +1785,7 @@ export class ContractsService {
           code: true,
           facilityId: true,
           facility: { select: { name: true } },
+          unitType: { select: { propertyKind: true } },
         },
       },
       insurancePlan: { select: { name: true } },
@@ -2255,6 +2270,7 @@ export class ContractsService {
                 code: true,
                 facilityId: true,
                 facility: { select: { name: true } },
+                unitType: { select: { propertyKind: true } },
               },
             },
             insurancePlan: { select: { name: true } },
@@ -2375,6 +2391,18 @@ export class ContractsService {
       depositReturnedAmount: Number(row.depositReturnedAmount),
       depositSettledAt: row.depositSettledAt ? row.depositSettledAt.toISOString() : null,
       depositRetentionReason: row.depositRetentionReason,
+      propertyKind: row.unit.unitType?.propertyKind === 'housing' ? 'housing' : 'storage',
+      depositRegistry: {
+        body: row.depositRegistryBody,
+        registeredAt: row.depositRegisteredAt
+          ? row.depositRegisteredAt.toISOString().slice(0, 10)
+          : null,
+        reference: row.depositRegistryReference,
+        hasReceipt: !!row.depositRegistryReceiptKey,
+        recoveredAt: row.depositRegistryRecoveredAt
+          ? row.depositRegistryRecoveredAt.toISOString().slice(0, 10)
+          : null,
+      },
       depositPaymentMethod: row.depositPaymentMethod === 'cash' ? 'cash' : 'online',
       depositReceipt: row.invoices?.[0]
         ? {

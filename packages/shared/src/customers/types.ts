@@ -125,6 +125,16 @@ export interface ContractDto {
   depositReturnedAmount: number;
   depositSettledAt: string | null;
   depositRetentionReason: string | null;
+  /** Tipo de inmueble de la unidad: `housing` = vivienda. */
+  propertyKind: 'storage' | 'housing';
+  /** Vivienda: fianza depositada en el organismo de la comunidad autónoma. */
+  depositRegistry: {
+    body: string | null;
+    registeredAt: string | null;
+    reference: string | null;
+    hasReceipt: boolean;
+    recoveredAt: string | null;
+  };
   /** `online` (con la 1ª factura) | `cash` (en el local). */
   depositPaymentMethod: 'online' | 'cash';
   /** Justificante de la fianza y si está cobrado (null = aún no existe). */

@@ -277,6 +277,21 @@ export const ActivateImportedContractsSchema = z.object({
   billingStartsOn: dateOnly,
 });
 export type ActivateImportedContractsInput = z.infer<typeof ActivateImportedContractsSchema>;
+/** Depósito de la fianza de una vivienda en el organismo autonómico. */
+export const UpdateDepositRegistrySchema = z.object({
+  body: z.string().trim().min(2).max(200),
+  registeredAt: dateOnly,
+  reference: z.string().trim().max(100).optional().or(z.literal('')),
+  /** Clave del justificante subido (de `deposit-registry/receipt-upload-url`). */
+  receiptKey: z.string().max(500).optional(),
+  /** Fecha en que se recuperó la fianza del organismo; '' = aún no. */
+  recoveredAt: dateOnly.optional().or(z.literal('')),
+});
+export type UpdateDepositRegistryInput = z.infer<typeof UpdateDepositRegistrySchema>;
+
+export const DepositRegistryReceiptUploadSchema = z.object({
+  mimeType: z.enum(['application/pdf', 'image/jpeg', 'image/png']),
+});
 
 export const SettleDepositSchema = z.object({
   returnedAmount: z.number().min(0),
