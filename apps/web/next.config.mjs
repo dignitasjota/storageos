@@ -45,6 +45,7 @@ const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === 'tr
  *   PUT directos a signed URLs MinIO/S3 desde uploads.
  * - frame-src 'self' + Stripe: 'self' permite el preview del widget
  *   en /settings/widget (iframe same-origin). Stripe queda preparado.
+ *   Google Maps / YouTube / Vimeo: mapa y vídeo de los locales.
  * - frame-ancestors 'none': bloquea que cualquiera nos embeba (anti
  *   clickjacking). El widget publico se sirve desde otra ruta y su
  *   CSP se inyecta en el middleware.
@@ -75,7 +76,16 @@ const cspDirectives = {
   // (NEXT_PUBLIC_API_URL, otro origin) + PUT directos a signed URLs
   // MinIO/S3. En dev anadimos http: + ws: para HMR y backend local.
   'connect-src': ["'self'", 'https:', ...(isDev ? ['http:', 'ws:'] : [])],
-  'frame-src': ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
+  // Google Maps, YouTube y Vimeo: mapa y vídeo del local en las webs de los
+  // tenants (`mapEmbedUrl`/`toEmbedVideoUrl`); sin ellos el navegador los bloquea.
+  'frame-src': [
+    "'self'",
+    'https://js.stripe.com',
+    'https://hooks.stripe.com',
+    'https://www.google.com',
+    'https://www.youtube.com',
+    'https://player.vimeo.com',
+  ],
   'frame-ancestors': ["'none'"],
   'form-action': ["'self'"],
   'base-uri': ["'self'"],

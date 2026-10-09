@@ -506,6 +506,134 @@
       "footerCenters": "Centros",
       "footerLinks": "Enlaces",
       "footerHome": "Inicio"
+    },
+    "trstrom": {
+      "badge": "Alquiler de trasteros online y acceso cómodo",
+      "heroSubtitle": "Guarda lo que necesites en {tenantName}: reserva online en unos minutos, sin papeleo y sin desplazarte.",
+      "advantages": [
+        "Reserva online en unos minutos",
+        "Sin permanencia: pagas mes a mes",
+        "Instalaciones vigiladas y seguras",
+        "Acceso cómodo para cargar y descargar"
+      ],
+      "reserveOnline": "Reservar trastero online",
+      "reserveNow": "Reservar ahora",
+      "reserve": "Reservar",
+      "whatsapp": "Contactar por WhatsApp",
+      "googleReviews": "Ver valoraciones en Google",
+      "heroCardKicker": "Acceso personal",
+      "heroCardText": "Entra con tu código o desde tu móvil",
+      "promoCode": "Código: {code}",
+      "promoCta": "Aprovechar oferta",
+      "nav": {
+        "centers": "Centros",
+        "units": "Trasteros y precios",
+        "how": "Cómo funciona",
+        "calculator": "Calculadora",
+        "faq": "Preguntas",
+        "contact": "Contacto",
+        "blog": "Blog"
+      },
+      "clientArea": "Área de clientes",
+      "openMenu": "Abrir menú",
+      "closeMenu": "Cerrar menú",
+      "aboutKicker": "Tu espacio seguro",
+      "aboutTitle": "Sobre {tenantName}",
+      "situationsKicker": "Ventajas y soluciones",
+      "situationsTitle": "¿Por qué alquilar con nosotros?",
+      "situationsSubtitle": "Espacio extra para particulares, autónomos y empresas, sin letra pequeña.",
+      "situations": [
+        {
+          "title": "Mudanzas y reformas",
+          "text": "Guarda muebles y pertenencias protegidos del polvo el tiempo que dure la obra o el cambio de casa."
+        },
+        {
+          "title": "Gana espacio en casa",
+          "text": "Despeja armarios y habitaciones: ropa de temporada, bicicletas, maletas o material deportivo."
+        },
+        {
+          "title": "Autónomos y negocios",
+          "text": "Almacén flexible para mercancía, stock de tienda online, archivo o herramientas de trabajo."
+        },
+        {
+          "title": "Tranquilidad",
+          "text": "Instalaciones vigiladas y acceso individual para que solo tú entres en tu trastero."
+        }
+      ],
+      "centersKicker": "Nuestras instalaciones",
+      "centersTitle": "Encuentra tu centro más cercano",
+      "centersSubtitle": "Centros accesibles pensados para que cargar y descargar sea rápido y cómodo.",
+      "mainCenter": "Centro principal",
+      "center": "Centro",
+      "hoursTitle": "Horario de atención",
+      "viewUnits": "Ver trasteros de este centro",
+      "call": "Llamar",
+      "photos": "{count, plural, one {# foto} other {# fotos}}",
+      "unitsKicker": "Tarifas transparentes",
+      "unitsTitle": "Elige el tamaño que necesitas",
+      "unitsSubtitle": "Precios con IVA incluido y sin sorpresas.",
+      "size": {
+        "small": "Trastero pequeño",
+        "medium": "Trastero mediano",
+        "large": "Trastero grande"
+      },
+      "ideal": {
+        "small": "Ideal para: cajas, maletas, bicicletas y enseres pequeños.",
+        "medium": "Ideal para: un piso de 1 o 2 habitaciones, electrodomésticos y cajas de mudanza.",
+        "large": "Ideal para: una vivienda completa, stock de empresa o maquinaria."
+      },
+      "m2": "{m2} m²",
+      "perMonth": "/mes",
+      "vatIncl": "IVA incluido",
+      "availableNow": "Disponible ahora",
+      "highDemand": "Alta demanda en este centro",
+      "soldOutNow": "Agotado ahora mismo",
+      "noRoom": "Sin hueco ahora",
+      "reserveSize": "Reservar este tamaño",
+      "reserveBeforeGone": "Reservar antes de que se agote",
+      "notifyMe": "Avísame cuando quede libre",
+      "noUnits": "Este centro aún no tiene trasteros publicados.",
+      "stepsKicker": "Sencillo, rápido y digital",
+      "stepsTitle": "Reserva tu trastero en unos minutos",
+      "stepsSubtitle": "Sin desplazarte ni firmar papeles en persona. Todo desde tu móvil.",
+      "steps": [
+        {
+          "title": "Elige el tamaño",
+          "text": "Selecciona el centro y los metros que encajan con lo que vas a guardar."
+        },
+        {
+          "title": "Contrata online",
+          "text": "Introduce tus datos, firma el contrato y paga de forma segura."
+        },
+        {
+          "title": "Recibe tu acceso",
+          "text": "Te enviamos tu código personal e instrucciones para entrar."
+        },
+        {
+          "title": "Entra cuando lo necesites",
+          "text": "Usa tu trastero dentro del horario de acceso del centro."
+        }
+      ],
+      "calculatorKicker": "¿Dudas con el tamaño?",
+      "reviewsKicker": "Experiencias reales",
+      "reviewsTitle": "Lo que dicen nuestros clientes",
+      "allReviews": "Ver todas las reseñas en Google",
+      "faqKicker": "Resolvemos tus dudas",
+      "faqSubtitle": "Todo lo que necesitas saber antes y después de contratar.",
+      "blogKicker": "Consejos y novedades",
+      "blogTitle": "Últimos artículos del blog",
+      "blogAll": "Ver todo el blog",
+      "readMore": "Leer artículo completo",
+      "contactKicker": "¿Tienes preguntas?",
+      "contactTitle": "Contacta con nosotros",
+      "contactSubtitle": "Envíanos tu consulta y te responderemos lo antes posible.",
+      "footerText": "Alquiler de trasteros seguros, cómodos y sin permanencia.",
+      "footerTextCity": "Alquiler de trasteros seguros, cómodos y sin permanencia en {where}.",
+      "footerNav": "Navegación",
+      "footerOnline": "Gestión online",
+      "rentOnline": "Alquilar trastero online",
+      "accessCode": "Mi código de acceso",
+      "invoices": "Mis facturas"
     }
   }
 }

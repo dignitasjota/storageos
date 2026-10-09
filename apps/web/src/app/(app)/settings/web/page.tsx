@@ -35,13 +35,19 @@ function usesContent(template: WebTemplateValue): boolean {
     template === 'onepage' ||
     template === 'escaparate' ||
     template === 'corporate' ||
-    template === 'onepagemovil'
+    template === 'onepagemovil' ||
+    template === 'trstrom'
   );
 }
 
 /** Plantillas que además de servicios usan «Ventajas» (con icono). */
 function usesAdvantages(template: WebTemplateValue): boolean {
-  return template === 'escaparate' || template === 'corporate' || template === 'onepagemovil';
+  return (
+    template === 'escaparate' ||
+    template === 'corporate' ||
+    template === 'onepagemovil' ||
+    template === 'trstrom'
+  );
 }
 
 export default function WebSettingsPage() {
@@ -262,7 +268,9 @@ export default function WebSettingsPage() {
                   ? '«Corporativa»'
                   : template === 'onepagemovil'
                     ? '«OnePageMovil»'
-                    : '«Escaparate»'}
+                    : template === 'trstrom'
+                      ? '«Trstrom»'
+                      : '«Escaparate»'}
               . Deja una sección vacía para usar los textos por defecto.
             </CardDescription>
           </CardHeader>
@@ -282,11 +290,19 @@ export default function WebSettingsPage() {
             </div>
 
             <ItemsEditor
-              label={template === 'onepagemovil' ? '¿Para qué lo necesitas?' : 'Servicios'}
+              label={
+                template === 'onepagemovil'
+                  ? '¿Para qué lo necesitas?'
+                  : template === 'trstrom'
+                    ? '¿Por qué alquilar con nosotros?'
+                    : 'Servicios'
+              }
               hint={
                 template === 'onepagemovil'
                   ? 'Bloques desplegables (título + una línea por cada punto).'
-                  : 'Tarjetas de servicios/usos (título + descripción).'
+                  : template === 'trstrom'
+                    ? 'Tarjetas de ventajas o situaciones (título + descripción).'
+                    : 'Tarjetas de servicios/usos (título + descripción).'
               }
               items={services}
               onChange={setServices}
@@ -301,7 +317,9 @@ export default function WebSettingsPage() {
                 hint={
                   template === 'onepagemovil'
                     ? 'Las 4 ventajas bajo la portada (con icono).'
-                    : 'Etiquetas cortas de «Por qué elegirnos» (con icono).'
+                    : template === 'trstrom'
+                      ? 'Las 4 ventajas con ✓ de la portada.'
+                      : 'Etiquetas cortas de «Por qué elegirnos» (con icono).'
                 }
                 items={advantages}
                 onChange={setAdvantages}
@@ -310,7 +328,9 @@ export default function WebSettingsPage() {
               />
             )}
 
-            {(template === 'escaparate' || template === 'onepagemovil') && (
+            {(template === 'escaparate' ||
+              template === 'onepagemovil' ||
+              template === 'trstrom') && (
               <ItemsEditor
                 label="Pasos para contratar"
                 hint="Los pasos de «Contratar es muy fácil» (título + descripción)."

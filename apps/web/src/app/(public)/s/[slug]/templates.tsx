@@ -132,7 +132,7 @@ const WEEKDAY_INTL_SHORT: Record<string, Weekday> = {
 };
 
 /** `true`/`false` si se pudo calcular con la `timezone` del local, `null` si no. */
-function isOpenNow(hours: OpeningHours, timezone: string): boolean | null {
+export function isOpenNow(hours: OpeningHours, timezone: string): boolean | null {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,

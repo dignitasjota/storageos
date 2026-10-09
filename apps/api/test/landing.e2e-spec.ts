@@ -376,6 +376,40 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(off.body.latestBlogPosts).toEqual([]);
   });
 
+  it('web premium: la plantilla «trstrom» se aplica con sus textos editables', async () => {
+    const owner = await registerVerifiedUser(app, 'web-trr');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    const save = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({
+        template: 'trstrom',
+        content: {
+          heroSubtitle: 'Tu trastero a dos calles',
+          advantages: ['Sin permanencia'],
+          services: [{ title: 'Mudanzas', text: 'Guarda tus muebles.' }],
+          steps: [{ title: 'Elige', text: 'Tu tamaño.' }],
+        },
+      });
+    expect(save.status).toBe(200);
+    expect(save.body.template).toBe('trstrom');
+
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.webTemplate).toBe('trstrom');
+    expect(landing.body.webContent).toMatchObject({
+      heroSubtitle: 'Tu trastero a dos calles',
+      advantages: ['Sin permanencia'],
+    });
+
+    // Sin la feature, vuelve a la plantilla estándar.
+    await setTenantFeatureOverride(owner.slug, 'web_premium', false);
+    const off = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(off.body.webTemplate).toBe('default');
+  });
+
   it('secciones: testimonios (reseña NPS≥9), FAQ y contacto→lead', async () => {
     const owner = await registerVerifiedUser(app, 'web-sec');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
