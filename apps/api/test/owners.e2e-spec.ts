@@ -1,6 +1,7 @@
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
@@ -150,5 +151,107 @@ describe('Propietarios (e2e)', () => {
       .set(auth)
       .expect(200);
     expect(after.body).toEqual({ count: 0 });
+  });
+
+  it('traslado entre locales de propietarios distintos, NIF con facturas y desactivar con locales', async () => {
+    const user = await registerVerifiedUser(app, 'ownersmove');
+    const auth = { Authorization: `Bearer ${user.accessToken}` };
+    const http = () => request(app.getHttpServer());
+    await ensureDefaultSeries(app, user.accessToken);
+    await setTenantFeatureOverride(user.slug, 'multi_owner', true);
+    const facA = await createFacilityWithUnits(app, user.accessToken, { unitsCount: 1 });
+    const facB = await createFacilityWithUnits(app, user.accessToken, { unitsCount: 1 });
+    const ownerA = await http()
+      .post('/owners')
+      .set(auth)
+      .send({ legalName: 'Propietaria A SL', taxId: 'B12345674' })
+      .expect(201);
+    const ownerB = await http()
+      .post('/owners')
+      .set(auth)
+      .send({ legalName: 'Propietario B SA', taxId: 'A58818501' })
+      .expect(201);
+    for (const [fac, own] of [
+      [facA, ownerA],
+      [facB, ownerB],
+    ] as const) {
+      await http()
+        .patch(`/facilities/${fac.facilityId}`)
+        .set(auth)
+        .send({ ownerId: own.body.id })
+        .expect(200);
+    }
+
+    const customerId = await createCustomer(app, user.accessToken);
+    const contract = await http()
+      .post('/contracts')
+      .set(auth)
+      .send({
+        customerId,
+        unitId: facA.unitIds[0],
+        startDate: '2026-01-01',
+        priceMonthly: 100,
+        depositAmount: 0,
+      })
+      .expect(201);
+    expect(contract.body.ownerId).toBe(ownerA.body.id);
+    await http().post(`/contracts/${contract.body.id}/sign`).set(auth).expect(200);
+
+    // Trasladarlo a un trastero del local de B: el contrato pasa a B.
+    const moved = await http()
+      .post(`/contracts/${contract.body.id}/change-unit`)
+      .set(auth)
+      .send({ newUnitId: facB.unitIds[0] })
+      .expect(200);
+    expect(moved.body).toMatchObject({ ownerId: ownerB.body.id, ownerName: 'Propietario B SA' });
+
+    // Con facturas emitidas, el NIF de B ya no se puede cambiar (el resto sí).
+    const draft = await http()
+      .post('/invoices')
+      .set(auth)
+      .send({
+        customerId,
+        contractId: contract.body.id,
+        items: [{ description: 'Alquiler', quantity: 1, unitPrice: 100, taxRate: 21 }],
+      })
+      .expect(201);
+    expect(draft.body.ownerId).toBe(ownerB.body.id);
+    await http().post(`/invoices/${draft.body.id}/issue`).set(auth).expect(200);
+    const locked = await http()
+      .patch(`/owners/${ownerB.body.id}`)
+      .set(auth)
+      .send({ taxId: 'A12345674' })
+      .expect(409);
+    expect(locked.body.code).toBe('owner_tax_id_locked');
+    await http()
+      .patch(`/owners/${ownerB.body.id}`)
+      .set(auth)
+      .send({ taxId: 'A58818501', phone: '600000000' })
+      .expect(200);
+    // A no tiene facturas: su NIF sí se puede corregir.
+    await http()
+      .patch(`/owners/${ownerA.body.id}`)
+      .set(auth)
+      .send({ taxId: 'A12345674' })
+      .expect(200);
+
+    // No se desactiva un propietario con locales asignados.
+    const busy = await http()
+      .patch(`/owners/${ownerA.body.id}`)
+      .set(auth)
+      .send({ isActive: false })
+      .expect(409);
+    expect(busy.body.code).toBe('owner_has_facilities');
+    await http()
+      .patch(`/facilities/${facA.facilityId}`)
+      .set(auth)
+      .send({ ownerId: null })
+      .expect(200);
+    const off = await http()
+      .patch(`/owners/${ownerA.body.id}`)
+      .set(auth)
+      .send({ isActive: false })
+      .expect(200);
+    expect(off.body.isActive).toBe(false);
   });
 });

@@ -567,7 +567,7 @@ export class InvoicesService {
       const owner = existing.ownerId
         ? await tx.owner.findUnique({
             where: { id: existing.ownerId },
-            select: { taxId: true },
+            select: { taxId: true, legalName: true },
           })
         : null;
       const issuerTaxId = owner ? owner.taxId : tenant.taxId;
@@ -576,11 +576,18 @@ export class InvoicesService {
         // Envío real a la AEAT: sin NIF válido del emisor el registro se
         // rechazaría (antes la huella llevaba «PENDIENTE»).
         if (!emitterTaxId || !isValidSpanishTaxId(emitterTaxId)) {
-          throw new BadRequestException({
-            code: 'tenant_tax_id_required',
-            message:
-              'Pon el NIF de tu empresa en Ajustes → Suscripción (datos fiscales) antes de emitir facturas',
-          });
+          throw new BadRequestException(
+            owner
+              ? {
+                  code: 'owner_tax_id_required',
+                  message: `El NIF del propietario ${owner.legalName} no es válido. Corrígelo en Propietarios antes de emitir sus facturas.`,
+                }
+              : {
+                  code: 'tenant_tax_id_required',
+                  message:
+                    'Pon el NIF de tu empresa en Ajustes → Suscripción (datos fiscales) antes de emitir facturas',
+                },
+          );
         }
         await this.assertRecipientIdentifiable(tx, existing);
         // Sin un certificado vigente la factura se emitiría y se quedaría sin

@@ -72,8 +72,36 @@ export class OwnersService {
     ownerId: string;
     input: UpdateOwnerInput;
   }): Promise<OwnerDto> {
-    await this.findOrThrow(args.tenantId, args.ownerId);
+    const current = await this.findOrThrow(args.tenantId, args.ownerId);
     const i = args.input;
+    // El NIF identifica al emisor ante la AEAT (su cadena Veri*Factu): con
+    // facturas emitidas no se cambia; para otro NIF se da de alta otro propietario.
+    if (i.taxId !== undefined && i.taxId !== current.taxId) {
+      const issued = await this.prisma.withTenant(
+        (tx) => tx.invoice.count({ where: { ownerId: args.ownerId, status: { not: 'draft' } } }),
+        args.tenantId,
+      );
+      if (issued > 0) {
+        throw new ConflictException({
+          code: 'owner_tax_id_locked',
+          message:
+            'Este propietario ya tiene facturas emitidas con su NIF. Para usar otro NIF, da de alta un propietario nuevo.',
+        });
+      }
+    }
+    // Sus locales seguirían emitiendo a su nombre: primero hay que quitárselos.
+    if (i.isActive === false && current.isActive) {
+      const facilities = await this.prisma.withTenant(
+        (tx) => tx.facility.count({ where: { ownerId: args.ownerId, deletedAt: null } }),
+        args.tenantId,
+      );
+      if (facilities > 0) {
+        throw new ConflictException({
+          code: 'owner_has_facilities',
+          message: `Este propietario tiene ${facilities} ${facilities === 1 ? 'local asignado' : 'locales asignados'}. Asígnalos a otro propietario o quítaselos antes de desactivarlo.`,
+        });
+      }
+    }
     const data: Prisma.OwnerUncheckedUpdateInput = {
       ...(i.legalName !== undefined ? { legalName: i.legalName } : {}),
       ...(i.taxId !== undefined ? { taxId: i.taxId } : {}),
