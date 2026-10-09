@@ -9,6 +9,7 @@ import { OnePageMovilTemplate } from './onepagemovil-template';
 import { priceRangeString } from './price-format';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
+import { TrasteroomTemplate } from './trasteroom-template';
 
 import type { PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
@@ -245,6 +246,9 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
       ) : data.webTemplate === 'escaparate' ? (
         // Plantilla «escaparate» multisección: también autocontenida.
         <EscaparateTemplate data={data} locale={locale} />
+      ) : data.webTemplate === 'trasteroom' ? (
+        // Plantilla «Trasteroom»: autocontenida, trasteros por centro.
+        <TrasteroomTemplate data={data} locale={locale} />
       ) : data.webTemplate === 'onepagemovil' ? (
         // Plantilla «OnePageMovil»: autocontenida, pensada para el móvil.
         <OnePageMovilTemplate data={data} locale={locale} />

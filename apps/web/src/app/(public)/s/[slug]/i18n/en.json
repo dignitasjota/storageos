@@ -506,6 +506,134 @@
       "footerCenters": "Locations",
       "footerLinks": "Links",
       "footerHome": "Home"
+    },
+    "trasteroom": {
+      "badge": "Online self-storage rental with easy access",
+      "heroSubtitle": "Store whatever you need at {tenantName}: book online in minutes, with no paperwork and no trips.",
+      "advantages": [
+        "Book online in minutes",
+        "No commitment: pay month to month",
+        "Monitored, secure facilities",
+        "Easy access for loading and unloading"
+      ],
+      "reserveOnline": "Book a storage unit online",
+      "reserveNow": "Book now",
+      "reserve": "Book",
+      "whatsapp": "Contact us on WhatsApp",
+      "googleReviews": "See our Google reviews",
+      "heroCardKicker": "Personal access",
+      "heroCardText": "Get in with your code or your phone",
+      "promoCode": "Code: {code}",
+      "promoCta": "Get the offer",
+      "nav": {
+        "centers": "Locations",
+        "units": "Units & prices",
+        "how": "How it works",
+        "calculator": "Calculator",
+        "faq": "FAQ",
+        "contact": "Contact",
+        "blog": "Blog"
+      },
+      "clientArea": "Customer area",
+      "openMenu": "Open menu",
+      "closeMenu": "Close menu",
+      "aboutKicker": "Your safe space",
+      "aboutTitle": "About {tenantName}",
+      "situationsKicker": "Benefits and solutions",
+      "situationsTitle": "Why rent with us?",
+      "situationsSubtitle": "Extra space for individuals, freelancers and businesses, with no small print.",
+      "situations": [
+        {
+          "title": "Moves and renovations",
+          "text": "Keep furniture and belongings safe from dust for as long as the works or the move take."
+        },
+        {
+          "title": "Free up space at home",
+          "text": "Clear wardrobes and rooms: seasonal clothes, bikes, suitcases or sports gear."
+        },
+        {
+          "title": "Freelancers and businesses",
+          "text": "Flexible storage for goods, online-shop stock, archives or work tools."
+        },
+        {
+          "title": "Peace of mind",
+          "text": "Monitored facilities and individual access so only you can open your unit."
+        }
+      ],
+      "centersKicker": "Our facilities",
+      "centersTitle": "Find your nearest location",
+      "centersSubtitle": "Accessible sites designed to make loading and unloading quick and easy.",
+      "mainCenter": "Main location",
+      "center": "Location",
+      "hoursTitle": "Opening hours",
+      "viewUnits": "See units at this location",
+      "call": "Call",
+      "photos": "{count, plural, one {# photo} other {# photos}}",
+      "unitsKicker": "Transparent pricing",
+      "unitsTitle": "Choose the size you need",
+      "unitsSubtitle": "Prices include VAT. No surprises.",
+      "size": {
+        "small": "Small unit",
+        "medium": "Medium unit",
+        "large": "Large unit"
+      },
+      "ideal": {
+        "small": "Ideal for: boxes, suitcases, bikes and small items.",
+        "medium": "Ideal for: a 1–2 bedroom flat, appliances and moving boxes.",
+        "large": "Ideal for: a whole home, business stock or machinery."
+      },
+      "m2": "{m2} m²",
+      "perMonth": "/month",
+      "vatIncl": "VAT included",
+      "availableNow": "Available now",
+      "highDemand": "High demand at this location",
+      "soldOutNow": "Sold out right now",
+      "noRoom": "No space right now",
+      "reserveSize": "Book this size",
+      "reserveBeforeGone": "Book before it's gone",
+      "notifyMe": "Notify me when available",
+      "noUnits": "This location has no units published yet.",
+      "stepsKicker": "Simple, fast and digital",
+      "stepsTitle": "Book your unit in a few minutes",
+      "stepsSubtitle": "No trips and no paper contracts. All from your phone.",
+      "steps": [
+        {
+          "title": "Choose the size",
+          "text": "Pick the location and the square metres that fit what you want to store."
+        },
+        {
+          "title": "Sign up online",
+          "text": "Enter your details, sign the contract and pay securely."
+        },
+        {
+          "title": "Get your access",
+          "text": "We send you your personal code and instructions to get in."
+        },
+        {
+          "title": "Come in when you need",
+          "text": "Use your unit within the location's access hours."
+        }
+      ],
+      "calculatorKicker": "Not sure about the size?",
+      "reviewsKicker": "Real experiences",
+      "reviewsTitle": "What our customers say",
+      "allReviews": "See all reviews on Google",
+      "faqKicker": "We answer your questions",
+      "faqSubtitle": "Everything you need to know before and after signing up.",
+      "blogKicker": "Tips and news",
+      "blogTitle": "Latest blog posts",
+      "blogAll": "See the whole blog",
+      "readMore": "Read the full article",
+      "contactKicker": "Any questions?",
+      "contactTitle": "Get in touch",
+      "contactSubtitle": "Send us your question and we'll get back to you as soon as possible.",
+      "footerText": "Secure, convenient self-storage with no commitment.",
+      "footerTextCity": "Secure, convenient self-storage with no commitment in {where}.",
+      "footerNav": "Navigation",
+      "footerOnline": "Online",
+      "rentOnline": "Rent a unit online",
+      "accessCode": "My access code",
+      "invoices": "My invoices"
     }
   }
 }
