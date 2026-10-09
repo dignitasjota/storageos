@@ -1976,7 +1976,7 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 
 Todo con la feature `multi_owner`.
 
-- `GET/POST /owners`, `PATCH /owners/:id` (leer `facilities:read`, cambiar `facilities:manage`; 409 `owner_tax_id_taken`). Asignar un propietario a un local: `PATCH /facilities/:id {ownerId}` (400 `owner_not_found`). `FacilityDto`/`ContractDto`/`InvoiceDto` llevan `ownerId`/`ownerName`.
+- `GET/POST /owners`, `PATCH /owners/:id` (leer `facilities:read`, cambiar `facilities:manage`; 409 `owner_tax_id_taken`; 409 `owner_tax_id_locked` al cambiar el NIF de uno con facturas emitidas; 409 `owner_has_facilities` al desactivar uno con locales). Trasladar un contrato a un trastero de otro local (`POST /contracts/:id/change-unit`) le pone el propietario de ese local. Asignar un propietario a un local: `PATCH /facilities/:id {ownerId}` (400 `owner_not_found`). `FacilityDto`/`ContractDto`/`InvoiceDto` llevan `ownerId`/`ownerName`.
 - Contratos creados antes de asignar el propietario al local (p. ej. importados): `GET /facilities/:id/contracts-without-owner` → `{count}` (`facilities:read`) y `POST /facilities/:id/apply-owner-to-contracts` → `{updated}` (`facilities:manage`; 400 `facility_without_owner`). Las facturas ya creadas no cambian de emisor.
 - Certificado del propietario: `GET /owners/:ownerId/aeat-credential` (`invoices:manage`), `POST`/`DELETE` (`billing:configure`).
 - Liquidaciones: `GET /owners/:ownerId/statements/preview?from=&to=`, `GET /owners/:ownerId/statements` y `POST /owners/:ownerId/statements {from, to, send}` (`invoices:manage`; 400 `owner_without_email`).

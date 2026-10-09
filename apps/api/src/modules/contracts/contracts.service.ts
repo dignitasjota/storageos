@@ -1960,10 +1960,26 @@ export class ContractsService {
           'occupied',
           'Traslado: destino ocupado',
         );
+        // Si el trastero de destino está en otro local, el contrato pasa al
+        // propietario de ese local (plan Administrador): las facturas siguientes
+        // las emite quien es dueño del trastero. Lo ya facturado no cambia.
+        const ownerChange =
+          newUnit.facilityId !== oldUnit.facilityId
+            ? {
+                ownerId:
+                  (
+                    await tx.facility.findUnique({
+                      where: { id: newUnit.facilityId },
+                      select: { ownerId: true },
+                    })
+                  )?.ownerId ?? null,
+              }
+            : {};
         const row = await tx.contract.update({
           where: { id: args.contractId },
           data: {
             unitId: args.newUnitId,
+            ...ownerChange,
             ...(args.newPrice != null ? { priceMonthly: args.newPrice } : {}),
           },
           include: this.contractInclude(),
