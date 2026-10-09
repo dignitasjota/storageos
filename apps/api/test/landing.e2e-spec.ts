@@ -410,6 +410,22 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(off.body.webTemplate).toBe('default');
   });
 
+  it('web premium: la plantilla «cabe» se aplica', async () => {
+    const owner = await registerVerifiedUser(app, 'web-cabe');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    const save = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ template: 'cabe', content: { advantages: ['Cerca de ti'] } });
+    expect(save.status).toBe(200);
+    expect(save.body.template).toBe('cabe');
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.webTemplate).toBe('cabe');
+    expect(landing.body.webContent.advantages).toEqual(['Cerca de ti']);
+  });
+
   it('secciones: testimonios (reseña NPS≥9), FAQ y contacto→lead', async () => {
     const owner = await registerVerifiedUser(app, 'web-sec');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

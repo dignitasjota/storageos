@@ -36,7 +36,8 @@ function usesContent(template: WebTemplateValue): boolean {
     template === 'escaparate' ||
     template === 'corporate' ||
     template === 'onepagemovil' ||
-    template === 'trstrom'
+    template === 'trstrom' ||
+    template === 'cabe'
   );
 }
 
@@ -46,7 +47,8 @@ function usesAdvantages(template: WebTemplateValue): boolean {
     template === 'escaparate' ||
     template === 'corporate' ||
     template === 'onepagemovil' ||
-    template === 'trstrom'
+    template === 'trstrom' ||
+    template === 'cabe'
   );
 }
 
@@ -270,7 +272,9 @@ export default function WebSettingsPage() {
                     ? '«OnePageMovil»'
                     : template === 'trstrom'
                       ? '«Trstrom»'
-                      : '«Escaparate»'}
+                      : template === 'cabe'
+                        ? '«Cabe»'
+                        : '«Escaparate»'}
               . Deja una sección vacía para usar los textos por defecto.
             </CardDescription>
           </CardHeader>
@@ -295,12 +299,14 @@ export default function WebSettingsPage() {
                   ? '¿Para qué lo necesitas?'
                   : template === 'trstrom'
                     ? '¿Por qué alquilar con nosotros?'
-                    : 'Servicios'
+                    : template === 'cabe'
+                      ? 'Ventajas (tarjetas)'
+                      : 'Servicios'
               }
               hint={
                 template === 'onepagemovil'
                   ? 'Bloques desplegables (título + una línea por cada punto).'
-                  : template === 'trstrom'
+                  : template === 'trstrom' || template === 'cabe'
                     ? 'Tarjetas de ventajas o situaciones (título + descripción).'
                     : 'Tarjetas de servicios/usos (título + descripción).'
               }
@@ -319,7 +325,9 @@ export default function WebSettingsPage() {
                     ? 'Las 4 ventajas bajo la portada (con icono).'
                     : template === 'trstrom'
                       ? 'Las 4 ventajas con ✓ de la portada.'
-                      : 'Etiquetas cortas de «Por qué elegirnos» (con icono).'
+                      : template === 'cabe'
+                        ? 'Las 3 insignias de la portada.'
+                        : 'Etiquetas cortas de «Por qué elegirnos» (con icono).'
                 }
                 items={advantages}
                 onChange={setAdvantages}
@@ -330,7 +338,8 @@ export default function WebSettingsPage() {
 
             {(template === 'escaparate' ||
               template === 'onepagemovil' ||
-              template === 'trstrom') && (
+              template === 'trstrom' ||
+              template === 'cabe') && (
               <ItemsEditor
                 label="Pasos para contratar"
                 hint="Los pasos de «Contratar es muy fácil» (título + descripción)."

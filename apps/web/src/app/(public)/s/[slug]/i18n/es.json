@@ -634,6 +634,138 @@
       "rentOnline": "Alquilar trastero online",
       "accessCode": "Mi código de acceso",
       "invoices": "Mis facturas"
+    },
+    "cabe": {
+      "badge": "Trasteros urbanos · Cerca de ti",
+      "badgeCity": "Trasteros urbanos · En el centro de {where}",
+      "heroSubtitle": "Tu espacio extra a la vuelta de la esquina en {tenantName}: alquílalo online en unos minutos, sin papeleo.",
+      "badges": [
+        {
+          "title": "100% online",
+          "text": "Reserva y firma desde el móvil"
+        },
+        {
+          "title": "Cerca de ti",
+          "text": "Sin ir a las afueras"
+        },
+        {
+          "title": "Seguro y vigilado",
+          "text": "Acceso personal e intransferible"
+        }
+      ],
+      "rentOnline": "Alquilar trastero online",
+      "rentOnlineShort": "Alquilar online",
+      "reserve": "Reservar",
+      "whatsapp": "Hablar por WhatsApp",
+      "googleReviews": "Ver nuestras valoraciones en Google",
+      "googleReviewsShort": "Nuestra ficha en Google",
+      "heroCardKicker": "Acceso personal",
+      "heroCardText": "Entra con tu código o desde el móvil",
+      "promoTag": "Promoción",
+      "promoCta": "Ver trasteros",
+      "nav": {
+        "centers": "Centros",
+        "units": "Tamaños y tarifas",
+        "advantages": "Ventajas",
+        "how": "Cómo funciona",
+        "calculator": "Calculadora",
+        "faq": "FAQ",
+        "contact": "Contacto",
+        "blog": "Blog"
+      },
+      "clientArea": "Área de clientes",
+      "openMenu": "Abrir menú",
+      "closeMenu": "Cerrar menú",
+      "aboutKicker": "Tu espacio a la vuelta de la esquina",
+      "aboutTitle": "Sobre {tenantName}",
+      "advantagesKicker": "Servicios que marcan la diferencia",
+      "advantagesTitle": "Guarda todo lo que necesites sin salir de la ciudad",
+      "advantagesSubtitle": "Sin desplazarte a polígonos alejados: autonomía y seguridad cerca de casa.",
+      "advantages": [
+        {
+          "title": "Todo desde el móvil",
+          "text": "Reserva, firma y gestiona tu trastero online, sin papeleo."
+        },
+        {
+          "title": "Ubicación urbana",
+          "text": "Centros en la ciudad, a pocos minutos a pie, en transporte público o en coche."
+        },
+        {
+          "title": "Seguridad",
+          "text": "Instalaciones vigiladas y acceso individual para que solo tú entres en tu trastero."
+        },
+        {
+          "title": "Sin permanencia",
+          "text": "Contrata el tiempo que necesites con renovación mensual."
+        }
+      ],
+      "centersKicker": "Red de centros",
+      "centersTitle": "Nuestros locales y ubicaciones",
+      "centersSubtitle": "Elige el centro más cercano a tu casa o a tu trabajo.",
+      "center": "Centro",
+      "hoursTitle": "Horario de acceso",
+      "viewUnits": "Ver trasteros disponibles",
+      "call": "Llamar",
+      "photos": "{count, plural, one {# foto del centro} other {# fotos del centro}}",
+      "unitsKicker": "Precios claros",
+      "unitsTitle": "Encuentra tu tamaño ideal",
+      "unitsSubtitle": "Precios mensuales con IVA incluido. Elige el formato que mejor se adapta a lo que vas a guardar.",
+      "size": "Tamaño {size}",
+      "metres": "Metros",
+      "ideal": {
+        "S": "Ideal para maletas, cajas de ropa, bicicletas o archivo ligero.",
+        "M": "Perfecto para un piso de 1 o 2 habitaciones, muebles, electrodomésticos y cajas.",
+        "L": "Apto para reformas, stock de negocio, maquinaria o la mudanza de una vivienda grande."
+      },
+      "perMonth": "/mes",
+      "vatIncl": "IVA incluido",
+      "availableNow": "Disponible para contratar ya",
+      "almostGone": "Casi agotado en este centro",
+      "soldOutHere": "Agotado en este centro",
+      "rentThis": "Contratar online",
+      "reserveSpot": "Reservar mi plaza",
+      "notifyMe": "Avísame cuando quede libre",
+      "noUnits": "Este centro aún no tiene trasteros publicados.",
+      "stepsKicker": "Fácil y sin desplazarte",
+      "stepsTitle": "Tu trastero listo en unos minutos",
+      "stepsSubtitle": "Sin papeleo ni esperas: todo el proceso es online, desde el móvil o el ordenador.",
+      "steps": [
+        {
+          "title": "Elige tu centro",
+          "text": "Selecciona el centro que te quede más cómodo y el tamaño que necesitas."
+        },
+        {
+          "title": "Contrata online",
+          "text": "Rellena tus datos, firma y paga de forma segura."
+        },
+        {
+          "title": "Recibe tu acceso",
+          "text": "Te enviamos tu código personal para entrar."
+        },
+        {
+          "title": "Úsalo cuando quieras",
+          "text": "Entra dentro del horario de acceso de tu centro con total autonomía."
+        }
+      ],
+      "calculatorKicker": "Asistente de espacio",
+      "reviewsKicker": "Reseñas de clientes",
+      "reviewsTitle": "Opiniones de nuestros usuarios",
+      "allReviews": "Ver valoraciones en Google",
+      "faqKicker": "Dudas habituales",
+      "faqSubtitle": "Todo lo que necesitas saber antes de contratar tu trastero.",
+      "blogKicker": "Blog y noticias",
+      "blogTitle": "Últimos artículos",
+      "blogAll": "Ver todo el blog",
+      "readMore": "Leer más",
+      "contactKicker": "Atención al cliente",
+      "contactTitle": "¿Hablamos?",
+      "contactSubtitle": "Completa el formulario y te responderemos lo antes posible.",
+      "footerText": "Trasteros urbanos con contratación online y acceso personal.",
+      "footerTextCity": "Trasteros urbanos en {where} con contratación online y acceso personal.",
+      "footerCenters": "Centros",
+      "footerManage": "Gestión",
+      "accessCode": "Mi código de acceso",
+      "invoices": "Facturas y recibos"
     }
   }
 }

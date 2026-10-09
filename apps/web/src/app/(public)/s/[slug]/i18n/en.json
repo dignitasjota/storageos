@@ -634,6 +634,138 @@
       "rentOnline": "Rent a unit online",
       "accessCode": "My access code",
       "invoices": "My invoices"
+    },
+    "cabe": {
+      "badge": "Urban storage · Close to you",
+      "badgeCity": "Urban storage · In central {where}",
+      "heroSubtitle": "Your extra space just around the corner at {tenantName}: rent it online in minutes, with no paperwork.",
+      "badges": [
+        {
+          "title": "100% online",
+          "text": "Book and sign from your phone"
+        },
+        {
+          "title": "Close to you",
+          "text": "No trips out of town"
+        },
+        {
+          "title": "Safe and monitored",
+          "text": "Personal, non-transferable access"
+        }
+      ],
+      "rentOnline": "Rent a unit online",
+      "rentOnlineShort": "Rent online",
+      "reserve": "Book",
+      "whatsapp": "Chat on WhatsApp",
+      "googleReviews": "See our Google reviews",
+      "googleReviewsShort": "Our Google profile",
+      "heroCardKicker": "Personal access",
+      "heroCardText": "Get in with your code or your phone",
+      "promoTag": "Offer",
+      "promoCta": "See units",
+      "nav": {
+        "centers": "Locations",
+        "units": "Sizes & prices",
+        "advantages": "Benefits",
+        "how": "How it works",
+        "calculator": "Calculator",
+        "faq": "FAQ",
+        "contact": "Contact",
+        "blog": "Blog"
+      },
+      "clientArea": "Customer area",
+      "openMenu": "Open menu",
+      "closeMenu": "Close menu",
+      "aboutKicker": "Your space just around the corner",
+      "aboutTitle": "About {tenantName}",
+      "advantagesKicker": "Services that make a difference",
+      "advantagesTitle": "Store everything you need without leaving the city",
+      "advantagesSubtitle": "No trips to remote industrial estates: independence and security close to home.",
+      "advantages": [
+        {
+          "title": "All from your phone",
+          "text": "Book, sign and manage your unit online, with no paperwork."
+        },
+        {
+          "title": "City location",
+          "text": "Sites in town, a few minutes away on foot, by public transport or by car."
+        },
+        {
+          "title": "Security",
+          "text": "Monitored facilities and individual access so only you can open your unit."
+        },
+        {
+          "title": "No commitment",
+          "text": "Rent for as long as you need, renewed month to month."
+        }
+      ],
+      "centersKicker": "Our locations",
+      "centersTitle": "Our sites",
+      "centersSubtitle": "Choose the site closest to your home or work.",
+      "center": "Location",
+      "hoursTitle": "Access hours",
+      "viewUnits": "See available units",
+      "call": "Call",
+      "photos": "{count, plural, one {# photo of the site} other {# photos of the site}}",
+      "unitsKicker": "Clear pricing",
+      "unitsTitle": "Find your ideal size",
+      "unitsSubtitle": "Monthly prices including VAT. Choose the format that best fits what you want to store.",
+      "size": "Size {size}",
+      "metres": "Metres",
+      "ideal": {
+        "S": "Ideal for suitcases, clothes boxes, bikes or light archives.",
+        "M": "Perfect for a 1–2 bedroom flat, furniture, appliances and boxes.",
+        "L": "Suits renovations, business stock, machinery or moving a large home."
+      },
+      "perMonth": "/month",
+      "vatIncl": "VAT included",
+      "availableNow": "Available to rent now",
+      "almostGone": "Almost sold out at this site",
+      "soldOutHere": "Sold out at this site",
+      "rentThis": "Rent online",
+      "reserveSpot": "Reserve my unit",
+      "notifyMe": "Notify me when available",
+      "noUnits": "This site has no units published yet.",
+      "stepsKicker": "Easy and no trips",
+      "stepsTitle": "Your unit ready in minutes",
+      "stepsSubtitle": "No paperwork or waiting: the whole process is online, from your phone or computer.",
+      "steps": [
+        {
+          "title": "Choose your site",
+          "text": "Pick the most convenient site and the size you need."
+        },
+        {
+          "title": "Sign up online",
+          "text": "Enter your details, sign and pay securely."
+        },
+        {
+          "title": "Get your access",
+          "text": "We send you your personal code to get in."
+        },
+        {
+          "title": "Use it whenever you like",
+          "text": "Come in within your site's access hours, completely independently."
+        }
+      ],
+      "calculatorKicker": "Space assistant",
+      "reviewsKicker": "Customer reviews",
+      "reviewsTitle": "What our customers say",
+      "allReviews": "See reviews on Google",
+      "faqKicker": "Common questions",
+      "faqSubtitle": "Everything you need to know before renting your unit.",
+      "blogKicker": "Blog and news",
+      "blogTitle": "Latest articles",
+      "blogAll": "See the whole blog",
+      "readMore": "Read more",
+      "contactKicker": "Customer service",
+      "contactTitle": "Let's talk",
+      "contactSubtitle": "Fill in the form and we'll get back to you as soon as possible.",
+      "footerText": "Urban self-storage with online sign-up and personal access.",
+      "footerTextCity": "Urban self-storage in {where} with online sign-up and personal access.",
+      "footerCenters": "Locations",
+      "footerManage": "Manage",
+      "accessCode": "My access code",
+      "invoices": "Invoices and receipts"
     }
   }
 }
