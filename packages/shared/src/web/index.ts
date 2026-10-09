@@ -49,8 +49,8 @@ export const WEB_TEMPLATES = [
       'Web de una página pensada para el móvil: portada con foto, ventajas, tus centros, carrusel de trasteros con precio, para qué lo necesitas, cómo funciona, opiniones con galería, preguntas, blog y contacto.',
   },
   {
-    value: 'trasteroom',
-    label: 'Trasteroom (trasteros por centro)',
+    value: 'trstrom',
+    label: 'Trstrom (trasteros por centro)',
     description:
       'Web de una página con barra de promoción, portada a dos columnas, ficha de cada centro con mapa y horario, trasteros por centro con disponibilidad («quedan pocos», «avísame»), pasos, calculadora, opiniones, preguntas, blog y contacto.',
   },

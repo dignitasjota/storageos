@@ -58,20 +58,20 @@ function whatsAppHref(phone: string, message: string): string | null {
 }
 
 /**
- * Plantilla premium «Trasteroom»: web de una página con barra de promoción,
+ * Plantilla premium «Trstrom»: web de una página con barra de promoción,
  * portada a dos columnas, ventajas, ficha de cada centro con mapa y horario,
  * trasteros por centro (pestañas) con disponibilidad, pasos, calculadora,
  * opiniones, preguntas, blog, contacto y barra fija en el móvil. Autocontenida
  * (cabecera y pie propios), como OnePageMovil.
  */
-export function TrasteroomTemplate({
+export function TrstromTemplate({
   data,
   locale,
 }: {
   data: PublicLandingDto;
   locale: PublicWebLocale;
 }) {
-  const t = useTranslations('publicWeb.trasteroom');
+  const t = useTranslations('publicWeb.trstrom');
   const tCommon = useTranslations('publicWeb.common');
   const tFaq = useTranslations('publicWeb.faq');
   const tPromo = useTranslations('publicWeb.promo');
@@ -219,7 +219,7 @@ export function TrasteroomTemplate({
               <div className="flex flex-col items-center justify-center gap-3.5 pt-4 sm:flex-row lg:justify-start">
                 <Link
                   href={bookHref}
-                  onClick={() => trackEvent('cta_reservar_click', { location: 'hero_trasteroom' })}
+                  onClick={() => trackEvent('cta_reservar_click', { location: 'hero_trstrom' })}
                   className="inline-flex w-full items-center justify-center rounded-2xl px-8 py-4 text-base font-extrabold text-white shadow-lg transition hover:brightness-95 active:scale-95 sm:w-auto"
                   style={{ backgroundColor: brand }}
                 >
@@ -743,7 +743,7 @@ export function TrasteroomTemplate({
         )}
         <Link
           href={bookHref}
-          onClick={() => trackEvent('cta_reservar_click', { location: 'mobile_bar_trasteroom' })}
+          onClick={() => trackEvent('cta_reservar_click', { location: 'mobile_bar_trstrom' })}
           className="inline-flex flex-[1.4] items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-xs font-black text-white shadow-md"
           style={{ backgroundColor: brand }}
         >
@@ -796,7 +796,7 @@ function FacilityCard({
   brand: string;
   onShowUnits: () => void;
 }) {
-  const t = useTranslations('publicWeb.trasteroom');
+  const t = useTranslations('publicWeb.trstrom');
   const tHours = useTranslations('publicWeb.hours');
   const tCommon = useTranslations('publicWeb.common');
   const open = isOpenNow(f.openingHours, f.timezone);
@@ -951,7 +951,7 @@ function UnitTypeCard({
   locale: PublicWebLocale;
   tenantSlug: string;
 }) {
-  const t = useTranslations('publicWeb.trasteroom');
+  const t = useTranslations('publicWeb.trstrom');
   const tCommon = useTranslations('publicWeb.common');
   const soldOut = unit.available <= 0;
   const few = !soldOut && unit.available <= 2;
@@ -1033,7 +1033,7 @@ function UnitTypeCard({
         <Link
           href={href}
           onClick={() =>
-            !soldOut && trackEvent('cta_reservar_click', { location: 'unit_card_trasteroom' })
+            !soldOut && trackEvent('cta_reservar_click', { location: 'unit_card_trstrom' })
           }
           className="inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:brightness-95"
           style={{ backgroundColor: soldOut ? '#262626' : brand }}
@@ -1071,7 +1071,7 @@ function Header({
   portalHref: string;
   blogHref: string | undefined;
 }) {
-  const t = useTranslations('publicWeb.trasteroom');
+  const t = useTranslations('publicWeb.trstrom');
   const [open, setOpen] = useState(false);
 
   function go(id: string) {
@@ -1129,7 +1129,7 @@ function Header({
             </Link>
             <Link
               href={bookHref}
-              onClick={() => trackEvent('cta_reservar_click', { location: 'header_trasteroom' })}
+              onClick={() => trackEvent('cta_reservar_click', { location: 'header_trstrom' })}
               className="inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:brightness-95 active:scale-95"
               style={{ backgroundColor: brand }}
             >

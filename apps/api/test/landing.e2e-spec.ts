@@ -376,7 +376,7 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(off.body.latestBlogPosts).toEqual([]);
   });
 
-  it('web premium: la plantilla «trasteroom» se aplica con sus textos editables', async () => {
+  it('web premium: la plantilla «trstrom» se aplica con sus textos editables', async () => {
     const owner = await registerVerifiedUser(app, 'web-trr');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
@@ -386,7 +386,7 @@ describe('Landing pública por tenant (e2e)', () => {
       .patch('/settings/tenant/web')
       .set(auth)
       .send({
-        template: 'trasteroom',
+        template: 'trstrom',
         content: {
           heroSubtitle: 'Tu trastero a dos calles',
           advantages: ['Sin permanencia'],
@@ -395,10 +395,10 @@ describe('Landing pública por tenant (e2e)', () => {
         },
       });
     expect(save.status).toBe(200);
-    expect(save.body.template).toBe('trasteroom');
+    expect(save.body.template).toBe('trstrom');
 
     const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
-    expect(landing.body.webTemplate).toBe('trasteroom');
+    expect(landing.body.webTemplate).toBe('trstrom');
     expect(landing.body.webContent).toMatchObject({
       heroSubtitle: 'Tu trastero a dos calles',
       advantages: ['Sin permanencia'],
