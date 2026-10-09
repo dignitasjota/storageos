@@ -55,6 +55,12 @@ export const WEB_TEMPLATES = [
       'Web de una página con barra de promoción, portada a dos columnas, ficha de cada centro con mapa y horario, trasteros por centro con disponibilidad («quedan pocos», «avísame»), pasos, calculadora, opiniones, preguntas, blog y contacto.',
   },
   {
+    value: 'cabe',
+    label: 'Cabe (urbana y minimalista)',
+    description:
+      'Web de una página de estilo urbano: barra de promoción, portada con insignias, ventajas, ficha de cada centro con mapa y horario, formatos S/M/L por centro con disponibilidad, pasos, calculadora, opiniones, preguntas, blog y contacto.',
+  },
+  {
     value: 'external',
     label: 'Web externa (ya tienes tu propia web)',
     description:

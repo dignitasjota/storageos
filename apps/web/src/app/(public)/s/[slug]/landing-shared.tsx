@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
+import { CabeTemplate } from './cabe-template';
 import { CorporateTemplate } from './corporate-template';
 import { EscaparateTemplate } from './escaparate-template';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
@@ -246,6 +247,9 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
       ) : data.webTemplate === 'escaparate' ? (
         // Plantilla «escaparate» multisección: también autocontenida.
         <EscaparateTemplate data={data} locale={locale} />
+      ) : data.webTemplate === 'cabe' ? (
+        // Plantilla «Cabe»: autocontenida, estilo urbano y minimalista.
+        <CabeTemplate data={data} locale={locale} />
       ) : data.webTemplate === 'trstrom' ? (
         // Plantilla «Trstrom»: autocontenida, trasteros por centro.
         <TrstromTemplate data={data} locale={locale} />
