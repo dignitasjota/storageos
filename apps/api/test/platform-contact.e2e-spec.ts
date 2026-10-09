@@ -115,4 +115,59 @@ describe('Formulario de contacto de la web (e2e)', () => {
 
     await http().get('/admin/platform/contact/messages').expect(401);
   });
+
+  it('sale con el remitente del formulario; sin él, con el de «Mensajes del administrador»', async () => {
+    const http = () => request(app.getHttpServer());
+    const to = `buzon-${Date.now()}@example.com`;
+    const send = (name: string) =>
+      http()
+        .post('/platform-contact')
+        .send({
+          name,
+          email: visitor,
+          message: 'Quiero información sobre el plan.',
+          acceptPrivacy: true,
+        })
+        .expect(204);
+    await http()
+      .put('/admin/platform/contact')
+      .set(adminAuth)
+      .send({
+        enabled: true,
+        email: to,
+        title: 'Hablemos',
+        subtitle: '',
+        showPhone: false,
+        requirePhone: false,
+        showCompany: false,
+        showUnits: false,
+        showProfile: false,
+      })
+      .expect(200);
+    try {
+      await http()
+        .put('/admin/email-settings/senders')
+        .set(adminAuth)
+        .send({ default: {}, admin_messages: { email: 'admin@trasteros-e2e.local' } })
+        .expect(200);
+      await send('Remitente Admin');
+      const first = await waitForEmail(to, { subjectIncludes: 'Remitente Admin' });
+      expect(first.From.Address).toBe('admin@trasteros-e2e.local');
+
+      await http()
+        .put('/admin/email-settings/senders')
+        .set(adminAuth)
+        .send({
+          default: {},
+          admin_messages: { email: 'admin@trasteros-e2e.local' },
+          web_contact: { email: 'web@trasteros-e2e.local' },
+        })
+        .expect(200);
+      await send('Remitente Web');
+      const second = await waitForEmail(to, { subjectIncludes: 'Remitente Web' });
+      expect(second.From.Address).toBe('web@trasteros-e2e.local');
+    } finally {
+      await http().put('/admin/email-settings/senders').set(adminAuth).send({ default: {} });
+    }
+  });
 });

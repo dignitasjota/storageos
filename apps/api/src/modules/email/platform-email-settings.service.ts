@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   PLATFORM_EMAIL_KIND_INFO,
+  PLATFORM_SENDER_PARENT,
   PLATFORM_EMAIL_KINDS,
   renderSenderName,
   type PlatformEmailKind,
@@ -34,6 +35,7 @@ const SENDER_KEYS: SenderKey[] = [
   'subscription',
   'billing',
   'admin_messages',
+  'web_contact',
   'staff_notices',
 ];
 
@@ -162,11 +164,15 @@ export class PlatformEmailSettingsService {
   ): EffectivePlatformSenderDto {
     const env = platformFrom(this.config);
     const own = key === 'default' ? undefined : senders[key];
+    // Un tipo sin remitente propio usa antes el de su «padre» (el formulario de
+    // contacto → Mensajes del administrador) y después el común.
+    const parentKey = key === 'default' ? undefined : PLATFORM_SENDER_PARENT[key];
+    const parent = parentKey ? senders[parentKey] : undefined;
     const common = senders.default;
     return {
-      name: own?.name ?? common?.name ?? env.name ?? '',
-      email: own?.email ?? common?.email ?? env.email,
-      replyTo: own?.replyTo ?? common?.replyTo ?? null,
+      name: own?.name ?? parent?.name ?? common?.name ?? env.name ?? '',
+      email: own?.email ?? parent?.email ?? common?.email ?? env.email,
+      replyTo: own?.replyTo ?? parent?.replyTo ?? common?.replyTo ?? null,
     };
   }
 
@@ -199,6 +205,7 @@ export class PlatformEmailSettingsService {
         subscription: senders.subscription ?? empty,
         billing: senders.billing ?? empty,
         admin_messages: senders.admin_messages ?? empty,
+        web_contact: senders.web_contact ?? empty,
         staff_notices: senders.staff_notices ?? empty,
       },
       effective: {
@@ -207,6 +214,7 @@ export class PlatformEmailSettingsService {
         subscription: this.effective(senders, 'subscription'),
         billing: this.effective(senders, 'billing'),
         admin_messages: this.effective(senders, 'admin_messages'),
+        web_contact: this.effective(senders, 'web_contact'),
         staff_notices: this.effective(senders, 'staff_notices'),
       },
       kinds,

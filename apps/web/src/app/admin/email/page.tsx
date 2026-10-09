@@ -5,6 +5,7 @@ import {
   PLATFORM_EMAIL_KINDS,
   PLATFORM_SENDER_CATEGORIES,
   PLATFORM_SENDER_LABELS,
+  PLATFORM_SENDER_PARENT,
   renderSenderName,
   type PlatformEmailKind,
   type PlatformSenderCategory,
@@ -468,6 +469,7 @@ function PlatformSendersCard() {
       subscription: f(data.categories.subscription),
       billing: f(data.categories.billing),
       admin_messages: f(data.categories.admin_messages),
+      web_contact: f(data.categories.web_contact),
       staff_notices: f(data.categories.staff_notices),
     });
     setTipos(
@@ -495,8 +497,17 @@ function PlatformSendersCard() {
   /** Vista previa con lo que hay escrito (antes de guardar). */
   const preview = (kind: PlatformEmailKind) => {
     const cat = PLATFORM_EMAIL_KIND_INFO[kind].category;
-    const template = form[cat].name.trim() || form.default.name.trim() || data.env.name;
-    const email = form[cat].email.trim() || form.default.email.trim() || data.env.email;
+    const parent = PLATFORM_SENDER_PARENT[cat];
+    const template =
+      form[cat].name.trim() ||
+      (parent ? form[parent].name.trim() : '') ||
+      form.default.name.trim() ||
+      data.env.name;
+    const email =
+      form[cat].email.trim() ||
+      (parent ? form[parent].email.trim() : '') ||
+      form.default.email.trim() ||
+      data.env.email;
     return { name: renderSenderName(template, tipos[kind].value), email };
   };
 
@@ -629,6 +640,9 @@ function PlatformSendersCard() {
           <ul className="divide-y rounded-lg border">
             {PLATFORM_SENDER_CATEGORIES.map((cat) => {
               const eff = data.effective[cat];
+              // Sin remitente propio usa el de su «padre» (o el común).
+              const parent = PLATFORM_SENDER_PARENT[cat];
+              const inherited = parent ? data.effective[parent] : common;
               return (
                 <li key={cat} className="space-y-3 px-3 py-2">
                   <button
@@ -655,9 +669,9 @@ function PlatformSendersCard() {
                   {open === cat && (
                     <>
                       {fields(cat, {
-                        name: common.name,
-                        email: common.email,
-                        replyTo: common.replyTo ?? 'Sin dirección de respuesta',
+                        name: inherited.name,
+                        email: inherited.email,
+                        replyTo: inherited.replyTo ?? 'Sin dirección de respuesta',
                       })}
                       {kindRows(cat)}
                     </>

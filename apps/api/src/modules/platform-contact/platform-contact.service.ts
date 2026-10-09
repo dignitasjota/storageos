@@ -95,7 +95,7 @@ export class PlatformContactService {
         html: mail.html,
         text: mail.text,
         replyTo: { email: message.email, name: message.name },
-        category: 'admin_messages',
+        kind: 'web_contact',
         tags: { type: 'platform_contact' },
       });
       if (!result.suppressed) {
