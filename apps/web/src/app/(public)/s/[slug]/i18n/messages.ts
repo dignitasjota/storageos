@@ -40,29 +40,70 @@ export async function getPublicWebMessages(locale: PublicWebLocale): Promise<Abs
  * resto de idiomas al segmento reservado `/book/[slug]/l/[locale]` (mismo
  * patrón que `/s/[slug]/l/[locale]`).
  *
+ * Con dominio propio verificado (`customDomain`), la reserva vive en ese
+ * dominio con una dirección sin el tenant: `https://<dominio>/reservar` o, con
+ * un local elegido, `https://<dominio>/reservar/<publicSlug>` (+ `/l/<idioma>`).
+ * Es absoluta para que funcione también desde `trasteros.pro/s/<slug>`.
+ *
  * `params.facilityId`/`unitTypeId` (opcionales) preseleccionan la elección
  * que el visitante ya hizo en la calculadora, la ficha de un local o el
- * listado — evita que tenga que repetirla en el formulario de reserva.
+ * listado — evita que tenga que repetirla en el formulario de reserva. En el
+ * dominio propio el local va en la ruta (`facilitySlug`) y solo si no tiene
+ * slug público se pasa por `facilityId`.
  */
 export function bookHref(
   tenantSlug: string,
   locale: PublicWebLocale,
-  params?: { facilityId?: string; unitTypeId?: string; waitlist?: boolean },
+  params?: {
+    facilityId?: string;
+    facilitySlug?: string | null;
+    unitTypeId?: string;
+    waitlist?: boolean;
+  },
+  customDomain?: string | null,
 ): string {
-  const encoded = encodeURIComponent(tenantSlug);
-  const base =
-    locale === DEFAULT_PUBLIC_WEB_LOCALE
-      ? `/book/${encoded}`
-      : `/book/${encoded}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
-  if (!params?.facilityId) return base;
-  const qs = new URLSearchParams({ facilityId: params.facilityId });
-  if (params.unitTypeId) qs.set('unitTypeId', params.unitTypeId);
+  const localeSuffix =
+    locale === DEFAULT_PUBLIC_WEB_LOCALE ? '' : `/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}`;
+  const qs = new URLSearchParams();
+  let base: string;
+  if (customDomain) {
+    const centro = params?.facilityId && params.facilitySlug ? params.facilitySlug : null;
+    base = `https://${customDomain}/reservar${centro ? `/${encodeURIComponent(centro)}` : ''}${localeSuffix}`;
+    if (params?.facilityId && !centro) qs.set('facilityId', params.facilityId);
+  } else {
+    base = `/book/${encodeURIComponent(tenantSlug)}${localeSuffix}`;
+    if (params?.facilityId) qs.set('facilityId', params.facilityId);
+  }
+  if (params?.facilityId && params.unitTypeId) qs.set('unitTypeId', params.unitTypeId);
   // Tipo agotado: abre la lista de espera de la reserva con esa elección.
-  if (params.waitlist) {
+  if (params?.facilityId && params.waitlist) {
     qs.set('waitlist', '1');
     return `${base}?${qs.toString()}#waitlist`;
   }
-  return `${base}?${qs.toString()}`;
+  const query = qs.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+/** Lo mínimo de la web del tenant que necesita `bookHrefFor`. */
+export interface BookSite {
+  tenantSlug: string;
+  customDomain: string | null;
+  facilities: { id: string; publicSlug: string | null }[];
+}
+
+/**
+ * `bookHref` con el dominio propio y el slug público del local sacados de los
+ * datos de la web: en el dominio propio da `/reservar/<centro>`.
+ */
+export function bookHrefFor(
+  site: BookSite,
+  locale: PublicWebLocale,
+  params?: { facilityId?: string; unitTypeId?: string; waitlist?: boolean },
+): string {
+  const facilitySlug = params?.facilityId
+    ? (site.facilities.find((f) => f.id === params.facilityId)?.publicSlug ?? null)
+    : null;
+  return bookHref(site.tenantSlug, locale, { ...params, facilitySlug }, site.customDomain);
 }
 
 /**

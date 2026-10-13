@@ -62,6 +62,33 @@ export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   'blog',
 ]);
 
+/**
+ * `/reservar[/<centro>][/l/<idioma>]` → `/book/<slug>[/l/<idioma>]`. El centro
+ * no viaja en la ruta reescrita: la página de reserva lo lee de la URL que ve
+ * el navegador (`bookCentroFromPath`) y lo deja preseleccionado.
+ */
+function bookRewritePath(pathname: string, slug: string): string {
+  const rest = pathname.slice(BOOK_ALIAS.length).split('/').filter(Boolean);
+  const localeAt = rest[0] === 'l' ? 0 : rest[1] === 'l' ? 1 : -1;
+  const locale = localeAt >= 0 ? rest[localeAt + 1] : undefined;
+  return locale ? `/book/${slug}/l/${locale}` : `/book/${slug}`;
+}
+
+/**
+ * Centro de una URL de reserva del dominio propio (`/reservar/mislata` →
+ * `mislata`), o null (`/reservar`, `/reservar/l/en`, otra ruta).
+ */
+export function bookCentroFromPath(pathname: string): string | null {
+  if (!matchesPrefix(pathname, BOOK_ALIAS)) return null;
+  const first = pathname.slice(BOOK_ALIAS.length).split('/').filter(Boolean)[0];
+  if (!first || first === 'l') return null;
+  try {
+    return decodeURIComponent(first);
+  } catch {
+    return first;
+  }
+}
+
 function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
@@ -106,7 +133,7 @@ export function resolveCustomDomainRoute(
   // (crea un contrato), no de la web propia del tenant → aplica también con
   // `externalSite` (antes del proxy catch-all, para no perderlo ahí).
   if (matchesPrefix(pathname, BOOK_ALIAS)) {
-    return { action: 'rewrite', path: `/book/${slug}` };
+    return { action: 'rewrite', path: bookRewritePath(pathname, slug) };
   }
 
   if (externalSite) {

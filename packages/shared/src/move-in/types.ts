@@ -62,6 +62,8 @@ export interface BookingAvailabilityDto {
   facilities: {
     id: string;
     name: string;
+    /** Slug público del local (`/reservar/<slug>` en el dominio propio), o null. */
+    publicSlug: string | null;
     unitTypes: {
       id: string;
       name: string;

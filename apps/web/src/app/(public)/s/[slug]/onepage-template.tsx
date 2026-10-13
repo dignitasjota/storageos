@@ -9,7 +9,7 @@ import { ContactForm } from './contact-form';
 import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
-  bookHref as buildBookHref,
+  bookHrefFor as buildBookHrefFor,
   type PublicWebLocale,
 } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
@@ -143,7 +143,7 @@ export function OnePageTemplate({
   const where = cities(data);
   const trasterosLabel = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
-  const bookHref = buildBookHref(data.tenantSlug, locale);
+  const bookHref = buildBookHrefFor(data, locale);
   const blogHref = data.hasBlog
     ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
     : undefined;
@@ -286,7 +286,7 @@ export function OnePageTemplate({
                           {tCommon('soldOut')}
                         </p>
                         <Link
-                          href={buildBookHref(data.tenantSlug, locale, {
+                          href={buildBookHrefFor(data, locale, {
                             facilityId: unitType.facilityId,
                             unitTypeId: unitType.unitTypeId,
                             waitlist: true,
@@ -302,7 +302,7 @@ export function OnePageTemplate({
                       </>
                     ) : (
                       <Link
-                        href={buildBookHref(data.tenantSlug, locale, {
+                        href={buildBookHrefFor(data, locale, {
                           facilityId: unitType.facilityId,
                           unitTypeId: unitType.unitTypeId,
                         })}

@@ -1011,7 +1011,7 @@ Permite a los inquilinos pagar facturas con tarjeta vía la pasarela alojada del
 
 ## 18. Dominio propio por tenant (white-label)
 
-Un tenant del plan **`pro`** (o con la feature `custom_domain` activada por override) puede servir su web pública bajo **su propio dominio** (`trasteros-garcia.com`) en vez de `app.tu-dominio.com/s/garcia`. La landing, las páginas por local y la reserva (`/reservar`) se sirven bajo su marca; el panel del staff y el portal siguen en el dominio de la plataforma.
+Un tenant del plan **`pro`** (o con la feature `custom_domain` activada por override) puede servir su web pública bajo **su propio dominio** (`trasteros-garcia.com`) en vez de `app.tu-dominio.com/s/garcia`. La landing, las páginas por local y la reserva (`/reservar`, o `/reservar/<centro>` con el local ya elegido, p. ej. `/reservar/mislata`; en inglés `…/l/en`) se sirven bajo su marca; el panel del staff y el portal siguen en el dominio de la plataforma.
 
 **Cómo funciona**: el middleware del web (`apps/web/src/middleware.ts`) mira la cabecera `Host`. Si no es el de la plataforma (`NEXT_PUBLIC_SITE_URL`), consulta `GET /public/landing/resolve-domain?host=<host>` (con caché 60 s); si el dominio está **verificado**, reescribe internamente `/` → `/s/<slug>` (la URL del usuario queda limpia) y redirige el panel/admin al dominio de la plataforma. El CORS del API permite además los dominios verificados.
 
