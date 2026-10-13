@@ -1,7 +1,9 @@
 import { NextIntlClientProvider } from 'next-intl';
 
 import { BookPageBody } from './book-shared';
-import { getBookingAvailability } from './get-availability';
+import { bookingMetadata, getBookingAvailability } from './get-availability';
+
+import type { Metadata } from 'next';
 
 import {
   bookHref,
@@ -9,6 +11,15 @@ import {
   intlLocaleFor,
 } from '@/app/(public)/s/[slug]/i18n/messages';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  return bookingMetadata(slug, 'es');
+}
 
 export default async function BookPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

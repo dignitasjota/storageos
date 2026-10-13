@@ -155,7 +155,8 @@ export async function buildFacilityMetadata(
         : `/s/${slug}/l/en/${facilitySlug}`
       : base;
   return {
-    title,
+    // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
+    title: { absolute: title },
     description,
     alternates: { canonical, languages: languageAlternates(data, slug, facilitySlug) },
     robots: { index: true, follow: true },

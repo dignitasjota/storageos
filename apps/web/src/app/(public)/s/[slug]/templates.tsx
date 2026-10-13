@@ -429,7 +429,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
             {data.webAbout}
           </section>
         )}
-        <div className="space-y-6">
+        <div id="precios" className="scroll-mt-20 space-y-6">
           {data.facilities.map((f, index) => (
             <section
               key={f.id}
@@ -501,7 +501,10 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
     );
   }
   return (
-    <div className={cols ? 'grid gap-6 md:grid-cols-2' : 'space-y-6'}>
+    <div
+      id="precios"
+      className={`scroll-mt-20 ${cols ? 'grid gap-6 md:grid-cols-2' : 'space-y-6'}`}
+    >
       {data.facilities.map((f, index) => (
         <section key={f.id} className="overflow-hidden rounded-lg border bg-card shadow-sm">
           {f.imageUrls[0] && (
@@ -677,7 +680,7 @@ export function ContactSection({ data }: TplProps) {
   const t = useTranslations('publicWeb.contact');
   if (!data.contactEnabled) return null;
   return (
-    <section className="mt-14">
+    <section id="contacto" className="mt-14 scroll-mt-20">
       <h2 className="mb-2 text-center text-2xl font-bold tracking-tight">{t('title')}</h2>
       <p className="mb-6 text-center text-sm text-muted-foreground">{t('subtitle')}</p>
       <ContactForm slug={data.tenantSlug} brand={brandOf(data)} />

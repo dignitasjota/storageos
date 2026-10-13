@@ -2,7 +2,9 @@ import { notFound, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import { BookPageBody } from '../../book-shared';
-import { getBookingAvailability } from '../../get-availability';
+import { bookingMetadata, getBookingAvailability } from '../../get-availability';
+
+import type { Metadata } from 'next';
 
 import {
   DEFAULT_PUBLIC_WEB_LOCALE,
@@ -12,6 +14,15 @@ import {
   isPublicWebLocale,
 } from '@/app/(public)/s/[slug]/i18n/messages';
 import { TenantWebChrome } from '@/app/(public)/s/[slug]/tenant-web-chrome';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string; locale: string }>;
+}): Promise<Metadata> {
+  const { slug, locale } = await params;
+  return bookingMetadata(slug, isPublicWebLocale(locale) ? locale : 'es');
+}
 
 export default async function BookLocalePage({
   params,

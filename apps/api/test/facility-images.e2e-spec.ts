@@ -179,7 +179,7 @@ describe('Facility images + slug (e2e)', () => {
     // 'blog'/'l' ya estaban cubiertos; 'reservar'/'portal'/'login' son los
     // que se añaden ahora (vienen de PASS_PREFIXES/PLATFORM_PREFIXES/
     // BOOK_ALIAS de `resolveCustomDomainRoute`, no de una lista a mano).
-    for (const reserved of ['blog', 'reservar', 'portal', 'login']) {
+    for (const reserved of ['blog', 'reservar', 'portal', 'login', 'contacto', 'precios']) {
       const patch = await request(app.getHttpServer())
         .patch(`/facilities/${facilityId}`)
         .set(auth)

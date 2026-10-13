@@ -48,6 +48,19 @@ describe('resolveCustomDomainRoute', () => {
     expect(bookCentroFromPath('/reservar/el%20sur')).toBe('el sur');
   });
 
+  it('/contacto y /precios → su página de sección; un local no puede llamarse así', () => {
+    expect(resolveCustomDomainRoute('/contacto', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/contacto',
+    });
+    expect(resolveCustomDomainRoute('/precios', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/precios',
+    });
+    expect(RESERVED_FACILITY_SLUGS.has('contacto')).toBe(true);
+    expect(RESERVED_FACILITY_SLUGS.has('precios')).toBe(true);
+  });
+
   it('un segmento suelto → reescribe a la página del local', () => {
     expect(resolveCustomDomainRoute('/local-norte', SLUG)).toEqual({
       action: 'rewrite',
@@ -112,12 +125,12 @@ describe('resolveCustomDomainRoute', () => {
     // Invariante: si un local pudiera tener uno de estos slugs, su página
     // quedaría inalcanzable bajo dominio propio — otra ruta (portal, login,
     // reserva…) se lo come ANTES de llegar a la regla genérica de 1 segmento.
-    // Excluye `l`/`blog`: esos dos SÍ producen el mismo rewrite genérico
-    // (`/s/<slug>/blog`) — su protección no está aquí, sino en que Next.js
-    // resuelve esa carpeta estática antes que la dinámica `[facility]`.
+    // Excluye `l`/`blog`/`contacto`/`precios`: esos SÍ producen el mismo
+    // rewrite genérico (`/s/<slug>/blog`) — su protección no está aquí, sino en
+    // que Next.js resuelve esa carpeta estática antes que la dinámica `[facility]`.
     expect(RESERVED_FACILITY_SLUGS.size).toBeGreaterThan(2);
     for (const slug of RESERVED_FACILITY_SLUGS) {
-      if (slug === 'l' || slug === 'blog') continue;
+      if (['l', 'blog', 'contacto', 'precios'].includes(slug)) continue;
       const route = resolveCustomDomainRoute(`/${slug}`, SLUG);
       expect(route).not.toEqual({ action: 'rewrite', path: `/s/${SLUG}/${slug}` });
     }
