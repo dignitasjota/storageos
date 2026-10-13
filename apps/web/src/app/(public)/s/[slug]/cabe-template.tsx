@@ -25,7 +25,8 @@ import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   blogPostHref as buildBlogPostHref,
-  bookHref as buildBookHref,
+  bookHrefFor as buildBookHrefFor,
+  type BookSite,
   intlLocaleFor,
   type PublicWebLocale,
 } from './i18n/messages';
@@ -83,7 +84,7 @@ export function CabeTemplate({
   const where = cities(data);
   const headlineFallback = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
-  const bookHref = buildBookHref(data.tenantSlug, locale);
+  const bookHref = buildBookHrefFor(data, locale);
   const blogHref = data.hasBlog
     ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
     : undefined;
@@ -414,7 +415,7 @@ export function CabeTemplate({
                     facilityId={facilityForUnits.id}
                     brand={brand}
                     locale={locale}
-                    tenantSlug={data.tenantSlug}
+                    site={data}
                   />
                 ))}
             </div>
@@ -979,20 +980,20 @@ function UnitTypeCard({
   facilityId,
   brand,
   locale,
-  tenantSlug,
+  site,
 }: {
   unit: UnitType;
   facilityId: string;
   brand: string;
   locale: PublicWebLocale;
-  tenantSlug: string;
+  site: BookSite;
 }) {
   const t = useTranslations('publicWeb.cabe');
   const tCommon = useTranslations('publicWeb.common');
   const soldOut = unit.available <= 0;
   const few = !soldOut && unit.available <= 2;
   const size = sizeOf(unit.areaM2);
-  const href = buildBookHref(tenantSlug, locale, {
+  const href = buildBookHrefFor(site, locale, {
     facilityId,
     unitTypeId: unit.id,
     ...(soldOut ? { waitlist: true } : {}),

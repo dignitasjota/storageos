@@ -176,6 +176,7 @@ describe('Waitlist / lista de espera (e2e)', () => {
       opts.body.facilities as { id: string; unitTypes: { id: string; available: number }[] }[]
     ).find((f) => f.id === facilityId);
     expect(fac).toBeTruthy();
+    expect(typeof (fac as unknown as { publicSlug: unknown }).publicSlug).toBe('string');
     const type = fac!.unitTypes.find((t) => t.id === unitTypeId);
     expect(type?.available).toBe(0);
 

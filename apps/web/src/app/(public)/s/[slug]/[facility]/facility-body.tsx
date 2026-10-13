@@ -120,7 +120,12 @@ export function FacilityBody({
       {f.videoUrl && <FacilityVideo url={f.videoUrl} title={t('facility.video')} />}
 
       <Link
-        href={bookHref(data.tenantSlug, locale, { facilityId: f.id })}
+        href={bookHref(
+          data.tenantSlug,
+          locale,
+          { facilityId: f.id, facilitySlug: f.publicSlug },
+          data.customDomain,
+        )}
         onClick={() => trackEvent('cta_reservar_click', { location: 'facility_page' })}
         className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
         style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
@@ -129,7 +134,11 @@ export function FacilityBody({
       </Link>
 
       <h2 className="mt-10 text-xl font-semibold">{t('facility.sizesAndPrices')}</h2>
-      <UnitTypeList f={f} locale={locale} tenantSlug={data.tenantSlug} />
+      <UnitTypeList
+        f={f}
+        locale={locale}
+        site={{ tenantSlug: data.tenantSlug, customDomain: data.customDomain, facilities: [f] }}
+      />
     </div>
   );
 }

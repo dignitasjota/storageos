@@ -65,7 +65,7 @@ export class WaitlistService {
     const [facilities, unitTypes, grouped] = await Promise.all([
       this.admin.facility.findMany({
         where: { tenantId: tenant.id, deletedAt: null },
-        select: { id: true, name: true },
+        select: { id: true, name: true, publicSlug: true },
         orderBy: { name: 'asc' },
       }),
       this.admin.unitType.findMany({
@@ -89,6 +89,7 @@ export class WaitlistService {
         .map((f) => ({
           id: f.id,
           name: f.name,
+          publicSlug: f.publicSlug,
           unitTypes: unitTypes.map((t) => ({
             id: t.id,
             name: t.name,

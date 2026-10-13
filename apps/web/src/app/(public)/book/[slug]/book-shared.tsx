@@ -1,5 +1,6 @@
 'use client';
 
+import { bookCentroFromPath } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -88,8 +89,7 @@ export function BookPageBody({
     preselected.current = true;
     const sp = new URLSearchParams(window.location.search);
     if (sp.get('waitlist') === '1') return; // la elección va a la lista de espera
-    const fid = sp.get('facilityId');
-    const facility = fid ? data.facilities.find((f) => f.id === fid) : undefined;
+    const facility = findFacilityFromUrl(data.facilities, sp);
     if (facility) {
       setFacilityId(facility.id);
       const utid = sp.get('unitTypeId');
@@ -447,7 +447,7 @@ function WaitlistSection({ slug }: { slug: string }) {
         // local y tipo y lleva al visitante directamente al formulario.
         const sp = new URLSearchParams(window.location.search);
         if (sp.get('waitlist') !== '1') return;
-        const f = res.facilities.find((x) => x.id === sp.get('facilityId'));
+        const f = findFacilityFromUrl(res.facilities, sp);
         if (!f) return;
         setFacilityId(f.id);
         const utid = sp.get('unitTypeId');
@@ -691,4 +691,19 @@ function FieldError({ message }: { message?: string | undefined }) {
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex min-h-screen items-center justify-center p-4">{children}</div>;
+}
+
+/**
+ * Local elegido antes de llegar a la reserva: `?facilityId=` o, en el dominio
+ * propio, el centro de la ruta (`/reservar/<centro>`, que el middleware sirve
+ * con esta página sin cambiar la URL del navegador).
+ */
+function findFacilityFromUrl<F extends { id: string; publicSlug: string | null }>(
+  facilities: F[],
+  sp: URLSearchParams,
+): F | undefined {
+  const fid = sp.get('facilityId');
+  if (fid) return facilities.find((f) => f.id === fid);
+  const centro = bookCentroFromPath(window.location.pathname);
+  return centro ? facilities.find((f) => f.publicSlug === centro) : undefined;
 }

@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl';
 
 import { ContactForm } from './contact-form';
 import { trackEvent } from './google-analytics';
-import { bookHref, facilityHref, type PublicWebLocale } from './i18n/messages';
+import { bookHrefFor, facilityHref, type BookSite, type PublicWebLocale } from './i18n/messages';
 import { formatPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 
@@ -203,12 +203,12 @@ export function isUrgentStock(available: number): boolean {
 export function UnitTypeList({
   f,
   locale,
-  tenantSlug,
+  site,
 }: {
   f: PublicLandingDto['facilities'][number];
   locale: PublicWebLocale;
   /** Para el enlace «Avísame» de los tipos agotados (lista de espera). */
-  tenantSlug: string;
+  site: BookSite;
 }) {
   const t = useTranslations('publicWeb.common');
   if (f.unitTypes.length === 0) {
@@ -248,7 +248,7 @@ export function UnitTypeList({
             </span>
             {soldOut ? (
               <Link
-                href={bookHref(tenantSlug, locale, {
+                href={bookHrefFor(site, locale, {
                   facilityId: f.id,
                   unitTypeId: unitType.id,
                   waitlist: true,
@@ -354,7 +354,7 @@ function ModernTemplate({ data, locale }: TplProps) {
           {t('modern.subtitle', { tenantName: data.tenantName })}
         </p>
         <Link
-          href={bookHref(data.tenantSlug, locale)}
+          href={bookHrefFor(data, locale)}
           onClick={() => trackEvent('cta_reservar_click', { location: 'hero_modern' })}
           className="mt-8 inline-flex h-12 items-center rounded-full bg-white px-8 text-sm font-semibold shadow-lg transition-transform hover:scale-105"
           style={{ color: brand }}
@@ -408,7 +408,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
           </h1>
           <p className="mt-4 max-w-xl text-lg text-neutral-400">{t('industrial.subtitle')}</p>
           <Link
-            href={bookHref(data.tenantSlug, locale)}
+            href={bookHrefFor(data, locale)}
             onClick={() => trackEvent('cta_reservar_click', { location: 'hero_industrial' })}
             className="mt-8 inline-flex h-12 items-center px-8 text-sm font-bold uppercase tracking-wider text-neutral-950 transition-opacity hover:opacity-90"
             style={{ backgroundColor: brand }}
@@ -450,12 +450,12 @@ function IndustrialTemplate({ data, locale }: TplProps) {
               <div className="p-6">
                 <h2 className="text-xl font-bold uppercase tracking-wide">{f.name}</h2>
                 <FacilityMeta f={f} tenantName={data.tenantName} />
-                <UnitTypeList f={f} locale={locale} tenantSlug={data.tenantSlug} />
+                <UnitTypeList f={f} locale={locale} site={data} />
                 <Link
                   href={
                     f.publicSlug
                       ? facilityHref(data.tenantSlug, f.publicSlug, locale, data.customDomain)
-                      : bookHref(data.tenantSlug, locale, { facilityId: f.id })
+                      : bookHrefFor(data, locale, { facilityId: f.id })
                   }
                   className="mt-4 inline-flex h-10 items-center border border-neutral-700 px-4 text-sm font-semibold uppercase tracking-wider transition-colors hover:bg-neutral-800"
                 >
@@ -481,7 +481,7 @@ function ReserveButton({ data, locale }: { data: PublicLandingDto; locale: Publi
   const t = useTranslations('publicWeb.common');
   return (
     <Link
-      href={bookHref(data.tenantSlug, locale)}
+      href={bookHrefFor(data, locale)}
       onClick={() => trackEvent('cta_reservar_click', { location: 'hero_default' })}
       className="mt-6 inline-flex h-11 items-center rounded-md px-6 text-sm font-medium text-white shadow transition-opacity hover:opacity-90"
       style={{ backgroundColor: data.brandColor ?? 'hsl(var(--primary))' }}
@@ -519,12 +519,12 @@ function FacilitiesGrid({ data, locale, cols }: TplProps & { cols?: boolean }) {
           <div className="p-6">
             <h2 className="text-xl font-semibold">{f.name}</h2>
             <FacilityMeta f={f} tenantName={data.tenantName} />
-            <UnitTypeList f={f} locale={locale} tenantSlug={data.tenantSlug} />
+            <UnitTypeList f={f} locale={locale} site={data} />
             <Link
               href={
                 f.publicSlug
                   ? facilityHref(data.tenantSlug, f.publicSlug, locale, data.customDomain)
-                  : bookHref(data.tenantSlug, locale, { facilityId: f.id })
+                  : bookHrefFor(data, locale, { facilityId: f.id })
               }
               className="mt-4 inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-accent"
             >

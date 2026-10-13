@@ -107,6 +107,8 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
     expect(avail.body.googleAnalyticsId).toBeNull();
     const facility = avail.body.facilities[0];
     expect(facility.unitTypes[0].available).toBeGreaterThan(0);
+    // Slug público del local: la reserva del dominio propio es /reservar/<slug>.
+    expect(typeof facility.publicSlug).toBe('string');
 
     // Todos los datos personales son obligatorios: sin teléfono ni documento → 400.
     const incomplete = await request(app.getHttpServer())

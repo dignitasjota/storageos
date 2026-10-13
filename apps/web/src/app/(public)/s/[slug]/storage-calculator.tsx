@@ -14,7 +14,7 @@ import { useTranslations } from 'next-intl';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { trackEvent } from './google-analytics';
-import { bookHref, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
+import { bookHrefFor, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 
 const CATEGORY_ORDER: StorageItemCategory[] = ['muebles', 'electrodomesticos', 'cajas', 'otros'];
 
@@ -192,7 +192,7 @@ export function StorageCalculator({
                   {t('perMonth')}
                 </p>
                 <Link
-                  href={bookHref(data.tenantSlug, locale, {
+                  href={bookHrefFor(data, locale, {
                     facilityId: recommendation.facilityId,
                     unitTypeId: recommendation.unitTypeId,
                   })}

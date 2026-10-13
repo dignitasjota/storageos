@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { RESERVED_FACILITY_SLUGS, resolveCustomDomainRoute } from './custom-domain';
+import {
+  bookCentroFromPath,
+  RESERVED_FACILITY_SLUGS,
+  resolveCustomDomainRoute,
+} from './custom-domain';
 
 const SLUG = 'garcia';
 
@@ -21,6 +25,27 @@ describe('resolveCustomDomainRoute', () => {
       action: 'rewrite',
       path: '/book/garcia',
     });
+  });
+
+  it('/reservar/<centro> y con idioma → booking del tenant (el centro lo lee la página)', () => {
+    expect(resolveCustomDomainRoute('/reservar/mislata', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/book/garcia',
+    });
+    expect(resolveCustomDomainRoute('/reservar/l/en', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/book/garcia/l/en',
+    });
+    expect(resolveCustomDomainRoute('/reservar/mislata/l/en', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/book/garcia/l/en',
+    });
+    expect(bookCentroFromPath('/reservar/mislata')).toBe('mislata');
+    expect(bookCentroFromPath('/reservar/mislata/l/en')).toBe('mislata');
+    expect(bookCentroFromPath('/reservar')).toBeNull();
+    expect(bookCentroFromPath('/reservar/l/en')).toBeNull();
+    expect(bookCentroFromPath('/book/garcia')).toBeNull();
+    expect(bookCentroFromPath('/reservar/el%20sur')).toBe('el sur');
   });
 
   it('un segmento suelto → reescribe a la página del local', () => {

@@ -24,7 +24,8 @@ import { GoogleAnalyticsScript, trackEvent } from './google-analytics';
 import {
   blogHref as buildBlogHref,
   blogPostHref as buildBlogPostHref,
-  bookHref as buildBookHref,
+  bookHrefFor as buildBookHrefFor,
+  type BookSite,
   facilityHref as buildFacilityHref,
   intlLocaleFor,
   type PublicWebLocale,
@@ -88,7 +89,7 @@ export function OnePageMovilTemplate({
   const where = cities(data);
   const headlineFallback = useHeadlineFallback(where);
   const portalHref = `/portal/login?slug=${encodeURIComponent(data.tenantSlug)}`;
-  const bookHref = buildBookHref(data.tenantSlug, locale);
+  const bookHref = buildBookHrefFor(data, locale);
   const blogHref = data.hasBlog
     ? buildBlogHref(data.tenantSlug, locale, data.customDomain)
     : undefined;
@@ -167,7 +168,7 @@ export function OnePageMovilTemplate({
   function facilityLink(f: PublicLandingDto['facilities'][number]): string {
     return f.publicSlug
       ? buildFacilityHref(data.tenantSlug, f.publicSlug, locale, data.customDomain)
-      : buildBookHref(data.tenantSlug, locale, { facilityId: f.id });
+      : buildBookHrefFor(data, locale, { facilityId: f.id });
   }
 
   return (
@@ -274,13 +275,7 @@ export function OnePageMovilTemplate({
             {units.length > 0 ? (
               <Carousel prevLabel={t('prev')} nextLabel={t('next')}>
                 {units.map((u) => (
-                  <UnitCardView
-                    key={u.key}
-                    unit={u}
-                    brand={brand}
-                    locale={locale}
-                    tenantSlug={data.tenantSlug}
-                  />
+                  <UnitCardView key={u.key} unit={u} brand={brand} locale={locale} site={data} />
                 ))}
               </Carousel>
             ) : (
@@ -739,17 +734,17 @@ function UnitCardView({
   unit,
   brand,
   locale,
-  tenantSlug,
+  site,
 }: {
   unit: UnitCard;
   brand: string;
   locale: PublicWebLocale;
-  tenantSlug: string;
+  site: BookSite;
 }) {
   const t = useTranslations('publicWeb.onepagemovil');
   const tCommon = useTranslations('publicWeb.common');
   const soldOut = unit.available <= 0;
-  const href = buildBookHref(tenantSlug, locale, {
+  const href = buildBookHrefFor(site, locale, {
     facilityId: unit.facilityId,
     unitTypeId: unit.unitTypeId,
     ...(soldOut ? { waitlist: true } : {}),
