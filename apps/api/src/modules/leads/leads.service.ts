@@ -322,6 +322,47 @@ export class LeadsService {
     return this.toDto(created);
   }
 
+  /**
+   * Contacto nuevo que escribe al WhatsApp Business del tenant. Lo crea el
+   * webhook (sin usuario); avisa igual que un contacto de la web.
+   */
+  async createFromWhatsapp(args: {
+    tenantId: string;
+    phone: string;
+    name: string | null;
+    message: string;
+  }): Promise<{ id: string }> {
+    const [firstName, ...rest] = (args.name ?? '').trim().split(/\s+/).filter(Boolean);
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.lead.create({
+          data: {
+            tenantId: args.tenantId,
+            source: 'whatsapp',
+            firstName: firstName ?? null,
+            lastName: rest.length > 0 ? rest.join(' ') : null,
+            phone: args.phone,
+            message: args.message.slice(0, 2000),
+            metadata: { origin: 'whatsapp' } satisfies Prisma.InputJsonValue,
+          },
+          include: {
+            preferredFacility: { select: { name: true } },
+            preferredUnitType: { select: { name: true } },
+            assignedTo: { select: { fullName: true } },
+          },
+        }),
+      args.tenantId,
+    );
+    await this.audit.write({
+      tenantId: args.tenantId,
+      action: 'lead.whatsapp_received',
+      entityType: 'Lead',
+      entityId: created.id,
+    });
+    this.emitLeadCreated(args.tenantId, created);
+    return { id: created.id };
+  }
+
   async update(args: {
     tenantId: string;
     userId: string;

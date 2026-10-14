@@ -170,6 +170,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
           'Remitente, tu dominio de correo, correos automáticos, avisos al equipo e informe mensual.',
         permission: 'settings:manage',
       },
+      {
+        href: '/settings/whatsapp',
+        label: 'WhatsApp',
+        description:
+          'Conecta el WhatsApp de tu negocio: botón en tu web y conversaciones en el panel.',
+        permission: 'settings:manage',
+      },
     ],
   },
   {

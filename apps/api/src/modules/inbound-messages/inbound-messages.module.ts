@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CustomerMessagesModule } from '../customer-messages/customer-messages.module';
+import { WhatsappBusinessModule } from '../whatsapp-business/whatsapp-business.module';
 
 import { EmailInboundController } from './email-inbound.controller';
 import { InboundMessagesService } from './inbound-messages.service';
@@ -12,7 +13,7 @@ import { WhatsAppInboundController } from './whatsapp-inbound.controller';
  * los registran en el hilo de chat (`customer_messages`) via CustomerMessages.
  */
 @Module({
-  imports: [CustomerMessagesModule],
+  imports: [CustomerMessagesModule, WhatsappBusinessModule],
   controllers: [WhatsAppInboundController, EmailInboundController],
   providers: [InboundMessagesService],
 })

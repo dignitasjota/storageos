@@ -27,6 +27,7 @@ import {
   LifeBuoy,
   Mail,
   Megaphone,
+  MessageCircle,
   MessageSquare,
   Package,
   PackagePlus,
@@ -77,6 +78,7 @@ import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 import { useUnitRequestPendingCount } from '@/lib/unit-requests/hooks';
+import { useWhatsappUnreadCount } from '@/lib/whatsapp/hooks';
 
 interface NavItem {
   href: string;
@@ -321,6 +323,13 @@ const GROUPS: NavGroup[] = [
             permission: 'communications:read',
           },
           {
+            href: '/whatsapp',
+            labelKey: 'whatsapp',
+            icon: MessageCircle,
+            permission: 'communications:read',
+            feature: 'whatsapp_business',
+          },
+          {
             href: '/communications',
             labelKey: 'communications',
             icon: Mail,
@@ -420,6 +429,11 @@ export function AppSidebar() {
   // Tickets de soporte esperando respuesta del tenant (el admin ya contestó).
   const supportWaiting = useSupportWaitingCount().data?.count ?? 0;
   const updatesUnread = useProductUpdatesUnread().data?.count ?? 0;
+  // Mensajes de WhatsApp sin leer (extra «WhatsApp Business»).
+  const whatsappUnread =
+    useWhatsappUnreadCount(
+      permissions.includes('communications:read') && features.includes('whatsapp_business'),
+    ).data?.count ?? 0;
 
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).
@@ -462,6 +476,7 @@ export function AppSidebar() {
     if (href === '/unit-change-requests') return unitChangePending;
     if (href === '/unit-requests') return unitRequestPending;
     if (href === '/customers') return unreadMessages;
+    if (href === '/whatsapp') return whatsappUnread;
     if (href === '/incidents') return incidentCounts.reported + incidentCounts.investigating;
     return 0;
   }
@@ -480,6 +495,11 @@ export function AppSidebar() {
         <SidebarMenuBadge className="bg-primary text-primary-foreground">
           {unitRequestPending}
         </SidebarMenuBadge>
+      );
+    }
+    if (href === '/whatsapp' && whatsappUnread > 0) {
+      return (
+        <SidebarMenuBadge className="bg-emerald-600 text-white">{whatsappUnread}</SidebarMenuBadge>
       );
     }
     if (href === '/customers' && unreadMessages > 0) {

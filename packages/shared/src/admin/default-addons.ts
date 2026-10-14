@@ -110,4 +110,12 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     priceMonthly: 15,
     feature: 'housing',
   },
+  {
+    slug: 'addon-whatsapp-business',
+    name: 'WhatsApp Business',
+    description:
+      'Tu WhatsApp en tu web: quien te escribe desde la web (o por cualquier vía) aparece en el panel como contacto y le respondes desde ahí.',
+    priceMonthly: 29,
+    feature: 'whatsapp_business',
+  },
 ];

@@ -66,3 +66,4 @@ export * from './security';
 export * from './marketing';
 export * from './product-updates';
 export * from './owners';
+export * from './whatsapp';

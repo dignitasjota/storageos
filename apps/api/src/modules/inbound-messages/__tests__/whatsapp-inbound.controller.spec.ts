@@ -4,6 +4,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import { WhatsAppInboundController } from '../whatsapp-inbound.controller';
 
+import type { WhatsappInboxService } from '../../whatsapp-business/whatsapp-inbox.service';
 import type { InboundMessagesService } from '../inbound-messages.service';
 
 /** Fake mínimo de `ConfigService<Env,true>`: solo lo que el controller pide. */
@@ -25,6 +26,11 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
   const inboundStub = {
     record: jest.fn().mockResolvedValue(true),
   } as unknown as InboundMessagesService;
+  // Ningún número de tenant: todo va al flujo del número de la plataforma.
+  const inboxStub = {
+    handleInbound: jest.fn().mockResolvedValue(false),
+    handleStatus: jest.fn().mockResolvedValue(undefined),
+  } as unknown as WhatsappInboxService;
 
   beforeEach(() => {
     (inboundStub.record as jest.Mock).mockClear();
@@ -33,6 +39,7 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
   it('sin secret configurado + provider stub + no-produccion → tolera el bypass (dev/test)', async () => {
     const controller = new WhatsAppInboundController(
       inboundStub,
+      inboxStub,
       fakeConfig({
         WHATSAPP_APP_SECRET: '',
         WHATSAPP_PROVIDER: 'stub',
@@ -46,6 +53,7 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
   it('sin secret configurado + provider meta_waba → falla cerrado (403), aunque no sea produccion', async () => {
     const controller = new WhatsAppInboundController(
       inboundStub,
+      inboxStub,
       fakeConfig({
         WHATSAPP_APP_SECRET: '',
         WHATSAPP_PROVIDER: 'meta_waba',
@@ -59,6 +67,7 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
   it('sin secret configurado + NODE_ENV=production (aunque el provider fuera stub) → falla cerrado', async () => {
     const controller = new WhatsAppInboundController(
       inboundStub,
+      inboxStub,
       fakeConfig({
         WHATSAPP_APP_SECRET: '',
         WHATSAPP_PROVIDER: 'stub',
@@ -71,7 +80,7 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
   it('con secret configurado, firma valida → acepta y procesa', async () => {
     const secret = 's3cr3t-de-meta-32-caracteres-min';
     const config = fakeConfig({ WHATSAPP_APP_SECRET: secret, WHATSAPP_PROVIDER: 'meta_waba' });
-    const controller = new WhatsAppInboundController(inboundStub, config);
+    const controller = new WhatsAppInboundController(inboundStub, inboxStub, config);
     const payload = { entry: [] };
     const raw = Buffer.from(JSON.stringify(payload));
     const sig = createHmac('sha256', secret).update(raw).digest('hex');
@@ -86,7 +95,7 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
       WHATSAPP_APP_SECRET: 'a-real-secret',
       WHATSAPP_PROVIDER: 'meta_waba',
     });
-    const controller = new WhatsAppInboundController(inboundStub, config);
+    const controller = new WhatsAppInboundController(inboundStub, inboxStub, config);
     await expect(controller.receive(makeReq({ entry: [] }))).rejects.toThrow(BadRequestException);
     expect(inboundStub.record).not.toHaveBeenCalled();
   });
@@ -96,7 +105,7 @@ describe('WhatsAppInboundController.receive (verificación de firma)', () => {
       WHATSAPP_APP_SECRET: 'el-secreto-real',
       WHATSAPP_PROVIDER: 'meta_waba',
     });
-    const controller = new WhatsAppInboundController(inboundStub, config);
+    const controller = new WhatsAppInboundController(inboundStub, inboxStub, config);
     const payload = { entry: [] };
     const raw = Buffer.from(JSON.stringify(payload));
     const forgedSig = createHmac('sha256', 'secreto-adivinado-por-el-atacante')

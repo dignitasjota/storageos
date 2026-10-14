@@ -22,7 +22,10 @@
       "mapTitle": "Mapa de {name}",
       "watchVideo": "Ver vídeo",
       "googleReviews": "Reseñas en Google",
-      "notifyMe": "Avísame cuando haya"
+      "notifyMe": "Avísame cuando haya",
+      "whatsappButton": "Escríbenos por WhatsApp",
+      "whatsappMessage": "Hola, vengo de vuestra web y quería información sobre un trastero.",
+      "whatsappMessageFacility": "Hola, vengo de vuestra web y quería información sobre un trastero en {facility}."
     },
     "hours": {
       "title": "Horario",
