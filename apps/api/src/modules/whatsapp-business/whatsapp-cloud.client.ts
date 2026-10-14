@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { templateParamCount, type WhatsappTemplateDto } from '@storageos/shared';
 
 const GRAPH_API_VERSION = 'v21.0';
 /** Tamaño máximo de un archivo recibido que se guarda (el resto se deja sin copia). */
@@ -137,6 +138,54 @@ export class WhatsappCloudClient {
     const id = (json.messages as { id?: string }[] | undefined)?.[0]?.id;
     if (!id) throw new WhatsappCloudError('Meta no devolvió el id del mensaje', 502);
     return { messageId: id };
+  }
+
+  /** Plantillas aprobadas de la cuenta de WhatsApp Business (WABA). */
+  async listTemplates(wabaId: string, accessToken: string): Promise<WhatsappTemplateDto[]> {
+    if (this.stub) {
+      return [
+        {
+          name: 'recordatorio_reserva',
+          language: 'es',
+          category: 'UTILITY',
+          body: 'Hola {{1}}, tu trastero sigue reservado. Termina la reserva aquí: {{2}}',
+          paramCount: 2,
+        },
+        {
+          name: 'seguimiento_contacto',
+          language: 'es',
+          category: 'MARKETING',
+          body: 'Hola {{1}}, ¿pudiste resolver tu consulta sobre los trasteros?',
+          paramCount: 1,
+        },
+      ];
+    }
+    const out: WhatsappTemplateDto[] = [];
+    let url: string | null = `https://graph.facebook.com/${GRAPH_API_VERSION}/${encodeURIComponent(
+      wabaId,
+    )}/message_templates?fields=name,language,status,category,components&limit=100`;
+    for (let page = 0; url && page < 5; page += 1) {
+      const json = await this.request(url, accessToken, { method: 'GET' });
+      const data = Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
+      for (const t of data) {
+        if (t.status !== 'APPROVED' || typeof t.name !== 'string') continue;
+        const components = Array.isArray(t.components)
+          ? (t.components as { type?: string; text?: string }[])
+          : [];
+        const body = components.find((c) => c.type === 'BODY')?.text ?? '';
+        out.push({
+          name: t.name,
+          language: typeof t.language === 'string' ? t.language : 'es',
+          category: typeof t.category === 'string' ? t.category : null,
+          body,
+          paramCount: templateParamCount(body),
+        });
+      }
+      const next = (json.paging as { next?: string } | undefined)?.next;
+      url =
+        typeof next === 'string' && next.startsWith('https://graph.facebook.com/') ? next : null;
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

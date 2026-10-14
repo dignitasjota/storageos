@@ -23,6 +23,7 @@ import {
   useTestWhatsappAssistant,
   useUpdateWhatsappAssistant,
   useWhatsappAssistant,
+  useWhatsappTemplates,
 } from '@/lib/whatsapp/hooks';
 
 /**
@@ -32,6 +33,7 @@ import {
  */
 export function AssistantCard() {
   const assistant = useWhatsappAssistant();
+  const templates = useWhatsappTemplates(true);
   const update = useUpdateWhatsappAssistant();
   const test = useTestWhatsappAssistant();
 
@@ -184,11 +186,19 @@ export function AssistantCard() {
               <Label htmlFor="wa-reminder-tpl">Plantilla para recordar reservas (opcional)</Label>
               <Input
                 id="wa-reminder-tpl"
+                list="wa-approved-templates"
                 value={templateName}
                 onChange={(e) => setTemplateName(e.target.value)}
                 placeholder="recordatorio_reserva"
                 className="text-base sm:text-sm"
               />
+              <datalist id="wa-approved-templates">
+                {(templates.data?.templates ?? []).map((t) => (
+                  <option key={`${t.name}|${t.language}`} value={t.name}>
+                    {t.body}
+                  </option>
+                ))}
+              </datalist>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="wa-reminder-lang">Idioma</Label>

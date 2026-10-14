@@ -24,6 +24,7 @@ import {
   type WhatsappMediaType,
   type WhatsappMediaUploadDto,
   type WhatsappMessageMediaDto,
+  type WhatsappTemplatesDto,
 } from '@storageos/shared';
 
 import { tenantHasFeature } from '../../common/tenant-features';
@@ -427,6 +428,29 @@ export class WhatsappInboxService {
     }, args.tenantId);
     if (error) throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
     return this.toMessageDto(message);
+  }
+
+  /** Plantillas aprobadas en Meta (necesita el ID de la cuenta de WhatsApp Business). */
+  async listTemplates(tenantId: string): Promise<WhatsappTemplatesDto> {
+    const settings = await this.settings.resolveForTenant(tenantId);
+    const row = await this.admin.tenantWhatsappSettings.findUnique({
+      where: { tenantId },
+      select: { wabaId: true },
+    });
+    if (!settings || !row?.wabaId) return { wabaConfigured: false, templates: [], error: null };
+    try {
+      return {
+        wabaConfigured: true,
+        templates: await this.client.listTemplates(row.wabaId, settings.accessToken),
+        error: null,
+      };
+    } catch (err) {
+      return {
+        wabaConfigured: true,
+        templates: [],
+        error: err instanceof WhatsappCloudError ? err.message : 'No se pudo consultar a Meta',
+      };
+    }
   }
 
   /** URL firmada para subir un archivo que se enviará por WhatsApp. */

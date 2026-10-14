@@ -368,3 +368,27 @@ export function whatsappAssistantNotice(privacyUrl: string | null): string {
     .filter(Boolean)
     .join(' ');
 }
+
+/** Plantilla aprobada en Meta (para elegirla en la bandeja y en el recordatorio). */
+export interface WhatsappTemplateDto {
+  name: string;
+  language: string;
+  category: string | null;
+  /** Texto del cuerpo con las variables {{1}}, {{2}}… */
+  body: string;
+  /** Nº de variables del cuerpo. */
+  paramCount: number;
+}
+
+export interface WhatsappTemplatesDto {
+  /** Falta el ID de la cuenta de WhatsApp Business en los ajustes. */
+  wabaConfigured: boolean;
+  templates: WhatsappTemplateDto[];
+  error: string | null;
+}
+
+/** Nº de variables {{n}} distintas de un texto de plantilla. */
+export function templateParamCount(body: string): number {
+  const nums = [...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1]));
+  return nums.length === 0 ? 0 : Math.max(...nums);
+}

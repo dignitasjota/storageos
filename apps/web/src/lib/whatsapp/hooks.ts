@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   SendWhatsappTemplateInput,
   WhatsappMediaUploadDto,
+  WhatsappTemplatesDto,
   WhatsappOutgoingMediaMime,
   UpdateWhatsappAssistantInput,
   UpdateWhatsappSettingsInput,
@@ -85,6 +86,16 @@ export function useSendWhatsappMessage(conversationId: string) {
         json: { body },
       }),
     onSettled: () => qc.invalidateQueries({ queryKey: conversationsKey }),
+  });
+}
+
+/** Plantillas aprobadas en Meta de la cuenta del tenant. */
+export function useWhatsappTemplates(enabled: boolean) {
+  return useQuery({
+    queryKey: ['whatsapp', 'templates'],
+    queryFn: () => apiFetch<WhatsappTemplatesDto>('/whatsapp/conversations/templates'),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

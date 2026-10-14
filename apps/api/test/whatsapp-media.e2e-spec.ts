@@ -156,6 +156,24 @@ describe('WhatsApp: fotos y documentos (e2e)', () => {
       .send({ key: fake.body.key, mimeType: 'image/png', filename: 'foto.png' });
     expect(bad.status).toBe(400);
     expect(bad.body.code).toBe('invalid_file_content');
+    // Plantillas aprobadas: sin el ID de la cuenta no hay lista; con él, sí.
+    const noWaba = await request(app.getHttpServer())
+      .get('/whatsapp/conversations/templates')
+      .set(auth)
+      .expect(200);
+    expect(noWaba.body).toMatchObject({ wabaConfigured: false, templates: [] });
+    await request(app.getHttpServer())
+      .put('/settings/whatsapp')
+      .set(auth)
+      .send({ wabaId: '1234567890' })
+      .expect(200);
+    const tpls = await request(app.getHttpServer())
+      .get('/whatsapp/conversations/templates')
+      .set(auth)
+      .expect(200);
+    expect(tpls.body.wabaConfigured).toBe(true);
+    expect(tpls.body.templates[0]).toMatchObject({ name: 'recordatorio_reserva', paramCount: 2 });
+
     // Demasiado grande → 400 sin URL.
     await request(app.getHttpServer())
       .post(`/whatsapp/conversations/${convId}/media/upload-url`)

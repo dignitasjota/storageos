@@ -31,6 +31,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
@@ -41,6 +48,7 @@ import {
   useWhatsappConversation,
   useWhatsappConversations,
   useWhatsappSettings,
+  useWhatsappTemplates,
 } from '@/lib/whatsapp/hooks';
 
 export default function WhatsappPage() {
@@ -259,18 +267,46 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const [tplName, setTplName] = useState('');
   const [tplLanguage, setTplLanguage] = useState('es');
   const [tplParams, setTplParams] = useState('');
+  const [tplValues, setTplValues] = useState<string[]>([]);
+  const canReplyNow = conversation.data?.canReply ?? true;
+  const templates = useWhatsappTemplates(!canReplyNow);
+  const approved = templates.data?.templates ?? [];
+  const chosen = approved.find((t) => t.name === tplName && t.language === tplLanguage);
+
+  function chooseTemplate(value: string) {
+    const [name, language] = value.split('|');
+    const tpl = approved.find((t) => t.name === name && t.language === language);
+    setTplName(name ?? '');
+    setTplLanguage(language ?? 'es');
+    const contact = conversation.data
+      ? (conversation.data.customerName ?? conversation.data.contactName ?? '')
+      : '';
+    setTplValues(
+      Array.from({ length: tpl?.paramCount ?? 0 }, (_, i) =>
+        i === 0 ? (contact.split(' ')[0] ?? '') : '',
+      ),
+    );
+  }
 
   async function submitTemplate() {
+    const params = chosen
+      ? tplValues.map((v) => v.trim())
+      : tplParams
+          .split('\n')
+          .map((p) => p.trim())
+          .filter(Boolean);
+    if (chosen && params.some((v) => !v)) {
+      toast.error('Rellena todas las variables de la plantilla.');
+      return;
+    }
     try {
       await sendTemplate.mutateAsync({
         name: tplName.trim(),
         language: tplLanguage.trim() || 'es',
-        params: tplParams
-          .split('\n')
-          .map((p) => p.trim())
-          .filter(Boolean),
+        params,
       });
       setTplParams('');
+      setTplValues([]);
       toast.success('Plantilla enviada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
@@ -445,40 +481,106 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 Han pasado más de 24 horas desde el último mensaje de este contacto: WhatsApp solo
                 deja escribirle con una plantilla aprobada en Meta.
               </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  value={tplName}
-                  onChange={(e) => setTplName(e.target.value)}
-                  placeholder="Nombre de la plantilla"
-                  className="text-base sm:text-sm"
-                />
-                <Input
-                  value={tplLanguage}
-                  onChange={(e) => setTplLanguage(e.target.value)}
-                  placeholder="es"
-                  className="text-base sm:w-24 sm:text-sm"
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <Textarea
-                  value={tplParams}
-                  onChange={(e) => setTplParams(e.target.value)}
-                  rows={2}
-                  placeholder="Valores de las variables, uno por línea ({{1}}, {{2}}…)"
-                  className="text-base sm:text-sm"
-                />
-                <Button
-                  onClick={submitTemplate}
-                  disabled={sendTemplate.isPending || !tplName.trim()}
-                  aria-label="Enviar plantilla"
-                >
-                  {sendTemplate.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Send className="size-4" />
+              {approved.length > 0 ? (
+                <div className="space-y-2">
+                  <Select
+                    value={chosen ? `${chosen.name}|${chosen.language}` : ''}
+                    onValueChange={chooseTemplate}
+                  >
+                    <SelectTrigger className="text-base sm:text-sm">
+                      <SelectValue placeholder="Elige una plantilla aprobada" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {approved.map((t) => (
+                        <SelectItem
+                          key={`${t.name}|${t.language}`}
+                          value={`${t.name}|${t.language}`}
+                        >
+                          {t.name} · {t.language}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {chosen && (
+                    <>
+                      <p className="whitespace-pre-wrap rounded-md bg-muted px-3 py-2 text-xs">
+                        {chosen.body}
+                      </p>
+                      {tplValues.map((v, i) => (
+                        <Input
+                          key={i}
+                          value={v}
+                          onChange={(e) =>
+                            setTplValues((prev) =>
+                              prev.map((p, j) => (j === i ? e.target.value : p)),
+                            )
+                          }
+                          placeholder={`Valor de {{${i + 1}}}`}
+                          className="text-base sm:text-sm"
+                        />
+                      ))}
+                    </>
                   )}
-                </Button>
-              </div>
+                  <div className="flex justify-end">
+                    <Button onClick={submitTemplate} disabled={sendTemplate.isPending || !chosen}>
+                      {sendTemplate.isPending ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 size-4" />
+                      )}
+                      Enviar plantilla
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {templates.data && !templates.data.wabaConfigured && (
+                    <p className="text-xs text-muted-foreground">
+                      Pon el ID de tu cuenta de WhatsApp Business en Configuración → WhatsApp para
+                      elegir tus plantillas de una lista.
+                    </p>
+                  )}
+                  {templates.data?.error && (
+                    <p className="text-xs text-red-600">
+                      No se pudieron cargar tus plantillas: {templates.data.error}
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      value={tplName}
+                      onChange={(e) => setTplName(e.target.value)}
+                      placeholder="Nombre de la plantilla"
+                      className="text-base sm:text-sm"
+                    />
+                    <Input
+                      value={tplLanguage}
+                      onChange={(e) => setTplLanguage(e.target.value)}
+                      placeholder="es"
+                      className="text-base sm:w-24 sm:text-sm"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Textarea
+                      value={tplParams}
+                      onChange={(e) => setTplParams(e.target.value)}
+                      rows={2}
+                      placeholder="Valores de las variables, uno por línea ({{1}}, {{2}}…)"
+                      className="text-base sm:text-sm"
+                    />
+                    <Button
+                      onClick={submitTemplate}
+                      disabled={sendTemplate.isPending || !tplName.trim()}
+                      aria-label="Enviar plantilla"
+                    >
+                      {sendTemplate.isPending ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Send className="size-4" />
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

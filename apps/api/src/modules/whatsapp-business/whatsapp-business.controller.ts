@@ -17,6 +17,7 @@ import {
   RequestWhatsappMediaUploadSchema,
   SendWhatsappMediaSchema,
   type WhatsappMediaUploadDto,
+  type WhatsappTemplatesDto,
   UpdateWhatsappAssistantSchema,
   UpdateWhatsappConversationSchema,
   UpdateWhatsappSettingsSchema,
@@ -135,6 +136,13 @@ export class WhatsappConversationsController {
   }
 
   @RequirePermission('communications:read')
+  /** Plantillas aprobadas en Meta (para enviarlas pasadas 24 h). */
+  @RequirePermission('communications:send')
+  @Get('templates')
+  templates(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappTemplatesDto> {
+    return this.inbox.listTemplates(user.tenantId);
+  }
+
   @Get('unread-count')
   async unreadCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
     return { count: await this.inbox.unreadCount(user.tenantId) };
