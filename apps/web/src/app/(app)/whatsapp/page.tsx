@@ -1,13 +1,23 @@
 'use client';
 
 import {
+  WHATSAPP_MEDIA_LABELS,
+  WHATSAPP_OUTGOING_MAX_BYTES,
+  WHATSAPP_OUTGOING_MEDIA_MIMES,
+  type WhatsappConversationDto,
+  type WhatsappMessageDto,
+  type WhatsappOutgoingMediaMime,
+} from '@storageos/shared';
+import {
   AlertTriangle,
   ArrowLeft,
   Bot,
   Check,
   CheckCheck,
   Loader2,
+  FileText,
   MessageCircle,
+  Paperclip,
   Send,
   Settings,
 } from 'lucide-react';
@@ -15,8 +25,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-
-import type { WhatsappConversationDto, WhatsappMessageDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +34,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
+  useSendWhatsappMedia,
   useSendWhatsappMessage,
   useSendWhatsappTemplate,
   useSetConversationAssistant,
@@ -162,6 +171,54 @@ function WhatsappInbox() {
   );
 }
 
+/** Foto, audio, vídeo o documento de un mensaje. */
+function MessageMedia({ m }: { m: WhatsappMessageDto }) {
+  const media = m.media;
+  if (!media) return null;
+  if (!media.url) {
+    return (
+      <p className="mb-1 text-xs italic opacity-80">
+        {WHATSAPP_MEDIA_LABELS[media.type]} no disponible
+      </p>
+    );
+  }
+  if (media.type === 'image' || media.type === 'sticker') {
+    return (
+      <a href={media.url} target="_blank" rel="noreferrer" className="mb-1 block">
+        {/* eslint-disable-next-line @next/next/no-img-element -- URL firmada temporal de MinIO */}
+        <img
+          src={media.url}
+          alt={WHATSAPP_MEDIA_LABELS[media.type]}
+          className={`rounded-md ${media.type === 'sticker' ? 'max-h-32' : 'max-h-64'} max-w-full`}
+        />
+      </a>
+    );
+  }
+  if (media.type === 'audio') {
+    return <audio controls src={media.url} className="mb-1 max-w-full" />;
+  }
+  if (media.type === 'video') {
+    return <video controls src={media.url} className="mb-1 max-h-64 max-w-full rounded-md" />;
+  }
+  return (
+    <a
+      href={media.url}
+      target="_blank"
+      rel="noreferrer"
+      className="mb-1 flex items-center gap-2 rounded-md bg-black/10 px-2 py-1.5 text-xs underline"
+    >
+      <FileText className="size-4 shrink-0" />
+      <span className="truncate">{media.filename ?? WHATSAPP_MEDIA_LABELS.document}</span>
+    </a>
+  );
+}
+
+/** El texto del mensaje sin la etiqueta «[Foto]» cuando ya se ve el archivo. */
+function messageText(m: WhatsappMessageDto): string {
+  if (!m.media?.url) return m.body;
+  return m.body.replace(/^\[[^\]]*\]\s*/, '');
+}
+
 function StatusIcon({ m }: { m: WhatsappMessageDto }) {
   if (m.direction !== 'out') return null;
   if (m.status === 'failed') return <AlertTriangle className="size-3.5 text-red-200" />;
@@ -175,6 +232,30 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const send = useSendWhatsappMessage(id);
   const toggleAssistant = useSetConversationAssistant(id);
   const sendTemplate = useSendWhatsappTemplate(id);
+  const sendMedia = useSendWhatsappMedia(id);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function attach(file: File | undefined) {
+    if (!file) return;
+    const mime = file.type as WhatsappOutgoingMediaMime;
+    if (!(WHATSAPP_OUTGOING_MEDIA_MIMES as readonly string[]).includes(mime)) {
+      toast.error('Solo se pueden enviar fotos (JPG o PNG) y PDF.');
+      return;
+    }
+    if (file.size > WHATSAPP_OUTGOING_MAX_BYTES[mime]) {
+      toast.error(
+        `El archivo supera el máximo (${Math.round(WHATSAPP_OUTGOING_MAX_BYTES[mime] / 1024 / 1024)} MB).`,
+      );
+      return;
+    }
+    try {
+      // El texto escrito se envía como pie del archivo.
+      await sendMedia.mutateAsync({ file, ...(text.trim() ? { caption: text.trim() } : {}) });
+      setText('');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar el archivo.');
+    }
+  }
   const [tplName, setTplName] = useState('');
   const [tplLanguage, setTplLanguage] = useState('es');
   const [tplParams, setTplParams] = useState('');
@@ -288,7 +369,10 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                   : 'bg-background shadow-sm'
               }`}
             >
-              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+              <MessageMedia m={m} />
+              {messageText(m) && (
+                <p className="whitespace-pre-wrap break-words">{messageText(m)}</p>
+              )}
               <div className="mt-1 flex items-center justify-end gap-1 text-[11px] opacity-80">
                 {m.sender === 'assistant' && <span>Asistente ·</span>}
                 {m.sentByName && <span>{m.sentByName} ·</span>}
@@ -306,6 +390,30 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="border-t p-3">
           {c.canReply ? (
             <div className="flex items-end gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept={WHATSAPP_OUTGOING_MEDIA_MIMES.join(',')}
+                className="hidden"
+                onChange={(e) => {
+                  void attach(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => fileRef.current?.click()}
+                disabled={sendMedia.isPending}
+                aria-label="Adjuntar foto o PDF"
+                title="Adjuntar foto o PDF (lo escrito va como pie)"
+              >
+                {sendMedia.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Paperclip className="size-4" />
+                )}
+              </Button>
               <Textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}

@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 const GRAPH_API_VERSION = 'v21.0';
+/** Tamaño máximo de un archivo recibido que se guarda (el resto se deja sin copia). */
+export const WHATSAPP_MEDIA_MAX_BYTES = 20 * 1024 * 1024;
+/** JPEG mínimo que devuelve el modo simulado. */
+const STUB_JPEG = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9,
+]);
 
 export interface WhatsappPhoneInfo {
   displayPhone: string | null;
@@ -126,6 +132,135 @@ export class WhatsappCloudClient {
               }
             : {}),
         },
+      }),
+    });
+    const id = (json.messages as { id?: string }[] | undefined)?.[0]?.id;
+    if (!id) throw new WhatsappCloudError('Meta no devolvió el id del mensaje', 502);
+    return { messageId: id };
+  }
+
+  /**
+   * Descarga un archivo recibido (foto, audio…). Meta da primero una URL
+   * temporal (solo de sus dominios) que se pide con el mismo token.
+   */
+  async downloadMedia(
+    mediaId: string,
+    accessToken: string,
+  ): Promise<{ bytes: Buffer; mime: string | null }> {
+    if (this.stub) {
+      if (mediaId.startsWith('invalid')) throw new WhatsappCloudError('Archivo no disponible', 404);
+      return { bytes: STUB_JPEG, mime: 'image/jpeg' };
+    }
+    const info = await this.request(
+      `https://graph.facebook.com/${GRAPH_API_VERSION}/${encodeURIComponent(mediaId)}`,
+      accessToken,
+      { method: 'GET' },
+    );
+    const url = typeof info.url === 'string' ? info.url : null;
+    const size = typeof info.file_size === 'number' ? info.file_size : null;
+    if (!url) throw new WhatsappCloudError('Meta no devolvió la URL del archivo', 502);
+    if (size !== null && size > WHATSAPP_MEDIA_MAX_BYTES) {
+      throw new WhatsappCloudError('El archivo es demasiado grande', 413);
+    }
+    let host: string;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:') throw new Error('protocolo');
+      host = parsed.hostname;
+    } catch {
+      throw new WhatsappCloudError('URL de archivo no válida', 502);
+    }
+    // Solo dominios de Meta: el token no debe salir hacia otro sitio.
+    if (!/(^|\.)(fbsbx\.com|facebook\.com|whatsapp\.net|fbcdn\.net)$/.test(host)) {
+      throw new WhatsappCloudError('URL de archivo fuera de Meta', 502);
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(30_000),
+        redirect: 'manual',
+      });
+    } catch (err) {
+      throw new WhatsappCloudError(
+        `No se pudo descargar el archivo: ${err instanceof Error ? err.message : String(err)}`,
+        0,
+      );
+    }
+    if (!res.ok) throw new WhatsappCloudError(`WhatsApp respondió ${res.status}`, res.status);
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length > WHATSAPP_MEDIA_MAX_BYTES) {
+      throw new WhatsappCloudError('El archivo es demasiado grande', 413);
+    }
+    return {
+      bytes,
+      mime: typeof info.mime_type === 'string' ? info.mime_type : res.headers.get('content-type'),
+    };
+  }
+
+  /** Sube un archivo a Meta y lo envía (foto o documento). Devuelve el wamid. */
+  async sendMedia(args: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    type: 'image' | 'document';
+    bytes: Buffer;
+    mime: string;
+    filename: string;
+    caption?: string | undefined;
+  }): Promise<{ messageId: string }> {
+    if (this.stub) {
+      this.logger.log(`[whatsapp:stub] ${args.type} ${args.filename} → ${args.to}`);
+      return {
+        messageId: `wamid.stub-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+    }
+    const base = `https://graph.facebook.com/${GRAPH_API_VERSION}/${encodeURIComponent(
+      args.phoneNumberId,
+    )}`;
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', args.mime);
+    form.append('file', new Blob([new Uint8Array(args.bytes)], { type: args.mime }), args.filename);
+    let uploaded: Record<string, unknown>;
+    try {
+      const res = await fetch(`${base}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${args.accessToken}` },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+        redirect: 'manual',
+      });
+      uploaded = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        const detail = (uploaded.error as { message?: string } | undefined)?.message;
+        throw new WhatsappCloudError(detail ?? `WhatsApp respondió ${res.status}`, res.status);
+      }
+    } catch (err) {
+      if (err instanceof WhatsappCloudError) throw err;
+      throw new WhatsappCloudError(
+        `No se pudo subir el archivo: ${err instanceof Error ? err.message : String(err)}`,
+        0,
+      );
+    }
+    const mediaId = typeof uploaded.id === 'string' ? uploaded.id : null;
+    if (!mediaId) throw new WhatsappCloudError('Meta no devolvió el id del archivo', 502);
+    const payload =
+      args.type === 'image'
+        ? { id: mediaId, ...(args.caption ? { caption: args.caption } : {}) }
+        : {
+            id: mediaId,
+            filename: args.filename,
+            ...(args.caption ? { caption: args.caption } : {}),
+          };
+    const json = await this.request(`${base}/messages`, args.accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: args.to,
+        type: args.type,
+        [args.type]: payload,
       }),
     });
     const id = (json.messages as { id?: string }[] | undefined)?.[0]?.id;

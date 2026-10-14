@@ -14,6 +14,9 @@ import {
 import {
   SendWhatsappMessageSchema,
   SendWhatsappTemplateSchema,
+  RequestWhatsappMediaUploadSchema,
+  SendWhatsappMediaSchema,
+  type WhatsappMediaUploadDto,
   UpdateWhatsappAssistantSchema,
   UpdateWhatsappConversationSchema,
   UpdateWhatsappSettingsSchema,
@@ -43,6 +46,8 @@ import type { Request } from 'express';
 class UpdateWhatsappSettingsBody extends createZodDto(UpdateWhatsappSettingsSchema) {}
 class SendWhatsappMessageBody extends createZodDto(SendWhatsappMessageSchema) {}
 class SendWhatsappTemplateBody extends createZodDto(SendWhatsappTemplateSchema) {}
+class RequestWhatsappMediaUploadBody extends createZodDto(RequestWhatsappMediaUploadSchema) {}
+class SendWhatsappMediaBody extends createZodDto(SendWhatsappMediaSchema) {}
 class UpdateWhatsappAssistantBody extends createZodDto(UpdateWhatsappAssistantSchema) {}
 class UpdateWhatsappConversationBody extends createZodDto(UpdateWhatsappConversationSchema) {}
 
@@ -179,6 +184,37 @@ export class WhatsappConversationsController {
     @Body() body: SendWhatsappTemplateBody,
   ): Promise<WhatsappMessageDto> {
     return this.inbox.sendTemplate({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      conversationId: id,
+      input: body,
+    });
+  }
+
+  /** URL para subir un archivo (foto o PDF) que se enviará en la conversación. */
+  @RequirePermission('communications:send')
+  @Post(':id/media/upload-url')
+  mediaUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RequestWhatsappMediaUploadBody,
+  ): Promise<WhatsappMediaUploadDto> {
+    return this.inbox.requestMediaUpload({
+      tenantId: user.tenantId,
+      conversationId: id,
+      input: body,
+    });
+  }
+
+  /** Envía el archivo ya subido (dentro de las 24 h). */
+  @RequirePermission('communications:send')
+  @Post(':id/media')
+  sendMedia(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SendWhatsappMediaBody,
+  ): Promise<WhatsappMessageDto> {
+    return this.inbox.sendMedia({
       tenantId: user.tenantId,
       userId: user.sub,
       conversationId: id,

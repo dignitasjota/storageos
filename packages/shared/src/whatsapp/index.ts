@@ -77,6 +77,60 @@ export interface WhatsappConversationDto {
   contractId: string | null;
 }
 
+export const WHATSAPP_MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'] as const;
+export type WhatsappMediaType = (typeof WHATSAPP_MEDIA_TYPES)[number];
+
+export const WHATSAPP_MEDIA_LABELS: Record<WhatsappMediaType, string> = {
+  image: 'Foto',
+  audio: 'Audio',
+  video: 'Vídeo',
+  document: 'Documento',
+  sticker: 'Sticker',
+};
+
+export interface WhatsappMessageMediaDto {
+  type: WhatsappMediaType;
+  mime: string | null;
+  filename: string | null;
+  size: number | null;
+  /** URL firmada temporal; null si el archivo no se pudo guardar. */
+  url: string | null;
+}
+
+/** Archivos que el equipo puede enviar desde la bandeja. */
+export const WHATSAPP_OUTGOING_MEDIA_MIMES = [
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+] as const;
+export type WhatsappOutgoingMediaMime = (typeof WHATSAPP_OUTGOING_MEDIA_MIMES)[number];
+/** Límites de Meta: fotos 5 MB; documentos hasta 100 MB (aquí, 20 MB). */
+export const WHATSAPP_OUTGOING_MAX_BYTES: Record<WhatsappOutgoingMediaMime, number> = {
+  'image/jpeg': 5 * 1024 * 1024,
+  'image/png': 5 * 1024 * 1024,
+  'application/pdf': 20 * 1024 * 1024,
+};
+
+export const RequestWhatsappMediaUploadSchema = z.object({
+  mimeType: z.enum(WHATSAPP_OUTGOING_MEDIA_MIMES),
+  filename: z.string().trim().min(1).max(200),
+  size: z.number().int().positive(),
+});
+export type RequestWhatsappMediaUploadInput = z.infer<typeof RequestWhatsappMediaUploadSchema>;
+
+export interface WhatsappMediaUploadDto {
+  key: string;
+  uploadUrl: string;
+}
+
+export const SendWhatsappMediaSchema = z.object({
+  key: z.string().min(1).max(500),
+  mimeType: z.enum(WHATSAPP_OUTGOING_MEDIA_MIMES),
+  filename: z.string().trim().min(1).max(200),
+  caption: z.string().trim().max(1024).optional(),
+});
+export type SendWhatsappMediaInput = z.infer<typeof SendWhatsappMediaSchema>;
+
 export interface WhatsappMessageDto {
   id: string;
   direction: 'in' | 'out';
@@ -86,6 +140,7 @@ export interface WhatsappMessageDto {
   error: string | null;
   sentByName: string | null;
   createdAt: string;
+  media: WhatsappMessageMediaDto | null;
 }
 
 export interface WhatsappConversationDetailDto extends WhatsappConversationDto {

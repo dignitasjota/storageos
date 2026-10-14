@@ -5229,6 +5229,13 @@ model WhatsappMessage {
   sentByUserId   String?  @map("sent_by_user_id") @db.Uuid
   /// platform | own (solo respuestas del asistente).
   aiKeySource    String?  @map("ai_key_source")
+  /// image | audio | video | document | sticker (null = solo texto).
+  mediaType      String?  @map("media_type")
+  /// Archivo en el bucket privado `uploads` (null mientras se descarga o si falló).
+  mediaKey       String?  @map("media_key")
+  mediaMime      String?  @map("media_mime")
+  mediaFilename  String?  @map("media_filename")
+  mediaSize      Int?     @map("media_size")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)

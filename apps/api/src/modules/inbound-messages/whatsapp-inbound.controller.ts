@@ -17,6 +17,10 @@ import { ConfigService } from '@nestjs/config';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { WhatsappInboxService } from '../whatsapp-business/whatsapp-inbox.service';
+import {
+  parseWabaMessage,
+  type WabaInboundMessage,
+} from '../whatsapp-business/whatsapp-message-parse';
 
 import { InboundMessagesService } from './inbound-messages.service';
 
@@ -45,14 +49,6 @@ function timingSafeEqualString(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-interface WabaTextMessage {
-  id?: string;
-  from?: string;
-  timestamp?: string;
-  type?: string;
-  text?: { body?: string };
-}
-
 interface WabaStatus {
   id?: string;
   status?: string;
@@ -62,7 +58,7 @@ interface WabaStatus {
 interface WabaChangeValue {
   metadata?: { phone_number_id?: string };
   contacts?: { wa_id?: string; profile?: { name?: string } }[];
-  messages?: WabaTextMessage[];
+  messages?: WabaInboundMessage[];
   statuses?: WabaStatus[];
 }
 
@@ -130,7 +126,7 @@ export class WhatsAppInboundController {
       throw new BadRequestException({ code: 'invalid_json' });
     }
 
-    // Estructura Meta: entry[].changes[].value.messages[] (mensajes de texto).
+    // Estructura Meta: entry[].changes[].value.messages[] (texto, archivos, ubicación…).
     const entries = (payload as { entry?: unknown[] }).entry ?? [];
     for (const entry of entries) {
       const changes = (entry as { changes?: unknown[] }).changes ?? [];
@@ -138,7 +134,8 @@ export class WhatsAppInboundController {
         const value = (change as { value?: WabaChangeValue }).value;
         const phoneNumberId = value?.metadata?.phone_number_id ?? null;
         for (const msg of value?.messages ?? []) {
-          if (msg.type !== 'text' || !msg.from || !msg.text?.body) continue;
+          const parsed = msg.from ? parseWabaMessage(msg) : null;
+          if (!msg.from || !parsed) continue;
           // Best-effort: un fallo con un mensaje no debe romper el 200.
           const handled =
             phoneNumberId && msg.id
@@ -149,14 +146,15 @@ export class WhatsAppInboundController {
                     profileName:
                       value?.contacts?.find((c) => c.wa_id === msg.from)?.profile?.name ?? null,
                     waMessageId: msg.id,
-                    body: msg.text.body,
+                    body: parsed.body,
+                    media: parsed.media,
                     receivedAt: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : new Date(),
                   })
                   .catch(() => true)
               : false;
           if (handled) continue;
           await this.inbound
-            .record({ channel: 'whatsapp', from: msg.from, body: msg.text.body })
+            .record({ channel: 'whatsapp', from: msg.from, body: parsed.body })
             .catch(() => undefined);
         }
         for (const st of value?.statuses ?? []) {
