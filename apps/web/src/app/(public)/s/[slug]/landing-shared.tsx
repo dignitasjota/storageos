@@ -175,7 +175,9 @@ export async function buildLandingMetadata(
     };
   }
   const where = landingCities(data);
-  const title =
+  // Los textos SEO propios se escriben en español: en inglés se usan los generados.
+  const seo = locale === 'es' ? (data.webSeo ?? {}) : {};
+  const generatedTitle =
     locale === 'en'
       ? data.webHeadline
         ? `${data.webHeadline} · ${data.tenantName}`
@@ -183,12 +185,14 @@ export async function buildLandingMetadata(
       : data.webHeadline
         ? `${data.webHeadline} · ${data.tenantName}`
         : `Trasteros${where ? ` en ${where}` : ''} · ${data.tenantName}`;
-  const description =
+  const title = seo.homeTitle ?? generatedTitle;
+  const generatedDescription =
     locale === 'en'
       ? `Rent your storage unit with ${data.tenantName}${where ? ` in ${where}` : ''}. Check availability and pricing and book online in minutes.`
       : `Alquila tu trastero con ${data.tenantName}${
           where ? ` en ${where}` : ''
         }. Consulta disponibilidad y precios y reserva online en minutos.`;
+  const description = seo.homeDescription ?? generatedDescription;
   const base = data.customDomain ? `https://${data.customDomain}` : `/s/${slug}`;
   if (section) return sectionMetadata(data, base, where, section);
   // Con dominio propio activo, el canonical apunta a él (versión canónica);
@@ -233,16 +237,21 @@ function sectionMetadata(
     data.facilities.flatMap((f) => f.unitTypes),
     'es',
   );
+  const seo = data.webSeo ?? {};
+  const customTitle = section === 'precios' ? seo.pricesTitle : seo.contactTitle;
+  const customDescription = section === 'precios' ? seo.pricesDescription : seo.contactDescription;
   const title =
-    section === 'precios'
+    customTitle ??
+    (section === 'precios'
       ? `Precios de trasteros${en} · ${data.tenantName}`
-      : `Contacto · ${data.tenantName}`;
-  const description =
+      : `Contacto · ${data.tenantName}`);
+  const generatedDescription =
     section === 'precios'
       ? `Tamaños y precios de los trasteros de ${data.tenantName}${en}${
           prices ? ` (${prices})` : ''
         }, con IVA incluido. Reserva online en minutos.`
       : `Contacta con ${data.tenantName}${en}: teléfono, dirección, horario y formulario. Te respondemos lo antes posible.`;
+  const description = customDescription ?? generatedDescription;
   return {
     // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
     title: { absolute: title },

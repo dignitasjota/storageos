@@ -14,6 +14,8 @@ import {
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { WebSeoCard } from './web-seo-card';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -396,6 +398,14 @@ export default function WebSettingsPage() {
             </Button>
           </CardContent>
         </Card>
+      )}
+
+      {template !== 'external' && settings.data && (
+        <WebSeoCard
+          seo={settings.data.seo ?? {}}
+          tenantName={me.data?.tenant.name ?? ''}
+          domain={domainVerified ? (branding.data?.customDomain ?? null) : null}
+        />
       )}
     </div>
   );

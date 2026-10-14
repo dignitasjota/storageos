@@ -123,6 +123,33 @@ export function parseWebContent(raw: unknown): WebContent {
   return parsed.success ? parsed.data : {};
 }
 
+/**
+ * Título y descripción que ven Google y los anuncios en la portada, `/precios`
+ * y `/contacto` (dominio propio). Vacío = se generan solos con el nombre de la
+ * empresa y la ciudad. Google corta hacia los 60 caracteres del título y los
+ * 160 de la descripción.
+ */
+export const WebSeoSchema = z.object({
+  homeTitle: optionalWebText(70),
+  homeDescription: optionalWebText(200),
+  pricesTitle: optionalWebText(70),
+  pricesDescription: optionalWebText(200),
+  contactTitle: optionalWebText(70),
+  contactDescription: optionalWebText(200),
+});
+export type WebSeo = z.infer<typeof WebSeoSchema>;
+
+/** Parseo defensivo del jsonb `web_seo`; los campos vacíos se quitan. */
+export function parseWebSeo(raw: unknown): WebSeo {
+  const parsed = WebSeoSchema.safeParse(raw ?? {});
+  if (!parsed.success) return {};
+  const out: WebSeo = {};
+  for (const [k, v] of Object.entries(parsed.data)) {
+    if (typeof v === 'string' && v.trim()) out[k as keyof WebSeo] = v.trim();
+  }
+  return out;
+}
+
 export const UpdateWebSettingsSchema = z
   .object({
     // Derivado de `WEB_TEMPLATES` (no duplicar la lista a mano aquí: ya causó
@@ -135,6 +162,8 @@ export const UpdateWebSettingsSchema = z
     about: optionalWebText(2000),
     sections: WebSectionsSchema.partial().optional(),
     content: WebContentSchema.partial().optional(),
+    /** Campos SEO a cambiar (`''` = volver al generado). */
+    seo: WebSeoSchema.optional(),
     /**
      * URL donde el tenant ya aloja su propia web (plantilla `external`). Validación
      * de formato básica aquí; la validación fuerte (https, no IP privada/loopback,
@@ -159,6 +188,8 @@ export interface WebSettingsResponse {
   content: WebContent;
   /** URL de la web externa del tenant (plantilla `external`), o null. */
   externalSiteUrl: string | null;
+  /** Títulos y descripciones para Google (solo los rellenos). */
+  seo: WebSeo;
 }
 
 /** Envío del formulario de contacto de la web pública → crea un lead. */
