@@ -35,6 +35,8 @@ export class DataRetentionService {
     communications: number;
     notifications: number;
     platformEmails: number;
+    whatsappConversations: number;
+    whatsappMessages: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -43,30 +45,45 @@ export class DataRetentionService {
     const accessDays = this.config.get('RETENTION_ACCESS_LOGS_DAYS', { infer: true });
     const commsDays = this.config.get('RETENTION_COMMUNICATIONS_DAYS', { infer: true });
     const notifDays = this.config.get('RETENTION_NOTIFICATIONS_DAYS', { infer: true });
+    const whatsappDays = this.config.get('RETENTION_WHATSAPP_DAYS', { infer: true });
     const prenoticeDays = Math.max(
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
     );
 
-    const [auditLogs, accessLogs, communications, notifications, platformEmails] =
-      await Promise.all([
-        this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
-        this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
-        // Los preavisos SEPA se conservan más (prueba ante una devolución).
-        this.admin.communication.deleteMany({
-          where: {
-            createdAt: { lt: cutoff(commsDays) },
-            OR: [
-              { source: null },
-              { source: { not: SEPA_PRENOTICE_SOURCE } },
-              { createdAt: { lt: cutoff(prenoticeDays) } },
-            ],
-          },
-        }),
-        this.admin.notification.deleteMany({ where: { createdAt: { lt: cutoff(notifDays) } } }),
-        // Historial de correos de la plataforma: mismo plazo que Comunicaciones.
-        this.admin.platformEmailLog.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),
-      ]);
+    const [
+      auditLogs,
+      accessLogs,
+      communications,
+      notifications,
+      platformEmails,
+      whatsappConversations,
+      whatsappMessages,
+    ] = await Promise.all([
+      this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
+      this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
+      // Los preavisos SEPA se conservan más (prueba ante una devolución).
+      this.admin.communication.deleteMany({
+        where: {
+          createdAt: { lt: cutoff(commsDays) },
+          OR: [
+            { source: null },
+            { source: { not: SEPA_PRENOTICE_SOURCE } },
+            { createdAt: { lt: cutoff(prenoticeDays) } },
+          ],
+        },
+      }),
+      this.admin.notification.deleteMany({ where: { createdAt: { lt: cutoff(notifDays) } } }),
+      // Historial de correos de la plataforma: mismo plazo que Comunicaciones.
+      this.admin.platformEmailLog.deleteMany({ where: { createdAt: { lt: cutoff(commsDays) } } }),
+      // WhatsApp: conversaciones sin movimiento y mensajes pasado el plazo.
+      this.admin.whatsappConversation.deleteMany({
+        where: { lastMessageAt: { lt: cutoff(whatsappDays) } },
+      }),
+      this.admin.whatsappMessage.deleteMany({
+        where: { createdAt: { lt: cutoff(whatsappDays) } },
+      }),
+    ]);
 
     const result = {
       auditLogs: auditLogs.count,
@@ -74,19 +91,24 @@ export class DataRetentionService {
       communications: communications.count,
       notifications: notifications.count,
       platformEmails: platformEmails.count,
+      whatsappConversations: whatsappConversations.count,
+      whatsappMessages: whatsappMessages.count,
     };
     const total =
       result.auditLogs +
       result.accessLogs +
       result.communications +
       result.notifications +
-      result.platformEmails;
+      result.platformEmails +
+      result.whatsappConversations +
+      result.whatsappMessages;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
           `(audit=${result.auditLogs}, access=${result.accessLogs}, ` +
           `comms=${result.communications}, notif=${result.notifications}, ` +
-          `platform_emails=${result.platformEmails})`,
+          `platform_emails=${result.platformEmails}, ` +
+          `whatsapp=${result.whatsappConversations}/${result.whatsappMessages})`,
       );
     }
     return result;

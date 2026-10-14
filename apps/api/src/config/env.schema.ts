@@ -243,6 +243,8 @@ const envSchemaBase = z.object({
   RETENTION_SEPA_PRENOTICE_DAYS: z.coerce.number().int().positive().default(430),
   /** Feed de notificaciones in-app: 90 días. */
   RETENTION_NOTIFICATIONS_DAYS: z.coerce.number().int().positive().default(90),
+  /** Conversaciones de WhatsApp Business: 365 días sin movimiento. */
+  RETENTION_WHATSAPP_DAYS: z.coerce.number().int().positive().default(365),
 
   // --- Control de accesos: anti-fuerza-bruta en /access/verify ---
   //     Además del throttle por IP (60/min), lockout por DISPOSITIVO (frena el

@@ -12,6 +12,7 @@ import {
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
+import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -1845,6 +1846,10 @@ export class AdminTenantsService {
         },
       });
 
+      // WhatsApp: conversaciones sin texto ni números y fuera el token del número.
+      const whatsapp = await anonymizeWhatsappConversations(tx, { tenantId });
+      await tx.tenantWhatsappSettings.deleteMany({ where: { tenantId } });
+
       const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });
       for (const user of users) {
         await tx.user.update({
@@ -1875,6 +1880,7 @@ export class AdminTenantsService {
         users: users.length,
         leads: leads.count,
         communications: communications.count,
+        whatsappConversations: whatsapp,
       };
     });
 
@@ -1884,6 +1890,7 @@ export class AdminTenantsService {
       anonymizedUsers: counts.users,
       anonymizedLeads: counts.leads,
       anonymizedCommunications: counts.communications,
+      anonymizedWhatsappConversations: counts.whatsappConversations,
     };
     await this.audit.write({
       tenantId,

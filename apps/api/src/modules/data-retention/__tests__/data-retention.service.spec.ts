@@ -9,6 +9,7 @@ const RETENTION: Record<string, number> = {
   RETENTION_COMMUNICATIONS_DAYS: 180,
   RETENTION_NOTIFICATIONS_DAYS: 90,
   RETENTION_SEPA_PRENOTICE_DAYS: 430,
+  RETENTION_WHATSAPP_DAYS: 365,
 };
 
 function build() {
@@ -18,6 +19,8 @@ function build() {
     communication: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     platformEmailLog: { deleteMany: jest.fn().mockResolvedValue({ count: 4 }) },
+    whatsappConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 6 }) },
+    whatsappMessage: { deleteMany: jest.fn().mockResolvedValue({ count: 7 }) },
   };
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
@@ -58,6 +61,8 @@ describe('DataRetentionService', () => {
       communications: 2,
       notifications: 1,
       platformEmails: 4,
+      whatsappConversations: 6,
+      whatsappMessages: 7,
     });
   });
 });

@@ -51,6 +51,7 @@ export class TenantDataExportService {
       incidents,
       owners,
       statements,
+      whatsappMessages,
     ] = await Promise.all([
       this.admin.facility.findMany({
         where,
@@ -111,6 +112,11 @@ export class TenantDataExportService {
         where,
         orderBy: [{ periodStart: 'asc' }, { createdAt: 'asc' }],
         include: { owner: { select: { taxId: true } } },
+      }),
+      this.admin.whatsappMessage.findMany({
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        include: { conversation: { select: { waId: true, contactName: true } } },
       }),
     ]);
 
@@ -303,6 +309,20 @@ export class TenantDataExportService {
       { header: 'Retención IRPF', value: (s) => num(s.withholding) },
       { header: 'A liquidar', value: (s) => num(s.net) },
       { header: 'Enviada', value: (s) => s.sentAt },
+    ]);
+
+    const SENDERS: Record<string, string> = {
+      contact: 'Contacto',
+      staff: 'Equipo',
+      assistant: 'Asistente',
+    };
+    this.sheet(wb, 'WhatsApp', whatsappMessages, [
+      { header: 'Fecha', width: 20, value: (m) => m.createdAt },
+      { header: 'Contacto', value: (m) => m.conversation.contactName },
+      { header: 'Teléfono', value: (m) => m.conversation.waId },
+      { header: 'Escribe', value: (m) => SENDERS[m.sender] ?? m.sender },
+      { header: 'Mensaje', width: 60, value: (m) => m.body },
+      { header: 'Estado', value: (m) => m.status },
     ]);
 
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());
