@@ -22,10 +22,12 @@ import { Can } from '@/components/auth/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
   useSendWhatsappMessage,
+  useSendWhatsappTemplate,
   useSetConversationAssistant,
   useWhatsappConversation,
   useWhatsappConversations,
@@ -172,6 +174,27 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const conversation = useWhatsappConversation(id);
   const send = useSendWhatsappMessage(id);
   const toggleAssistant = useSetConversationAssistant(id);
+  const sendTemplate = useSendWhatsappTemplate(id);
+  const [tplName, setTplName] = useState('');
+  const [tplLanguage, setTplLanguage] = useState('es');
+  const [tplParams, setTplParams] = useState('');
+
+  async function submitTemplate() {
+    try {
+      await sendTemplate.mutateAsync({
+        name: tplName.trim(),
+        language: tplLanguage.trim() || 'es',
+        params: tplParams
+          .split('\n')
+          .map((p) => p.trim())
+          .filter(Boolean),
+      });
+      setTplParams('');
+      toast.success('Plantilla enviada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    }
+  }
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
   const messages = conversation.data?.messages ?? [];
@@ -232,6 +255,11 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
             {c.assistantEnabled ? 'Pausar asistente' : 'Activar asistente'}
           </Button>
         </Can>
+        {c.contractId && (
+          <Link href={`/contracts/${c.contractId}`}>
+            <Badge variant="outline">Reserva</Badge>
+          </Link>
+        )}
         {c.customerId ? (
           <Link href={`/customers/${c.customerId}`}>
             <Badge variant="outline">Ver inquilino</Badge>
@@ -304,10 +332,46 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
               </Button>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              Han pasado más de 24 horas desde el último mensaje de este contacto. WhatsApp no deja
-              escribirle hasta que vuelva a escribir.
-            </p>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Han pasado más de 24 horas desde el último mensaje de este contacto: WhatsApp solo
+                deja escribirle con una plantilla aprobada en Meta.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={tplName}
+                  onChange={(e) => setTplName(e.target.value)}
+                  placeholder="Nombre de la plantilla"
+                  className="text-base sm:text-sm"
+                />
+                <Input
+                  value={tplLanguage}
+                  onChange={(e) => setTplLanguage(e.target.value)}
+                  placeholder="es"
+                  className="text-base sm:w-24 sm:text-sm"
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <Textarea
+                  value={tplParams}
+                  onChange={(e) => setTplParams(e.target.value)}
+                  rows={2}
+                  placeholder="Valores de las variables, uno por línea ({{1}}, {{2}}…)"
+                  className="text-base sm:text-sm"
+                />
+                <Button
+                  onClick={submitTemplate}
+                  disabled={sendTemplate.isPending || !tplName.trim()}
+                  aria-label="Enviar plantilla"
+                >
+                  {sendTemplate.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </Can>

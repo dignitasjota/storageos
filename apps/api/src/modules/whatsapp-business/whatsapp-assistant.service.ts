@@ -8,6 +8,7 @@ import {
   type UpdateAdminTenantWhatsappAiInput,
   type UpdatePlatformWhatsappAiInput,
   type UpdateWhatsappAssistantInput,
+  PublicBookingSchema,
   type WhatsappAiMode,
   type WhatsappAiTestResultDto,
   type WhatsappAiUsageDto,
@@ -19,9 +20,11 @@ import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { LandingService } from '../landing/landing.service';
+import { BookingService } from '../move-in/booking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import {
+  BOOKING_MARKER_RE,
   HANDOFF_MARKER,
   type WhatsappAiConfig,
   WhatsappAiClient,
@@ -39,6 +42,33 @@ const PREVIEW_LENGTH = 120;
 type ResolvedAi =
   | { ok: true; config: WhatsappAiConfig; source: 'platform' | 'own' }
   | { ok: false; reason: 'limit_reached' | 'no_ai' };
+
+/**
+ * Códigos de los tamaños en el contexto del asistente: `L<n>-T<m>` (local n,
+ * tipo m, en el orden de la web). Así el modelo no maneja ids.
+ */
+export function bookingCodes(
+  landing: PublicLandingDto,
+): Map<
+  string,
+  { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
+> {
+  const out = new Map<
+    string,
+    { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
+  >();
+  landing.facilities.forEach((f, fi) => {
+    f.unitTypes.forEach((t, ti) => {
+      out.set(`L${fi + 1}-T${ti + 1}`, {
+        facilityId: f.id,
+        facilityName: f.name,
+        unitTypeId: t.id,
+        unitTypeName: t.name,
+      });
+    });
+  });
+  return out;
+}
 
 /** Mes en curso (AAAA-MM) y su comienzo, en hora de Madrid. */
 function currentMonth(now = new Date()): { key: string; start: Date } {
@@ -72,6 +102,7 @@ export class WhatsappAssistantService {
     private readonly ai: WhatsappAiClient,
     private readonly cloud: WhatsappCloudClient,
     private readonly landing: LandingService,
+    private readonly booking: BookingService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
@@ -228,6 +259,9 @@ export class WhatsappAssistantService {
             }
           : null,
       usage: await this.usage(tenantId, row?.aiMonthlyLimit ?? null),
+      assistantBookingsEnabled: row?.assistantBookingsEnabled ?? true,
+      reminderTemplateName: row?.reminderTemplateName ?? null,
+      reminderTemplateLanguage: row?.reminderTemplateLanguage ?? 'es',
     };
   }
 
@@ -257,6 +291,15 @@ export class WhatsappAssistantService {
       ...(input.assistantEnabled !== undefined ? { assistantEnabled: input.assistantEnabled } : {}),
       ...(input.assistantInstructions !== undefined
         ? { assistantInstructions: input.assistantInstructions || null }
+        : {}),
+      ...(input.assistantBookingsEnabled !== undefined
+        ? { assistantBookingsEnabled: input.assistantBookingsEnabled }
+        : {}),
+      ...(input.reminderTemplateName !== undefined
+        ? { reminderTemplateName: input.reminderTemplateName || null }
+        : {}),
+      ...(input.reminderTemplateLanguage !== undefined
+        ? { reminderTemplateLanguage: input.reminderTemplateLanguage }
         : {}),
       ...(input.removeOwnKey
         ? { ownAiProvider: null, ownAiModel: null, ownAiBaseUrl: null, ownAiApiKeyEncrypted: null }
@@ -395,7 +438,7 @@ export class WhatsappAssistantService {
     if (!conversation?.assistantEnabled) return;
     const latestIn = await this.admin.whatsappMessage.findFirst({
       where: { conversationId, direction: 'in' },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true },
     });
     if (latestIn?.id !== args.messageId) return; // llegó otro después: responde a ese
@@ -426,7 +469,7 @@ export class WhatsappAssistantService {
     });
     const history = await this.admin.whatsappMessage.findMany({
       where: { conversationId, status: { not: 'failed' } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: HISTORY_MESSAGES,
       select: { direction: true, body: true, sender: true },
     });
@@ -434,6 +477,7 @@ export class WhatsappAssistantService {
     if (turns.length === 0) return;
     const firstReply = !history.some((m) => m.sender === 'assistant');
 
+    const bookingsEnabled = settings.assistantBookingsEnabled && !conversation.contractId;
     const system = this.buildSystemPrompt({
       tenantName: tenant.name,
       landing,
@@ -441,10 +485,26 @@ export class WhatsappAssistantService {
       instructions: settings.assistantInstructions,
       bookingUrl: this.bookingUrl(tenant.slug, landing?.customDomain ?? null),
       firstReply,
+      bookingsEnabled,
+      contactPhone: `+${conversation.waId}`,
     });
     const completion = await this.ai.complete(resolved.config, system, turns);
-    const handoff = completion.text.includes(HANDOFF_MARKER);
-    const text = completion.text.split(HANDOFF_MARKER).join('').trim();
+    let handoff = completion.text.includes(HANDOFF_MARKER);
+    const bookingMatch = BOOKING_MARKER_RE.exec(completion.text);
+    let text = completion.text.replace(BOOKING_MARKER_RE, '').split(HANDOFF_MARKER).join('').trim();
+    if (bookingMatch && bookingsEnabled && landing) {
+      const booked = await this.createBooking({
+        tenantId,
+        tenantSlug: tenant.slug,
+        conversationId,
+        contactName: conversation.contactName,
+        waId: conversation.waId,
+        landing,
+        raw: bookingMatch[1] ?? '',
+      });
+      text = [text, booked.message].filter(Boolean).join('\n\n');
+      if (!booked.ok) handoff = true;
+    }
 
     void this.admin.aiUsageEvent
       .create({
@@ -507,6 +567,86 @@ export class WhatsappAssistantService {
     }
   }
 
+  /**
+   * Reserva preparada por el asistente: usa la misma reserva online de la web
+   * (retiene el trastero 72 h) y devuelve el enlace de firma y pago. Los
+   * locales y tamaños llegan como códigos del contexto (L1, L1-T2…).
+   */
+  private async createBooking(args: {
+    tenantId: string;
+    tenantSlug: string;
+    conversationId: string;
+    contactName: string | null;
+    waId: string;
+    landing: PublicLandingDto;
+    raw: string;
+  }): Promise<{ ok: boolean; message: string }> {
+    const fail = (reason: string) => ({
+      ok: false,
+      message: `No he podido completar la reserva (${reason}). Te paso con el equipo para terminarla.`,
+    });
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(args.raw) as Record<string, unknown>;
+    } catch {
+      return fail('faltan datos');
+    }
+    const codes = bookingCodes(args.landing);
+    const target = codes.get(String(data.tipo ?? '').toUpperCase());
+    if (!target) return fail('no encuentro ese tamaño');
+    const str = (k: string) => (typeof data[k] === 'string' ? (data[k] as string).trim() : '');
+    const parsed = PublicBookingSchema.safeParse({
+      facilityId: target.facilityId,
+      unitTypeId: target.unitTypeId,
+      startDate: str('fecha'),
+      customer: {
+        firstName: str('nombre'),
+        lastName: str('apellidos'),
+        email: str('email'),
+        phone: str('telefono') || `+${args.waId}`,
+        documentNumber: str('documento'),
+      },
+      utmSource: 'whatsapp',
+      utmMedium: 'asistente',
+    });
+    if (!parsed.success) return fail('algún dato no es válido');
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
+    if (parsed.data.startDate < today) return fail('la fecha de entrada ya ha pasado');
+
+    let result: { contractId: string; signingToken: string };
+    try {
+      result = await this.booking.createBooking(args.tenantSlug, parsed.data, {});
+    } catch (err) {
+      const code = (err as { response?: { code?: string } } | null)?.response?.code ?? 'error';
+      this.logger.warn(`whatsapp-assistant: reserva fallida (${code})`);
+      return fail(
+        code === 'no_availability' || code === 'unit_not_available'
+          ? 'ese tamaño acaba de agotarse'
+          : 'ha habido un problema al reservar',
+      );
+    }
+    await this.admin.whatsappConversation.update({
+      where: { id: args.conversationId },
+      data: { contractId: result.contractId },
+    });
+    const url = `${this.publicBase(args.landing.customDomain)}/sign/${result.signingToken}`;
+    await this.notifications
+      .create(args.tenantId, {
+        type: 'whatsapp.booking',
+        title: `Reserva por WhatsApp: ${target.unitTypeName} en ${target.facilityName}`,
+        body: `${args.contactName ?? `+${args.waId}`} ha reservado desde WhatsApp; falta que firme y pague.`,
+        link: `/contracts/${result.contractId}`,
+        contractId: result.contractId,
+      })
+      .catch(() => undefined);
+    return {
+      ok: true,
+      message: `¡Listo! Te he reservado un trastero ${target.unitTypeName} en ${target.facilityName}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTe lo guardamos 72 horas.`,
+    };
+  }
+
   /** El asistente se calla en esta conversación y avisa al equipo. */
   private async handOff(tenantId: string, conversationId: string, name: string | null) {
     await this.admin.whatsappConversation.update({
@@ -567,8 +707,13 @@ export class WhatsappAssistantService {
 
   private bookingUrl(slug: string, customDomain: string | null): string {
     if (customDomain) return `https://${customDomain}/reservar`;
-    const base = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
-    return `${base}/book/${slug}`;
+    return `${this.publicBase(null)}/book/${slug}`;
+  }
+
+  /** Dominio propio del tenant (si está verificado) o la web de la plataforma. */
+  private publicBase(customDomain: string | null): string {
+    if (customDomain) return `https://${customDomain}`;
+    return this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
   }
 
   private buildSystemPrompt(args: {
@@ -578,6 +723,8 @@ export class WhatsappAssistantService {
     instructions: string | null;
     bookingUrl: string;
     firstReply: boolean;
+    bookingsEnabled: boolean;
+    contactPhone: string;
   }): string {
     const today = new Intl.DateTimeFormat('es-ES', {
       timeZone: 'Europe/Madrid',
@@ -600,7 +747,7 @@ export class WhatsappAssistantService {
     const l = args.landing;
     if (l) {
       lines.push('', '## Locales');
-      for (const f of l.facilities) {
+      for (const [fi, f] of l.facilities.entries()) {
         const hours = Object.entries(f.openingHours ?? {})
           .map(([day, h]) => {
             const v = h as { open?: string; close?: string } | null;
@@ -608,14 +755,14 @@ export class WhatsappAssistantService {
           })
           .join(', ');
         lines.push(
-          `- ${f.name}${f.address ? `, ${f.address}` : ''}${f.city ? ` (${f.city})` : ''}${
+          `- [L${fi + 1}] ${f.name}${f.address ? `, ${f.address}` : ''}${f.city ? ` (${f.city})` : ''}${
             f.contactPhone ? ` · tel. ${f.contactPhone}` : ''
           }${hours ? ` · horario de atención: ${hours}` : ''}`,
         );
-        for (const t of f.unitTypes) {
+        for (const [ti, t] of f.unitTypes.entries()) {
           const price = (t.priceMonthly * 1.21).toFixed(2).replace('.', ',');
           lines.push(
-            `  · ${t.name}${t.areaM2 ? ` (unos ${t.areaM2} m²)` : ''}: ${price} €/mes · ${
+            `  · [L${fi + 1}-T${ti + 1}] ${t.name}${t.areaM2 ? ` (unos ${t.areaM2} m²)` : ''}: ${price} €/mes · ${
               t.available > 0
                 ? `${t.available} libres`
                 : 'agotado (se puede apuntar a la lista de espera en la web)'
@@ -633,6 +780,17 @@ export class WhatsappAssistantService {
               : `${p.discountValue} meses gratis`;
         lines.push('', `## Promoción activa\n${p.name}: ${value} con el código ${p.code}.`);
       }
+    }
+    if (args.bookingsEnabled && l && l.facilities.length > 0) {
+      lines.push(
+        '',
+        '## Reservar desde el chat',
+        'Si el cliente quiere reservar, puedes prepararle la reserva aquí mismo (si prefiere hacerlo solo, dale el enlace de reserva).',
+        `Pide el local y el tamaño (solo los que tienen trasteros libres), la fecha de entrada, nombre, apellidos, email y DNI/NIE. El teléfono es el de este WhatsApp (${args.contactPhone}).`,
+        'Antes de reservar, resume los datos y pregunta si está todo bien. SOLO cuando el cliente confirme, escribe una frase corta y añade al final, en una sola línea:',
+        '[[RESERVA {"tipo":"L1-T2","fecha":"AAAA-MM-DD","nombre":"…","apellidos":"…","email":"…","documento":"…"}]]',
+        'usando el código entre corchetes del tamaño elegido. No escribas el enlace de firma: lo añade el sistema.',
+      );
     }
     if (args.faqs.length > 0) {
       lines.push('', '## Preguntas frecuentes');

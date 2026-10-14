@@ -36,6 +36,7 @@ import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
 import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
+import { WhatsappBusinessModule } from '../../api/src/modules/whatsapp-business/whatsapp-business.module';
 
 import type { Env } from '../../api/src/config/env.schema';
 import type { Options as PinoHttpOptions } from 'pino-http';
@@ -139,6 +140,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ContractsModule,
     InventoryModule,
     MoveInModule,
+    // Recordatorios por WhatsApp de las reservas hechas por el asistente.
+    WhatsappBusinessModule,
     PlanLimitsModule,
     MaintenanceModule,
     NotificationsModule,

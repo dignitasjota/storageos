@@ -1324,6 +1324,7 @@ model Contract {
   retentionOffers    RetentionOffer[]
 
   communications Communication[]
+  whatsappConversations WhatsappConversation[]
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -5166,6 +5167,11 @@ model TenantWhatsappSettings {
   ownAiApiKeyEncrypted  String?   @map("own_ai_api_key_encrypted")
   /// Mes (AAAA-MM) del último aviso de límite alcanzado.
   aiLimitNotifiedMonth  String?   @map("ai_limit_notified_month")
+  /// El asistente puede preparar reservas desde el chat.
+  assistantBookingsEnabled Boolean @default(true) @map("assistant_bookings_enabled")
+  /// Plantilla aprobada para el recordatorio de reserva ({{1}} nombre, {{2}} enlace).
+  reminderTemplateName     String? @map("reminder_template_name")
+  reminderTemplateLanguage String  @default("es") @map("reminder_template_language")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5187,12 +5193,16 @@ model WhatsappConversation {
   lastMessagePreview String?   @map("last_message_preview")
   unreadCount        Int       @default(0) @map("unread_count")
   assistantEnabled   Boolean   @default(true) @map("assistant_enabled")
+  /// Reserva preparada por el asistente desde esta conversación.
+  contractId         String?   @map("contract_id") @db.Uuid
+  bookingReminderSentAt DateTime? @map("booking_reminder_sent_at") @db.Timestamptz(6)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
   lead     Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contract Contract?         @relation(fields: [contractId], references: [id], onDelete: SetNull)
   messages WhatsappMessage[]
 
   @@unique([tenantId, waId], map: "whatsapp_conversations_contact_key")

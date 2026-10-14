@@ -26,6 +26,9 @@ export class WhatsappAiError extends Error {}
 /** Marca con la que el asistente pide pasar la conversación a una persona. */
 export const HANDOFF_MARKER = '[[HUMANO]]';
 
+/** Marca con la que el asistente pide crear la reserva (JSON con los datos). */
+export const BOOKING_MARKER_RE = /\[\[RESERVA\s*(\{[\s\S]*?\})\s*\]\]/;
+
 const MAX_OUTPUT_TOKENS = 700;
 const TIMEOUT_MS = 30_000;
 
@@ -147,9 +150,13 @@ export class WhatsappAiClient {
       throw new WhatsappAiError('El proveedor de IA respondió 401: clave no válida (simulado)');
     }
     const last = [...turns].reverse().find((t) => t.role === 'user')?.content ?? '';
-    const text = /humano|persona/i.test(last)
-      ? `Te paso con una persona del equipo, enseguida te escriben. ${HANDOFF_MARKER}`
-      : `Respuesta automática (simulada): ${last.slice(0, 80)}`;
+    // «reservar {json}» → la marca de reserva con esos datos (para las pruebas).
+    const booking = /^reservar\s+(\{[\s\S]*\})$/i.exec(last.trim());
+    const text = booking
+      ? `Perfecto, te lo preparo. [[RESERVA ${booking[1]}]]`
+      : /humano|persona/i.test(last)
+        ? `Te paso con una persona del equipo, enseguida te escriben. ${HANDOFF_MARKER}`
+        : `Respuesta automática (simulada): ${last.slice(0, 80)}`;
     return { text, inputTokens: 100, outputTokens: 20 };
   }
 }
