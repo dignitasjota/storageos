@@ -158,6 +158,23 @@ describe('Reservas por WhatsApp (e2e)', () => {
     const list = await request(app.getHttpServer()).get('/whatsapp/conversations').set(auth);
     expect(list.body[0].contractId).toBe(conv.contractId);
 
+    // Cliente que escribe en inglés: el aviso de IA sale en inglés y se guarda el idioma.
+    await inbound('34655000777', 'Hello, how much is a storage unit?');
+    const en = await waitFor(() =>
+      prismaAdmin.whatsappMessage.findFirst({
+        where: { tenantId, sender: 'assistant', conversation: { waId: '34655000777' } },
+      }),
+    );
+    expect(en.body).toContain('You are chatting with an AI assistant');
+    expect(en.body).not.toContain('[[IDIOMA');
+    expect(
+      await prismaAdmin.whatsappConversation.findFirst({
+        where: { tenantId, waId: '34655000777' },
+        select: { language: true },
+      }),
+    ).toEqual({ language: 'en' });
+    expect(reply.body).toContain('Te responde un asistente automático');
+
     // Tamaño que no existe → no reserva, pasa a una persona.
     await inbound('34611000111', `reservar ${JSON.stringify({ ...data, tipo: 'L9-T9' })}`);
     const failed = await waitFor(() =>

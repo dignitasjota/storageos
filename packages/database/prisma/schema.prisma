@@ -5198,6 +5198,8 @@ model WhatsappConversation {
   /// Reserva preparada por el asistente desde esta conversación.
   contractId         String?   @map("contract_id") @db.Uuid
   bookingReminderSentAt DateTime? @map("booking_reminder_sent_at") @db.Timestamptz(6)
+  /// Idioma del contacto (código ISO de 2 letras, lo detecta el asistente).
+  language           String?
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -360,13 +360,32 @@ export type SendWhatsappTemplateInput = z.infer<typeof SendWhatsappTemplateSchem
  * Aviso que el asistente añade a su primera respuesta en cada conversación:
  * quien escribe sabe que le responde una IA y que puede pedir una persona.
  */
-export function whatsappAssistantNotice(privacyUrl: string | null): string {
+export function whatsappAssistantNotice(
+  privacyUrl: string | null,
+  language: WhatsappTextLanguage = 'es',
+): string {
+  const en = language === 'en';
   return [
-    'ℹ️ Te responde un asistente automático con inteligencia artificial. Si prefieres hablar con una persona, escríbelo.',
-    privacyUrl ? `Cómo tratamos tus datos: ${privacyUrl}` : null,
+    en
+      ? 'ℹ️ You are chatting with an AI assistant. If you would rather talk to a person, just say so.'
+      : 'ℹ️ Te responde un asistente automático con inteligencia artificial. Si prefieres hablar con una persona, escríbelo.',
+    privacyUrl
+      ? `${en ? 'How we handle your data' : 'Cómo tratamos tus datos'}: ${privacyUrl}`
+      : null,
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** Idiomas de los textos fijos del WhatsApp (el resto de idiomas va en inglés). */
+export type WhatsappTextLanguage = 'es' | 'en';
+
+/** Idioma de los textos fijos según el idioma detectado del contacto. */
+export function whatsappTextLanguage(language: string | null | undefined): WhatsappTextLanguage {
+  if (!language) return 'es';
+  const code = language.toLowerCase().slice(0, 2);
+  // Idiomas de España: los textos en español.
+  return ['es', 'ca', 'gl', 'eu'].includes(code) ? 'es' : 'en';
 }
 
 /** Plantilla aprobada en Meta (para elegirla en la bandeja y en el recordatorio). */
