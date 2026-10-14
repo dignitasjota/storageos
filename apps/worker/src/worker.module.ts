@@ -26,7 +26,6 @@ import { InventoryModule } from '../../api/src/modules/inventory/inventory.modul
 import { MaintenanceModule } from '../../api/src/modules/maintenance/maintenance.module';
 import { MarketingModule } from '../../api/src/modules/marketing/marketing.module';
 import { MoveInModule } from '../../api/src/modules/move-in/move-in.module';
-import { WhatsappBusinessModule } from '../../api/src/modules/whatsapp-business/whatsapp-business.module';
 import { NotificationsModule } from '../../api/src/modules/notifications/notifications.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { PlanLimitsModule } from '../../api/src/modules/plan-limits/plan-limits.module';
@@ -37,6 +36,7 @@ import { ReportsModule } from '../../api/src/modules/reports/reports.module';
 import { ReviewsModule } from '../../api/src/modules/reviews/reviews.module';
 import { SecurityEventsModule } from '../../api/src/modules/security-events/security-events.module';
 import { WaitlistModule } from '../../api/src/modules/waitlist/waitlist.module';
+import { WhatsappBusinessModule } from '../../api/src/modules/whatsapp-business/whatsapp-business.module';
 
 import type { Env } from '../../api/src/config/env.schema';
 import type { Options as PinoHttpOptions } from 'pino-http';
