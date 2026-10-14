@@ -21,6 +21,7 @@ import { PrismaService } from '../database/prisma.service';
 import { LeadsService } from '../leads/leads.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
+import { WhatsappAssistantService } from './whatsapp-assistant.service';
 import { WhatsappCloudClient, WhatsappCloudError } from './whatsapp-cloud.client';
 import { WhatsappSettingsService } from './whatsapp-settings.service';
 
@@ -61,6 +62,7 @@ export class WhatsappInboxService {
     private readonly client: WhatsappCloudClient,
     private readonly leads: LeadsService,
     private readonly notifications: NotificationsService,
+    private readonly assistant: WhatsappAssistantService,
   ) {}
 
   /**
@@ -114,8 +116,9 @@ export class WhatsappInboxService {
       }
     }
 
+    let createdId: string;
     try {
-      await this.admin.whatsappMessage.create({
+      const created = await this.admin.whatsappMessage.create({
         data: {
           tenantId,
           conversationId: conversation.id,
@@ -126,7 +129,9 @@ export class WhatsappInboxService {
           status: 'received',
           createdAt: msg.receivedAt,
         },
+        select: { id: true },
       });
+      createdId = created.id;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return true;
       throw err;
@@ -153,6 +158,14 @@ export class WhatsappInboxService {
         })
         .catch(() => undefined);
     }
+
+    // El asistente (si está activo) responde en segundo plano: el webhook
+    // tiene que contestar a Meta enseguida.
+    void this.assistant.handleInbound({
+      tenantId,
+      conversationId: conversation.id,
+      messageId: createdId,
+    });
     return true;
   }
 
@@ -284,7 +297,13 @@ export class WhatsappInboxService {
       if (!error) {
         await tx.whatsappConversation.update({
           where: { id: conversation.id },
-          data: { lastMessageAt: now, lastMessagePreview: args.body.slice(0, PREVIEW_LENGTH) },
+          // Si responde una persona, el asistente deja de contestar en esta
+          // conversación (se puede volver a activar desde la bandeja).
+          data: {
+            lastMessageAt: now,
+            lastMessagePreview: args.body.slice(0, PREVIEW_LENGTH),
+            assistantEnabled: false,
+          },
         });
       }
       return created;
@@ -294,6 +313,20 @@ export class WhatsappInboxService {
       throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
     }
     return this.toMessageDto(message);
+  }
+
+  /** Activa o pausa el asistente en una conversación. */
+  async setAssistant(
+    tenantId: string,
+    id: string,
+    assistantEnabled: boolean,
+  ): Promise<WhatsappConversationDto> {
+    await this.findOrThrow(tenantId, id);
+    await this.prisma.withTenant(
+      (tx) => tx.whatsappConversation.update({ where: { id }, data: { assistantEnabled } }),
+      tenantId,
+    );
+    return this.toDto(await this.findOrThrow(tenantId, id));
   }
 
   /** Busca un inquilino del tenant con ese teléfono (últimas 9 cifras). */

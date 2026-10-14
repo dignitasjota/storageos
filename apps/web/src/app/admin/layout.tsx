@@ -35,6 +35,7 @@ import {
   Trash2,
   TrendingUp,
   Wallet,
+  MessageCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -136,6 +137,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/website', label: 'Web de TrasterOS', icon: Globe },
       { href: '/admin/platform-alerts', label: 'Alertas', icon: BellRing },
       { href: '/admin/email', label: 'Correo saliente', icon: Mail },
+      { href: '/admin/whatsapp-ai', label: 'IA de WhatsApp', icon: MessageCircle },
       { href: '/admin/email-log', label: 'Correos enviados', icon: Inbox },
       { href: '/admin/legal', label: 'Páginas legales', icon: FileText },
     ],

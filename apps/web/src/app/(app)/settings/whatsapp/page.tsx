@@ -4,6 +4,8 @@ import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { AssistantCard } from './assistant-card';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -195,6 +197,8 @@ export default function WhatsappSettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {data?.configured && <AssistantCard />}
     </div>
   );
 }

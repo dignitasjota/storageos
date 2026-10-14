@@ -9,5 +9,6 @@ import { LandingService } from './landing.service';
   imports: [LeadsModule],
   controllers: [LandingController],
   providers: [LandingService],
+  exports: [LandingService],
 })
 export class LandingModule {}

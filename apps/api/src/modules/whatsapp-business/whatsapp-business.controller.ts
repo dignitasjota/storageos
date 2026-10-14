@@ -6,13 +6,18 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Req,
 } from '@nestjs/common';
 import {
   SendWhatsappMessageSchema,
+  UpdateWhatsappAssistantSchema,
+  UpdateWhatsappConversationSchema,
   UpdateWhatsappSettingsSchema,
+  type WhatsappAiTestResultDto,
+  type WhatsappAssistantDto,
   type WhatsappConversationDetailDto,
   type WhatsappConversationDto,
   type WhatsappMessageDto,
@@ -28,6 +33,7 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { WhatsappAssistantService } from './whatsapp-assistant.service';
 import { WhatsappInboxService } from './whatsapp-inbox.service';
 import { WhatsappSettingsService } from './whatsapp-settings.service';
 
@@ -35,11 +41,21 @@ import type { Request } from 'express';
 
 class UpdateWhatsappSettingsBody extends createZodDto(UpdateWhatsappSettingsSchema) {}
 class SendWhatsappMessageBody extends createZodDto(SendWhatsappMessageSchema) {}
+class UpdateWhatsappAssistantBody extends createZodDto(UpdateWhatsappAssistantSchema) {}
+class UpdateWhatsappConversationBody extends createZodDto(UpdateWhatsappConversationSchema) {}
+
+function meta(req: Request): { ipAddress?: string; userAgent?: string } {
+  const ua = req.header('user-agent');
+  return { ...(req.ip ? { ipAddress: req.ip } : {}), ...(ua ? { userAgent: ua } : {}) };
+}
 
 @RequireFeature('whatsapp_business')
 @Controller('settings/whatsapp')
 export class WhatsappSettingsController {
-  constructor(private readonly settings: WhatsappSettingsService) {}
+  constructor(
+    private readonly settings: WhatsappSettingsService,
+    private readonly assistant: WhatsappAssistantService,
+  ) {}
 
   @RequirePermission('settings:read')
   @Get()
@@ -69,6 +85,35 @@ export class WhatsappSettingsController {
   test(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappTestResultDto> {
     return this.settings.test(user.tenantId);
   }
+
+  @RequirePermission('settings:read')
+  @Get('assistant')
+  getAssistant(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappAssistantDto> {
+    return this.assistant.getForTenant(user.tenantId);
+  }
+
+  @RequirePermission('settings:manage')
+  @Put('assistant')
+  updateAssistant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateWhatsappAssistantBody,
+    @Req() req: Request,
+  ): Promise<WhatsappAssistantDto> {
+    return this.assistant.updateForTenant({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      meta: meta(req),
+    });
+  }
+
+  /** Prueba la clave de IA propia del tenant. */
+  @RequirePermission('settings:manage')
+  @Post('assistant/test')
+  @HttpCode(HttpStatus.OK)
+  testAssistant(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappAiTestResultDto> {
+    return this.assistant.testOwn(user.tenantId);
+  }
 }
 
 @RequireFeature('whatsapp_business')
@@ -95,6 +140,17 @@ export class WhatsappConversationsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<WhatsappConversationDetailDto> {
     return this.inbox.detail(user.tenantId, id);
+  }
+
+  /** Activa o pausa el asistente en esta conversación. */
+  @RequirePermission('communications:send')
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateWhatsappConversationBody,
+  ): Promise<WhatsappConversationDto> {
+    return this.inbox.setAssistant(user.tenantId, id, body.assistantEnabled);
   }
 
   @RequirePermission('communications:send')
