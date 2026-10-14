@@ -631,3 +631,12 @@ Todo se gestiona desde panel admin → Comunicación → **Web de TrasterOS**.
 - **Menú desplegable, tarjetas con hover y pie gestionable** (#656): menú Producto/Soluciones/Precios/Recursos (nuevas secciones en `apps/web/src/components/public/site-nav.ts`), tarjetas de funcionalidades en azul al pasar el ratón y pie amplio con columnas de enlaces, contacto y redes editables.
 
 **Tras desplegar**: poner el email del formulario, revisar el pie y el logo, y el precio del plan Administrador en `/admin/plans`.
+
+### WhatsApp Business en la web del tenant (2026-10-14, en curso)
+
+Extra que solo se vende aparte (`whatsapp_business`). Decisiones de Jota: el tenant conserva su número en la app del móvil (**coexistencia** → TrasterOS tiene que ser **Tech Provider** de Meta; el trámite está en marcha y mientras tanto se desarrolla con WhatsApp simulado), la IA del asistente de WhatsApp es **propia** (configurada en el admin; por tenant, «IA de TrasterOS» con límite mensual por respuesta o «su propia clave»; al pasarse, cambio automático a su clave si la tiene; proveedores Anthropic, OpenAI, MiniMax y compatible con OpenAI) y las reservas por chat terminan con el enlace de firma y pago de la web.
+
+- ✅ **PR 1 — número, bandeja y botón en la web**: credenciales del número por tenant (cifradas), webhook único que asigna cada mensaje al tenant por su número, contactos nuevos como leads de origen «whatsapp», bandeja en el panel con respuesta del equipo (ventana de 24 h) y avisos de entrega, botón flotante en la web pública.
+- ⏳ **PR 2 — asistente de IA**: configuración de IA de WhatsApp en el admin y por tenant, límite y cambio automático, herramientas de solo lectura (precios, disponibilidad, horario, preguntas frecuentes), paso a una persona.
+- ⏳ **PR 3 — reservas por chat** + recordatorios con plantillas aprobadas.
+- ⏳ **PR 4 — alta integrada de Meta con coexistencia** (cuando Meta apruebe la plataforma).

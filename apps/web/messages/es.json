@@ -545,7 +545,8 @@
     "settings": "Configuración",
     "collections": "Impagos",
     "waitlist": "Lista de espera",
-    "returnedReceipts": "Recibos devueltos"
+    "returnedReceipts": "Recibos devueltos",
+    "whatsapp": "WhatsApp"
   },
   "settings": {
     "nav": {

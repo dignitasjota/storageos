@@ -5,6 +5,7 @@ import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from '../i1
 import { siteUrl } from '../landing-shared';
 import { priceRangeString } from '../price-format';
 import { TenantWebChrome } from '../tenant-web-chrome';
+import { WhatsappFloatButton } from '../whatsapp-float-button';
 
 import { FacilityBody } from './facility-body';
 
@@ -202,6 +203,7 @@ export async function FacilityPageBody({
       >
         <FacilityBody data={data} slug={slug} facilitySlug={facilitySlug} locale={locale} />
       </TenantWebChrome>
+      <WhatsappFloatButton number={data.whatsappNumber} facilityName={data.facility.name} />
     </NextIntlClientProvider>
   );
 }

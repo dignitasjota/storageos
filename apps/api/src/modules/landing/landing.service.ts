@@ -7,8 +7,10 @@ import {
   parseWebSeo,
   parseWebSections,
   resolvePlanFeatures,
+  waMeNumber,
 } from '@storageos/shared';
 
+import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
@@ -148,6 +150,7 @@ export class LandingService {
       webAbout: hasWebPremium ? tenant.webAbout : null,
       webContent: hasWebPremium ? parseWebContent(tenant.webContent) : null,
       webSeo: hasWebPremium ? parseWebSeo(tenant.webSeo) : null,
+      whatsappNumber: await this.whatsappNumber(tenant.id),
       testimonials,
       faqs,
       contactEnabled: sections.contact,
@@ -192,6 +195,20 @@ export class LandingService {
   }
 
   /** ¿El tenant tiene la feature `web_premium` (plan + overrides)? */
+  /**
+   * Número del WhatsApp Business del tenant para el botón de la web: con el
+   * extra, el número activo y el botón activado (independiente de Web Premium).
+   */
+  private async whatsappNumber(tenantId: string): Promise<string | null> {
+    const row = await this.admin.tenantWhatsappSettings.findUnique({
+      where: { tenantId },
+      select: { enabled: true, webButtonEnabled: true, displayPhone: true },
+    });
+    if (!row?.enabled || !row.webButtonEnabled) return null;
+    if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) return null;
+    return waMeNumber(row.displayPhone);
+  }
+
   private async hasWebPremium(tenantId: string): Promise<boolean> {
     const [subscription, overrides] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
@@ -375,6 +392,7 @@ export class LandingService {
       customDomain: full.customDomain,
       hasBlog: full.hasBlog,
       googleAnalyticsId: full.googleAnalyticsId,
+      whatsappNumber: full.whatsappNumber,
       facility,
     };
   }

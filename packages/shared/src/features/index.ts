@@ -22,6 +22,7 @@ export const TenantFeatures = [
   'web_premium', // web pública personalizable (plantillas + secciones) — SOLO add-on
   'housing', // alquiler de viviendas (exento de IVA, contrato LAU, fianza depositada) — SOLO add-on
   'multi_owner', // varios propietarios por cuenta (plan Administrador)
+  'whatsapp_business', // WhatsApp del negocio en su web + bandeja en el panel — SOLO add-on
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -136,4 +137,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   web_premium: 'Web Premium (plantillas)',
   housing: 'Viviendas',
   multi_owner: 'Varios propietarios',
+  whatsapp_business: 'WhatsApp Business',
 };

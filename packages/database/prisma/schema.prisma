@@ -557,6 +557,9 @@ model Tenant {
   unitPriceHistory           UnitPriceHistory[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
+  whatsappSettings               TenantWhatsappSettings?
+  whatsappConversations          WhatsappConversation[]
+  whatsappMessages               WhatsappMessage[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -628,6 +631,7 @@ model User {
   inspectionPhotos         ContractInspectionPhoto[]
   customerInteractions     CustomerInteraction[]     @relation("CustomerInteractionAuthor")
   customerMessages         CustomerMessage[]         @relation("CustomerMessageSender")
+  whatsappMessagesSent     WhatsappMessage[]         @relation("WhatsappMessageSender")
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
   cashClosures             CashClosure[]             @relation("CashClosureAuthor")
   delinquencyCasesOpened   DelinquencyCase[]         @relation("DelinquencyCaseOpenedBy")
@@ -1181,6 +1185,7 @@ model Customer {
   delinquencyCases   DelinquencyCase[]
   retentionOffers    RetentionOffer[]
   winbackSends       WinbackSend[]
+  whatsappConversations WhatsappConversation[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -2679,6 +2684,7 @@ model Lead {
   convertedContract    Contract?       @relation("LeadConvertedContract", fields: [convertedContractId], references: [id], onDelete: SetNull)
   convertedReservation Reservation?    @relation("LeadConvertedReservation", fields: [convertedReservationId], references: [id], onDelete: SetNull)
   communications       Communication[]
+  whatsappConversations WhatsappConversation[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -5131,4 +5137,76 @@ model PlatformContactMessage {
 
   @@index([createdAt(sort: Desc)], map: "platform_contact_messages_created_idx")
   @@map("platform_contact_messages")
+}
+
+/// Número de WhatsApp Business del tenant (extra `whatsapp_business`). Los
+/// mensajes entrantes se asignan al tenant por `phoneNumberId`.
+model TenantWhatsappSettings {
+  id                   String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @unique(map: "tenant_whatsapp_settings_tenant_key") @map("tenant_id") @db.Uuid
+  phoneNumberId        String    @unique(map: "tenant_whatsapp_settings_phone_key") @map("phone_number_id")
+  wabaId               String?   @map("waba_id")
+  displayPhone         String?   @map("display_phone")
+  verifiedName         String?   @map("verified_name")
+  accessTokenEncrypted String    @map("access_token_encrypted")
+  enabled              Boolean   @default(false)
+  webButtonEnabled     Boolean   @default(true) @map("web_button_enabled")
+  lastCheckedAt        DateTime? @map("last_checked_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_whatsapp_settings")
+}
+
+/// Conversación de WhatsApp con un contacto (uno por número y tenant).
+model WhatsappConversation {
+  id                 String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  waId               String    @map("wa_id")
+  contactName        String?   @map("contact_name")
+  customerId         String?   @map("customer_id") @db.Uuid
+  leadId             String?   @map("lead_id") @db.Uuid
+  lastInboundAt      DateTime? @map("last_inbound_at") @db.Timestamptz(6)
+  lastMessageAt      DateTime  @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  lastMessagePreview String?   @map("last_message_preview")
+  unreadCount        Int       @default(0) @map("unread_count")
+  assistantEnabled   Boolean   @default(true) @map("assistant_enabled")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lead     Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  messages WhatsappMessage[]
+
+  @@unique([tenantId, waId], map: "whatsapp_conversations_contact_key")
+  @@index([tenantId, lastMessageAt(sort: Desc)], map: "whatsapp_conversations_recent_idx")
+  @@map("whatsapp_conversations")
+}
+
+/// Mensaje de una conversación de WhatsApp (entrante o saliente).
+model WhatsappMessage {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  /// in | out
+  direction      String
+  /// contact | staff | assistant
+  sender         String
+  body           String
+  waMessageId    String?  @unique(map: "whatsapp_messages_wa_id_key") @map("wa_message_id")
+  /// received | sent | delivered | read | failed
+  status         String
+  error          String?
+  sentByUserId   String?  @map("sent_by_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sentBy       User?                @relation("WhatsappMessageSender", fields: [sentByUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt], map: "whatsapp_messages_conversation_idx")
+  @@map("whatsapp_messages")
 }

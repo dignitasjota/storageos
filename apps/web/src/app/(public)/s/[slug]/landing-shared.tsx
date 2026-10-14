@@ -12,6 +12,7 @@ import { ScrollToSection } from './scroll-to-section';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
 import { TrstromTemplate } from './trstrom-template';
+import { WhatsappFloatButton } from './whatsapp-float-button';
 
 import type { LandingSection, PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
@@ -328,6 +329,7 @@ export async function LandingPageBody({
           <LandingTemplate data={data} locale={locale} />
         </TenantWebChrome>
       )}
+      <WhatsappFloatButton number={data.whatsappNumber} />
     </NextIntlClientProvider>
   );
 }

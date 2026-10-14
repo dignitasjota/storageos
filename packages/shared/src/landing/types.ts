@@ -67,6 +67,11 @@ export interface PublicLandingDto {
   webContent: WebContent | null;
   /** Títulos y descripciones para Google (vacío = generados). `null` sin `web_premium`. */
   webSeo: WebSeo | null;
+  /**
+   * Número de WhatsApp Business del tenant para el botón de la web (solo con el
+   * extra, el número activo y el botón activado). Cifras con prefijo, listo para `wa.me`.
+   */
+  whatsappNumber: string | null;
   /** Testimonios (reseñas NPS ≥ 9). Vacío si la sección está desactivada. */
   testimonials: PublicTestimonialDto[];
   /** Preguntas frecuentes publicadas. Vacío si la sección está desactivada. */
@@ -112,6 +117,8 @@ export interface PublicFacilityLandingDto {
   hasBlog: boolean;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
+  /** Igual que en `PublicLandingDto`. */
+  whatsappNumber: string | null;
   facility: PublicLandingFacilityDto;
 }
 

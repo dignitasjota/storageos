@@ -22,7 +22,10 @@
       "mapTitle": "Map of {name}",
       "watchVideo": "Watch video",
       "googleReviews": "Reviews on Google",
-      "notifyMe": "Notify me"
+      "notifyMe": "Notify me",
+      "whatsappButton": "Message us on WhatsApp",
+      "whatsappMessage": "Hi, I'm coming from your website and I'd like information about a storage unit.",
+      "whatsappMessageFacility": "Hi, I'm coming from your website and I'd like information about a storage unit at {facility}."
     },
     "hours": {
       "title": "Hours",

@@ -1224,3 +1224,11 @@ desde el panel.
 6. **Coste de la IA**: opcionalmente `AI_COST_INPUT_PER_MTOK_USD` / `AI_COST_OUTPUT_PER_MTOK_USD` (3 y 15 por defecto) para el coste estimado en Uso por tenant.
 7. **Pendiente de la asesoría**: confirmar si las facturas con retención de IRPF salen del modelo 347 y cómo copiar la retención a Holded.
 8. **SEO de la web** (Web de TrasterOS → SEO de la web): dar de alta trasteros.pro en **Google Search Console** y **Bing Webmaster Tools** con la «etiqueta HTML», pegar los códigos, guardar y, cuando verifiquen, enviar `https://trasteros.pro/sitemap.xml`. Si se pone el ID de Google Analytics 4, añadirlo a la Política de Cookies (Comunicación → Páginas legales).
+
+## 24. WhatsApp Business de los tenants (extra)
+
+1. **Migración** `20261017100000_whatsapp_business` (aditiva). El bootstrap crea el extra **WhatsApp Business** (29 €/mes, editable en `/admin/addons`).
+2. **App de Meta**: la misma que recibe el webhook `https://api.trasteros.pro/webhooks/whatsapp` (suscrita al campo `messages`). Hacen falta `WHATSAPP_VERIFY_TOKEN` y **`WHATSAPP_APP_SECRET`** en el API (sin el secreto, en producción el webhook rechaza todo).
+3. **Cada tenant** (con el extra activo) pega en Configuración → Comunicación → WhatsApp el ID de su número y un token permanente; al activarlo se comprueba contra Meta. Los mensajes a su número entran en su bandeja (menú Mensajería → WhatsApp) y quien no es inquilino se crea como contacto con origen «whatsapp».
+4. **No poner** `WHATSAPP_BUSINESS_MODE=stub` en producción (simula los envíos).
+5. **Limitación conocida**: hasta tener el alta integrada de Meta (Tech Provider + coexistencia), el número que se conecta por clave deja de funcionar en la app de WhatsApp del móvil.

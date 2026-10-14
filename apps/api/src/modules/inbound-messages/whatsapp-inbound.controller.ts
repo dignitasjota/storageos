@@ -16,6 +16,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { WhatsappInboxService } from '../whatsapp-business/whatsapp-inbox.service';
 
 import { InboundMessagesService } from './inbound-messages.service';
 
@@ -45,21 +46,39 @@ function timingSafeEqualString(a: string, b: string): boolean {
 }
 
 interface WabaTextMessage {
+  id?: string;
   from?: string;
+  timestamp?: string;
   type?: string;
   text?: { body?: string };
 }
 
+interface WabaStatus {
+  id?: string;
+  status?: string;
+  errors?: { title?: string; message?: string }[];
+}
+
+interface WabaChangeValue {
+  metadata?: { phone_number_id?: string };
+  contacts?: { wa_id?: string; profile?: { name?: string } }[];
+  messages?: WabaTextMessage[];
+  statuses?: WabaStatus[];
+}
+
 /**
- * Webhook entrante de WhatsApp (Meta Cloud API). El número WABA es compartido
- * por todos los tenants → el `InboundMessagesService` resuelve el customer por
- * el teléfono del remitente. Fuera del versioning (URL estable) + `@Public`.
+ * Webhook entrante de WhatsApp (Meta Cloud API). Una sola URL para toda la app
+ * de Meta: si el mensaje va al número de un tenant (extra «WhatsApp Business»,
+ * se reconoce por `metadata.phone_number_id`) lo guarda su bandeja; si no, es
+ * el número compartido de la plataforma y el `InboundMessagesService` resuelve
+ * el inquilino por el teléfono del remitente. Fuera del versioning + `@Public`.
  */
 @Public()
 @Controller({ path: 'webhooks/whatsapp', version: VERSION_NEUTRAL })
 export class WhatsAppInboundController {
   constructor(
     private readonly inbound: InboundMessagesService,
+    private readonly inbox: WhatsappInboxService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -116,12 +135,38 @@ export class WhatsAppInboundController {
     for (const entry of entries) {
       const changes = (entry as { changes?: unknown[] }).changes ?? [];
       for (const change of changes) {
-        const value = (change as { value?: { messages?: WabaTextMessage[] } }).value;
+        const value = (change as { value?: WabaChangeValue }).value;
+        const phoneNumberId = value?.metadata?.phone_number_id ?? null;
         for (const msg of value?.messages ?? []) {
           if (msg.type !== 'text' || !msg.from || !msg.text?.body) continue;
-          // Best-effort: un remitente no resoluble no debe romper el 200.
+          // Best-effort: un fallo con un mensaje no debe romper el 200.
+          const handled =
+            phoneNumberId && msg.id
+              ? await this.inbox
+                  .handleInbound({
+                    phoneNumberId,
+                    from: msg.from,
+                    profileName:
+                      value?.contacts?.find((c) => c.wa_id === msg.from)?.profile?.name ?? null,
+                    waMessageId: msg.id,
+                    body: msg.text.body,
+                    receivedAt: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : new Date(),
+                  })
+                  .catch(() => true)
+              : false;
+          if (handled) continue;
           await this.inbound
             .record({ channel: 'whatsapp', from: msg.from, body: msg.text.body })
+            .catch(() => undefined);
+        }
+        for (const st of value?.statuses ?? []) {
+          if (!st.id || !st.status) continue;
+          await this.inbox
+            .handleStatus({
+              waMessageId: st.id,
+              status: st.status,
+              error: st.errors?.[0]?.message ?? st.errors?.[0]?.title ?? null,
+            })
             .catch(() => undefined);
         }
       }
