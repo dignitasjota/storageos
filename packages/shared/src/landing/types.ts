@@ -4,7 +4,7 @@
  */
 import type { PromotionDiscountTypeValue } from '../billing';
 import type { OpeningHours } from '../facilities';
-import type { WebContent } from '../web';
+import type { WebContent, WebSeo } from '../web';
 export interface PublicLandingUnitTypeDto {
   id: string;
   name: string;
@@ -65,6 +65,8 @@ export interface PublicLandingDto {
    * `null` sin la feature `web_premium`.
    */
   webContent: WebContent | null;
+  /** Títulos y descripciones para Google (vacío = generados). `null` sin `web_premium`. */
+  webSeo: WebSeo | null;
   /** Testimonios (reseñas NPS ≥ 9). Vacío si la sección está desactivada. */
   testimonials: PublicTestimonialDto[];
   /** Preguntas frecuentes publicadas. Vacío si la sección está desactivada. */

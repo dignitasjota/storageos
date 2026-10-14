@@ -267,6 +267,54 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(landing.body.webAbout).toBeNull();
   });
 
+  it('web premium: textos SEO de portada, precios y contacto', async () => {
+    const owner = await registerVerifiedUser(app, 'web-seo');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+
+    // Sin la feature la landing no expone textos SEO.
+    const before = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(before.body.webSeo).toBeNull();
+
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    const save = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({
+        seo: {
+          homeTitle: 'Trasteros baratos en Mislata',
+          pricesTitle: 'Precios desde 35 €',
+          contactDescription: 'Llámanos o escríbenos.',
+        },
+      });
+    expect(save.status).toBe(200);
+    expect(save.body.seo).toEqual({
+      homeTitle: 'Trasteros baratos en Mislata',
+      pricesTitle: 'Precios desde 35 €',
+      contactDescription: 'Llámanos o escríbenos.',
+    });
+
+    // Merge parcial: '' quita un campo y los demás se conservan.
+    const cleared = await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ seo: { pricesTitle: '' } });
+    expect(cleared.body.seo).toEqual({
+      homeTitle: 'Trasteros baratos en Mislata',
+      contactDescription: 'Llámanos o escríbenos.',
+    });
+
+    const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(landing.body.webSeo).toEqual(cleared.body.seo);
+
+    // Título demasiado largo → 400.
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set(auth)
+      .send({ seo: { homeTitle: 'x'.repeat(71) } })
+      .expect(400);
+  });
+
   it('web premium: con la feature, se guarda y la landing aplica plantilla + textos', async () => {
     const owner = await registerVerifiedUser(app, 'web-on');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

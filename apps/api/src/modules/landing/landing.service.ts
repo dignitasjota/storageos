@@ -4,6 +4,7 @@ import {
   isValidCustomDomain,
   isWebTemplate,
   parseWebContent,
+  parseWebSeo,
   parseWebSections,
   resolvePlanFeatures,
 } from '@storageos/shared';
@@ -146,6 +147,7 @@ export class LandingService {
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
       webAbout: hasWebPremium ? tenant.webAbout : null,
       webContent: hasWebPremium ? parseWebContent(tenant.webContent) : null,
+      webSeo: hasWebPremium ? parseWebSeo(tenant.webSeo) : null,
       testimonials,
       faqs,
       contactEnabled: sections.contact,

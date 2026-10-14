@@ -17,6 +17,7 @@ import {
   isWebTemplate,
   parseExternalSiteUrl,
   parseWebContent,
+  parseWebSeo,
   parseWebSections,
   resolvePlanFeatures,
 } from '@storageos/shared';
@@ -447,6 +448,7 @@ export class TenantSettingsService {
         webAbout: true,
         webSections: true,
         webContent: true,
+        webSeo: true,
         externalSiteUrl: true,
         deletedAt: true,
       },
@@ -459,6 +461,7 @@ export class TenantSettingsService {
       sections: parseWebSections(tenant.webSections),
       content: parseWebContent(tenant.webContent),
       externalSiteUrl: tenant.externalSiteUrl,
+      seo: parseWebSeo(tenant.webSeo),
     };
   }
 
@@ -590,6 +593,11 @@ export class TenantSettingsService {
       // Merge parcial sobre el copy actual (cada sección se sobrescribe entera).
       const current = parseWebContent(tenant.webContent);
       data.webContent = { ...current, ...input.content } as unknown as Prisma.InputJsonValue;
+    }
+    if (input.seo !== undefined) {
+      // Merge parcial; '' borra el campo (vuelve al texto generado).
+      const merged: Record<string, unknown> = { ...parseWebSeo(tenant.webSeo), ...input.seo };
+      data.webSeo = parseWebSeo(merged) as unknown as Prisma.InputJsonValue;
     }
     if (Object.keys(data).length > 0) {
       await this.admin.tenant.update({ where: { id: args.tenantId }, data });
