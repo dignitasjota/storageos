@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowLeft,
+  Bot,
   Check,
   CheckCheck,
   Loader2,
@@ -25,6 +26,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
   useSendWhatsappMessage,
+  useSetConversationAssistant,
   useWhatsappConversation,
   useWhatsappConversations,
   useWhatsappSettings,
@@ -132,7 +134,7 @@ function WhatsappInbox() {
                           {c.lastMessagePreview ?? ''}
                         </p>
                       </div>
-                      {c.unreadCount > 0 && (
+                      {c.unreadCount > 0 && selected !== c.id && (
                         <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1 text-xs text-white">
                           {c.unreadCount}
                         </span>
@@ -169,6 +171,7 @@ function StatusIcon({ m }: { m: WhatsappMessageDto }) {
 function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const conversation = useWhatsappConversation(id);
   const send = useSendWhatsappMessage(id);
+  const toggleAssistant = useSetConversationAssistant(id);
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
   const messages = conversation.data?.messages ?? [];
@@ -213,6 +216,22 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
           <p className="truncate text-sm font-medium">{contactLabel(c)}</p>
           <p className="text-xs text-muted-foreground">+{c.waId}</p>
         </div>
+        <Can permission="communications:send">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={toggleAssistant.isPending}
+            onClick={() => toggleAssistant.mutate(!c.assistantEnabled)}
+            title={
+              c.assistantEnabled
+                ? 'El asistente responde en esta conversación'
+                : 'El asistente no responde en esta conversación'
+            }
+          >
+            <Bot className="mr-1 size-4" />
+            {c.assistantEnabled ? 'Pausar asistente' : 'Activar asistente'}
+          </Button>
+        </Can>
         {c.customerId ? (
           <Link href={`/customers/${c.customerId}`}>
             <Badge variant="outline">Ver inquilino</Badge>
@@ -235,12 +254,15 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 m.direction === 'out'
                   ? m.status === 'failed'
                     ? 'bg-red-600 text-white'
-                    : 'bg-emerald-600 text-white'
+                    : m.sender === 'assistant'
+                      ? 'bg-sky-700 text-white'
+                      : 'bg-emerald-600 text-white'
                   : 'bg-background shadow-sm'
               }`}
             >
               <p className="whitespace-pre-wrap break-words">{m.body}</p>
               <div className="mt-1 flex items-center justify-end gap-1 text-[11px] opacity-80">
+                {m.sender === 'assistant' && <span>Asistente ·</span>}
                 {m.sentByName && <span>{m.sentByName} ·</span>}
                 <span>{shortTime(m.createdAt)}</span>
                 <StatusIcon m={m} />

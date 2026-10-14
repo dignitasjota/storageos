@@ -34,6 +34,7 @@ import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
 import { TenantNotesCard } from './tenant-notes-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
+import { WhatsappAiCard } from './whatsapp-ai-card';
 
 import { PlatformEmailLog } from '@/components/admin/platform-email-log';
 import { SupportTicketList } from '@/components/admin/support-ticket-list';
@@ -361,6 +362,7 @@ export default function AdminTenantDetailPage() {
             <TenantHealthCard tenantId={id} />
             <OnboardingCard tenantId={id} />
             <FeatureOverridesCard tenantId={id} />
+            <WhatsappAiCard tenantId={id} />
             <TenantNotesCard tenantId={id} />
           </div>
         </TabsContent>

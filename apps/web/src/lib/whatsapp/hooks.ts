@@ -3,7 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  UpdateWhatsappAssistantInput,
   UpdateWhatsappSettingsInput,
+  WhatsappAiTestResultDto,
+  WhatsappAssistantDto,
   WhatsappConversationDetailDto,
   WhatsappConversationDto,
   WhatsappMessageDto,
@@ -79,5 +82,47 @@ export function useSendWhatsappMessage(conversationId: string) {
         json: { body },
       }),
     onSettled: () => qc.invalidateQueries({ queryKey: conversationsKey }),
+  });
+}
+
+const assistantKey = ['settings', 'whatsapp', 'assistant'] as const;
+
+export function useWhatsappAssistant(enabled = true) {
+  return useQuery({
+    queryKey: assistantKey,
+    queryFn: () => apiFetch<WhatsappAssistantDto>('/settings/whatsapp/assistant'),
+    enabled,
+  });
+}
+
+export function useUpdateWhatsappAssistant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateWhatsappAssistantInput) =>
+      apiFetch<WhatsappAssistantDto>('/settings/whatsapp/assistant', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(assistantKey, data),
+  });
+}
+
+export function useTestWhatsappAssistant() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<WhatsappAiTestResultDto>('/settings/whatsapp/assistant/test', { method: 'POST' }),
+  });
+}
+
+/** Activa o pausa el asistente en una conversación. */
+export function useSetConversationAssistant(conversationId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assistantEnabled: boolean) =>
+      apiFetch<WhatsappConversationDto>(`/whatsapp/conversations/${conversationId}`, {
+        method: 'PATCH',
+        json: { assistantEnabled },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: conversationsKey }),
   });
 }

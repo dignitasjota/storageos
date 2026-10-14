@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 
+import { AdminGuard } from '../admin/admin.guard';
+import { SuperAdminAuditService } from '../admin/super-admin-audit.service';
 import { AuthModule } from '../auth/auth.module';
+import { LandingModule } from '../landing/landing.module';
 import { LeadsModule } from '../leads/leads.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { WhatsappAiAdminController } from './whatsapp-ai-admin.controller';
+import { WhatsappAiClient } from './whatsapp-ai.client';
+import { WhatsappAssistantService } from './whatsapp-assistant.service';
 import {
   WhatsappConversationsController,
   WhatsappSettingsController,
@@ -19,9 +26,23 @@ import { WhatsappSettingsService } from './whatsapp-settings.service';
  * delega aquí los mensajes dirigidos al número de un tenant.
  */
 @Module({
-  imports: [AuthModule, LeadsModule, NotificationsModule],
-  controllers: [WhatsappSettingsController, WhatsappConversationsController],
-  providers: [WhatsappCloudClient, WhatsappSettingsService, WhatsappInboxService],
+  // JwtModule vacío + AdminGuard: el controller del panel admin (mismo patrón
+  // que BillingSaasModule).
+  imports: [AuthModule, LeadsModule, NotificationsModule, LandingModule, JwtModule.register({})],
+  controllers: [
+    WhatsappSettingsController,
+    WhatsappConversationsController,
+    WhatsappAiAdminController,
+  ],
+  providers: [
+    WhatsappCloudClient,
+    WhatsappAiClient,
+    WhatsappSettingsService,
+    WhatsappAssistantService,
+    WhatsappInboxService,
+    AdminGuard,
+    SuperAdminAuditService,
+  ],
   exports: [WhatsappInboxService, WhatsappSettingsService],
 })
 export class WhatsappBusinessModule {}

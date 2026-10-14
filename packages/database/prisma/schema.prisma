@@ -5152,6 +5152,20 @@ model TenantWhatsappSettings {
   enabled              Boolean   @default(false)
   webButtonEnabled     Boolean   @default(true) @map("web_button_enabled")
   lastCheckedAt        DateTime? @map("last_checked_at") @db.Timestamptz(6)
+  /// Asistente de IA activado por el tenant.
+  assistantEnabled      Boolean   @default(false) @map("assistant_enabled")
+  /// Información extra para el asistente (texto libre del tenant).
+  assistantInstructions String?   @map("assistant_instructions")
+  /// platform | own (lo decide el super admin).
+  aiMode                String    @default("platform") @map("ai_mode")
+  /// Límite mensual de respuestas con la IA de la plataforma (null = el general).
+  aiMonthlyLimit        Int?      @map("ai_monthly_limit")
+  ownAiProvider         String?   @map("own_ai_provider")
+  ownAiModel            String?   @map("own_ai_model")
+  ownAiBaseUrl          String?   @map("own_ai_base_url")
+  ownAiApiKeyEncrypted  String?   @map("own_ai_api_key_encrypted")
+  /// Mes (AAAA-MM) del último aviso de límite alcanzado.
+  aiLimitNotifiedMonth  String?   @map("ai_limit_notified_month")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5201,6 +5215,8 @@ model WhatsappMessage {
   status         String
   error          String?
   sentByUserId   String?  @map("sent_by_user_id") @db.Uuid
+  /// platform | own (solo respuestas del asistente).
+  aiKeySource    String?  @map("ai_key_source")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -5210,3 +5226,19 @@ model WhatsappMessage {
   @@index([conversationId, createdAt], map: "whatsapp_messages_conversation_idx")
   @@map("whatsapp_messages")
 }
+
+/// IA de WhatsApp de la plataforma (un registro; distinta de la del panel).
+model PlatformWhatsappAiSettings {
+  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  enabled           Boolean  @default(false)
+  /// anthropic | openai | minimax | openai_compatible
+  provider          String   @default("anthropic")
+  model             String   @default("")
+  baseUrl           String?  @map("base_url")
+  apiKeyEncrypted   String?  @map("api_key_encrypted")
+  monthlyReplyLimit Int      @default(300) @map("monthly_reply_limit")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_whatsapp_ai_settings")
+}
+
