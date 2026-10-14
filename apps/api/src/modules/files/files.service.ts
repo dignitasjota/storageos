@@ -346,6 +346,11 @@ export class FilesService implements OnModuleInit {
     }
   }
 
+  /** Borra objetos (p. ej. archivos de conversaciones anonimizadas); best-effort. */
+  async deleteObjects(bucket: PresignArgs['bucket'], keys: string[]): Promise<void> {
+    for (const key of keys) await this.deleteObjectQuietly(bucket, key);
+  }
+
   /** Borra un objeto rechazado; best-effort (no enmascara el error original). */
   private async deleteObjectQuietly(bucket: PresignArgs['bucket'], key: string): Promise<void> {
     try {

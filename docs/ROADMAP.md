@@ -641,4 +641,5 @@ Extra que solo se vende aparte (`whatsapp_business`). Decisiones de Jota: el ten
 - ✅ **PR 3 — reservas por chat + plantillas**: el asistente pide los datos, los confirma y crea la reserva online (trastero retenido 72 h) enviando el enlace de firma y pago; plantillas aprobadas desde la bandeja pasadas 24 h; recordatorio por WhatsApp de las reservas sin terminar (texto o plantilla; si no se puede, el correo de siempre).
 - ✅ **RGPD de las conversaciones**: anonimización (inquilino y tenant), exportación y borrado a los 365 días sin movimiento.
 - ✅ **Lo que pide Meta para aprobar la plataforma**: apartado de WhatsApp e IA en la política de privacidad, página pública de eliminación de datos (`/eliminar-datos`) y aviso de asistente automático en su primera respuesta.
+- ✅ **Mejoras**: fotos, audios, vídeos, documentos y ubicaciones en la bandeja (y enviar fotos o PDF), plantillas aprobadas elegidas de una lista, textos fijos en el idioma del cliente (español o inglés) y resumen del WhatsApp (asistente frente a equipo, reservas, primera respuesta).
 - ⏳ **PR 4 — alta integrada de Meta con coexistencia** (cuando Meta apruebe la plataforma).

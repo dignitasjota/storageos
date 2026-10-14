@@ -15,6 +15,7 @@ import { TtlCache } from '../../common/cache/ttl-cache';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { FilesService } from '../files/files.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
@@ -113,6 +114,7 @@ export class AdminTenantsService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly superAdminAudit: SuperAdminAuditService,
+    private readonly files: FilesService,
   ) {}
 
   // =============================== read ====================================
@@ -1880,7 +1882,8 @@ export class AdminTenantsService {
         users: users.length,
         leads: leads.count,
         communications: communications.count,
-        whatsappConversations: whatsapp,
+        whatsappConversations: whatsapp.count,
+        whatsappMediaKeys: whatsapp.mediaKeys,
       };
     });
 
@@ -1892,6 +1895,7 @@ export class AdminTenantsService {
       anonymizedCommunications: counts.communications,
       anonymizedWhatsappConversations: counts.whatsappConversations,
     };
+    await this.files.deleteObjects('uploads', counts.whatsappMediaKeys);
     await this.audit.write({
       tenantId,
       userId: null,

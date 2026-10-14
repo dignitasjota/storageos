@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { FilesService } from '../files/files.service';
 
 import type { Env } from '../../config/env.schema';
 
@@ -26,6 +27,7 @@ export class DataRetentionService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly config: ConfigService<Env, true>,
+    private readonly files: FilesService,
   ) {}
 
   /** Borra las filas más antiguas que el plazo de retención de cada tabla. */
@@ -50,6 +52,19 @@ export class DataRetentionService {
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
     );
+
+    // Archivos de los mensajes de WhatsApp que se van a borrar.
+    const whatsappCutoff = cutoff(whatsappDays);
+    const expiredMedia = await this.admin.whatsappMessage.findMany({
+      where: {
+        mediaKey: { not: null },
+        OR: [
+          { createdAt: { lt: whatsappCutoff } },
+          { conversation: { lastMessageAt: { lt: whatsappCutoff } } },
+        ],
+      },
+      select: { mediaKey: true },
+    });
 
     const [
       auditLogs,
@@ -84,6 +99,8 @@ export class DataRetentionService {
         where: { createdAt: { lt: cutoff(whatsappDays) } },
       }),
     ]);
+
+    await this.files.deleteObjects('uploads', expiredMedia.map((m) => m.mediaKey!).filter(Boolean));
 
     const result = {
       auditLogs: auditLogs.count,

@@ -6,6 +6,7 @@ import {
 } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { DataSubjectRequest } from '@storageos/database';
@@ -30,6 +31,7 @@ export class RgpdService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly files: FilesService,
   ) {}
 
   async list(tenantId: string): Promise<DataSubjectRequestDto[]> {
@@ -133,7 +135,7 @@ export class RgpdService {
     requestId?: string;
     meta: RequestMeta;
   }): Promise<void> {
-    await this.prisma.withTenant(async (tx) => {
+    const whatsappMedia = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findUnique({
         where: { id: args.customerId },
       });
@@ -178,7 +180,7 @@ export class RgpdService {
       // Borrar metodos de pago.
       await tx.paymentMethod.deleteMany({ where: { customerId: args.customerId } });
       // Conversaciones de WhatsApp: sin texto ni número.
-      await anonymizeWhatsappConversations(
+      const whatsapp = await anonymizeWhatsappConversations(
         tx,
         customerWhatsappWhere(args.customerId, customer.phone),
       );
@@ -188,7 +190,9 @@ export class RgpdService {
           data: { status: 'fulfilled', fulfilledAt: new Date() },
         });
       }
+      return whatsapp.mediaKeys;
     }, args.tenantId);
+    await this.files.deleteObjects('uploads', whatsappMedia);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
