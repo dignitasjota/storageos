@@ -24,6 +24,7 @@ import {
   type WhatsappMediaType,
   type WhatsappMediaUploadDto,
   type WhatsappMessageMediaDto,
+  type WhatsappStatsDto,
   type WhatsappTemplatesDto,
 } from '@storageos/shared';
 
@@ -428,6 +429,62 @@ export class WhatsappInboxService {
     }, args.tenantId);
     if (error) throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
     return this.toMessageDto(message);
+  }
+
+  /** Resumen del WhatsApp en los últimos `days` días. */
+  async stats(tenantId: string, days: number): Promise<WhatsappStatsDto> {
+    const from = new Date(Date.now() - days * 86_400_000);
+    const [conversations, inbound, assistant, staff, handoffs, bookings, firstResponse] =
+      await Promise.all([
+        this.admin.whatsappConversation.count({ where: { tenantId, createdAt: { gte: from } } }),
+        this.admin.whatsappMessage.count({
+          where: { tenantId, direction: 'in', createdAt: { gte: from } },
+        }),
+        this.admin.whatsappMessage.count({
+          where: {
+            tenantId,
+            sender: 'assistant',
+            status: { not: 'failed' },
+            createdAt: { gte: from },
+          },
+        }),
+        this.admin.whatsappMessage.count({
+          where: { tenantId, sender: 'staff', status: { not: 'failed' }, createdAt: { gte: from } },
+        }),
+        this.admin.notification.count({
+          where: { tenantId, type: 'whatsapp.handoff', createdAt: { gte: from } },
+        }),
+        this.admin.whatsappConversation.findMany({
+          where: { tenantId, contractId: { not: null }, contract: { createdAt: { gte: from } } },
+          select: { contract: { select: { signedAt: true } } },
+        }),
+        this.admin.$queryRaw<{ median: number | null }[]>`
+          SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median
+          FROM (
+            SELECT EXTRACT(EPOCH FROM (
+              (SELECT min(o.created_at) FROM whatsapp_messages o
+                WHERE o.conversation_id = c.id AND o.direction = 'out' AND o.status <> 'failed')
+              - (SELECT min(i.created_at) FROM whatsapp_messages i
+                WHERE i.conversation_id = c.id AND i.direction = 'in')
+            )) / 60 AS minutes
+            FROM whatsapp_conversations c
+            WHERE c.tenant_id = ${tenantId}::uuid AND c.created_at >= ${from}
+          ) t
+          WHERE minutes IS NOT NULL AND minutes >= 0
+        `,
+      ]);
+    const median = firstResponse[0]?.median;
+    return {
+      days,
+      conversations,
+      inboundMessages: inbound,
+      assistantReplies: assistant,
+      staffReplies: staff,
+      handoffs,
+      bookings: bookings.length,
+      bookingsSigned: bookings.filter((b) => b.contract?.signedAt).length,
+      medianFirstResponseMinutes: median == null ? null : Math.round(Number(median) * 10) / 10,
+    };
   }
 
   /** Plantillas aprobadas en Meta (necesita el ID de la cuenta de WhatsApp Business). */

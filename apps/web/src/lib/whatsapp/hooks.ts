@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   SendWhatsappTemplateInput,
   WhatsappMediaUploadDto,
+  WhatsappStatsDto,
   WhatsappTemplatesDto,
   WhatsappOutgoingMediaMime,
   UpdateWhatsappAssistantInput,
@@ -86,6 +87,15 @@ export function useSendWhatsappMessage(conversationId: string) {
         json: { body },
       }),
     onSettled: () => qc.invalidateQueries({ queryKey: conversationsKey }),
+  });
+}
+
+/** Resumen del WhatsApp en los últimos `days` días. */
+export function useWhatsappStats(days: number) {
+  return useQuery({
+    queryKey: ['whatsapp', 'stats', days],
+    queryFn: () => apiFetch<WhatsappStatsDto>(`/whatsapp/conversations/stats?days=${days}`),
+    staleTime: 60_000,
   });
 }
 

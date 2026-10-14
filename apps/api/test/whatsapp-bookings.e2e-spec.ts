@@ -188,6 +188,23 @@ describe('Reservas por WhatsApp (e2e)', () => {
     });
     expect(failedConv).toMatchObject({ contractId: null, assistantEnabled: false });
 
+    // Resumen del periodo.
+    const stats = await request(app.getHttpServer())
+      .get('/whatsapp/conversations/stats?days=30')
+      .set(auth)
+      .expect(200);
+    expect(stats.body).toMatchObject({
+      days: 30,
+      conversations: 3,
+      inboundMessages: 3,
+      assistantReplies: 3,
+      staffReplies: 0,
+      handoffs: 1,
+      bookings: 1,
+      bookingsSigned: 0,
+    });
+    expect(stats.body.medianFirstResponseMinutes).not.toBeNull();
+
     // Recordatorio: reserva de hace 13 h con la ventana abierta → texto por WhatsApp.
     await prismaAdmin.contract.update({
       where: { id: conv.contractId! },

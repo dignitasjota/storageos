@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
@@ -17,6 +18,7 @@ import {
   RequestWhatsappMediaUploadSchema,
   SendWhatsappMediaSchema,
   type WhatsappMediaUploadDto,
+  type WhatsappStatsDto,
   type WhatsappTemplatesDto,
   UpdateWhatsappAssistantSchema,
   UpdateWhatsappConversationSchema,
@@ -136,6 +138,20 @@ export class WhatsappConversationsController {
   }
 
   @RequirePermission('communications:read')
+  /** Resumen del WhatsApp (conversaciones, asistente frente a equipo, reservas…). */
+  @RequirePermission('communications:read')
+  @Get('stats')
+  stats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+  ): Promise<WhatsappStatsDto> {
+    const n = Number(days ?? 30);
+    return this.inbox.stats(
+      user.tenantId,
+      Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 1), 365) : 30,
+    );
+  }
+
   /** Plantillas aprobadas en Meta (para enviarlas pasadas 24 h). */
   @RequirePermission('communications:send')
   @Get('templates')

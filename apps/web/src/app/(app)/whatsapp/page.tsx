@@ -48,6 +48,7 @@ import {
   useWhatsappConversation,
   useWhatsappConversations,
   useWhatsappSettings,
+  useWhatsappStats,
   useWhatsappTemplates,
 } from '@/lib/whatsapp/hooks';
 
@@ -119,6 +120,8 @@ function WhatsappInbox() {
         </div>
       )}
 
+      <WhatsappStats />
+
       <Card className="overflow-hidden">
         <CardContent className="grid min-h-[60vh] p-0 md:grid-cols-[320px_1fr]">
           <div className={`border-r ${selected ? 'hidden md:block' : ''}`}>
@@ -175,6 +178,71 @@ function WhatsappInbox() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function formatMinutes(min: number | null): string {
+  if (min == null) return '—';
+  if (min < 1) return 'menos de 1 min';
+  if (min < 60) return `${Math.round(min)} min`;
+  const h = min / 60;
+  return h < 24 ? `${h.toFixed(1).replace('.', ',')} h` : `${Math.round(h / 24)} d`;
+}
+
+/** Resumen del periodo: conversaciones, quién responde y reservas. */
+function WhatsappStats() {
+  const [days, setDays] = useState(30);
+  const stats = useWhatsappStats(days);
+  const d = stats.data;
+  const replies = d ? d.assistantReplies + d.staffReplies : 0;
+  const items = d
+    ? [
+        { label: 'Conversaciones nuevas', value: String(d.conversations) },
+        { label: 'Mensajes recibidos', value: String(d.inboundMessages) },
+        {
+          label: 'Respondidos por el asistente',
+          value: replies ? `${Math.round((d.assistantReplies / replies) * 100)} %` : '—',
+          hint: `${d.assistantReplies} del asistente · ${d.staffReplies} del equipo`,
+        },
+        { label: 'Pasadas al equipo', value: String(d.handoffs) },
+        {
+          label: 'Reservas por WhatsApp',
+          value: String(d.bookings),
+          hint: `${d.bookingsSigned} firmadas`,
+        },
+        {
+          label: 'Primera respuesta (mediana)',
+          value: formatMinutes(d.medianFirstResponseMinutes),
+        },
+      ]
+    : [];
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-muted-foreground">Resumen</h2>
+        <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
+          <SelectTrigger className="h-8 w-40 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">Últimos 7 días</SelectItem>
+            <SelectItem value="30">Últimos 30 días</SelectItem>
+            <SelectItem value="90">Últimos 90 días</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {items.map((it) => (
+          <Card key={it.label}>
+            <CardContent className="space-y-0.5 p-3">
+              <p className="text-xs text-muted-foreground">{it.label}</p>
+              <p className="text-lg font-semibold">{it.value}</p>
+              {it.hint && <p className="text-[11px] text-muted-foreground">{it.hint}</p>}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

@@ -411,3 +411,19 @@ export function templateParamCount(body: string): number {
   const nums = [...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1]));
   return nums.length === 0 ? 0 : Math.max(...nums);
 }
+
+/** Resumen del WhatsApp del tenant en un periodo. */
+export interface WhatsappStatsDto {
+  days: number;
+  conversations: number;
+  inboundMessages: number;
+  assistantReplies: number;
+  staffReplies: number;
+  /** Conversaciones que el asistente pasó a una persona. */
+  handoffs: number;
+  /** Reservas preparadas por el asistente / ya firmadas. */
+  bookings: number;
+  bookingsSigned: number;
+  /** Mediana de minutos hasta la primera respuesta (asistente o equipo). */
+  medianFirstResponseMinutes: number | null;
+}
