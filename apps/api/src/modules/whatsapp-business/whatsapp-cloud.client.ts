@@ -80,6 +80,59 @@ export class WhatsappCloudClient {
     return { messageId: id };
   }
 
+  /**
+   * Mensaje con plantilla aprobada en Meta (lo único que se puede enviar
+   * pasadas 24 h desde el último mensaje del contacto). `params` = variables
+   * del cuerpo en orden.
+   */
+  async sendTemplate(args: {
+    phoneNumberId: string;
+    accessToken: string;
+    to: string;
+    name: string;
+    language: string;
+    params: string[];
+  }): Promise<{ messageId: string }> {
+    if (this.stub) {
+      if (args.name.startsWith('invalid')) {
+        throw new WhatsappCloudError('La plantilla no existe o no está aprobada (simulado)', 404);
+      }
+      this.logger.log(`[whatsapp:stub] plantilla ${args.name} → ${args.to}`);
+      return {
+        messageId: `wamid.stub-tpl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+    }
+    const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${encodeURIComponent(
+      args.phoneNumberId,
+    )}/messages`;
+    const json = await this.request(url, args.accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: args.to,
+        type: 'template',
+        template: {
+          name: args.name,
+          language: { code: args.language },
+          ...(args.params.length > 0
+            ? {
+                components: [
+                  {
+                    type: 'body',
+                    parameters: args.params.map((text) => ({ type: 'text', text })),
+                  },
+                ],
+              }
+            : {}),
+        },
+      }),
+    });
+    const id = (json.messages as { id?: string }[] | undefined)?.[0]?.id;
+    if (!id) throw new WhatsappCloudError('Meta no devolvió el id del mensaje', 502);
+    return { messageId: id };
+  }
+
   private async request(
     url: string,
     accessToken: string,

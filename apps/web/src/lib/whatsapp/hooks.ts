@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  SendWhatsappTemplateInput,
   UpdateWhatsappAssistantInput,
   UpdateWhatsappSettingsInput,
   WhatsappAiTestResultDto,
@@ -124,5 +125,18 @@ export function useSetConversationAssistant(conversationId: string) {
         json: { assistantEnabled },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: conversationsKey }),
+  });
+}
+
+/** Mensaje con plantilla aprobada (pasadas 24 h). */
+export function useSendWhatsappTemplate(conversationId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SendWhatsappTemplateInput) =>
+      apiFetch<WhatsappMessageDto>(`/whatsapp/conversations/${conversationId}/template`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSettled: () => qc.invalidateQueries({ queryKey: conversationsKey }),
   });
 }

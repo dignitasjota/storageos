@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   SendWhatsappMessageSchema,
+  SendWhatsappTemplateSchema,
   UpdateWhatsappAssistantSchema,
   UpdateWhatsappConversationSchema,
   UpdateWhatsappSettingsSchema,
@@ -41,6 +42,7 @@ import type { Request } from 'express';
 
 class UpdateWhatsappSettingsBody extends createZodDto(UpdateWhatsappSettingsSchema) {}
 class SendWhatsappMessageBody extends createZodDto(SendWhatsappMessageSchema) {}
+class SendWhatsappTemplateBody extends createZodDto(SendWhatsappTemplateSchema) {}
 class UpdateWhatsappAssistantBody extends createZodDto(UpdateWhatsappAssistantSchema) {}
 class UpdateWhatsappConversationBody extends createZodDto(UpdateWhatsappConversationSchema) {}
 
@@ -165,6 +167,22 @@ export class WhatsappConversationsController {
       userId: user.sub,
       conversationId: id,
       body: body.body,
+    });
+  }
+
+  /** Mensaje con plantilla aprobada (pasadas 24 h desde el último mensaje del contacto). */
+  @RequirePermission('communications:send')
+  @Post(':id/template')
+  sendTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SendWhatsappTemplateBody,
+  ): Promise<WhatsappMessageDto> {
+    return this.inbox.sendTemplate({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      conversationId: id,
+      input: body,
     });
   }
 }

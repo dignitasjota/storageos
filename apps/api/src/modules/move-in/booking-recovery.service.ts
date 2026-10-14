@@ -88,6 +88,9 @@ export class BookingRecoveryService {
         firstPaymentDeadline: { gt: new Date(now.getTime() + BOOKING_MIN_LEFT_MS) },
         createdAt: { lte: new Date(now.getTime() - BOOKING_MIN_AGE_MS) },
         customer: { email: { not: null }, deletedAt: null },
+        // Reservas hechas por WhatsApp: las recuerda primero el WhatsApp
+        // (`WhatsappBookingRemindersService`); el correo solo si no pudo.
+        whatsappConversations: { none: { bookingReminderSentAt: null } },
       },
       select: { id: true, tenantId: true },
       take: 500,

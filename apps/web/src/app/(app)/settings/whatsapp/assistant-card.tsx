@@ -41,6 +41,9 @@ export function AssistantCard() {
   const [model, setModel] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [bookings, setBookings] = useState(true);
+  const [templateName, setTemplateName] = useState('');
+  const [templateLanguage, setTemplateLanguage] = useState('es');
 
   const loaded = useRef(false);
   useEffect(() => {
@@ -48,6 +51,9 @@ export function AssistantCard() {
     loaded.current = true;
     setEnabled(assistant.data.assistantEnabled);
     setInstructions(assistant.data.assistantInstructions ?? '');
+    setBookings(assistant.data.assistantBookingsEnabled);
+    setTemplateName(assistant.data.reminderTemplateName ?? '');
+    setTemplateLanguage(assistant.data.reminderTemplateLanguage);
     if (assistant.data.ownAi) {
       setProvider(assistant.data.ownAi.provider);
       setModel(assistant.data.ownAi.model);
@@ -62,7 +68,13 @@ export function AssistantCard() {
 
   async function saveAssistant() {
     try {
-      await update.mutateAsync({ assistantEnabled: enabled, assistantInstructions: instructions });
+      await update.mutateAsync({
+        assistantEnabled: enabled,
+        assistantInstructions: instructions,
+        assistantBookingsEnabled: bookings,
+        reminderTemplateName: templateName.trim(),
+        reminderTemplateLanguage: templateLanguage.trim() || 'es',
+      });
       toast.success('Asistente guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -140,6 +152,44 @@ export function AssistantCard() {
               className="text-base sm:text-sm"
             />
           </div>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox checked={bookings} onCheckedChange={(v) => setBookings(v === true)} />
+            <span>
+              Permitir que prepare reservas
+              <span className="block text-xs text-muted-foreground">
+                Pide los datos, los confirma con el cliente y le envía el enlace para firmar y pagar
+                (el trastero queda reservado 72 horas, como en la reserva online).
+              </span>
+            </span>
+          </label>
+          <div className="grid gap-4 sm:grid-cols-[1fr_120px]">
+            <div className="space-y-1.5">
+              <Label htmlFor="wa-reminder-tpl">Plantilla para recordar reservas (opcional)</Label>
+              <Input
+                id="wa-reminder-tpl"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="recordatorio_reserva"
+                className="text-base sm:text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wa-reminder-lang">Idioma</Label>
+              <Input
+                id="wa-reminder-lang"
+                value={templateLanguage}
+                onChange={(e) => setTemplateLanguage(e.target.value)}
+                placeholder="es"
+                className="text-base sm:text-sm"
+              />
+            </div>
+          </div>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            Si una reserva hecha por WhatsApp sigue sin firmar o sin pagar a las 12 horas, se le
+            recuerda por WhatsApp. Pasadas 24 horas desde su último mensaje, WhatsApp solo deja
+            escribir con una plantilla aprobada en Meta: su texto debe llevar {'{{1}}'} (nombre) y{' '}
+            {'{{2}}'} (enlace). Sin plantilla, el recordatorio sale por correo.
+          </p>
           {noAi && (
             <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {ownMode

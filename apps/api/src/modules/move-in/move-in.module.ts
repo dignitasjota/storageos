@@ -35,6 +35,6 @@ import { SignaturesService } from './signatures.service';
     BookingRecoveryService,
     ...(WORKERS_ENABLED_IN_API ? [BookingExpiryCron, BookingRecoveryCron] : []),
   ],
-  exports: [SignaturesService, BookingRecoveryService],
+  exports: [SignaturesService, BookingRecoveryService, BookingService],
 })
 export class MoveInModule {}

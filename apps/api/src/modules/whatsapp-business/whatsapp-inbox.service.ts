@@ -13,6 +13,7 @@ import {
   type WhatsappMessageDto,
   type WhatsappMessageSender,
   type WhatsappMessageStatus,
+  type SendWhatsappTemplateInput,
 } from '@storageos/shared';
 
 import { tenantHasFeature } from '../../common/tenant-features';
@@ -230,7 +231,7 @@ export class WhatsappInboxService {
       return tx.whatsappMessage.findMany({
         where: { conversationId: id },
         include: { sentBy: { select: { fullName: true } } },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: 500,
       });
     }, tenantId);
@@ -315,6 +316,77 @@ export class WhatsappInboxService {
     return this.toMessageDto(message);
   }
 
+  /**
+   * Mensaje con plantilla aprobada (se puede enviar en cualquier momento; es
+   * la única forma de escribir pasadas 24 h). Pausa el asistente igual que una
+   * respuesta del equipo.
+   */
+  async sendTemplate(args: {
+    tenantId: string;
+    userId: string;
+    conversationId: string;
+    input: SendWhatsappTemplateInput;
+  }): Promise<WhatsappMessageDto> {
+    const conversation = await this.findOrThrow(args.tenantId, args.conversationId);
+    const settings = await this.settings.resolveForTenant(args.tenantId);
+    if (!settings?.enabled) {
+      throw new BadRequestException({
+        code: 'whatsapp_not_configured',
+        message: 'Conecta y activa tu número de WhatsApp en Configuración',
+      });
+    }
+    const body = `Plantilla «${args.input.name}»${
+      args.input.params.length > 0 ? `: ${args.input.params.join(' · ')}` : ''
+    }`;
+    let waMessageId: string | null = null;
+    let error: string | null = null;
+    try {
+      waMessageId = (
+        await this.client.sendTemplate({
+          phoneNumberId: settings.phoneNumberId,
+          accessToken: settings.accessToken,
+          to: conversation.waId,
+          name: args.input.name,
+          language: args.input.language,
+          params: args.input.params,
+        })
+      ).messageId;
+    } catch (err) {
+      error = err instanceof WhatsappCloudError ? err.message : 'No se pudo enviar la plantilla';
+    }
+    const now = new Date();
+    const message = await this.prisma.withTenant(async (tx) => {
+      const created = await tx.whatsappMessage.create({
+        data: {
+          tenantId: args.tenantId,
+          conversationId: conversation.id,
+          direction: 'out',
+          sender: 'staff',
+          body,
+          waMessageId,
+          status: error ? 'failed' : 'sent',
+          error,
+          sentByUserId: args.userId,
+          createdAt: now,
+        },
+        include: { sentBy: { select: { fullName: true } } },
+      });
+      if (!error) {
+        await tx.whatsappConversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessageAt: now,
+            lastMessagePreview: body.slice(0, PREVIEW_LENGTH),
+            assistantEnabled: false,
+          },
+        });
+      }
+      return created;
+    }, args.tenantId);
+    if (error) throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
+    return this.toMessageDto(message);
+  }
+
   /** Activa o pausa el asistente en una conversación. */
   async setAssistant(
     tenantId: string,
@@ -385,6 +457,7 @@ export class WhatsappInboxService {
       lastInboundAt: r.lastInboundAt?.toISOString() ?? null,
       canReply: this.windowOpen(r.lastInboundAt),
       assistantEnabled: r.assistantEnabled,
+      contractId: r.contractId,
     };
   }
 

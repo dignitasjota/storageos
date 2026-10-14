@@ -73,6 +73,8 @@ export interface WhatsappConversationDto {
   /** Se puede escribir libremente (dentro de la ventana de 24 h). */
   canReply: boolean;
   assistantEnabled: boolean;
+  /** Reserva preparada por el asistente en esta conversación. */
+  contractId: string | null;
 }
 
 export interface WhatsappMessageDto {
@@ -225,6 +227,17 @@ export interface AdminTenantWhatsappAiDto {
 }
 
 /** Asistente y clave propia (panel del tenant). */
+/** Nombre de plantilla de WhatsApp tal como está en Meta (minúsculas, cifras y _). */
+export const WhatsappTemplateNameSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9_]{1,512}$/, 'Solo minúsculas, cifras y guiones bajos');
+/** Código de idioma de la plantilla (es, en, es_ES, en_US…). */
+export const WhatsappTemplateLanguageSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, 'Código de idioma no válido (p. ej. es o es_ES)');
+
 export const UpdateWhatsappAssistantSchema = z
   .object({
     assistantEnabled: z.boolean().optional(),
@@ -235,6 +248,11 @@ export const UpdateWhatsappAssistantSchema = z
     ownApiKey: z.string().trim().min(10).max(500).optional(),
     /** Quita la clave propia. */
     removeOwnKey: z.boolean().optional(),
+    /** El asistente puede preparar reservas desde el chat. */
+    assistantBookingsEnabled: z.boolean().optional(),
+    /** Plantilla aprobada en Meta para el recordatorio ({{1}} nombre, {{2}} enlace). '' = ninguna. */
+    reminderTemplateName: WhatsappTemplateNameSchema.optional().or(z.literal('')),
+    reminderTemplateLanguage: WhatsappTemplateLanguageSchema.optional(),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -254,9 +272,21 @@ export interface WhatsappAssistantDto {
     keyLast4: string | null;
   } | null;
   usage: WhatsappAiUsageDto;
+  assistantBookingsEnabled: boolean;
+  reminderTemplateName: string | null;
+  reminderTemplateLanguage: string;
 }
 
 export const UpdateWhatsappConversationSchema = z.object({
   assistantEnabled: z.boolean(),
 });
 export type UpdateWhatsappConversationInput = z.infer<typeof UpdateWhatsappConversationSchema>;
+
+/** Mensaje con plantilla aprobada (para escribir pasadas las 24 h). */
+export const SendWhatsappTemplateSchema = z.object({
+  name: WhatsappTemplateNameSchema,
+  language: WhatsappTemplateLanguageSchema.default('es'),
+  /** Valores de las variables del cuerpo, en orden ({{1}}, {{2}}…). */
+  params: z.array(z.string().trim().min(1).max(500)).max(10).default([]),
+});
+export type SendWhatsappTemplateInput = z.infer<typeof SendWhatsappTemplateSchema>;
