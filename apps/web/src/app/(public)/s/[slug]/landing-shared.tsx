@@ -8,11 +8,12 @@ import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18
 import { OnePageTemplate } from './onepage-template';
 import { OnePageMovilTemplate } from './onepagemovil-template';
 import { priceRangeString } from './price-format';
+import { ScrollToSection } from './scroll-to-section';
 import { LandingTemplate } from './templates';
 import { TenantWebChrome } from './tenant-web-chrome';
 import { TrstromTemplate } from './trstrom-template';
 
-import type { PublicLandingDto } from '@storageos/shared';
+import type { LandingSection, PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { safeJsonLd } from '@/lib/json-ld';
@@ -164,6 +165,7 @@ function languageAlternates(
 export async function buildLandingMetadata(
   slug: string,
   locale: PublicWebLocale,
+  section?: LandingSection,
 ): Promise<Metadata> {
   const data = await getLanding(slug);
   if (!data) {
@@ -188,11 +190,13 @@ export async function buildLandingMetadata(
           where ? ` en ${where}` : ''
         }. Consulta disponibilidad y precios y reserva online en minutos.`;
   const base = data.customDomain ? `https://${data.customDomain}` : `/s/${slug}`;
+  if (section) return sectionMetadata(data, base, where, section);
   // Con dominio propio activo, el canonical apunta a él (versión canónica);
   // así la ruta `/s/<slug>` de la plataforma no compite por SEO.
   const canonical = locale === 'en' ? `${base}/l/en` : `${base}/`;
   return {
-    title,
+    // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
+    title: { absolute: title },
     description,
     alternates: { canonical, languages: languageAlternates(data, slug) },
     robots: { index: true, follow: true },
@@ -215,11 +219,56 @@ export async function buildLandingMetadata(
 }
 
 /**
+ * Título y descripción propios de `/precios` y `/contacto` (direcciones fijas
+ * para campañas) con su propia canónica; el contenido es la web de una página.
+ */
+function sectionMetadata(
+  data: PublicLandingDto,
+  base: string,
+  where: string,
+  section: LandingSection,
+): Metadata {
+  const en = where ? ` en ${where}` : '';
+  const prices = priceRangeString(
+    data.facilities.flatMap((f) => f.unitTypes),
+    'es',
+  );
+  const title =
+    section === 'precios'
+      ? `Precios de trasteros${en} · ${data.tenantName}`
+      : `Contacto · ${data.tenantName}`;
+  const description =
+    section === 'precios'
+      ? `Tamaños y precios de los trasteros de ${data.tenantName}${en}${
+          prices ? ` (${prices})` : ''
+        }, con IVA incluido. Reserva online en minutos.`
+      : `Contacta con ${data.tenantName}${en}: teléfono, dirección, horario y formulario. Te respondemos lo antes posible.`;
+  return {
+    // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
+    title: { absolute: title },
+    description,
+    alternates: { canonical: `${base}/${section}` },
+    robots: { index: true, follow: true },
+    openGraph: { title, description, type: 'website', siteName: data.tenantName, locale: 'es_ES' },
+    twitter: { card: 'summary_large_image', title, description },
+  };
+}
+
+/**
  * Cuerpo de la página de landing del tenant, parametrizado por `locale` —
  * lo comparten la ruta por defecto (`/s/[slug]`, español) y la ruta con
  * segmento de idioma (`/s/[slug]/l/[locale]`).
  */
-export async function LandingPageBody({ slug, locale }: { slug: string; locale: PublicWebLocale }) {
+export async function LandingPageBody({
+  slug,
+  locale,
+  section,
+}: {
+  slug: string;
+  locale: PublicWebLocale;
+  /** `/precios` o `/contacto`: la misma web, bajando sola a esa sección. */
+  section?: LandingSection;
+}) {
   const data = await getLanding(slug);
   if (!data) notFound();
 
@@ -241,6 +290,7 @@ export async function LandingPageBody({ slug, locale }: { slug: string; locale: 
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
+      {section && <ScrollToSection section={section} />}
       {data.webTemplate === 'onepage' ? (
         // Plantilla «una página»: autocontenida (trae su propio menú + pie).
         <OnePageTemplate data={data} locale={locale} />

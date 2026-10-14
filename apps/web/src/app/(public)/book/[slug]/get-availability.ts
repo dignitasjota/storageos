@@ -1,6 +1,7 @@
 import { createTranslator } from 'next-intl';
 
 import type { BookingAvailabilityDto } from '@storageos/shared';
+import type { Metadata } from 'next';
 
 import {
   getPublicWebMessages,
@@ -47,4 +48,18 @@ async function fallbackMessage(locale: PublicWebLocale): Promise<string> {
     namespace: 'publicWeb.book',
   });
   return t('notAvailableFallback');
+}
+
+/**
+ * Título de la página de reserva con la marca del tenant (sin la plantilla
+ * «· TrasterOS» del layout raíz: en su dominio propio es su web).
+ */
+export async function bookingMetadata(slug: string, locale: PublicWebLocale): Promise<Metadata> {
+  const { data } = await getBookingAvailability(slug, locale);
+  if (!data) return { title: { absolute: locale === 'en' ? 'Book' : 'Reservar' } };
+  const title =
+    locale === 'en'
+      ? `Book a storage unit online · ${data.tenantName}`
+      : `Reserva tu trastero online · ${data.tenantName}`;
+  return { title: { absolute: title }, openGraph: { title, siteName: data.tenantName } };
 }

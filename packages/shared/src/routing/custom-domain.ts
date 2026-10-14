@@ -42,6 +42,14 @@ const PLATFORM_PREFIXES = [
   '/widget',
 ];
 
+/**
+ * Secciones de la web de una página con dirección propia en el dominio del
+ * tenant (las usan las campañas de Google Ads): cargan la web y bajan solas a
+ * la sección. Se sirven con `/s/<slug>/<sección>` (regla de 1 segmento).
+ */
+export const LANDING_SECTION_PATHS = ['contacto', 'precios'] as const;
+export type LandingSection = (typeof LANDING_SECTION_PATHS)[number];
+
 /** Ruta amigable de reserva en el dominio propio → booking del tenant. */
 const BOOK_ALIAS = '/reservar';
 
@@ -60,6 +68,8 @@ export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   BOOK_ALIAS.slice(1),
   'l',
   'blog',
+  // Direcciones fijas de la web (`/contacto`, `/precios`) para campañas.
+  ...LANDING_SECTION_PATHS,
 ]);
 
 /**

@@ -79,7 +79,8 @@ export async function buildBlogListMetadata(
   const base = data.customDomain ? `https://${data.customDomain}/blog` : `/s/${slug}/blog`;
   const canonical = locale === 'en' ? `${base.replace(/\/blog$/, '')}/l/en/blog` : base;
   return {
-    title,
+    // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
+    title: { absolute: title },
     description,
     alternates: { canonical, languages: listLanguageAlternates(data, slug) },
     robots: { index: true, follow: true },
@@ -140,7 +141,8 @@ export async function buildBlogPostMetadata(
         : `/s/${slug}/l/en/blog/${postSlug}`
       : base;
   return {
-    title,
+    // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
+    title: { absolute: title },
     description,
     alternates: { canonical, languages: postLanguageAlternates(data, slug, postSlug) },
     robots: { index: true, follow: true },
