@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
+import {
+  anonymizeWhatsappConversations,
+  customerWhatsappWhere,
+} from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -96,7 +100,19 @@ export class RgpdService {
           consents: true,
         },
       });
-      return { customer };
+      const whatsappConversations = await tx.whatsappConversation.findMany({
+        where: customerWhatsappWhere(customerId, customer.phone),
+        select: {
+          waId: true,
+          contactName: true,
+          createdAt: true,
+          messages: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { direction: true, sender: true, body: true, createdAt: true },
+          },
+        },
+      });
+      return { customer, whatsappConversations };
     }, tenantId);
     return data;
   }
@@ -161,6 +177,11 @@ export class RgpdService {
       await tx.customerDocument.deleteMany({ where: { customerId: args.customerId } });
       // Borrar metodos de pago.
       await tx.paymentMethod.deleteMany({ where: { customerId: args.customerId } });
+      // Conversaciones de WhatsApp: sin texto ni número.
+      await anonymizeWhatsappConversations(
+        tx,
+        customerWhatsappWhere(args.customerId, customer.phone),
+      );
       if (args.requestId) {
         await tx.dataSubjectRequest.update({
           where: { id: args.requestId },
