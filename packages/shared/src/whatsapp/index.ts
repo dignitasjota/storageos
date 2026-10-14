@@ -253,6 +253,15 @@ export const UpdateWhatsappAssistantSchema = z
     /** Plantilla aprobada en Meta para el recordatorio ({{1}} nombre, {{2}} enlace). '' = ninguna. */
     reminderTemplateName: WhatsappTemplateNameSchema.optional().or(z.literal('')),
     reminderTemplateLanguage: WhatsappTemplateLanguageSchema.optional(),
+    /** Política de privacidad (https) que enlaza el aviso del primer mensaje. '' = ninguna. */
+    privacyUrl: z
+      .string()
+      .trim()
+      .max(500)
+      .url('URL no válida')
+      .refine((v) => v.startsWith('https://'), 'La URL debe empezar por https://')
+      .optional()
+      .or(z.literal('')),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -275,6 +284,7 @@ export interface WhatsappAssistantDto {
   assistantBookingsEnabled: boolean;
   reminderTemplateName: string | null;
   reminderTemplateLanguage: string;
+  privacyUrl: string | null;
 }
 
 export const UpdateWhatsappConversationSchema = z.object({
@@ -290,3 +300,16 @@ export const SendWhatsappTemplateSchema = z.object({
   params: z.array(z.string().trim().min(1).max(500)).max(10).default([]),
 });
 export type SendWhatsappTemplateInput = z.infer<typeof SendWhatsappTemplateSchema>;
+
+/**
+ * Aviso que el asistente añade a su primera respuesta en cada conversación:
+ * quien escribe sabe que le responde una IA y que puede pedir una persona.
+ */
+export function whatsappAssistantNotice(privacyUrl: string | null): string {
+  return [
+    'ℹ️ Te responde un asistente automático con inteligencia artificial. Si prefieres hablar con una persona, escríbelo.',
+    privacyUrl ? `Cómo tratamos tus datos: ${privacyUrl}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}

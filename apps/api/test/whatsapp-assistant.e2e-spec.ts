@@ -123,8 +123,19 @@ describe('Asistente de WhatsApp (e2e)', () => {
     const enabled = await request(app.getHttpServer())
       .put('/settings/whatsapp/assistant')
       .set(auth)
-      .send({ assistantEnabled: true, assistantInstructions: 'Abrimos también los sábados.' });
+      .send({
+        assistantEnabled: true,
+        assistantInstructions: 'Abrimos también los sábados.',
+        privacyUrl: 'https://ejemplo.es/privacidad',
+      });
     expect(enabled.status).toBe(200);
+    expect(enabled.body.privacyUrl).toBe('https://ejemplo.es/privacidad');
+    // La política de privacidad debe ir por https.
+    await request(app.getHttpServer())
+      .put('/settings/whatsapp/assistant')
+      .set(auth)
+      .send({ privacyUrl: 'http://ejemplo.es/privacidad' })
+      .expect(400);
     expect(enabled.body).toMatchObject({
       assistantEnabled: true,
       aiMode: 'platform',
@@ -138,6 +149,9 @@ describe('Asistente de WhatsApp (e2e)', () => {
     expect(replies).toHaveLength(1);
     expect(replies[0]!.aiKeySource).toBe('platform');
     expect(replies[0]!.body).toContain('Respuesta automática');
+    // La primera respuesta avisa de que es automática y enlaza la privacidad.
+    expect(replies[0]!.body).toContain('asistente automático con inteligencia artificial');
+    expect(replies[0]!.body).toContain('https://ejemplo.es/privacidad');
 
     // 2º mensaje: límite alcanzado y sin clave propia → no responde y avisa.
     await inbound('¿Y uno grande?');
@@ -165,6 +179,7 @@ describe('Asistente de WhatsApp (e2e)', () => {
     replies = await assistantReplies(tenantId, 2);
     expect(replies).toHaveLength(2);
     expect(replies[1]!.aiKeySource).toBe('own');
+    expect(replies[1]!.body).not.toContain('inteligencia artificial'); // solo la primera
 
     // Pide una persona → responde, se calla en la conversación y avisa.
     await inbound('Quiero hablar con una persona, por favor');

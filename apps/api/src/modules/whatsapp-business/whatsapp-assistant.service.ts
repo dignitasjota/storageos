@@ -13,6 +13,7 @@ import {
   type WhatsappAiTestResultDto,
   type WhatsappAiUsageDto,
   type WhatsappAssistantDto,
+  whatsappAssistantNotice,
 } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -262,6 +263,7 @@ export class WhatsappAssistantService {
       assistantBookingsEnabled: row?.assistantBookingsEnabled ?? true,
       reminderTemplateName: row?.reminderTemplateName ?? null,
       reminderTemplateLanguage: row?.reminderTemplateLanguage ?? 'es',
+      privacyUrl: row?.privacyUrl ?? null,
     };
   }
 
@@ -301,6 +303,7 @@ export class WhatsappAssistantService {
       ...(input.reminderTemplateLanguage !== undefined
         ? { reminderTemplateLanguage: input.reminderTemplateLanguage }
         : {}),
+      ...(input.privacyUrl !== undefined ? { privacyUrl: input.privacyUrl || null } : {}),
       ...(input.removeOwnKey
         ? { ownAiProvider: null, ownAiModel: null, ownAiBaseUrl: null, ownAiApiKeyEncrypted: null }
         : {
@@ -518,6 +521,8 @@ export class WhatsappAssistantService {
       })
       .catch(() => undefined);
 
+    // Primera respuesta: aviso fijo de que responde una IA (no depende del modelo).
+    if (text && firstReply) text = `${text}\n\n${whatsappAssistantNotice(settings.privacyUrl)}`;
     if (text) await this.send(settings, conversation, text, resolved.source);
     if (handoff) await this.handOff(tenantId, conversationId, conversation.contactName ?? null);
   }
@@ -742,7 +747,9 @@ export class WhatsappAssistantService {
       `Si el cliente pide hablar con una persona, quiere reclamar, tiene un problema con su contrato o sus pagos, o no sabes responder, contesta en una frase que le pasas con el equipo y termina con ${HANDOFF_MARKER}.`,
     );
     if (args.firstReply) {
-      lines.push('Es tu primera respuesta: preséntate en una frase como el asistente automático.');
+      lines.push(
+        'Es tu primera respuesta: saluda en una frase (el aviso de que eres un asistente automático se añade solo).',
+      );
     }
     const l = args.landing;
     if (l) {

@@ -60,6 +60,10 @@ describe('Páginas legales de la plataforma (e2e)', () => {
     const cookies = await request(app.getHttpServer()).get('/platform-legal/cookies');
     expect(cookies.status).toBe(200);
     expect(cookies.body.content).toContain('cookies');
+    // Instrucciones de eliminación de datos (las pide Meta para WhatsApp).
+    const deletion = await request(app.getHttpServer()).get('/platform-legal/data-deletion');
+    expect(deletion.status).toBe(200);
+    expect(deletion.body.content).toContain('WhatsApp');
 
     // El admin edita los términos.
     const upd = await request(app.getHttpServer())
