@@ -44,6 +44,7 @@ export function AssistantCard() {
   const [bookings, setBookings] = useState(true);
   const [templateName, setTemplateName] = useState('');
   const [templateLanguage, setTemplateLanguage] = useState('es');
+  const [privacyUrl, setPrivacyUrl] = useState('');
 
   const loaded = useRef(false);
   useEffect(() => {
@@ -54,6 +55,7 @@ export function AssistantCard() {
     setBookings(assistant.data.assistantBookingsEnabled);
     setTemplateName(assistant.data.reminderTemplateName ?? '');
     setTemplateLanguage(assistant.data.reminderTemplateLanguage);
+    setPrivacyUrl(assistant.data.privacyUrl ?? '');
     if (assistant.data.ownAi) {
       setProvider(assistant.data.ownAi.provider);
       setModel(assistant.data.ownAi.model);
@@ -74,6 +76,7 @@ export function AssistantCard() {
         assistantBookingsEnabled: bookings,
         reminderTemplateName: templateName.trim(),
         reminderTemplateLanguage: templateLanguage.trim() || 'es',
+        privacyUrl: privacyUrl.trim(),
       });
       toast.success('Asistente guardado.');
     } catch (err) {
@@ -151,6 +154,20 @@ export function AssistantCard() {
               placeholder="Ej.: Hay carros y montacargas. La fianza es de un mes. Aceptamos pago con Bizum."
               className="text-base sm:text-sm"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="wa-privacy-url">Tu política de privacidad (opcional)</Label>
+            <Input
+              id="wa-privacy-url"
+              value={privacyUrl}
+              onChange={(e) => setPrivacyUrl(e.target.value)}
+              placeholder="https://tuweb.es/privacidad"
+              className="text-base sm:text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              En su primera respuesta, el asistente avisa de que es automático y de que se puede
+              pedir una persona. Si pones aquí la página de privacidad de tu web, la enlaza.
+            </p>
           </div>
           <label className="flex items-start gap-2 text-sm">
             <Checkbox checked={bookings} onCheckedChange={(v) => setBookings(v === true)} />

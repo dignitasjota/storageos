@@ -5172,6 +5172,8 @@ model TenantWhatsappSettings {
   /// Plantilla aprobada para el recordatorio de reserva ({{1}} nombre, {{2}} enlace).
   reminderTemplateName     String? @map("reminder_template_name")
   reminderTemplateLanguage String  @default("es") @map("reminder_template_language")
+  /// Política de privacidad que enlaza el aviso del primer mensaje del asistente.
+  privacyUrl               String? @map("privacy_url")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

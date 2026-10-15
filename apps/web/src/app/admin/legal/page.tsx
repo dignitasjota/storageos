@@ -16,6 +16,7 @@ const SLUG_LABEL: Record<LegalSlug, string> = {
   terms: 'Términos y Condiciones',
   privacy: 'Política de Privacidad',
   cookies: 'Política de Cookies',
+  'data-deletion': 'Eliminación de datos',
 };
 
 export default function AdminLegalPage() {
@@ -24,9 +25,9 @@ export default function AdminLegalPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Páginas legales</h1>
         <p className="text-sm text-muted-foreground">
-          Edita el texto (en Markdown) de las páginas públicas de Términos y Privacidad. Los cambios
-          se publican al guardar. Recuerda completar los datos entre corchetes (razón social, NIF,
-          domicilio, correo…).
+          Edita el texto (en Markdown) de las páginas legales públicas. Los cambios se publican al
+          guardar. Recuerda completar los datos entre corchetes (razón social, NIF, domicilio,
+          correo…).
         </p>
       </div>
 

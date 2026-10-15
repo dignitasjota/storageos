@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Slugs de los documentos legales de la plataforma. */
-export const LEGAL_SLUGS = ['terms', 'privacy', 'cookies'] as const;
+export const LEGAL_SLUGS = ['terms', 'privacy', 'cookies', 'data-deletion'] as const;
 export const LegalSlugEnum = z.enum(LEGAL_SLUGS);
 export type LegalSlug = (typeof LEGAL_SLUGS)[number];
 
@@ -144,14 +144,27 @@ No vendemos tus datos. Para prestar el servicio nos apoyamos en proveedores que 
 - Proveedor de correo electrónico transaccional.
 - Pasarelas y proveedores de pago (por ejemplo, para tarjeta y domiciliación SEPA).
 - Herramientas de monitorización de errores y disponibilidad.
+- Meta Platforms (WhatsApp Business Platform), cuando la empresa cliente conecta su número de WhatsApp.
+- Proveedores de inteligencia artificial que generan las respuestas del asistente automático de WhatsApp (por ejemplo, Anthropic, OpenAI o MiniMax, según la configuración).
 
 También podremos comunicar datos a las Administraciones públicas y organismos competentes (por ejemplo, la Agencia Tributaria) cuando exista una obligación legal.
 
-## 7. Transferencias internacionales
+## 7. WhatsApp y asistente automático
 
-Priorizamos proveedores dentro del Espacio Económico Europeo. Si algún proveedor tratara datos fuera del EEE, la transferencia se ampararía en una decisión de adecuación de la Comisión Europea o en garantías adecuadas (como las Cláusulas Contractuales Tipo), conforme al Capítulo V del RGPD.
+Las empresas clientes pueden conectar su número de WhatsApp Business a TrasterOS para atender desde el panel a quien les escribe y, si lo activan, responder con un asistente automático basado en inteligencia artificial. En ese caso:
 
-## 8. Tus derechos
+- **Quién es responsable.** La empresa cliente es la responsable de las conversaciones con sus contactos; TrasterOS actúa como encargado del tratamiento.
+- **Qué datos se tratan.** El número de teléfono y el nombre de perfil de WhatsApp de quien escribe, el contenido de los mensajes y, si el contacto decide reservar un trastero por el chat, los datos que facilita para la reserva (nombre, apellidos, email y documento de identidad).
+- **Para qué.** Responder las consultas, preparar reservas y pasar la conversación a una persona del equipo cuando hace falta.
+- **Asistente automático.** Para generar cada respuesta, el contenido reciente de la conversación y la información pública del negocio se envían al proveedor de inteligencia artificial configurado, que actúa como encargado del tratamiento. La primera respuesta del asistente en cada conversación avisa de que es automática, y el contacto puede pedir hablar con una persona en cualquier momento. El asistente no toma decisiones con efectos jurídicos: las reservas se completan con la firma y el pago del propio contacto.
+- **Conservación.** Las conversaciones se suprimen automáticamente tras 12 meses sin actividad, o antes si la empresa cliente lo solicita o anonimiza al contacto.
+- **Tus derechos.** Puedes ejercerlos ante la empresa con la que hablaste o escribiéndonos a **info@trasteros.pro**. Más información en [Eliminación de datos](/eliminar-datos).
+
+## 8. Transferencias internacionales
+
+Priorizamos proveedores dentro del Espacio Económico Europeo. Algunos servicios, como WhatsApp (Meta) o los proveedores de inteligencia artificial, pueden tratar datos fuera del EEE. Si algún proveedor tratara datos fuera del EEE, la transferencia se ampararía en una decisión de adecuación de la Comisión Europea o en garantías adecuadas (como las Cláusulas Contractuales Tipo), conforme al Capítulo V del RGPD.
+
+## 9. Tus derechos
 
 Puedes ejercer en cualquier momento los siguientes derechos:
 
@@ -165,23 +178,23 @@ Puedes ejercer en cualquier momento los siguientes derechos:
 
 Para ejercerlos, escríbenos a **info@trasteros.pro** indicando el derecho que deseas ejercer. Si tus datos los trata una empresa cliente (como responsable) y nosotros solo actuamos como encargado, te redirigiremos a dicha empresa. Tienes además derecho a presentar una reclamación ante la Agencia Española de Protección de Datos ([www.aepd.es](https://www.aepd.es)) si consideras que el tratamiento no se ajusta a la normativa.
 
-## 9. Seguridad
+## 10. Seguridad
 
 Aplicamos medidas técnicas y organizativas apropiadas para proteger los datos, como el cifrado de datos sensibles, el hash de las contraseñas, el aislamiento de la información entre clientes, el control de accesos por roles, la autenticación en dos pasos y registros de auditoría. Ningún sistema es infalible, pero trabajamos para minimizar los riesgos y reaccionar con diligencia ante cualquier incidente.
 
-## 10. Cookies
+## 11. Cookies
 
 Utilizamos las cookies y tecnologías equivalentes estrictamente necesarias para el funcionamiento y la seguridad de la plataforma (por ejemplo, para mantener la sesión). Si en el futuro empleáramos cookies analíticas o de terceros no necesarias, se recabaría tu consentimiento previo mediante el correspondiente aviso.
 
-## 11. Menores
+## 12. Menores
 
 El servicio se dirige a empresas y profesionales; no está destinado a menores de edad y no recabamos deliberadamente sus datos.
 
-## 12. Cambios en esta política
+## 13. Cambios en esta política
 
 Podemos actualizar esta política para adaptarla a cambios normativos o del servicio. Publicaremos la versión vigente en esta misma página, indicando la fecha de última actualización, y te informaremos si los cambios fueran sustanciales.
 
-## 13. Contacto
+## 14. Contacto
 
 Para cualquier cuestión relativa a esta política o al tratamiento de tus datos, contacta con nosotros en **info@trasteros.pro**.`;
 
@@ -216,9 +229,36 @@ Podemos actualizar esta política de cookies para adaptarla a cambios legales o 
 
 Para cualquier duda sobre el uso de cookies, escríbenos a **info@trasteros.pro**. Puedes consultar también nuestra [Política de Privacidad](/privacidad).`;
 
+const DATA_DELETION_MD = `Esta página explica cómo pedir que se eliminen los datos personales tratados a través de TrasterOS, incluidos los de las conversaciones de WhatsApp con las empresas que usan la plataforma.
+
+## 1. Si escribiste por WhatsApp a una empresa de trasteros
+
+Las empresas que usan TrasterOS pueden atender por WhatsApp a quien les escribe. En ese caso, la empresa es la responsable de tus datos y TrasterOS los trata por su cuenta.
+
+Para pedir que se eliminen tus mensajes y tus datos:
+
+- **Escribe a la propia empresa** (por el mismo chat de WhatsApp o por su email) pidiendo que se eliminen tus datos. Desde su panel pueden anonimizar tus conversaciones al momento.
+- **O escríbenos a info@trasteros.pro** desde tu email indicando el número de teléfono desde el que escribiste y el nombre de la empresa. Trasladaremos la solicitud a la empresa y te confirmaremos cuando esté hecho.
+
+Al eliminarlos se borran el texto de los mensajes, tu nombre de perfil y tu número de teléfono. Si llegaste a firmar un contrato, la empresa puede tener que conservar algunos datos (por ejemplo, las facturas) durante los plazos que exige la ley.
+
+Aunque no lo pidas, las conversaciones se eliminan automáticamente tras 12 meses sin actividad.
+
+## 2. Si eres cliente de TrasterOS
+
+- **Desconectar WhatsApp.** En Configuración → WhatsApp puedes desactivar tu número en cualquier momento. Si además quieres eliminar las conversaciones guardadas, escríbenos.
+- **Eliminar tu cuenta.** Escríbenos a info@trasteros.pro desde el email de la cuenta. Antes de eliminarla puedes descargar tus datos desde Configuración → Empresa → Exportar tus datos.
+
+## 3. Plazos
+
+Respondemos a las solicitudes en un máximo de 30 días. Si no estás conforme con la respuesta, puedes reclamar ante la Agencia Española de Protección de Datos ([www.aepd.es](https://www.aepd.es)).
+
+Más información en nuestra [Política de Privacidad](/privacidad).`;
+
 /** Contenido por defecto (seed + fallback si la BD está vacía). */
 export const DEFAULT_LEGAL_DOCUMENTS: Record<LegalSlug, { title: string; content: string }> = {
   terms: { title: 'Términos y Condiciones de Uso', content: TERMS_MD },
   privacy: { title: 'Política de Privacidad', content: PRIVACY_MD },
   cookies: { title: 'Política de Cookies', content: COOKIES_MD },
+  'data-deletion': { title: 'Eliminación de datos', content: DATA_DELETION_MD },
 };
