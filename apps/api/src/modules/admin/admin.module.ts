@@ -8,6 +8,7 @@ import { EmailModule } from '../email/email.module';
 import { EmailDomainsModule } from '../email-domains/email-domains.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { StripeConnectModule } from '../payments/stripe-connect/stripe-connect.module';
 import { PlatformModule } from '../platform/platform.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 
@@ -24,6 +25,7 @@ import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminOpsHealthController } from './admin-ops-health.controller';
 import { AdminOpsHealthService } from './admin-ops-health.service';
+import { AdminPaymentSettingsController } from './admin-payment-settings.controller';
 import { AdminQueuesController } from './admin-queues.controller';
 import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
@@ -94,8 +96,10 @@ import { WeeklyDigestService } from './weekly-digest.service';
     UsageModule,
     AccountingModule,
     NotificationsModule,
+    StripeConnectModule,
   ],
   controllers: [
+    AdminPaymentSettingsController,
     AdminCommsController,
     SuperAdminAuthController,
     AdminTenantsController,

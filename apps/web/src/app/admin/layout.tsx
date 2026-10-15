@@ -18,6 +18,7 @@ import {
   HeartPulse,
   Hourglass,
   Inbox,
+  CreditCard,
   Landmark,
   Layers,
   LifeBuoy,
@@ -125,6 +126,7 @@ const ADMIN_NAV: AdminNavEntry[] = [
       { href: '/admin/platform-sepa', label: 'SEPA (BBVA)', icon: Landmark },
       { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },
       { href: '/admin/coupons', label: 'Cupones', icon: Ticket },
+      { href: '/admin/payments', label: 'Cobros de los tenants', icon: CreditCard },
     ],
   },
   {

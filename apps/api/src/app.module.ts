@@ -69,6 +69,7 @@ import { OwnersModule } from './modules/owners/owners.module';
 import { GoCardlessModule } from './modules/payments/gocardless/gocardless.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { RedsysModule } from './modules/payments/redsys/redsys.module';
+import { StripeConnectModule } from './modules/payments/stripe-connect/stripe-connect.module';
 import { PlanLimitsModule } from './modules/plan-limits/plan-limits.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PlatformContactModule } from './modules/platform-contact/platform-contact.module';
@@ -230,6 +231,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     LandingModule,
     AccountingModule,
     RedsysModule,
+    StripeConnectModule,
     GoCardlessModule,
     NotificationsModule,
     ReviewsModule,

@@ -2004,3 +2004,11 @@ Todo con la feature `whatsapp_business`. WhatsApp simulado con `NODE_ENV=test` o
 - **Webhook** `GET/POST /webhooks/whatsapp`: la verificación acepta `WHATSAPP_VERIFY_TOKEN` o el token propio de un tenant; la firma `X-Hub-Signature-256`, la de `WHATSAPP_APP_SECRET` o la del secreto de la app propia del tenant dueño de **todos** los números del aviso. Si `metadata.phone_number_id` es de un tenant va a su bandeja (aunque tenga el extra suspendido o el número desactivado: se guarda sin avisos ni asistente); si no, al flujo del número de la plataforma. Guarda texto, archivos, ubicaciones y respuestas a botones; ignora reacciones. Si no se puede guardar un mensaje → 500 (Meta reenvía; los ya guardados se descartan por su id).
 - **IA de WhatsApp de la plataforma** (super admin): `GET/PUT /admin/whatsapp-ai` + `POST /admin/whatsapp-ai/test`; por tenant `GET/PUT /admin/tenants/:id/whatsapp-ai {aiMode, aiMonthlyLimit}` (escribir: rol superadmin, auditado).
 - **Legal**: slug `data-deletion` en `/platform-legal/:slug` y `/admin/platform/legal/:slug` (página pública `/eliminar-datos`).
+
+### Cobro con tarjeta con Stripe Connect (PR 1 de 4)
+
+El tenant conecta su propia cuenta de Stripe (Express) y elige con qué cobra la tarjeta a sus inquilinos. Stripe simulado con `NODE_ENV=test` o `STRIPE_CONNECT_MODE=stub`.
+
+- `GET /settings/stripe-connect` (`settings:read`) → `StripeConnectStatusDto` (`platformAvailable`, `connected`, `accountId`, `chargesEnabled`, `payoutsEnabled`, `detailsSubmitted`, `requirementsDue`, `applicationFeePct`, `cardProvider`, `effectiveCardProvider`, `redsysEnabled`).
+- `billing:configure`: `POST /settings/stripe-connect/onboarding-link` (crea la cuenta si no existe → `{url}` del registro de Stripe; vuelve a `/settings/payments?stripe=return`), `POST …/refresh` (lee el estado en Stripe; 404 `stripe_not_connected`), `POST …/dashboard-link` (panel Express; 400 `stripe_onboarding_incomplete`), `DELETE` (desconecta; si la tarjeta iba por Stripe vuelve a Redsys o a nada) y `PUT …/card-provider {provider: 'redsys'|'stripe'|null}` (400 `stripe_not_ready` / `redsys_not_enabled`). Sin clave real de Stripe → 503 `stripe_not_configured`.
+- Super admin: `GET/PUT /admin/payment-settings {applicationFeePct}` (0-10 %, por defecto 2; escribir: superadmin, auditado) → incluye `connectedTenants`.
