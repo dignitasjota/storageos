@@ -1,13 +1,23 @@
 'use client';
 
 import {
+  WHATSAPP_MEDIA_LABELS,
+  WHATSAPP_OUTGOING_MAX_BYTES,
+  WHATSAPP_OUTGOING_MEDIA_MIMES,
+  type WhatsappConversationDto,
+  type WhatsappMessageDto,
+  type WhatsappOutgoingMediaMime,
+} from '@storageos/shared';
+import {
   AlertTriangle,
   ArrowLeft,
   Bot,
   Check,
   CheckCheck,
   Loader2,
+  FileText,
   MessageCircle,
+  Paperclip,
   Send,
   Settings,
 } from 'lucide-react';
@@ -16,22 +26,30 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { WhatsappConversationDto, WhatsappMessageDto } from '@storageos/shared';
-
 import { Can } from '@/components/auth/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
+  useSendWhatsappMedia,
   useSendWhatsappMessage,
   useSendWhatsappTemplate,
   useSetConversationAssistant,
   useWhatsappConversation,
   useWhatsappConversations,
   useWhatsappSettings,
+  useWhatsappStats,
+  useWhatsappTemplates,
 } from '@/lib/whatsapp/hooks';
 
 export default function WhatsappPage() {
@@ -102,6 +120,8 @@ function WhatsappInbox() {
         </div>
       )}
 
+      <WhatsappStats />
+
       <Card className="overflow-hidden">
         <CardContent className="grid min-h-[60vh] p-0 md:grid-cols-[320px_1fr]">
           <div className={`border-r ${selected ? 'hidden md:block' : ''}`}>
@@ -162,6 +182,119 @@ function WhatsappInbox() {
   );
 }
 
+function formatMinutes(min: number | null): string {
+  if (min == null) return '—';
+  if (min < 1) return 'menos de 1 min';
+  if (min < 60) return `${Math.round(min)} min`;
+  const h = min / 60;
+  return h < 24 ? `${h.toFixed(1).replace('.', ',')} h` : `${Math.round(h / 24)} d`;
+}
+
+/** Resumen del periodo: conversaciones, quién responde y reservas. */
+function WhatsappStats() {
+  const [days, setDays] = useState(30);
+  const stats = useWhatsappStats(days);
+  const d = stats.data;
+  const replies = d ? d.assistantReplies + d.staffReplies : 0;
+  const items = d
+    ? [
+        { label: 'Conversaciones nuevas', value: String(d.conversations) },
+        { label: 'Mensajes recibidos', value: String(d.inboundMessages) },
+        {
+          label: 'Respondidos por el asistente',
+          value: replies ? `${Math.round((d.assistantReplies / replies) * 100)} %` : '—',
+          hint: `${d.assistantReplies} del asistente · ${d.staffReplies} del equipo`,
+        },
+        { label: 'Pasadas al equipo', value: String(d.handoffs) },
+        {
+          label: 'Reservas por WhatsApp',
+          value: String(d.bookings),
+          hint: `${d.bookingsSigned} firmadas`,
+        },
+        {
+          label: 'Primera respuesta (mediana)',
+          value: formatMinutes(d.medianFirstResponseMinutes),
+        },
+      ]
+    : [];
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-muted-foreground">Resumen</h2>
+        <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
+          <SelectTrigger className="h-8 w-40 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">Últimos 7 días</SelectItem>
+            <SelectItem value="30">Últimos 30 días</SelectItem>
+            <SelectItem value="90">Últimos 90 días</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {items.map((it) => (
+          <Card key={it.label}>
+            <CardContent className="space-y-0.5 p-3">
+              <p className="text-xs text-muted-foreground">{it.label}</p>
+              <p className="text-lg font-semibold">{it.value}</p>
+              {it.hint && <p className="text-[11px] text-muted-foreground">{it.hint}</p>}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Foto, audio, vídeo o documento de un mensaje. */
+function MessageMedia({ m }: { m: WhatsappMessageDto }) {
+  const media = m.media;
+  if (!media) return null;
+  if (!media.url) {
+    return (
+      <p className="mb-1 text-xs italic opacity-80">
+        {WHATSAPP_MEDIA_LABELS[media.type]} no disponible
+      </p>
+    );
+  }
+  if (media.type === 'image' || media.type === 'sticker') {
+    return (
+      <a href={media.url} target="_blank" rel="noreferrer" className="mb-1 block">
+        {/* eslint-disable-next-line @next/next/no-img-element -- URL firmada temporal de MinIO */}
+        <img
+          src={media.url}
+          alt={WHATSAPP_MEDIA_LABELS[media.type]}
+          className={`rounded-md ${media.type === 'sticker' ? 'max-h-32' : 'max-h-64'} max-w-full`}
+        />
+      </a>
+    );
+  }
+  if (media.type === 'audio') {
+    return <audio controls src={media.url} className="mb-1 max-w-full" />;
+  }
+  if (media.type === 'video') {
+    return <video controls src={media.url} className="mb-1 max-h-64 max-w-full rounded-md" />;
+  }
+  return (
+    <a
+      href={media.url}
+      target="_blank"
+      rel="noreferrer"
+      className="mb-1 flex items-center gap-2 rounded-md bg-black/10 px-2 py-1.5 text-xs underline"
+    >
+      <FileText className="size-4 shrink-0" />
+      <span className="truncate">{media.filename ?? WHATSAPP_MEDIA_LABELS.document}</span>
+    </a>
+  );
+}
+
+/** El texto del mensaje sin la etiqueta «[Foto]» cuando ya se ve el archivo. */
+function messageText(m: WhatsappMessageDto): string {
+  if (!m.media?.url) return m.body;
+  return m.body.replace(/^\[[^\]]*\]\s*/, '');
+}
+
 function StatusIcon({ m }: { m: WhatsappMessageDto }) {
   if (m.direction !== 'out') return null;
   if (m.status === 'failed') return <AlertTriangle className="size-3.5 text-red-200" />;
@@ -175,21 +308,73 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
   const send = useSendWhatsappMessage(id);
   const toggleAssistant = useSetConversationAssistant(id);
   const sendTemplate = useSendWhatsappTemplate(id);
+  const sendMedia = useSendWhatsappMedia(id);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function attach(file: File | undefined) {
+    if (!file) return;
+    const mime = file.type as WhatsappOutgoingMediaMime;
+    if (!(WHATSAPP_OUTGOING_MEDIA_MIMES as readonly string[]).includes(mime)) {
+      toast.error('Solo se pueden enviar fotos (JPG o PNG) y PDF.');
+      return;
+    }
+    if (file.size > WHATSAPP_OUTGOING_MAX_BYTES[mime]) {
+      toast.error(
+        `El archivo supera el máximo (${Math.round(WHATSAPP_OUTGOING_MAX_BYTES[mime] / 1024 / 1024)} MB).`,
+      );
+      return;
+    }
+    try {
+      // El texto escrito se envía como pie del archivo.
+      await sendMedia.mutateAsync({ file, ...(text.trim() ? { caption: text.trim() } : {}) });
+      setText('');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar el archivo.');
+    }
+  }
   const [tplName, setTplName] = useState('');
   const [tplLanguage, setTplLanguage] = useState('es');
   const [tplParams, setTplParams] = useState('');
+  const [tplValues, setTplValues] = useState<string[]>([]);
+  const canReplyNow = conversation.data?.canReply ?? true;
+  const templates = useWhatsappTemplates(!canReplyNow);
+  const approved = templates.data?.templates ?? [];
+  const chosen = approved.find((t) => t.name === tplName && t.language === tplLanguage);
+
+  function chooseTemplate(value: string) {
+    const [name, language] = value.split('|');
+    const tpl = approved.find((t) => t.name === name && t.language === language);
+    setTplName(name ?? '');
+    setTplLanguage(language ?? 'es');
+    const contact = conversation.data
+      ? (conversation.data.customerName ?? conversation.data.contactName ?? '')
+      : '';
+    setTplValues(
+      Array.from({ length: tpl?.paramCount ?? 0 }, (_, i) =>
+        i === 0 ? (contact.split(' ')[0] ?? '') : '',
+      ),
+    );
+  }
 
   async function submitTemplate() {
+    const params = chosen
+      ? tplValues.map((v) => v.trim())
+      : tplParams
+          .split('\n')
+          .map((p) => p.trim())
+          .filter(Boolean);
+    if (chosen && params.some((v) => !v)) {
+      toast.error('Rellena todas las variables de la plantilla.');
+      return;
+    }
     try {
       await sendTemplate.mutateAsync({
         name: tplName.trim(),
         language: tplLanguage.trim() || 'es',
-        params: tplParams
-          .split('\n')
-          .map((p) => p.trim())
-          .filter(Boolean),
+        params,
       });
       setTplParams('');
+      setTplValues([]);
       toast.success('Plantilla enviada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
@@ -288,7 +473,10 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                   : 'bg-background shadow-sm'
               }`}
             >
-              <p className="whitespace-pre-wrap break-words">{m.body}</p>
+              <MessageMedia m={m} />
+              {messageText(m) && (
+                <p className="whitespace-pre-wrap break-words">{messageText(m)}</p>
+              )}
               <div className="mt-1 flex items-center justify-end gap-1 text-[11px] opacity-80">
                 {m.sender === 'assistant' && <span>Asistente ·</span>}
                 {m.sentByName && <span>{m.sentByName} ·</span>}
@@ -306,6 +494,30 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="border-t p-3">
           {c.canReply ? (
             <div className="flex items-end gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept={WHATSAPP_OUTGOING_MEDIA_MIMES.join(',')}
+                className="hidden"
+                onChange={(e) => {
+                  void attach(e.target.files?.[0]);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => fileRef.current?.click()}
+                disabled={sendMedia.isPending}
+                aria-label="Adjuntar foto o PDF"
+                title="Adjuntar foto o PDF (lo escrito va como pie)"
+              >
+                {sendMedia.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Paperclip className="size-4" />
+                )}
+              </Button>
               <Textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -337,40 +549,106 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
                 Han pasado más de 24 horas desde el último mensaje de este contacto: WhatsApp solo
                 deja escribirle con una plantilla aprobada en Meta.
               </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  value={tplName}
-                  onChange={(e) => setTplName(e.target.value)}
-                  placeholder="Nombre de la plantilla"
-                  className="text-base sm:text-sm"
-                />
-                <Input
-                  value={tplLanguage}
-                  onChange={(e) => setTplLanguage(e.target.value)}
-                  placeholder="es"
-                  className="text-base sm:w-24 sm:text-sm"
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <Textarea
-                  value={tplParams}
-                  onChange={(e) => setTplParams(e.target.value)}
-                  rows={2}
-                  placeholder="Valores de las variables, uno por línea ({{1}}, {{2}}…)"
-                  className="text-base sm:text-sm"
-                />
-                <Button
-                  onClick={submitTemplate}
-                  disabled={sendTemplate.isPending || !tplName.trim()}
-                  aria-label="Enviar plantilla"
-                >
-                  {sendTemplate.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Send className="size-4" />
+              {approved.length > 0 ? (
+                <div className="space-y-2">
+                  <Select
+                    value={chosen ? `${chosen.name}|${chosen.language}` : ''}
+                    onValueChange={chooseTemplate}
+                  >
+                    <SelectTrigger className="text-base sm:text-sm">
+                      <SelectValue placeholder="Elige una plantilla aprobada" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {approved.map((t) => (
+                        <SelectItem
+                          key={`${t.name}|${t.language}`}
+                          value={`${t.name}|${t.language}`}
+                        >
+                          {t.name} · {t.language}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {chosen && (
+                    <>
+                      <p className="whitespace-pre-wrap rounded-md bg-muted px-3 py-2 text-xs">
+                        {chosen.body}
+                      </p>
+                      {tplValues.map((v, i) => (
+                        <Input
+                          key={i}
+                          value={v}
+                          onChange={(e) =>
+                            setTplValues((prev) =>
+                              prev.map((p, j) => (j === i ? e.target.value : p)),
+                            )
+                          }
+                          placeholder={`Valor de {{${i + 1}}}`}
+                          className="text-base sm:text-sm"
+                        />
+                      ))}
+                    </>
                   )}
-                </Button>
-              </div>
+                  <div className="flex justify-end">
+                    <Button onClick={submitTemplate} disabled={sendTemplate.isPending || !chosen}>
+                      {sendTemplate.isPending ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 size-4" />
+                      )}
+                      Enviar plantilla
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {templates.data && !templates.data.wabaConfigured && (
+                    <p className="text-xs text-muted-foreground">
+                      Pon el ID de tu cuenta de WhatsApp Business en Configuración → WhatsApp para
+                      elegir tus plantillas de una lista.
+                    </p>
+                  )}
+                  {templates.data?.error && (
+                    <p className="text-xs text-red-600">
+                      No se pudieron cargar tus plantillas: {templates.data.error}
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      value={tplName}
+                      onChange={(e) => setTplName(e.target.value)}
+                      placeholder="Nombre de la plantilla"
+                      className="text-base sm:text-sm"
+                    />
+                    <Input
+                      value={tplLanguage}
+                      onChange={(e) => setTplLanguage(e.target.value)}
+                      placeholder="es"
+                      className="text-base sm:w-24 sm:text-sm"
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Textarea
+                      value={tplParams}
+                      onChange={(e) => setTplParams(e.target.value)}
+                      rows={2}
+                      placeholder="Valores de las variables, uno por línea ({{1}}, {{2}}…)"
+                      className="text-base sm:text-sm"
+                    />
+                    <Button
+                      onClick={submitTemplate}
+                      disabled={sendTemplate.isPending || !tplName.trim()}
+                      aria-label="Enviar plantilla"
+                    >
+                      {sendTemplate.isPending ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Send className="size-4" />
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

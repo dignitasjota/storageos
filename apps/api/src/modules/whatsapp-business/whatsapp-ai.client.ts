@@ -28,6 +28,8 @@ export const HANDOFF_MARKER = '[[HUMANO]]';
 
 /** Marca con la que el asistente pide crear la reserva (JSON con los datos). */
 export const BOOKING_MARKER_RE = /\[\[RESERVA\s*(\{[\s\S]*?\})\s*\]\]/;
+/** Marca con la que el modelo indica el idioma del cliente (la quita el servidor). */
+export const LANGUAGE_MARKER_RE = /\[\[IDIOMA\s+([a-z]{2})\s*\]\]/i;
 
 const MAX_OUTPUT_TOKENS = 700;
 const TIMEOUT_MS = 30_000;
@@ -152,11 +154,14 @@ export class WhatsappAiClient {
     const last = [...turns].reverse().find((t) => t.role === 'user')?.content ?? '';
     // «reservar {json}» → la marca de reserva con esos datos (para las pruebas).
     const booking = /^reservar\s+(\{[\s\S]*\})$/i.exec(last.trim());
-    const text = booking
-      ? `Perfecto, te lo preparo. [[RESERVA ${booking[1]}]]`
-      : /humano|persona/i.test(last)
-        ? `Te paso con una persona del equipo, enseguida te escriben. ${HANDOFF_MARKER}`
-        : `Respuesta automática (simulada): ${last.slice(0, 80)}`;
+    const english = /\b(hello|hi|how much|price|please|thanks|storage unit)\b/i.test(last);
+    const text = `[[IDIOMA ${english ? 'en' : 'es'}]] ${
+      booking
+        ? `Perfecto, te lo preparo. [[RESERVA ${booking[1]}]]`
+        : /humano|persona/i.test(last)
+          ? `Te paso con una persona del equipo, enseguida te escriben. ${HANDOFF_MARKER}`
+          : `Respuesta automática (simulada): ${last.slice(0, 80)}`
+    }`;
     return { text, inputTokens: 100, outputTokens: 20 };
   }
 }

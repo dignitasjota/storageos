@@ -71,6 +71,8 @@ const cspDirectives = {
   ],
   'style-src': ["'self'", "'unsafe-inline'"],
   'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+  // Audios y vídeos de WhatsApp (URL firmada de MinIO, host por despliegue).
+  'media-src': ["'self'", 'blob:', 'https:'],
   'font-src': ["'self'", 'data:'],
   // 'self' cubre RSC y rutas internas. https: cubre el backend API
   // (NEXT_PUBLIC_API_URL, otro origin) + PUT directos a signed URLs

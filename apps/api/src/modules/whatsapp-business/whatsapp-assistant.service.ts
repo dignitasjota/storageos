@@ -14,6 +14,8 @@ import {
   type WhatsappAiUsageDto,
   type WhatsappAssistantDto,
   whatsappAssistantNotice,
+  whatsappTextLanguage,
+  type WhatsappTextLanguage,
 } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -27,6 +29,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   BOOKING_MARKER_RE,
   HANDOFF_MARKER,
+  LANGUAGE_MARKER_RE,
   type WhatsappAiConfig,
   WhatsappAiClient,
   type WhatsappAiTurn,
@@ -494,7 +497,20 @@ export class WhatsappAssistantService {
     const completion = await this.ai.complete(resolved.config, system, turns);
     let handoff = completion.text.includes(HANDOFF_MARKER);
     const bookingMatch = BOOKING_MARKER_RE.exec(completion.text);
-    let text = completion.text.replace(BOOKING_MARKER_RE, '').split(HANDOFF_MARKER).join('').trim();
+    const detected = LANGUAGE_MARKER_RE.exec(completion.text)?.[1]?.toLowerCase() ?? null;
+    if (detected && detected !== conversation.language) {
+      await this.admin.whatsappConversation.update({
+        where: { id: conversationId },
+        data: { language: detected },
+      });
+    }
+    const lang = whatsappTextLanguage(detected ?? conversation.language);
+    let text = completion.text
+      .replace(BOOKING_MARKER_RE, '')
+      .replace(new RegExp(LANGUAGE_MARKER_RE.source, 'gi'), '')
+      .split(HANDOFF_MARKER)
+      .join('')
+      .trim();
     if (bookingMatch && bookingsEnabled && landing) {
       const booked = await this.createBooking({
         tenantId,
@@ -504,6 +520,7 @@ export class WhatsappAssistantService {
         waId: conversation.waId,
         landing,
         raw: bookingMatch[1] ?? '',
+        lang,
       });
       text = [text, booked.message].filter(Boolean).join('\n\n');
       if (!booked.ok) handoff = true;
@@ -522,7 +539,9 @@ export class WhatsappAssistantService {
       .catch(() => undefined);
 
     // Primera respuesta: aviso fijo de que responde una IA (no depende del modelo).
-    if (text && firstReply) text = `${text}\n\n${whatsappAssistantNotice(settings.privacyUrl)}`;
+    if (text && firstReply) {
+      text = `${text}\n\n${whatsappAssistantNotice(settings.privacyUrl, lang)}`;
+    }
     if (text) await this.send(settings, conversation, text, resolved.source);
     if (handoff) await this.handOff(tenantId, conversationId, conversation.contactName ?? null);
   }
@@ -585,20 +604,32 @@ export class WhatsappAssistantService {
     waId: string;
     landing: PublicLandingDto;
     raw: string;
+    lang: WhatsappTextLanguage;
   }): Promise<{ ok: boolean; message: string }> {
+    const en = args.lang === 'en';
+    const reasons = {
+      missing: en ? 'some details are missing' : 'faltan datos',
+      size: en ? "I can't find that size" : 'no encuentro ese tamaño',
+      invalid: en ? 'some details are not valid' : 'algún dato no es válido',
+      past: en ? 'the move-in date has already passed' : 'la fecha de entrada ya ha pasado',
+      soldOut: en ? 'that size has just sold out' : 'ese tamaño acaba de agotarse',
+      error: en ? 'something went wrong' : 'ha habido un problema al reservar',
+    };
     const fail = (reason: string) => ({
       ok: false,
-      message: `No he podido completar la reserva (${reason}). Te paso con el equipo para terminarla.`,
+      message: en
+        ? `I couldn't complete the booking (${reason}). I'm passing you to the team to finish it.`
+        : `No he podido completar la reserva (${reason}). Te paso con el equipo para terminarla.`,
     });
     let data: Record<string, unknown>;
     try {
       data = JSON.parse(args.raw) as Record<string, unknown>;
     } catch {
-      return fail('faltan datos');
+      return fail(reasons.missing);
     }
     const codes = bookingCodes(args.landing);
     const target = codes.get(String(data.tipo ?? '').toUpperCase());
-    if (!target) return fail('no encuentro ese tamaño');
+    if (!target) return fail(reasons.size);
     const str = (k: string) => (typeof data[k] === 'string' ? (data[k] as string).trim() : '');
     const parsed = PublicBookingSchema.safeParse({
       facilityId: target.facilityId,
@@ -614,11 +645,11 @@ export class WhatsappAssistantService {
       utmSource: 'whatsapp',
       utmMedium: 'asistente',
     });
-    if (!parsed.success) return fail('algún dato no es válido');
+    if (!parsed.success) return fail(reasons.invalid);
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
       new Date(),
     );
-    if (parsed.data.startDate < today) return fail('la fecha de entrada ya ha pasado');
+    if (parsed.data.startDate < today) return fail(reasons.past);
 
     let result: { contractId: string; signingToken: string };
     try {
@@ -628,8 +659,8 @@ export class WhatsappAssistantService {
       this.logger.warn(`whatsapp-assistant: reserva fallida (${code})`);
       return fail(
         code === 'no_availability' || code === 'unit_not_available'
-          ? 'ese tamaño acaba de agotarse'
-          : 'ha habido un problema al reservar',
+          ? reasons.soldOut
+          : reasons.error,
       );
     }
     await this.admin.whatsappConversation.update({
@@ -648,7 +679,9 @@ export class WhatsappAssistantService {
       .catch(() => undefined);
     return {
       ok: true,
-      message: `¡Listo! Te he reservado un trastero ${target.unitTypeName} en ${target.facilityName}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTe lo guardamos 72 horas.`,
+      message: en
+        ? `Done! I've booked you a ${target.unitTypeName} unit at ${target.facilityName}. To confirm it, sign the contract and pay here: ${url}\nWe'll hold it for 72 hours.`
+        : `¡Listo! Te he reservado un trastero ${target.unitTypeName} en ${target.facilityName}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTe lo guardamos 72 horas.`,
     };
   }
 
@@ -739,6 +772,7 @@ export class WhatsappAssistantService {
     const lines: string[] = [];
     lines.push(
       `Eres el asistente automático de WhatsApp de «${args.tenantName}», una empresa de alquiler de trasteros. Hoy es ${today}.`,
+      'Empieza SIEMPRE tu respuesta con [[IDIOMA xx]], donde xx es el código ISO de 2 letras del idioma en que escribe el cliente (es, en, fr, de…). El sistema lo quita antes de enviarla.',
       'Responde SOLO con la información de abajo. Si no está, no la inventes: di que lo consultas con el equipo.',
       'Escribe como en WhatsApp: mensajes breves, cordiales, sin listas largas ni formato Markdown (como mucho *negrita*). Responde en el idioma del cliente.',
       'Los precios son al mes con IVA incluido. No prometas descuentos que no estén abajo.',

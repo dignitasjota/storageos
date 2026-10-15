@@ -57,6 +57,7 @@ function buildService(opts: { tx: TxMock; tenantFindUnique: jest.Mock }): {
     admin,
     { write: audit } as unknown as AuditService,
     { record: superAudit } as unknown as SuperAdminAuditService,
+    { deleteObjects: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return { service, audit, superAudit };
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   BadGatewayException,
   BadRequestException,
@@ -14,16 +16,28 @@ import {
   type WhatsappMessageSender,
   type WhatsappMessageStatus,
   type SendWhatsappTemplateInput,
+  WHATSAPP_MEDIA_LABELS,
+  WHATSAPP_MEDIA_TYPES,
+  WHATSAPP_OUTGOING_MAX_BYTES,
+  type RequestWhatsappMediaUploadInput,
+  type SendWhatsappMediaInput,
+  type WhatsappMediaType,
+  type WhatsappMediaUploadDto,
+  type WhatsappMessageMediaDto,
+  type WhatsappStatsDto,
+  type WhatsappTemplatesDto,
 } from '@storageos/shared';
 
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { LeadsService } from '../leads/leads.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import { WhatsappAssistantService } from './whatsapp-assistant.service';
 import { WhatsappCloudClient, WhatsappCloudError } from './whatsapp-cloud.client';
+import { extensionForMime, type ParsedInboundMessage } from './whatsapp-message-parse';
 import { WhatsappSettingsService } from './whatsapp-settings.service';
 
 const WINDOW_MS = WHATSAPP_SERVICE_WINDOW_HOURS * 60 * 60 * 1000;
@@ -40,6 +54,8 @@ export interface InboundWhatsappMessage {
   profileName: string | null;
   waMessageId: string;
   body: string;
+  /** Foto, audio, vídeo, documento o sticker (se descarga en segundo plano). */
+  media?: ParsedInboundMessage['media'] | undefined;
   receivedAt: Date;
 }
 
@@ -64,6 +80,7 @@ export class WhatsappInboxService {
     private readonly leads: LeadsService,
     private readonly notifications: NotificationsService,
     private readonly assistant: WhatsappAssistantService,
+    private readonly files: FilesService,
   ) {}
 
   /**
@@ -129,6 +146,13 @@ export class WhatsappInboxService {
           waMessageId: msg.waMessageId,
           status: 'received',
           createdAt: msg.receivedAt,
+          ...(msg.media
+            ? {
+                mediaType: msg.media.type,
+                mediaMime: msg.media.mime,
+                mediaFilename: msg.media.filename,
+              }
+            : {}),
         },
         select: { id: true },
       });
@@ -158,6 +182,18 @@ export class WhatsappInboxService {
           link: `/whatsapp?c=${conversation.id}`,
         })
         .catch(() => undefined);
+    }
+
+    if (msg.media) {
+      void this.storeInboundMedia({
+        tenantId,
+        conversationId: conversation.id,
+        messageId: createdId,
+        mediaId: msg.media.id,
+        mime: msg.media.mime,
+        filename: msg.media.filename,
+        accessToken: settings.accessToken,
+      });
     }
 
     // El asistente (si está activo) responde en segundo plano: el webhook
@@ -235,9 +271,17 @@ export class WhatsappInboxService {
         take: 500,
       });
     }, tenantId);
+    const urls = new Map<string, string>();
+    await Promise.all(
+      messages
+        .filter((m) => m.mediaKey)
+        .map(async (m) => {
+          urls.set(m.id, await this.files.getPresignedGetUrl('uploads', m.mediaKey!, 600));
+        }),
+    );
     return {
       ...this.toDto({ ...row, unreadCount: 0 }),
-      messages: messages.map((m) => this.toMessageDto(m)),
+      messages: messages.map((m) => this.toMessageDto(m, urls.get(m.id) ?? null)),
     };
   }
 
@@ -387,6 +431,252 @@ export class WhatsappInboxService {
     return this.toMessageDto(message);
   }
 
+  /** Resumen del WhatsApp en los últimos `days` días. */
+  async stats(tenantId: string, days: number): Promise<WhatsappStatsDto> {
+    const from = new Date(Date.now() - days * 86_400_000);
+    const [conversations, inbound, assistant, staff, handoffs, bookings, firstResponse] =
+      await Promise.all([
+        this.admin.whatsappConversation.count({ where: { tenantId, createdAt: { gte: from } } }),
+        this.admin.whatsappMessage.count({
+          where: { tenantId, direction: 'in', createdAt: { gte: from } },
+        }),
+        this.admin.whatsappMessage.count({
+          where: {
+            tenantId,
+            sender: 'assistant',
+            status: { not: 'failed' },
+            createdAt: { gte: from },
+          },
+        }),
+        this.admin.whatsappMessage.count({
+          where: { tenantId, sender: 'staff', status: { not: 'failed' }, createdAt: { gte: from } },
+        }),
+        this.admin.notification.count({
+          where: { tenantId, type: 'whatsapp.handoff', createdAt: { gte: from } },
+        }),
+        this.admin.whatsappConversation.findMany({
+          where: { tenantId, contractId: { not: null }, contract: { createdAt: { gte: from } } },
+          select: { contract: { select: { signedAt: true } } },
+        }),
+        this.admin.$queryRaw<{ median: number | null }[]>`
+          SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median
+          FROM (
+            SELECT EXTRACT(EPOCH FROM (
+              (SELECT min(o.created_at) FROM whatsapp_messages o
+                WHERE o.conversation_id = c.id AND o.direction = 'out' AND o.status <> 'failed')
+              - (SELECT min(i.created_at) FROM whatsapp_messages i
+                WHERE i.conversation_id = c.id AND i.direction = 'in')
+            )) / 60 AS minutes
+            FROM whatsapp_conversations c
+            WHERE c.tenant_id = ${tenantId}::uuid AND c.created_at >= ${from}
+          ) t
+          WHERE minutes IS NOT NULL AND minutes >= 0
+        `,
+      ]);
+    const median = firstResponse[0]?.median;
+    return {
+      days,
+      conversations,
+      inboundMessages: inbound,
+      assistantReplies: assistant,
+      staffReplies: staff,
+      handoffs,
+      bookings: bookings.length,
+      bookingsSigned: bookings.filter((b) => b.contract?.signedAt).length,
+      medianFirstResponseMinutes: median == null ? null : Math.round(Number(median) * 10) / 10,
+    };
+  }
+
+  /** Plantillas aprobadas en Meta (necesita el ID de la cuenta de WhatsApp Business). */
+  async listTemplates(tenantId: string): Promise<WhatsappTemplatesDto> {
+    const settings = await this.settings.resolveForTenant(tenantId);
+    const row = await this.admin.tenantWhatsappSettings.findUnique({
+      where: { tenantId },
+      select: { wabaId: true },
+    });
+    if (!settings || !row?.wabaId) return { wabaConfigured: false, templates: [], error: null };
+    try {
+      return {
+        wabaConfigured: true,
+        templates: await this.client.listTemplates(row.wabaId, settings.accessToken),
+        error: null,
+      };
+    } catch (err) {
+      return {
+        wabaConfigured: true,
+        templates: [],
+        error: err instanceof WhatsappCloudError ? err.message : 'No se pudo consultar a Meta',
+      };
+    }
+  }
+
+  /** URL firmada para subir un archivo que se enviará por WhatsApp. */
+  async requestMediaUpload(args: {
+    tenantId: string;
+    conversationId: string;
+    input: RequestWhatsappMediaUploadInput;
+  }): Promise<WhatsappMediaUploadDto> {
+    await this.findOrThrow(args.tenantId, args.conversationId);
+    if (args.input.size > WHATSAPP_OUTGOING_MAX_BYTES[args.input.mimeType]) {
+      throw new BadRequestException({
+        code: 'file_too_large',
+        message: `El archivo supera el máximo (${Math.round(
+          WHATSAPP_OUTGOING_MAX_BYTES[args.input.mimeType] / 1024 / 1024,
+        )} MB)`,
+      });
+    }
+    const ext = extensionForMime(args.input.mimeType, null);
+    const key = `${this.mediaPrefix(args.tenantId, args.conversationId)}out-${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'uploads',
+      key,
+      contentType: args.input.mimeType,
+    });
+    return { key, uploadUrl };
+  }
+
+  /** Envía un archivo ya subido (foto o PDF) desde la bandeja. */
+  async sendMedia(args: {
+    tenantId: string;
+    userId: string;
+    conversationId: string;
+    input: SendWhatsappMediaInput;
+  }): Promise<WhatsappMessageDto> {
+    const { input } = args;
+    const conversation = await this.findOrThrow(args.tenantId, args.conversationId);
+    if (!input.key.startsWith(this.mediaPrefix(args.tenantId, conversation.id))) {
+      throw new BadRequestException({ code: 'invalid_media_key', message: 'Archivo no válido' });
+    }
+    const settings = await this.settings.resolveForTenant(args.tenantId);
+    if (!settings?.enabled) {
+      throw new BadRequestException({
+        code: 'whatsapp_not_configured',
+        message: 'Conecta y activa tu número de WhatsApp en Configuración',
+      });
+    }
+    if (!this.windowOpen(conversation.lastInboundAt)) {
+      throw new BadRequestException({
+        code: 'whatsapp_window_closed',
+        message: `Han pasado más de ${WHATSAPP_SERVICE_WINDOW_HOURS} h desde el último mensaje del contacto: WhatsApp solo deja responder con una plantilla aprobada`,
+      });
+    }
+    await this.files.assertObjectMimeType(
+      'uploads',
+      input.key,
+      [input.mimeType],
+      WHATSAPP_OUTGOING_MAX_BYTES[input.mimeType],
+    );
+    let bytes: Buffer;
+    try {
+      bytes = await this.files.getObject({ bucket: 'uploads', key: input.key });
+    } catch {
+      throw new BadRequestException({ code: 'media_not_uploaded', message: 'Sube el archivo' });
+    }
+    const type: WhatsappMediaType = input.mimeType === 'application/pdf' ? 'document' : 'image';
+    const caption = input.caption?.trim() || undefined;
+
+    let waMessageId: string | null = null;
+    let error: string | null = null;
+    try {
+      waMessageId = (
+        await this.client.sendMedia({
+          phoneNumberId: settings.phoneNumberId,
+          accessToken: settings.accessToken,
+          to: conversation.waId,
+          type: type === 'document' ? 'document' : 'image',
+          bytes,
+          mime: input.mimeType,
+          filename: input.filename,
+          caption,
+        })
+      ).messageId;
+    } catch (err) {
+      error = err instanceof WhatsappCloudError ? err.message : 'No se pudo enviar el archivo';
+    }
+
+    const label =
+      type === 'document'
+        ? `[${WHATSAPP_MEDIA_LABELS.document}: ${input.filename}]`
+        : `[${WHATSAPP_MEDIA_LABELS.image}]`;
+    const body = caption ? `${label} ${caption}` : label;
+    const now = new Date();
+    const message = await this.prisma.withTenant(async (tx) => {
+      const created = await tx.whatsappMessage.create({
+        data: {
+          tenantId: args.tenantId,
+          conversationId: conversation.id,
+          direction: 'out',
+          sender: 'staff',
+          body,
+          waMessageId,
+          status: error ? 'failed' : 'sent',
+          error,
+          sentByUserId: args.userId,
+          createdAt: now,
+          mediaType: type,
+          mediaKey: input.key,
+          mediaMime: input.mimeType,
+          mediaFilename: input.filename,
+          mediaSize: bytes.length,
+        },
+        include: { sentBy: { select: { fullName: true } } },
+      });
+      if (!error) {
+        await tx.whatsappConversation.update({
+          where: { id: conversation.id },
+          data: {
+            lastMessageAt: now,
+            lastMessagePreview: body.slice(0, PREVIEW_LENGTH),
+            assistantEnabled: false,
+          },
+        });
+      }
+      return created;
+    }, args.tenantId);
+    if (error) throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
+    const url = await this.files.getPresignedGetUrl('uploads', input.key, 600);
+    return this.toMessageDto(message, url);
+  }
+
+  /**
+   * Descarga un archivo recibido y lo guarda en el almacenamiento privado. Si
+   * falla (caducado, demasiado grande…), el mensaje queda con su etiqueta y
+   * sin archivo.
+   */
+  private async storeInboundMedia(args: {
+    tenantId: string;
+    conversationId: string;
+    messageId: string;
+    mediaId: string;
+    mime: string | null;
+    filename: string | null;
+    accessToken: string;
+  }): Promise<void> {
+    try {
+      const { bytes, mime } = await this.client.downloadMedia(args.mediaId, args.accessToken);
+      const contentType = (args.mime ?? mime ?? 'application/octet-stream').split(';')[0]!.trim();
+      const key = `${this.mediaPrefix(args.tenantId, args.conversationId)}${args.messageId}.${extensionForMime(
+        contentType,
+        args.filename,
+      )}`;
+      await this.files.putObject({ bucket: 'uploads', key, body: bytes, contentType });
+      await this.admin.whatsappMessage.update({
+        where: { id: args.messageId },
+        data: { mediaKey: key, mediaSize: bytes.length, mediaMime: contentType },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `whatsapp: no se pudo guardar el archivo ${args.mediaId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private mediaPrefix(tenantId: string, conversationId: string): string {
+    return `${tenantId}/whatsapp/${conversationId}/`;
+  }
+
   /** Activa o pausa el asistente en una conversación. */
   async setAssistant(
     tenantId: string,
@@ -461,16 +751,33 @@ export class WhatsappInboxService {
     };
   }
 
-  private toMessageDto(m: {
-    id: string;
-    direction: string;
-    sender: string;
-    body: string;
-    status: string;
-    error: string | null;
-    createdAt: Date;
-    sentBy: { fullName: string } | null;
-  }): WhatsappMessageDto {
+  private toMessageDto(
+    m: {
+      id: string;
+      direction: string;
+      sender: string;
+      body: string;
+      status: string;
+      error: string | null;
+      createdAt: Date;
+      sentBy: { fullName: string } | null;
+      mediaType?: string | null;
+      mediaMime?: string | null;
+      mediaFilename?: string | null;
+      mediaSize?: number | null;
+    },
+    mediaUrl: string | null = null,
+  ): WhatsappMessageDto {
+    const media: WhatsappMessageMediaDto | null =
+      m.mediaType && (WHATSAPP_MEDIA_TYPES as readonly string[]).includes(m.mediaType)
+        ? {
+            type: m.mediaType as WhatsappMediaType,
+            mime: m.mediaMime ?? null,
+            filename: m.mediaFilename ?? null,
+            size: m.mediaSize ?? null,
+            url: mediaUrl,
+          }
+        : null;
     return {
       id: m.id,
       direction: m.direction === 'out' ? 'out' : 'in',
@@ -480,6 +787,7 @@ export class WhatsappInboxService {
       error: m.error,
       sentByName: m.sentBy?.fullName ?? null,
       createdAt: m.createdAt.toISOString(),
+      media,
     };
   }
 }

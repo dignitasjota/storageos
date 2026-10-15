@@ -6,18 +6,31 @@ const ANON = '*** ANONIMIZADO ***';
  * Anonimiza conversaciones de WhatsApp (derecho al olvido). Se conservan las
  * filas de los mensajes —sin texto— porque el límite mensual de la IA de la
  * plataforma se cuenta con ellas; el número del contacto se sustituye por un
- * identificador sin significado.
+ * identificador sin significado. Devuelve las claves de los archivos que hay
+ * que borrar del almacenamiento.
  */
 export async function anonymizeWhatsappConversations(
   tx: Prisma.TransactionClient,
   where: Prisma.WhatsappConversationWhereInput,
-): Promise<number> {
+): Promise<{ count: number; mediaKeys: string[] }> {
   const rows = await tx.whatsappConversation.findMany({ where, select: { id: true } });
-  if (rows.length === 0) return 0;
+  if (rows.length === 0) return { count: 0, mediaKeys: [] };
   const ids = rows.map((r) => r.id);
+  // Archivos (fotos, documentos…): el que llama los borra del almacenamiento
+  // al terminar la transacción.
+  const media = await tx.whatsappMessage.findMany({
+    where: { conversationId: { in: ids }, mediaKey: { not: null } },
+    select: { mediaKey: true },
+  });
   await tx.whatsappMessage.updateMany({
     where: { conversationId: { in: ids } },
-    data: { body: ANON, error: null },
+    data: {
+      body: ANON,
+      error: null,
+      mediaKey: null,
+      mediaFilename: null,
+      mediaSize: null,
+    },
   });
   await tx.$executeRaw`
     UPDATE whatsapp_conversations
@@ -29,7 +42,7 @@ export async function anonymizeWhatsappConversations(
            assistant_enabled = false,
            updated_at = now()
      WHERE id = ANY(${ids}::uuid[])`;
-  return ids.length;
+  return { count: ids.length, mediaKeys: media.map((m) => m.mediaKey!).filter(Boolean) };
 }
 
 /** Conversaciones de un inquilino: las enlazadas y las de su teléfono. */

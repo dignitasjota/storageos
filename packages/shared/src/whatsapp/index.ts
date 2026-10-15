@@ -77,6 +77,60 @@ export interface WhatsappConversationDto {
   contractId: string | null;
 }
 
+export const WHATSAPP_MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'] as const;
+export type WhatsappMediaType = (typeof WHATSAPP_MEDIA_TYPES)[number];
+
+export const WHATSAPP_MEDIA_LABELS: Record<WhatsappMediaType, string> = {
+  image: 'Foto',
+  audio: 'Audio',
+  video: 'Vídeo',
+  document: 'Documento',
+  sticker: 'Sticker',
+};
+
+export interface WhatsappMessageMediaDto {
+  type: WhatsappMediaType;
+  mime: string | null;
+  filename: string | null;
+  size: number | null;
+  /** URL firmada temporal; null si el archivo no se pudo guardar. */
+  url: string | null;
+}
+
+/** Archivos que el equipo puede enviar desde la bandeja. */
+export const WHATSAPP_OUTGOING_MEDIA_MIMES = [
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+] as const;
+export type WhatsappOutgoingMediaMime = (typeof WHATSAPP_OUTGOING_MEDIA_MIMES)[number];
+/** Límites de Meta: fotos 5 MB; documentos hasta 100 MB (aquí, 20 MB). */
+export const WHATSAPP_OUTGOING_MAX_BYTES: Record<WhatsappOutgoingMediaMime, number> = {
+  'image/jpeg': 5 * 1024 * 1024,
+  'image/png': 5 * 1024 * 1024,
+  'application/pdf': 20 * 1024 * 1024,
+};
+
+export const RequestWhatsappMediaUploadSchema = z.object({
+  mimeType: z.enum(WHATSAPP_OUTGOING_MEDIA_MIMES),
+  filename: z.string().trim().min(1).max(200),
+  size: z.number().int().positive(),
+});
+export type RequestWhatsappMediaUploadInput = z.infer<typeof RequestWhatsappMediaUploadSchema>;
+
+export interface WhatsappMediaUploadDto {
+  key: string;
+  uploadUrl: string;
+}
+
+export const SendWhatsappMediaSchema = z.object({
+  key: z.string().min(1).max(500),
+  mimeType: z.enum(WHATSAPP_OUTGOING_MEDIA_MIMES),
+  filename: z.string().trim().min(1).max(200),
+  caption: z.string().trim().max(1024).optional(),
+});
+export type SendWhatsappMediaInput = z.infer<typeof SendWhatsappMediaSchema>;
+
 export interface WhatsappMessageDto {
   id: string;
   direction: 'in' | 'out';
@@ -86,6 +140,7 @@ export interface WhatsappMessageDto {
   error: string | null;
   sentByName: string | null;
   createdAt: string;
+  media: WhatsappMessageMediaDto | null;
 }
 
 export interface WhatsappConversationDetailDto extends WhatsappConversationDto {
@@ -305,11 +360,70 @@ export type SendWhatsappTemplateInput = z.infer<typeof SendWhatsappTemplateSchem
  * Aviso que el asistente añade a su primera respuesta en cada conversación:
  * quien escribe sabe que le responde una IA y que puede pedir una persona.
  */
-export function whatsappAssistantNotice(privacyUrl: string | null): string {
+export function whatsappAssistantNotice(
+  privacyUrl: string | null,
+  language: WhatsappTextLanguage = 'es',
+): string {
+  const en = language === 'en';
   return [
-    'ℹ️ Te responde un asistente automático con inteligencia artificial. Si prefieres hablar con una persona, escríbelo.',
-    privacyUrl ? `Cómo tratamos tus datos: ${privacyUrl}` : null,
+    en
+      ? 'ℹ️ You are chatting with an AI assistant. If you would rather talk to a person, just say so.'
+      : 'ℹ️ Te responde un asistente automático con inteligencia artificial. Si prefieres hablar con una persona, escríbelo.',
+    privacyUrl
+      ? `${en ? 'How we handle your data' : 'Cómo tratamos tus datos'}: ${privacyUrl}`
+      : null,
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** Idiomas de los textos fijos del WhatsApp (el resto de idiomas va en inglés). */
+export type WhatsappTextLanguage = 'es' | 'en';
+
+/** Idioma de los textos fijos según el idioma detectado del contacto. */
+export function whatsappTextLanguage(language: string | null | undefined): WhatsappTextLanguage {
+  if (!language) return 'es';
+  const code = language.toLowerCase().slice(0, 2);
+  // Idiomas de España: los textos en español.
+  return ['es', 'ca', 'gl', 'eu'].includes(code) ? 'es' : 'en';
+}
+
+/** Plantilla aprobada en Meta (para elegirla en la bandeja y en el recordatorio). */
+export interface WhatsappTemplateDto {
+  name: string;
+  language: string;
+  category: string | null;
+  /** Texto del cuerpo con las variables {{1}}, {{2}}… */
+  body: string;
+  /** Nº de variables del cuerpo. */
+  paramCount: number;
+}
+
+export interface WhatsappTemplatesDto {
+  /** Falta el ID de la cuenta de WhatsApp Business en los ajustes. */
+  wabaConfigured: boolean;
+  templates: WhatsappTemplateDto[];
+  error: string | null;
+}
+
+/** Nº de variables {{n}} distintas de un texto de plantilla. */
+export function templateParamCount(body: string): number {
+  const nums = [...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1]));
+  return nums.length === 0 ? 0 : Math.max(...nums);
+}
+
+/** Resumen del WhatsApp del tenant en un periodo. */
+export interface WhatsappStatsDto {
+  days: number;
+  conversations: number;
+  inboundMessages: number;
+  assistantReplies: number;
+  staffReplies: number;
+  /** Conversaciones que el asistente pasó a una persona. */
+  handoffs: number;
+  /** Reservas preparadas por el asistente / ya firmadas. */
+  bookings: number;
+  bookingsSigned: number;
+  /** Mediana de minutos hasta la primera respuesta (asistente o equipo). */
+  medianFirstResponseMinutes: number | null;
 }

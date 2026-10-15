@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { whatsappTextLanguage } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
@@ -139,11 +140,18 @@ export class WhatsappBookingRemindersService {
     let error: string | null = null;
     try {
       if (windowOpen) {
-        body = `${name ? `Hola ${name}, ` : 'Hola, '}tu trastero sigue reservado. ${
-          signed
-            ? 'Solo te falta pagar la primera cuota para activar tu acceso'
-            : 'Solo te falta firmar el contrato y pagar'
-        }: ${url}`;
+        body =
+          whatsappTextLanguage(conv.language) === 'en'
+            ? `${name ? `Hi ${name}, ` : 'Hi, '}your storage unit is still reserved. ${
+                signed
+                  ? 'You only need to pay the first instalment to activate your access'
+                  : 'You only need to sign the contract and pay'
+              }: ${url}`
+            : `${name ? `Hola ${name}, ` : 'Hola, '}tu trastero sigue reservado. ${
+                signed
+                  ? 'Solo te falta pagar la primera cuota para activar tu acceso'
+                  : 'Solo te falta firmar el contrato y pagar'
+              }: ${url}`;
         waMessageId = (
           await this.cloud.sendText({
             phoneNumberId: settings.phoneNumberId,

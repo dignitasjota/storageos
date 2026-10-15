@@ -20,18 +20,26 @@ function build() {
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     platformEmailLog: { deleteMany: jest.fn().mockResolvedValue({ count: 4 }) },
     whatsappConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 6 }) },
-    whatsappMessage: { deleteMany: jest.fn().mockResolvedValue({ count: 7 }) },
+    whatsappMessage: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 7 }),
+      findMany: jest.fn().mockResolvedValue([{ mediaKey: 't/whatsapp/c/m.jpg' }]),
+    },
   };
   const config = {
     get: jest.fn((key: string) => RETENTION[key]),
   } as unknown as ConfigService;
-  const service = new DataRetentionService(admin as unknown as PrismaAdminService, config as never);
-  return { service, admin };
+  const files = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
+  const service = new DataRetentionService(
+    admin as unknown as PrismaAdminService,
+    config as never,
+    files as never,
+  );
+  return { service, admin, files };
 }
 
 describe('DataRetentionService', () => {
   it('borra de las 4 tablas por su plazo de retención y suma los conteos', async () => {
-    const { service, admin } = build();
+    const { service, admin, files } = build();
     const before = Date.now();
     const result = await service.runCleanup();
 
@@ -55,6 +63,8 @@ describe('DataRetentionService', () => {
     const prenoticeCutoff = commsWhere.OR[2].createdAt.lt as Date;
     expect(Math.abs(prenoticeCutoff.getTime() - (before - 430 * 86_400_000))).toBeLessThan(5000);
 
+    // Los archivos de WhatsApp de los mensajes borrados salen del almacenamiento.
+    expect(files.deleteObjects).toHaveBeenCalledWith('uploads', ['t/whatsapp/c/m.jpg']);
     expect(result).toEqual({
       auditLogs: 3,
       accessLogs: 5,

@@ -3,6 +3,7 @@ import request from 'supertest';
 
 import { DataRetentionService } from '../src/modules/data-retention/data-retention.service';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+import { FilesService } from '../src/modules/files/files.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupSuperAdmins, seedSuperAdmin } from './helpers/super-admin';
@@ -41,7 +42,12 @@ describe('RGPD de WhatsApp (e2e)', () => {
     await cleanupSuperAdmins();
   });
 
-  function inbound(from: string, name: string, body: string) {
+  function inbound(
+    from: string,
+    name: string,
+    body: string,
+    message: Record<string, unknown> = { type: 'text', text: { body } },
+  ) {
     seq += 1;
     return request(app.getHttpServer())
       .post('/webhooks/whatsapp')
@@ -58,8 +64,7 @@ describe('RGPD de WhatsApp (e2e)', () => {
                       id: `wamid.rgpd-${Date.now()}-${seq}`,
                       from,
                       timestamp: String(Math.floor(Date.now() / 1000)),
-                      type: 'text',
-                      text: { body },
+                      ...message,
                     },
                   ],
                 },
@@ -96,6 +101,25 @@ describe('RGPD de WhatsApp (e2e)', () => {
     const customerId = customer.body.id as string;
 
     await inbound('34611222333', 'Marta Ríos', 'Mi DNI es 12345678Z, ¿me renováis?');
+    // Foto del DNI: se guarda en el almacenamiento (en segundo plano).
+    await inbound('34611222333', 'Marta Ríos', '', {
+      type: 'image',
+      image: { id: 'MEDIA-DNI', mime_type: 'image/jpeg' },
+    });
+    let photoKey: string | null = null;
+    for (let i = 0; i < 50 && !photoKey; i += 1) {
+      photoKey =
+        (
+          await prismaAdmin.whatsappMessage.findFirst({
+            where: { tenantId: owner.tenantId, mediaType: 'image' },
+            select: { mediaKey: true },
+          })
+        )?.mediaKey ?? null;
+      if (!photoKey) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(photoKey).toBeTruthy();
+    const files = app.get(FilesService);
+    await expect(files.getObject({ bucket: 'uploads', key: photoKey! })).resolves.toBeTruthy();
     await inbound('34699888777', 'Pedro Sanz', 'Hola, ¿qué horario tenéis?');
 
     // Exportación de los datos del inquilino: su conversación con los mensajes.
@@ -115,7 +139,7 @@ describe('RGPD de WhatsApp (e2e)', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(Buffer.from(await file.arrayBuffer()));
     const sheet = wb.getWorksheet('WhatsApp')!;
-    expect(sheet.rowCount).toBe(3);
+    expect(sheet.rowCount).toBe(4);
 
     // Anonimizar al inquilino: su conversación queda sin texto ni número.
     await request(app.getHttpServer())
@@ -132,6 +156,9 @@ describe('RGPD de WhatsApp (e2e)', () => {
     expect(marta.contactName).toBeNull();
     expect(marta.lastMessagePreview).toBe(ANON);
     expect(marta.messages.every((m) => m.body === ANON)).toBe(true);
+    // La foto ya no está en el almacenamiento ni enlazada al mensaje.
+    expect(marta.messages.every((m) => m.mediaKey === null)).toBe(true);
+    await expect(files.getObject({ bucket: 'uploads', key: photoKey! })).rejects.toBeTruthy();
     const pedro = convs.find((c) => c.waId === '34699888777')!;
     expect(pedro.messages[0]!.body).toContain('horario');
 

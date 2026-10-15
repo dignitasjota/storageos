@@ -4,6 +4,10 @@ import { apiFetch } from '../auth/api';
 
 import type {
   SendWhatsappTemplateInput,
+  WhatsappMediaUploadDto,
+  WhatsappStatsDto,
+  WhatsappTemplatesDto,
+  WhatsappOutgoingMediaMime,
   UpdateWhatsappAssistantInput,
   UpdateWhatsappSettingsInput,
   WhatsappAiTestResultDto,
@@ -82,6 +86,55 @@ export function useSendWhatsappMessage(conversationId: string) {
         method: 'POST',
         json: { body },
       }),
+    onSettled: () => qc.invalidateQueries({ queryKey: conversationsKey }),
+  });
+}
+
+/** Resumen del WhatsApp en los últimos `days` días. */
+export function useWhatsappStats(days: number) {
+  return useQuery({
+    queryKey: ['whatsapp', 'stats', days],
+    queryFn: () => apiFetch<WhatsappStatsDto>(`/whatsapp/conversations/stats?days=${days}`),
+    staleTime: 60_000,
+  });
+}
+
+/** Plantillas aprobadas en Meta de la cuenta del tenant. */
+export function useWhatsappTemplates(enabled: boolean) {
+  return useQuery({
+    queryKey: ['whatsapp', 'templates'],
+    queryFn: () => apiFetch<WhatsappTemplatesDto>('/whatsapp/conversations/templates'),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Sube un archivo (foto o PDF) y lo envía en la conversación. */
+export function useSendWhatsappMedia(conversationId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { file: File; caption?: string }) => {
+      const mimeType = args.file.type as WhatsappOutgoingMediaMime;
+      const up = await apiFetch<WhatsappMediaUploadDto>(
+        `/whatsapp/conversations/${conversationId}/media/upload-url`,
+        { method: 'POST', json: { mimeType, filename: args.file.name, size: args.file.size } },
+      );
+      const put = await fetch(up.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': mimeType },
+        body: args.file,
+      });
+      if (!put.ok) throw new Error('No se pudo subir el archivo');
+      return apiFetch<WhatsappMessageDto>(`/whatsapp/conversations/${conversationId}/media`, {
+        method: 'POST',
+        json: {
+          key: up.key,
+          mimeType,
+          filename: args.file.name,
+          ...(args.caption ? { caption: args.caption } : {}),
+        },
+      });
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: conversationsKey }),
   });
 }
