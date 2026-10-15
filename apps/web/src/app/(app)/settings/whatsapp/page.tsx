@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Copy, Loader2, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -29,6 +29,7 @@ export default function WhatsappSettingsPage() {
   const [accessToken, setAccessToken] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [webButtonEnabled, setWebButtonEnabled] = useState(true);
+  const [appSecret, setAppSecret] = useState('');
 
   // Se rellena una sola vez: si los ajustes se vuelven a pedir (al volver a la
   // pestaña, tras guardar) no se pisa lo que el usuario está escribiendo.
@@ -50,8 +51,10 @@ export default function WhatsappSettingsPage() {
         ...(accessToken.trim() ? { accessToken: accessToken.trim() } : {}),
         enabled,
         webButtonEnabled,
+        ...(appSecret.trim() ? { appSecret: appSecret.trim() } : {}),
       });
       setAccessToken('');
+      setAppSecret('');
       toast.success('WhatsApp guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -198,7 +201,75 @@ export default function WhatsappSettingsPage() {
         </CardContent>
       </Card>
 
+      {data?.configured && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Si usas tu propia app de Meta</CardTitle>
+            <CardDescription>
+              Si tu número está en una app de Meta tuya (developers.facebook.com), configura en ella
+              el webhook de WhatsApp con estos datos y suscríbelo a «messages». Así los mensajes
+              llegan a esta bandeja.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <CopyField label="URL de devolución de llamada" value={data.webhookUrl} />
+            <CopyField
+              label="Token de verificación"
+              value={data.webhookVerifyToken ?? 'Se genera al guardar'}
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="wa-app-secret">Clave secreta de tu app</Label>
+              <Input
+                id="wa-app-secret"
+                type="password"
+                autoComplete="off"
+                value={appSecret}
+                onChange={(e) => setAppSecret(e.target.value)}
+                placeholder={
+                  data.appSecretConfigured
+                    ? 'Guardada. Escribe otra para cambiarla.'
+                    : 'Configuración de la app → Básica → Clave secreta'
+                }
+                className="text-base sm:text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Con ella comprobamos que los avisos vienen de tu app. Sin ella, se rechazan.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={save}
+              disabled={update.isPending || !appSecret.trim()}
+            >
+              Guardar clave secreta
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {data?.configured && <AssistantCard />}
+    </div>
+  );
+}
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input readOnly value={value} className="font-mono text-xs" />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label={`Copiar ${label.toLowerCase()}`}
+          onClick={() => {
+            void navigator.clipboard.writeText(value).then(() => toast.success('Copiado.'));
+          }}
+        >
+          <Copy className="size-4" />
+        </Button>
+      </div>
     </div>
   );
 }

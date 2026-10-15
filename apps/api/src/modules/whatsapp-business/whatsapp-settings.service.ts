@@ -1,4 +1,7 @@
+import { createHash, randomBytes } from 'node:crypto';
+
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
@@ -8,6 +11,7 @@ import { PrismaService } from '../database/prisma.service';
 
 import { WhatsappCloudClient, WhatsappCloudError } from './whatsapp-cloud.client';
 
+import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   UpdateWhatsappSettingsInput,
@@ -32,7 +36,12 @@ export class WhatsappSettingsService {
     private readonly crypto: CryptoService,
     private readonly client: WhatsappCloudClient,
     private readonly audit: AuditService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  private webhookUrl(): string {
+    return `${this.config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '')}/webhooks/whatsapp`;
+  }
 
   async get(tenantId: string): Promise<WhatsappSettingsDto> {
     const row = await this.prisma.withTenant(
@@ -50,6 +59,9 @@ export class WhatsappSettingsService {
         enabled: false,
         webButtonEnabled: true,
         lastCheckedAt: null,
+        webhookUrl: this.webhookUrl(),
+        webhookVerifyToken: null,
+        appSecretConfigured: false,
       };
     }
     const token = this.decrypt(row.accessTokenEncrypted, tenantId);
@@ -63,6 +75,11 @@ export class WhatsappSettingsService {
       enabled: row.enabled,
       webButtonEnabled: row.webButtonEnabled,
       lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+      webhookUrl: this.webhookUrl(),
+      webhookVerifyToken: row.webhookVerifyTokenEncrypted
+        ? this.decrypt(row.webhookVerifyTokenEncrypted, tenantId)
+        : null,
+      appSecretConfigured: !!row.appSecretEncrypted,
     };
   }
 
@@ -109,8 +126,26 @@ export class WhatsappSettingsService {
       }
     }
 
+    // Token de verificación del webhook propio del tenant (se genera una vez).
+    const verifyToken =
+      existing?.webhookVerifyTokenEncrypted && existing.webhookVerifyTokenHash
+        ? null
+        : `wa_${randomBytes(18).toString('base64url')}`;
     const data = {
       phoneNumberId,
+      ...(verifyToken
+        ? {
+            webhookVerifyTokenEncrypted: this.crypto.encryptString(verifyToken, tenantId),
+            webhookVerifyTokenHash: hashToken(verifyToken),
+          }
+        : {}),
+      ...(input.appSecret !== undefined
+        ? {
+            appSecretEncrypted: input.appSecret
+              ? this.crypto.encryptString(input.appSecret, tenantId)
+              : null,
+          }
+        : {}),
       ...(input.wabaId !== undefined ? { wabaId: input.wabaId || null } : {}),
       accessTokenEncrypted: this.crypto.encryptString(accessToken, tenantId),
       enabled,
@@ -152,6 +187,7 @@ export class WhatsappSettingsService {
         phoneNumberId,
         enabled,
         tokenChanged: input.accessToken !== undefined,
+        ...(input.appSecret !== undefined ? { appSecretChanged: true } : {}),
         ...(input.webButtonEnabled !== undefined
           ? { webButtonEnabled: input.webButtonEnabled }
           : {}),
@@ -200,6 +236,33 @@ export class WhatsappSettingsService {
     return row ? this.toResolved(row) : null;
   }
 
+  /** ¿Es el token de verificación del webhook de algún tenant? */
+  async isTenantVerifyToken(token: string): Promise<boolean> {
+    const row = await this.admin.tenantWhatsappSettings.findFirst({
+      where: { webhookVerifyTokenHash: hashToken(token) },
+      select: { id: true },
+    });
+    return !!row;
+  }
+
+  /**
+   * Secreto de la app propia del tenant dueño de esos números (para comprobar
+   * la firma de un aviso que no firmó la app de la plataforma). `null` si los
+   * números son de varios tenants o el tenant no tiene secreto propio.
+   */
+  async appSecretForPhoneNumberIds(phoneNumberIds: string[]): Promise<string | null> {
+    const ids = [...new Set(phoneNumberIds)];
+    if (ids.length === 0) return null;
+    const rows = await this.admin.tenantWhatsappSettings.findMany({
+      where: { phoneNumberId: { in: ids } },
+      select: { tenantId: true, appSecretEncrypted: true },
+    });
+    const tenants = new Set(rows.map((r) => r.tenantId));
+    if (rows.length !== ids.length || tenants.size !== 1) return null;
+    const row = rows[0]!;
+    return row.appSecretEncrypted ? this.decrypt(row.appSecretEncrypted, row.tenantId) : null;
+  }
+
   private toResolved(row: {
     tenantId: string;
     phoneNumberId: string;
@@ -223,4 +286,8 @@ export class WhatsappSettingsService {
       return null;
     }
   }
+}
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }

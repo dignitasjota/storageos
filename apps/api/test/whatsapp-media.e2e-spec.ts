@@ -79,6 +79,11 @@ describe('WhatsApp: fotos y documentos (e2e)', () => {
     });
     await inbound({ type: 'reaction', reaction: { emoji: '👍' } }); // se ignora
 
+    // Un «documento» HTML se guarda como descarga, nunca como página.
+    await inbound({
+      type: 'document',
+      document: { id: 'MEDIA-HTML', mime_type: 'text/html', filename: 'oferta.html' },
+    });
     // La foto se guarda en segundo plano.
     let photo = null as Awaited<ReturnType<typeof prismaAdmin.whatsappMessage.findFirst>>;
     for (let i = 0; i < 50 && !photo?.mediaKey; i += 1) {
@@ -96,11 +101,22 @@ describe('WhatsApp: fotos y documentos (e2e)', () => {
       .get(`/whatsapp/conversations/${convId}`)
       .set(auth)
       .expect(200);
-    expect(detail.body.messages).toHaveLength(2);
+    expect(detail.body.messages).toHaveLength(3);
     expect(detail.body.messages[0].media).toMatchObject({ type: 'image', mime: 'image/jpeg' });
     expect(detail.body.messages[0].media.url).toContain('X-Amz-Signature');
+    expect(detail.body.messages[0].media.url).not.toContain('response-content-disposition');
     expect(detail.body.messages[1].body).toContain('https://maps.google.com/?q=39.47,-0.38');
     expect(detail.body.messages[1].media).toBeNull();
+    let html = detail.body.messages[2];
+    for (let i = 0; i < 50 && !html.media?.url; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      const again = await request(app.getHttpServer())
+        .get(`/whatsapp/conversations/${convId}`)
+        .set(auth);
+      html = again.body.messages[2];
+    }
+    expect(html.media).toMatchObject({ type: 'document', mime: 'application/octet-stream' });
+    expect(html.media.url).toContain('response-content-disposition=attachment');
 
     // Enviar un PDF: URL de subida, subida real a MinIO y envío.
     const pdf = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');

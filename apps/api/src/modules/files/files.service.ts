@@ -239,8 +239,19 @@ export class FilesService implements OnModuleInit {
     bucket: PresignArgs['bucket'],
     key: string,
     expiresIn = 300,
+    /** Si se indica, se descarga con ese nombre (no se abre en el navegador). */
+    downloadFilename?: string,
   ): Promise<string> {
-    const cmd = new GetObjectCommand({ Bucket: this.bucketMap[bucket], Key: key });
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucketMap[bucket],
+      Key: key,
+      ...(downloadFilename
+        ? {
+            ResponseContentDisposition: `attachment; filename="${downloadFilename.replace(/[^\w.\- ]/g, '_')}"`,
+            ResponseContentType: 'application/octet-stream',
+          }
+        : {}),
+    });
     return getSignedUrl(this.presigner, cmd, { expiresIn });
   }
 

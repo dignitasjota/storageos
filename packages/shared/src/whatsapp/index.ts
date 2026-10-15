@@ -28,6 +28,11 @@ export const UpdateWhatsappSettingsSchema = z
     enabled: z.boolean().optional(),
     /** Botón flotante de WhatsApp en la web pública. */
     webButtonEnabled: z.boolean().optional(),
+    /**
+     * Secreto de la app de Meta del tenant (si el número está en su propia app):
+     * con él se comprueba la firma de sus avisos. '' = quitarlo.
+     */
+    appSecret: z.string().trim().min(16).max(200).optional().or(z.literal('')),
   })
   .refine((v) => Object.values(v).some((f) => f !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -46,6 +51,12 @@ export interface WhatsappSettingsDto {
   enabled: boolean;
   webButtonEnabled: boolean;
   lastCheckedAt: string | null;
+  /** URL del webhook para configurarla en la app de Meta. */
+  webhookUrl: string;
+  /** Token de verificación del webhook (si usa su propia app de Meta). */
+  webhookVerifyToken: string | null;
+  /** Ha guardado el secreto de su app de Meta. */
+  appSecretConfigured: boolean;
 }
 
 export interface WhatsappTestResultDto {

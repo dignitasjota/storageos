@@ -8,6 +8,8 @@ import {
   Header,
   HttpCode,
   HttpStatus,
+  InternalServerErrorException,
+  Logger,
   Post,
   Query,
   Req,
@@ -26,6 +28,22 @@ import { InboundMessagesService } from './inbound-messages.service';
 
 import type { Env } from '../../config/env.schema';
 import type { Request } from 'express';
+
+/** `phone_number_id` de destino de todos los cambios del aviso (sin verificar aún). */
+function phoneNumberIdsOf(raw: Buffer): string[] {
+  try {
+    const payload = JSON.parse(raw.toString('utf8')) as {
+      entry?: { changes?: { value?: { metadata?: { phone_number_id?: string } } }[] }[];
+    };
+    return (payload.entry ?? []).flatMap((e) =>
+      (e.changes ?? [])
+        .map((c) => c.value?.metadata?.phone_number_id)
+        .filter((id): id is string => typeof id === 'string'),
+    );
+  } catch {
+    return [];
+  }
+}
 
 /** Verifica la firma `X-Hub-Signature-256` de Meta sobre el raw body. Se
  *  llama solo cuando hay `appSecret` configurado (ver `receive`). */
@@ -72,6 +90,8 @@ interface WabaChangeValue {
 @Public()
 @Controller({ path: 'webhooks/whatsapp', version: VERSION_NEUTRAL })
 export class WhatsAppInboundController {
+  private readonly logger = new Logger(WhatsAppInboundController.name);
+
   constructor(
     private readonly inbound: InboundMessagesService,
     private readonly inbox: WhatsappInboxService,
@@ -81,14 +101,16 @@ export class WhatsAppInboundController {
   /** Verificación del webhook (Meta hace GET con hub.challenge al configurarlo). */
   @Get()
   @Header('content-type', 'text/plain')
-  verify(
+  async verify(
     @Query('hub.mode') mode?: string,
     @Query('hub.verify_token') token?: string,
     @Query('hub.challenge') challenge?: string,
-  ): string {
+  ): Promise<string> {
     const expected = this.config.get('WHATSAPP_VERIFY_TOKEN', { infer: true });
-    if (mode === 'subscribe' && token && expected && timingSafeEqualString(token, expected)) {
-      return challenge ?? '';
+    if (mode === 'subscribe' && token) {
+      if (expected && timingSafeEqualString(token, expected)) return challenge ?? '';
+      // App de Meta propia del tenant: su token de verificación.
+      if (await this.inbox.isTenantVerifyToken(token)) return challenge ?? '';
     }
     throw new ForbiddenException('verification_failed');
   }
@@ -100,22 +122,25 @@ export class WhatsAppInboundController {
     const rawBuf = Buffer.isBuffer(raw) ? raw : Buffer.from(JSON.stringify(raw ?? {}));
     const appSecret = this.config.get('WHATSAPP_APP_SECRET', { infer: true });
 
-    if (!appSecret) {
+    const sig = req.headers['x-hub-signature-256'];
+    const signature = typeof sig === 'string' ? sig : undefined;
+    let verified = !!appSecret && verifyMetaSignature(rawBuf, signature, appSecret);
+    if (!verified && signature) {
+      // Número conectado con la app de Meta propia del tenant: el aviso viene
+      // firmado con el secreto de esa app (se busca por el número de destino).
+      const tenantSecret = await this.inbox.appSecretForPhoneNumberIds(phoneNumberIdsOf(rawBuf));
+      verified = !!tenantSecret && verifyMetaSignature(rawBuf, signature, tenantSecret);
+    }
+    if (!verified) {
+      if (appSecret) throw new BadRequestException({ code: 'invalid_signature' });
       // Sin secret configurado, el bypass SOLO se tolera en dev/test con el
-      // provider `stub` (sin integración real de WhatsApp conectada). Con
-      // `meta_waba` el arranque ya exige el secret (env.schema.ts) — llegar
-      // aquí sin él en cualquier otro caso es una config rota: fallamos
-      // cerrado en vez de aceptar mensajes sin firmar (evita que cualquiera
-      // pueda inyectar un WhatsApp falso atribuido a un cliente real).
+      // provider `stub` (sin integración real de WhatsApp conectada). En
+      // cualquier otro caso fallamos cerrado en vez de aceptar mensajes sin
+      // firmar (evita que cualquiera inyecte un WhatsApp falso).
       const provider = this.config.get('WHATSAPP_PROVIDER', { infer: true });
       const nodeEnv = this.config.get('NODE_ENV', { infer: true });
       if (provider !== 'stub' || nodeEnv === 'production') {
         throw new ForbiddenException({ code: 'whatsapp_app_secret_not_configured' });
-      }
-    } else {
-      const sig = req.headers['x-hub-signature-256'];
-      if (!verifyMetaSignature(rawBuf, typeof sig === 'string' ? sig : undefined, appSecret)) {
-        throw new BadRequestException({ code: 'invalid_signature' });
       }
     }
 
@@ -127,6 +152,7 @@ export class WhatsAppInboundController {
     }
 
     // Estructura Meta: entry[].changes[].value.messages[] (texto, archivos, ubicación…).
+    let failed = false;
     const entries = (payload as { entry?: unknown[] }).entry ?? [];
     for (const entry of entries) {
       const changes = (entry as { changes?: unknown[] }).changes ?? [];
@@ -136,7 +162,8 @@ export class WhatsAppInboundController {
         for (const msg of value?.messages ?? []) {
           const parsed = msg.from ? parseWabaMessage(msg) : null;
           if (!msg.from || !parsed) continue;
-          // Best-effort: un fallo con un mensaje no debe romper el 200.
+          // Si falla al guardar, se sigue con el resto y al final se responde
+          // 500: Meta reenvía el lote y los ya guardados se descartan por su id.
           const handled =
             phoneNumberId && msg.id
               ? await this.inbox
@@ -150,7 +177,15 @@ export class WhatsAppInboundController {
                     media: parsed.media,
                     receivedAt: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : new Date(),
                   })
-                  .catch(() => true)
+                  .catch((err: unknown) => {
+                    failed = true;
+                    this.logger.error(
+                      `whatsapp: no se pudo guardar el mensaje ${msg.id}: ${
+                        err instanceof Error ? err.message : String(err)
+                      }`,
+                    );
+                    return true;
+                  })
               : false;
           if (handled) continue;
           await this.inbound
@@ -169,7 +204,9 @@ export class WhatsAppInboundController {
         }
       }
     }
-    // Siempre 200: si no, Meta reintenta el lote en bucle.
+    if (failed) {
+      throw new InternalServerErrorException({ code: 'whatsapp_store_failed' });
+    }
     return { received: true };
   }
 }
