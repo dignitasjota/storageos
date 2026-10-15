@@ -906,7 +906,7 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 
 ## 12C. Stripe live (producción) — cobro de las suscripciones
 
-La cuenta de Stripe es **la de la plataforma** y solo cobra la cuota de los tenants (plan + extras). Los tenants **no** cobran a sus inquilinos por Stripe: `TENANT_CARD_PAYMENTS_ENABLED` está a `false` (no ponerla en Portainer) porque, sin Stripe Connect, ese dinero acabaría en la cuenta de la plataforma. Sus inquilinos pagan por Redsys/Bizum, GoCardless o remesa SEPA, con credenciales del propio tenant. No hay ninguna configuración de Stripe por tenant.
+La cuenta de Stripe es **la de la plataforma** y cobra la cuota de los tenants (plan + extras). Los tenants que quieran cobrar con tarjeta por Stripe conectan **su propia cuenta** (Stripe Connect, §12D): ese dinero va a su cuenta, no a la tuya. `TENANT_CARD_PAYMENTS_ENABLED` se queda en `false` (no ponerla en Portainer): con ella, los cobros de los tenants sin cuenta conectada irían a la cuenta de la plataforma.
 
 1. **Activar la cuenta** en Stripe (datos fiscales y bancarios) y pasar el dashboard a **modo live**.
 2. **Productos y precios**: en Stripe → Product catalog, un producto por plan (Starter, Pro, Administrador) con un precio recurrente mensual y, si se ofrece, otro anual, en EUR. Si los precios de `/admin/plans` son «IVA incluido» (Facturación SaaS → ajustes), el precio de Stripe es el final; si son «+IVA», el precio sin IVA (la app crea sola el TaxRate del IVA y lo añade a las suscripciones nuevas). Copiar cada `price_...` en `/admin/plans` (Stripe Price ID mensual / anual). Los extras no necesitan nada: su precio se crea solo al pasarlos a «Cobrar por Stripe».
@@ -922,6 +922,23 @@ La cuenta de Stripe es **la de la plataforma** y solo cobra la cuota de los tena
 8. **Prueba**: con un tenant de prueba, Ajustes → Suscripción → Suscribirse → pagar. Comprobar en Stripe que la entrega del webhook da `200` y en el panel admin que el tenant pasa a `active` con el periodo, el pago aparece en su pestaña Pagos y se emite su factura. Luego reembolsar desde Stripe y comprobar que la factura recibe su abono.
 
 > Los tenants exentos o con pago manual/SEPA no pasan por Stripe. Un tenant que ya paga por Stripe cambia de plan desde la app (con prorrateo); para pasarlo a transferencia, «Pasar a pago manual» en su ficha.
+
+---
+
+## 12D. Stripe Connect — los tenants cobran con tarjeta en su propia cuenta
+
+Cada tenant conecta su cuenta de Stripe (tipo Express) desde Configuración → Cobros y elige si la tarjeta se cobra con Redsys o con Stripe. Los cobros se hacen **en su cuenta** y la plataforma se queda la comisión (`/admin/payments`, 2 % por defecto).
+
+1. **Activar Connect** en la cuenta de Stripe de la plataforma (Connect → Get started): plataforma de tipo «marketplace/plataforma», cuentas **Express**, país España. Rellenar el perfil de la plataforma (nombre, web, icono y color: es lo que ve el tenant en el registro de Stripe).
+2. **Webhook de Connect** (Developers → Webhooks → Add endpoint → «Events on Connected accounts»), URL `https://api.<dominio>/webhooks/stripe-connect`, eventos:
+   - `account.updated`, `account.application.deauthorized`
+   - `payment_intent.succeeded`, `payment_intent.payment_failed`
+   - `charge.refunded`, `charge.dispute.created`
+   - Copiar su **Signing secret** → `STRIPE_CONNECT_WEBHOOK_SECRET` (api). Es distinto del de §12C.
+3. **Nginx Proxy Manager**: la misma _Custom location_ que `/webhooks/stripe` (cuerpo ≥ 5MB, sin caché) también para `/webhooks/stripe-connect`.
+4. **Redeploy** y prueba con un tenant: Configuración → Cobros → «Conectar Stripe» → completar el registro → al volver, «Lista para cobrar» → elegir Stripe → en el portal del inquilino, guardar una tarjeta y pagar una factura. En el panel de Stripe del tenant debe verse el cobro y en el de la plataforma la comisión (Connect → Collected fees).
+
+> Las disputas de un cobro de una cuenta Express las paga la cuenta del tenant, pero si su saldo no cubre la pérdida la responde la plataforma (así funciona Express).
 
 ---
 

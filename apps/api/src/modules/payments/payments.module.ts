@@ -15,6 +15,7 @@ import { PaymentRetryService } from './payment-retry.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { ReturnedReceiptsService } from './returned-receipts.service';
+import { StripeConnectWebhookController } from './stripe-connect/stripe-connect-webhook.controller';
 import { StripeConnectModule } from './stripe-connect/stripe-connect.module';
 import { StripeEventsCleanupCron } from './stripe-events-cleanup.cron';
 import { StripeEventsService } from './stripe-events.service';
@@ -31,7 +32,12 @@ import { StripeGateway } from './stripe.gateway';
     GoCardlessCoreModule,
     StripeConnectModule,
   ],
-  controllers: [PaymentMethodsController, PaymentsController, StripeWebhookController],
+  controllers: [
+    PaymentMethodsController,
+    PaymentsController,
+    StripeWebhookController,
+    StripeConnectWebhookController,
+  ],
   providers: [
     ReturnedReceiptsService,
     StripeGateway,
