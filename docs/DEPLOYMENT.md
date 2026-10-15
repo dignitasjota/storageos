@@ -904,28 +904,24 @@ El mandato SEPA lo muestra el formulario de Stripe (texto legal estándar); en e
 
 ---
 
-## 12C. Stripe live (producción)
+## 12C. Stripe live (producción) — cobro de las suscripciones
 
-Tras validar todo en test mode (§12B), pasar a claves live. **Un solo webhook** (`/webhooks/stripe`) atiende tanto los pagos del inquilino (tarjeta/SEPA) como las suscripciones SaaS del tenant; el frontend **no** necesita variable de Stripe (la `publishableKey` viaja en la respuesta del SetupIntent).
+La cuenta de Stripe es **la de la plataforma** y solo cobra la cuota de los tenants (plan + extras). Los tenants **no** cobran a sus inquilinos por Stripe: `TENANT_CARD_PAYMENTS_ENABLED` está a `false` (no ponerla en Portainer) porque, sin Stripe Connect, ese dinero acabaría en la cuenta de la plataforma. Sus inquilinos pagan por Redsys/Bizum, GoCardless o remesa SEPA, con credenciales del propio tenant. No hay ninguna configuración de Stripe por tenant.
 
-1. **Activar la cuenta** en Stripe (datos fiscales/bancarios) y cambiar el dashboard a **modo live** (toggle "Test mode" off).
-2. **Claves live** → en Portainer, variables del servicio **api** (no en web):
-   - `STRIPE_SECRET_KEY=sk_live_...`
-   - `STRIPE_PUBLISHABLE_KEY=pk_live_...`
-3. **Crear el webhook de producción** (Stripe Dashboard → Developers → Webhooks → Add endpoint):
-   - URL: `https://api.tu-dominio.com/webhooks/stripe`
-   - Eventos a seleccionar (los que procesa el backend):
-     - `payment_intent.succeeded`, `payment_intent.payment_failed`
-     - `charge.refunded`, `charge.dispute.created`
-     - `setup_intent.succeeded`
-     - `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
-     - `invoice.payment_succeeded`, `invoice.payment_failed`
-   - Copiar el **Signing secret** (`whsec_...`) → `STRIPE_WEBHOOK_SECRET` en Portainer (api).
-4. **Nginx Proxy Manager**: confirmar la _Custom location_ de `/webhooks/stripe` con `Request body size` ≥ 5MB y sin caché (Stripe firma el raw body; ver §6/§8 de NPM).
-5. **Redeploy** del stack en Portainer para que el api tome las nuevas variables.
-6. **Verificar**: en el webhook de Stripe, la última entrega debe responder `200`; hacer un cobro real pequeño (o un Checkout de suscripción) y comprobar que la factura/suscripción se actualiza. El worker debe estar arriba (consume la cola `payments`).
+1. **Activar la cuenta** en Stripe (datos fiscales y bancarios) y pasar el dashboard a **modo live**.
+2. **Productos y precios**: en Stripe → Product catalog, un producto por plan (Starter, Pro, Administrador) con un precio recurrente mensual y, si se ofrece, otro anual, en EUR. Si los precios de `/admin/plans` son «IVA incluido» (Facturación SaaS → ajustes), el precio de Stripe es el final; si son «+IVA», el precio sin IVA (la app crea sola el TaxRate del IVA y lo añade a las suscripciones nuevas). Copiar cada `price_...` en `/admin/plans` (Stripe Price ID mensual / anual). Los extras no necesitan nada: su precio se crea solo al pasarlos a «Cobrar por Stripe».
+3. **Portal de cliente**: Settings → Billing → Customer portal → guardar la configuración en modo live (sin ella el botón «Gestionar suscripción» falla). Permitir actualizar el método de pago, ver facturas y cancelar; no permitir cambiar de plan desde el portal (el cambio lo hace la app).
+4. **Claves** → Portainer, variables del servicio **api**: `STRIPE_SECRET_KEY=sk_live_...` y `STRIPE_PUBLISHABLE_KEY=pk_live_...` (el web no necesita nada: el pago se hace en la página de Stripe Checkout).
+5. **Webhook** (Developers → Webhooks → Add endpoint), URL `https://api.<dominio>/webhooks/stripe`, eventos:
+   - `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
+   - `invoice.payment_succeeded`, `invoice.payment_failed`
+   - `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`
+   - Copiar el **Signing secret** (`whsec_...`) → `STRIPE_WEBHOOK_SECRET` (api).
+6. **Nginx Proxy Manager**: la _Custom location_ de `/webhooks/stripe` con `Request body size` ≥ 5MB y sin caché (Stripe firma el cuerpo tal cual).
+7. **Redeploy** del stack para que el api coja las variables.
+8. **Prueba**: con un tenant de prueba, Ajustes → Suscripción → Suscribirse → pagar. Comprobar en Stripe que la entrega del webhook da `200` y en el panel admin que el tenant pasa a `active` con el periodo, el pago aparece en su pestaña Pagos y se emite su factura. Luego reembolsar desde Stripe y comprobar que la factura recibe su abono.
 
-> El catálogo de planes SaaS (Stripe Products/Prices) se gestiona desde `/admin` (super admin) vía `POST /subscription-plans`; no hay variables de entorno de `price_id`.
+> Los tenants exentos o con pago manual/SEPA no pasan por Stripe. Un tenant que ya paga por Stripe cambia de plan desde la app (con prorrateo); para pasarlo a transferencia, «Pasar a pago manual» en su ficha.
 
 ---
 
@@ -1210,7 +1206,7 @@ desde el panel.
 1. **Negocio propio**: en el panel admin → Facturación SaaS, «Negocio propio» = identificador del tenant de TrasterOS SL (mismo NIF que el emisor). Sin él y con `AEAT_MODE` real, las facturas de suscripción no se emiten (`own_tenant_required`). Recomendado: marcarlo como **exento de facturación**.
 2. **Certificados**: cada tenant que emita desde la app sube el suyo en Ajustes → Facturación → Veri\*Factu (incluido el negocio propio). Sin certificado, emitir en modo real da `aeat_certificate_required`.
 3. **Modo de emisión**: cada tenant elige app o Holded en Ajustes → Facturación (bloqueado durante el año natural si ya emitió).
-4. **Stripe**: si los precios de suscripción son «+IVA», crear el TaxRate y guardarlo en Facturación SaaS; añadir `charge.dispute.closed` a los eventos del webhook (además de `charge.refunded` y `charge.dispute.created`).
+4. **Stripe**: configurar según §12C (el TaxRate del IVA, con precios «+IVA», lo crea la app sola; el webhook debe llevar `charge.dispute.closed` además de `charge.refunded` y `charge.dispute.created`).
 5. **Variables**: `TENANT_CARD_PAYMENTS_ENABLED` (por defecto `false`, déjalo así mientras no haya Stripe Connect) y `RETENTION_SEPA_PRENOTICE_DAYS` (430 por defecto).
 6. Las facturas emitidas antes de la cadena nueva (2026-10-05) llevan la huella antigua: revisarlo con la asesoría antes del primer envío real.
 
