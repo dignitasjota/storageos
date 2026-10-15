@@ -169,7 +169,11 @@ export class WhatsappBookingRemindersService {
             to: conv.waId,
             name: template!,
             language: settings.reminderTemplateLanguage,
-            params: [name || 'Hola', url],
+            // {{1}} es el nombre: sin él, una palabra neutra (Meta no admite vacíos).
+            params: [
+              name || (whatsappTextLanguage(conv.language) === 'en' ? 'there' : 'cliente'),
+              url,
+            ],
           })
         ).messageId;
       }

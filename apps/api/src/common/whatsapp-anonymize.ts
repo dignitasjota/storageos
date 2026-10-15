@@ -45,13 +45,18 @@ export async function anonymizeWhatsappConversations(
   return { count: ids.length, mediaKeys: media.map((m) => m.mediaKey!).filter(Boolean) };
 }
 
-/** Conversaciones de un inquilino: las enlazadas y las de su teléfono. */
+/** Conversaciones de un inquilino: las enlazadas y las de su número exacto. */
 export function customerWhatsappWhere(
   customerId: string,
   phone: string | null,
 ): Prisma.WhatsappConversationWhereInput {
-  const digits = (phone ?? '').replace(/\D/g, '');
+  const digits = (phone ?? '').replace(/\D/g, '').replace(/^00/, '');
   const or: Prisma.WhatsappConversationWhereInput[] = [{ customerId }];
-  if (digits.length >= 9) or.push({ waId: { endsWith: digits.slice(-9) } });
+  // Número completo: con prefijo tal cual; sin él (9 cifras), se supone España.
+  // No se compara solo por las últimas cifras: podría ser el número de otra
+  // persona de otro país.
+  const candidates =
+    digits.length === 9 ? [digits, `34${digits}`] : digits.length > 9 ? [digits] : [];
+  if (candidates.length > 0) or.push({ waId: { in: candidates } });
   return { OR: or };
 }
