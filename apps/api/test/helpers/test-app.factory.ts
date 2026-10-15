@@ -55,6 +55,7 @@ export async function createTestApp(options: CreateTestAppOptions = {}): Promise
   configureTrustProxy(app, 1);
   // Webhooks firmados sobre el raw body (deben ir antes del parser JSON).
   app.use('/webhooks/stripe', raw({ type: 'application/json' }));
+  app.use('/webhooks/stripe-connect', raw({ type: 'application/json' }));
   app.use('/webhooks/gocardless', raw({ type: 'application/json' }));
   app.use('/webhooks/email-events/resend', raw({ type: () => true }));
   // Redsys postea urlencoded (los tests, JSON): raw para ambos y el

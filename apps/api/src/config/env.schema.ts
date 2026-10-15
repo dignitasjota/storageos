@@ -91,6 +91,8 @@ const envSchemaBase = z.object({
   STRIPE_SECRET_KEY: z.string().default('sk_test_dummy'),
   STRIPE_PUBLISHABLE_KEY: z.string().default('pk_test_dummy'),
   STRIPE_WEBHOOK_SECRET: z.string().default('whsec_dummy'),
+  /** Secreto del webhook de las cuentas conectadas (Stripe Connect, cobros de los tenants). */
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().default('whsec_connect_dummy'),
 
   // --- Verifactu (Fase 4: stub; Fase 8: sandbox/production) ---
   AEAT_MODE: z.enum(['stub', 'sandbox', 'production']).default('stub'),

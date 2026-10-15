@@ -177,6 +177,34 @@ export class StripeConnectService {
     });
   }
 
+  /**
+   * El tenant quitó el acceso de la plataforma a su cuenta desde Stripe: se
+   * olvida la cuenta y, si la tarjeta iba por Stripe, vuelve a Redsys o a nada.
+   */
+  async forgetAccount(stripeAccountId: string): Promise<void> {
+    const account = await this.admin.tenantStripeAccount.findUnique({
+      where: { stripeAccountId },
+    });
+    if (!account) return;
+    await this.admin.$transaction([
+      this.admin.tenantStripeAccount.delete({ where: { id: account.id } }),
+      this.admin.tenant.updateMany({
+        where: { id: account.tenantId, cardProvider: 'stripe' },
+        data: { cardProvider: null },
+      }),
+    ]);
+    await this.audit.write({
+      tenantId: account.tenantId,
+      userId: null,
+      action: 'stripe_connect.account_deauthorized',
+      entityType: 'TenantStripeAccount',
+      entityId: account.id,
+      changes: { stripeAccountId },
+      ipAddress: null,
+      userAgent: null,
+    });
+  }
+
   async dashboardLink(tenantId: string): Promise<StripeConnectLinkDto> {
     const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
     if (!account?.detailsSubmitted) {
