@@ -282,7 +282,8 @@ export class RedsysService {
     const { count } = await this.prisma.withTenant(
       (tx) =>
         tx.redsysOrder.updateMany({
-          where: { order, status: 'pending' },
+          // `charging` = cobro con tarjeta guardada cuya respuesta se perdió.
+          where: { order, status: { in: ['pending', 'charging'] } },
           data: {
             status: approved ? 'paid' : 'failed',
             dsResponse,

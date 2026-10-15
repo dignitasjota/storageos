@@ -55,12 +55,13 @@ export class PaymentRetryService {
       for (const inv of candidates) {
         if (!inv.customerId) continue;
         if (Number(inv.total) - Number(inv.amountPaid) <= 0) continue;
-        // Método de pago por defecto cobrable (card/SEPA); sin él no se cuenta el intento.
+        // Algún método cobrable (card/SEPA; el cobro elige el de por defecto si
+        // se puede usar); sin él no se cuenta el intento.
         const pm = await this.admin.paymentMethod.findFirst({
           where: {
             tenantId: t.id,
             customerId: inv.customerId,
-            isDefault: true,
+            deletedAt: null,
             type: { in: ['card', 'sepa_debit'] },
           },
         });

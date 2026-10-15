@@ -88,6 +88,44 @@ describe('Webhook de Stripe Connect (e2e)', () => {
     const paid = await admin.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
     expect(paid.status).toBe('paid');
 
+    // La respuesta de Stripe se perdió (corte de red): el pago quedó fallido y
+    // sin el id del cobro. El webhook lo recupera por los metadatos.
+    const lostInvoice = await createDraftInvoice(app, owner.accessToken, customerId);
+    await request(app.getHttpServer()).post(`/invoices/${lostInvoice}/issue`).set(auth).expect(200);
+    const lost = await admin.payment.create({
+      data: {
+        tenantId: owner.tenantId,
+        invoiceId: lostInvoice,
+        customerId,
+        amount: 121,
+        currency: 'EUR',
+        status: 'failed',
+        failureReason: 'fetch failed',
+        methodType: 'card',
+        gateway: 'stripe',
+        stripeAccountId: accountId,
+      },
+    });
+    await send({
+      id: `evt_lost_${stamp}`,
+      type: 'payment_intent.succeeded',
+      account: accountId,
+      data: {
+        object: {
+          id: `pi_lost_${stamp}`,
+          object: 'payment_intent',
+          metadata: { paymentId: lost.id },
+        },
+      },
+    }).expect(200);
+    expect((await admin.invoice.findUniqueOrThrow({ where: { id: lostInvoice } })).status).toBe(
+      'paid',
+    );
+    expect(await admin.payment.findUniqueOrThrow({ where: { id: lost.id } })).toMatchObject({
+      status: 'succeeded',
+      gatewayPaymentId: `pi_lost_${stamp}`,
+    });
+
     // Un evento de otra cuenta no toca nada.
     await send({
       id: `evt_other_${stamp}`,
@@ -124,6 +162,19 @@ describe('Webhook de Stripe Connect (e2e)', () => {
       effectiveCardProvider: null,
     });
 
+    // Una tarjeta guardada en esa cuenta: se da de baja al desautorizar.
+    const card = await admin.paymentMethod.create({
+      data: {
+        tenantId: owner.tenantId,
+        customerId,
+        type: 'card',
+        gateway: 'stripe',
+        gatewayTokenEncrypted: 'x',
+        stripeAccountId: accountId,
+        isDefault: true,
+      },
+    });
+
     // El tenant quita el acceso desde Stripe.
     await send({
       id: `evt_deauth_${stamp}`,
@@ -133,5 +184,11 @@ describe('Webhook de Stripe Connect (e2e)', () => {
     }).expect(200);
     const after = await request(app.getHttpServer()).get('/settings/stripe-connect').set(auth);
     expect(after.body).toMatchObject({ connected: false, cardProvider: null });
+    expect(await admin.paymentMethod.findUniqueOrThrow({ where: { id: card.id } })).toMatchObject({
+      isDefault: false,
+    });
+    expect(
+      (await admin.paymentMethod.findUniqueOrThrow({ where: { id: card.id } })).deletedAt,
+    ).not.toBeNull();
   });
 });

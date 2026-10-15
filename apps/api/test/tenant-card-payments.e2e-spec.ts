@@ -71,6 +71,15 @@ describe('Tarjeta de los inquilinos desactivada (e2e)', () => {
       .set(auth)
       .send({})
       .expect(400);
-    expect(charge.body.code).toBe('card_payments_disabled');
+    // La tarjeta no se puede cobrar: se salta y no queda ningún otro método.
+    expect(charge.body.code).toBe('no_payment_method');
+    // Si se elige expresamente, se explica por qué.
+    const pm = await admin.paymentMethod.findFirstOrThrow({ where: { customerId } });
+    const explicit = await http()
+      .post(`/payments/invoices/${invoiceId}/charge`)
+      .set(auth)
+      .send({ paymentMethodId: pm.id })
+      .expect(400);
+    expect(explicit.body.code).toBe('card_payments_disabled');
   });
 });

@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
-import { PaymentsService } from '../payments.service';
+import { PaymentsService, paymentIdsFromMetadata } from '../payments.service';
 import { StripeEventsService } from '../stripe-events.service';
 
 import { accountState, StripeConnectClient } from './stripe-connect.client';
@@ -120,6 +120,7 @@ export class StripeConnectWebhookController {
           gatewayPaymentId: String(obj.id),
           newStatus: 'succeeded',
           paidAt: new Date(),
+          paymentIdsHint: paymentIdsFromMetadata(obj.metadata),
         });
         break;
       case 'payment_intent.payment_failed': {
@@ -129,6 +130,7 @@ export class StripeConnectWebhookController {
           gatewayPaymentId: String(obj.id),
           newStatus: 'failed',
           ...(err?.message ? { failureReason: err.message } : {}),
+          paymentIdsHint: paymentIdsFromMetadata(obj.metadata),
         });
         break;
       }

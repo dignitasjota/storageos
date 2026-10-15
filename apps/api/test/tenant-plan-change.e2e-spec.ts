@@ -86,6 +86,22 @@ describe('Cambio de plan self-service (e2e)', () => {
     expect(dup.status).toBe(400);
     expect(dup.body.code).toBe('already_subscribed');
 
+    // Con un pago pendiente tampoco: se arregla la tarjeta en el portal.
+    await admin.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'past_due' },
+    });
+    const pastDue = await request(app.getHttpServer())
+      .post('/settings/saas-billing/checkout')
+      .set(auth)
+      .send({
+        planId: pro!.id,
+        successUrl: 'https://x.test/ok',
+        cancelUrl: 'https://x.test/ko',
+      });
+    expect(pastDue.body.code).toBe('already_subscribed');
+    expect(pastDue.body.message).toContain('pago pendiente');
+
     // Cambiar a plan anual sin Stripe price anual configurado → 400 (antes de
     // tocar Stripe). El seed no configura el price anual de pro.
     const yearly = await request(app.getHttpServer())

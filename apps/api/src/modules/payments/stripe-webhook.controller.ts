@@ -16,7 +16,7 @@ import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { PAYMENT_GATEWAY, PaymentGateway, WebhookEvent } from './payment-gateway.interface';
-import { PaymentsService } from './payments.service';
+import { PaymentsService, paymentIdsFromMetadata } from './payments.service';
 import { StripeEventsService } from './stripe-events.service';
 
 import type { Request } from 'express';
@@ -100,13 +100,14 @@ export class StripeWebhookController {
 
     switch (event.type) {
       case 'payment_intent.succeeded': {
-        const intent = (event.data as { object: { id: string } }).object;
+        const intent = (event.data as { object: { id: string; metadata?: unknown } }).object;
         if (tenantId) {
           await this.payments.syncFromWebhook({
             tenantId,
             gatewayPaymentId: intent.id,
             newStatus: 'succeeded',
             paidAt: new Date(),
+            paymentIdsHint: paymentIdsFromMetadata(intent.metadata),
           });
         }
         break;
