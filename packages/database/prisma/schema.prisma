@@ -312,6 +312,8 @@ model Tenant {
   slug                         String                @unique
   status                       TenantStatus          @default(trial)
   billingExempt                Boolean               @default(false) @map("billing_exempt")
+  /// Con qué se cobra la tarjeta a los inquilinos: redsys | stripe (null = Redsys si está activo).
+  cardProvider                 String?               @map("card_provider")
   trialEndsAt                  DateTime?             @map("trial_ends_at") @db.Timestamptz(6)
   billingEmail                 String?               @map("billing_email")
   country                      String                @default("ES") @db.Char(2)
@@ -558,6 +560,7 @@ model Tenant {
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
   whatsappSettings               TenantWhatsappSettings?
+  stripeAccount                  TenantStripeAccount?
   whatsappConversations          WhatsappConversation[]
   whatsappMessages               WhatsappMessage[]
   @@index([deletedAt, status])
@@ -5268,3 +5271,33 @@ model PlatformWhatsappAiSettings {
   @@map("platform_whatsapp_ai_settings")
 }
 
+
+/// Ajustes de cobros de la plataforma (un registro). Tabla global (REVOKE).
+model PlatformPaymentSettings {
+  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// Comisión de la plataforma sobre cada cobro de Stripe de un tenant (%).
+  applicationFeePct Decimal  @default(2) @map("application_fee_pct") @db.Decimal(5, 2)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_payment_settings")
+}
+
+/// Cuenta conectada de Stripe (Express) con la que el tenant cobra a sus inquilinos.
+model TenantStripeAccount {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @unique(map: "tenant_stripe_accounts_tenant_key") @map("tenant_id") @db.Uuid
+  stripeAccountId  String    @unique(map: "tenant_stripe_accounts_account_key") @map("stripe_account_id")
+  chargesEnabled   Boolean   @default(false) @map("charges_enabled")
+  payoutsEnabled   Boolean   @default(false) @map("payouts_enabled")
+  detailsSubmitted Boolean   @default(false) @map("details_submitted")
+  requirementsDue  String[]  @default([]) @map("requirements_due")
+  disabledReason   String?   @map("disabled_reason")
+  lastSyncedAt     DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_stripe_accounts")
+}

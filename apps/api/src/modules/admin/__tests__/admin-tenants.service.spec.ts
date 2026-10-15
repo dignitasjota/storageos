@@ -19,6 +19,7 @@ interface TxMock {
   communication: { updateMany: jest.Mock };
   whatsappConversation: { findMany: jest.Mock };
   tenantWhatsappSettings: { deleteMany: jest.Mock };
+  tenantStripeAccount: { deleteMany: jest.Mock };
   user: { findMany: jest.Mock; update: jest.Mock };
   session: { deleteMany: jest.Mock };
   tenant: { update: jest.Mock };
@@ -33,6 +34,7 @@ function buildTx(): TxMock {
     communication: { updateMany: jest.fn().mockResolvedValue({ count: 7 }) },
     whatsappConversation: { findMany: jest.fn().mockResolvedValue([]) },
     tenantWhatsappSettings: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    tenantStripeAccount: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     user: {
       findMany: jest.fn().mockResolvedValue([{ id: USER_A }, { id: USER_B }]),
       update: jest.fn().mockResolvedValue(undefined),

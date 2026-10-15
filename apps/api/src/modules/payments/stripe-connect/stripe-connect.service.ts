@@ -1,0 +1,261 @@
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+import { AuditService } from '../../auth/audit.service';
+import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { RedsysService } from '../redsys/redsys.service';
+
+import { PlatformPaymentSettingsService } from './platform-payment-settings.service';
+import { type ConnectAccountState, StripeConnectClient } from './stripe-connect.client';
+
+import type { Env } from '../../../config/env.schema';
+import type { CardProvider, StripeConnectLinkDto, StripeConnectStatusDto } from '@storageos/shared';
+
+/** Pantalla del panel a la que vuelve el tenant desde el registro de Stripe. */
+const SETTINGS_PATH = '/settings/payments';
+
+/**
+ * Cuenta de Stripe (Connect Express) del tenant para cobrar con tarjeta a sus
+ * inquilinos, y elección del proveedor de tarjeta (Redsys o Stripe).
+ */
+@Injectable()
+export class StripeConnectService {
+  private readonly logger = new Logger(StripeConnectService.name);
+
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly client: StripeConnectClient,
+    private readonly platformSettings: PlatformPaymentSettingsService,
+    private readonly redsys: RedsysService,
+    private readonly audit: AuditService,
+    private readonly config: ConfigService<Env, true>,
+  ) {}
+
+  async getStatus(tenantId: string): Promise<StripeConnectStatusDto> {
+    const [tenant, account, feePct, redsysEnabled] = await Promise.all([
+      this.admin.tenant.findUnique({ where: { id: tenantId }, select: { cardProvider: true } }),
+      this.admin.tenantStripeAccount.findUnique({ where: { tenantId } }),
+      this.platformSettings.applicationFeePct(),
+      this.redsys.isEnabled(tenantId),
+    ]);
+    const cardProvider = parseProvider(tenant?.cardProvider ?? null);
+    return {
+      platformAvailable: this.client.isAvailable(),
+      connected: Boolean(account),
+      accountId: account?.stripeAccountId ?? null,
+      chargesEnabled: account?.chargesEnabled ?? false,
+      payoutsEnabled: account?.payoutsEnabled ?? false,
+      detailsSubmitted: account?.detailsSubmitted ?? false,
+      requirementsDue: account?.requirementsDue ?? [],
+      disabledReason: account?.disabledReason ?? null,
+      applicationFeePct: feePct,
+      cardProvider,
+      effectiveCardProvider: effectiveProvider(
+        cardProvider,
+        account?.chargesEnabled ?? false,
+        redsysEnabled,
+      ),
+      redsysEnabled,
+    };
+  }
+
+  /**
+   * Proveedor con el que se cobra la tarjeta ahora mismo: el elegido si está
+   * operativo; si no se eligió, Redsys si está activo.
+   */
+  async effectiveCardProvider(tenantId: string): Promise<CardProvider | null> {
+    const s = await this.getStatus(tenantId);
+    return s.effectiveCardProvider;
+  }
+
+  /**
+   * Cuenta conectada lista para cobrar (o null). La usarán los cobros de la
+   * PR siguiente.
+   */
+  async chargeableAccount(tenantId: string): Promise<string | null> {
+    const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+    return account?.chargesEnabled ? account.stripeAccountId : null;
+  }
+
+  /** Crea la cuenta (si no existe) y devuelve el enlace al registro de Stripe. */
+  async startOnboarding(tenantId: string, userId: string): Promise<StripeConnectLinkDto> {
+    this.assertAvailable();
+    let account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+    if (!account) {
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, billingEmail: true, billingLegalName: true },
+      });
+      if (!tenant) throw new NotFoundException({ code: 'tenant_not_found', message: 'No existe' });
+      const accountId = await this.call(() =>
+        this.client.createAccount({
+          tenantId,
+          email: tenant.billingEmail,
+          businessName: tenant.billingLegalName || tenant.name,
+        }),
+      );
+      account = await this.admin.tenantStripeAccount.create({
+        data: { tenantId, stripeAccountId: accountId },
+      });
+      await this.audit.write({
+        tenantId,
+        userId,
+        action: 'stripe_connect.account_created',
+        entityType: 'TenantStripeAccount',
+        entityId: account.id,
+        changes: { stripeAccountId: accountId },
+        ipAddress: null,
+        userAgent: null,
+      });
+    }
+    const base = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    const url = await this.call(() =>
+      this.client.createOnboardingLink({
+        accountId: account.stripeAccountId,
+        refreshUrl: `${base}${SETTINGS_PATH}?stripe=refresh`,
+        returnUrl: `${base}${SETTINGS_PATH}?stripe=return`,
+      }),
+    );
+    return { url };
+  }
+
+  /** Vuelve a leer el estado de la cuenta en Stripe. */
+  async refresh(tenantId: string): Promise<StripeConnectStatusDto> {
+    const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+    if (!account) {
+      throw new NotFoundException({
+        code: 'stripe_not_connected',
+        message: 'No hay ninguna cuenta de Stripe conectada',
+      });
+    }
+    this.assertAvailable();
+    const state = await this.call(() => this.client.retrieveAccount(account.stripeAccountId));
+    await this.saveState(account.stripeAccountId, state);
+    return this.getStatus(tenantId);
+  }
+
+  /** Guarda el estado de una cuenta (refresco manual o webhook `account.updated`). */
+  async saveState(stripeAccountId: string, state: ConnectAccountState): Promise<void> {
+    await this.admin.tenantStripeAccount.updateMany({
+      where: { stripeAccountId },
+      data: { ...state, lastSyncedAt: new Date() },
+    });
+  }
+
+  async dashboardLink(tenantId: string): Promise<StripeConnectLinkDto> {
+    const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+    if (!account?.detailsSubmitted) {
+      throw new BadRequestException({
+        code: 'stripe_onboarding_incomplete',
+        message: 'Termina primero el registro en Stripe',
+      });
+    }
+    this.assertAvailable();
+    const url = await this.call(() => this.client.createDashboardLink(account.stripeAccountId));
+    return { url };
+  }
+
+  /**
+   * Desconecta la cuenta de la app (la cuenta sigue existiendo en Stripe). Si
+   * la tarjeta se cobraba con Stripe, vuelve a Redsys (o a nada).
+   */
+  async disconnect(tenantId: string, userId: string): Promise<StripeConnectStatusDto> {
+    const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+    if (account) {
+      await this.admin.$transaction([
+        this.admin.tenantStripeAccount.delete({ where: { id: account.id } }),
+        this.admin.tenant.updateMany({
+          where: { id: tenantId, cardProvider: 'stripe' },
+          data: { cardProvider: null },
+        }),
+      ]);
+      await this.audit.write({
+        tenantId,
+        userId,
+        action: 'stripe_connect.account_disconnected',
+        entityType: 'TenantStripeAccount',
+        entityId: account.id,
+        changes: { stripeAccountId: account.stripeAccountId },
+        ipAddress: null,
+        userAgent: null,
+      });
+    }
+    return this.getStatus(tenantId);
+  }
+
+  /** Elige con qué se cobra la tarjeta a los inquilinos. */
+  async setCardProvider(
+    tenantId: string,
+    userId: string,
+    provider: CardProvider | null,
+  ): Promise<StripeConnectStatusDto> {
+    if (provider === 'stripe') {
+      const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+      if (!account?.chargesEnabled) {
+        throw new BadRequestException({
+          code: 'stripe_not_ready',
+          message: 'Conecta tu cuenta de Stripe y termina el registro antes de elegirla',
+        });
+      }
+    }
+    if (provider === 'redsys' && !(await this.redsys.isEnabled(tenantId))) {
+      throw new BadRequestException({
+        code: 'redsys_not_enabled',
+        message: 'Activa Redsys antes de elegirlo',
+      });
+    }
+    await this.admin.tenant.update({ where: { id: tenantId }, data: { cardProvider: provider } });
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'tenant.card_provider_changed',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { cardProvider: provider },
+      ipAddress: null,
+      userAgent: null,
+    });
+    return this.getStatus(tenantId);
+  }
+
+  private assertAvailable(): void {
+    if (!this.client.isAvailable()) {
+      throw new ServiceUnavailableException({
+        code: 'stripe_not_configured',
+        message: 'Los cobros con Stripe aún no están disponibles en la plataforma',
+      });
+    }
+  }
+
+  private async call<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      this.logger.warn(`Stripe Connect: ${err instanceof Error ? err.message : String(err)}`);
+      throw new BadRequestException({
+        code: 'stripe_connect_error',
+        message: 'Stripe no ha podido completar la operación. Inténtalo de nuevo.',
+      });
+    }
+  }
+}
+
+function parseProvider(v: string | null): CardProvider | null {
+  return v === 'redsys' || v === 'stripe' ? v : null;
+}
+
+export function effectiveProvider(
+  chosen: CardProvider | null,
+  stripeReady: boolean,
+  redsysEnabled: boolean,
+): CardProvider | null {
+  if (chosen === 'stripe') return stripeReady ? 'stripe' : redsysEnabled ? 'redsys' : null;
+  if (chosen === 'redsys') return redsysEnabled ? 'redsys' : null;
+  return redsysEnabled ? 'redsys' : null;
+}

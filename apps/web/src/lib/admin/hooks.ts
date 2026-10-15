@@ -4,6 +4,8 @@ import { adminApiFetch } from './api';
 import { useAdminAuthStore } from './auth-store';
 
 import type {
+  PlatformPaymentSettingsDto,
+  UpdatePlatformPaymentSettingsInput,
   PlatformContactMessageDto,
   PlatformContactSettingsDto,
   UpdatePlatformContactSettingsInput,
@@ -2420,5 +2422,26 @@ export function useTenantDataExport(tenantId: string) {
       adminApiFetch<TenantDataExportDto>(`/admin/tenants/${tenantId}/data-export`, {
         method: 'POST',
       }),
+  });
+}
+
+// --- Comisión de los cobros con Stripe de los tenants (Stripe Connect) ---
+
+export function useAdminPaymentSettings() {
+  return useQuery({
+    queryKey: ['admin', 'payment-settings'] as const,
+    queryFn: () => adminApiFetch<PlatformPaymentSettingsDto>('/admin/payment-settings'),
+  });
+}
+
+export function useUpdateAdminPaymentSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdatePlatformPaymentSettingsInput) =>
+      adminApiFetch<PlatformPaymentSettingsDto>('/admin/payment-settings', {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(['admin', 'payment-settings'], data),
   });
 }
