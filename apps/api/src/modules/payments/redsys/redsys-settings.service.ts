@@ -24,6 +24,7 @@ export class RedsysSettingsService {
       enabled: row?.enabled ?? false,
       bizumEnabled: row?.bizumEnabled ?? false,
       hasSecretKey: !!row?.secretKeyEncrypted,
+      cardOnFileEnabled: row?.cardOnFileEnabled ?? false,
     };
   }
 
@@ -54,6 +55,7 @@ export class RedsysSettingsService {
             environment: input.environment,
             enabled: input.enabled,
             bizumEnabled: input.bizumEnabled,
+            cardOnFileEnabled: input.cardOnFileEnabled,
           },
           update: {
             merchantCode: input.merchantCode,
@@ -62,6 +64,7 @@ export class RedsysSettingsService {
             environment: input.environment,
             enabled: input.enabled,
             bizumEnabled: input.bizumEnabled,
+            cardOnFileEnabled: input.cardOnFileEnabled,
           },
         }),
       tenantId,
@@ -77,6 +80,7 @@ export class RedsysSettingsService {
     environment: 'test' | 'live';
     enabled: boolean;
     bizumEnabled: boolean;
+    cardOnFileEnabled: boolean;
   } | null> {
     const row = await this.prisma.withTenant(
       (tx) => tx.redsysSettings.findUnique({ where: { tenantId } }),
@@ -90,6 +94,7 @@ export class RedsysSettingsService {
       environment: row.environment as 'test' | 'live',
       enabled: row.enabled,
       bizumEnabled: row.bizumEnabled,
+      cardOnFileEnabled: row.cardOnFileEnabled,
     };
   }
 }

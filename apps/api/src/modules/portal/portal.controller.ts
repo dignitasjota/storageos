@@ -849,9 +849,12 @@ export class PortalController {
   /** ¿Ofrece el negocio pago con tarjeta/Bizum vía Redsys? (para gatear los botones). */
   @Public()
   @Get('me/redsys/enabled')
-  async redsysEnabled(
-    @Headers('authorization') auth: string | undefined,
-  ): Promise<{ enabled: boolean; bizumEnabled: boolean; cardEnabled: boolean }> {
+  async redsysEnabled(@Headers('authorization') auth: string | undefined): Promise<{
+    enabled: boolean;
+    bizumEnabled: boolean;
+    cardEnabled: boolean;
+    cardOnFileEnabled: boolean;
+  }> {
     const { tenantId } = await this.requirePortalSession(auth);
     return this.redsys.availability(tenantId);
   }
@@ -913,6 +916,7 @@ export class PortalController {
     return this.redsys.createRedirect(tenantId, invoiceId, {
       expectedCustomerId: customerId,
       ...(body.payMethod ? { payMethod: body.payMethod } : {}),
+      ...(body.saveCard ? { saveCard: true } : {}),
     });
   }
 

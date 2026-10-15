@@ -64,11 +64,13 @@ export async function fetchPortalRedsysRedirect(
   portalToken: string,
   invoiceId: string,
   payMethod?: RedsysPayMethod,
+  /** Guardar la tarjeta para cobrar solas las próximas cuotas (pago por referencia). */
+  saveCard?: boolean,
 ): Promise<RedsysRedirectDto> {
   return apiFetch<RedsysRedirectDto>(`/portal/me/invoices/${invoiceId}/redsys-redirect`, {
     method: 'POST',
     requiresAuth: false,
     headers: { Authorization: `Bearer ${portalToken}` },
-    json: payMethod ? { payMethod } : {},
+    json: { ...(payMethod ? { payMethod } : {}), ...(saveCard ? { saveCard: true } : {}) },
   });
 }

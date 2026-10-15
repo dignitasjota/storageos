@@ -158,6 +158,8 @@ export const UpdateRedsysSettingsSchema = z.object({
   enabled: z.boolean(),
   /** El comercio acepta Bizum (el banco debe tenerlo activo en el TPV). */
   bizumEnabled: z.boolean().default(false),
+  /** Pago por referencia (tarjeta guardada + cobro automático): lo activa el banco en el TPV. */
+  cardOnFileEnabled: z.boolean().default(false),
 });
 export type UpdateRedsysSettingsInput = z.infer<typeof UpdateRedsysSettingsSchema>;
 
@@ -168,6 +170,8 @@ export type RedsysPayMethod = z.infer<typeof RedsysPayMethodEnum>;
 /** Body opcional del redirect: elige tarjeta o Bizum (omitido = default del TPV). */
 export const RedsysRedirectRequestSchema = z.object({
   payMethod: RedsysPayMethodEnum.optional(),
+  /** Guardar la tarjeta para cobrar las próximas cuotas (pago por referencia). */
+  saveCard: z.boolean().optional(),
 });
 export type RedsysRedirectRequestInput = z.infer<typeof RedsysRedirectRequestSchema>;
 
