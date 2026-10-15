@@ -74,8 +74,8 @@ export function bookingCodes(
   return out;
 }
 
-/** Mes en curso (AAAA-MM) y su comienzo, en hora de Madrid. */
-function currentMonth(now = new Date()): { key: string; start: Date } {
+/** Mes en curso (AAAA-MM) y su comienzo (medianoche del día 1 en hora de Madrid). */
+export function currentMonth(now = new Date()): { key: string; start: Date } {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Madrid',
     year: 'numeric',
@@ -83,8 +83,23 @@ function currentMonth(now = new Date()): { key: string; start: Date } {
   }).formatToParts(now);
   const y = Number(parts.find((p) => p.type === 'year')?.value);
   const m = Number(parts.find((p) => p.type === 'month')?.value);
-  return { key: `${y}-${String(m).padStart(2, '0')}`, start: new Date(Date.UTC(y, m - 1, 1)) };
+  // Diferencia de Madrid con UTC ese día (1 h en invierno, 2 en verano).
+  const guess = new Date(Date.UTC(y, m - 1, 1));
+  const madridHour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).format(guess),
+  );
+  return {
+    key: `${y}-${String(m).padStart(2, '0')}`,
+    start: new Date(guess.getTime() - madridHour * 3_600_000),
+  };
 }
+
+/** Máximo de respuestas del asistente por conversación en 24 h (abuso o bucles). */
+const DAILY_REPLIES_PER_CONVERSATION = 30;
 
 /**
  * Asistente de IA del WhatsApp Business de los tenants. Usa la IA de WhatsApp
@@ -450,6 +465,20 @@ export class WhatsappAssistantService {
     if (latestIn?.id !== args.messageId) return; // llegó otro después: responde a ese
     if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) return;
 
+    // Tope por conversación: si alguien escribe sin parar, pasa a una persona.
+    const recentReplies = await this.admin.whatsappMessage.count({
+      where: {
+        conversationId,
+        sender: 'assistant',
+        aiKeySource: { not: null },
+        createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) },
+      },
+    });
+    if (recentReplies >= DAILY_REPLIES_PER_CONVERSATION) {
+      await this.handOff(tenantId, conversationId, conversation.contactName ?? null);
+      return;
+    }
+
     const resolved = await this.resolveAi(settings);
     if (!resolved.ok) {
       await this.notifyNoAi(
@@ -483,7 +512,18 @@ export class WhatsappAssistantService {
     if (turns.length === 0) return;
     const firstReply = !history.some((m) => m.sender === 'assistant');
 
-    const bookingsEnabled = settings.assistantBookingsEnabled && !conversation.contractId;
+    // Una reserva viva por conversación; si caducó o se canceló, puede reservar otra.
+    const linkedContract = conversation.contractId
+      ? await this.admin.contract.findUnique({
+          where: { id: conversation.contractId },
+          select: { status: true, deletedAt: true },
+        })
+      : null;
+    const bookingAlive =
+      !!linkedContract &&
+      !linkedContract.deletedAt &&
+      ['draft', 'active', 'ending'].includes(linkedContract.status);
+    const bookingsEnabled = settings.assistantBookingsEnabled && !bookingAlive;
     const system = this.buildSystemPrompt({
       tenantName: tenant.name,
       landing,
@@ -495,6 +535,20 @@ export class WhatsappAssistantService {
       contactPhone: `+${conversation.waId}`,
     });
     const completion = await this.ai.complete(resolved.config, system, turns);
+    // Mientras el modelo pensaba (segundos) pudo escribir otra vez el cliente o
+    // responder el equipo: entonces esta respuesta ya no toca.
+    const [stillOn, newest] = await Promise.all([
+      this.admin.whatsappConversation.findUnique({
+        where: { id: conversationId },
+        select: { assistantEnabled: true },
+      }),
+      this.admin.whatsappMessage.findFirst({
+        where: { conversationId, direction: 'in' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      }),
+    ]);
+    if (!stillOn?.assistantEnabled || newest?.id !== args.messageId) return;
     let handoff = completion.text.includes(HANDOFF_MARKER);
     const bookingMatch = BOOKING_MARKER_RE.exec(completion.text);
     const detected = LANGUAGE_MARKER_RE.exec(completion.text)?.[1]?.toLowerCase() ?? null;
@@ -663,9 +717,19 @@ export class WhatsappAssistantService {
           : reasons.error,
       );
     }
+    const created = await this.admin.contract.findUnique({
+      where: { id: result.contractId },
+      select: { customerId: true },
+    });
     await this.admin.whatsappConversation.update({
       where: { id: args.conversationId },
-      data: { contractId: result.contractId },
+      // La conversación pasa a la ficha del inquilino; el recordatorio vuelve a
+      // estar disponible para esta reserva.
+      data: {
+        contractId: result.contractId,
+        bookingReminderSentAt: null,
+        ...(created?.customerId ? { customerId: created.customerId } : {}),
+      },
     });
     const url = `${this.publicBase(args.landing.customDomain)}/sign/${result.signingToken}`;
     await this.notifications
@@ -778,6 +842,7 @@ export class WhatsappAssistantService {
       'Los precios son al mes con IVA incluido. No prometas descuentos que no estén abajo.',
       `Para reservar, envía este enlace (en él se elige el trastero, se firma y se paga): ${args.bookingUrl}`,
       'No pidas datos bancarios ni contraseñas. No hables de otros clientes.',
+      'Los mensajes «[Foto]», «[Audio]», «[Nota de voz]», «[Vídeo]», «[Documento: …]» o «[Sticker]» son archivos que no puedes ver ni escuchar: pide amablemente que lo escriban o, si hace falta verlo, pasa la conversación al equipo.',
       `Si el cliente pide hablar con una persona, quiere reclamar, tiene un problema con su contrato o sus pagos, o no sabes responder, contesta en una frase que le pasas con el equipo y termina con ${HANDOFF_MARKER}.`,
     );
     if (args.firstReply) {

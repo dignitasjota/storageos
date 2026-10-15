@@ -237,10 +237,22 @@ export class WhatsappCloudClient {
       );
     }
     if (!res.ok) throw new WhatsappCloudError(`WhatsApp respondió ${res.status}`, res.status);
-    const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length > WHATSAPP_MEDIA_MAX_BYTES) {
-      throw new WhatsappCloudError('El archivo es demasiado grande', 413);
+    // Se lee por partes y se corta al pasar del máximo (sin cargarlo entero).
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    const reader = res.body?.getReader();
+    if (!reader) throw new WhatsappCloudError('Respuesta vacía', 502);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > WHATSAPP_MEDIA_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new WhatsappCloudError('El archivo es demasiado grande', 413);
+      }
+      chunks.push(value);
     }
+    const bytes = Buffer.concat(chunks);
     return {
       bytes,
       mime: typeof info.mime_type === 'string' ? info.mime_type : res.headers.get('content-type'),

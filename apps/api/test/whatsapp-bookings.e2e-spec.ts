@@ -151,6 +151,8 @@ describe('Reservas por WhatsApp (e2e)', () => {
     });
     expect(conv.contract).toMatchObject({ status: 'draft' });
     expect(conv.contract!.customer).toMatchObject({ firstName: 'Carlos', phone: '+34677889900' });
+    // La conversación pasa a la ficha del nuevo inquilino.
+    expect(conv.customerId).toBe(conv.contract!.customerId);
     expect(conv.assistantEnabled).toBe(true);
     expect(
       await prismaAdmin.notification.findFirst({ where: { tenantId, type: 'whatsapp.booking' } }),
@@ -228,6 +230,46 @@ describe('Reservas por WhatsApp (e2e)', () => {
         where: { contractId: conv.contractId!, source: { startsWith: 'booking_recovery' } },
       }),
     ).toBe(0);
+
+    // La reserva caduca sin firmar: el contacto puede volver a reservar por el chat.
+    await prismaAdmin.contract.update({
+      where: { id: conv.contractId! },
+      data: { status: 'cancelled' },
+    });
+    await inbound(
+      '34677889900',
+      `reservar ${JSON.stringify({ ...data, email: `carlos2-${Date.now()}@example.com` })}`,
+      // Meta da la hora en segundos: un segundo después para que no se junte con el primero.
+      Math.floor(Date.now() / 1000) + 2,
+    );
+    const second = await waitFor(async () => {
+      const c = await prismaAdmin.whatsappConversation.findUnique({ where: { id: conv.id } });
+      return c?.contractId && c.contractId !== conv.contractId ? c : null;
+    });
+    expect(second.bookingReminderSentAt).toBeNull();
+
+    // Tope diario por conversación: con 30 respuestas de la IA en 24 h pasa a una persona.
+    await prismaAdmin.whatsappMessage.createMany({
+      data: Array.from({ length: 30 }, () => ({
+        tenantId,
+        conversationId: conv.id,
+        direction: 'out',
+        sender: 'assistant',
+        body: 'respuesta',
+        status: 'sent',
+        aiKeySource: 'platform',
+      })),
+    });
+    const before = await prismaAdmin.whatsappMessage.count({ where: { conversationId: conv.id } });
+    await inbound('34677889900', '¿Seguís ahí?', Math.floor(Date.now() / 1000) + 4);
+    await waitFor(async () => {
+      const c = await prismaAdmin.whatsappConversation.findUnique({ where: { id: conv.id } });
+      return c && !c.assistantEnabled ? c : null;
+    });
+    // Solo el mensaje del cliente: el asistente no ha contestado.
+    expect(await prismaAdmin.whatsappMessage.count({ where: { conversationId: conv.id } })).toBe(
+      before + 1,
+    );
 
     // Plantilla fuera de las 24 h desde la bandeja.
     await prismaAdmin.whatsappConversation.update({

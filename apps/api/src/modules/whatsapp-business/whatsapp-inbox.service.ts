@@ -133,6 +133,18 @@ export class WhatsappInboxService {
       }
     }
 
+    // Si el contacto ya es inquilino (p. ej. un lead que se convirtió después),
+    // la conversación pasa a su ficha.
+    if (!conversation.customerId) {
+      const customerId = await this.findCustomerByPhone(tenantId, waId);
+      if (customerId) {
+        conversation = await this.admin.whatsappConversation.update({
+          where: { id: conversation.id },
+          data: { customerId },
+        });
+      }
+    }
+
     let createdId: string;
     try {
       const created = await this.admin.whatsappMessage.create({
@@ -449,9 +461,11 @@ export class WhatsappInboxService {
           where: { tenantId, direction: 'in', createdAt: { gte: from } },
         }),
         this.admin.whatsappMessage.count({
+          // Solo las respuestas de la IA (no los recordatorios automáticos).
           where: {
             tenantId,
             sender: 'assistant',
+            aiKeySource: { not: null },
             status: { not: 'failed' },
             createdAt: { gte: from },
           },
