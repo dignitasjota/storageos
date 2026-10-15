@@ -14,6 +14,7 @@ import { PaymentRetryCron } from './payment-retry.cron';
 import { PaymentRetryService } from './payment-retry.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { RedsysCoreModule } from './redsys/redsys-core.module';
 import { ReturnedReceiptsService } from './returned-receipts.service';
 import { StripeConnectWebhookController } from './stripe-connect/stripe-connect-webhook.controller';
 import { StripeConnectModule } from './stripe-connect/stripe-connect.module';
@@ -31,6 +32,7 @@ import { StripeGateway } from './stripe.gateway';
     forwardRef(() => BillingSaasModule),
     GoCardlessCoreModule,
     StripeConnectModule,
+    RedsysCoreModule,
   ],
   controllers: [
     PaymentMethodsController,

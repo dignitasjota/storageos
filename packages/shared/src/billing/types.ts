@@ -328,6 +328,8 @@ export interface RedsysSettingsDto {
   bizumEnabled: boolean;
   /** true si hay clave secreta guardada (nunca se devuelve). */
   hasSecretKey: boolean;
+  /** Pago por referencia activado (tarjeta guardada + cobro automático). */
+  cardOnFileEnabled: boolean;
 }
 
 /** Config de GoCardless por tenant (nunca devuelve el token ni el secret). */

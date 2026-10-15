@@ -24,6 +24,7 @@ import { PrismaService } from '../database/prisma.service';
 import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway.interface';
 import { PaymentMethodsService } from './payment-methods.service';
+import { RedsysChargeService } from './redsys/redsys-charge.service';
 import { applicationFeeCents } from './stripe-connect/stripe-connect.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -46,6 +47,7 @@ export class PaymentsService {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly goCardlessCharge: GoCardlessChargeService,
     private readonly events: EventEmitter2,
+    private readonly redsysCharge: RedsysChargeService,
   ) {}
 
   async list(
@@ -215,7 +217,7 @@ export class PaymentsService {
       const liveGatewayCharge = await tx.payment.count({
         where: {
           invoiceId: invoice.id,
-          gateway: { in: ['stripe', 'gocardless'] },
+          gateway: { in: ['stripe', 'gocardless', 'redsys'] },
           status: { in: ['pending', 'processing', 'succeeded'] },
         },
       });
@@ -310,6 +312,7 @@ export class PaymentsService {
       return {
         paymentId: created.id,
         stripeAccount: pm.gateway === 'stripe' ? pmStripeAccount : null,
+        networkTxnId: pm.networkTxnId,
         bundledPayments: bundledPaymentIds,
         gateway: pm.gateway,
         type: pm.type,
@@ -325,40 +328,50 @@ export class PaymentsService {
     let chargeResult: Awaited<ReturnType<typeof this.gateway.charge>>;
     try {
       chargeResult =
-        reserved.gateway === 'gocardless'
-          ? await this.goCardlessCharge.charge({
+        reserved.gateway === 'redsys'
+          ? // Tarjeta guardada en Redsys (pago por referencia): cobro sin el
+            // cliente presente; se resuelve en el momento.
+            await this.redsysCharge.charge({
               tenantId: args.tenantId,
-              mandateId: reserved.tokenPlain,
+              identifier: reserved.tokenPlain,
+              cofTxnId: reserved.networkTxnId,
               amountCents: toCents(chargeAmount),
-              currency: invoice.currency,
               description: `Factura ${invoice.invoiceNumber}`,
-              metadata: {
-                invoiceId: invoice.id,
-                tenantId: args.tenantId,
-                paymentId: reserved.paymentId,
-              },
             })
-          : await this.gateway.charge({
-              gatewayCustomerId: reserved.gatewayCustomerId ?? '',
-              paymentMethodToken: reserved.tokenPlain,
-              paymentMethodType: reserved.type,
-              amountCents: toCents(chargeAmount),
-              currency: invoice.currency,
-              description: `Factura ${invoice.invoiceNumber}`,
-              metadata: {
-                invoiceId: invoice.id,
+          : reserved.gateway === 'gocardless'
+            ? await this.goCardlessCharge.charge({
                 tenantId: args.tenantId,
-                paymentId: reserved.paymentId,
-              },
-              offSession: true,
-              idempotencyKey: `charge-${reserved.paymentId}`,
-              ...(reserved.stripeAccount
-                ? {
-                    stripeAccount: reserved.stripeAccount,
-                    ...(feeCents > 0 ? { applicationFeeCents: feeCents } : {}),
-                  }
-                : {}),
-            });
+                mandateId: reserved.tokenPlain,
+                amountCents: toCents(chargeAmount),
+                currency: invoice.currency,
+                description: `Factura ${invoice.invoiceNumber}`,
+                metadata: {
+                  invoiceId: invoice.id,
+                  tenantId: args.tenantId,
+                  paymentId: reserved.paymentId,
+                },
+              })
+            : await this.gateway.charge({
+                gatewayCustomerId: reserved.gatewayCustomerId ?? '',
+                paymentMethodToken: reserved.tokenPlain,
+                paymentMethodType: reserved.type,
+                amountCents: toCents(chargeAmount),
+                currency: invoice.currency,
+                description: `Factura ${invoice.invoiceNumber}`,
+                metadata: {
+                  invoiceId: invoice.id,
+                  tenantId: args.tenantId,
+                  paymentId: reserved.paymentId,
+                },
+                offSession: true,
+                idempotencyKey: `charge-${reserved.paymentId}`,
+                ...(reserved.stripeAccount
+                  ? {
+                      stripeAccount: reserved.stripeAccount,
+                      ...(feeCents > 0 ? { applicationFeeCents: feeCents } : {}),
+                    }
+                  : {}),
+              });
     } catch (err) {
       await this.prisma.withTenant(
         (tx) =>

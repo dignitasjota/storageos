@@ -226,7 +226,11 @@ export class PaymentMethodsService {
     gatewayCustomerId?: string | null;
     last4?: string | null;
     brand?: string | null;
+    expMonth?: number | null;
+    expYear?: number | null;
     mandateReference?: string | null;
+    /** Redsys: id de la operación inicial de la tarjeta guardada. */
+    networkTxnId?: string | null;
     isDefault: boolean;
     meta: RequestMeta;
   }): Promise<PaymentMethodDto> {
@@ -248,8 +252,11 @@ export class PaymentMethodsService {
           ...(args.gatewayCustomerId ? { gatewayCustomerId: args.gatewayCustomerId } : {}),
           last4: args.last4 ?? null,
           brand: args.brand ?? null,
+          expMonth: args.expMonth ?? null,
+          expYear: args.expYear ?? null,
           isDefault: args.isDefault,
           mandateReference: args.mandateReference ?? null,
+          networkTxnId: args.networkTxnId ?? null,
         },
       });
     }, args.tenantId);

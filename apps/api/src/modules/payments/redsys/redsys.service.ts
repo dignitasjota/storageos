@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-
 import {
   BadRequestException,
   ConflictException,
@@ -15,11 +13,14 @@ import { InvoicesService } from '../../billing/invoices.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { PaymentMethodsService } from '../payment-methods.service';
 
+import { savedCardFromNotification } from './redsys-charge.service';
 import { RedsysSettingsService } from './redsys-settings.service';
 import {
   decodeMerchantParameters,
   encodeMerchantParameters,
+  generateRedsysOrder,
   REDSYS_ENDPOINTS,
   REDSYS_SIGNATURE_VERSION,
   signRequest,
@@ -28,13 +29,6 @@ import {
 
 import type { Env } from '../../../config/env.schema';
 import type { RedsysPayMethod, RedsysRedirectDto } from '@storageos/shared';
-
-/** Genera un `Ds_Merchant_Order` de 12 chars (primeros 4 numéricos). */
-function generateOrder(): string {
-  const numeric = String(Math.floor(1000 + Math.random() * 9000));
-  const rest = randomBytes(8).toString('hex').slice(0, 8);
-  return `${numeric}${rest}`;
-}
 
 @Injectable()
 export class RedsysService {
@@ -47,6 +41,7 @@ export class RedsysService {
     private readonly invoices: InvoicesService,
     private readonly config: ConfigService<Env, true>,
     private readonly notifications: NotificationsService,
+    private readonly paymentMethods: PaymentMethodsService,
   ) {}
 
   /**
@@ -57,7 +52,7 @@ export class RedsysService {
   async createRedirect(
     tenantId: string,
     invoiceId: string,
-    opts?: { expectedCustomerId?: string; payMethod?: RedsysPayMethod },
+    opts?: { expectedCustomerId?: string; payMethod?: RedsysPayMethod; saveCard?: boolean },
   ): Promise<RedsysRedirectDto> {
     const expectedCustomerId = opts?.expectedCustomerId;
     const payMethod = opts?.payMethod;
@@ -123,6 +118,11 @@ export class RedsysService {
       });
     }
 
+    // Pago por referencia: guardar la tarjeta (solo con tarjeta, si el banco lo
+    // tiene activo y la factura es de un inquilino).
+    const saveCard =
+      !!opts?.saveCard && cfg.cardOnFileEnabled && payMethod !== 'bizum' && !!invoice.customerId;
+
     // Una orden Redsys `pending` NO crea fila en `payments` hasta que el
     // webhook la confirma (a diferencia de Stripe/GoCardless, que reservan un
     // `payment` `processing` antes de cobrar) → sin este candado, el check de
@@ -141,9 +141,19 @@ export class RedsysService {
         where: { tenantId, invoiceId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
       });
-      if (existing) return existing;
+      if (existing) {
+        if (existing.saveCard === saveCard) return existing;
+        return tx.redsysOrder.update({ where: { order: existing.order }, data: { saveCard } });
+      }
       return tx.redsysOrder.create({
-        data: { order: generateOrder(), tenantId, invoiceId, amountCents, status: 'pending' },
+        data: {
+          order: generateRedsysOrder(),
+          tenantId,
+          invoiceId,
+          amountCents,
+          status: 'pending',
+          saveCard,
+        },
       });
     }, tenantId);
     const order = orderRow.order;
@@ -168,6 +178,16 @@ export class RedsysService {
       // 'z' = Bizum, 'C' = tarjeta. Sin el campo, el TPV ofrece los métodos que
       // tenga configurados el comercio (retrocompatible con el flujo anterior).
       ...(payMethod ? { DS_MERCHANT_PAYMETHODS: payMethod === 'bizum' ? 'z' : 'C' } : {}),
+      // Pago por referencia: Redsys guarda la tarjeta (credencial para cobros
+      // recurrentes iniciados por el comercio) y la devuelve en la notificación.
+      ...(orderRow.saveCard
+        ? {
+            DS_MERCHANT_PAYMETHODS: 'C',
+            DS_MERCHANT_IDENTIFIER: 'REQUIRED',
+            DS_MERCHANT_COF_INI: 'S',
+            DS_MERCHANT_COF_TYPE: 'R',
+          }
+        : {}),
     };
     const merchantParameters = encodeMerchantParameters(merchantParams);
     const signature = signRequest(merchantParameters, order, cfg.secretKey);
@@ -187,9 +207,12 @@ export class RedsysService {
   }
 
   /** Estado de Redsys para gatear los botones del portal (tarjeta y Bizum). */
-  async availability(
-    tenantId: string,
-  ): Promise<{ enabled: boolean; bizumEnabled: boolean; cardEnabled: boolean }> {
+  async availability(tenantId: string): Promise<{
+    enabled: boolean;
+    bizumEnabled: boolean;
+    cardEnabled: boolean;
+    cardOnFileEnabled: boolean;
+  }> {
     const [cfg, tenant, stripe] = await Promise.all([
       this.settings.getResolved(tenantId),
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { cardProvider: true } }),
@@ -205,6 +228,8 @@ export class RedsysService {
       enabled,
       bizumEnabled: !!(enabled && cfg?.bizumEnabled),
       cardEnabled: enabled && !cardViaStripe,
+      // Se puede guardar la tarjeta para cobrar solas las próximas cuotas.
+      cardOnFileEnabled: enabled && !cardViaStripe && !!cfg?.cardOnFileEnabled,
     };
   }
 
@@ -271,6 +296,10 @@ export class RedsysService {
       return;
     }
 
+    if (approved && orderRow.saveCard) {
+      await this.saveCardFromNotification(orderRow, params);
+    }
+
     if (approved) {
       try {
         // El cobro se reparte: primero la factura, después su justificante de
@@ -315,6 +344,58 @@ export class RedsysService {
             );
           });
       }
+    }
+  }
+
+  /**
+   * Pago por referencia: guarda la tarjeta que devolvió Redsys como método de
+   * pago por defecto del inquilino (las cuotas siguientes se cobran solas).
+   * Nunca rompe la confirmación del pago.
+   */
+  private async saveCardFromNotification(
+    orderRow: { order: string; tenantId: string; invoiceId: string },
+    params: Record<string, string>,
+  ): Promise<void> {
+    const card = savedCardFromNotification(params);
+    if (!card) {
+      this.logger.warn(`[redsys] order ${orderRow.order} sin referencia de tarjeta`);
+      return;
+    }
+    try {
+      const invoice = await this.admin.invoice.findUnique({
+        where: { id: orderRow.invoiceId },
+        select: { customerId: true },
+      });
+      if (!invoice?.customerId) return;
+      // La tarjeta nueva sustituye a la que hubiera guardada en Redsys.
+      await this.admin.paymentMethod.updateMany({
+        where: {
+          tenantId: orderRow.tenantId,
+          customerId: invoice.customerId,
+          gateway: 'redsys',
+          deletedAt: null,
+        },
+        data: { deletedAt: new Date(), isDefault: false },
+      });
+      await this.paymentMethods.registerResolved({
+        tenantId: orderRow.tenantId,
+        userId: null,
+        customerId: invoice.customerId,
+        gateway: 'redsys',
+        type: 'card',
+        token: card.identifier,
+        last4: card.last4,
+        brand: card.brand,
+        expMonth: card.expMonth,
+        expYear: card.expYear,
+        networkTxnId: card.cofTxnId,
+        isDefault: true,
+        meta: {},
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[redsys] no se pudo guardar la tarjeta de la order ${orderRow.order}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

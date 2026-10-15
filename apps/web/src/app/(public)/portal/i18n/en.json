@@ -157,6 +157,7 @@
         "paymentInProgress": "Payment in progress",
         "pay": "Pay",
         "payWithCard": "Pay with card",
+        "saveCard": "Save my card so future payments are charged automatically",
         "payWithBizum": "Pay with Bizum",
         "redsysUnavailable": "Redsys isn't available",
         "bizumUnavailable": "Bizum isn't available",

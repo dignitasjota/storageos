@@ -5,6 +5,7 @@ import type { PrismaService } from '../../database/prisma.service';
 import type { GoCardlessChargeService } from '../gocardless/gocardless-charge.service';
 import type { PaymentGateway } from '../payment-gateway.interface';
 import type { PaymentMethodsService } from '../payment-methods.service';
+import type { RedsysChargeService } from '../redsys/redsys-charge.service';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
@@ -94,6 +95,7 @@ function buildService(
     paymentMethods?: { decryptToken: jest.Mock; cardContext?: jest.Mock };
     goCardlessCharge?: { charge: jest.Mock };
     events?: { emit: jest.Mock };
+    redsysCharge?: { charge: jest.Mock };
   } = {},
 ) {
   const prisma = {
@@ -107,6 +109,7 @@ function buildService(
     (deps.gateway ?? null) as unknown as PaymentGateway,
     (deps.goCardlessCharge ?? { charge: jest.fn() }) as unknown as GoCardlessChargeService,
     (deps.events ?? { emit: jest.fn() }) as unknown as EventEmitter2,
+    (deps.redsysCharge ?? { charge: jest.fn() }) as unknown as RedsysChargeService,
   );
 }
 

@@ -1832,6 +1832,8 @@ model PaymentMethod {
   gatewayCustomerId     String?                @map("gateway_customer_id")
   /// Cuenta conectada de Stripe donde vive el método (null = cuenta de la plataforma).
   stripeAccountId       String?                @map("stripe_account_id")
+  /// Redsys: id de la operación inicial (Ds_Merchant_Cof_Txnid) de la tarjeta guardada.
+  networkTxnId          String?                @map("network_txn_id")
   last4                 String?                @db.Char(4)
   brand                 String?
   expMonth              Int?                   @map("exp_month")
@@ -3869,6 +3871,8 @@ model RedsysSettings {
   enabled            Boolean  @default(false)
   /// El comercio acepta Bizum (su banco debe tenerlo activo en el TPV).
   bizumEnabled       Boolean  @default(false) @map("bizum_enabled")
+  /// Pago por referencia (tarjeta guardada + cobro automático), activado por el banco.
+  cardOnFileEnabled  Boolean  @default(false) @map("card_on_file_enabled")
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -3887,6 +3891,8 @@ model RedsysOrder {
   /// "pending" | "paid" | "failed"
   status      String    @default("pending")
   dsResponse  String?   @map("ds_response")
+  /// El inquilino pidió guardar la tarjeta en este pago (pago por referencia).
+  saveCard    Boolean   @default(false) @map("save_card")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
 

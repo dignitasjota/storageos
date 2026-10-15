@@ -342,6 +342,9 @@ function PortalConsumeContent() {
   const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
   const [redsysEnabled, setRedsysEnabled] = useState(false);
   const [bizumEnabled, setBizumEnabled] = useState(false);
+  // Pago por referencia de Redsys: guardar la tarjeta para cobrar solas las cuotas.
+  const [cardOnFileEnabled, setCardOnFileEnabled] = useState(false);
+  const [saveCard, setSaveCard] = useState(true);
   const [gcPending, setGcPending] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
 
@@ -455,11 +458,13 @@ function PortalConsumeContent() {
             enabled: boolean;
             bizumEnabled: boolean;
             cardEnabled?: boolean;
+            cardOnFileEnabled?: boolean;
           }>(s, '/portal/me/redsys/enabled');
           if (!cancelled) {
             // Con la tarjeta por Stripe, Redsys solo ofrece Bizum.
             setRedsysEnabled(r.cardEnabled ?? r.enabled);
             setBizumEnabled(r.bizumEnabled);
+            setCardOnFileEnabled(!!r.cardOnFileEnabled);
           }
         } catch {
           /* redsys opcional */
@@ -1163,6 +1168,19 @@ function PortalConsumeContent() {
                 <CardTitle>{tInvoices('title')}</CardTitle>
               </CardHeader>
               <CardContent>
+                {redsysEnabled &&
+                  cardOnFileEnabled &&
+                  invoices.some((i) => i.amountPending > 0) && (
+                    <label className="mb-3 flex items-start gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={saveCard}
+                        onChange={(e) => setSaveCard(e.target.checked)}
+                      />
+                      {tInvoices('saveCard')}
+                    </label>
+                  )}
                 {invoices.length === 0 && (
                   <p className="text-sm text-muted-foreground">{tInvoices('empty')}</p>
                 )}
@@ -1254,6 +1272,7 @@ function PortalConsumeContent() {
                                         session.accessToken,
                                         i.id,
                                         bizumEnabled ? 'card' : undefined,
+                                        cardOnFileEnabled && saveCard,
                                       ),
                                     );
                                   } catch (err) {

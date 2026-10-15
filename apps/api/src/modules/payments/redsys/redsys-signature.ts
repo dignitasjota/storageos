@@ -1,4 +1,4 @@
-import { createCipheriv, createHmac, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
  * Firma Redsys `HMAC_SHA256_V1`:
@@ -16,7 +16,20 @@ export const REDSYS_ENDPOINTS = {
   live: 'https://sis.redsys.es/sis/realizarPago',
 } as const;
 
+/** API REST de Redsys (operaciones sin redirección: cobro con tarjeta guardada). */
+export const REDSYS_REST_ENDPOINTS = {
+  test: 'https://sis-t.redsys.es:25443/sis/rest/trataPeticionREST',
+  live: 'https://sis.redsys.es/sis/rest/trataPeticionREST',
+} as const;
+
 export const REDSYS_SIGNATURE_VERSION = 'HMAC_SHA256_V1';
+
+/** Número de pedido de Redsys: 4 cifras + 8 alfanuméricos (único por pago). */
+export function generateRedsysOrder(): string {
+  const numeric = String(Math.floor(1000 + Math.random() * 9000));
+  const rest = randomBytes(8).toString('hex').slice(0, 8);
+  return `${numeric}${rest}`;
+}
 
 function deriveKey(order: string, secretKeyBase64: string): Buffer {
   const key = Buffer.from(secretKeyBase64, 'base64');

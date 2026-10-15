@@ -942,6 +942,18 @@ Cada tenant conecta su cuenta de Stripe (tipo Express) desde Configuración → 
 
 ---
 
+## 12E. Redsys con pago por referencia (cobro automático con el TPV del tenant)
+
+Para que la tarjeta guardada en Redsys se cobre sola cada mes:
+
+1. El tenant pide a **su banco** que active en su TPV virtual el **pago por referencia** (también lo llaman «pago con referencia», «tokenización» o COF) y las operaciones **sin el cliente presente (MIT)** por la API REST. Sin eso, Redsys rechaza los cobros automáticos.
+2. En Configuración → Cobros → Redsys marca «Pago por referencia» y, en la misma pantalla, el **cobro automático** al emitir (y si quiere, los reintentos).
+3. El inquilino, al pagar con tarjeta desde el portal o al firmar la reserva, deja marcada «Guardar mi tarjeta…». A partir de ahí las cuotas se cobran solas; si el banco la rechaza o caduca, el cobro queda fallido, el inquilino recibe el aviso y entra el proceso de impago.
+
+No hay variables nuevas en producción (el endpoint REST de Redsys sale del entorno test/live del tenant).
+
+---
+
 ## 13. Observabilidad (mínima)
 
 - **Sentry**: definir `SENTRY_DSN` en `.env.prod` (misma variable para `api` y `worker`; ambos la leen en su `instrument.ts`). Sin DSN, Sentry es un no-op. El API reporta los errores 5xx desde `HttpExceptionFilter`; el worker captura unhandled rejections/exceptions. Opcional: `SENTRY_TRACES_SAMPLE_RATE` (default `0`, solo errores).

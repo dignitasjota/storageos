@@ -29,6 +29,7 @@ export function RedsysCard() {
   const [secretKey, setSecretKey] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [bizumEnabled, setBizumEnabled] = useState(false);
+  const [cardOnFileEnabled, setCardOnFileEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
   const data = settings.data;
@@ -38,6 +39,7 @@ export function RedsysCard() {
     setEnvironment(data.environment);
     setEnabled(data.enabled);
     setBizumEnabled(data.bizumEnabled);
+    setCardOnFileEnabled(data.cardOnFileEnabled);
     setInitialized(true);
   }
 
@@ -49,6 +51,7 @@ export function RedsysCard() {
         environment,
         enabled,
         bizumEnabled,
+        cardOnFileEnabled,
         ...(secretKey ? { secretKey } : {}),
       });
       setSecretKey('');
@@ -118,6 +121,23 @@ export function RedsysCard() {
             (tu banco debe tenerlo activo en el TPV)
           </span>
         </label>
+
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={cardOnFileEnabled}
+              onCheckedChange={(v) => setCardOnFileEnabled(v === true)}
+              disabled={!enabled}
+            />
+            Pago por referencia (tarjeta guardada y cobro automático)
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            El inquilino puede guardar su tarjeta al pagar y las siguientes cuotas se cobran solas.
+            Actívalo solo si tu banco ha habilitado el «pago por referencia» (COF) en tu TPV; si no,
+            los cobros automáticos fallarán. Para que se cobre al emitir cada factura, activa
+            también el cobro automático.
+          </p>
+        </div>
 
         <Button onClick={save} disabled={update.isPending}>
           {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}

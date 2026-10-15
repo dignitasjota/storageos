@@ -304,7 +304,13 @@ function BookingPayment({
   const [setupIntent, setSetupIntent] = useState<SetupIntentResponseDto | null>(null);
   const [busy, setBusy] = useState(false);
   // Qué ofrece el TPV del tenant (Redsys + Bizum). Sin Redsys no se muestra.
-  const [redsys, setRedsys] = useState<{ enabled: boolean; bizumEnabled: boolean } | null>(null);
+  const [redsys, setRedsys] = useState<{
+    enabled: boolean;
+    bizumEnabled: boolean;
+    cardOnFileEnabled: boolean;
+  } | null>(null);
+  // Pago por referencia: guardar la tarjeta para cobrar solas las próximas cuotas.
+  const [saveCard, setSaveCard] = useState(true);
 
   // Tarjeta por Stripe: desactivada mientras no haya Stripe Connect.
   const [cardPayments, setCardPayments] = useState(false);
@@ -321,22 +327,37 @@ function BookingPayment({
   }, [portalToken]);
 
   useEffect(() => {
-    apiFetch<{ enabled: boolean; bizumEnabled: boolean; cardEnabled?: boolean }>(
-      '/portal/me/redsys/enabled',
-      {
-        requiresAuth: false,
-        headers: { Authorization: `Bearer ${portalToken}` },
-      },
-    )
+    apiFetch<{
+      enabled: boolean;
+      bizumEnabled: boolean;
+      cardEnabled?: boolean;
+      cardOnFileEnabled?: boolean;
+    }>('/portal/me/redsys/enabled', {
+      requiresAuth: false,
+      headers: { Authorization: `Bearer ${portalToken}` },
+    })
       // Con la tarjeta por Stripe, Redsys solo ofrece Bizum.
-      .then((r) => setRedsys({ enabled: r.cardEnabled ?? r.enabled, bizumEnabled: r.bizumEnabled }))
+      .then((r) =>
+        setRedsys({
+          enabled: r.cardEnabled ?? r.enabled,
+          bizumEnabled: r.bizumEnabled,
+          cardOnFileEnabled: !!r.cardOnFileEnabled,
+        }),
+      )
       .catch(() => setRedsys(null));
   }, [portalToken]);
 
   async function payWithRedsys(payMethod?: RedsysPayMethod) {
     trackEvent('payment_redirect', { method: payMethod === 'bizum' ? 'bizum' : 'redsys_card' });
     try {
-      submitRedsysForm(await fetchPortalRedsysRedirect(portalToken, invoice.id, payMethod));
+      submitRedsysForm(
+        await fetchPortalRedsysRedirect(
+          portalToken,
+          invoice.id,
+          payMethod,
+          payMethod !== 'bizum' && !!redsys?.cardOnFileEnabled && saveCard,
+        ),
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('redsysUnavailable'));
     }
@@ -434,6 +455,17 @@ function BookingPayment({
             >
               {t('payWithRedsys')}
             </Button>
+          )}
+          {redsys?.enabled && redsys.cardOnFileEnabled && (
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={saveCard}
+                onChange={(e) => setSaveCard(e.target.checked)}
+              />
+              {t('saveCard')}
+            </label>
           )}
         </div>
       )}
