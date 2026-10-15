@@ -451,12 +451,14 @@ function PortalConsumeContent() {
         }
         // ¿Ofrece el negocio pago con tarjeta (Redsys)? (best-effort).
         try {
-          const r = await portalFetch<{ enabled: boolean; bizumEnabled: boolean }>(
-            s,
-            '/portal/me/redsys/enabled',
-          );
+          const r = await portalFetch<{
+            enabled: boolean;
+            bizumEnabled: boolean;
+            cardEnabled?: boolean;
+          }>(s, '/portal/me/redsys/enabled');
           if (!cancelled) {
-            setRedsysEnabled(r.enabled);
+            // Con la tarjeta por Stripe, Redsys solo ofrece Bizum.
+            setRedsysEnabled(r.cardEnabled ?? r.enabled);
             setBizumEnabled(r.bizumEnabled);
           }
         } catch {
@@ -1898,6 +1900,7 @@ function PortalConsumeContent() {
             <StripeSetupForm
               clientSecret={setupIntent.clientSecret}
               publishableKey={setupIntent.publishableKey}
+              stripeAccount={setupIntent.stripeAccount}
               onConfirmed={registerPaymentMethod}
             />
           )}

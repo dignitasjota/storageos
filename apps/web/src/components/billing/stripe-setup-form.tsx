@@ -14,11 +14,13 @@ import { Button } from '@/components/ui/button';
 // suya en el futuro; hoy es una global del deployment).
 const stripeClients = new Map<string, Promise<Stripe | null>>();
 
-function getStripe(publishableKey: string): Promise<Stripe | null> {
-  let client = stripeClients.get(publishableKey);
+function getStripe(publishableKey: string, stripeAccount?: string | null): Promise<Stripe | null> {
+  const key = `${publishableKey}|${stripeAccount ?? ''}`;
+  let client = stripeClients.get(key);
   if (!client) {
-    client = loadStripe(publishableKey);
-    stripeClients.set(publishableKey, client);
+    // Stripe Connect: la tarjeta se guarda en la cuenta del tenant.
+    client = loadStripe(publishableKey, stripeAccount ? { stripeAccount } : undefined);
+    stripeClients.set(key, client);
   }
   return client;
 }
@@ -26,6 +28,8 @@ function getStripe(publishableKey: string): Promise<Stripe | null> {
 interface StripeSetupFormProps {
   clientSecret: string;
   publishableKey: string;
+  /** Stripe Connect: cuenta conectada del tenant (null = cuenta de la plataforma). */
+  stripeAccount?: string | null;
   submitLabel?: string;
   /**
    * Recibe el `payment_method` id (gatewayToken) tras confirmar el
@@ -46,12 +50,16 @@ interface StripeSetupFormProps {
 export function StripeSetupForm({
   clientSecret,
   publishableKey,
+  stripeAccount,
   submitLabel = 'Guardar método de pago',
   onConfirmed,
   children,
 }: StripeSetupFormProps) {
   return (
-    <Elements stripe={getStripe(publishableKey)} options={{ clientSecret, locale: 'es' }}>
+    <Elements
+      stripe={getStripe(publishableKey, stripeAccount)}
+      options={{ clientSecret, locale: 'es' }}
+    >
       <InnerSetupForm submitLabel={submitLabel} onConfirmed={onConfirmed}>
         {children}
       </InnerSetupForm>

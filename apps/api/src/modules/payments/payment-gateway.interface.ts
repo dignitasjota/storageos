@@ -16,6 +16,8 @@ export interface CreateCustomerParams {
   name: string;
   /** Metadatos a embedded en el objeto del gateway. */
   metadata: Record<string, string>;
+  /** Stripe Connect: cuenta conectada del tenant donde se crea el cliente. */
+  stripeAccount?: string;
 }
 
 export interface CreateCustomerResult {
@@ -24,6 +26,10 @@ export interface CreateCustomerResult {
 
 export interface CreateSetupIntentParams {
   gatewayCustomerId: string;
+  /** Stripe Connect: cuenta conectada del tenant. */
+  stripeAccount?: string;
+  /** Tipos admitidos (por defecto tarjeta e IBAN). */
+  paymentMethodTypes?: ChargeablePaymentMethodType[];
 }
 
 export interface CreateSetupIntentResult {
@@ -50,6 +56,12 @@ export interface ChargeParams {
   metadata: Record<string, string>;
   /** Si true, el gateway intenta confirmar inmediatamente sin SCA. */
   offSession: boolean;
+  /** Stripe Connect: el cobro se hace en la cuenta conectada del tenant. */
+  stripeAccount?: string;
+  /** Stripe Connect: comisión de la plataforma (céntimos). */
+  applicationFeeCents?: number;
+  /** Evita un segundo cargo si la petición se repite. */
+  idempotencyKey?: string;
 }
 
 export interface ChargeResult {
@@ -67,6 +79,8 @@ export interface RefundParams {
    * reembolso en vez de devolver el dinero dos veces (doble clic, reintento).
    */
   idempotencyKey?: string;
+  /** Stripe Connect: cuenta conectada donde se hizo el cobro (devuelve también la comisión). */
+  stripeAccount?: string;
 }
 
 export interface RefundResult {
@@ -97,7 +111,10 @@ export abstract class PaymentGateway {
   abstract charge(args: ChargeParams): Promise<ChargeResult>;
   abstract refund(args: RefundParams): Promise<RefundResult>;
   /** Lee metadatos del payment_method tras un setup intent confirmado. */
-  abstract getPaymentMethodDetails(paymentMethodToken: string): Promise<PaymentMethodDetails>;
+  abstract getPaymentMethodDetails(
+    paymentMethodToken: string,
+    stripeAccount?: string,
+  ): Promise<PaymentMethodDetails>;
   /** Verifica la firma de un webhook + parsea el evento. */
   abstract verifyWebhook(rawBody: Buffer, signatureHeader: string): WebhookEvent;
 }

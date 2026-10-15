@@ -1,7 +1,7 @@
 import request from 'supertest';
 
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
-import { PaymentMethodsService } from '../src/modules/payments/payment-methods.service';
+import { StripeConnectService } from '../src/modules/payments/stripe-connect/stripe-connect.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
@@ -26,9 +26,10 @@ describe('Tarjeta de los inquilinos desactivada (e2e)', () => {
     await cleanupTestTenants();
     app = await createTestApp();
     admin = app.get(PrismaAdminService);
+    // Sin cuenta de Stripe conectada y sin TENANT_CARD_PAYMENTS_ENABLED.
     spy = jest
-      .spyOn(app.get(PaymentMethodsService), 'cardPaymentsEnabled', 'get')
-      .mockReturnValue(false);
+      .spyOn(app.get(StripeConnectService, { strict: false }), 'cardContext')
+      .mockResolvedValue(null);
   });
 
   afterAll(async () => {

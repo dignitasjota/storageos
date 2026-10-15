@@ -240,7 +240,7 @@ describe('Redsys (e2e)', () => {
       .get('/portal/me/redsys/enabled')
       .set(portal)
       .expect(200);
-    expect(before.body).toEqual({ enabled: true, bizumEnabled: false });
+    expect(before.body).toEqual({ enabled: true, bizumEnabled: false, cardEnabled: true });
     const denied = await request(app.getHttpServer())
       .post(`/portal/me/invoices/${invoiceId}/redsys-redirect`)
       .set(portal)

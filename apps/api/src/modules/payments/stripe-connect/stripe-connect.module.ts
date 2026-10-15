@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../../auth/auth.module';
-import { RedsysModule } from '../redsys/redsys.module';
 
 import { PlatformPaymentSettingsService } from './platform-payment-settings.service';
 import { StripeConnectClient } from './stripe-connect.client';
@@ -14,7 +13,7 @@ import { StripeConnectService } from './stripe-connect.service';
  * Independiente de la suscripción a la plataforma (cuenta propia de TrasterOS).
  */
 @Module({
-  imports: [AuthModule, RedsysModule],
+  imports: [AuthModule],
   controllers: [StripeConnectController],
   providers: [StripeConnectClient, StripeConnectService, PlatformPaymentSettingsService],
   exports: [StripeConnectClient, StripeConnectService, PlatformPaymentSettingsService],

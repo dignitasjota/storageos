@@ -128,8 +128,8 @@ export class PortalService {
   ) {}
 
   /** Formas de pago que ofrece el portal (la tarjeta por Stripe puede estar desactivada). */
-  get cardPaymentsEnabled(): boolean {
-    return this.paymentMethods.cardPaymentsEnabled;
+  cardPaymentsAvailable(tenantId: string): Promise<boolean> {
+    return this.paymentMethods.cardPaymentsAvailable(tenantId);
   }
 
   /**

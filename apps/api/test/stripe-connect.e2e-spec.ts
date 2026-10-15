@@ -1,6 +1,9 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { RedsysService } from '../src/modules/payments/redsys/redsys.service';
+import { StripeConnectService } from '../src/modules/payments/stripe-connect/stripe-connect.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { cleanupSuperAdmins, seedSuperAdmin } from './helpers/super-admin';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
@@ -102,6 +105,14 @@ describe('Stripe Connect del tenant (e2e)', () => {
       .expect(200);
     const both = await http().get('/settings/stripe-connect').set(auth).expect(200);
     expect(both.body).toMatchObject({ redsysEnabled: true, effectiveCardProvider: 'stripe' });
+    // Redsys queda solo para Bizum y los cobros van a la cuenta del tenant.
+    const redsys = await app.get(RedsysService, { strict: false }).availability(owner.tenantId);
+    expect(redsys).toMatchObject({ enabled: true, cardEnabled: false });
+    const ctx = await app.get(StripeConnectService, { strict: false }).cardContext(owner.tenantId);
+    expect(ctx).toMatchObject({ mode: 'connect', applicationFeePct: 2 });
+    expect((ctx as { accountId: string }).accountId).toBe(refreshed.body.accountId);
+    const opts = await http().get('/payment-methods/options').set(auth).expect(200);
+    expect(opts.body.cardPayments).toBe(true);
 
     // Desconectar vuelve a Redsys.
     const off = await http().delete('/settings/stripe-connect').set(auth).expect(200);

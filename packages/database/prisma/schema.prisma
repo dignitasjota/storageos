@@ -1784,6 +1784,10 @@ model Payment {
   gateway          PaymentGatewayProvider @default(manual)
   gatewayPaymentId String?                @map("gateway_payment_id")
   gatewayResponse  Json?                  @map("gateway_response")
+  /// Cuenta conectada de Stripe del cobro (null = cuenta de la plataforma).
+  stripeAccountId  String?                @map("stripe_account_id")
+  /// Comisión de la plataforma cobrada en este pago.
+  applicationFeeAmount Decimal?           @map("application_fee_amount") @db.Decimal(12, 2)
   paidAt           DateTime?              @map("paid_at") @db.Timestamptz(6)
   refundedAt       DateTime?              @map("refunded_at") @db.Timestamptz(6)
   /// Cobro ya cobrado que luego se devolvió (banco, contracargo, fallo tardío).
@@ -1826,6 +1830,8 @@ model PaymentMethod {
   gatewayTokenEncrypted String                 @map("gateway_token_encrypted")
   /// Id del Customer en el gateway (Stripe customer id, etc.). No es secreto.
   gatewayCustomerId     String?                @map("gateway_customer_id")
+  /// Cuenta conectada de Stripe donde vive el método (null = cuenta de la plataforma).
+  stripeAccountId       String?                @map("stripe_account_id")
   last4                 String?                @db.Char(4)
   brand                 String?
   expMonth              Int?                   @map("exp_month")

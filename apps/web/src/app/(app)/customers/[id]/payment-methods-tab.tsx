@@ -302,6 +302,7 @@ function AddPaymentMethodForm({
     <StripeSetupForm
       clientSecret={setupIntent.clientSecret}
       publishableKey={setupIntent.publishableKey}
+      stripeAccount={setupIntent.stripeAccount}
       onConfirmed={async (gatewayToken) => {
         try {
           await register.mutateAsync({

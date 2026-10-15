@@ -842,8 +842,8 @@ export class PortalController {
   async paymentOptions(
     @Headers('authorization') auth: string | undefined,
   ): Promise<{ cardPayments: boolean }> {
-    await this.requirePortalSession(auth);
-    return { cardPayments: this.portal.cardPaymentsEnabled };
+    const { tenantId } = await this.requirePortalSession(auth);
+    return { cardPayments: await this.portal.cardPaymentsAvailable(tenantId) };
   }
 
   /** ¿Ofrece el negocio pago con tarjeta/Bizum vía Redsys? (para gatear los botones). */
@@ -851,7 +851,7 @@ export class PortalController {
   @Get('me/redsys/enabled')
   async redsysEnabled(
     @Headers('authorization') auth: string | undefined,
-  ): Promise<{ enabled: boolean; bizumEnabled: boolean }> {
+  ): Promise<{ enabled: boolean; bizumEnabled: boolean; cardEnabled: boolean }> {
     const { tenantId } = await this.requirePortalSession(auth);
     return this.redsys.availability(tenantId);
   }

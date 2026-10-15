@@ -48,8 +48,8 @@ export class PaymentMethodsController {
   /** ¿Se puede registrar tarjeta/IBAN por Stripe? (si no, la UI oculta el formulario). */
   @RequirePermission('payments:read')
   @Get('payment-methods/options')
-  options(): { cardPayments: boolean } {
-    return { cardPayments: this.pms.cardPaymentsEnabled };
+  async options(@CurrentUser() user: AuthenticatedUser): Promise<{ cardPayments: boolean }> {
+    return { cardPayments: await this.pms.cardPaymentsAvailable(user.tenantId) };
   }
 
   @RequirePermission('payments:read')

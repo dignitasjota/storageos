@@ -61,20 +61,26 @@ export class StripeGateway extends PaymentGateway {
   }
 
   async createCustomer(args: CreateCustomerParams): Promise<CreateCustomerResult> {
-    const c = await this.stripe.customers.create({
-      ...(args.email ? { email: args.email } : {}),
-      name: args.name,
-      metadata: args.metadata,
-    });
+    const c = await this.stripe.customers.create(
+      {
+        ...(args.email ? { email: args.email } : {}),
+        name: args.name,
+        metadata: args.metadata,
+      },
+      requestOptions(args.stripeAccount),
+    );
     return { gatewayCustomerId: c.id };
   }
 
   async createSetupIntent(args: CreateSetupIntentParams): Promise<CreateSetupIntentResult> {
-    const intent = await this.stripe.setupIntents.create({
-      customer: args.gatewayCustomerId,
-      usage: 'off_session',
-      payment_method_types: ['card', 'sepa_debit'],
-    });
+    const intent = await this.stripe.setupIntents.create(
+      {
+        customer: args.gatewayCustomerId,
+        usage: 'off_session',
+        payment_method_types: args.paymentMethodTypes ?? ['card', 'sepa_debit'],
+      },
+      requestOptions(args.stripeAccount),
+    );
     if (!intent.client_secret) {
       throw new Error('Stripe no devolvio client_secret para el setup intent');
     }
@@ -83,21 +89,29 @@ export class StripeGateway extends PaymentGateway {
 
   async charge(args: ChargeParams): Promise<ChargeResult> {
     try {
-      const intent = await this.stripe.paymentIntents.create({
-        amount: args.amountCents,
-        currency: args.currency.toLowerCase(),
-        customer: args.gatewayCustomerId,
-        payment_method: args.paymentMethodToken,
-        // Sin esto Stripe asume ['card'] y rechaza el confirm con un PM
-        // sepa_debit. Un cobro SEPA queda en 'processing' hasta que el
-        // banco liquida (2-5 dias habiles); el resultado final llega por
-        // webhook payment_intent.succeeded/payment_failed.
-        payment_method_types: [args.paymentMethodType],
-        description: args.description,
-        metadata: args.metadata,
-        off_session: args.offSession,
-        confirm: true,
-      });
+      const intent = await this.stripe.paymentIntents.create(
+        {
+          amount: args.amountCents,
+          currency: args.currency.toLowerCase(),
+          customer: args.gatewayCustomerId,
+          payment_method: args.paymentMethodToken,
+          // Sin esto Stripe asume ['card'] y rechaza el confirm con un PM
+          // sepa_debit. Un cobro SEPA queda en 'processing' hasta que el
+          // banco liquida (2-5 dias habiles); el resultado final llega por
+          // webhook payment_intent.succeeded/payment_failed.
+          payment_method_types: [args.paymentMethodType],
+          description: args.description,
+          metadata: args.metadata,
+          off_session: args.offSession,
+          confirm: true,
+          // Stripe Connect: cobro directo en la cuenta del tenant; la plataforma
+          // se queda la comisión.
+          ...(args.stripeAccount && args.applicationFeeCents
+            ? { application_fee_amount: args.applicationFeeCents }
+            : {}),
+        },
+        requestOptions(args.stripeAccount, args.idempotencyKey),
+      );
       return {
         gatewayPaymentId: intent.id,
         status: this.mapIntentStatus(intent.status),
@@ -124,8 +138,11 @@ export class StripeGateway extends PaymentGateway {
         payment_intent: args.gatewayPaymentId,
         amount: args.amountCents,
         ...(args.reason ? { reason: 'requested_by_customer' } : {}),
+        // Stripe Connect: al devolver el cobro la plataforma devuelve también su
+        // comisión (proporcional).
+        ...(args.stripeAccount ? { refund_application_fee: true } : {}),
       },
-      args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
+      requestOptions(args.stripeAccount, args.idempotencyKey),
     );
     return {
       gatewayRefundId: r.id,
@@ -134,8 +151,11 @@ export class StripeGateway extends PaymentGateway {
     };
   }
 
-  async getPaymentMethodDetails(token: string): Promise<PaymentMethodDetails> {
-    const pm = await this.stripe.paymentMethods.retrieve(token);
+  async getPaymentMethodDetails(
+    token: string,
+    stripeAccount?: string,
+  ): Promise<PaymentMethodDetails> {
+    const pm = await this.stripe.paymentMethods.retrieve(token, {}, requestOptions(stripeAccount));
     if (pm.type === 'card' && pm.card) {
       return {
         type: 'card',
@@ -201,4 +221,16 @@ export class StripeGateway extends PaymentGateway {
         return 'failed';
     }
   }
+}
+
+/** Opciones de petición: cuenta conectada (Stripe Connect) y clave de idempotencia. */
+function requestOptions(
+  stripeAccount?: string,
+  idempotencyKey?: string,
+): { stripeAccount?: string; idempotencyKey?: string } | undefined {
+  if (!stripeAccount && !idempotencyKey) return undefined;
+  return {
+    ...(stripeAccount ? { stripeAccount } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  };
 }

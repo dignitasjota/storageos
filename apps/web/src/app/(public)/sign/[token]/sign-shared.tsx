@@ -321,11 +321,15 @@ function BookingPayment({
   }, [portalToken]);
 
   useEffect(() => {
-    apiFetch<{ enabled: boolean; bizumEnabled: boolean }>('/portal/me/redsys/enabled', {
-      requiresAuth: false,
-      headers: { Authorization: `Bearer ${portalToken}` },
-    })
-      .then(setRedsys)
+    apiFetch<{ enabled: boolean; bizumEnabled: boolean; cardEnabled?: boolean }>(
+      '/portal/me/redsys/enabled',
+      {
+        requiresAuth: false,
+        headers: { Authorization: `Bearer ${portalToken}` },
+      },
+    )
+      // Con la tarjeta por Stripe, Redsys solo ofrece Bizum.
+      .then((r) => setRedsys({ enabled: r.cardEnabled ?? r.enabled, bizumEnabled: r.bizumEnabled }))
       .catch(() => setRedsys(null));
   }, [portalToken]);
 
@@ -402,6 +406,7 @@ function BookingPayment({
         <StripeSetupForm
           clientSecret={setupIntent.clientSecret}
           publishableKey={setupIntent.publishableKey}
+          stripeAccount={setupIntent.stripeAccount}
           submitLabel={t('payAmount', { amount: formatPrice(invoice.amountPending, locale) })}
           onConfirmed={onConfirmed}
         />
@@ -413,7 +418,7 @@ function BookingPayment({
               {t('payWithCard')}
             </Button>
           )}
-          {!cardPayments && redsys && !redsys.enabled && (
+          {!cardPayments && redsys && !redsys.enabled && !redsys.bizumEnabled && (
             <p className="text-sm text-muted-foreground">{t('noOnlinePayment')}</p>
           )}
           {redsys?.bizumEnabled && (

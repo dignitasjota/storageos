@@ -15,6 +15,7 @@ import { PaymentRetryService } from './payment-retry.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { ReturnedReceiptsService } from './returned-receipts.service';
+import { StripeConnectModule } from './stripe-connect/stripe-connect.module';
 import { StripeEventsCleanupCron } from './stripe-events-cleanup.cron';
 import { StripeEventsService } from './stripe-events.service';
 import { StripeWebhookController } from './stripe-webhook.controller';
@@ -24,7 +25,12 @@ import { StripeGateway } from './stripe.gateway';
   // forwardRef rompe el ciclo PaymentsModule <-> BillingSaasModule:
   // BillingSaas depende de StripeGateway (aqui dentro), y el
   // StripeWebhookController depende de BillingSaasService (alli).
-  imports: [AuthModule, forwardRef(() => BillingSaasModule), GoCardlessCoreModule],
+  imports: [
+    AuthModule,
+    forwardRef(() => BillingSaasModule),
+    GoCardlessCoreModule,
+    StripeConnectModule,
+  ],
   controllers: [PaymentMethodsController, PaymentsController, StripeWebhookController],
   providers: [
     ReturnedReceiptsService,
