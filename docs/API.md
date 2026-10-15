@@ -1936,7 +1936,7 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 - `PATCH /customers/:id {depositExempt}` — inquilino sin fianza (sus contratos nuevos salen con fianza 0). `CustomerDto.depositExempt`.
 - `PUT /contracts/:id/deposit-payment-method {method: online|cash}` (`contracts:write`, solo borrador; 400 `contract_already_signed`) y `POST /contracts/:id/deposit/collect {methodType: cash|bank_transfer|other}` (`payments:charge`; crea el justificante si no existe y lo marca cobrado; 400 `no_deposit`/`contract_closed`, 409 `deposit_already_collected`). `ContractDto.depositPaymentMethod`/`depositReceipt`; `TodayDto.depositsToCollect`; `ContractSignViewDto.depositPaymentMethod`.
 
-## Novedades de octubre de 2026 (#617–#656)
+## Novedades de octubre de 2026 (#617–#673)
 
 ### Motor de precios y competencia (#622–#629)
 
@@ -1987,3 +1987,20 @@ Todo con la feature `multi_owner`.
 - Públicos: `GET /platform-founder-offer` → `{offer}` (null si está desactivada), `GET /platform-website` → `{logoUrl, contactForm, footer}` y `POST /platform-contact` (formulario; honeypot `hp`, `acceptPrivacy` obligatorio; 404 `contact_form_disabled`, 400 `phone_required`; límite por IP).
 - SEO: `PUT /admin/platform/website/seo` (título, descripción, verificaciones de Google y Bing, GA4 `G-…`, `indexable`, nombre de la empresa), `POST /admin/platform/website/og-image-upload-url` y `PUT /admin/platform/website/og-image {key|null}` (superadmin). `GET /platform-website` incluye `seo` (con `ogImageUrl`).
 - Admin (`/admin/platform/...`, escribir: superadmin): `GET/PUT founder-offer`; `GET website`, `POST website/logo-upload-url`, `PUT website/logo {key|null}` (sin SVG), `PUT website/footer` (enlaces solo `/ruta`, `#ancla`, `https://`, `mailto:` o `tel:`; redes solo `https://`); `GET/PUT contact`, `GET contact/messages` (100 últimos) y `POST contact/messages/:id/handled {handled}`.
+
+### Web del tenant (#663–#667)
+
+- Plantillas nuevas de Web Premium: `trstrom` y `cabe` (`PATCH /settings/tenant/web {template}`).
+- **Dominio propio**: la reserva es `https://<dominio>/reservar[/<publicSlug del local>][/l/<idioma>]` (`resolveCustomDomainRoute` la reescribe a `/book/<slug>`); `/precios` y `/contacto` muestran la web única bajando a esa sección (404 fuera del dominio propio). Un local no puede llamarse `precios`, `contacto` ni `reservar`.
+- `PATCH /settings/tenant/web {seo}` (`web_premium`): `homeTitle`, `homeDescription`, `pricesTitle`, `pricesDescription`, `contactTitle`, `contactDescription` (`''` = el generado); `WebSettingsResponse.seo` y `PublicLandingDto.webSeo`.
+
+### WhatsApp Business (#668–#673)
+
+Todo con la feature `whatsapp_business`. WhatsApp simulado con `NODE_ENV=test` o `WHATSAPP_BUSINESS_MODE=stub`.
+
+- **Número** (`/settings/whatsapp`): `GET` (`settings:read`), `PUT {phoneNumberId, wabaId?, accessToken?, enabled?, webButtonEnabled?}` (`settings:manage`; al activar se comprueba contra Meta → 400 `whatsapp_connection_failed`; 409 `whatsapp_number_taken`), `POST /test`. El token nunca vuelve (solo sus 4 últimos).
+- **Asistente** (`/settings/whatsapp/assistant`): `GET`, `PUT {assistantEnabled, assistantInstructions, assistantBookingsEnabled, reminderTemplateName, reminderTemplateLanguage, privacyUrl (https), ownProvider, ownModel, ownBaseUrl, ownApiKey, removeOwnKey}`, `POST /test` (prueba la clave propia).
+- **Bandeja** (`/whatsapp/conversations`, leer `communications:read`, enviar `communications:send`): `GET` (200 últimas), `GET /unread-count`, `GET /stats?days=` (conversaciones, mensajes, respuestas del asistente y del equipo, pasos a persona, reservas y firmadas, mediana de primera respuesta), `GET /templates` → `{wabaConfigured, templates[{name, language, category, body, paramCount}], error}` (aprobadas en Meta; necesita `wabaId`), `GET /:id` (marca leída; los archivos con URL firmada de 10 min), `PATCH /:id {assistantEnabled}`, `POST /:id/messages {body}` (400 `whatsapp_window_closed` pasadas 24 h; 502 `whatsapp_send_failed`), `POST /:id/template {name, language, params[]}`, `POST /:id/media/upload-url {mimeType, filename, size}` (JPG/PNG ≤5 MB, PDF ≤20 MB) y `POST /:id/media {key, mimeType, filename, caption?}` (400 `invalid_media_key`, `invalid_file_content`, `file_too_large`).
+- **Webhook** `POST /webhooks/whatsapp` (firma `X-Hub-Signature-256` con `WHATSAPP_APP_SECRET`): si `metadata.phone_number_id` es de un tenant va a su bandeja; si no, al flujo del número de la plataforma. Guarda texto, archivos, ubicaciones y respuestas a botones; ignora reacciones. Siempre 200.
+- **IA de WhatsApp de la plataforma** (super admin): `GET/PUT /admin/whatsapp-ai` + `POST /admin/whatsapp-ai/test`; por tenant `GET/PUT /admin/tenants/:id/whatsapp-ai {aiMode, aiMonthlyLimit}` (escribir: rol superadmin, auditado).
+- **Legal**: slug `data-deletion` en `/platform-legal/:slug` y `/admin/platform/legal/:slug` (página pública `/eliminar-datos`).
