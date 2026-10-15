@@ -5174,6 +5174,11 @@ model TenantWhatsappSettings {
   reminderTemplateLanguage String  @default("es") @map("reminder_template_language")
   /// Política de privacidad que enlaza el aviso del primer mensaje del asistente.
   privacyUrl               String? @map("privacy_url")
+  /// Secreto de la app de Meta propia del tenant (firma de sus avisos), cifrado.
+  appSecretEncrypted          String? @map("app_secret_encrypted")
+  /// Token para verificar el webhook en la app propia del tenant (cifrado + hash para buscarlo).
+  webhookVerifyTokenEncrypted String? @map("webhook_verify_token_encrypted")
+  webhookVerifyTokenHash      String? @map("webhook_verify_token_hash")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

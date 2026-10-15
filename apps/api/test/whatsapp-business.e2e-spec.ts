@@ -90,6 +90,35 @@ describe('WhatsApp Business (e2e)', () => {
     });
     expect(JSON.stringify(saved.body)).not.toContain('EAAG-token');
 
+    // App de Meta propia del tenant: URL del webhook, token de verificación y secreto.
+    expect(saved.body.webhookUrl).toMatch(/\/webhooks\/whatsapp$/);
+    expect(saved.body.webhookVerifyToken).toMatch(/^wa_/);
+    expect(saved.body.appSecretConfigured).toBe(false);
+    const withSecret = await request(app.getHttpServer())
+      .put('/settings/whatsapp')
+      .set(auth)
+      .send({ appSecret: 'secreto-de-la-app-del-tenant-0123' })
+      .expect(200);
+    expect(withSecret.body).toMatchObject({
+      appSecretConfigured: true,
+      webhookVerifyToken: saved.body.webhookVerifyToken, // no cambia
+    });
+    expect(JSON.stringify(withSecret.body)).not.toContain('secreto-de-la-app');
+    // Meta verifica el webhook con el token del tenant.
+    const challenge = await request(app.getHttpServer())
+      .get('/webhooks/whatsapp')
+      .query({
+        'hub.mode': 'subscribe',
+        'hub.verify_token': saved.body.webhookVerifyToken,
+        'hub.challenge': 'reto-123',
+      })
+      .expect(200);
+    expect(challenge.text).toBe('reto-123');
+    await request(app.getHttpServer())
+      .get('/webhooks/whatsapp')
+      .query({ 'hub.mode': 'subscribe', 'hub.verify_token': 'wa_inventado', 'hub.challenge': 'x' })
+      .expect(403);
+
     // La web pública lleva el botón con el número.
     const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(landing.body.whatsappNumber).toBe('34600000000');
@@ -258,5 +287,51 @@ describe('WhatsApp Business (e2e)', () => {
       .get(`/whatsapp/conversations/${list.body[0].id}`)
       .set({ Authorization: `Bearer ${intruder.accessToken}` });
     expect(foreign.status).toBe(404);
+  });
+
+  it('con el número desactivado los mensajes se guardan, sin aviso ni asistente', async () => {
+    const owner = await registerVerifiedUser(app, 'wa-biz4');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await setTenantFeatureOverride(owner.slug, 'whatsapp_business', true);
+    const pid = `3${Date.now()}`;
+    await request(app.getHttpServer())
+      .put('/settings/whatsapp')
+      .set(auth)
+      .send({ phoneNumberId: pid, accessToken: 'EAAG-token-de-prueba-444444', enabled: false })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/webhooks/whatsapp')
+      .send({
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  metadata: { phone_number_id: pid },
+                  messages: [
+                    {
+                      id: `wamid.off-${Date.now()}`,
+                      from: '34633000111',
+                      timestamp: String(Math.floor(Date.now() / 1000)),
+                      type: 'text',
+                      text: { body: 'Hola, ¿estáis abiertos?' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      })
+      .expect(200);
+    const msgs = await prismaAdmin.whatsappMessage.findMany({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(msgs).toHaveLength(1);
+    expect(
+      await prismaAdmin.notification.count({
+        where: { tenantId: owner.tenantId, type: 'whatsapp.message' },
+      }),
+    ).toBe(0);
   });
 });

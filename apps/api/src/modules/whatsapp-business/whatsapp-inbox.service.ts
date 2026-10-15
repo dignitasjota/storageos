@@ -92,11 +92,10 @@ export class WhatsappInboxService {
     if (!settings) return false;
     const { tenantId } = settings;
     // El número es del tenant: aunque no tenga el extra o lo tenga apagado, no
-    // se pasa al flujo de la plataforma (no es un mensaje para ella).
-    if (!settings.enabled || !(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) {
-      this.logger.log(`whatsapp: mensaje para ${tenantId} sin el extra activo — ignorado`);
-      return true;
-    }
+    // se pasa al flujo de la plataforma. Se guarda igualmente (no se pierden
+    // mensajes de clientes si se reactiva), pero sin avisos ni asistente.
+    const active =
+      settings.enabled && (await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'));
     const duplicate = await this.admin.whatsappMessage.findUnique({
       where: { waMessageId: msg.waMessageId },
       select: { id: true },
@@ -173,7 +172,7 @@ export class WhatsappInboxService {
     });
 
     // Un aviso por conversación mientras quede algo sin leer (no uno por mensaje).
-    if (conversation.unreadCount === 0) {
+    if (active && conversation.unreadCount === 0) {
       await this.notifications
         .create(tenantId, {
           type: 'whatsapp.message',
@@ -196,6 +195,7 @@ export class WhatsappInboxService {
       });
     }
 
+    if (!active) return true;
     // El asistente (si está activo) responde en segundo plano: el webhook
     // tiene que contestar a Meta enseguida.
     void this.assistant.handleInbound({
@@ -276,7 +276,15 @@ export class WhatsappInboxService {
       messages
         .filter((m) => m.mediaKey)
         .map(async (m) => {
-          urls.set(m.id, await this.files.getPresignedGetUrl('uploads', m.mediaKey!, 600));
+          urls.set(
+            m.id,
+            await this.files.getPresignedGetUrl(
+              'uploads',
+              m.mediaKey!,
+              600,
+              isInlineMedia(m.mediaMime ?? '') ? undefined : (m.mediaFilename ?? 'archivo'),
+            ),
+          );
         }),
     );
     return {
@@ -487,6 +495,16 @@ export class WhatsappInboxService {
     };
   }
 
+  /** Token de verificación del webhook propio de algún tenant (app de Meta propia). */
+  isTenantVerifyToken(token: string): Promise<boolean> {
+    return this.settings.isTenantVerifyToken(token);
+  }
+
+  /** Secreto de la app propia del tenant dueño de esos números (firma del aviso). */
+  appSecretForPhoneNumberIds(ids: string[]): Promise<string | null> {
+    return this.settings.appSecretForPhoneNumberIds(ids);
+  }
+
   /** Plantillas aprobadas en Meta (necesita el ID de la cuenta de WhatsApp Business). */
   async listTemplates(tenantId: string): Promise<WhatsappTemplatesDto> {
     const settings = await this.settings.resolveForTenant(tenantId);
@@ -654,7 +672,11 @@ export class WhatsappInboxService {
   }): Promise<void> {
     try {
       const { bytes, mime } = await this.client.downloadMedia(args.mediaId, args.accessToken);
-      const contentType = (args.mime ?? mime ?? 'application/octet-stream').split(';')[0]!.trim();
+      const declared = (args.mime ?? mime ?? '').split(';')[0]!.trim().toLowerCase();
+      // Solo se guardan con su tipo los formatos que el navegador muestra sin
+      // riesgo; el resto (HTML, SVG…) como descarga, para que nadie pueda
+      // servir una página desde nuestro dominio de archivos.
+      const contentType = isInlineMedia(declared) ? declared : 'application/octet-stream';
       const key = `${this.mediaPrefix(args.tenantId, args.conversationId)}${args.messageId}.${extensionForMime(
         contentType,
         args.filename,
@@ -790,4 +812,11 @@ export class WhatsappInboxService {
       media,
     };
   }
+}
+
+/** Tipos que se muestran en el navegador (el resto se sirve como descarga). */
+const INLINE_MEDIA =
+  /^(image\/(jpeg|png|webp|gif)|audio\/(ogg|mpeg|mp4|aac|amr|webm)|video\/(mp4|3gpp|webm)|application\/pdf)$/;
+function isInlineMedia(mime: string): boolean {
+  return INLINE_MEDIA.test(mime.toLowerCase());
 }
