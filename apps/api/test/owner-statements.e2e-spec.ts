@@ -87,7 +87,10 @@ describe('Liquidaciones al propietario (e2e)', () => {
       .set(auth)
       .send({ amount: 121, methodType: 'cash' })
       .expect(200);
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     await http()
       .post('/expenses')
       .set(auth)

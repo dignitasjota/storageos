@@ -79,7 +79,10 @@ describe('Exportación para la asesoría del tenant (e2e)', () => {
       .send({ returnedAmount: 70, retentionReason: 'Daños en la puerta' })
       .expect(200);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const res = await http()
       .get(`/fiscal/accountant-export?from=${today}&to=${today}`)
       .set(auth)

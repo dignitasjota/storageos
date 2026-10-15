@@ -41,7 +41,10 @@ describe('Cierre de caja (arqueo) (e2e)', () => {
       .send({ amount: 121, methodType: 'cash' })
       .expect(200);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
 
     // El resumen del día refleja 121 € en efectivo, sin cierre aún.
     const summary = await request(app.getHttpServer()).get(`/cash/summary?date=${today}`).set(auth);
@@ -109,7 +112,10 @@ describe('Cierre de caja (arqueo) (e2e)', () => {
       .send({ amount: 50, methodType: 'cash' })
       .expect(200);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
 
     // El resumen del LOCAL refleja los 50 € de efectivo de ese local.
     const facSummary = await request(app.getHttpServer())

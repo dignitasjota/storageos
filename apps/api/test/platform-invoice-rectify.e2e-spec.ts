@@ -149,7 +149,10 @@ describe('Rectificativas de facturas de suscripción (e2e)', () => {
     expect((own.body as Inv[]).filter((i) => i.invoiceType === 'R4')).toHaveLength(3);
 
     // La exportación para la asesoría las incluye con su factura rectificada.
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const exp = await http()
       .get(`/admin/platform-billing/accountant-export?from=${today}&to=${today}`)
       .set(auth)

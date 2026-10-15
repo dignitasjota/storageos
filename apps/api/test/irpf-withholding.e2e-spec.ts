@@ -92,7 +92,10 @@ describe('Retención de IRPF (e2e)', () => {
       .expect(200);
     const paid = await http().get(`/invoices/${draft.body.id}`).set(auth);
     expect(paid.body.status).toBe('paid');
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const cash = await http().get(`/cash/summary?date=${today}`).set(auth).expect(200);
     expect(cash.body.cash).toBe(152);
     expect(cash.body.total).toBe(152);

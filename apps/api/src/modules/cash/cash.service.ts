@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable } from '@nestjs/comm
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
+import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
@@ -24,11 +25,14 @@ export class CashService {
     private readonly audit: AuditService,
   ) {}
 
-  /** Rango [00:00, 24:00) UTC del día `YYYY-MM-DD`. */
+  /** Rango [00:00, 24:00) del día `YYYY-MM-DD` en hora de España. */
   private dayRange(date: string): { gte: Date; lt: Date } {
-    const gte = new Date(`${date}T00:00:00.000Z`);
-    const lt = new Date(gte.getTime() + 24 * 60 * 60 * 1000);
-    return { gte, lt };
+    return { gte: zonedDayStart(date), lt: zonedNextDayStart(date) };
+  }
+
+  /** El día como valor de la columna DATE del cierre (medianoche UTC). */
+  private closureDay(date: string): Date {
+    return new Date(`${date}T00:00:00.000Z`);
   }
 
   async getDaySummary(
@@ -94,7 +98,7 @@ export class CashService {
             _sum: { refundedAmount: true },
           }),
           tx.cashClosure.findFirst({
-            where: { closureDate: gte, facilityId: facilityId ?? null },
+            where: { closureDate: this.closureDay(date), facilityId: facilityId ?? null },
             include: {
               closedBy: { select: { fullName: true } },
               facility: { select: { name: true } },
@@ -145,7 +149,6 @@ export class CashService {
   }): Promise<CashClosureDto> {
     const facilityId = args.input.facilityId ?? null;
     if (facilityId) assertFacilityAllowed(args.facilityScope, facilityId);
-    const { gte } = this.dayRange(args.input.date);
     // Esperado = efectivo cobrado ese día (pagos `cash` succeeded) en ese ámbito.
     const summary = await this.getDaySummary(
       args.tenantId,
@@ -171,7 +174,7 @@ export class CashService {
             data: {
               tenantId: args.tenantId,
               facilityId,
-              closureDate: gte,
+              closureDate: this.closureDay(args.input.date),
               expectedCash: expected,
               countedCash: counted,
               difference,

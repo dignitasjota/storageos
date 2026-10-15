@@ -41,7 +41,8 @@ describe('Facturas de suscripción emitidas por el negocio propio (e2e)', () => 
   let admin: PrismaAdminService;
   let auth: { Authorization: string };
   const http = () => request(app.getHttpServer());
-  const today = new Date().toISOString().slice(0, 10);
+  // La factura se fecha con el día de la zona del tenant (Madrid), no en UTC.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
 
   beforeAll(async () => {
     await cleanupSuperAdmins();

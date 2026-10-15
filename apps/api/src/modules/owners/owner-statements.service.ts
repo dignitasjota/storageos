@@ -7,7 +7,7 @@ import {
   type OwnerStatementPaymentLine,
 } from '@storageos/shared';
 
-import { formatEur } from '../../common/format';
+import { formatEur, zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { addAmounts, subtractAmounts } from '../../common/money';
 import { escapeHtml, tenantEmailShell } from '../../common/tenant-email-layout';
 import { AuditService } from '../auth/audit.service';
@@ -20,6 +20,9 @@ import type { OwnerStatement, Prisma } from '@storageos/database';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const day = (d: Date) => d.toISOString().slice(0, 10);
+/** Día de un instante (cobro) en hora de España. */
+const dayAt = (d: Date) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
 const sum = (xs: number[]) => xs.reduce((acc, x) => addAmounts(acc, x), 0);
 
 /** Meses naturales que toca el periodo (para la cuota fija mensual). */
@@ -71,8 +74,12 @@ export class OwnerStatementsService {
     to: string,
   ): Promise<OwnerStatementDto> {
     const owner = await this.owners.findOrThrow(tenantId, ownerId);
+    // Columnas DATE (gastos, fecha de factura): el día tal cual.
     const start = new Date(`${from}T00:00:00.000Z`);
     const endExclusive = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86_400_000);
+    // Columnas con hora (cobros, devoluciones): días en hora de España.
+    const startAt = zonedDayStart(from);
+    const endAtExclusive = zonedNextDayStart(to);
     const ownerInvoice = { ownerId, kind: 'invoice' as const, deletedAt: null };
     const notCash = { notIn: [...NON_CASH_PAYMENT_METHODS] };
 
@@ -83,7 +90,7 @@ export class OwnerStatementsService {
             where: {
               status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
               methodType: notCash,
-              paidAt: { gte: start, lt: endExclusive },
+              paidAt: { gte: startAt, lt: endAtExclusive },
               invoice: ownerInvoice,
             },
             orderBy: { paidAt: 'asc' },
@@ -112,7 +119,7 @@ export class OwnerStatementsService {
           tx.payment.findMany({
             where: {
               methodType: notCash,
-              refundedAt: { gte: start, lt: endExclusive },
+              refundedAt: { gte: startAt, lt: endAtExclusive },
               refundedAmount: { gt: 0 },
               invoice: ownerInvoice,
             },
@@ -124,8 +131,8 @@ export class OwnerStatementsService {
           tx.payment.findMany({
             where: {
               methodType: notCash,
-              returnedAt: { gte: start, lt: endExclusive },
-              paidAt: { lt: start },
+              returnedAt: { gte: startAt, lt: endAtExclusive },
+              paidAt: { lt: startAt },
               invoice: ownerInvoice,
             },
             select: { amount: true },
@@ -163,7 +170,7 @@ export class OwnerStatementsService {
     const payments: OwnerStatementPaymentLine[] = paid.map((p) => {
       const c = p.invoice?.customer;
       return {
-        date: day(p.paidAt ?? start),
+        date: dayAt(p.paidAt ?? startAt),
         invoiceNumber: p.invoice?.invoiceNumber ?? null,
         customerName: c
           ? c.customerType === 'business'

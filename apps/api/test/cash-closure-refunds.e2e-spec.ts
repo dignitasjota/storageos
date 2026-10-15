@@ -27,7 +27,10 @@ describe('Cierre de caja: reembolsos (e2e)', () => {
   it('un reembolso en efectivo baja el efectivo esperado', async () => {
     const owner = await registerVerifiedUser(app, 'cashrefund');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const customerId = await createCustomer(app, owner.accessToken);
     await ensureDefaultSeries(app, owner.accessToken);
 

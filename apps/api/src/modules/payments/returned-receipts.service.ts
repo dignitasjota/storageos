@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
+import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { subtractAmounts } from '../../common/money';
 import { PrismaService } from '../database/prisma.service';
 
@@ -98,6 +99,10 @@ function invoiceFields(inv: InvoiceRef | null) {
  * N43, contracargos de tarjeta, devoluciones y fallos tardíos de GoCardless) y
  * adeudos que el banco rechazó al confirmar una remesa SEPA.
  */
+/** `YYYY-MM-DD` de un instante en hora de España. */
+const madridDay = (d: Date): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
+
 @Injectable()
 export class ReturnedReceiptsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -113,10 +118,9 @@ export class ReturnedReceiptsService {
     },
   ): Promise<ReturnedReceiptsDto> {
     const now = new Date();
-    const to = filters.to ? new Date(`${filters.to}T23:59:59.999Z`) : now;
-    const from = filters.from
-      ? new Date(`${filters.from}T00:00:00.000Z`)
-      : new Date(to.getTime() - 90 * DAY);
+    // Días en hora de España (los cobros y devoluciones llevan hora).
+    const to = filters.to ? new Date(zonedNextDayStart(filters.to).getTime() - 1) : now;
+    const from = filters.from ? zonedDayStart(filters.from) : new Date(to.getTime() - 90 * DAY);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
       throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
     }
@@ -222,8 +226,8 @@ export class ReturnedReceiptsService {
     const pendingCents = [...pendingByInvoice.values()].reduce((a, b) => a + b, 0);
 
     return {
-      from: from.toISOString().slice(0, 10),
-      to: to.toISOString().slice(0, 10),
+      from: madridDay(from),
+      to: madridDay(to),
       items,
       totals: {
         count: items.length,

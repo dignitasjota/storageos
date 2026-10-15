@@ -32,7 +32,10 @@ describe('Gastos + P&L (e2e)', () => {
       pricePerUnit: 100,
     });
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const monthStart = `${today.slice(0, 7)}-01`;
 
     // Crear un gasto imputado al local.
