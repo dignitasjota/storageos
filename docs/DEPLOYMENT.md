@@ -1227,6 +1227,8 @@ desde el panel.
 
 ## 24. WhatsApp Business de los tenants (extra)
 
+> Migraciones `20261016100000_tenant_web_seo` → `20261022100000_whatsapp_conversation_language` (aditivas). Redesplegar **API, web y worker** (el worker ejecuta el recordatorio de reservas y la limpieza de conversaciones).
+
 1. **Migración** `20261017100000_whatsapp_business` (aditiva). El bootstrap crea el extra **WhatsApp Business** (29 €/mes, editable en `/admin/addons`).
 2. **App de Meta**: la misma que recibe el webhook `https://api.trasteros.pro/webhooks/whatsapp` (suscrita al campo `messages`). Hacen falta `WHATSAPP_VERIFY_TOKEN` y **`WHATSAPP_APP_SECRET`** en el API (sin el secreto, en producción el webhook rechaza todo).
 3. **Cada tenant** (con el extra activo) pega en Configuración → Comunicación → WhatsApp el ID de su número y un token permanente; al activarlo se comprueba contra Meta. Los mensajes a su número entran en su bandeja (menú Mensajería → WhatsApp) y quien no es inquilino se crea como contacto con origen «whatsapp».

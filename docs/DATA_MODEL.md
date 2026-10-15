@@ -736,7 +736,7 @@ Variable de entorno booleana (default `true`).
 - `tenants.transfer_iban` (2026-10-04, migración `20261004100000_tenant_transfer_iban`): IBAN para transferencias que sale en el correo de la factura cuando se paga a mano.
 - `contracts.booking_reminder_sent_at` (2026-10-04, migración `20261004120000_contract_booking_reminder`): recordatorio único de una reserva online enviada sin firmar o sin pagar.
 
-## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261014100000`)
+## 17. Novedades de octubre de 2026 (migraciones `20261007100000` → `20261022100000`)
 
 > Las tablas **globales** (sin `tenant_id` o leídas solo por el super admin) llevan `REVOKE ALL … FROM storageos_app`; las de tenant, RLS `tenant_isolation`.
 
@@ -793,3 +793,17 @@ Variable de entorno booleana (default `true`).
 - **`platform_website`** (global, un registro): `logo_key` (bucket público, `platform/logo/…`), formulario de contacto (`contact_enabled`, `contact_email`, `contact_title`, `contact_subtitle`, `contact_show_phone`/`contact_require_phone`/`contact_show_company`/`contact_show_units`/`contact_show_profile`) y `footer` jsonb (null = `DEFAULT_PLATFORM_FOOTER` de shared).
 - **`platform_contact_messages`** (global): mensajes del formulario (`email_sent`, `handled_at`, `ip_address`).
 - `platform_website.seo` (jsonb; null = valores por defecto) y `platform_website.og_image_key` (imagen para redes, `platform/og/…`) — migración `20261015100000_platform_seo`.
+
+### Web del tenant (`20261016100000`)
+
+- `tenants.web_seo` (jsonb): título y descripción para Google de la portada, `/precios` y `/contacto` (`homeTitle`/`pricesTitle`/`contactTitle` ≤70, `*Description` ≤200; vacío = el generado). Las plantillas «Trstrom» y «Cabe», la reserva en `/reservar/<centro>` y las direcciones `/precios` y `/contacto` no tienen migración (valores de `tenants.web_template` y rutas del dominio propio).
+
+### WhatsApp Business (`20261017100000` – `20261022100000`)
+
+Extra `whatsapp_business` (solo de venta aparte). Tablas de tenant con RLS; la global, con REVOKE.
+
+- **`tenant_whatsapp_settings`** (una por tenant): `phone_number_id` (único global: así se reparte el webhook), `waba_id`, `display_phone`, `verified_name`, `access_token_encrypted` (AES-GCM), `enabled`, `web_button_enabled`; asistente: `assistant_enabled`, `assistant_instructions`, `ai_mode` (`platform`|`own`, lo decide el super admin), `ai_monthly_limit`, clave propia (`own_ai_provider`/`own_ai_model`/`own_ai_base_url`/`own_ai_api_key_encrypted`), `ai_limit_notified_month`; reservas y plantillas: `assistant_bookings_enabled`, `reminder_template_name`/`reminder_template_language`; `privacy_url` (política que enlaza el aviso de IA).
+- **`whatsapp_conversations`** (una por tenant y número, `wa_id`): `contact_name`, `customer_id`/`lead_id`, `last_inbound_at` (ventana de 24 h), `last_message_at`/`last_message_preview`, `unread_count`, `assistant_enabled` (se pausa al responder el equipo o al pasar a una persona), `contract_id` (reserva preparada por el asistente) + `booking_reminder_sent_at`, `language` (idioma del contacto).
+- **`whatsapp_messages`**: `direction` in/out, `sender` contact/staff/assistant, `body`, `wa_message_id` (único: deduplica y casa los avisos de estado), `status`, `error`, `sent_by_user_id`, `ai_key_source` (platform/own: el límite mensual se cuenta con estas filas, por eso al anonimizar se vacían y no se borran); archivos: `media_type` (image/audio/video/document/sticker), `media_key` (bucket privado `uploads`, `<tenant>/whatsapp/<conversación>/…`), `media_mime`, `media_filename`, `media_size`.
+- **`platform_whatsapp_ai_settings`** (global, un registro, REVOKE): IA de WhatsApp de la plataforma — proveedor (anthropic/openai/minimax/openai_compatible), modelo, URL, clave cifrada (AAD `platform-whatsapp-ai`), `monthly_reply_limit` (300), `enabled`.
+- **RGPD**: anonimizar a un inquilino o un tenant vacía sus mensajes, quita el número y borra sus archivos; la limpieza diaria borra las conversaciones sin movimiento en `RETENTION_WHATSAPP_DAYS` (365) y sus archivos.

@@ -411,3 +411,18 @@ Al emitir una factura con retención se registra un pago `withholding` no moneta
 ## Web de TrasterOS gestionada desde el panel (2026-10-08, #649, #654–#656)
 
 La portada pública (`apps/web/src/app/(public)/page.tsx`) lee en el servidor, con caché de 60 s, la oferta fundador y los ajustes de la web (logo, formulario de contacto y pie) de tablas globales de un solo registro. Si la API no responde, se pinta lo de por defecto (sin oferta, logo de la marca, pie de `DEFAULT_PLATFORM_FOOTER`). El menú de secciones vive en `apps/web/src/components/public/site-nav.ts`. El logo no admite SVG (se sirve desde el mismo sitio que la app y podría llevar scripts) y los enlaces del pie se validan (solo rutas, anclas, `https://`, `mailto:` y `tel:`).
+
+## Web del tenant en el dominio propio (2026-10-13/14, #665–#667)
+
+Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<local>`) existen **solo en el dominio propio verificado**: el middleware de Next las reescribe a las rutas internas (`/book/<slug>`, `/s/<slug>/precios`…) y marca la petición con la cabecera del tenant; fuera del dominio propio `/precios` y `/contacto` dan 404 para no duplicar contenido en trasteros.pro. Los enlaces de reserva son absolutos al dominio propio para que funcionen también desde `trasteros.pro/s/<tenant>`. Los títulos de las webs de los tenants no llevan «TrasterOS» (`title.absolute`).
+
+## WhatsApp Business del tenant (2026-10-14/15, #668–#673)
+
+- **Un webhook para toda la app de Meta**: el mensaje se asigna al tenant por el `phone_number_id` del número de destino (único global), nunca por el remitente. Un número de tenant nunca cae al flujo del número de la plataforma, aunque tenga el extra apagado.
+- **Credenciales por tenant** (token cifrado) y cliente sin SDK con modo simulado, como el resto de pasarelas.
+- **IA separada de la del panel**: la plataforma configura su IA de WhatsApp (proveedor, modelo, clave, límite mensual por respuesta); cada tenant usa la de TrasterOS o su propia clave (lo decide el super admin). Pasado el límite se usa la clave propia si existe; si no, contesta el equipo y se avisa. Todas las llamadas al proveedor van por `safePostJson` (la URL puede ponerla el tenant).
+- **Sin tool-calling**: el asistente recibe el contexto de la web (locales con códigos `[L1]`, tamaños `[L1-T2]`, precios con IVA, disponibilidad, promoción, preguntas frecuentes) y devuelve marcas de texto que el servidor interpreta y quita: `[[HUMANO]]` (pasa a una persona y se pausa), `[[RESERVA {json}]]` (se valida con `PublicBookingSchema` y se crea la reserva online de siempre, con el trastero retenido 72 h) e `[[IDIOMA xx]]` (idioma del cliente para los textos fijos). Así funciona con cualquier proveedor.
+- **El equipo manda**: si responde una persona, el asistente se pausa en esa conversación. La primera respuesta del asistente lleva un aviso fijo de IA (lo añade el servidor).
+- **Recordatorio de reservas**: el de WhatsApp y el del correo comparten la misma reserva atómica (`contracts.booking_reminder_sent_at`), porque cada uno genera un enlace de firma nuevo; si WhatsApp no puede (ventana cerrada y sin plantilla), lo manda el correo.
+- **Archivos**: se descargan de Meta en segundo plano (solo de sus dominios, ≤20 MB) al bucket privado; se envían subiéndolos a Meta por multipart (no se expone MinIO a Meta). Anonimizar y la retención borran también los archivos.
+- Pendiente: alta con coexistencia (Embedded Signup) cuando Meta apruebe a TrasterOS como Tech Provider.
