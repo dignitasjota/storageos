@@ -2032,6 +2032,10 @@ export class InvoicesService {
                   amountCents: toCents(amount),
                   idempotencyKey,
                   ...(args.input.reason ? { reason: args.input.reason } : {}),
+                  // Stripe Connect: el cobro está en la cuenta del tenant.
+                  ...(gatewayPayment.stripeAccountId
+                    ? { stripeAccount: gatewayPayment.stripeAccountId }
+                    : {}),
                 });
           if (result.status === 'failed') {
             throw new BadRequestException({

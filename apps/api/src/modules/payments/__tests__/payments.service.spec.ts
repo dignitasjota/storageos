@@ -91,7 +91,7 @@ function buildService(
   tx: TxMock,
   deps: {
     gateway?: { charge: jest.Mock };
-    paymentMethods?: { decryptToken: jest.Mock; cardPaymentsEnabled?: boolean };
+    paymentMethods?: { decryptToken: jest.Mock; cardContext?: jest.Mock };
     goCardlessCharge?: { charge: jest.Mock };
     events?: { emit: jest.Mock };
   } = {},
@@ -465,7 +465,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     };
     const paymentMethods = {
       decryptToken: jest.fn().mockResolvedValue('pm_sepa_token'),
-      cardPaymentsEnabled: true,
+      cardContext: jest.fn().mockResolvedValue({ mode: 'platform' }),
     };
     const service = buildService(tx, { gateway, paymentMethods });
 
@@ -519,7 +519,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     const gateway = { charge: jest.fn().mockRejectedValue(new Error('network down')) };
     const paymentMethods = {
       decryptToken: jest.fn().mockResolvedValue('pm_token'),
-      cardPaymentsEnabled: true,
+      cardContext: jest.fn().mockResolvedValue({ mode: 'platform' }),
     };
     const service = buildService(tx, { gateway, paymentMethods });
 
@@ -560,7 +560,7 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
     const gateway = { charge: jest.fn() };
     const service = buildService(tx, {
       gateway,
-      paymentMethods: { decryptToken: jest.fn() },
+      paymentMethods: { decryptToken: jest.fn(), cardContext: jest.fn().mockResolvedValue(null) },
     });
 
     await expect(
@@ -573,6 +573,106 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
       }),
     ).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'payment_method_not_chargeable' }),
+    });
+    expect(gateway.charge).not.toHaveBeenCalled();
+  });
+});
+
+describe('PaymentsService.chargeInvoice (Stripe Connect)', () => {
+  const PM_ID = '019e3d20-eeee-7c2f-bf37-6511065b9fc5';
+  const CUSTOMER_ID = '019e3d20-ffff-7c2f-bf37-6511065b9fc5';
+
+  function invoice() {
+    return {
+      id: INVOICE_ID,
+      customerId: CUSTOMER_ID,
+      customer: { id: CUSTOMER_ID },
+      status: 'issued',
+      invoiceNumber: 'FA/2026/00002',
+      total: 50,
+      amountPaid: 0,
+      currency: 'EUR',
+    };
+  }
+
+  it('cobra en la cuenta del tenant con la comisión de la plataforma', async () => {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(invoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      id: PM_ID,
+      type: 'card',
+      gateway: 'stripe',
+      gatewayCustomerId: 'cus_tenant',
+      stripeAccountId: 'acct_tenant',
+    });
+    tx.payment.create.mockResolvedValue({ id: PAYMENT_ID });
+    tx.payment.findFirst.mockResolvedValue(null);
+    const gateway = {
+      charge: jest.fn().mockResolvedValue({ gatewayPaymentId: 'pi_x', status: 'failed' }),
+    };
+    const service = buildService(tx, {
+      gateway,
+      paymentMethods: {
+        decryptToken: jest.fn().mockResolvedValue('pm_card'),
+        cardContext: jest
+          .fn()
+          .mockResolvedValue({ mode: 'connect', accountId: 'acct_tenant', applicationFeePct: 2 }),
+      },
+    });
+    await service
+      .chargeInvoice({
+        tenantId: TENANT,
+        userId: null,
+        invoiceId: INVOICE_ID,
+        input: { paymentMethodId: PM_ID },
+        meta: {},
+      })
+      .catch(() => undefined);
+    expect(gateway.charge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 5000,
+        stripeAccount: 'acct_tenant',
+        applicationFeeCents: 100,
+        idempotencyKey: `charge-${PAYMENT_ID}`,
+      }),
+    );
+    expect(tx.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ stripeAccountId: 'acct_tenant', applicationFeeAmount: 1 }),
+      }),
+    );
+  });
+
+  it('una tarjeta guardada en otra cuenta de Stripe no se cobra', async () => {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(invoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      id: PM_ID,
+      type: 'card',
+      gateway: 'stripe',
+      gatewayCustomerId: 'cus_platform',
+      stripeAccountId: null,
+    });
+    const gateway = { charge: jest.fn() };
+    const service = buildService(tx, {
+      gateway,
+      paymentMethods: {
+        decryptToken: jest.fn(),
+        cardContext: jest
+          .fn()
+          .mockResolvedValue({ mode: 'connect', accountId: 'acct_tenant', applicationFeePct: 2 }),
+      },
+    });
+    await expect(
+      service.chargeInvoice({
+        tenantId: TENANT,
+        userId: null,
+        invoiceId: INVOICE_ID,
+        input: { paymentMethodId: PM_ID },
+        meta: {},
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'stripe_account_changed' }),
     });
     expect(gateway.charge).not.toHaveBeenCalled();
   });

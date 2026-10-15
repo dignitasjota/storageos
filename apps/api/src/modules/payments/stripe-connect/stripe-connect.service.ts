@@ -9,13 +9,22 @@ import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../auth/audit.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
-import { RedsysService } from '../redsys/redsys.service';
 
 import { PlatformPaymentSettingsService } from './platform-payment-settings.service';
 import { type ConnectAccountState, StripeConnectClient } from './stripe-connect.client';
 
 import type { Env } from '../../../config/env.schema';
 import type { CardProvider, StripeConnectLinkDto, StripeConnectStatusDto } from '@storageos/shared';
+
+export type StripeCardContext =
+  | { mode: 'connect'; accountId: string; applicationFeePct: number }
+  | { mode: 'platform' };
+
+/** Comisión de la plataforma en céntimos (redondeo al céntimo). */
+export function applicationFeeCents(amountCents: number, pct: number): number {
+  if (pct <= 0) return 0;
+  return Math.round((amountCents * pct) / 100);
+}
 
 /** Pantalla del panel a la que vuelve el tenant desde el registro de Stripe. */
 const SETTINGS_PATH = '/settings/payments';
@@ -32,7 +41,6 @@ export class StripeConnectService {
     private readonly admin: PrismaAdminService,
     private readonly client: StripeConnectClient,
     private readonly platformSettings: PlatformPaymentSettingsService,
-    private readonly redsys: RedsysService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
   ) {}
@@ -42,7 +50,7 @@ export class StripeConnectService {
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { cardProvider: true } }),
       this.admin.tenantStripeAccount.findUnique({ where: { tenantId } }),
       this.platformSettings.applicationFeePct(),
-      this.redsys.isEnabled(tenantId),
+      this.redsysEnabled(tenantId),
     ]);
     const cardProvider = parseProvider(tenant?.cardProvider ?? null);
     return {
@@ -75,9 +83,30 @@ export class StripeConnectService {
   }
 
   /**
-   * Cuenta conectada lista para cobrar (o null). La usarán los cobros de la
-   * PR siguiente.
+   * Con qué cuenta de Stripe se cobra la tarjeta de los inquilinos de este
+   * tenant: la suya (Connect) si la eligió y puede cobrar; la de la plataforma
+   * solo con `TENANT_CARD_PAYMENTS_ENABLED` (instalaciones antiguas); si no, no
+   * se cobra con Stripe.
    */
+  async cardContext(tenantId: string): Promise<StripeCardContext | null> {
+    const [tenant, account] = await Promise.all([
+      this.admin.tenant.findUnique({ where: { id: tenantId }, select: { cardProvider: true } }),
+      this.admin.tenantStripeAccount.findUnique({ where: { tenantId } }),
+    ]);
+    if (tenant?.cardProvider === 'stripe' && account?.chargesEnabled && this.client.isAvailable()) {
+      return {
+        mode: 'connect',
+        accountId: account.stripeAccountId,
+        applicationFeePct: await this.platformSettings.applicationFeePct(),
+      };
+    }
+    if (this.config.get('TENANT_CARD_PAYMENTS_ENABLED', { infer: true }) === true) {
+      return { mode: 'platform' };
+    }
+    return null;
+  }
+
+  /** Cuenta conectada lista para cobrar (o null). */
   async chargeableAccount(tenantId: string): Promise<string | null> {
     const account = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
     return account?.chargesEnabled ? account.stripeAccountId : null;
@@ -204,7 +233,7 @@ export class StripeConnectService {
         });
       }
     }
-    if (provider === 'redsys' && !(await this.redsys.isEnabled(tenantId))) {
+    if (provider === 'redsys' && !(await this.redsysEnabled(tenantId))) {
       throw new BadRequestException({
         code: 'redsys_not_enabled',
         message: 'Activa Redsys antes de elegirlo',
@@ -222,6 +251,18 @@ export class StripeConnectService {
       userAgent: null,
     });
     return this.getStatus(tenantId);
+  }
+
+  /**
+   * Redsys activo (se lee la tabla directamente: el módulo de Redsys depende
+   * de facturación, que a su vez usa este servicio para cobrar).
+   */
+  private async redsysEnabled(tenantId: string): Promise<boolean> {
+    const row = await this.admin.redsysSettings.findUnique({
+      where: { tenantId },
+      select: { enabled: true },
+    });
+    return Boolean(row?.enabled);
   }
 
   private assertAvailable(): void {

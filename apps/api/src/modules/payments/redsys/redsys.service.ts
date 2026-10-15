@@ -187,9 +187,25 @@ export class RedsysService {
   }
 
   /** Estado de Redsys para gatear los botones del portal (tarjeta y Bizum). */
-  async availability(tenantId: string): Promise<{ enabled: boolean; bizumEnabled: boolean }> {
-    const cfg = await this.settings.getResolved(tenantId);
-    return { enabled: !!cfg?.enabled, bizumEnabled: !!(cfg?.enabled && cfg.bizumEnabled) };
+  async availability(
+    tenantId: string,
+  ): Promise<{ enabled: boolean; bizumEnabled: boolean; cardEnabled: boolean }> {
+    const [cfg, tenant, stripe] = await Promise.all([
+      this.settings.getResolved(tenantId),
+      this.admin.tenant.findUnique({ where: { id: tenantId }, select: { cardProvider: true } }),
+      this.admin.tenantStripeAccount.findUnique({
+        where: { tenantId },
+        select: { chargesEnabled: true },
+      }),
+    ]);
+    const enabled = !!cfg?.enabled;
+    // Con la tarjeta por Stripe (Connect), Redsys queda solo para Bizum.
+    const cardViaStripe = tenant?.cardProvider === 'stripe' && !!stripe?.chargesEnabled;
+    return {
+      enabled,
+      bizumEnabled: !!(enabled && cfg?.bizumEnabled),
+      cardEnabled: enabled && !cardViaStripe,
+    };
   }
 
   /** Procesa la notificación servidor-a-servidor de Redsys. */

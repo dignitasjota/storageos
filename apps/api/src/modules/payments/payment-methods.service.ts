@@ -12,7 +12,9 @@ import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway.interface';
+import { StripeConnectService } from './stripe-connect/stripe-connect.service';
 
+import type { StripeCardContext } from './stripe-connect/stripe-connect.service';
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type { PaymentMethod, Prisma } from '@storageos/database';
@@ -31,6 +33,7 @@ export class PaymentMethodsService {
     private readonly audit: AuditService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly config: ConfigService<Env, true>,
+    private readonly stripeConnect: StripeConnectService,
   ) {}
 
   async list(tenantId: string, customerId: string): Promise<PaymentMethodDto[]> {
@@ -46,43 +49,55 @@ export class PaymentMethodsService {
   }
 
   /**
-   * Stripe no está configurado si la clave es el placeholder por defecto
-   * (`sk_test_dummy`): cualquier llamada a la API fallaría con un 500 opaco, así
-   * que lo cortamos antes con un error claro.
+   * ¿Pueden los inquilinos de este tenant guardar tarjeta y pagar por Stripe?
+   * Con su cuenta conectada (Stripe Connect) o, en instalaciones antiguas, con
+   * la de la plataforma (`TENANT_CARD_PAYMENTS_ENABLED`).
    */
-  /** ¿Pueden los tenants cobrar con tarjeta/IBAN por Stripe? (ver env). */
-  get cardPaymentsEnabled(): boolean {
-    return this.config.get('TENANT_CARD_PAYMENTS_ENABLED', { infer: true }) === true;
+  async cardPaymentsAvailable(tenantId: string): Promise<boolean> {
+    const ctx = await this.stripeConnect.cardContext(tenantId);
+    if (!ctx) return false;
+    return ctx.mode === 'connect' || this.platformKeyConfigured();
   }
 
-  private assertCardPaymentsEnabled(): void {
-    if (!this.cardPaymentsEnabled) {
+  /** Contexto de Stripe del tenant (null = no cobra con Stripe). */
+  cardContext(tenantId: string): Promise<StripeCardContext | null> {
+    return this.stripeConnect.cardContext(tenantId);
+  }
+
+  /** Contexto de Stripe para cobrar a los inquilinos del tenant (o 400). */
+  async requireCardContext(tenantId: string): Promise<StripeCardContext> {
+    const ctx = await this.stripeConnect.cardContext(tenantId);
+    if (!ctx) {
       throw new BadRequestException({
         code: 'card_payments_disabled',
         message:
           'El pago con tarjeta no está disponible. Paga con Redsys/Bizum o por domiciliación bancaria.',
       });
     }
-  }
-
-  private assertGatewayConfigured(): void {
-    const key = this.config.get('STRIPE_SECRET_KEY', { infer: true });
-    if (!key || key === 'sk_test_dummy') {
+    if (ctx.mode === 'platform' && !this.platformKeyConfigured()) {
       throw new ServiceUnavailableException({
         code: 'payments_not_configured',
         message:
           'El pago online con tarjeta o IBAN no está disponible todavía. Contacta con tu operador.',
       });
     }
+    return ctx;
+  }
+
+  /** Clave real de Stripe (no el placeholder `sk_test_dummy` de dev/test). */
+  private platformKeyConfigured(): boolean {
+    const key = this.config.get('STRIPE_SECRET_KEY', { infer: true });
+    return Boolean(key) && key !== 'sk_test_dummy';
   }
 
   async createSetupIntent(
     tenantId: string,
     input: CreateSetupIntentInput,
   ): Promise<SetupIntentResponseDto> {
-    this.assertCardPaymentsEnabled();
-    this.assertGatewayConfigured();
-    // Resolver/crear el Stripe customer del cliente final.
+    const ctx = await this.requireCardContext(tenantId);
+    const stripeAccount = ctx.mode === 'connect' ? ctx.accountId : null;
+    // Resolver/crear el Stripe customer del cliente final (en la cuenta donde
+    // se va a cobrar: la del tenant o la de la plataforma).
     const customer = await this.prisma.withTenant(
       (tx) =>
         tx.customer.findUniqueOrThrow({
@@ -95,7 +110,11 @@ export class PaymentMethodsService {
             email: true,
             customerType: true,
             paymentMethods: {
-              where: { deletedAt: null, gateway: this.gateway.providerName },
+              where: {
+                deletedAt: null,
+                gateway: this.gateway.providerName,
+                stripeAccountId: stripeAccount,
+              },
               select: { gatewayCustomerId: true },
               take: 1,
             },
@@ -113,15 +132,22 @@ export class PaymentMethodsService {
             : [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() ||
               'Sin nombre',
         metadata: { tenantId, customerId: customer.id },
+        ...(stripeAccount ? { stripeAccount } : {}),
       });
       gatewayCustomerId = created.gatewayCustomerId;
     }
-    const intent = await this.gateway.createSetupIntent({ gatewayCustomerId });
+    // Con la cuenta del tenant solo tarjeta: la domiciliación va por GoCardless
+    // o por las remesas SEPA de su banco.
+    const intent = await this.gateway.createSetupIntent({
+      gatewayCustomerId,
+      ...(stripeAccount ? { stripeAccount, paymentMethodTypes: ['card'] } : {}),
+    });
     return {
       clientSecret: intent.clientSecret,
       setupIntentId: intent.setupIntentId,
       customerId: gatewayCustomerId,
       publishableKey: this.config.get('STRIPE_PUBLISHABLE_KEY', { infer: true }),
+      stripeAccount,
     };
   }
 
@@ -132,8 +158,12 @@ export class PaymentMethodsService {
     input: RegisterPaymentMethodInput;
     meta: RequestMeta;
   }): Promise<PaymentMethodDto> {
-    this.assertCardPaymentsEnabled();
-    const details = await this.gateway.getPaymentMethodDetails(args.input.gatewayToken);
+    const ctx = await this.requireCardContext(args.tenantId);
+    const stripeAccount = ctx.mode === 'connect' ? ctx.accountId : null;
+    const details = await this.gateway.getPaymentMethodDetails(
+      args.input.gatewayToken,
+      stripeAccount ?? undefined,
+    );
     // El tipo real lo dicta el gateway (un PM sepa_debit registrado como
     // 'card' rompería el cobro posterior); el input es solo fallback para
     // tipos que el gateway no mapea.
@@ -153,6 +183,7 @@ export class PaymentMethodsService {
           type: resolvedType,
           gateway: this.gateway.providerName,
           gatewayTokenEncrypted: encrypted,
+          stripeAccountId: stripeAccount,
           ...(args.input.gatewayCustomerId
             ? { gatewayCustomerId: args.input.gatewayCustomerId }
             : {}),

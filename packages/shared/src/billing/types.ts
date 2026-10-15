@@ -174,8 +174,10 @@ export interface SetupIntentResponseDto {
   clientSecret: string;
   setupIntentId: string;
   customerId: string;
-  /** Publishable key del tenant (mismo para todos en MVP). */
+  /** Publishable key de la plataforma. */
   publishableKey: string;
+  /** Stripe Connect: cuenta del tenant (el formulario de Stripe se abre con ella). */
+  stripeAccount: string | null;
 }
 
 export interface DunningActionDto {

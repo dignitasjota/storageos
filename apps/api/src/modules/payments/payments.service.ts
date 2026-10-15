@@ -24,6 +24,7 @@ import { PrismaService } from '../database/prisma.service';
 import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway.interface';
 import { PaymentMethodsService } from './payment-methods.service';
+import { applicationFeeCents } from './stripe-connect/stripe-connect.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Payment, PaymentStatus, Prisma } from '@storageos/database';
@@ -193,6 +194,14 @@ export class PaymentsService {
       });
     }
 
+    // Stripe: con qué cuenta se cobra (la del tenant con Connect, o la de la
+    // plataforma en instalaciones antiguas). Se mira fuera de la transacción.
+    const cardCtx = await this.paymentMethods.cardContext(args.tenantId);
+    const feeCents =
+      cardCtx?.mode === 'connect'
+        ? applicationFeeCents(toCents(chargeAmount), cardCtx.applicationFeePct)
+        : 0;
+
     // === FASE 1 (reserva, tx corta) ===
     // Reserva ATÓMICA del slot de cobro ANTES de llamar al gateway: crea el
     // `payment` en estado `processing` (que cuenta en el índice único parcial
@@ -217,14 +226,26 @@ export class PaymentsService {
         });
       }
       const pm = await tx.paymentMethod.findUniqueOrThrow({ where: { id: pmId } });
-      // Stripe es la cuenta de la plataforma: sin Connect, no se cobra con ella
-      // a los inquilinos (ver TENANT_CARD_PAYMENTS_ENABLED).
-      if (pm.gateway === 'stripe' && !this.paymentMethods.cardPaymentsEnabled) {
-        throw new BadRequestException({
-          code: 'card_payments_disabled',
-          message:
-            'El cobro con tarjeta no está disponible. Usa Redsys/Bizum o la domiciliación bancaria.',
-        });
+      // Stripe: se cobra con la cuenta del tenant (Connect) o, en instalaciones
+      // antiguas, con la de la plataforma (TENANT_CARD_PAYMENTS_ENABLED). La
+      // tarjeta tiene que estar guardada en esa misma cuenta.
+      const pmStripeAccount = pm.stripeAccountId ?? null;
+      if (pm.gateway === 'stripe') {
+        if (!cardCtx) {
+          throw new BadRequestException({
+            code: 'card_payments_disabled',
+            message:
+              'El cobro con tarjeta no está disponible. Usa Redsys/Bizum o la domiciliación bancaria.',
+          });
+        }
+        const ctxAccount = cardCtx.mode === 'connect' ? cardCtx.accountId : null;
+        if (pmStripeAccount !== ctxAccount) {
+          throw new BadRequestException({
+            code: 'stripe_account_changed',
+            message:
+              'La tarjeta guardada es de otra cuenta de Stripe. El inquilino tiene que volver a añadirla.',
+          });
+        }
       }
       // Solo card y sepa_debit son cobrables via gateway; bank_transfer,
       // cash y other se registran a mano con mark-paid.
@@ -261,6 +282,7 @@ export class PaymentsService {
             status: 'processing',
             methodType: pm.type,
             gateway: pm.gateway,
+            stripeAccountId: pm.gateway === 'stripe' ? pmStripeAccount : null,
           },
           select: { id: true },
         });
@@ -277,11 +299,17 @@ export class PaymentsService {
           status: 'processing',
           methodType: pm.type,
           gateway: pm.gateway,
+          stripeAccountId: pm.gateway === 'stripe' ? pmStripeAccount : null,
+          // Comisión de la plataforma de todo el cargo (también la fianza que va en él).
+          ...(pm.gateway === 'stripe' && pmStripeAccount && feeCents > 0
+            ? { applicationFeeAmount: feeCents / 100 }
+            : {}),
         },
         select: { id: true },
       });
       return {
         paymentId: created.id,
+        stripeAccount: pm.gateway === 'stripe' ? pmStripeAccount : null,
         bundledPayments: bundledPaymentIds,
         gateway: pm.gateway,
         type: pm.type,
@@ -323,6 +351,13 @@ export class PaymentsService {
                 paymentId: reserved.paymentId,
               },
               offSession: true,
+              idempotencyKey: `charge-${reserved.paymentId}`,
+              ...(reserved.stripeAccount
+                ? {
+                    stripeAccount: reserved.stripeAccount,
+                    ...(feeCents > 0 ? { applicationFeeCents: feeCents } : {}),
+                  }
+                : {}),
             });
     } catch (err) {
       await this.prisma.withTenant(
