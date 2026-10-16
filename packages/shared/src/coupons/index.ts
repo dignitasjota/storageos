@@ -51,6 +51,7 @@ const couponFields = {
   unitTypeIds: z.array(z.string().uuid()).max(100),
   facilityIds: z.array(z.string().uuid()).max(100),
   newCustomersOnly: z.boolean(),
+  oncePerCustomer: z.boolean(),
   maxUses: z.number().int().positive().nullable(),
   validFrom: isoDate.nullable(),
   validUntil: isoDate.nullable(),
@@ -102,6 +103,7 @@ export const CreateCouponSchema = z
     unitTypeIds: couponFields.unitTypeIds.default([]),
     facilityIds: couponFields.facilityIds.default([]),
     newCustomersOnly: couponFields.newCustomersOnly.default(false),
+    oncePerCustomer: couponFields.oncePerCustomer.default(false),
     maxUses: couponFields.maxUses.default(null),
     validFrom: couponFields.validFrom.default(null),
     validUntil: couponFields.validUntil.default(null),
@@ -124,6 +126,7 @@ export const UpdateCouponSchema = z.object({
   unitTypeIds: couponFields.unitTypeIds.optional(),
   facilityIds: couponFields.facilityIds.optional(),
   newCustomersOnly: couponFields.newCustomersOnly.optional(),
+  oncePerCustomer: couponFields.oncePerCustomer.optional(),
   maxUses: couponFields.maxUses.optional(),
   validFrom: couponFields.validFrom.optional(),
   validUntil: couponFields.validUntil.optional(),
@@ -142,6 +145,7 @@ export interface CouponDto {
   unitTypeIds: string[];
   facilityIds: string[];
   newCustomersOnly: boolean;
+  oncePerCustomer: boolean;
   maxUses: number | null;
   usedCount: number;
   validFrom: string | null;
@@ -212,8 +216,6 @@ export const BookingQuoteSchema = z.object({
   unitTypeId: z.string().uuid(),
   months: FirstPaymentMonthsSchema.default(1),
   couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
-  /** Para «solo clientes nuevos». */
-  email: z.string().trim().toLowerCase().email().optional().or(z.literal('')),
 });
 export type BookingQuoteInput = z.infer<typeof BookingQuoteSchema>;
 
@@ -239,7 +241,8 @@ export type CouponRejectReason =
   | 'min_amount'
   | 'unit_type'
   | 'facility'
-  | 'new_customers_only';
+  | 'new_customers_only'
+  | 'already_used';
 
 /** Lo que necesita el cálculo del cupón (importes en euros, sin IVA). */
 export interface CouponRules {
@@ -250,6 +253,7 @@ export interface CouponRules {
   unitTypeIds: string[];
   facilityIds: string[];
   newCustomersOnly: boolean;
+  oncePerCustomer?: boolean | undefined;
   maxUses: number | null;
   usedCount: number;
   validFrom: Date | string | null;
@@ -266,6 +270,8 @@ export interface CouponQuoteContext {
   facilityId?: string | null | undefined;
   /** Si es un cliente nuevo; sin dato se da por nuevo. */
   isNewCustomer?: boolean | null | undefined;
+  /** Si este cliente ya usó el cupón (para «un uso por cliente»). */
+  usedByCustomer?: boolean | null | undefined;
   now?: Date;
 }
 
@@ -320,6 +326,8 @@ export function couponRejectMessage(reason: CouponRejectReason, rules?: CouponRu
       return 'Este cupón no vale en este local';
     case 'new_customers_only':
       return 'Este cupón es solo para clientes nuevos';
+    case 'already_used':
+      return 'Ya has usado este cupón';
   }
 }
 
@@ -357,6 +365,7 @@ export function quoteCoupon(rules: CouponRules, ctx: CouponQuoteContext): Coupon
     return reject('facility');
   }
   if (rules.newCustomersOnly && ctx.isNewCustomer === false) return reject('new_customers_only');
+  if (rules.oncePerCustomer && ctx.usedByCustomer === true) return reject('already_used');
 
   const monthCents = Math.max(0, cents(ctx.monthlyPrice));
   const subtotal = monthCents * ctx.months;
@@ -395,6 +404,23 @@ export function couponSummary(c: {
   if (c.discountType === 'fixed') return `${eur(c.discountValue)}${from}`;
   const n = Math.trunc(c.discountValue);
   return `${n} ${n === 1 ? 'mes gratis' : 'meses gratis'}${from}`;
+}
+
+/**
+ * Motivos que, en la web pública, solo dirían si un código existe: se muestran
+ * con un mensaje genérico para no ayudar a adivinar códigos.
+ */
+const PUBLIC_GENERIC_REASONS: CouponRejectReason[] = [
+  'not_found',
+  'inactive',
+  'not_started',
+  'expired',
+  'max_uses_reached',
+];
+
+/** Mensaje para la web pública (reserva online). */
+export function publicCouponRejectMessage(reason: CouponRejectReason, message: string): string {
+  return PUBLIC_GENERIC_REASONS.includes(reason) ? 'Este cupón no es válido' : message;
 }
 
 /** Monta el resumen del primer pago (importes en euros, sin IVA salvo los «WithVat»). */

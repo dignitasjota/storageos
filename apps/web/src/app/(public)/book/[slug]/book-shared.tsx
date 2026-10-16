@@ -135,7 +135,6 @@ export function BookPageBody({
       return;
     }
     let cancelled = false;
-    const email = form.email.trim();
     apiFetch<FirstPaymentQuoteDto>(`/public/move-in/book/${slug}/quote`, {
       method: 'POST',
       requiresAuth: false,
@@ -144,7 +143,6 @@ export function BookPageBody({
         unitTypeId,
         months,
         ...(couponCode ? { couponCode } : {}),
-        ...(couponCode && EMAIL_RE.test(email) ? { email } : {}),
       },
     })
       .then((q) => {
@@ -156,8 +154,6 @@ export function BookPageBody({
     return () => {
       cancelled = true;
     };
-    // El email solo cuenta al aplicar el cupón («solo clientes nuevos»).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, facilityId, unitTypeId, months, couponCode]);
   const couponValid = !!(couponCode && quote?.coupon?.valid);
   const [showErrors, setShowErrors] = useState(false);

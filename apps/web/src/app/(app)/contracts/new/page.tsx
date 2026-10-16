@@ -462,8 +462,14 @@ function StepEconomics(props: {
               type="number"
               step="0.01"
               value={props.discountAmount}
+              disabled={!!props.coupon?.valid}
               onChange={(e) => props.onChange({ discountAmount: Number(e.target.value) })}
             />
+            {props.coupon?.valid && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                No se combina con el cupón aplicado.
+              </p>
+            )}
           </div>
           <div>
             <Label>Fianza (€)</Label>
@@ -608,17 +614,27 @@ function StepEconomics(props: {
                   variant="outline"
                   onClick={() => void applyCoupon(couponInput)}
                   disabled={
-                    validateCoupon.isPending || !couponInput.trim() || !!props.promotionCode
+                    validateCoupon.isPending ||
+                    !couponInput.trim() ||
+                    !!props.promotionCode ||
+                    props.discountAmount > 0
                   }
                 >
                   {validateCoupon.isPending ? 'Comprobando...' : 'Aplicar'}
                 </Button>
               )}
             </div>
-            {props.promotionCode && (
+            {props.promotionCode ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 No se combina con un código promocional.
               </p>
+            ) : (
+              props.discountAmount > 0 &&
+              !props.coupon && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  No se combina con un descuento manual: déjalo a 0 para aplicar un cupón.
+                </p>
+              )
             )}
             {props.coupon &&
               (props.coupon.valid ? (

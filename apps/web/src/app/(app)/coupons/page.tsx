@@ -74,6 +74,7 @@ export default function CouponsPage() {
       out.push(c.facilityIds.map((id) => facilityName.get(id) ?? '—').join(', '));
     if (c.minAmount) out.push(`desde ${eur(c.minAmount)} sin IVA`);
     if (c.newCustomersOnly) out.push('clientes nuevos');
+    if (c.oncePerCustomer) out.push('un uso por cliente');
     if (c.validUntil) out.push(`hasta el ${day(c.validUntil)}`);
     return out;
   }
@@ -228,7 +229,14 @@ export default function CouponsPage() {
   );
 }
 
-const toDateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : '');
+/** Fecha del campo en hora local (con `toISOString` el inicio del día salía el día anterior). */
+function toDateInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 /** Inicio del día en hora local o, para la fecha de fin, su último instante. */
 function fromDateInput(value: string, endOfDay: boolean): string | null {
   if (!value) return null;
@@ -251,6 +259,7 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
   const [unitTypeIds, setUnitTypeIds] = useState<string[]>(coupon?.unitTypeIds ?? []);
   const [facilityIds, setFacilityIds] = useState<string[]>(coupon?.facilityIds ?? []);
   const [newOnly, setNewOnly] = useState(coupon?.newCustomersOnly ?? false);
+  const [oncePerCustomer, setOncePerCustomer] = useState(coupon?.oncePerCustomer ?? false);
   const [validFrom, setValidFrom] = useState(toDateInput(coupon?.validFrom ?? null));
   const [validUntil, setValidUntil] = useState(toDateInput(coupon?.validUntil ?? null));
   const [error, setError] = useState<string | null>(null);
@@ -272,6 +281,7 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
       unitTypeIds,
       facilityIds,
       newCustomersOnly: newOnly,
+      oncePerCustomer,
       maxUses: maxUses ? Number(maxUses) : null,
       validFrom: fromDateInput(validFrom, false),
       validUntil: fromDateInput(validUntil, true),
@@ -465,6 +475,13 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={newOnly} onCheckedChange={(v) => setNewOnly(v === true)} />
             Solo para clientes nuevos (sin ningún contrato firmado antes)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={oncePerCustomer}
+              onCheckedChange={(v) => setOncePerCustomer(v === true)}
+            />
+            Un solo uso por cliente
           </label>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
