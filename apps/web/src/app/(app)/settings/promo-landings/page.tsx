@@ -1,12 +1,23 @@
 'use client';
 
-import { Copy, CopyPlus, ExternalLink, Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  CopyPlus,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Link2,
+  Loader2,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { SettingsHeader } from '../settings-header';
 
 import { PromoLandingDialog } from './promo-landing-dialog';
+import { PromoLinksDialog } from './promo-links-dialog';
 
 import type { PromoLandingDto } from '@storageos/shared';
 
@@ -14,7 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
-import { useMe } from '@/lib/auth/hooks';
+import { useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useTenantBranding } from '@/lib/branding/hooks';
 import {
   useDeletePromoLanding,
@@ -34,6 +45,8 @@ export default function PromoLandingsPage() {
   const branding = useTenantBranding();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PromoLandingDto | undefined>(undefined);
+  const [linksOf, setLinksOf] = useState<PromoLandingDto | null>(null);
+  const canMarket = useHasPermission('marketing:manage');
 
   const domain =
     branding.data?.customDomain && branding.data.customDomainVerifiedAt
@@ -123,6 +136,17 @@ export default function PromoLandingsPage() {
                     )}
                   </button>
                   <div className="flex items-center gap-1">
+                    {canMarket && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Enlaces y QR por origen"
+                        aria-label="Enlaces y QR por origen"
+                        onClick={() => setLinksOf(p)}
+                      >
+                        <Link2 className="size-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -188,6 +212,7 @@ export default function PromoLandingsPage() {
         </CardContent>
       </Card>
       <PromoLandingDialog open={open} onOpenChange={setOpen} landing={editing} />
+      <PromoLinksDialog landing={linksOf} onOpenChange={(o) => !o && setLinksOf(null)} />
     </div>
   );
 }

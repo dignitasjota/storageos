@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { PublicLandingDto } from '../landing/types';
+import type { MarketingChannelType } from '../marketing';
 
 /**
  * Landings de promoción de la web del tenant (extra Web Premium): una página
@@ -195,3 +196,39 @@ export interface PublicPromoPageDto {
   site: PublicLandingDto;
   promo: PublicPromoLandingDto;
 }
+
+// ============================================================================
+// Seguimiento (de dónde vienen las visitas)
+// ============================================================================
+
+/** `utm_campaign` de las visitas y reservas que llegan por una landing. */
+export function promoCampaign(slug: string): string {
+  return `promo-${slug}`;
+}
+
+/** `utm_medium` según el tipo de canal (estándar de Google Analytics). */
+export function promoUtmMedium(type: MarketingChannelType): string {
+  switch (type) {
+    case 'google_ads':
+      return 'cpc';
+    case 'meta_ads':
+      return 'paid_social';
+    case 'physical':
+      return 'offline';
+    case 'real_estate_portal':
+      return 'referral';
+    case 'referral_program':
+      return 'referral';
+    default:
+      return 'other';
+  }
+}
+
+/** Visita a una landing (la manda la propia página al abrirse). */
+export const PromoVisitSchema = z.object({
+  visitorId: z.string().trim().min(8).max(64),
+  source: z.string().trim().max(120).optional(),
+  medium: z.string().trim().max(120).optional(),
+  campaign: z.string().trim().max(160).optional(),
+});
+export type PromoVisitInput = z.infer<typeof PromoVisitSchema>;

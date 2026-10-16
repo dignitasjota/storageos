@@ -22,6 +22,7 @@ import type {
   LeadDto,
   OpeningHours,
   PublicContactInput,
+  PromoVisitInput,
   PublicFaqDto,
   PublicTestimonialDto,
   TenantFeature,
@@ -122,6 +123,44 @@ export class LandingService {
         unitTypeIds: promo.unitTypeIds,
       },
     };
+  }
+
+  /**
+   * Visita a una landing en vigor (la manda la página al abrirse). Un mismo
+   * visitante cuenta una vez cada 30 minutos por landing (recargas, volver
+   * atrás). Sin IP ni datos personales.
+   */
+  async recordPromoVisit(slug: string, promoSlug: string, input: PromoVisitInput): Promise<void> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: { id: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) return;
+    const promo = await this.admin.promoLanding.findUnique({
+      where: { tenantId_slug: { tenantId: tenant.id, slug: promoSlug.toLowerCase() } },
+      select: { id: true, isActive: true, startsAt: true, endsAt: true },
+    });
+    if (!promo || !promoLandingIsLive(promo)) return;
+    const recent = await this.admin.promoLandingVisit.findFirst({
+      where: {
+        promoLandingId: promo.id,
+        visitorId: input.visitorId,
+        createdAt: { gte: new Date(Date.now() - 30 * 60_000) },
+      },
+      select: { id: true },
+    });
+    if (recent) return;
+    const clean = (v: string | undefined) => (v ? v.toLowerCase() : null);
+    await this.admin.promoLandingVisit.create({
+      data: {
+        tenantId: tenant.id,
+        promoLandingId: promo.id,
+        visitorId: input.visitorId,
+        source: clean(input.source),
+        medium: clean(input.medium),
+        campaign: clean(input.campaign),
+      },
+    });
   }
 
   async getBySlug(slug: string): Promise<PublicLandingDto> {

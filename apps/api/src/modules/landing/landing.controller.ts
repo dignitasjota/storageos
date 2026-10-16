@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Param, Post, Query, Req, VERSION_NEUTRAL } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+  VERSION_NEUTRAL,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { PublicContactSchema } from '@storageos/shared';
+import { PromoVisitSchema, PublicContactSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -23,6 +34,7 @@ import type {
 import type { Request } from 'express';
 
 class PublicContactDto extends createZodDto(PublicContactSchema) {}
+class PromoVisitDto extends createZodDto(PromoVisitSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -120,6 +132,18 @@ export class LandingController {
     @Param('promoSlug') promoSlug: string,
   ): Promise<PublicPromoPageDto> {
     return this.landing.getPromo(slug, promoSlug);
+  }
+
+  /** Visita a una landing de promoción (para saber de dónde vienen). */
+  @Post(':slug/promo/:promoSlug/visit')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async promoVisit(
+    @Param('slug') slug: string,
+    @Param('promoSlug') promoSlug: string,
+    @Body() body: PromoVisitDto,
+  ): Promise<void> {
+    await this.landing.recordPromoVisit(slug, promoSlug, body);
   }
 
   @Get(':slug/:facilitySlug')
