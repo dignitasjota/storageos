@@ -1,0 +1,250 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { rentTax } from '@storageos/shared';
+
+import { toCents } from '../../common/money';
+import { PrismaAdminService } from '../database/prisma-admin.service';
+
+import { InvoiceSeriesService } from './invoice-series.service';
+import { InvoicesService } from './invoices.service';
+
+import type { CreateInvoiceItemInput } from '@storageos/shared';
+
+const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+const eur = (cents: number): string =>
+  `${(cents / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+
+function addMonths(d: Date, months: number): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate()));
+}
+function addDays(d: Date, days: number): Date {
+  const copy = new Date(d);
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
+}
+
+/**
+ * Primera factura de un contrato al firmarlo.
+ *
+ * - Mensual sin cupón: desde el alta hasta fin de mes, prorrateada (encaja con
+ *   la recurrente del mes natural).
+ * - Prepago semestral/anual, primer pago de varios meses o con cupón: cubre
+ *   los meses completos desde el alta. Con cupón se descuenta lo que se paga
+ *   ahora (los meses gratis salen en una línea a 0 €); después la recurrente
+ *   factura mes a mes desde el día siguiente (`billingStartsOn`), salvo el
+ *   prepago semestral/anual, que se renueva con su periodo.
+ *
+ * La fianza va en un justificante aparte, en el mismo pago.
+ */
+@Injectable()
+export class FirstInvoiceService {
+  private readonly logger = new Logger(FirstInvoiceService.name);
+
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly invoices: InvoicesService,
+    private readonly series: InvoiceSeriesService,
+  ) {}
+
+  /** ¿Hay que emitir la 1ª factura al firmar en el panel? (cupón o varios meses). */
+  async needsOnSign(tenantId: string, contractId: string): Promise<boolean> {
+    const c = await this.admin.contract.findFirst({
+      where: { id: contractId, tenantId },
+      select: { firstPaymentMonths: true, _count: { select: { couponRedemptions: true } } },
+    });
+    return !!c && (c.firstPaymentMonths > 1 || c._count.couponRedemptions > 0);
+  }
+
+  /** Emite la 1ª factura si el contrato aún no tiene ninguna. No lanza. */
+  async issueIfMissing(tenantId: string, contractId: string, customerId: string): Promise<void> {
+    try {
+      const existing = await this.admin.invoice.findFirst({
+        where: { tenantId, contractId, deletedAt: null },
+        select: { id: true },
+      });
+      if (existing) return;
+      const series = await this.series.getDefault(tenantId);
+      if (!series) {
+        this.logger.warn(`[first-invoice] tenant ${tenantId} sin serie; no se emite 1ª factura`);
+        return;
+      }
+      const contract = await this.admin.contract.findUniqueOrThrow({
+        where: { id: contractId },
+        include: {
+          unit: { select: { id: true, unitType: { select: { propertyKind: true } } } },
+          insurancePlan: { select: { name: true, taxRate: true } },
+          couponRedemptions: {
+            take: 1,
+            include: { coupon: { select: { code: true } } },
+          },
+        },
+      });
+      const coupon = contract.couponRedemptions[0] ?? null;
+      const interval = contract.billingIntervalMonths;
+      const months = interval > 1 ? interval : contract.firstPaymentMonths;
+      // Vivienda: alquiler exento de IVA; trastero: 21 %.
+      const rent = rentTax(contract.unit.unitType?.propertyKind);
+      const fullPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
+      const deposit = Number(contract.depositAmount);
+      const cashDeposit = contract.depositPaymentMethod === 'cash';
+      const start = new Date(contract.startDate);
+
+      let periodStart: Date;
+      let periodEnd: Date;
+      const items: CreateInvoiceItemInput[] = [];
+      const line = (description: string, quantity: number, unitPrice: number) => ({
+        description,
+        quantity,
+        unitPrice,
+        ...rent,
+        relatedContractId: contractId,
+        relatedUnitId: contract.unit.id,
+        periodStart: ymd(periodStart),
+        periodEnd: ymd(periodEnd),
+      });
+
+      if (interval > 1 || months > 1 || coupon) {
+        // Meses completos desde el alta: [alta, alta + N meses − 1 día].
+        periodStart = start;
+        periodEnd = addDays(addMonths(start, months), -1);
+        const monthCents = toCents(fullPrice);
+        const subtotal = monthCents * months;
+        const range = `${ymd(periodStart)}–${ymd(periodEnd)}`;
+        const monthsLabel = `${months} ${months === 1 ? 'mes' : 'meses'}`;
+        if (coupon && coupon.freeMonths > 0) {
+          const free = Math.min(coupon.freeMonths, months - 1);
+          items.push(
+            line(
+              `Alquiler ${contract.contractNumber} (${range}, ${monthsLabel})`,
+              1,
+              (monthCents * (months - free)) / 100,
+            ),
+            line(
+              `${free === 1 ? 'Mes gratis' : `${free} meses gratis`} — cupón ${coupon.coupon.code}`,
+              free,
+              0,
+            ),
+          );
+        } else if (coupon) {
+          const discount = Math.min(toCents(Number(coupon.discountAmount)), subtotal);
+          items.push(
+            line(
+              `Alquiler ${contract.contractNumber} (${range}, ${monthsLabel}; cupón ${
+                coupon.coupon.code
+              } −${eur(discount)})`,
+              1,
+              (subtotal - discount) / 100,
+            ),
+          );
+        } else {
+          const pct = interval > 1 ? Number(contract.prepayDiscountPct) : 0;
+          items.push(
+            line(
+              `Alquiler ${contract.contractNumber} (${range}, ${monthsLabel}${
+                interval > 1 ? ' prepago' : ''
+              }${pct > 0 ? ` −${pct}%` : ''})`,
+              1,
+              Math.round(subtotal * (1 - pct / 100)) / 100,
+            ),
+          );
+        }
+        // El seguro se paga por los mismos meses, sin descuento.
+        if (
+          contract.insurancePlanId &&
+          contract.insurancePrice &&
+          Number(contract.insurancePrice) > 0
+        ) {
+          items.push({
+            description: `Protección de contenido${
+              contract.insurancePlan?.name ? ` — ${contract.insurancePlan.name}` : ''
+            } (${monthsLabel})`,
+            quantity: 1,
+            unitPrice: (toCents(Number(contract.insurancePrice)) * months) / 100,
+            taxRate: Number(contract.insurancePlan?.taxRate ?? 21),
+            relatedContractId: contractId,
+            periodStart: ymd(periodStart),
+            periodEnd: ymd(periodEnd),
+          });
+        }
+        // Después de este periodo se factura mes a mes (el prepago
+        // semestral/anual se renueva por su cuenta con su periodo).
+        if (interval === 1) {
+          await this.admin.contract.update({
+            where: { id: contractId },
+            data: { billingStartsOn: addDays(periodEnd, 1) },
+          });
+        }
+      } else {
+        // MENSUAL: desde el alta hasta fin del mes natural, prorrateado por
+        // días. Si el alta es el día 1, sale el mes completo.
+        const y = start.getUTCFullYear();
+        const m = start.getUTCMonth();
+        const dayOfMonth = start.getUTCDate();
+        const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+        periodStart = new Date(Date.UTC(y, m, dayOfMonth));
+        periodEnd = new Date(Date.UTC(y, m, daysInMonth));
+        const daysOccupied = daysInMonth - dayOfMonth + 1;
+        const isFullMonth = daysOccupied >= daysInMonth;
+        const unitPrice = isFullMonth
+          ? fullPrice
+          : Math.round((toCents(fullPrice) * daysOccupied) / daysInMonth) / 100;
+        items.push(
+          line(
+            isFullMonth
+              ? `Alquiler ${contract.contractNumber} (${ymd(periodStart).slice(0, 7)})`
+              : `Alquiler ${contract.contractNumber} (${ymd(periodStart)}–${ymd(
+                  periodEnd,
+                )}, prorrateado ${daysOccupied}/${daysInMonth} d)`,
+            1,
+            unitPrice,
+          ),
+        );
+      }
+
+      const dueDate = addDays(periodEnd, 15);
+      const invoice = await this.invoices.create({
+        tenantId,
+        userId: null,
+        input: {
+          invoiceType: 'F1',
+          customerId,
+          contractId,
+          seriesId: series.id,
+          periodStart: ymd(periodStart),
+          periodEnd: ymd(periodEnd),
+          dueDate: ymd(dueDate),
+          items,
+          verifactuMode: 'verifactu',
+        },
+        meta: {},
+      });
+      await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
+      if (coupon) {
+        await this.admin.couponRedemption.update({
+          where: { id: coupon.id },
+          data: { invoiceId: invoice.id },
+        });
+      }
+      if (deposit > 0) {
+        await this.invoices.createDepositReceipt({
+          tenantId,
+          userId: null,
+          contractId,
+          customerId,
+          contractNumber: contract.contractNumber,
+          amount: deposit,
+          // En efectivo: se cobra en el local, aparte del pago online (el acceso
+          // llega con la factura pagada) y sin vencimiento (no entra en impagos).
+          ...(cashDeposit
+            ? { dueDate: null, bundledWithInvoiceId: null }
+            : { dueDate, bundledWithInvoiceId: invoice.id }),
+        });
+      }
+    } catch (err) {
+      this.logger.error(
+        `[first-invoice] no se pudo emitir la 1ª factura del contrato ${contractId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+}

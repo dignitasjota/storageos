@@ -1248,6 +1248,9 @@ model Contract {
   /// Contratos migrados: primer día que factura la app (null = desde el alta).
   billingStartsOn        DateTime?              @map("billing_starts_on") @db.Date
   billingIntervalMonths  Int                   @default(1) @map("billing_interval_months")
+  /// Meses que cubre el primer pago (1 = mensual de siempre). Con cupón o
+  /// varios meses, la 1ª factura cubre esos meses y luego se factura mes a mes.
+  firstPaymentMonths     Int                   @default(1) @map("first_payment_months")
   /// Vivienda: fianza depositada en el organismo autonómico.
   depositRegistryBody        String?   @map("deposit_registry_body")
   depositRegisteredAt        DateTime? @map("deposit_registered_at") @db.Date

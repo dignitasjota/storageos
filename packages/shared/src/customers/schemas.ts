@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { FirstPaymentMonthsSchema } from '../coupons';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 const phoneSchema = z
@@ -202,6 +204,16 @@ export const CreateContractSchema = z.object({
    * el uso; tiene prioridad sobre un `discountAmount` manual.
    */
   promotionCode: z.string().trim().toUpperCase().max(32).optional(),
+  /**
+   * Cupón: descuento solo sobre el primer pago (no sobre las renovaciones).
+   * No se combina con un código promocional.
+   */
+  couponCode: z.string().trim().toUpperCase().max(40).optional(),
+  /**
+   * Meses que cubre el primer pago (1, 3, 6 o 12). Después se factura mes a
+   * mes. Con prepago semestral/anual el primer pago es ese periodo.
+   */
+  firstPaymentMonths: FirstPaymentMonthsSchema.default(1),
   depositAmount: nonNegativeDecimal.default(0),
   /**
    * Cómo se cobra la fianza: `online` (junto a la 1ª factura; el acceso llega

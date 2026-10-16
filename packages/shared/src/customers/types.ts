@@ -89,6 +89,14 @@ export interface SignedDownloadDto {
   url: string;
 }
 
+/** Cupón usado en el primer pago de un contrato. */
+export interface ContractCouponDto {
+  code: string;
+  months: number;
+  discountAmount: number;
+  freeMonths: number;
+}
+
 export interface ContractDto {
   id: string;
   contractNumber: string;
@@ -117,6 +125,10 @@ export interface ContractDto {
   ownerName: string | null;
   /** Descuento % por prepagar (solo aplica si billingIntervalMonths>1). */
   prepayDiscountPct: number;
+  /** Meses que cubre el primer pago (1 = mensual de siempre). */
+  firstPaymentMonths: number;
+  /** Cupón aplicado al primer pago, si lo hay. */
+  coupon: ContractCouponDto | null;
   priceMonthly: number;
   discountAmount: number;
   discountReason: string | null;

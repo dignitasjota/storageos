@@ -10,10 +10,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { contractClausesTemplate, renderContractClauses, rentTax } from '@storageos/shared';
+import { contractClausesTemplate, renderContractClauses } from '@storageos/shared';
 
-import { toCents } from '../../common/money';
-import { InvoiceSeriesService } from '../billing/invoice-series.service';
+import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { buildContractTermsText } from '../contracts/contract-terms';
@@ -26,7 +25,6 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   ContractSignViewDto,
   ContractSignatureDto,
-  CreateInvoiceItemInput,
   PublicSignSubmitInput,
   RequestSignatureResultDto,
   SignResultDto,
@@ -56,7 +54,7 @@ export class SignaturesService {
     private readonly contracts: ContractsService,
     private readonly communications: CommunicationsService,
     private readonly invoices: InvoicesService,
-    private readonly series: InvoiceSeriesService,
+    private readonly firstInvoice: FirstInvoiceService,
     private readonly config: ConfigService<Env, true>,
     private readonly jwt: JwtService,
   ) {}
@@ -349,162 +347,13 @@ export class SignaturesService {
   }
 
   /** Best-effort: emite la 1ª factura del contrato si aún no tiene ninguna. */
+  /** 1ª factura del contrato (ver `FirstInvoiceService`). No lanza. */
   private async maybeIssueFirstInvoice(
     tenantId: string,
     contractId: string,
     customerId: string,
   ): Promise<void> {
-    try {
-      const existing = await this.admin.invoice.findFirst({
-        where: { tenantId, contractId, deletedAt: null },
-        select: { id: true },
-      });
-      if (existing) return;
-      const series = await this.series.getDefault(tenantId);
-      if (!series) {
-        this.logger.warn(`[move-in] tenant ${tenantId} sin serie; no se emite 1ª factura`);
-        return;
-      }
-      const contract = await this.admin.contract.findUniqueOrThrow({
-        where: { id: contractId },
-        include: {
-          unit: { select: { id: true, unitType: { select: { propertyKind: true } } } },
-          insurancePlan: { select: { name: true, taxRate: true } },
-        },
-      });
-      const interval = contract.billingIntervalMonths;
-      // Vivienda: alquiler exento de IVA; trastero: 21 %.
-      const rent = rentTax(contract.unit.unitType?.propertyKind);
-      const fullPrice = Number(contract.priceMonthly) - Number(contract.discountAmount);
-      const deposit = Number(contract.depositAmount);
-      const cashDeposit = contract.depositPaymentMethod === 'cash';
-      const start = new Date(contract.startDate);
-
-      let periodStart: Date;
-      let periodEnd: Date;
-      const items: CreateInvoiceItemInput[] = [];
-
-      if (interval > 1) {
-        // PREPAGO (semestral/anual): la 1ª factura cubre el intervalo COMPLETO
-        // desde el alta ([alta, alta+N meses−1 día]) con `prepayDiscountPct` de
-        // descuento sobre el alquiler. La recurrente no vuelve a facturar este
-        // contrato mientras el periodo esté cubierto (dedup por solapamiento).
-        periodStart = start;
-        periodEnd = new Date(
-          Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + interval, start.getUTCDate()),
-        );
-        periodEnd.setUTCDate(periodEnd.getUTCDate() - 1);
-        const pct = Number(contract.prepayDiscountPct);
-        const rentAmount = Math.round(toCents(fullPrice) * interval * (1 - pct / 100)) / 100;
-        items.push({
-          description: `Alquiler ${contract.contractNumber} (${periodStart
-            .toISOString()
-            .slice(0, 10)}–${periodEnd.toISOString().slice(0, 10)}, ${interval} meses prepago${
-            pct > 0 ? ` −${pct}%` : ''
-          })`,
-          quantity: 1,
-          unitPrice: rentAmount,
-          ...rent,
-          relatedContractId: contractId,
-          relatedUnitId: contract.unit.id,
-          periodStart: periodStart.toISOString().slice(0, 10),
-          periodEnd: periodEnd.toISOString().slice(0, 10),
-        });
-        // El seguro/protección se prepaga por los N meses (sin descuento de prepago).
-        if (
-          contract.insurancePlanId &&
-          contract.insurancePrice &&
-          Number(contract.insurancePrice) > 0
-        ) {
-          items.push({
-            description: `Protección de contenido${
-              contract.insurancePlan?.name ? ` — ${contract.insurancePlan.name}` : ''
-            } (${interval} meses)`,
-            quantity: 1,
-            unitPrice: Number(contract.insurancePrice) * interval,
-            taxRate: Number(contract.insurancePlan?.taxRate ?? 21),
-            relatedContractId: contractId,
-            periodStart: periodStart.toISOString().slice(0, 10),
-            periodEnd: periodEnd.toISOString().slice(0, 10),
-          });
-        }
-      } else {
-        // MENSUAL: la 1ª factura cubre desde el alta hasta el FIN del mes natural,
-        // y el alquiler se PRORRATEA por los días ocupados. Así encaja con la
-        // facturación recurrente (mes natural [día 1, último día]) y no se
-        // solapa/duplica el primer mes. Si el alta es el día 1, sale el mes completo.
-        const y = start.getUTCFullYear();
-        const m = start.getUTCMonth();
-        const dayOfMonth = start.getUTCDate();
-        const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-        periodStart = new Date(Date.UTC(y, m, dayOfMonth));
-        periodEnd = new Date(Date.UTC(y, m, daysInMonth));
-        const daysOccupied = daysInMonth - dayOfMonth + 1;
-        const isFullMonth = daysOccupied >= daysInMonth;
-        const unitPrice = isFullMonth
-          ? fullPrice
-          : Math.round((toCents(fullPrice) * daysOccupied) / daysInMonth) / 100;
-        items.push({
-          description: isFullMonth
-            ? `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 7)})`
-            : `Alquiler ${contract.contractNumber} (${periodStart.toISOString().slice(0, 10)}–${periodEnd
-                .toISOString()
-                .slice(0, 10)}, prorrateado ${daysOccupied}/${daysInMonth} d)`,
-          quantity: 1,
-          unitPrice,
-          ...rent,
-          relatedContractId: contractId,
-          relatedUnitId: contract.unit.id,
-          periodStart: periodStart.toISOString().slice(0, 10),
-          periodEnd: periodEnd.toISOString().slice(0, 10),
-        });
-      }
-
-      // La fianza NO va en la factura (es una garantía, no una venta): se cobra
-      // con un justificante aparte, en el mismo pago que esta factura.
-
-      const dueDate = new Date(periodEnd);
-      dueDate.setUTCDate(dueDate.getUTCDate() + 15);
-
-      const invoice = await this.invoices.create({
-        tenantId,
-        userId: null,
-        input: {
-          invoiceType: 'F1',
-          customerId,
-          contractId,
-          seriesId: series.id,
-          periodStart: periodStart.toISOString().slice(0, 10),
-          periodEnd: periodEnd.toISOString().slice(0, 10),
-          dueDate: dueDate.toISOString().slice(0, 10),
-          items,
-          verifactuMode: 'verifactu',
-        },
-        meta: {},
-      });
-      await this.invoices.issue({ tenantId, userId: null, invoiceId: invoice.id, meta: {} });
-      if (deposit > 0) {
-        await this.invoices.createDepositReceipt({
-          tenantId,
-          userId: null,
-          contractId,
-          customerId,
-          contractNumber: contract.contractNumber,
-          amount: deposit,
-          // En efectivo: se cobra en el local, aparte del pago online (el acceso
-          // llega con la factura pagada) y sin vencimiento (no entra en impagos).
-          ...(cashDeposit
-            ? { dueDate: null, bundledWithInvoiceId: null }
-            : { dueDate, bundledWithInvoiceId: invoice.id }),
-        });
-      }
-    } catch (err) {
-      this.logger.error(
-        `[move-in] no se pudo emitir la 1ª factura del contrato ${contractId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
+    await this.firstInvoice.issueIfMissing(tenantId, contractId, customerId);
   }
 
   /**
@@ -578,6 +427,7 @@ export class SignaturesService {
         startDate: today,
         billingCycle: 'monthly',
         billingIntervalMonths: 1,
+        firstPaymentMonths: 1,
         prepayDiscountPct: 0,
         priceMonthly: Number(unit.basePriceMonthly),
         discountAmount: 0,
