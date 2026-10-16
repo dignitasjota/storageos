@@ -984,11 +984,6 @@ function UnitTypeCard({
       <div>
         <div className="mb-4 flex items-start justify-between gap-2">
           <div>
-            {size && (
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                {t(`size.${size}`)}
-              </span>
-            )}
             <h3 className={`text-xl font-black ${soldOut ? 'text-muted-foreground' : ''}`}>
               {unit.name}
             </h3>

@@ -1020,15 +1020,7 @@ function UnitTypeCard({
       )}
       <div>
         <div className="mb-4 flex items-center justify-between gap-2">
-          {size ? (
-            <span
-              className={`rounded px-2.5 py-1 text-[11px] font-black uppercase tracking-wider ${few ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-800 dark:bg-muted dark:text-foreground'}`}
-            >
-              {t('size', { size })}
-            </span>
-          ) : (
-            <span />
-          )}
+          <span />
           {m2 && (
             <span
               className="rounded-lg px-3 py-1 text-sm font-black"
