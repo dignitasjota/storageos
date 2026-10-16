@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { STORAGE_ITEMS, computeStorageM2, recommendStorageUnit } from './calculator';
+import {
+  STORAGE_ITEMS,
+  STORAGE_PRESETS,
+  computeStorageM2,
+  recommendStorageUnit,
+} from './calculator';
 
 import type { RecommendableUnit } from './calculator';
 
@@ -61,5 +66,18 @@ describe('recommendStorageUnit', () => {
   it('el catálogo tiene objetos y todos con m² positivo', () => {
     expect(STORAGE_ITEMS.length).toBeGreaterThan(10);
     expect(STORAGE_ITEMS.every((i) => i.m2 > 0)).toBe(true);
+  });
+});
+
+describe('STORAGE_PRESETS', () => {
+  it('solo usan objetos del catálogo y van de menos a más espacio', () => {
+    const keys = new Set(STORAGE_ITEMS.map((i) => i.key));
+    for (const p of STORAGE_PRESETS) {
+      for (const k of Object.keys(p.items)) expect(keys.has(k)).toBe(true);
+    }
+    const m2 = (key: string) => computeStorageM2(STORAGE_PRESETS.find((p) => p.key === key)!.items);
+    expect(m2('boxes')).toBeLessThan(m2('studio'));
+    expect(m2('studio')).toBeLessThan(m2('flat_1'));
+    expect(m2('flat_1')).toBeLessThan(m2('flat_2_3'));
   });
 });

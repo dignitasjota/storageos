@@ -95,3 +95,66 @@ export function recommendStorageUnit<T extends RecommendableUnit>(
   const fits = withArea.find((u) => (u.areaM2 as number) >= m2Needed);
   return fits ?? withArea[withArea.length - 1]!;
 }
+
+/** Atajo de la calculadora: una lista típica que el visitante luego ajusta. */
+export interface StoragePreset {
+  key: 'studio' | 'flat_1' | 'flat_2_3' | 'boxes';
+  items: Record<string, number>;
+}
+
+export const STORAGE_PRESETS: StoragePreset[] = [
+  {
+    key: 'studio',
+    items: {
+      sofa_2: 1,
+      cama_ind: 1,
+      armario: 1,
+      mesa: 1,
+      silla: 2,
+      nevera: 1,
+      lavadora: 1,
+      tv: 1,
+      caja_m: 10,
+      maleta: 2,
+    },
+  },
+  {
+    key: 'flat_1',
+    items: {
+      sofa_3: 1,
+      cama_doble: 1,
+      armario: 1,
+      comoda: 1,
+      mesa: 1,
+      silla: 4,
+      estanteria: 1,
+      nevera: 1,
+      lavadora: 1,
+      tv: 1,
+      caja_m: 15,
+      maleta: 2,
+    },
+  },
+  {
+    key: 'flat_2_3',
+    items: {
+      sofa_3: 1,
+      sofa_2: 1,
+      cama_doble: 1,
+      cama_ind: 2,
+      armario: 3,
+      comoda: 2,
+      mesa: 1,
+      silla: 6,
+      estanteria: 2,
+      escritorio: 1,
+      nevera: 1,
+      lavadora: 1,
+      tv: 2,
+      caja_m: 30,
+      maleta: 4,
+      bici: 2,
+    },
+  },
+  { key: 'boxes', items: { caja_p: 10, caja_m: 10, caja_g: 5, maleta: 3 } },
+];

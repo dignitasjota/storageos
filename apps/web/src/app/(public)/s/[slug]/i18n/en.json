@@ -123,7 +123,52 @@
       "reserveThis": "Book this unit",
       "noMatch": "Contact us and we'll help you find the right size.",
       "reset": "Start over",
-      "disclaimer": "Rough estimate. Actual space depends on how items are arranged."
+      "disclaimer": "Rough estimate. Actual space depends on how items are arranged.",
+      "presetsTitle": "Start with a shortcut",
+      "presets": {
+        "studio": "Studio",
+        "flat_1": "1-bedroom flat",
+        "flat_2_3": "2–3 bedroom flat",
+        "boxes": "Just boxes and suitcases"
+      },
+      "categories": {
+        "muebles": "Furniture",
+        "electrodomesticos": "Appliances",
+        "cajas": "Boxes and belongings",
+        "otros": "Other"
+      },
+      "items": {
+        "sofa_2": "2-seater sofa",
+        "sofa_3": "3-seater sofa",
+        "cama_ind": "Single bed",
+        "cama_doble": "Double bed",
+        "colchon": "Mattress",
+        "armario": "Wardrobe",
+        "comoda": "Chest of drawers",
+        "mesa": "Dining table",
+        "silla": "Chair",
+        "estanteria": "Bookcase",
+        "escritorio": "Desk",
+        "nevera": "Fridge",
+        "lavadora": "Washer / dryer",
+        "tv": "TV",
+        "microondas": "Microwave / small appliance",
+        "caja_p": "Small box",
+        "caja_m": "Medium box",
+        "caja_g": "Large box",
+        "maleta": "Suitcase",
+        "bici": "Bicycle",
+        "moto": "Motorbike",
+        "electrodomestico_grande": "Large appliance",
+        "cuadro": "Picture / mirror",
+        "herramientas": "Toolbox"
+      },
+      "yourItems": "Your items",
+      "sizesHint": "The marks are the unit sizes we have (m²).",
+      "fitTight": "It's a tight fit: if in doubt, go one size up.",
+      "fitRoom": "You'll have some room to spare.",
+      "fitShort": "This is our largest unit; you may need two.",
+      "seeResult": "View"
     },
     "languageSwitcher": {
       "label": "Language"

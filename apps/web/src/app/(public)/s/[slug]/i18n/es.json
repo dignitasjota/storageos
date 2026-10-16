@@ -123,7 +123,52 @@
       "reserveThis": "Reservar este trastero",
       "noMatch": "Contáctanos y te asesoramos con el tamaño ideal.",
       "reset": "Empezar de nuevo",
-      "disclaimer": "Estimación orientativa. El espacio real depende de cómo se coloquen los objetos."
+      "disclaimer": "Estimación orientativa. El espacio real depende de cómo se coloquen los objetos.",
+      "presetsTitle": "Empieza con un atajo",
+      "presets": {
+        "studio": "Estudio",
+        "flat_1": "Piso de 1 habitación",
+        "flat_2_3": "Piso de 2–3 habitaciones",
+        "boxes": "Solo cajas y maletas"
+      },
+      "categories": {
+        "muebles": "Muebles",
+        "electrodomesticos": "Electrodomésticos",
+        "cajas": "Cajas y enseres",
+        "otros": "Otros"
+      },
+      "items": {
+        "sofa_2": "Sofá 2 plazas",
+        "sofa_3": "Sofá 3 plazas",
+        "cama_ind": "Cama individual",
+        "cama_doble": "Cama doble",
+        "colchon": "Colchón",
+        "armario": "Armario",
+        "comoda": "Cómoda / cajonera",
+        "mesa": "Mesa de comedor",
+        "silla": "Silla",
+        "estanteria": "Estantería",
+        "escritorio": "Escritorio",
+        "nevera": "Nevera",
+        "lavadora": "Lavadora / secadora",
+        "tv": "Televisión",
+        "microondas": "Microondas / pequeño",
+        "caja_p": "Caja pequeña",
+        "caja_m": "Caja mediana",
+        "caja_g": "Caja grande",
+        "maleta": "Maleta",
+        "bici": "Bicicleta",
+        "moto": "Moto",
+        "electrodomestico_grande": "Electrodoméstico grande",
+        "cuadro": "Cuadro / espejo",
+        "herramientas": "Caja de herramientas"
+      },
+      "yourItems": "Lo que llevas",
+      "sizesHint": "Las marcas son los tamaños de trastero que tenemos (m²).",
+      "fitTight": "Vas justo: si dudas, elige el siguiente tamaño.",
+      "fitRoom": "Te sobra algo de espacio.",
+      "fitShort": "Es nuestro trastero más grande; puede que necesites dos.",
+      "seeResult": "Ver"
     },
     "languageSwitcher": {
       "label": "Idioma"
