@@ -236,6 +236,11 @@ describe('Reservas por WhatsApp (e2e)', () => {
       where: { id: conv.contractId! },
       data: { status: 'cancelled' },
     });
+    const signLinks = () =>
+      prismaAdmin.whatsappMessage.count({
+        where: { conversationId: conv.id, sender: 'assistant', body: { contains: '/sign/' } },
+      });
+    const signLinksBefore = await signLinks();
     await inbound(
       '34677889900',
       `reservar ${JSON.stringify({ ...data, email: `carlos2-${Date.now()}@example.com` })}`,
@@ -249,13 +254,7 @@ describe('Reservas por WhatsApp (e2e)', () => {
     expect(second.bookingReminderSentAt).toBeNull();
     // Espera a que se guarde la respuesta con el enlace de la segunda reserva
     // (si no, entra en el recuento de abajo).
-    await waitFor(async () =>
-      (await prismaAdmin.whatsappMessage.count({
-        where: { conversationId: conv.id, sender: 'assistant', body: { contains: '/sign/' } },
-      })) >= 2
-        ? true
-        : null,
-    );
+    await waitFor(async () => ((await signLinks()) > signLinksBefore ? true : null));
 
     // Tope diario por conversación: con 30 respuestas de la IA en 24 h pasa a una persona.
     await prismaAdmin.whatsappMessage.createMany({
