@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   type BookingAvailabilityDto,
+  BookingQuoteSchema,
+  type FirstPaymentQuoteDto,
   type BookingResultDto,
   CaptureBookingLeadSchema,
   type ContractSignViewDto,
@@ -20,6 +22,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Request } from 'express';
 
 class PublicBookingBody extends createZodDto(PublicBookingSchema) {}
+class BookingQuoteBody extends createZodDto(BookingQuoteSchema) {}
 class CaptureBookingLeadBody extends createZodDto(CaptureBookingLeadSchema) {}
 class PublicSignBody extends createZodDto(PublicSignSubmitSchema) {}
 
@@ -59,6 +62,21 @@ export class MoveInPublicController {
     @Req() req: Request,
   ): Promise<BookingResultDto> {
     return this.booking.createBooking(slug, body, extractMeta(req));
+  }
+
+  /** Resumen del pago al reservar (meses, cupón, IVA y fianza). */
+  @Post('book/:slug/quote')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  quote(
+    @Param('slug') slug: string,
+    @Body() body: BookingQuoteBody,
+  ): Promise<FirstPaymentQuoteDto> {
+    return this.booking.quoteBooking(slug, {
+      ...body,
+      couponCode: body.couponCode || undefined,
+      email: body.email || undefined,
+    });
   }
 
   /** Captura email-first: guarda un lead en cuanto el visitante deja su email. */

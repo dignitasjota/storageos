@@ -1,10 +1,17 @@
 'use client';
 
-import { type CreateContractInput, type CustomerDto, type UnitDto } from '@storageos/shared';
+import {
+  FIRST_PAYMENT_MONTHS,
+  type CouponQuoteDto,
+  type CreateContractInput,
+  type CustomerDto,
+  type FirstPaymentMonths,
+  type UnitDto,
+} from '@storageos/shared';
 import { ArrowLeft, Check, ChevronRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { StatusBadge } from '@/components/status-badge';
@@ -20,6 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useValidateCoupon } from '@/lib/coupons/hooks';
 import { useCreateContract, useCustomers } from '@/lib/customers/hooks';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
@@ -42,6 +50,8 @@ export default function NewContractWizardPage() {
   const [depositPaymentMethod, setDepositPaymentMethod] = useState<'online' | 'cash'>('online');
   const [insurancePlanId, setInsurancePlanId] = useState('');
   const [billingIntervalMonths, setBillingIntervalMonths] = useState<1 | 6 | 12>(1);
+  const [firstPaymentMonths, setFirstPaymentMonths] = useState<FirstPaymentMonths>(1);
+  const [coupon, setCoupon] = useState<CouponQuoteDto | null>(null);
   const [prepayDiscountPct, setPrepayDiscountPct] = useState(0);
 
   const create = useCreateContract();
@@ -55,7 +65,8 @@ export default function NewContractWizardPage() {
       ...(endDate ? { endDate } : {}),
       billingCycle: 'monthly',
       billingIntervalMonths,
-      firstPaymentMonths: 1,
+      firstPaymentMonths: billingIntervalMonths === 1 ? firstPaymentMonths : 1,
+      ...(coupon?.valid ? { couponCode: coupon.code } : {}),
       prepayDiscountPct: billingIntervalMonths > 1 ? prepayDiscountPct : 0,
       priceMonthly,
       discountAmount,
@@ -134,6 +145,10 @@ export default function NewContractWizardPage() {
       {step === 3 && unit && (
         <StepEconomics
           unitId={unit.id}
+          customerId={customer?.id ?? null}
+          firstPaymentMonths={firstPaymentMonths}
+          coupon={coupon}
+          onCoupon={setCoupon}
           startDate={startDate}
           endDate={endDate}
           priceMonthly={priceMonthly}
@@ -160,6 +175,7 @@ export default function NewContractWizardPage() {
             if (p.billingIntervalMonths !== undefined)
               setBillingIntervalMonths(p.billingIntervalMonths);
             if (p.prepayDiscountPct !== undefined) setPrepayDiscountPct(p.prepayDiscountPct);
+            if (p.firstPaymentMonths !== undefined) setFirstPaymentMonths(p.firstPaymentMonths);
           }}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
@@ -177,6 +193,10 @@ export default function NewContractWizardPage() {
           depositPaymentMethod={depositPaymentMethod}
           billingIntervalMonths={billingIntervalMonths}
           prepayDiscountPct={prepayDiscountPct}
+          firstPaymentMonths={
+            billingIntervalMonths === 1 ? firstPaymentMonths : billingIntervalMonths
+          }
+          coupon={coupon?.valid ? coupon : null}
           submitting={create.isPending}
           onBack={() => setStep(3)}
           onSubmit={submit}
@@ -293,6 +313,10 @@ function StepUnit({ onBack, onPick }: { onBack: () => void; onPick: (u: UnitDto)
 
 function StepEconomics(props: {
   unitId: string;
+  customerId: string | null;
+  firstPaymentMonths: FirstPaymentMonths;
+  coupon: CouponQuoteDto | null;
+  onCoupon: (c: CouponQuoteDto | null) => void;
   startDate: string;
   endDate: string;
   priceMonthly: number;
@@ -318,6 +342,7 @@ function StepEconomics(props: {
       insurancePlanId: string;
       billingIntervalMonths: 1 | 6 | 12;
       prepayDiscountPct: number;
+      firstPaymentMonths: FirstPaymentMonths;
     }>,
   ) => void;
   onBack: () => void;
@@ -328,6 +353,38 @@ function StepEconomics(props: {
   // Oferta creada a mano para este trastero: se propone, el staff decide si la aplica.
   const offers = useUnitOffers(props.unitId);
   const offer = offers.data?.[0] ?? null;
+  const validateCoupon = useValidateCoupon();
+  const [couponInput, setCouponInput] = useState(props.coupon?.code ?? '');
+  const months =
+    props.billingIntervalMonths > 1 ? props.billingIntervalMonths : props.firstPaymentMonths;
+  const monthly = Math.max(0, props.priceMonthly - props.discountAmount);
+
+  async function applyCoupon(code: string) {
+    const clean = code.trim().toUpperCase();
+    if (!clean) {
+      props.onCoupon(null);
+      return;
+    }
+    try {
+      const res = await validateCoupon.mutateAsync({
+        code: clean,
+        unitId: props.unitId,
+        months,
+        monthlyPrice: monthly,
+        ...(props.customerId ? { customerId: props.customerId } : {}),
+      });
+      props.onCoupon(res);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  // Si cambian los meses o la cuota, el cupón se vuelve a comprobar.
+  const appliedCode = props.coupon?.code ?? null;
+  useEffect(() => {
+    if (appliedCode) void applyCoupon(appliedCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [months, monthly]);
 
   async function applyCode(override?: string) {
     const code = (override ?? codeInput).trim().toUpperCase();
@@ -460,6 +517,7 @@ function StepEconomics(props: {
             <Input
               placeholder="VERANO20"
               value={codeInput}
+              disabled={!!props.coupon?.valid}
               onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
             />
             <Button
@@ -500,6 +558,82 @@ function StepEconomics(props: {
           value={props.insurancePlanId}
           onChange={(v) => props.onChange({ insurancePlanId: v })}
         />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {props.billingIntervalMonths === 1 && (
+            <div>
+              <Label>Primer pago</Label>
+              <Select
+                value={String(props.firstPaymentMonths)}
+                onValueChange={(v) =>
+                  props.onChange({ firstPaymentMonths: Number(v) as FirstPaymentMonths })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FIRST_PAYMENT_MONTHS.map((m) => (
+                    <SelectItem key={m} value={String(m)}>
+                      {m === 1 ? '1 mes' : `${m} meses por adelantado`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">Después se factura cada mes.</p>
+            </div>
+          )}
+          <div>
+            <Label>Cupón (opcional)</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="TRESXDOS"
+                value={couponInput}
+                disabled={!!props.promotionCode}
+                onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+              />
+              {props.coupon ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setCouponInput('');
+                    props.onCoupon(null);
+                  }}
+                >
+                  Quitar
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void applyCoupon(couponInput)}
+                  disabled={
+                    validateCoupon.isPending || !couponInput.trim() || !!props.promotionCode
+                  }
+                >
+                  {validateCoupon.isPending ? 'Comprobando...' : 'Aplicar'}
+                </Button>
+              )}
+            </div>
+            {props.promotionCode && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                No se combina con un código promocional.
+              </p>
+            )}
+            {props.coupon &&
+              (props.coupon.valid ? (
+                <p className="mt-1 text-xs text-green-600">
+                  Cupón {props.coupon.code}:{' '}
+                  {props.coupon.freeMonths > 0
+                    ? `${props.coupon.freeMonths} ${props.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}`
+                    : `−${props.coupon.discountAmount.toFixed(2)} €`}{' '}
+                  en el primer pago.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-destructive">{props.coupon.message}</p>
+              ))}
+          </div>
+        </div>
         {/* Prepago: facturar de una vez varios meses con descuento. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
@@ -556,6 +690,26 @@ function StepEconomics(props: {
                 </>
               );
             })()
+          ) : props.firstPaymentMonths > 1 || props.coupon?.valid ? (
+            (() => {
+              const gross = monthly * props.firstPaymentMonths;
+              const discount = props.coupon?.valid ? props.coupon.discountAmount : 0;
+              return (
+                <>
+                  Primer pago ({props.firstPaymentMonths}{' '}
+                  {props.firstPaymentMonths === 1 ? 'mes' : 'meses'}):{' '}
+                  <strong className="tabular-nums">{(gross - discount).toFixed(2)} €</strong> sin
+                  IVA
+                  {discount > 0 && (
+                    <span className="text-green-600"> (−{discount.toFixed(2)} € de cupón)</span>
+                  )}
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · después {monthly.toFixed(2)} €/mes · el seguro aparte
+                  </span>
+                </>
+              );
+            })()
           ) : (
             <>
               Cuota efectiva mensual:{' '}
@@ -593,6 +747,8 @@ function StepReview(props: {
   depositPaymentMethod: 'online' | 'cash';
   billingIntervalMonths: 1 | 6 | 12;
   prepayDiscountPct: number;
+  firstPaymentMonths: number;
+  coupon: CouponQuoteDto | null;
   submitting: boolean;
   onBack: () => void;
   onSubmit: () => void;
@@ -649,6 +805,23 @@ function StepReview(props: {
                   })`}
             </dd>
           </div>
+          {props.billingIntervalMonths === 1 && props.firstPaymentMonths > 1 && (
+            <div>
+              <dt className="text-muted-foreground">Primer pago</dt>
+              <dd>{props.firstPaymentMonths} meses por adelantado (después, mensual)</dd>
+            </div>
+          )}
+          {props.coupon?.valid && (
+            <div>
+              <dt className="text-muted-foreground">Cupón</dt>
+              <dd>
+                {props.coupon.code} ·{' '}
+                {props.coupon.freeMonths > 0
+                  ? `${props.coupon.freeMonths} ${props.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}`
+                  : `−${props.coupon.discountAmount.toFixed(2)} € en el primer pago`}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="text-muted-foreground">Cuota efectiva</dt>
             <dd className="text-lg font-semibold tabular-nums">

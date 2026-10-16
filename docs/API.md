@@ -1747,6 +1747,9 @@ Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Im
 
 - **Aplicación (alta de contrato)**: `POST /contracts` acepta `couponCode` y `firstPaymentMonths` (1, 3, 6 o 12). El uso se reserva al crear; la 1ª factura (al firmar) cubre esos meses con el cupón y después se factura mes a mes. Errores: 400 `coupon_<motivo>` (los de `validate`), `coupon_with_promotion` y `coupon_not_better`. Cancelar el contrato sin pagar libera el cupón. `ContractDto.coupon {code, months, discountAmount, freeMonths}`.
 
+- **Resumen del primer pago** (`FirstPaymentQuoteDto`: meses, alquiler, descuento, meses gratis, IVA, seguro, fianza, total a pagar, `prorated` y el cupón con su motivo si no vale): `POST /public/move-in/book/:slug/quote {facilityId, unitTypeId, months, couponCode?, email?}` (público) y `POST /portal/me/units/:unitId/quote {months, couponCode?}` (portal). La vista de firma lo incluye en `firstPayment`.
+- **Reserva online** `POST /public/move-in/book/:slug` y **portal** `POST /portal/me/contracts` aceptan `months` (1, 3, 6 o 12) y `couponCode`. Errores: 400 `coupon_not_valid` (reserva, con el motivo) y `unit_has_offer` (portal: el trastero ya tiene una oferta).
+
 ### Referidos (`/referrals`, `/portal/me/referrals`, `/settings/tenant/referrals`)
 
 - `GET /referrals` + `GET /referrals/stats` (`referrals:read`): lista + métricas.

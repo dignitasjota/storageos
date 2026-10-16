@@ -1,5 +1,14 @@
 'use client';
 
+import {
+  FIRST_PAYMENT_MONTHS,
+  type AvailableUnitDto,
+  type FirstPaymentMonths,
+  type FirstPaymentQuoteDto,
+  type PortalBookUnitResultDto,
+  type PortalSessionDto,
+  type PortalUnitRequestDto,
+} from '@storageos/shared';
 import { Loader2, PackagePlus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
@@ -7,13 +16,6 @@ import { toast } from 'sonner';
 
 import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
-
-import type {
-  AvailableUnitDto,
-  PortalBookUnitResultDto,
-  PortalSessionDto,
-  PortalUnitRequestDto,
-} from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,6 +73,37 @@ export function AdditionalUnitCard({
   const [signerName, setSignerName] = useState(session.customerName ?? '');
   const [accepted, setAccepted] = useState(false);
   const [booking, setBooking] = useState(false);
+  const [months, setMonths] = useState<FirstPaymentMonths>(1);
+  const [couponInput, setCouponInput] = useState('');
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [quote, setQuote] = useState<FirstPaymentQuoteDto | null>(null);
+  const money = (n: number) =>
+    n.toLocaleString(intlLocaleForPortal(locale), { style: 'currency', currency: 'EUR' });
+
+  // Resumen del pago del trastero elegido (meses y cupón).
+  useEffect(() => {
+    if (!target) {
+      setQuote(null);
+      return;
+    }
+    let cancelled = false;
+    apiFetch<FirstPaymentQuoteDto>(`/portal/me/units/${target.id}/quote`, {
+      method: 'POST',
+      json: { months, ...(couponCode ? { couponCode } : {}) },
+      headers: auth,
+      requiresAuth: false,
+    })
+      .then((q) => {
+        if (!cancelled) setQuote(q);
+      })
+      .catch(() => {
+        if (!cancelled) setQuote(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.id, months, couponCode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,13 +138,21 @@ export function AdditionalUnitCard({
     try {
       await apiFetch<PortalBookUnitResultDto>('/portal/me/contracts', {
         method: 'POST',
-        json: { unitId: target.id, signerName: signerName.trim() },
+        json: {
+          unitId: target.id,
+          signerName: signerName.trim(),
+          months,
+          ...(couponCode && quote?.coupon?.valid ? { couponCode } : {}),
+        },
         headers: auth,
         requiresAuth: false,
       });
       toast.success(t('bookedSuccess'));
       setTarget(null);
       setAccepted(false);
+      setMonths(1);
+      setCouponCode(null);
+      setCouponInput('');
       // Quitamos el trastero de la lista de disponibles.
       setUnits((prev) => (prev ?? []).filter((u) => u.id !== target.id));
       onBooked?.();
@@ -256,6 +297,103 @@ export function AdditionalUnitCard({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="extra-unit-months">{t('monthsLabel')}</Label>
+              <select
+                id="extra-unit-months"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm"
+                value={months}
+                onChange={(e) => setMonths(Number(e.target.value) as FirstPaymentMonths)}
+              >
+                {FIRST_PAYMENT_MONTHS.map((m) => (
+                  <option key={m} value={m}>
+                    {t('monthsOption', { count: m })}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {!target?.offer && (
+              <div className="space-y-1">
+                <Label htmlFor="extra-unit-coupon">{t('couponLabel')}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="extra-unit-coupon"
+                    value={couponInput}
+                    disabled={!!couponCode}
+                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  />
+                  {couponCode ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setCouponCode(null);
+                        setCouponInput('');
+                      }}
+                    >
+                      {t('couponRemove')}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!couponInput.trim()}
+                      onClick={() => setCouponCode(couponInput.trim().toUpperCase())}
+                    >
+                      {t('couponApply')}
+                    </Button>
+                  )}
+                </div>
+                {couponCode && quote?.coupon && (
+                  <p
+                    className={`text-xs ${quote.coupon.valid ? 'text-green-600' : 'text-destructive'}`}
+                  >
+                    {quote.coupon.valid
+                      ? t('couponApplied', { code: quote.coupon.code })
+                      : quote.coupon.message}
+                  </p>
+                )}
+              </div>
+            )}
+            {quote && (
+              <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">
+                    {t('summaryRent', { count: quote.months })}
+                  </span>
+                  <span className="tabular-nums">{money(quote.rentSubtotal)}</span>
+                </div>
+                {quote.discountAmount > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">{t('summaryDiscount')}</span>
+                    <span className="tabular-nums">−{money(quote.discountAmount)}</span>
+                  </div>
+                )}
+                {quote.vatRate > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      {t('summaryVat')} ({quote.vatRate} %)
+                    </span>
+                    <span className="tabular-nums">
+                      {money(quote.rentTotalWithVat - quote.rentTotal)}
+                    </span>
+                  </div>
+                )}
+                {quote.deposit > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">{t('summaryDeposit')}</span>
+                    <span className="tabular-nums">{money(quote.deposit)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3 border-t pt-1 font-medium">
+                  <span>{t('summaryTotal')}</span>
+                  <span className="tabular-nums">{money(quote.totalToPay)}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {quote.prorated ? t('summaryProrated') : t('summaryAfter')}
+                </p>
+              </div>
+            )}
             <div className="space-y-1">
               <Label>{t('signerNameLabel')}</Label>
               <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} />

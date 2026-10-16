@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { FirstPaymentMonthsSchema } from '../coupons';
+
 /** Solicitud de un trastero adicional desde el portal del inquilino. */
 export const PortalUnitRequestSchema = z.object({
   /** Local de interés (opcional). */
@@ -71,6 +73,10 @@ export const PortalBookUnitSchema = z.object({
   unitId: z.string().uuid(),
   /** Nombre con el que firma (aceptación del contrato). */
   signerName: z.string().trim().min(2).max(120),
+  /** Meses que se pagan ahora (1, 3, 6 o 12); después, mensual. */
+  months: FirstPaymentMonthsSchema.default(1),
+  /** Cupón de descuento sobre el pago de ahora. */
+  couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
 });
 export type PortalBookUnitInput = z.infer<typeof PortalBookUnitSchema>;
 

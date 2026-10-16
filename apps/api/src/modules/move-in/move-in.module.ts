@@ -5,6 +5,7 @@ import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { BillingModule } from '../billing/billing.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { ContractsModule } from '../contracts/contracts.module';
+import { CouponsModule } from '../coupons/coupons.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 
 import { BookingExpiryCron } from './booking-expiry.cron';
@@ -23,6 +24,7 @@ import { SignaturesService } from './signatures.service';
 @Module({
   imports: [
     ContractsModule,
+    CouponsModule,
     BillingModule,
     ReferralsModule,
     CommunicationsModule,

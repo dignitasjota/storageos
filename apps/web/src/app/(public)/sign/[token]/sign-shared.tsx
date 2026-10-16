@@ -14,6 +14,7 @@ import type {
   SignResultDto,
 } from '@storageos/shared';
 
+import { FirstPaymentSummary } from '@/app/(public)/s/[slug]/first-payment-summary';
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
 import { type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
@@ -177,36 +178,10 @@ export function SignPageBody({
           {/* Desglose de precio con IVA ANTES de firmar (evita sorpresa en el
               paso de pago). El alquiler lleva IVA 21%; la fianza es una garantía
               sin IVA. */}
-          <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t('monthlyFee')}</span>
-              <span className="font-semibold tabular-nums">
-                {formatPrice(view.priceMonthly * 1.21, locale)}
-              </span>
-            </div>
-            {view.depositAmount > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{t('deposit')}</span>
-                <span className="font-semibold tabular-nums">
-                  {formatPrice(view.depositAmount, locale)}
-                </span>
-              </div>
-            )}
-            {view.depositAmount > 0 && view.depositPaymentMethod === 'cash' && (
-              <p className="text-xs text-muted-foreground">{t('depositCash')}</p>
-            )}
-            <div className="mt-1 border-t pt-1.5 flex items-center justify-between">
-              <span className="font-medium">{t('toPayNow')}</span>
-              <span className="font-semibold tabular-nums">
-                {formatPrice(
-                  view.priceMonthly * 1.21 +
-                    (view.depositPaymentMethod === 'cash' ? 0 : view.depositAmount),
-                  locale,
-                )}
-              </span>
-            </div>
-            <p className="pt-1 text-xs text-muted-foreground">{t('prorationNote')}</p>
-          </div>
+          <FirstPaymentSummary quote={view.firstPayment} locale={locale} />
+          {view.depositAmount > 0 && view.depositPaymentMethod === 'cash' && (
+            <p className="text-xs text-muted-foreground">{t('depositCash')}</p>
+          )}
 
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-xs">
             {view.termsText}

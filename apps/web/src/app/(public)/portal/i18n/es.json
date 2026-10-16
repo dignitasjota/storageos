@@ -345,7 +345,20 @@
         "bookingGenerates": ". Se generará tu contrato y la primera factura, que podrás pagar a continuación.",
         "signerNameLabel": "Nombre completo (firma)",
         "acceptTerms": "He leído y acepto las condiciones del contrato de alquiler de trastero y la política de tratamiento de datos.",
-        "confirmButton": "Firmar y continuar al pago"
+        "confirmButton": "Firmar y continuar al pago",
+        "monthsLabel": "¿Cuántos meses pagas ahora?",
+        "monthsOption": "{count, plural, one {# mes} other {# meses}}",
+        "couponLabel": "Cupón de descuento (opcional)",
+        "couponApply": "Aplicar",
+        "couponRemove": "Quitar",
+        "couponApplied": "Cupón {code} aplicado",
+        "summaryRent": "Alquiler ({count, plural, one {# mes} other {# meses}})",
+        "summaryDiscount": "Descuento del cupón",
+        "summaryVat": "IVA",
+        "summaryDeposit": "Fianza",
+        "summaryTotal": "Total a pagar ahora",
+        "summaryAfter": "Después se paga cada mes.",
+        "summaryProrated": "El primer mes se cobra hasta fin de mes, así que puede ser menos."
       },
       "waitlist": {
         "title": "Lista de espera",
