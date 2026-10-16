@@ -53,6 +53,9 @@ export type LandingSection = (typeof LANDING_SECTION_PATHS)[number];
 /** Ruta amigable de reserva en el dominio propio → booking del tenant. */
 const BOOK_ALIAS = '/reservar';
 
+/** Landings de promoción: `/promo/<nombre>` en el dominio propio. */
+export const PROMO_PREFIX = 'promo';
+
 /**
  * Segmentos que un `publicSlug` de facility NUNCA puede usar bajo un dominio
  * propio: colisionarían con una ruta real (reescrita ANTES que la regla
@@ -68,6 +71,7 @@ export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   BOOK_ALIAS.slice(1),
   'l',
   'blog',
+  PROMO_PREFIX,
   // Direcciones fijas de la web (`/contacto`, `/precios`) para campañas.
   ...LANDING_SECTION_PATHS,
 ]);
@@ -144,6 +148,13 @@ export function resolveCustomDomainRoute(
   // `externalSite` (antes del proxy catch-all, para no perderlo ahí).
   if (matchesPrefix(pathname, BOOK_ALIAS)) {
     return { action: 'rewrite', path: bookRewritePath(pathname, slug) };
+  }
+
+  // Landing de promoción (`/promo/<nombre>`): la pinta la plataforma, también
+  // para quien tiene una web externa (los flyers y anuncios apuntan aquí).
+  const promoParts = pathname.split('/').filter(Boolean);
+  if (promoParts[0] === PROMO_PREFIX && promoParts.length === 2) {
+    return { action: 'rewrite', path: `/s/${slug}/${PROMO_PREFIX}/${promoParts[1]}` };
   }
 
   if (externalSite) {

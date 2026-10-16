@@ -147,6 +147,13 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         permission: 'settings:manage',
       },
       {
+        href: '/settings/promo-landings',
+        label: 'Landings de promoción',
+        description:
+          'Páginas propias para cada promoción, con su dirección y el botón de reservar.',
+        permission: 'settings:manage',
+      },
+      {
         href: '/settings/faq',
         label: 'Preguntas frecuentes',
         description: 'Salen en tu web pública y en el área de clientes.',

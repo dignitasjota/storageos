@@ -400,6 +400,12 @@ export class FilesService implements OnModuleInit {
     return `${tenantId}/blog/${postId}/${randomUUID()}.${ext}`;
   }
 
+  /** Key de la foto principal de una landing de promoción (bucket público). */
+  buildPromoLandingImageKey(tenantId: string, landingId: string, mimeType: string): string {
+    const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/jpeg' ? 'jpg' : 'webp';
+    return `${tenantId}/promo/${landingId}/${randomUUID()}.${ext}`;
+  }
+
   /** Genera una key para documentos del cliente. */
   buildCustomerDocumentKey(
     tenantId: string,

@@ -77,6 +77,7 @@ import { PlatformContactModule } from './modules/platform-contact/platform-conta
 import { PortalModule } from './modules/portal/portal.module';
 import { ProductUpdatesModule } from './modules/product-updates/product-updates.module';
 import { ProductsModule } from './modules/products/products.module';
+import { PromoLandingsModule } from './modules/promo-landings/promo-landings.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { PushModule } from './modules/push/push.module';
 import { QueuesModule } from './modules/queues/queues.module';
@@ -196,6 +197,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FaqModule,
     EmailDomainsModule,
     BlogModule,
+    PromoLandingsModule,
     ContractsModule,
     QueuesModule,
     PaymentsModule,

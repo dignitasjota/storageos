@@ -788,6 +788,31 @@
       "footerManage": "Manage",
       "accessCode": "My access code",
       "invoices": "Invoices and receipts"
+    },
+    "promoLanding": {
+      "reserve": "Book now",
+      "reserveThis": "Book",
+      "from": "From",
+      "perMonth": "/month",
+      "vatIncluded": "VAT included",
+      "available": "Available",
+      "lastUnits": "Only {count} left!",
+      "soldOut": "Sold out",
+      "notify": "Let me know",
+      "sizesTitle": "Choose your unit",
+      "benefitsTitle": "Why you'll like it",
+      "conditionsTitle": "Promotion terms",
+      "couponIncluded": "With code {code}: {summary}. Applied when you book.",
+      "endsIn": "The promotion ends in",
+      "days": "{count, plural, one {# day} other {# days}}",
+      "hours": "{count} h",
+      "minutes": "{count} min",
+      "ended": "The promotion has ended",
+      "reviewsTitle": "What our customers say",
+      "faqTitle": "Frequently asked questions",
+      "contactTitle": "Any questions? We'll call you",
+      "m2": "{value} m²",
+      "where": "Where we are"
     }
   }
 }

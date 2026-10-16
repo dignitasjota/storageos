@@ -16,6 +16,18 @@ describe('resolveCustomDomainRoute', () => {
     });
   });
 
+  it('/promo/<nombre> → landing de promoción (también con web externa)', () => {
+    expect(resolveCustomDomainRoute('/promo/verano', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/promo/verano',
+    });
+    expect(resolveCustomDomainRoute('/promo/verano', SLUG, { externalSite: true })).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/promo/verano',
+    });
+    expect(RESERVED_FACILITY_SLUGS.has('promo')).toBe(true);
+  });
+
   it('alias /reservar → reescribe al booking del tenant', () => {
     expect(resolveCustomDomainRoute('/reservar', SLUG)).toEqual({
       action: 'rewrite',
@@ -125,12 +137,12 @@ describe('resolveCustomDomainRoute', () => {
     // Invariante: si un local pudiera tener uno de estos slugs, su página
     // quedaría inalcanzable bajo dominio propio — otra ruta (portal, login,
     // reserva…) se lo come ANTES de llegar a la regla genérica de 1 segmento.
-    // Excluye `l`/`blog`/`contacto`/`precios`: esos SÍ producen el mismo
+    // Excluye `l`/`blog`/`contacto`/`precios`/`promo`: esos SÍ producen el mismo
     // rewrite genérico (`/s/<slug>/blog`) — su protección no está aquí, sino en
     // que Next.js resuelve esa carpeta estática antes que la dinámica `[facility]`.
     expect(RESERVED_FACILITY_SLUGS.size).toBeGreaterThan(2);
     for (const slug of RESERVED_FACILITY_SLUGS) {
-      if (['l', 'blog', 'contacto', 'precios'].includes(slug)) continue;
+      if (['l', 'blog', 'contacto', 'precios', 'promo'].includes(slug)) continue;
       const route = resolveCustomDomainRoute(`/${slug}`, SLUG);
       expect(route).not.toEqual({ action: 'rewrite', path: `/s/${SLUG}/${slug}` });
     }
