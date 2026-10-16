@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { FaviconCard } from './favicon-card';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -123,6 +125,8 @@ export default function BrandingSettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      <FaviconCard faviconUrl={branding.data?.faviconUrl ?? null} />
 
       <Card>
         <CardHeader>

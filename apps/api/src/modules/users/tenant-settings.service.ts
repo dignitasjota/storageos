@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { promises as dns } from 'node:dns';
 
 import {
@@ -20,15 +21,18 @@ import {
   parseWebSeo,
   parseWebSections,
   resolvePlanFeatures,
+  TENANT_FAVICON_MIME_TYPES,
 } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { FilesService } from '../files/files.service';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   ContractTemplateDto,
+  TenantFaviconUploadDto,
   TenantAccessSettingsResponse,
   TenantBillingSettingsResponse,
   TenantBrandingResponse,
@@ -55,6 +59,7 @@ export class TenantSettingsService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly files: FilesService,
   ) {}
 
   /**
@@ -275,6 +280,7 @@ export class TenantSettingsService {
     customDomainVerifiedAt: Date | null;
     googleSiteVerification: string | null;
     googleAnalyticsId: string | null;
+    webFaviconKey: string | null;
   }): TenantBrandingResponse {
     return {
       portalBrandColor: tenant.portalBrandColor,
@@ -283,7 +289,57 @@ export class TenantSettingsService {
       customDomainVerifiedAt: tenant.customDomainVerifiedAt?.toISOString() ?? null,
       googleSiteVerification: tenant.googleSiteVerification,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      faviconUrl: tenant.webFaviconKey
+        ? this.files.buildPublicUrl('public', tenant.webFaviconKey)
+        : null,
     };
+  }
+
+  /** URL firmada para subir el favicon de la web directo al bucket público. */
+  async requestFaviconUpload(tenantId: string, mimeType: string): Promise<TenantFaviconUploadDto> {
+    const ext = mimeType === 'image/x-icon' ? 'ico' : 'png';
+    const key = `${tenantId}/favicon/${randomUUID()}.${ext}`;
+    const { uploadUrl } = await this.files.getPresignedPutUrl({
+      bucket: 'public',
+      key,
+      contentType: mimeType,
+    });
+    return { uploadUrl, key, requiredHeaders: { 'Content-Type': mimeType } };
+  }
+
+  /** Fija (o quita, con `null`) el favicon de la web pública. */
+  async setFavicon(args: {
+    tenantId: string;
+    actorUserId: string;
+    key: string | null;
+    meta: RequestMeta;
+  }): Promise<TenantBrandingResponse> {
+    const { key } = args;
+    if (key) {
+      if (!key.startsWith(`${args.tenantId}/favicon/`) || key.includes('..')) {
+        throw new BadRequestException({
+          code: 'invalid_favicon_key',
+          message: 'Favicon no válido',
+        });
+      }
+      // Los bytes reales (la URL firmada no fija el tipo): PNG o ICO, máx. 512 KB.
+      await this.files.assertObjectMimeType('public', key, TENANT_FAVICON_MIME_TYPES, 512 * 1024);
+    }
+    const updated = await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: { webFaviconKey: key },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: key ? 'tenant.favicon_set' : 'tenant.favicon_removed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { key },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    return this.toBrandingResponse(updated);
   }
 
   /** ¿El tenant tiene una feature concreta (plan + overrides)? */

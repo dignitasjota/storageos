@@ -1,12 +1,15 @@
-import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Put, Req } from '@nestjs/common';
 import {
   type ContractTemplateDto,
   type TenantAccessSettingsResponse,
   type TenantBillingSettingsResponse,
   type TenantBrandingResponse,
+  type TenantFaviconUploadDto,
   type TenantReferralSettingsResponse,
   type TenantReviewsSettingsResponse,
   type TenantSecuritySettingsResponse,
+  RequestTenantFaviconUploadSchema,
+  SetTenantFaviconSchema,
   UpdateContractTemplateSchema,
   UpdateTenantAccessSettingsSchema,
   UpdateTenantBillingSettingsSchema,
@@ -39,6 +42,8 @@ class UpdateTenantAccessSettingsDto extends createZodDto(UpdateTenantAccessSetti
 class UpdateTenantBrandingDto extends createZodDto(UpdateTenantBrandingSchema) {}
 class UpdateContractTemplateDto extends createZodDto(UpdateContractTemplateSchema) {}
 class UpdateWebSettingsDto extends createZodDto(UpdateWebSettingsSchema) {}
+class RequestTenantFaviconUploadDto extends createZodDto(RequestTenantFaviconUploadSchema) {}
+class SetTenantFaviconDto extends createZodDto(SetTenantFaviconSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -141,6 +146,33 @@ export class TenantSettingsController {
       tenantId: user.tenantId,
       actorUserId: user.sub,
       input,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** URL firmada para subir el favicon de la web pública (PNG o ICO). */
+  @RequirePermission('settings:manage')
+  @Post('branding/favicon-upload-url')
+  @HttpCode(HttpStatus.OK)
+  requestFaviconUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: RequestTenantFaviconUploadDto,
+  ): Promise<TenantFaviconUploadDto> {
+    return this.settings.requestFaviconUpload(user.tenantId, body.mimeType);
+  }
+
+  /** Fija el favicon subido (o lo quita con `{ key: null }`). */
+  @RequirePermission('settings:manage')
+  @Put('branding/favicon')
+  setFavicon(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: SetTenantFaviconDto,
+    @Req() req: Request,
+  ): Promise<TenantBrandingResponse> {
+    return this.settings.setFavicon({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      key: body.key,
       meta: extractMeta(req),
     });
   }

@@ -2018,6 +2018,7 @@ Todo con la feature `multi_owner`.
 - Plantillas nuevas de Web Premium: `trstrom` y `cabe` (`PATCH /settings/tenant/web {template}`).
 - **Dominio propio**: la reserva es `https://<dominio>/reservar[/<publicSlug del local>][/l/<idioma>]` (`resolveCustomDomainRoute` la reescribe a `/book/<slug>`); `/precios` y `/contacto` muestran la web única bajando a esa sección (404 fuera del dominio propio). Un local no puede llamarse `precios`, `contacto` ni `reservar`.
 - `PATCH /settings/tenant/web {seo}` (`web_premium`): `homeTitle`, `homeDescription`, `pricesTitle`, `pricesDescription`, `contactTitle`, `contactDescription` (`''` = el generado); `WebSettingsResponse.seo` y `PublicLandingDto.webSeo`.
+- **Favicon de la web del tenant** (todos los planes): `POST /settings/tenant/branding/favicon-upload-url {mimeType: image/png|image/x-icon}` → URL firmada al bucket público (`<tenant>/favicon/…`) y `PUT /settings/tenant/branding/favicon {key|null}` (`settings:manage`; se comprueban los bytes reales, máx. 512 KB, sin SVG; 400 `invalid_favicon_key`; auditado). `TenantBrandingResponse.faviconUrl` y `PublicTenantBrandDto.faviconUrl`.
 
 ### WhatsApp Business (#668–#673)
 

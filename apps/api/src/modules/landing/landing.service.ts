@@ -469,6 +469,7 @@ export class LandingService {
         slug: true,
         portalBrandColor: true,
         portalLogoUrl: true,
+        webFaviconKey: true,
         deletedAt: true,
       },
     });
@@ -480,6 +481,9 @@ export class LandingService {
       tenantSlug: tenant.slug,
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
+      faviconUrl: tenant.webFaviconKey
+        ? this.files.buildPublicUrl('public', tenant.webFaviconKey)
+        : null,
     };
   }
 
