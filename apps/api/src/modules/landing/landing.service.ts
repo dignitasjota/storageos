@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  couponSummary,
   effectiveFeaturesFromList,
+  promoLandingIsLive,
   isValidCustomDomain,
   isWebTemplate,
   parseWebContent,
@@ -33,6 +35,7 @@ import type {
   PublicFacilityLandingDto,
   PublicLandingDto,
   PublicLandingFacilityDto,
+  PublicPromoPageDto,
   PublicSitemapDto,
   PublicTenantBrandDto,
   ResolveDomainDto,
@@ -51,6 +54,75 @@ export class LandingService {
     private readonly files: FilesService,
     private readonly leads: LeadsService,
   ) {}
+
+  /**
+   * Landing de promoción en vigor (`/promo/<slug>`, extra Web Premium) junto a
+   * los datos de la web (marca, plantilla, locales y precios). Apagada,
+   * caducada o inexistente → 404 (la web lleva a la portada).
+   */
+  async getPromo(slug: string, promoSlug: string): Promise<PublicPromoPageDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug },
+      select: { id: true, deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt || !(await this.hasWebPremium(tenant.id))) {
+      throw new NotFoundException({ code: 'promo_not_available', message: 'No encontrado' });
+    }
+    const promo = await this.admin.promoLanding.findUnique({
+      where: { tenantId_slug: { tenantId: tenant.id, slug: promoSlug.toLowerCase() } },
+      include: { coupon: true },
+    });
+    if (!promo || !promoLandingIsLive(promo)) {
+      throw new NotFoundException({ code: 'promo_not_available', message: 'No encontrado' });
+    }
+    const now = new Date();
+    const c = promo.coupon;
+    const couponUsable =
+      !!c &&
+      c.isActive &&
+      (!c.validFrom || c.validFrom <= now) &&
+      (!c.validUntil || c.validUntil > now) &&
+      (c.maxUses === null || c.usedCount < c.maxUses);
+    const site = await this.getBySlug(slug);
+    return {
+      site,
+      promo: {
+        slug: promo.slug,
+        headline: promo.headline,
+        subheadline: promo.subheadline,
+        offerText: promo.offerText,
+        body: promo.body,
+        benefits: promo.benefits,
+        conditions: promo.conditions,
+        ctaLabel: promo.ctaLabel,
+        heroImageUrl: promo.heroImageKey
+          ? this.files.buildPublicUrl('public', promo.heroImageKey)
+          : null,
+        endsAt: promo.endsAt?.toISOString() ?? null,
+        showCountdown: promo.showCountdown,
+        showTestimonials: promo.showTestimonials,
+        showFaq: promo.showFaq,
+        showContact: promo.showContact,
+        seoTitle: promo.seoTitle,
+        seoDescription: promo.seoDescription,
+        indexable: promo.indexable,
+        coupon:
+          couponUsable && c
+            ? {
+                code: c.code,
+                summary: couponSummary({
+                  discountType: c.discountType,
+                  discountValue: Number(c.discountValue),
+                  minMonths: c.minMonths,
+                }),
+                minMonths: c.minMonths,
+              }
+            : null,
+        facilityIds: promo.facilityIds,
+        unitTypeIds: promo.unitTypeIds,
+      },
+    };
+  }
 
   async getBySlug(slug: string): Promise<PublicLandingDto> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug } });

@@ -1750,6 +1750,16 @@ Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Im
 - **Resumen del primer pago** (`FirstPaymentQuoteDto`: meses, alquiler, descuento, meses gratis, IVA, seguro, fianza, total a pagar, `prorated` y el cupón con su motivo si no vale): `POST /public/move-in/book/:slug/quote {facilityId, unitTypeId, months, couponCode?}` (público, 15/min; los motivos que solo dirían si el código existe salen como «Este cupón no es válido» y no se mira si el visitante ya es cliente) y `POST /portal/me/units/:unitId/quote {months, couponCode?}` (portal). La vista de firma lo incluye en `firstPayment`.
 - **Reserva online** `POST /public/move-in/book/:slug` y **portal** `POST /portal/me/contracts` aceptan `months` (1, 3, 6 o 12) y `couponCode`. Errores: 400 `coupon_not_valid` (reserva, con el motivo) y `unit_has_offer` (portal: el trastero ya tiene una oferta).
 
+### Landings de promoción (`/promo-landings`, extra Web Premium)
+
+Páginas propias por promoción en la web del tenant, con el estilo de su plantilla.
+
+- `GET /promo-landings`, `GET /promo-landings/:id` (`settings:read`); `POST`, `PATCH /:id`, `DELETE /:id`, `POST /:id/duplicate` (copia apagada con dirección `<slug>-copia`) (`settings:manage`). Sin la feature `web_premium` → 403. Errores: 409 `promo_slug_taken`, 400 `invalid_reference` (cupón, local o tamaño de otro tenant), 400 `invalid_dates`.
+- Foto principal: `POST /promo-landings/:id/image/upload-url {mimeType, sizeBytes}` (JPG/PNG/WebP ≤5 MB, bucket público) y `PUT /promo-landings/:id/image {heroImageKey|null}` (la clave debe empezar por `<tenant>/promo/<id>/`).
+- `PromoLandingDto`: nombre, `slug`, `isActive`, `startsAt`/`endsAt`, `live` (activa y dentro de fechas), titular, subtítulo, oferta, texto, ventajas, condiciones, texto del botón, foto, cupón (`couponId`/`couponCode`), locales y tamaños (vacío = todos), secciones (cuenta atrás, opiniones, preguntas, contacto), SEO e `indexable` (por defecto no).
+- **Pública**: `GET /public/landing/:slug/promo/:promoSlug` → `{ site: PublicLandingDto, promo: PublicPromoLandingDto }` (el cupón solo si sigue activo, con `summary` y `minMonths`). Apagada, fuera de fechas, inexistente o sin `web_premium` → 404 `promo_not_available`; la web redirige a la portada.
+- En el dominio propio la dirección es `/promo/<nombre>` (también con web externa); en la plataforma, `/s/<slug>/promo/<nombre>`. «Reservar» lleva a la reserva con `?coupon=<código>&months=<mínimo del cupón>` (la reserva los deja puestos). Un local no puede llamarse `promo`.
+
 ### Referidos (`/referrals`, `/portal/me/referrals`, `/settings/tenant/referrals`)
 
 - `GET /referrals` + `GET /referrals/stats` (`referrals:read`): lista + métricas.

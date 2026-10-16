@@ -788,6 +788,31 @@
       "footerManage": "Gestión",
       "accessCode": "Mi código de acceso",
       "invoices": "Facturas y recibos"
+    },
+    "promoLanding": {
+      "reserve": "Reservar ahora",
+      "reserveThis": "Reservar",
+      "from": "Desde",
+      "perMonth": "/mes",
+      "vatIncluded": "IVA incluido",
+      "available": "Disponible",
+      "lastUnits": "¡Solo quedan {count}!",
+      "soldOut": "Agotado",
+      "notify": "Avísame",
+      "sizesTitle": "Elige tu trastero",
+      "benefitsTitle": "Por qué te interesa",
+      "conditionsTitle": "Condiciones de la promoción",
+      "couponIncluded": "Con el código {code}: {summary}. Se aplica solo al reservar.",
+      "endsIn": "La promoción termina en",
+      "days": "{count, plural, one {# día} other {# días}}",
+      "hours": "{count} h",
+      "minutes": "{count} min",
+      "ended": "La promoción ha terminado",
+      "reviewsTitle": "Lo que dicen nuestros clientes",
+      "faqTitle": "Preguntas frecuentes",
+      "contactTitle": "¿Tienes dudas? Te llamamos",
+      "m2": "{value} m²",
+      "where": "Dónde estamos"
     }
   }
 }

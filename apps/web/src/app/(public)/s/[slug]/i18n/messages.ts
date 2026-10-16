@@ -59,6 +59,9 @@ export function bookHref(
     facilitySlug?: string | null;
     unitTypeId?: string;
     waitlist?: boolean;
+    /** Cupón ya aplicado y meses del primer pago (landings de promoción). */
+    coupon?: string;
+    months?: number;
   },
   customDomain?: string | null,
 ): string {
@@ -80,6 +83,8 @@ export function bookHref(
     qs.set('waitlist', '1');
     return `${base}?${qs.toString()}#waitlist`;
   }
+  if (params?.coupon) qs.set('coupon', params.coupon);
+  if (params?.months && params.months > 1) qs.set('months', String(params.months));
   const query = qs.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -98,7 +103,13 @@ export interface BookSite {
 export function bookHrefFor(
   site: BookSite,
   locale: PublicWebLocale,
-  params?: { facilityId?: string; unitTypeId?: string; waitlist?: boolean },
+  params?: {
+    facilityId?: string;
+    unitTypeId?: string;
+    waitlist?: boolean;
+    coupon?: string;
+    months?: number;
+  },
 ): string {
   const facilitySlug = params?.facilityId
     ? (site.facilities.find((f) => f.id === params.facilityId)?.publicSlug ?? null)

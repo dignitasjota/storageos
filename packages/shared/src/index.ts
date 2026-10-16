@@ -69,3 +69,4 @@ export * from './product-updates';
 export * from './owners';
 export * from './whatsapp';
 export * from './coupons';
+export * from './promo-landings';

@@ -15,6 +15,7 @@ import type {
   PublicBlogPostDto,
   PublicFacilityLandingDto,
   PublicLandingDto,
+  PublicPromoPageDto,
   PublicSitemapDto,
   PublicTenantBrandDto,
   ResolveDomainDto,
@@ -109,6 +110,16 @@ export class LandingController {
     @Param('postSlug') postSlug: string,
   ): Promise<PublicBlogPostDto> {
     return this.landing.getBlogPost(slug, postSlug);
+  }
+
+  /** Landing de promoción en vigor (`/promo/<slug>`); 404 si no existe, está apagada o caducó. */
+  @Get(':slug/promo/:promoSlug')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  promo(
+    @Param('slug') slug: string,
+    @Param('promoSlug') promoSlug: string,
+  ): Promise<PublicPromoPageDto> {
+    return this.landing.getPromo(slug, promoSlug);
   }
 
   @Get(':slug/:facilitySlug')

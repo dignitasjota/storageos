@@ -117,6 +117,14 @@ export function BookPageBody({
     if (medium) next.utmMedium = medium;
     if (campaign) next.utmCampaign = campaign;
     if (Object.keys(next).length > 0) setUtm(next);
+    // Desde una landing de promoción: cupón ya aplicado y meses que pide.
+    const coupon = sp.get('coupon')?.trim().toUpperCase();
+    if (coupon) {
+      setCouponInput(coupon);
+      setCouponCode(coupon);
+    }
+    const m = Number(sp.get('months'));
+    if (m === 3 || m === 6 || m === 12) setMonths(m);
   }, []);
 
   // Con un solo local no hace falta elegirlo: se selecciona solo.

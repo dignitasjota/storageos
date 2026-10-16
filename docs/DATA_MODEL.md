@@ -210,6 +210,12 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 - `coupon_redemptions` (RLS): cada uso — coupon_id, customer_id, contract_id (único: un cupón por contrato), invoice_id, months, discount_amount, free_months.
 - El cálculo es `quoteCoupon` (shared, en céntimos): % sobre todos los meses pagados, € fijo hasta el alquiler, meses gratis = los regalados × la cuota (se paga al menos un mes). La fianza y el seguro no se descuentan. El uso se reserva con `CouponsService.redeemInTx` (incremento condicionado a `used_count < max_uses`). Un cupón ya usado no se borra (409 `coupon_in_use`), se desactiva.
 
+### `promo_landings` (2026-10-16)
+
+Landings de promoción de la web del tenant (extra Web Premium), en `/promo/<slug>`.
+
+- `promo_landings` (RLS): id, tenant_id, name (interno), slug (único por tenant), is_active, starts_at/ends_at (opcionales; fuera de ellas no se sirve), headline, subheadline, offer_text, body, benefits[], conditions, cta_label, hero_image_key (bucket público, `<tenant>/promo/<id>/…`), coupon_id (FK coupons, SET NULL; opcional), facility_ids[] y unit_type_ids[] (vacío = todos), show_countdown, show_testimonials, show_faq, show_contact, seo_title, seo_description, indexable (por defecto false), created_at, updated_at.
+
 ## 4. Inquilinos finales
 
 ### `customers`

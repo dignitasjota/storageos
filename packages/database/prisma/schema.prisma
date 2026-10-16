@@ -531,6 +531,7 @@ model Tenant {
   pushSubscriptions       PushSubscription[]
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
+  promoLandings           PromoLanding[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -1962,8 +1963,9 @@ model Coupon {
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  redemptions CouponRedemption[]
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  redemptions   CouponRedemption[]
+  promoLandings PromoLanding[]
 
   @@unique([tenantId, code], map: "coupons_tenant_code_key")
   @@index([tenantId, isActive], map: "coupons_tenant_active_idx")
@@ -4257,6 +4259,43 @@ model BlogPost {
   @@unique([tenantId, slug])
   @@index([tenantId, isPublished, publishedAt])
   @@map("blog_posts")
+}
+
+/// Landing de promoción de la web del tenant (`/promo/<slug>`, extra Web Premium).
+model PromoLanding {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  name             String
+  slug             String
+  isActive         Boolean   @default(false) @map("is_active")
+  startsAt         DateTime? @map("starts_at") @db.Timestamptz(6)
+  endsAt           DateTime? @map("ends_at") @db.Timestamptz(6)
+  headline         String
+  subheadline      String?
+  offerText        String?   @map("offer_text")
+  body             String?
+  benefits         String[]  @default([])
+  conditions       String?
+  ctaLabel         String?   @map("cta_label")
+  heroImageKey     String?   @map("hero_image_key")
+  couponId         String?   @map("coupon_id") @db.Uuid
+  facilityIds      String[]  @default([]) @map("facility_ids") @db.Uuid
+  unitTypeIds      String[]  @default([]) @map("unit_type_ids") @db.Uuid
+  showCountdown    Boolean   @default(false) @map("show_countdown")
+  showTestimonials Boolean   @default(true) @map("show_testimonials")
+  showFaq          Boolean   @default(true) @map("show_faq")
+  showContact      Boolean   @default(true) @map("show_contact")
+  seoTitle         String?   @map("seo_title")
+  seoDescription   String?   @map("seo_description")
+  indexable        Boolean   @default(false)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  coupon Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, slug], map: "promo_landings_tenant_slug_key")
+  @@map("promo_landings")
 }
 
 /// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la
