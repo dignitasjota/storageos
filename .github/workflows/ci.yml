@@ -147,7 +147,8 @@ jobs:
   test-api-e2e:
     name: Tests API e2e (Jest + Supertest)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Las 4 tandas tardan ~38 min: con 40 se cortaba sin que fallara ninguna prueba.
+    timeout-minutes: 60
 
     services:
       postgres:
