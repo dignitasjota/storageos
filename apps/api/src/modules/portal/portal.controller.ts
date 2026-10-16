@@ -66,6 +66,8 @@ import {
   PortalUnitChangeRequestSchema,
   PortalUnitRequestSchema,
   PortalBookUnitSchema,
+  PortalUnitQuoteSchema,
+  type FirstPaymentQuoteDto,
   type AvailableUnitDto,
   type PortalUnitRequestDto,
   type PortalBookUnitResultDto,
@@ -130,6 +132,7 @@ class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
 class PortalUnitChangeRequestDto2 extends createZodDto(PortalUnitChangeRequestSchema) {}
 class PortalUnitRequestDto2 extends createZodDto(PortalUnitRequestSchema) {}
 class PortalBookUnitDto2 extends createZodDto(PortalBookUnitSchema) {}
+class PortalUnitQuoteDto extends createZodDto(PortalUnitQuoteSchema) {}
 
 @Controller('portal')
 export class PortalController {
@@ -729,7 +732,29 @@ export class PortalController {
       customerId,
       unitId: input.unitId,
       signerName: input.signerName,
+      months: input.months,
+      couponCode: input.couponCode || undefined,
       meta: { ipAddress: req.ip, userAgent: req.header('user-agent') },
+    });
+  }
+
+  /** Resumen del pago al contratar un trastero (meses, cupón, IVA y fianza). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/units/:unitId/quote')
+  @HttpCode(HttpStatus.OK)
+  async quoteUnit(
+    @Headers('authorization') auth: string | undefined,
+    @Param('unitId', new ParseUUIDPipe()) unitId: string,
+    @Body() input: PortalUnitQuoteDto,
+  ): Promise<FirstPaymentQuoteDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.signatures.quoteForExistingCustomer({
+      tenantId,
+      customerId,
+      unitId,
+      months: input.months,
+      couponCode: input.couponCode || undefined,
     });
   }
 

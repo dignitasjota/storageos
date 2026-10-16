@@ -345,7 +345,20 @@
         "bookingGenerates": ". Your contract and first invoice will be generated, which you can then pay.",
         "signerNameLabel": "Full name (signature)",
         "acceptTerms": "I have read and accept the storage unit rental terms and the data processing policy.",
-        "confirmButton": "Sign and continue to payment"
+        "confirmButton": "Sign and continue to payment",
+        "monthsLabel": "How many months do you pay now?",
+        "monthsOption": "{count, plural, one {# month} other {# months}}",
+        "couponLabel": "Discount coupon (optional)",
+        "couponApply": "Apply",
+        "couponRemove": "Remove",
+        "couponApplied": "Coupon {code} applied",
+        "summaryRent": "Rent ({count, plural, one {# month} other {# months}})",
+        "summaryDiscount": "Coupon discount",
+        "summaryVat": "VAT",
+        "summaryDeposit": "Deposit",
+        "summaryTotal": "Total due now",
+        "summaryAfter": "After that you pay monthly.",
+        "summaryProrated": "The first month is charged to the end of the month, so it may be less."
       },
       "waitlist": {
         "title": "Waiting list",

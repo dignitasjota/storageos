@@ -10,13 +10,21 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
-import { contractClausesTemplate, renderContractClauses } from '@storageos/shared';
+import {
+  buildFirstPaymentQuote,
+  contractClausesTemplate,
+  renderContractClauses,
+  rentTax,
+  type FirstPaymentMonths,
+  type FirstPaymentQuoteDto,
+} from '@storageos/shared';
 
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { buildContractTermsText } from '../contracts/contract-terms';
 import { ContractsService } from '../contracts/contracts.service';
+import { CouponsService } from '../coupons/coupons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { toActiveUnitOffer } from '../promotions/promotions.service';
 
@@ -55,6 +63,7 @@ export class SignaturesService {
     private readonly communications: CommunicationsService,
     private readonly invoices: InvoicesService,
     private readonly firstInvoice: FirstInvoiceService,
+    private readonly coupons: CouponsService,
     private readonly config: ConfigService<Env, true>,
     private readonly jwt: JwtService,
   ) {}
@@ -210,7 +219,66 @@ export class SignaturesService {
       brandColor: tenant?.portalBrandColor ?? null,
       logoUrl: tenant?.portalLogoUrl ?? null,
       googleAnalyticsId: tenant?.googleAnalyticsId ?? null,
+      firstPayment: await this.firstPaymentOf(contract.id, propertyKind),
     };
+  }
+
+  /**
+   * Lo que se paga al activar el contrato: los meses del primer pago con el
+   * cupón (o el descuento por prepago), el seguro y la fianza online.
+   */
+  private async firstPaymentOf(
+    contractId: string,
+    propertyKind: string,
+  ): Promise<FirstPaymentQuoteDto> {
+    const c = await this.admin.contract.findUniqueOrThrow({
+      where: { id: contractId },
+      select: {
+        priceMonthly: true,
+        discountAmount: true,
+        billingIntervalMonths: true,
+        prepayDiscountPct: true,
+        firstPaymentMonths: true,
+        depositAmount: true,
+        depositPaymentMethod: true,
+        insurancePrice: true,
+        insurancePlan: { select: { taxRate: true } },
+        couponRedemptions: {
+          take: 1,
+          select: {
+            discountAmount: true,
+            freeMonths: true,
+            coupon: { select: { code: true, name: true } },
+          },
+        },
+      },
+    });
+    const coupon = c.couponRedemptions[0] ?? null;
+    const interval = c.billingIntervalMonths;
+    const months = interval > 1 ? interval : c.firstPaymentMonths;
+    const monthlyPrice = Number(c.priceMonthly) - Number(c.discountAmount);
+    const prepayPct = interval > 1 ? Number(c.prepayDiscountPct) : 0;
+    const discountAmount = coupon
+      ? Number(coupon.discountAmount)
+      : Math.round(monthlyPrice * months * prepayPct) / 100;
+    // La 1ª factura prorrateada (un mes, sin cupón) no lleva el seguro: va en la
+    // recurrente.
+    const fullPeriod = interval > 1 || months > 1 || !!coupon;
+    const insurance = fullPeriod ? Number(c.insurancePrice ?? 0) * months : 0;
+    const insuranceRate = Number(c.insurancePlan?.taxRate ?? 21);
+    return buildFirstPaymentQuote({
+      monthlyPrice,
+      months,
+      vatRate: rentTax(propertyKind).taxRate,
+      discountAmount,
+      freeMonths: coupon?.freeMonths ?? 0,
+      deposit: c.depositPaymentMethod === 'cash' ? 0 : Number(c.depositAmount),
+      insuranceWithVat: Math.round(insurance * (100 + insuranceRate)) / 100,
+      prorated: !fullPeriod,
+      coupon: coupon
+        ? { code: coupon.coupon.code, name: coupon.coupon.name, valid: true, message: null }
+        : null,
+    });
   }
 
   /** Público: firma el contrato vía token. Activa el contrato y emite el evento. */
@@ -362,14 +430,56 @@ export class SignaturesService {
    * pago), emite la 1ª factura y devuelve los ids para pagar online. El acceso
    * se emite al pagar la 1ª factura (mismo flujo que el booking público).
    */
+  /** Portal: resumen del pago al contratar un trastero (meses, cupón, IVA y fianza). */
+  async quoteForExistingCustomer(args: {
+    tenantId: string;
+    customerId: string;
+    unitId: string;
+    months: number;
+    couponCode?: string | undefined;
+  }): Promise<FirstPaymentQuoteDto> {
+    const unit = await this.admin.unit.findFirst({
+      where: { id: args.unitId, tenantId: args.tenantId, status: 'available' },
+      select: {
+        unitTypeId: true,
+        facilityId: true,
+        basePriceMonthly: true,
+        unitType: { select: { propertyKind: true, defaultDepositAmount: true } },
+      },
+    });
+    if (!unit) {
+      throw new BadRequestException({
+        code: 'unit_not_available',
+        message: 'El trastero ya no está disponible',
+      });
+    }
+    const customer = await this.admin.customer.findFirst({
+      where: { id: args.customerId, tenantId: args.tenantId, deletedAt: null },
+      select: { depositExempt: true },
+    });
+    return this.coupons.quoteFirstPayment(args.tenantId, {
+      monthlyPrice: Number(unit.basePriceMonthly),
+      months: args.months,
+      unitTypeId: unit.unitTypeId,
+      facilityId: unit.facilityId,
+      propertyKind: unit.unitType.propertyKind,
+      deposit: customer?.depositExempt ? 0 : Number(unit.unitType.defaultDepositAmount ?? 0),
+      couponCode: args.couponCode,
+      isNewCustomer: await this.coupons.isNewCustomer(args.tenantId, args.customerId),
+    });
+  }
+
   async bookForExistingCustomer(args: {
     tenantId: string;
     customerId: string;
     unitId: string;
     signerName: string;
+    months?: FirstPaymentMonths;
+    couponCode?: string | undefined;
     meta: RequestMeta;
   }): Promise<{ contractId: string; invoiceId: string | null; portalToken: string }> {
     const { tenantId, customerId, unitId } = args;
+    const couponCode = args.couponCode?.trim() || undefined;
     // El trastero debe estar disponible y en un local donde el inquilino ya
     // tiene un contrato activo (mismo criterio que la disponibilidad del portal).
     const unit = await this.admin.unit.findFirst({
@@ -415,6 +525,12 @@ export class SignaturesService {
       where: { tenantId, isActive: true, discountType: 'free_months' },
     });
     const offer = promos.map((p) => toActiveUnitOffer(p)).find((o) => o?.unitId === unitId);
+    if (offer && couponCode) {
+      throw new BadRequestException({
+        code: 'unit_has_offer',
+        message: 'Este trastero ya tiene una oferta: no se combina con un cupón',
+      });
+    }
 
     const today = new Date().toISOString().slice(0, 10);
     const contract = await this.contracts.create({
@@ -427,7 +543,8 @@ export class SignaturesService {
         startDate: today,
         billingCycle: 'monthly',
         billingIntervalMonths: 1,
-        firstPaymentMonths: 1,
+        firstPaymentMonths: args.months ?? 1,
+        ...(couponCode ? { couponCode } : {}),
         prepayDiscountPct: 0,
         priceMonthly: Number(unit.basePriceMonthly),
         discountAmount: 0,

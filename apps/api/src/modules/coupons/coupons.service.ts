@@ -7,7 +7,9 @@ import {
 import {
   couponRejectMessage,
   couponRuleIssues,
+  buildFirstPaymentQuote,
   quoteCoupon,
+  rentTax,
   type CouponDto,
   type CouponQuote,
   type CouponQuoteContext,
@@ -15,6 +17,7 @@ import {
   type CouponRedemptionDto,
   type CouponRules,
   type CreateCouponInput,
+  type FirstPaymentQuoteDto,
   type UpdateCouponInput,
   type ValidateCouponInput,
 } from '@storageos/shared';
@@ -255,6 +258,53 @@ export class CouponsService {
       };
     }
     return { ...quoteCoupon(toRules(coupon), ctx), code: coupon.code, name: coupon.name };
+  }
+
+  /**
+   * Resumen de lo que paga el cliente al contratar: alquiler de los meses
+   * elegidos con el cupón (si vale), IVA y fianza. Sin cupón o con uno que no
+   * vale, el alquiler va sin descuento y `coupon.message` dice por qué.
+   */
+  async quoteFirstPayment(
+    tenantId: string,
+    args: {
+      monthlyPrice: number;
+      months: number;
+      unitTypeId: string;
+      facilityId: string;
+      propertyKind: string | null | undefined;
+      deposit: number;
+      couponCode?: string | null | undefined;
+      isNewCustomer?: boolean | null | undefined;
+    },
+  ): Promise<FirstPaymentQuoteDto> {
+    const code = args.couponCode?.trim();
+    const quote = code
+      ? await this.quote(tenantId, code, {
+          monthlyPrice: args.monthlyPrice,
+          months: args.months,
+          unitTypeId: args.unitTypeId,
+          facilityId: args.facilityId,
+          isNewCustomer: args.isNewCustomer,
+        })
+      : null;
+    return buildFirstPaymentQuote({
+      monthlyPrice: args.monthlyPrice,
+      months: args.months,
+      vatRate: rentTax(args.propertyKind).taxRate,
+      discountAmount: quote?.valid ? quote.discountAmount : 0,
+      freeMonths: quote?.valid ? quote.freeMonths : 0,
+      deposit: args.deposit,
+      prorated: args.months === 1 && !quote?.valid,
+      coupon: quote
+        ? {
+            code: quote.code,
+            name: quote.name,
+            valid: quote.valid,
+            message: quote.valid ? null : quote.message,
+          }
+        : null,
+    });
   }
 
   /** Cliente nuevo = sin ningún contrato firmado antes. */

@@ -1,6 +1,10 @@
 'use client';
 
-import { bookCentroFromPath } from '@storageos/shared';
+import {
+  FIRST_PAYMENT_MONTHS,
+  bookCentroFromPath,
+  type FirstPaymentMonths,
+} from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -10,9 +14,11 @@ import { toast } from 'sonner';
 import type {
   BookingAvailabilityDto,
   BookingResultDto,
+  FirstPaymentQuoteDto,
   PublicWaitlistOptionsDto,
 } from '@storageos/shared';
 
+import { FirstPaymentSummary } from '@/app/(public)/s/[slug]/first-payment-summary';
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
 import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
@@ -58,6 +64,10 @@ export function BookPageBody({
   });
   const [website, setWebsite] = useState(''); // honeypot
   const [referralCode, setReferralCode] = useState('');
+  const [months, setMonths] = useState<FirstPaymentMonths>(1);
+  const [couponInput, setCouponInput] = useState('');
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [quote, setQuote] = useState<FirstPaymentQuoteDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // UTM de la URL (p. ej. desde el enlace corto /g/<code> de una campaña
   // física): se capturan una vez al montar y se reenvían en el lead y en la
@@ -117,6 +127,39 @@ export function BookPageBody({
 
   const facility = data?.facilities.find((f) => f.id === facilityId);
   const selectedType = facility?.unitTypes.find((ut) => ut.id === unitTypeId);
+
+  // Resumen de lo que se paga (meses elegidos, cupón, IVA y fianza).
+  useEffect(() => {
+    if (!facilityId || !unitTypeId) {
+      setQuote(null);
+      return;
+    }
+    let cancelled = false;
+    const email = form.email.trim();
+    apiFetch<FirstPaymentQuoteDto>(`/public/move-in/book/${slug}/quote`, {
+      method: 'POST',
+      requiresAuth: false,
+      json: {
+        facilityId,
+        unitTypeId,
+        months,
+        ...(couponCode ? { couponCode } : {}),
+        ...(couponCode && EMAIL_RE.test(email) ? { email } : {}),
+      },
+    })
+      .then((q) => {
+        if (!cancelled) setQuote(q);
+      })
+      .catch(() => {
+        if (!cancelled) setQuote(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // El email solo cuenta al aplicar el cupón («solo clientes nuevos»).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, facilityId, unitTypeId, months, couponCode]);
+  const couponValid = !!(couponCode && quote?.coupon?.valid);
   const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
 
@@ -157,6 +200,8 @@ export function BookPageBody({
           startDate,
           customer: form,
           ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+          months,
+          ...(couponValid && couponCode ? { couponCode } : {}),
           website,
           ...utm,
         },
@@ -298,6 +343,68 @@ export function BookPageBody({
                   )}
                 </div>
               )}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="book-months">{t('monthsLabel')}</Label>
+                  <select
+                    id="book-months"
+                    className={selectClass()}
+                    value={months}
+                    onChange={(e) => setMonths(Number(e.target.value) as FirstPaymentMonths)}
+                  >
+                    {FIRST_PAYMENT_MONTHS.map((m) => (
+                      <option key={m} value={m}>
+                        {t('monthsOption', { count: m })}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">{t('monthsHint')}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="book-coupon">{t('couponLabel')}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="book-coupon"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      placeholder={t('couponPlaceholder')}
+                      disabled={!!couponCode}
+                    />
+                    {couponCode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setCouponCode(null);
+                          setCouponInput('');
+                        }}
+                      >
+                        {t('couponRemove')}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!couponInput.trim()}
+                        onClick={() => setCouponCode(couponInput.trim().toUpperCase())}
+                      >
+                        {t('couponApply')}
+                      </Button>
+                    )}
+                  </div>
+                  {couponCode && quote?.coupon && (
+                    <p
+                      className={`text-xs ${quote.coupon.valid ? 'text-green-600' : 'text-destructive'}`}
+                    >
+                      {quote.coupon.valid
+                        ? t('couponApplied', { code: quote.coupon.code })
+                        : quote.coupon.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {quote && <FirstPaymentSummary quote={quote} locale={locale} />}
 
               <div className="space-y-1">
                 <Label htmlFor="book-start-date">{t('startDateLabel')}</Label>

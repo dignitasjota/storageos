@@ -9,6 +9,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
+import { CouponsService } from '../coupons/coupons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { ReferralsService } from '../referrals/referrals.service';
@@ -17,6 +18,8 @@ import { SignaturesService } from './signatures.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  BookingQuoteInput,
+  FirstPaymentQuoteDto,
   BookingAvailabilityDto,
   BookingResultDto,
   CaptureBookingLeadInput,
@@ -36,6 +39,7 @@ export class BookingService {
     private readonly contracts: ContractsService,
     private readonly signatures: SignaturesService,
     private readonly referrals: ReferralsService,
+    private readonly coupons: CouponsService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -154,6 +158,65 @@ export class BookingService {
     };
   }
 
+  /**
+   * Público: resumen de lo que se paga al reservar (meses elegidos, cupón,
+   * IVA y fianza) con el trastero que se asignaría.
+   */
+  async quoteBooking(slug: string, input: BookingQuoteInput): Promise<FirstPaymentQuoteDto> {
+    const tenant = await this.admin.tenant.findUnique({ where: { slug } });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    return this.quoteFor(tenant.id, input);
+  }
+
+  private async quoteFor(
+    tenantId: string,
+    input: {
+      facilityId: string;
+      unitTypeId: string;
+      months: number;
+      couponCode?: string | undefined;
+      email?: string | undefined;
+    },
+  ): Promise<FirstPaymentQuoteDto> {
+    const unit = await this.admin.unit.findFirst({
+      where: {
+        tenantId,
+        facilityId: input.facilityId,
+        unitTypeId: input.unitTypeId,
+        status: 'available',
+      },
+      orderBy: { code: 'asc' },
+      select: {
+        basePriceMonthly: true,
+        unitType: { select: { propertyKind: true, defaultDepositAmount: true } },
+      },
+    });
+    if (!unit) {
+      throw new ConflictException({
+        code: 'no_units_available',
+        message: 'No quedan trasteros disponibles de ese tipo',
+      });
+    }
+    const customer = input.email
+      ? await this.admin.customer.findFirst({
+          where: { tenantId, email: input.email, deletedAt: null },
+          select: { id: true, depositExempt: true },
+        })
+      : null;
+    return this.coupons.quoteFirstPayment(tenantId, {
+      monthlyPrice: Number(unit.basePriceMonthly),
+      months: input.months,
+      unitTypeId: input.unitTypeId,
+      facilityId: input.facilityId,
+      propertyKind: unit.unitType.propertyKind,
+      deposit: customer?.depositExempt ? 0 : Number(unit.unitType.defaultDepositAmount ?? 0),
+      couponCode: input.couponCode,
+      isNewCustomer: customer ? await this.coupons.isNewCustomer(tenantId, customer.id) : null,
+    });
+  }
+
   /** Público: alta self-service → crea cliente + contrato draft + token de firma. */
   async createBooking(
     slug: string,
@@ -169,6 +232,24 @@ export class BookingService {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
     const tenantId = tenant.id;
+    const couponCode = input.couponCode?.trim() || undefined;
+    // El cupón se comprueba antes de reservar el trastero: si no vale, no se
+    // crea nada y el visitante ve el motivo.
+    if (couponCode) {
+      const quote = await this.quoteFor(tenantId, {
+        facilityId: input.facilityId,
+        unitTypeId: input.unitTypeId,
+        months: input.months,
+        couponCode,
+        email: input.customer.email,
+      });
+      if (quote.coupon && !quote.coupon.valid) {
+        throw new BadRequestException({
+          code: 'coupon_not_valid',
+          message: quote.coupon.message ?? 'El cupón no es válido',
+        });
+      }
+    }
 
     const { unitId, customerId, priceMonthly, depositAmount } = await this.prisma.withTenant(
       async (tx) => {
@@ -252,26 +333,37 @@ export class BookingService {
       tenantId,
     );
 
-    const contract = await this.contracts.create({
-      tenantId,
-      userId: null,
-      meta,
-      input: {
-        customerId,
-        unitId,
-        startDate: input.startDate,
-        billingCycle: 'monthly',
-        billingIntervalMonths: 1,
-        firstPaymentMonths: 1,
-        prepayDiscountPct: 0,
-        priceMonthly,
-        discountAmount: 0,
-        depositAmount,
-        depositPaymentMethod: 'online',
-        autoRenew: true,
-        cancellationNoticeDays: 15,
-      },
-    });
+    let contract: Awaited<ReturnType<ContractsService['create']>>;
+    try {
+      contract = await this.contracts.create({
+        tenantId,
+        userId: null,
+        meta,
+        input: {
+          customerId,
+          unitId,
+          startDate: input.startDate,
+          billingCycle: 'monthly',
+          billingIntervalMonths: 1,
+          firstPaymentMonths: input.months,
+          ...(couponCode ? { couponCode } : {}),
+          prepayDiscountPct: 0,
+          priceMonthly,
+          discountAmount: 0,
+          depositAmount,
+          depositPaymentMethod: 'online',
+          autoRenew: true,
+          cancellationNoticeDays: 15,
+        },
+      });
+    } catch (err) {
+      // Sin contrato (p. ej. el cupón se agotó entretanto): el trastero vuelve
+      // a estar disponible.
+      await this.admin.unit
+        .updateMany({ where: { id: unitId, status: 'reserved' }, data: { status: 'available' } })
+        .catch(() => undefined);
+      throw err;
+    }
 
     // Marketing: si había un lead sin convertir para este email (captureLead
     // email-first, u otro origen), se marca `won` con la conversión — así el

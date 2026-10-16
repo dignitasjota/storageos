@@ -1,3 +1,5 @@
+import type { FirstPaymentQuoteDto } from '../coupons';
+
 /** Vista pública de un contrato a punto de firmarse (página /sign/[token]). */
 export interface ContractSignViewDto {
   contractNumber: string;
@@ -21,6 +23,8 @@ export interface ContractSignViewDto {
   logoUrl: string | null;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
+  /** Lo que se paga al activar (meses del primer pago, cupón, IVA y fianza). */
+  firstPayment: FirstPaymentQuoteDto;
 }
 
 /** Resultado de firmar: estado + token de portal para pagar la 1ª factura. */

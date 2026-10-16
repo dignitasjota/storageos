@@ -175,6 +175,55 @@ export const ValidateCouponSchema = z.object({
 });
 export type ValidateCouponInput = z.infer<typeof ValidateCouponSchema>;
 
+/** Lo que paga el cliente al contratar (resumen antes de reservar o firmar). */
+export interface FirstPaymentQuoteDto {
+  months: number;
+  /** Cuota mensual sin IVA. */
+  monthlyPrice: number;
+  /** IVA del alquiler (21 % trastero, 0 % vivienda). */
+  vatRate: number;
+  /** Alquiler de los meses sin cupón, sin IVA. */
+  rentSubtotal: number;
+  /** Descuento del cupón, sin IVA. */
+  discountAmount: number;
+  freeMonths: number;
+  /** Alquiler con el cupón, sin IVA. */
+  rentTotal: number;
+  /** Alquiler con el cupón, IVA incluido. */
+  rentTotalWithVat: number;
+  /** Seguro/protección de los mismos meses, IVA incluido (sin descuento). */
+  insuranceWithVat: number;
+  /** Fianza (sin IVA, se devuelve al terminar). */
+  deposit: number;
+  /** Total a pagar ahora: alquiler + seguro con IVA + fianza. */
+  totalToPay: number;
+  /**
+   * Sin cupón y pagando un mes, la 1ª factura va del alta a fin de mes
+   * (prorrateada): el importe real puede ser menor.
+   */
+  prorated: boolean;
+  /** Cupón indicado: si vale y, si no, por qué. */
+  coupon: { code: string; name: string | null; valid: boolean; message: string | null } | null;
+}
+
+/** Resumen del primer pago en la reserva online (antes de crearla). */
+export const BookingQuoteSchema = z.object({
+  facilityId: z.string().uuid(),
+  unitTypeId: z.string().uuid(),
+  months: FirstPaymentMonthsSchema.default(1),
+  couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
+  /** Para «solo clientes nuevos». */
+  email: z.string().trim().toLowerCase().email().optional().or(z.literal('')),
+});
+export type BookingQuoteInput = z.infer<typeof BookingQuoteSchema>;
+
+/** Resumen del primer pago en el portal (trastero adicional). */
+export const PortalUnitQuoteSchema = z.object({
+  months: FirstPaymentMonthsSchema.default(1),
+  couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
+});
+export type PortalUnitQuoteInput = z.infer<typeof PortalUnitQuoteSchema>;
+
 // ============================================================================
 // Cálculo
 // ============================================================================
@@ -346,4 +395,42 @@ export function couponSummary(c: {
   if (c.discountType === 'fixed') return `${eur(c.discountValue)}${from}`;
   const n = Math.trunc(c.discountValue);
   return `${n} ${n === 1 ? 'mes gratis' : 'meses gratis'}${from}`;
+}
+
+/** Monta el resumen del primer pago (importes en euros, sin IVA salvo los «WithVat»). */
+export function buildFirstPaymentQuote(args: {
+  monthlyPrice: number;
+  months: number;
+  vatRate: number;
+  /** Descuento del cupón o del prepago, sin IVA. */
+  discountAmount: number;
+  freeMonths: number;
+  deposit: number;
+  insuranceWithVat?: number;
+  /** Sin cupón ni prepago y pagando un mes: la 1ª factura se prorratea. */
+  prorated: boolean;
+  coupon: FirstPaymentQuoteDto['coupon'];
+}): FirstPaymentQuoteDto {
+  const monthCents = Math.round(args.monthlyPrice * 100);
+  const subtotal = monthCents * args.months;
+  const discount = Math.min(Math.max(0, Math.round(args.discountAmount * 100)), subtotal);
+  const rentTotal = subtotal - discount;
+  const withVat = Math.round((rentTotal * (100 + args.vatRate)) / 100);
+  const deposit = Math.round(args.deposit * 100);
+  const insurance = Math.round((args.insuranceWithVat ?? 0) * 100);
+  return {
+    months: args.months,
+    monthlyPrice: monthCents / 100,
+    vatRate: args.vatRate,
+    rentSubtotal: subtotal / 100,
+    discountAmount: discount / 100,
+    freeMonths: args.freeMonths,
+    rentTotal: rentTotal / 100,
+    rentTotalWithVat: withVat / 100,
+    insuranceWithVat: insurance / 100,
+    deposit: deposit / 100,
+    totalToPay: (withVat + insurance + deposit) / 100,
+    prorated: args.prorated,
+    coupon: args.coupon,
+  };
 }

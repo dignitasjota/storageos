@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { utmFields } from '../communications/schemas';
+import { FirstPaymentMonthsSchema } from '../coupons';
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
 
@@ -37,6 +38,10 @@ export const PublicBookingSchema = z.object({
   }),
   /** Código de referido opcional (best-effort). */
   referralCode: z.string().trim().toUpperCase().max(32).optional().or(z.literal('')),
+  /** Meses que se pagan ahora (1, 3, 6 o 12); después, mensual. */
+  months: FirstPaymentMonthsSchema.default(1),
+  /** Cupón de descuento sobre el pago de ahora. */
+  couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
   ...utmFields,
