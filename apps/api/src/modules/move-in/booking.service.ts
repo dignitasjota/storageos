@@ -262,6 +262,7 @@ export class BookingService {
         startDate: input.startDate,
         billingCycle: 'monthly',
         billingIntervalMonths: 1,
+        firstPaymentMonths: 1,
         prepayDiscountPct: 0,
         priceMonthly,
         discountAmount: 0,

@@ -326,6 +326,28 @@ export class CouponsService {
     });
   }
 
+  /**
+   * Libera el cupón de un contrato que se cancela sin haber pagado el primer
+   * pago (reserva abandonada, borrador cancelado): borra el uso y devuelve la
+   * plaza. Si el primer pago se cobró, el uso se queda.
+   */
+  async releaseForContractInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contractId: string,
+  ): Promise<void> {
+    const use = await tx.couponRedemption.findFirst({
+      where: { tenantId, contractId },
+      select: { id: true, couponId: true, invoice: { select: { amountPaid: true } } },
+    });
+    if (!use || (use.invoice && Number(use.invoice.amountPaid) > 0)) return;
+    await tx.couponRedemption.delete({ where: { id: use.id } });
+    await tx.coupon.updateMany({
+      where: { id: use.couponId, usedCount: { gt: 0 } },
+      data: { usedCount: { decrement: 1 } },
+    });
+  }
+
   private async findOrThrow(tenantId: string, id: string): Promise<CouponRow> {
     const row = await this.prisma.withTenant(
       (tx) => tx.coupon.findFirst({ where: { id, tenantId } }),

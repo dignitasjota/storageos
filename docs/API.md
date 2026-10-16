@@ -1745,6 +1745,8 @@ Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Im
 - `GET /coupons/:id/redemptions` (`promotions:read`): usos (inquilino, contrato, meses, descuento).
 - `POST /coupons/validate {code, unitId, months, monthlyPrice?, customerId?}` (`contracts:write`) → `CouponQuoteDto`: `{valid: true, months, rentSubtotal, discountAmount, freeMonths, rentTotal}` o `{valid: false, reason, message}` (`not_found`, `inactive`, `not_started`, `expired`, `max_uses_reached`, `invalid_months`, `min_months`, `min_amount`, `unit_type`, `facility`, `new_customers_only`).
 
+- **Aplicación (alta de contrato)**: `POST /contracts` acepta `couponCode` y `firstPaymentMonths` (1, 3, 6 o 12). El uso se reserva al crear; la 1ª factura (al firmar) cubre esos meses con el cupón y después se factura mes a mes. Errores: 400 `coupon_<motivo>` (los de `validate`), `coupon_with_promotion` y `coupon_not_better`. Cancelar el contrato sin pagar libera el cupón. `ContractDto.coupon {code, months, discountAmount, freeMonths}`.
+
 ### Referidos (`/referrals`, `/portal/me/referrals`, `/settings/tenant/referrals`)
 
 - `GET /referrals` + `GET /referrals/stats` (`referrals:read`): lista + métricas.

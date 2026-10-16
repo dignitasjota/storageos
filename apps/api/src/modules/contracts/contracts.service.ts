@@ -22,7 +22,9 @@ import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facil
 import { isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
+import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
+import { CouponsService, type RedeemedCoupon } from '../coupons/coupons.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -75,6 +77,12 @@ type ContractWithRelations = Contract & {
   insurancePlan: { name: string } | null;
   owner?: { legalName: string } | null;
   invoices?: { id: string; invoiceNumber: string; status: string }[];
+  couponRedemptions?: {
+    months: number;
+    discountAmount: Prisma.Decimal;
+    freeMonths: number;
+    coupon: { code: string };
+  }[];
 };
 
 /** El justificante de fianza vigente del contrato (para la ficha). */
@@ -84,6 +92,17 @@ const DEPOSIT_RECEIPT_SELECT = {
   orderBy: { createdAt: 'desc' },
   take: 1,
 } satisfies Prisma.Contract$invoicesArgs;
+
+/** El cupón usado en el primer pago (uno por contrato). */
+const COUPON_SELECT = {
+  select: {
+    months: true,
+    discountAmount: true,
+    freeMonths: true,
+    coupon: { select: { code: true } },
+  },
+  take: 1,
+} satisfies Prisma.Contract$couponRedemptionsArgs;
 
 interface ListFilters {
   status?: ContractStatusValue;
@@ -105,6 +124,8 @@ export class ContractsService {
     private readonly pricing: PricingService,
     private readonly eventBus: EventEmitter2,
     private readonly promotions: PromotionsService,
+    private readonly coupons: CouponsService,
+    private readonly firstInvoice: FirstInvoiceService,
     private readonly invoices: InvoicesService,
     private readonly files: FilesService,
   ) {}
@@ -143,6 +164,7 @@ export class ContractsService {
             insurancePlan: { select: { name: true } },
             owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
           },
         }),
       tenantId,
@@ -173,6 +195,7 @@ export class ContractsService {
             insurancePlan: { select: { name: true } },
             owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
           },
         }),
       tenantId,
@@ -248,7 +271,13 @@ export class ContractsService {
     const { tenantId, input } = args;
     // Gating por plan: el seguro requiere la feature `insurance`.
     if (input.insurancePlanId) await this.assertInsuranceFeature(tenantId);
-    const created = await this.prisma.withTenant(async (tx) => {
+    if (input.couponCode?.trim() && input.promotionCode?.trim()) {
+      throw new BadRequestException({
+        code: 'coupon_with_promotion',
+        message: 'Un cupón no se puede combinar con un código promocional',
+      });
+    }
+    const result = await this.prisma.withTenant(async (tx) => {
       // Validar customer y unit pertenecientes a este tenant.
       const customer = await tx.customer.findFirst({
         where: { id: input.customerId, deletedAt: null },
@@ -313,8 +342,39 @@ export class ContractsService {
         insurancePrice = Number(plan.monthlyPrice);
       }
 
+      // Cupón: descuento solo sobre el primer pago. Se reserva el uso aquí;
+      // la 1ª factura lo aplica al firmar.
+      const firstPaymentMonths = input.billingIntervalMonths > 1 ? 1 : input.firstPaymentMonths;
+      let redeemed: RedeemedCoupon | null = null;
+      if (input.couponCode?.trim()) {
+        const months =
+          input.billingIntervalMonths > 1 ? input.billingIntervalMonths : firstPaymentMonths;
+        const signedBefore = await tx.contract.count({
+          where: { tenantId, customerId: input.customerId, signedAt: { not: null } },
+        });
+        const monthlyPrice = Number(input.priceMonthly) - Number(discountAmount);
+        redeemed = await this.coupons.redeemInTx(tx, tenantId, input.couponCode, {
+          monthlyPrice,
+          months,
+          unitTypeId: unit.unitTypeId,
+          facilityId: unit.facilityId,
+          isNewCustomer: signedBefore === 0,
+        });
+        // Con prepago semestral/anual con descuento se aplica el mejor de los dos.
+        const prepayPct = input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0;
+        if (prepayPct > 0) {
+          const prepayCents = Math.round((toCents(monthlyPrice) * months * prepayPct) / 100);
+          if (prepayCents >= toCents(redeemed.quote.discountAmount)) {
+            throw new BadRequestException({
+              code: 'coupon_not_better',
+              message: 'El descuento por pagar por adelantado ya es mayor que el de este cupón',
+            });
+          }
+        }
+      }
+
       const contractNumber = await this.nextContractNumber(tx, tenantId);
-      return tx.contract.create({
+      const row = await tx.contract.create({
         data: {
           tenantId,
           customerId: input.customerId,
@@ -325,6 +385,7 @@ export class ContractsService {
           ...(input.endDate ? { endDate: new Date(input.endDate) } : {}),
           billingCycle: input.billingCycle,
           billingIntervalMonths: input.billingIntervalMonths,
+          firstPaymentMonths,
           irpfRetentionPct: input.irpfRetentionPct ?? 0,
           ownerId: facilityOwner?.ownerId ?? null,
           // El descuento por prepago solo aplica con interval>1 (mensual = 0).
@@ -375,9 +436,19 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
+      if (redeemed) {
+        await this.coupons.recordRedemptionInTx(tx, tenantId, redeemed, {
+          customerId: input.customerId,
+          contractId: row.id,
+          invoiceId: null,
+        });
+      }
+      return { row, redeemed };
     }, tenantId);
+    const created = result.row;
 
     await this.audit.write({
       tenantId,
@@ -389,11 +460,22 @@ export class ContractsService {
         contractNumber: created.contractNumber,
         customerId: created.customerId,
         unitId: created.unitId,
+        ...(result.redeemed ? { couponCode: result.redeemed.code } : {}),
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return this.toDto(created);
+    const dto = this.toDto(created);
+    if (result.redeemed) {
+      const q = result.redeemed.quote;
+      dto.coupon = {
+        code: result.redeemed.code,
+        months: q.months,
+        discountAmount: q.discountAmount,
+        freeMonths: q.freeMonths,
+      };
+    }
+    return dto;
   }
 
   async update(args: {
@@ -460,6 +542,7 @@ export class ContractsService {
             insurancePlan: { select: { name: true } },
             owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
           },
         }),
       args.tenantId,
@@ -556,6 +639,7 @@ export class ContractsService {
             insurancePlan: { select: { name: true } },
             owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
           },
         });
         await tx.contractEvent.create({
@@ -716,6 +800,11 @@ export class ContractsService {
       },
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);
+    // Cupón o primer pago de varios meses: la 1ª factura sale al firmar (sin
+    // esperar a la recurrente) para aplicar el cupón al pago de ahora.
+    if (await this.firstInvoice.needsOnSign(args.tenantId, updated.id)) {
+      await this.firstInvoice.issueIfMissing(args.tenantId, updated.id, updated.customerId);
+    }
     return this.toDto(updated);
   }
 
@@ -856,6 +945,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -944,6 +1034,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       // Trasteros con candado por impago (expediente overlock no cerrado).
@@ -1029,6 +1120,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1114,6 +1206,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1164,6 +1257,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1597,6 +1691,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1668,6 +1763,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1701,6 +1797,8 @@ export class ContractsService {
       }
       // Cancelar el dunning pendiente de las facturas de este contrato (ver end()).
       await this.cancelScheduledDunning(tx, args.tenantId, args.contractId, 'Contrato cancelado');
+      // Un cupón de un contrato que no llegó a pagarse vuelve a quedar libre.
+      await this.coupons.releaseForContractInTx(tx, args.tenantId, args.contractId);
       return row;
     }, args.tenantId);
     await this.audit.write({
@@ -1757,6 +1855,7 @@ export class ContractsService {
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
           invoices: DEPOSIT_RECEIPT_SELECT,
+          couponRedemptions: COUPON_SELECT,
         },
       });
       await tx.contractEvent.create({
@@ -1813,6 +1912,7 @@ export class ContractsService {
       insurancePlan: { select: { name: true } },
       owner: { select: { legalName: true } },
       invoices: DEPOSIT_RECEIPT_SELECT,
+      couponRedemptions: COUPON_SELECT,
     } satisfies Prisma.ContractInclude;
   }
 
@@ -2184,6 +2284,7 @@ export class ContractsService {
             insurancePlan: { select: { name: true } },
             owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
           },
         }),
       args.tenantId,
@@ -2347,6 +2448,7 @@ export class ContractsService {
             insurancePlan: { select: { name: true } },
             owner: { select: { legalName: true } },
             invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
           },
         }),
       tenantId,
@@ -2455,6 +2557,15 @@ export class ContractsService {
       ownerId: row.ownerId,
       ownerName: row.owner?.legalName ?? null,
       prepayDiscountPct: Number(row.prepayDiscountPct),
+      firstPaymentMonths: row.firstPaymentMonths,
+      coupon: row.couponRedemptions?.[0]
+        ? {
+            code: row.couponRedemptions[0].coupon.code,
+            months: row.couponRedemptions[0].months,
+            discountAmount: Number(row.couponRedemptions[0].discountAmount),
+            freeMonths: row.couponRedemptions[0].freeMonths,
+          }
+        : null,
       priceMonthly: base,
       discountAmount: discount,
       discountReason: row.discountReason,
