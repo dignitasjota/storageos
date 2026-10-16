@@ -594,11 +594,6 @@
       "unitsKicker": "Tarifas transparentes",
       "unitsTitle": "Elige el tamaño que necesitas",
       "unitsSubtitle": "Precios con IVA incluido y sin sorpresas.",
-      "size": {
-        "small": "Trastero pequeño",
-        "medium": "Trastero mediano",
-        "large": "Trastero grande"
-      },
       "ideal": {
         "small": "Ideal para: cajas, maletas, bicicletas y enseres pequeños.",
         "medium": "Ideal para: un piso de 1 o 2 habitaciones, electrodomésticos y cajas de mudanza.",
@@ -732,7 +727,6 @@
       "unitsKicker": "Precios claros",
       "unitsTitle": "Encuentra tu tamaño ideal",
       "unitsSubtitle": "Precios mensuales con IVA incluido. Elige el formato que mejor se adapta a lo que vas a guardar.",
-      "size": "Tamaño {size}",
       "metres": "Metros",
       "ideal": {
         "S": "Ideal para maletas, cajas de ropa, bicicletas o archivo ligero.",

@@ -594,11 +594,6 @@
       "unitsKicker": "Transparent pricing",
       "unitsTitle": "Choose the size you need",
       "unitsSubtitle": "Prices include VAT. No surprises.",
-      "size": {
-        "small": "Small unit",
-        "medium": "Medium unit",
-        "large": "Large unit"
-      },
       "ideal": {
         "small": "Ideal for: boxes, suitcases, bikes and small items.",
         "medium": "Ideal for: a 1–2 bedroom flat, appliances and moving boxes.",
@@ -732,7 +727,6 @@
       "unitsKicker": "Clear pricing",
       "unitsTitle": "Find your ideal size",
       "unitsSubtitle": "Monthly prices including VAT. Choose the format that best fits what you want to store.",
-      "size": "Size {size}",
       "metres": "Metres",
       "ideal": {
         "S": "Ideal for suitcases, clothes boxes, bikes or light archives.",
