@@ -8,6 +8,7 @@ import {
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -131,7 +132,11 @@ export default function PromotionsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Promociones</h1>
         <p className="text-sm text-muted-foreground">
           Códigos de descuento aplicables al crear un contrato (descuento recurrente sobre la
-          cuota).
+          cuota). Para un descuento solo en el pago que se hace al contratar, usa los{' '}
+          <Link href="/coupons" className="underline">
+            cupones
+          </Link>
+          .
         </p>
       </div>
 

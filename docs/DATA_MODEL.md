@@ -202,6 +202,14 @@ Códigos promocionales.
 - id, tenant_id, code (único por tenant), name, discount_type (percentage/fixed/free_months), discount_value, applies_to (jsonb), max_uses, used_count, valid_from, valid_until, is_active
 - **Gestión + aplicación (2026-06-22)**: CRUD `/promotions` (`promotions:read`/`promotions:manage`) + `POST /promotions/validate`. Se aplica en el alta de contrato vía `CreateContractSchema.promotionCode` → fija `contracts.discount_amount` recurrente + incrementa `used_count` (atómico, en la transacción). Solo percentage/fixed en alta. Las **recompensas de referidos** se generan como promociones `REF-XXXX` de un solo uso (`max_uses=1`).
 
+### `coupons` y `coupon_redemptions` (2026-10-16)
+
+Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses por adelantado), no sobre las renovaciones. Distintos de `promotions`, que descuentan todas las cuotas.
+
+- `coupons` (RLS): id, tenant_id, code (único por tenant), name, discount_type (percentage/fixed/free_months; en free_months, `discount_value` = meses regalados), discount_value, min_months (meses mínimos pagados; en free_months debe superar a los regalados), min_amount (alquiler mínimo del periodo, sin IVA), unit_type_ids[] y facility_ids[] (vacío = todos), new_customers_only (sin ningún contrato firmado), max_uses, used_count, valid_from, valid_until, is_active.
+- `coupon_redemptions` (RLS): cada uso — coupon_id, customer_id, contract_id (único: un cupón por contrato), invoice_id, months, discount_amount, free_months.
+- El cálculo es `quoteCoupon` (shared, en céntimos): % sobre todos los meses pagados, € fijo hasta el alquiler, meses gratis = los regalados × la cuota (se paga al menos un mes). La fianza y el seguro no se descuentan. El uso se reserva con `CouponsService.redeemInTx` (incremento condicionado a `used_count < max_uses`). Un cupón ya usado no se borra (409 `coupon_in_use`), se desactiva.
+
 ## 4. Inquilinos finales
 
 ### `customers`
