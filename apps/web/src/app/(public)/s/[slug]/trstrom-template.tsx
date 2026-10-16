@@ -623,18 +623,19 @@ export function TrstromTemplate({
           <div className="grid grid-cols-1 gap-10 border-b border-neutral-800 pb-12 md:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-4 lg:col-span-2">
               <div className="flex items-center gap-3">
-                {data.logoUrl && (
+                {data.logoUrl ? (
                   <Image
                     src={data.logoUrl}
-                    alt=""
+                    alt={data.tenantName}
                     width={120}
                     height={36}
                     className="h-9 w-auto object-contain brightness-0 invert"
                   />
+                ) : (
+                  <span className="text-xl font-bold tracking-tight text-white">
+                    {data.tenantName}
+                  </span>
                 )}
-                <span className="text-xl font-bold tracking-tight text-white">
-                  {data.tenantName}
-                </span>
               </div>
               <p className="max-w-sm text-xs leading-relaxed">
                 {where ? t('footerTextCity', { where }) : t('footerText')}
@@ -1089,18 +1090,19 @@ function Header({
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="flex shrink-0 items-center gap-3"
           >
-            {data.logoUrl && (
+            {data.logoUrl ? (
               <Image
                 src={data.logoUrl}
-                alt=""
+                alt={data.tenantName}
                 width={120}
                 height={48}
                 className="h-10 w-auto object-contain sm:h-12"
               />
+            ) : (
+              <span className="text-xl font-extrabold tracking-tight sm:text-2xl">
+                {data.tenantName}
+              </span>
             )}
-            <span className="text-xl font-extrabold tracking-tight sm:text-2xl">
-              {data.tenantName}
-            </span>
           </button>
 
           <nav className="hidden items-center gap-7 text-sm font-semibold text-muted-foreground lg:flex">

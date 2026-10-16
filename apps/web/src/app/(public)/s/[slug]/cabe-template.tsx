@@ -654,18 +654,19 @@ export function CabeTemplate({
           <div className="grid grid-cols-1 gap-10 border-b border-slate-800 pb-12 md:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-4 lg:col-span-2">
               <div className="flex items-center gap-3">
-                {data.logoUrl && (
+                {data.logoUrl ? (
                   <Image
                     src={data.logoUrl}
-                    alt=""
+                    alt={data.tenantName}
                     width={110}
                     height={32}
                     className="h-8 w-auto object-contain brightness-0 invert"
                   />
+                ) : (
+                  <span className="text-xl font-extrabold tracking-tight text-white">
+                    {data.tenantName}
+                  </span>
                 )}
-                <span className="text-xl font-extrabold tracking-tight text-white">
-                  {data.tenantName}
-                </span>
               </div>
               <p className="max-w-sm leading-relaxed">
                 {where ? t('footerTextCity', { where }) : t('footerText')}
@@ -1149,16 +1150,17 @@ function Header({
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="flex shrink-0 items-center gap-3"
           >
-            {data.logoUrl && (
+            {data.logoUrl ? (
               <Image
                 src={data.logoUrl}
-                alt=""
+                alt={data.tenantName}
                 width={110}
                 height={40}
                 className="h-10 w-auto object-contain"
               />
+            ) : (
+              <span className="text-2xl font-extrabold tracking-tight">{data.tenantName}</span>
             )}
-            <span className="text-2xl font-extrabold tracking-tight">{data.tenantName}</span>
           </button>
 
           <nav className="hidden items-center gap-6 text-sm font-bold text-slate-600 dark:text-muted-foreground xl:flex xl:gap-8">
