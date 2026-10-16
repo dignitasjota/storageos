@@ -249,6 +249,16 @@ export function isValidCustomDomain(value: string): boolean {
   return v.length > 0 && v.length <= 253 && HOSTNAME_REGEX.test(v);
 }
 
+/** Formatos admitidos para el favicon (sin SVG: se sirve desde el dominio de ficheros). */
+export const TENANT_FAVICON_MIME_TYPES = ['image/png', 'image/x-icon'] as const;
+export const RequestTenantFaviconUploadSchema = z.object({
+  mimeType: z.enum(TENANT_FAVICON_MIME_TYPES),
+});
+export type RequestTenantFaviconUploadInput = z.infer<typeof RequestTenantFaviconUploadSchema>;
+/** `null` quita el favicon (vuelve el de TrasterOS). */
+export const SetTenantFaviconSchema = z.object({ key: z.string().min(1).max(300).nullable() });
+export type SetTenantFaviconInput = z.infer<typeof SetTenantFaviconSchema>;
+
 export const UpdateTenantBrandingSchema = z.object({
   /** Color de marca en hex (#RRGGBB); '' lo desactiva. */
   portalBrandColor: z

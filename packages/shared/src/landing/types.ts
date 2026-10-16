@@ -223,4 +223,6 @@ export interface PublicTenantBrandDto {
   tenantSlug: string;
   brandColor: string | null;
   logoUrl: string | null;
+  /** Favicon de su web, o null (se usa el de TrasterOS). */
+  faviconUrl: string | null;
 }

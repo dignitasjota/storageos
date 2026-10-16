@@ -36,6 +36,7 @@ const MAGIC_BYTE_CHECKS: Record<string, (buf: Buffer) => boolean> = {
     b.subarray(0, 4).toString('ascii') === 'RIFF' &&
     b.subarray(8, 12).toString('ascii') === 'WEBP',
   'application/pdf': (b) => b.length >= 4 && b.subarray(0, 4).toString('ascii') === '%PDF',
+  'image/x-icon': (b) => b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0,
 };
 
 interface PresignArgs {

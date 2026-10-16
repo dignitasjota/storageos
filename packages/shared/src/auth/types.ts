@@ -181,6 +181,15 @@ export interface TenantBrandingResponse {
   googleSiteVerification: string | null;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
+  /** Favicon de la web pública (subido al bucket público), o null = el de TrasterOS. */
+  faviconUrl: string | null;
+}
+
+/** URL firmada para subir el favicon de la web del tenant. */
+export interface TenantFaviconUploadDto {
+  uploadUrl: string;
+  key: string;
+  requiredHeaders: Record<string, string>;
 }
 
 export interface TenantAccessSettingsResponse {
