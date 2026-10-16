@@ -64,7 +64,10 @@ describe('Facturas con líneas exentas y no sujetas (e2e)', () => {
 
     await http().post(`/invoices/${created.body.id}/issue`).set(auth()).expect(200);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // La factura se fecha con el día de la zona del tenant (Madrid), no en UTC.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const book = await http().get(`/fiscal/vat-book?from=${today}&to=${today}`).set(auth());
     expect(book.status).toBe(200);
     const groups = book.body.byRate as { rate: number; taxCategory: string; base: number }[];

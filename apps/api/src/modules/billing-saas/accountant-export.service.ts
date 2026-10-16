@@ -15,11 +15,20 @@ import {
 } from '@storageos/shared';
 import ExcelJS from 'exceljs';
 
+import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const ddmmyyyy = (d: Date): string =>
   `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+/** Fecha de una columna con hora (cobro, devolución…) en hora de España. */
+const ddmmyyyyAt = (d: Date): string =>
+  new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'Europe/Madrid',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(d);
 const oneLine = (s: string | null): string | null =>
   s ? s.replace(/\s*\n\s*/g, ', ').trim() || null : null;
 
@@ -54,11 +63,7 @@ export class AccountantExportService {
   constructor(private readonly admin: PrismaAdminService) {}
 
   async build(from: string, to: string): Promise<AccountantExportDto> {
-    const fromD = new Date(`${from}T00:00:00.000Z`);
-    const toD = new Date(`${to}T23:59:59.999Z`);
-    if (Number.isNaN(fromD.getTime()) || Number.isNaN(toD.getTime()) || fromD > toD) {
-      throw new BadRequestException({ code: 'invalid_range', message: 'Rango de fechas inválido' });
-    }
+    const { fromD, toD, fromT, toT } = this.range(from, to);
     const settings = await this.admin.platformBillingSettings.findFirst({
       include: { ownTenant: { select: { id: true, name: true } } },
     });
@@ -69,12 +74,12 @@ export class AccountantExportService {
     const deposits: AccountantDepositRow[] = [];
     const warnings: AccountantExportWarning[] = [];
 
-    await this.addSubscriptionInvoices(fromD, toD, invoices, warnings);
-    await this.addSubscriptionPayments(fromD, toD, payments);
+    await this.addSubscriptionInvoices(fromT, toT, invoices, warnings);
+    await this.addSubscriptionPayments(fromT, toT, payments);
     if (own) {
       await this.addOwnInvoices(own.id, fromD, toD, invoices, warnings);
-      await this.addOwnPayments(own.id, fromD, toD, payments);
-      await this.addDeposits(own.id, fromD, toD, deposits);
+      await this.addOwnPayments(own.id, fromT, toT, payments);
+      await this.addDeposits(own.id, fromT, toT, deposits);
     }
     return this.sorted({
       from,
@@ -102,7 +107,7 @@ export class AccountantExportService {
     to: string,
     ownerId: string | null = null,
   ): Promise<AccountantExportDto> {
-    const { fromD, toD } = this.range(from, to);
+    const { fromD, toD, fromT, toT } = this.range(from, to);
     const tenant = ownerId
       ? {
           name: (
@@ -121,8 +126,8 @@ export class AccountantExportService {
     const deposits: AccountantDepositRow[] = [];
     const warnings: AccountantExportWarning[] = [];
     await this.addOwnInvoices(tenantId, fromD, toD, invoices, warnings, ownerId);
-    await this.addOwnPayments(tenantId, fromD, toD, payments, ownerId);
-    await this.addDeposits(tenantId, fromD, toD, deposits, ownerId);
+    await this.addOwnPayments(tenantId, fromT, toT, payments, ownerId);
+    await this.addDeposits(tenantId, fromT, toT, deposits, ownerId);
     return this.sorted({
       from,
       to,
@@ -134,13 +139,20 @@ export class AccountantExportService {
     });
   }
 
-  private range(from: string, to: string): { fromD: Date; toD: Date } {
+  /**
+   * `fromD`/`toD` para columnas DATE (fecha de factura); `fromT`/`toT` para las
+   * que llevan hora (cobros, emisión de las de suscripción): días en hora de
+   * España, para que un cobro de las 00:30 del día 1 no caiga en el mes anterior.
+   */
+  private range(from: string, to: string): { fromD: Date; toD: Date; fromT: Date; toT: Date } {
     const fromD = new Date(`${from}T00:00:00.000Z`);
     const toD = new Date(`${to}T23:59:59.999Z`);
     if (Number.isNaN(fromD.getTime()) || Number.isNaN(toD.getTime()) || fromD > toD) {
       throw new BadRequestException({ code: 'invalid_range', message: 'Rango de fechas inválido' });
     }
-    return { fromD, toD };
+    const fromT = zonedDayStart(from);
+    const toT = new Date(zonedNextDayStart(to).getTime() - 1);
+    return { fromD, toD, fromT, toT };
   }
 
   private sorted(dto: AccountantExportDto): AccountantExportDto {
@@ -211,7 +223,7 @@ export class AccountantExportService {
         out.push({
           source: 'subscriptions',
           invoiceNumber: inv.fullNumber,
-          issueDate: ddmmyyyy(inv.issuedAt),
+          issueDate: ddmmyyyyAt(inv.issuedAt),
           invoiceType: inv.invoiceType,
           rectifies: inv.rectifiesInvoice?.fullNumber ?? null,
           customerNif: inv.tenantTaxId,
@@ -258,7 +270,7 @@ export class AccountantExportService {
     for (const p of rows) {
       out.push({
         source: 'subscriptions',
-        date: ddmmyyyy(p.paidAt!),
+        date: ddmmyyyyAt(p.paidAt!),
         invoiceNumber: p.invoice?.fullNumber ?? null,
         customerNif: p.tenant.taxId,
         customerName: p.tenant.billingLegalName?.trim() || p.tenant.name,
@@ -443,7 +455,7 @@ export class AccountantExportService {
         reference: p.gatewayPaymentId,
       };
       if (p.paidAt && p.paidAt >= fromD && p.paidAt <= toD) {
-        out.push({ ...base, date: ddmmyyyy(p.paidAt), amount: round2(Number(p.amount)) });
+        out.push({ ...base, date: ddmmyyyyAt(p.paidAt), amount: round2(Number(p.amount)) });
       }
       // La devolución va como una fila aparte, en negativo y en su fecha.
       if (
@@ -454,7 +466,7 @@ export class AccountantExportService {
       ) {
         out.push({
           ...base,
-          date: ddmmyyyy(p.refundedAt),
+          date: ddmmyyyyAt(p.refundedAt),
           amount: -round2(Number(p.refundedAmount)),
           method: `Devolución (${base.method})`,
         });
@@ -521,7 +533,7 @@ export class AccountantExportService {
       if (p.paidAt && p.paidAt >= fromD && p.paidAt <= toD) {
         out.push({
           ...base,
-          date: ddmmyyyy(p.paidAt),
+          date: ddmmyyyyAt(p.paidAt),
           movement: 'received',
           amount: round2(Number(p.amount)),
           detail: METHOD_LABELS[p.methodType] ?? p.methodType,
@@ -530,7 +542,7 @@ export class AccountantExportService {
       if (p.refundedAt && p.refundedAt >= fromD && p.refundedAt <= toD) {
         out.push({
           ...base,
-          date: ddmmyyyy(p.refundedAt),
+          date: ddmmyyyyAt(p.refundedAt),
           movement: 'returned',
           amount: -round2(Number(p.refundedAmount)),
           detail: 'Reembolso del cobro',
@@ -560,7 +572,7 @@ export class AccountantExportService {
       const retained = round2(Number(c.depositAmount) - returned);
       const base = {
         source: 'own_business' as const,
-        date: ddmmyyyy(c.depositSettledAt!),
+        date: ddmmyyyyAt(c.depositSettledAt!),
         document: c.contractNumber,
         contractNumber: c.contractNumber,
         customerNif: c.customer?.documentNumber ?? null,

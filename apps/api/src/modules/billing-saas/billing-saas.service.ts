@@ -267,10 +267,19 @@ export class BillingSaasService {
     }
     // Evita crear una segunda suscripción Stripe (doble cobro): si ya hay una
     // viva, el cambio de plan va por `changePlan`, no por un checkout nuevo.
-    if (currentSub?.stripeSubscriptionId && currentSub.status === 'active') {
+    // También con un pago pendiente: se arregla actualizando la tarjeta en el
+    // portal de Stripe, no con otra suscripción (cobraría dos veces).
+    if (
+      currentSub?.stripeSubscriptionId &&
+      currentSub.status !== 'cancelled' &&
+      currentSub.status !== 'expired'
+    ) {
       throw new BadRequestException({
         code: 'already_subscribed',
-        message: 'Ya tienes una suscripción activa. Usa «Cambiar de plan» para cambiarla.',
+        message:
+          currentSub.status === 'past_due'
+            ? 'Tu suscripción tiene un pago pendiente. Actualiza la tarjeta en «Gestionar suscripción».'
+            : 'Ya tienes una suscripción activa. Usa «Cambiar de plan» para cambiarla.',
       });
     }
     if (!plan) {

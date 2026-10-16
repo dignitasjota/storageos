@@ -62,7 +62,10 @@ describe('Fianza: sin fianza y en efectivo (e2e)', () => {
     await ensureDefaultSeries(app, owner.accessToken);
     const { unitIds } = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
     const customerId = await createCustomer(app, owner.accessToken);
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
 
     const contract = await http().post('/contracts').set(auth).send({
       customerId,

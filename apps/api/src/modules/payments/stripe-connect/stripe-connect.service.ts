@@ -129,9 +129,17 @@ export class StripeConnectService {
           businessName: tenant.billingLegalName || tenant.name,
         }),
       );
-      account = await this.admin.tenantStripeAccount.create({
-        data: { tenantId, stripeAccountId: accountId },
-      });
+      try {
+        account = await this.admin.tenantStripeAccount.create({
+          data: { tenantId, stripeAccountId: accountId },
+        });
+      } catch (err) {
+        // Doble clic: otra petición ya guardó la cuenta; se usa esa.
+        const existing = await this.admin.tenantStripeAccount.findUnique({ where: { tenantId } });
+        if (!existing) throw err;
+        this.logger.warn(`Stripe Connect: cuenta ${accountId} creada de más para ${tenantId}`);
+        account = existing;
+      }
       await this.audit.write({
         tenantId,
         userId,
@@ -192,6 +200,7 @@ export class StripeConnectService {
         where: { id: account.tenantId, cardProvider: 'stripe' },
         data: { cardProvider: null },
       }),
+      this.retireCards(account.tenantId, stripeAccountId),
     ]);
     await this.audit.write({
       tenantId: account.tenantId,
@@ -231,6 +240,8 @@ export class StripeConnectService {
           where: { id: tenantId, cardProvider: 'stripe' },
           data: { cardProvider: null },
         }),
+        // Las tarjetas guardadas en esa cuenta ya no se pueden cobrar.
+        this.retireCards(tenantId, account.stripeAccountId),
       ]);
       await this.audit.write({
         tenantId,
@@ -279,6 +290,14 @@ export class StripeConnectService {
       userAgent: null,
     });
     return this.getStatus(tenantId);
+  }
+
+  /** Da de baja las tarjetas de los inquilinos guardadas en una cuenta de Stripe. */
+  private retireCards(tenantId: string, stripeAccountId: string) {
+    return this.admin.paymentMethod.updateMany({
+      where: { tenantId, gateway: 'stripe', stripeAccountId, deletedAt: null },
+      data: { deletedAt: new Date(), isDefault: false },
+    });
   }
 
   /**

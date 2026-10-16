@@ -127,6 +127,53 @@ describe('Redsys: tarjeta guardada y cobro automático (e2e)', () => {
     expect(charge.status).toBe(200);
     expect(charge.body).toMatchObject({ status: 'succeeded', gateway: 'redsys' });
     expect((await http().get(`/invoices/${second}`).set(auth)).body.status).toBe('paid');
+    // Queda la orden de Redsys cerrada: una notificación posterior no cobra dos veces.
+    const mitOrder = await admin.redsysOrder.findFirstOrThrow({ where: { invoiceId: second } });
+    expect(mitOrder.status).toBe('paid');
+    const lateNotif = encodeMerchantParameters({
+      Ds_Order: mitOrder.order,
+      Ds_Response: '0000',
+      Ds_Amount: String(mitOrder.amountCents),
+    });
+    await http()
+      .post('/webhooks/redsys')
+      .send({
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_MerchantParameters: lateNotif,
+        Ds_Signature: signRequest(lateNotif, mitOrder.order, TEST_KEY),
+      })
+      .expect(200);
+    expect(await admin.payment.count({ where: { invoiceId: second, status: 'succeeded' } })).toBe(
+      1,
+    );
+
+    // Respuesta del banco perdida (orden `charging`): la notificación la aplica.
+    const lostInv = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 50 });
+    await http().post(`/invoices/${lostInv}/issue`).set(auth).expect(200);
+    const lostOrder = `9${Date.now().toString().slice(-11)}`;
+    await admin.redsysOrder.create({
+      data: {
+        order: lostOrder,
+        tenantId: owner.tenantId,
+        invoiceId: lostInv,
+        amountCents: 6050,
+        status: 'charging',
+      },
+    });
+    const lostNotif = encodeMerchantParameters({
+      Ds_Order: lostOrder,
+      Ds_Response: '0000',
+      Ds_Amount: '6050',
+    });
+    await http()
+      .post('/webhooks/redsys')
+      .send({
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_MerchantParameters: lostNotif,
+        Ds_Signature: signRequest(lostNotif, lostOrder, TEST_KEY),
+      })
+      .expect(200);
+    expect((await http().get(`/invoices/${lostInv}`).set(auth)).body.status).toBe('paid');
 
     // Si el banco la rechaza, el cobro queda fallido y la factura pendiente.
     await admin.paymentMethod.update({

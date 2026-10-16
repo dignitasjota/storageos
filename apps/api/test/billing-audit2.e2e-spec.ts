@@ -78,7 +78,10 @@ describe('Facturación: segunda auditoría (e2e)', () => {
     expect(Number(rect.taxAmount)).toBe(-10.61);
     expect(Number(rect.total)).toBe(-Number(original.total));
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const book = await http().get(`/fiscal/vat-book?from=${today}&to=${today}`).set(auth);
     expect(book.body.totals).toMatchObject({ base: 0, vat: 0, total: 0 });
 

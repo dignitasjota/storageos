@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+import { PrismaAdminService } from '../../database/prisma-admin.service';
 
 import { RedsysSettingsService } from './redsys-settings.service';
 import {
@@ -10,9 +13,21 @@ import {
   verifyNotification,
 } from './redsys-signature';
 
+import type { Env } from '../../../config/env.schema';
 import type { ChargeResult } from '../payment-gateway.interface';
 
 const TIMEOUT_MS = 20_000;
+
+/**
+ * Motivos de un cobro con tarjeta guardada que NO es un rechazo del banco: no
+ * se avisa al inquilino de un «cobro rechazado» (puede haberse cobrado).
+ */
+export const REDSYS_UNCERTAIN_REASONS = [
+  'redsys_unreachable',
+  'redsys_invalid_response',
+  'redsys_invalid_signature',
+  'redsys_applied_by_notification',
+] as const;
 
 /**
  * Cobro con una tarjeta guardada en Redsys (pago por referencia): operación
@@ -30,10 +45,15 @@ export class RedsysChargeService {
   private readonly logger = new Logger(RedsysChargeService.name);
   private readonly stub = process.env.NODE_ENV === 'test' || process.env.REDSYS_MODE === 'stub';
 
-  constructor(private readonly settings: RedsysSettingsService) {}
+  constructor(
+    private readonly settings: RedsysSettingsService,
+    private readonly admin: PrismaAdminService,
+    private readonly config: ConfigService<Env, true>,
+  ) {}
 
   async charge(args: {
     tenantId: string;
+    invoiceId: string;
     /** Referencia de la tarjeta en Redsys (Ds_Merchant_Identifier). */
     identifier: string;
     /** Id de la operación inicial (Ds_Merchant_Cof_Txnid), si Redsys lo dio. */
@@ -50,10 +70,23 @@ export class RedsysChargeService {
         failureReason: 'redsys_card_on_file_disabled',
       };
     }
+    // Orden registrada ANTES de cobrar (estado `charging`, distinto del
+    // `pending` de los pagos con redirección): si se pierde la respuesta del
+    // banco, la notificación de Redsys la aplica a la factura; si llega la
+    // respuesta, se marca aquí y la notificación ya no hace nada.
+    await this.admin.redsysOrder.create({
+      data: {
+        order,
+        tenantId: args.tenantId,
+        invoiceId: args.invoiceId,
+        amountCents: args.amountCents,
+        status: 'charging',
+      },
+    });
     if (this.stub) {
       return args.identifier.startsWith('stub-decline')
-        ? { gatewayPaymentId: order, status: 'failed', failureReason: 'Denegada (simulado)' }
-        : { gatewayPaymentId: order, status: 'succeeded' };
+        ? this.resolve(order, false, '0190', 'Denegada (simulado)')
+        : this.resolve(order, true, '0000');
     }
     const params: Record<string, string> = {
       DS_MERCHANT_AMOUNT: String(args.amountCents),
@@ -70,6 +103,7 @@ export class RedsysChargeService {
       DS_MERCHANT_COF_TYPE: 'R',
       ...(args.cofTxnId ? { DS_MERCHANT_COF_TXNID: args.cofTxnId } : {}),
       DS_MERCHANT_PRODUCTDESCRIPTION: args.description.slice(0, 125),
+      DS_MERCHANT_MERCHANTURL: `${this.config.get('API_BASE_URL', { infer: true })}/webhooks/redsys`,
     };
     const merchantParameters = encodeMerchantParameters(params);
     const body = {
@@ -90,6 +124,7 @@ export class RedsysChargeService {
       this.logger.warn(
         `[redsys] cobro ${order} sin respuesta: ${err instanceof Error ? err.message : String(err)}`,
       );
+      // La orden queda `charging`: si el banco cobró, la notificación la aplica.
       return { gatewayPaymentId: order, status: 'failed', failureReason: 'redsys_unreachable' };
     }
     if (json.errorCode) {
@@ -119,15 +154,45 @@ export class RedsysChargeService {
         failureReason: 'redsys_invalid_signature',
       };
     }
-    const code = Number(response.Ds_Response ?? response.DS_RESPONSE ?? '');
+    const dsResponse = response.Ds_Response ?? response.DS_RESPONSE ?? '';
+    const code = Number(dsResponse);
     const approved = Number.isFinite(code) && code >= 0 && code <= 99;
+    return this.resolve(
+      order,
+      approved,
+      dsResponse,
+      approved ? undefined : `Denegada por el banco (${dsResponse || 'sin código'})`,
+    );
+  }
+
+  /**
+   * Cierra la orden con la respuesta del banco. Si la notificación de Redsys
+   * llegó antes y ya la aplicó a la factura, el cobro no se vuelve a sumar.
+   */
+  private async resolve(
+    order: string,
+    approved: boolean,
+    dsResponse: string,
+    failureReason?: string,
+  ): Promise<ChargeResult> {
+    const { count } = await this.admin.redsysOrder.updateMany({
+      where: { order, status: 'charging' },
+      data: {
+        status: approved ? 'paid' : 'failed',
+        dsResponse,
+        ...(approved ? { paidAt: new Date() } : {}),
+      },
+    });
+    if (count === 0) {
+      return {
+        gatewayPaymentId: order,
+        status: 'failed',
+        failureReason: 'redsys_applied_by_notification',
+      };
+    }
     return approved
       ? { gatewayPaymentId: order, status: 'succeeded' }
-      : {
-          gatewayPaymentId: order,
-          status: 'failed',
-          failureReason: `Denegada por el banco (${response.Ds_Response ?? 'sin código'})`,
-        };
+      : { gatewayPaymentId: order, status: 'failed', ...(failureReason ? { failureReason } : {}) };
   }
 }
 

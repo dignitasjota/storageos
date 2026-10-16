@@ -91,7 +91,6 @@ export class AutoChargeService {
       where: {
         tenantId,
         customerId: invoice.customerId,
-        isDefault: true,
         deletedAt: null,
         type: { in: ['card', 'sepa_debit'] },
       },

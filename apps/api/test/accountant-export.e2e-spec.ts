@@ -30,7 +30,8 @@ describe('Datos fiscales y exportación para la asesoría (e2e)', () => {
   let app: INestApplication;
   let admin: PrismaAdminService;
   let auth: { Authorization: string };
-  const today = new Date().toISOString().slice(0, 10);
+  // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
 
   beforeAll(async () => {
     await cleanupSuperAdmins();

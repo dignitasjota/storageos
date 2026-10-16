@@ -214,7 +214,10 @@ describe('Portal: historial de pases nocturnos (e2e)', () => {
       .send({ amount: 121, methodType: 'cash' })
       .expect(200);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Día de hoy en hora de España (la app fecha así facturas, caja e informes).
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      new Date(),
+    );
     const summary = await request(app.getHttpServer())
       .get(`/cash/summary?date=${today}&facilityId=${facilityId}`)
       .set(auth)

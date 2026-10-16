@@ -135,7 +135,9 @@ describe('Facturación: menores (e2e)', () => {
     );
     expect(row?.customerName).toBe('Sin cliente (F2)');
 
-    const day = pays[0]!.paidAt!.toISOString().slice(0, 10);
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(
+      pays[0]!.paidAt!,
+    );
     const cash = await http().get(`/cash/summary?date=${day}`).set(auth).expect(200);
     expect(cash.body.cash).toBeGreaterThanOrEqual(12.1);
   });

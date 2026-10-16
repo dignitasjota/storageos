@@ -24,7 +24,7 @@ import { PrismaService } from '../database/prisma.service';
 import { GoCardlessChargeService } from './gocardless/gocardless-charge.service';
 import { PAYMENT_GATEWAY, PaymentGateway } from './payment-gateway.interface';
 import { PaymentMethodsService } from './payment-methods.service';
-import { RedsysChargeService } from './redsys/redsys-charge.service';
+import { REDSYS_UNCERTAIN_REASONS, RedsysChargeService } from './redsys/redsys-charge.service';
 import { applicationFeeCents } from './stripe-connect/stripe-connect.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -177,32 +177,47 @@ export class PaymentsService {
     for (const r of bundled) await this.assertNoPaymentInFlight(args.tenantId, r.id);
     const chargeAmount = bundled.reduce((sum, r) => addAmounts(sum, r.amount), amount);
 
-    // Resolver payment method.
-    const pmId =
-      args.input.paymentMethodId ??
-      (
-        await this.prisma.withTenant(
-          (tx) =>
-            tx.paymentMethod.findFirst({
-              where: { customerId: invoiceCustomerId, isDefault: true, deletedAt: null },
-            }),
-          args.tenantId,
-        )
+    // Stripe: con qué cuenta se cobra (la del tenant con Connect, o la de la
+    // plataforma en instalaciones antiguas). Se mira fuera de la transacción.
+    const cardCtx = await this.paymentMethods.cardContext(args.tenantId);
+    const ctxStripeAccount = cardCtx?.mode === 'connect' ? cardCtx.accountId : null;
+    // Comisión de la plataforma solo sobre la factura: la fianza que va en el
+    // mismo cargo es una garantía que se devuelve.
+    const feeCents =
+      cardCtx?.mode === 'connect'
+        ? applicationFeeCents(toCents(amount), cardCtx.applicationFeePct)
+        : 0;
+
+    // Resolver payment method. Sin uno explícito, el primero que se pueda
+    // cobrar ahora (el de por defecto primero): una tarjeta de Stripe guardada
+    // en otra cuenta (o sin Stripe activo) se salta.
+    let pmId = args.input.paymentMethodId;
+    if (!pmId) {
+      const candidates = await this.prisma.withTenant(
+        (tx) =>
+          tx.paymentMethod.findMany({
+            where: {
+              customerId: invoiceCustomerId,
+              deletedAt: null,
+              type: { in: ['card', 'sepa_debit'] },
+            },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+            select: { id: true, gateway: true, stripeAccountId: true },
+          }),
+        args.tenantId,
+      );
+      pmId = candidates.find(
+        (pm) =>
+          pm.gateway !== 'stripe' ||
+          (!!cardCtx && (pm.stripeAccountId ?? null) === ctxStripeAccount),
       )?.id;
+    }
     if (!pmId) {
       throw new BadRequestException({
         code: 'no_payment_method',
         message: 'No hay metodo de pago disponible para el inquilino',
       });
     }
-
-    // Stripe: con qué cuenta se cobra (la del tenant con Connect, o la de la
-    // plataforma en instalaciones antiguas). Se mira fuera de la transacción.
-    const cardCtx = await this.paymentMethods.cardContext(args.tenantId);
-    const feeCents =
-      cardCtx?.mode === 'connect'
-        ? applicationFeeCents(toCents(chargeAmount), cardCtx.applicationFeePct)
-        : 0;
 
     // === FASE 1 (reserva, tx corta) ===
     // Reserva ATÓMICA del slot de cobro ANTES de llamar al gateway: crea el
@@ -240,8 +255,7 @@ export class PaymentsService {
               'El cobro con tarjeta no está disponible. Usa Redsys/Bizum o la domiciliación bancaria.',
           });
         }
-        const ctxAccount = cardCtx.mode === 'connect' ? cardCtx.accountId : null;
-        if (pmStripeAccount !== ctxAccount) {
+        if (pmStripeAccount !== ctxStripeAccount) {
           throw new BadRequestException({
             code: 'stripe_account_changed',
             message:
@@ -333,6 +347,7 @@ export class PaymentsService {
             // cliente presente; se resuelve en el momento.
             await this.redsysCharge.charge({
               tenantId: args.tenantId,
+              invoiceId: invoice.id,
               identifier: reserved.tokenPlain,
               cofTxnId: reserved.networkTxnId,
               amountCents: toCents(chargeAmount),
@@ -362,6 +377,14 @@ export class PaymentsService {
                   invoiceId: invoice.id,
                   tenantId: args.tenantId,
                   paymentId: reserved.paymentId,
+                  // Para recuperar el cobro si la respuesta de Stripe se pierde.
+                  ...(reserved.bundledPayments.length > 0
+                    ? {
+                        bundledPaymentIds: reserved.bundledPayments
+                          .map((b) => b.paymentId)
+                          .join(','),
+                      }
+                    : {}),
                 },
                 offSession: true,
                 idempotencyKey: `charge-${reserved.paymentId}`,
@@ -482,7 +505,12 @@ export class PaymentsService {
       );
     }
     if (invoiceFullyPaid) await this.emitInvoicePaid(args.tenantId, invoice.id);
-    if (chargeResult.status === 'failed' && args.notifyCustomerOnFailure) {
+    // Un cobro de Redsys sin respuesta clara no es un rechazo: no se avisa al
+    // inquilino (la notificación de Redsys lo aplicará si se cobró).
+    const uncertain = (REDSYS_UNCERTAIN_REASONS as readonly string[]).includes(
+      chargeResult.failureReason ?? '',
+    );
+    if (chargeResult.status === 'failed' && args.notifyCustomerOnFailure && !uncertain) {
       this.emitPaymentFailed({
         tenantId: args.tenantId,
         invoiceId: invoice.id,
@@ -616,18 +644,47 @@ export class PaymentsService {
     newStatus: PaymentStatusValue;
     paidAt?: Date;
     failureReason?: string;
+    /**
+     * Ids de nuestros pagos que van en los metadatos del cobro de Stripe. Si la
+     * respuesta del cobro se perdió (corte de red), el pago quedó sin el id de
+     * Stripe: con ellos se recupera en vez de perder el dinero cobrado.
+     */
+    paymentIdsHint?: string[];
   }): Promise<void> {
+    const findGroup = () =>
+      this.prisma.withTenant(
+        (tx) =>
+          tx.payment.findMany({
+            where: { gatewayPaymentId: args.gatewayPaymentId },
+            include: { invoice: { select: { kind: true } } },
+            orderBy: { createdAt: 'asc' },
+          }),
+        args.tenantId,
+      );
     // Un cargo puede cubrir varios documentos (factura + justificante de
     // fianza cobrados juntos): todos sus pagos comparten el id de la pasarela.
-    const group = await this.prisma.withTenant(
-      (tx) =>
-        tx.payment.findMany({
-          where: { gatewayPaymentId: args.gatewayPaymentId },
-          include: { invoice: { select: { kind: true } } },
-          orderBy: { createdAt: 'asc' },
-        }),
-      args.tenantId,
-    );
+    let group = await findGroup();
+    const hint = args.paymentIdsHint ?? [];
+    if (group.length === 0 && hint.length > 0) {
+      const adopted = await this.prisma.withTenant(
+        (tx) =>
+          tx.payment.updateMany({
+            where: {
+              id: { in: hint },
+              gateway: 'stripe',
+              gatewayPaymentId: null,
+            },
+            data: { gatewayPaymentId: args.gatewayPaymentId },
+          }),
+        args.tenantId,
+      );
+      if (adopted.count > 0) {
+        this.logger.warn(
+          `Cobro ${args.gatewayPaymentId} recuperado por sus metadatos (${adopted.count} pagos)`,
+        );
+        group = await findGroup();
+      }
+    }
     if (group.length === 0) {
       this.logger.warn(
         `Webhook recibido para payment desconocido ${args.gatewayPaymentId} (tenant ${args.tenantId})`,
@@ -1035,4 +1092,15 @@ function friendlyFailureReason(code: string | null): string | null {
   if (c.includes('declined') || c.includes('refused')) return 'pago rechazado por el banco';
   if (c.includes('mandate') || c.includes('cancelled')) return 'la domiciliación no está activa';
   return null;
+}
+
+/** Ids de nuestros pagos en los metadatos de un cobro de Stripe. */
+export function paymentIdsFromMetadata(metadata: unknown): string[] {
+  const m = (metadata ?? {}) as Record<string, unknown>;
+  const ids: string[] = [];
+  if (typeof m.paymentId === 'string' && m.paymentId) ids.push(m.paymentId);
+  if (typeof m.bundledPaymentIds === 'string') {
+    ids.push(...m.bundledPaymentIds.split(',').filter(Boolean));
+  }
+  return ids.filter((id) => /^[0-9a-f-]{36}$/i.test(id));
 }
