@@ -247,6 +247,15 @@ describe('Reservas por WhatsApp (e2e)', () => {
       return c?.contractId && c.contractId !== conv.contractId ? c : null;
     });
     expect(second.bookingReminderSentAt).toBeNull();
+    // Espera a que se guarde la respuesta con el enlace de la segunda reserva
+    // (si no, entra en el recuento de abajo).
+    await waitFor(async () =>
+      (await prismaAdmin.whatsappMessage.count({
+        where: { conversationId: conv.id, sender: 'assistant', body: { contains: '/sign/' } },
+      })) >= 2
+        ? true
+        : null,
+    );
 
     // Tope diario por conversación: con 30 respuestas de la IA en 24 h pasa a una persona.
     await prismaAdmin.whatsappMessage.createMany({
