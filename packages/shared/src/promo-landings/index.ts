@@ -232,3 +232,37 @@ export const PromoVisitSchema = z.object({
   campaign: z.string().trim().max(160).optional(),
 });
 export type PromoVisitInput = z.infer<typeof PromoVisitSchema>;
+
+// ============================================================================
+// Resultados
+// ============================================================================
+
+export interface PromoLandingStatsRowDto {
+  /** Origen (`utm_source`), p. ej. `flyer_buzoneo` o `web`. */
+  source: string;
+  visits: number;
+  visitors: number;
+  /** Reservas online hechas desde la landing (contratos creados). */
+  bookings: number;
+  signed: number;
+  /** Con el primer pago cobrado. */
+  paid: number;
+  /** Lo cobrado en esos primeros pagos (sin la fianza). */
+  revenue: number;
+}
+
+export interface PromoLandingStatsDto {
+  /** Días hacia atrás (0 = desde que existe). */
+  days: number;
+  visits: number;
+  visitors: number;
+  bookings: number;
+  signed: number;
+  paid: number;
+  revenue: number;
+  /** Pagadas / visitantes, en %. */
+  conversionPct: number | null;
+  /** Usos del cupón de la landing en esas reservas. */
+  couponUses: number;
+  bySource: PromoLandingStatsRowDto[];
+}

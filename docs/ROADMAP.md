@@ -643,3 +643,30 @@ Extra que solo se vende aparte (`whatsapp_business`). Decisiones de Jota: el ten
 - ✅ **Lo que pide Meta para aprobar la plataforma**: apartado de WhatsApp e IA en la política de privacidad, página pública de eliminación de datos (`/eliminar-datos`) y aviso de asistente automático en su primera respuesta.
 - ✅ **Mejoras**: fotos, audios, vídeos, documentos y ubicaciones en la bandeja (y enviar fotos o PDF), plantillas aprobadas elegidas de una lista, textos fijos en el idioma del cliente (español o inglés) y resumen del WhatsApp (asistente frente a equipo, reservas, primera respuesta).
 - ⏳ **PR 4 — alta integrada de Meta con coexistencia** (cuando Meta apruebe la plataforma).
+
+### Cobro con tarjeta: Redsys o Stripe del tenant, ambos automáticos (2026-10-15, #678–#682) ✅
+
+Decisiones de Jota: el tenant elige cobrar la tarjeta con **Redsys** o con **su propia cuenta de Stripe** (Connect Express, cobros directos en su cuenta) y en los dos el cobro es automático cada mes. Comisión de la plataforma **2 % por defecto**, configurable en el panel admin («Cobros de los tenants»), solo sobre la factura (no sobre la fianza).
+
+- ✅ **PR 1** — cuenta de Stripe del tenant (registro, estado, panel de Stripe, desconectar) y elección del proveedor de tarjeta.
+- ✅ **PR 2** — cobros, tarjetas y reembolsos en la cuenta del tenant con la comisión; con la tarjeta por Stripe, Redsys queda para Bizum.
+- ✅ **PR 3** — webhook de las cuentas conectadas (`/webhooks/stripe-connect`): cobros, reembolsos, disputas, estado de la cuenta y desautorización.
+- ✅ **PR 4** — Redsys con **pago por referencia**: el inquilino guarda la tarjeta al pagar y las siguientes facturas se cobran solas.
+- ✅ **Revisión** (#682): cobro recuperado si se corta la respuesta de Stripe, tarjetas no cobrables saltadas, sin doble Checkout con un pago pendiente, Redsys sin respuesta resuelto por la notificación y días en hora de España.
+
+### Cupones sobre el pago al contratar (2026-10-16, #683–#687) ✅
+
+A diferencia de las promociones (que descuentan todas las cuotas), el **cupón descuenta el pago que se hace al contratar**: %, € fijo o **meses gratis** («contrata 3 y paga 2»). Condiciones: tipos de trastero, locales, meses mínimos, importe mínimo, solo clientes nuevos, un uso por cliente, fechas y usos. Nunca la fianza ni el seguro.
+
+- ✅ **PR 1** — cupones y su cálculo (página `/coupons`).
+- ✅ **PR 2** — primer pago por adelantado de 1, 3, 6 o 12 meses con el cupón; después la facturación vuelve a ser mensual. Con prepago semestral/anual con descuento se aplica el mejor.
+- ✅ **PR 3** — cupón y meses en la reserva online, la firma, el portal (trastero adicional) y el alta de contrato del panel, con resumen del primer pago.
+- ✅ **Revisión** (#687): un cupón que deja el alquiler a 0 € ya no bloquea la reserva (la factura queda pagada y se da el acceso), opción «un solo uso por cliente», cupón y descuento manual no se combinan, el resumen público no revela si un email es cliente.
+
+### Landings de promoción (2026-10-16, #689–#691) ✅
+
+Incluidas en **Web Premium**. Páginas propias por promoción con el estilo de la plantilla del tenant, en `/promo/<nombre>` del dominio propio (`/s/<slug>/promo/<nombre>` en la plataforma). Cupón opcional; apagada o caducada lleva a la portada.
+
+- ✅ **PR 1** — landings y editor (textos, foto, ventajas, condiciones, cupón, locales y tamaños, secciones, fechas, SEO; duplicar para la siguiente promoción). «Reservar» lleva el cupón y los meses a la reserva.
+- ✅ **PR 2** — de dónde vienen: un enlace por origen (flyer, QR, Instagram/Facebook, Google Ads, portal…) como canal de marketing con su enlace corto y QR descargable; visitas por origen y variables de seguimiento hasta la reserva.
+- ✅ **PR 3** — resultados por landing: visitas, visitantes, reservas, firmadas, pagadas, ingresos del primer pago y usos del cupón, por origen.

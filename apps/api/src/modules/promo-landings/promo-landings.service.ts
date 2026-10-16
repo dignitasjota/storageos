@@ -5,10 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  promoCampaign,
   promoDatesIssue,
   promoLandingIsLive,
   type CreatePromoLandingInput,
   type PromoLandingDto,
+  type PromoLandingStatsDto,
+  type PromoLandingStatsRowDto,
   type UpdatePromoLandingInput,
 } from '@storageos/shared';
 
@@ -162,6 +165,127 @@ export class PromoLandingsService {
       });
     }, tenantId);
     return this.toDto(row);
+  }
+
+  /**
+   * Resultados de una landing: visitas por origen y, de las reservas online
+   * hechas desde ella (contacto con `utm_campaign` = `promo-<nombre>`), cuántas
+   * se firmaron, cuántas pagaron el primer pago y cuánto se cobró (sin fianza).
+   */
+  async stats(tenantId: string, id: string, days: number): Promise<PromoLandingStatsDto> {
+    const landing = await this.findOrThrow(tenantId, id);
+    const since = days > 0 ? new Date(Date.now() - days * 86_400_000) : null;
+    const { visits, leads } = await this.prisma.withTenant(
+      async (tx) => ({
+        visits: await tx.promoLandingVisit.findMany({
+          where: { promoLandingId: id, ...(since ? { createdAt: { gte: since } } : {}) },
+          select: { visitorId: true, source: true },
+        }),
+        leads: await tx.lead.findMany({
+          where: {
+            utmCampaign: promoCampaign(landing.slug),
+            convertedContractId: { not: null },
+            deletedAt: null,
+            ...(since ? { wonAt: { gte: since } } : {}),
+          },
+          select: { utmSource: true, convertedContractId: true },
+        }),
+      }),
+      tenantId,
+    );
+    const contractIds = [...new Set(leads.map((l) => l.convertedContractId!))];
+    const [contracts, invoices, couponUses] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.contract.findMany({
+            where: { id: { in: contractIds } },
+            select: { id: true, signedAt: true },
+          }),
+          tx.invoice.findMany({
+            where: { contractId: { in: contractIds }, kind: 'invoice', deletedAt: null },
+            select: {
+              contractId: true,
+              status: true,
+              amountPaid: true,
+              withholdingAmount: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'asc' },
+          }),
+          landing.couponId
+            ? tx.couponRedemption.count({
+                where: { couponId: landing.couponId, contractId: { in: contractIds } },
+              })
+            : Promise.resolve(0),
+        ]),
+      tenantId,
+    );
+    const signed = new Set(contracts.filter((c) => c.signedAt).map((c) => c.id));
+    // Primer pago = la primera factura de cada contrato.
+    const first = new Map<string, (typeof invoices)[number]>();
+    for (const inv of invoices) {
+      if (inv.contractId && !first.has(inv.contractId)) first.set(inv.contractId, inv);
+    }
+
+    const rows = new Map<string, PromoLandingStatsRowDto & { ids: Set<string> }>();
+    const row = (source: string | null) => {
+      const key = source || 'web';
+      let r = rows.get(key);
+      if (!r) {
+        r = {
+          source: key,
+          visits: 0,
+          visitors: 0,
+          bookings: 0,
+          signed: 0,
+          paid: 0,
+          revenue: 0,
+          ids: new Set(),
+        };
+        rows.set(key, r);
+      }
+      return r;
+    };
+    for (const v of visits) {
+      const r = row(v.source);
+      r.visits += 1;
+      r.ids.add(v.visitorId);
+    }
+    const seen = new Set<string>();
+    for (const l of leads) {
+      const cid = l.convertedContractId!;
+      if (seen.has(cid)) continue;
+      seen.add(cid);
+      const r = row(l.utmSource?.toLowerCase() ?? null);
+      r.bookings += 1;
+      if (signed.has(cid)) r.signed += 1;
+      const inv = first.get(cid);
+      if (inv?.status === 'paid') r.paid += 1;
+      if (inv) r.revenue += Number(inv.amountPaid) - Number(inv.withholdingAmount);
+    }
+    const bySource = [...rows.values()]
+      .map(({ ids, ...r }) => ({
+        ...r,
+        visitors: ids.size,
+        revenue: Math.round(r.revenue * 100) / 100,
+      }))
+      .sort((a, b) => b.visits - a.visits || b.bookings - a.bookings);
+    const visitors = new Set(visits.map((v) => v.visitorId)).size;
+    const sum = (k: 'bookings' | 'signed' | 'paid' | 'revenue') =>
+      bySource.reduce((acc, r) => acc + r[k], 0);
+    const paid = sum('paid');
+    return {
+      days,
+      visits: visits.length,
+      visitors,
+      bookings: sum('bookings'),
+      signed: sum('signed'),
+      paid,
+      revenue: Math.round(sum('revenue') * 100) / 100,
+      conversionPct: visitors > 0 ? Math.round((paid / visitors) * 1000) / 10 : null,
+      couponUses,
+      bySource,
+    };
   }
 
   async remove(tenantId: string, id: string): Promise<void> {
