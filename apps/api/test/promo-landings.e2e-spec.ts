@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
@@ -150,5 +152,59 @@ describe('Landings de promoción (e2e)', () => {
 
     await setTenantFeatureOverride(owner.slug, 'web_premium', false);
     expect((await http().get(`/public/landing/${owner.slug}/promo/local-nuevo`)).status).toBe(404);
+  });
+
+  it('enlaces por origen, enlace corto a la landing y visitas', async () => {
+    const owner = await registerVerifiedUser(app, 'promo-track');
+    const a = auth(owner.accessToken);
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    const landing = await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({ name: 'Otoño', slug: 'otono', headline: 'Otoño', isActive: true });
+    const landingId = landing.body.id as string;
+
+    const channel = await http()
+      .post('/marketing/channels')
+      .set(a)
+      .send({ name: 'Flyer buzoneo', type: 'physical', promoLandingId: landingId });
+    expect(channel.status).toBe(201);
+    expect(channel.body.promoLandingId).toBe(landingId);
+    const url = new URL(channel.body.landingUrl as string);
+    expect(url.pathname).toBe(`/s/${owner.slug}/promo/otono`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      utm_source: 'flyer_buzoneo',
+      utm_medium: 'offline',
+      utm_campaign: 'promo-otono',
+    });
+
+    // El enlace corto / QR lleva a la landing (no a la reserva) y cuenta el clic.
+    const go = await http().get(`/public/marketing/go/${channel.body.shortCode}`);
+    expect(go.body.targetUrl).toBe(channel.body.landingUrl);
+
+    // Visitas: una por visitante cada 30 min; apagada no cuenta.
+    const visit = (visitorId: string) =>
+      http()
+        .post(`/public/landing/${owner.slug}/promo/otono/visit`)
+        .send({ visitorId, source: 'Flyer_Buzoneo', medium: 'offline', campaign: 'promo-otono' });
+    await visit('visitor-aaaa-1').expect(204);
+    await visit('visitor-aaaa-1').expect(204);
+    await visit('visitor-bbbb-2').expect(204);
+    const admin = app.get(PrismaAdminService);
+    const rows = await admin.promoLandingVisit.findMany({ where: { promoLandingId: landingId } });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.source).toBe('flyer_buzoneo');
+    await http().patch(`/promo-landings/${landingId}`).set(a).send({ isActive: false }).expect(200);
+    await visit('visitor-cccc-3').expect(204);
+    expect(await admin.promoLandingVisit.count({ where: { promoLandingId: landingId } })).toBe(2);
+
+    // Una landing de otro negocio no se puede enlazar.
+    const other = await registerVerifiedUser(app, 'promo-track-b');
+    const bad = await http()
+      .post('/marketing/channels')
+      .set(auth(other.accessToken))
+      .send({ name: 'Ajena', type: 'other', promoLandingId: landingId });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('promo_landing_not_found');
   });
 });

@@ -62,6 +62,8 @@ export function bookHref(
     /** Cupón ya aplicado y meses del primer pago (landings de promoción). */
     coupon?: string;
     months?: number;
+    /** Variables de seguimiento que llegan a la reserva (`utm_source`…). */
+    utm?: Record<string, string>;
   },
   customDomain?: string | null,
 ): string {
@@ -85,6 +87,7 @@ export function bookHref(
   }
   if (params?.coupon) qs.set('coupon', params.coupon);
   if (params?.months && params.months > 1) qs.set('months', String(params.months));
+  for (const [k, v] of Object.entries(params?.utm ?? {})) qs.set(k, v);
   const query = qs.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -109,6 +112,7 @@ export function bookHrefFor(
     waitlist?: boolean;
     coupon?: string;
     months?: number;
+    utm?: Record<string, string>;
   },
 ): string {
   const facilitySlug = params?.facilityId

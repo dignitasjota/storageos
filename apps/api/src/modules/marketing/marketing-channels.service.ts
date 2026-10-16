@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
-import { normalizeLeadSource } from '@storageos/shared';
+import { normalizeLeadSource, promoCampaign, promoUtmMedium } from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -24,11 +24,48 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const CHANNEL_INCLUDE = {
   facility: { select: { name: true } },
   promotion: { select: { code: true } },
+  promoLanding: {
+    select: {
+      name: true,
+      slug: true,
+      tenant: { select: { slug: true, customDomain: true, customDomainVerifiedAt: true } },
+    },
+  },
 } satisfies Prisma.MarketingChannelInclude;
 
 type ChannelRow = Prisma.MarketingChannelGetPayload<{ include: typeof CHANNEL_INCLUDE }>;
 
 const WEB_BASE_URL_FALLBACK = 'https://trasteros.pro';
+
+/** Dirección de una landing de promoción con las variables de seguimiento del canal. */
+function promoLandingUrl(
+  tenant: { slug: string; customDomain: string | null; customDomainVerifiedAt: Date | null },
+  slug: string,
+  source: string,
+  type: MarketingChannelType,
+): string {
+  const base =
+    tenant.customDomain && tenant.customDomainVerifiedAt
+      ? `https://${tenant.customDomain}`
+      : `${(process.env.WEB_BASE_URL || WEB_BASE_URL_FALLBACK).replace(/\/$/, '')}/s/${tenant.slug}`;
+  const utm = new URLSearchParams({
+    utm_source: source,
+    utm_medium: promoUtmMedium(type),
+    utm_campaign: promoCampaign(slug),
+  });
+  return `${base}/promo/${slug}?${utm.toString()}`;
+}
+
+/** La landing debe ser del tenant (la transacción ya va con su RLS). */
+async function assertPromoLanding(tx: Prisma.TransactionClient, id: string): Promise<void> {
+  const found = await tx.promoLanding.count({ where: { id } });
+  if (found === 0) {
+    throw new BadRequestException({
+      code: 'promo_landing_not_found',
+      message: 'La landing no existe',
+    });
+  }
+}
 
 @Injectable()
 export class MarketingChannelsService {
@@ -56,11 +93,13 @@ export class MarketingChannelsService {
     const utmSourceMatch =
       input.utmSourceMatch?.trim() || normalizeLeadSource(input.name).slice(0, 60);
     return this.prisma.withTenant(async (tx) => {
+      if (input.promoLandingId) await assertPromoLanding(tx, input.promoLandingId);
       const row = await tx.marketingChannel.create({
         data: {
           tenantId,
           facilityId: input.facilityId ?? null,
           promotionId: input.promotionId ?? null,
+          promoLandingId: input.promoLandingId ?? null,
           type: input.type,
           name: input.name,
           status: input.status,
@@ -103,6 +142,12 @@ export class MarketingChannelsService {
       if (input.promotionId !== undefined) {
         data.promotion = input.promotionId
           ? { connect: { id: input.promotionId } }
+          : { disconnect: true };
+      }
+      if (input.promoLandingId !== undefined) {
+        if (input.promoLandingId) await assertPromoLanding(tx, input.promoLandingId);
+        data.promoLanding = input.promoLandingId
+          ? { connect: { id: input.promoLandingId } }
           : { disconnect: true };
       }
       if (input.type !== undefined) data.type = input.type;
@@ -159,8 +204,10 @@ export class MarketingChannelsService {
         id: true,
         status: true,
         deletedAt: true,
+        type: true,
         utmSourceMatch: true,
         tenant: { select: { slug: true, customDomain: true, customDomainVerifiedAt: true } },
+        promoLanding: { select: { slug: true } },
       },
     });
     if (!channel || channel.deletedAt || channel.status !== 'active') {
@@ -174,6 +221,17 @@ export class MarketingChannelsService {
       .update({ where: { shortCode }, data: { clickCount: { increment: 1 } } })
       .catch(() => undefined);
 
+    // Canal ligado a una landing de promoción: el enlace corto / QR lleva allí.
+    if (channel.promoLanding) {
+      return {
+        targetUrl: promoLandingUrl(
+          channel.tenant,
+          channel.promoLanding.slug,
+          channel.utmSourceMatch ?? 'web',
+          channel.type as MarketingChannelType,
+        ),
+      };
+    }
     const utm = new URLSearchParams({
       utm_source: channel.utmSourceMatch ?? 'physical',
       utm_medium: 'physical',
@@ -326,6 +384,16 @@ export class MarketingChannelsService {
       facilityName: r.facility?.name ?? null,
       promotionId: r.promotionId,
       promotionCode: r.promotion?.code ?? null,
+      promoLandingId: r.promoLandingId,
+      promoLandingName: r.promoLanding?.name ?? null,
+      landingUrl: r.promoLanding
+        ? promoLandingUrl(
+            r.promoLanding.tenant,
+            r.promoLanding.slug,
+            r.utmSourceMatch ?? 'web',
+            r.type as MarketingChannelType,
+          )
+        : null,
       type: r.type as MarketingChannelType,
       name: r.name,
       status: r.status as MarketingChannelStatus,

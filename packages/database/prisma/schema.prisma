@@ -532,6 +532,7 @@ model Tenant {
   faqEntries              FaqEntry[]
   blogPosts               BlogPost[]
   promoLandings           PromoLanding[]
+  promoLandingVisits      PromoLandingVisit[]
   unitChangeRequests      UnitChangeRequest[]
   unitRequests            UnitRequest[]
   waitlistEntries         WaitlistEntry[]
@@ -1431,6 +1432,8 @@ model MarketingChannel {
   /// ID de campaña en Google Ads / Meta Ads (según `type`), para
   /// sincronizar su gasto automáticamente. Ver `AdSpendSyncService`.
   externalCampaignId String?   @map("external_campaign_id")
+  /// Landing de promoción a la que lleva su enlace corto / QR (si no, a la reserva).
+  promoLandingId     String?   @map("promo_landing_id") @db.Uuid
   shortCode          String?   @unique @map("short_code")
   clickCount         Int       @default(0) @map("click_count")
   notes              String?
@@ -1441,10 +1444,12 @@ model MarketingChannel {
   tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility          Facility?          @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   promotion         Promotion?         @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  promoLanding      PromoLanding?      @relation(fields: [promoLandingId], references: [id], onDelete: SetNull)
   expenses          Expense[]
   recurringExpenses RecurringExpense[]
 
   @@index([tenantId, status])
+  @@index([promoLandingId], map: "marketing_channels_promo_landing_idx")
   @@map("marketing_channels")
 }
 
@@ -4291,11 +4296,31 @@ model PromoLanding {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  coupon Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  coupon   Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  channels MarketingChannel[]
+  visits   PromoLandingVisit[]
 
   @@unique([tenantId, slug], map: "promo_landings_tenant_slug_key")
   @@map("promo_landings")
+}
+
+/// Visita a una landing de promoción (sin datos personales: id aleatorio del navegador + UTM).
+model PromoLandingVisit {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  promoLandingId String   @map("promo_landing_id") @db.Uuid
+  visitorId      String   @map("visitor_id")
+  source         String?
+  medium         String?
+  campaign       String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  promoLanding PromoLanding @relation(fields: [promoLandingId], references: [id], onDelete: Cascade)
+
+  @@index([promoLandingId, createdAt], map: "promo_landing_visits_landing_created_idx")
+  @@map("promo_landing_visits")
 }
 
 /// Pago de la suscripcion SaaS del tenant (lo que la empresa paga por la

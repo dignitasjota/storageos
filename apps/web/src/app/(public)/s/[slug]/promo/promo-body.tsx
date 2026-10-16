@@ -1,6 +1,6 @@
 'use client';
 
-import { FIRST_PAYMENT_MONTHS, type PublicPromoPageDto } from '@storageos/shared';
+import { FIRST_PAYMENT_MONTHS, promoCampaign, type PublicPromoPageDto } from '@storageos/shared';
 import { Check, Clock, MapPin } from 'lucide-react';
 import Image from 'next/image';
 import { useTranslations } from 'next-intl';
@@ -11,6 +11,55 @@ import { bookHrefFor, type PublicWebLocale } from '../i18n/messages';
 import { formatPrice } from '../price-format';
 
 import { themeFor } from './promo-theme';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const VISITOR_KEY = 'storageos.promo.visitor';
+
+/** Identificador aleatorio del navegador (sin datos personales) para contar visitantes. */
+function visitorId(): string {
+  try {
+    const saved = window.localStorage.getItem(VISITOR_KEY);
+    if (saved) return saved;
+    const id = crypto.randomUUID();
+    window.localStorage.setItem(VISITOR_KEY, id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+/**
+ * Variables de seguimiento de la visita: las del enlace (flyer, QR, anuncio…)
+ * o, si no trae, «web». La campaña es siempre la de la landing si no viene otra.
+ */
+function useTracking(tenantSlug: string, slug: string): Record<string, string> {
+  const [utm, setUtm] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const next = {
+      utm_source: sp.get('utm_source') || 'web',
+      utm_medium: sp.get('utm_medium') || 'landing',
+      utm_campaign: sp.get('utm_campaign') || promoCampaign(slug),
+    };
+    setUtm(next);
+    // Visita (para saber de dónde vienen). Best-effort: nunca rompe la página.
+    void fetch(
+      `${API_URL}/public/landing/${encodeURIComponent(tenantSlug)}/promo/${encodeURIComponent(slug)}/visit`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitorId: visitorId(),
+          source: next.utm_source,
+          medium: next.utm_medium,
+          campaign: next.utm_campaign,
+        }),
+        keepalive: true,
+      },
+    ).catch(() => undefined);
+  }, [tenantSlug, slug]);
+  return utm;
+}
 
 /** Meses del primer pago que cumplen el mínimo del cupón (1, 3, 6 o 12). */
 function monthsFor(minMonths: number): number {
@@ -52,7 +101,9 @@ export function PromoBody({ data, locale }: { data: PublicPromoPageDto; locale: 
   const muted = theme.dark ? 'text-neutral-400' : 'text-slate-600';
   const coupon = promo.coupon;
   const months = coupon ? monthsFor(coupon.minMonths) : undefined;
+  const utm = useTracking(site.tenantSlug, promo.slug);
   const bookParams = (facilityId?: string, unitTypeId?: string) => ({
+    utm,
     ...(facilityId ? { facilityId } : {}),
     ...(unitTypeId ? { unitTypeId } : {}),
     ...(coupon ? { coupon: coupon.code } : {}),

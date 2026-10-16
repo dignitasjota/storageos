@@ -42,6 +42,8 @@ export const CreateMarketingChannelSchema = z.object({
   facilityId: z.string().uuid().nullish(),
   /** Promoción vinculada (código de descuento) para atribución offline (carteles, flyers…). */
   promotionId: z.string().uuid().nullish(),
+  /** Landing de promoción a la que lleva el enlace corto / QR (si no, la reserva). */
+  promoLandingId: z.string().uuid().nullish(),
   type: MarketingChannelTypeEnum.default('other'),
   name: z.string().trim().min(1).max(160),
   status: MarketingChannelStatusEnum.default('active'),
@@ -73,6 +75,13 @@ export interface MarketingChannelDto {
   facilityName: string | null;
   promotionId: string | null;
   promotionCode: string | null;
+  promoLandingId: string | null;
+  promoLandingName: string | null;
+  /**
+   * Dirección de la landing con las variables de seguimiento de este canal
+   * (para pegar en un anuncio o en la bio de Instagram), o null sin landing.
+   */
+  landingUrl: string | null;
   type: MarketingChannelType;
   name: string;
   status: MarketingChannelStatus;

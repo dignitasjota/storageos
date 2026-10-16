@@ -214,6 +214,9 @@ Cupones: descuento sobre el **pago que se hace al contratar** (de 1 a 12 meses p
 
 Landings de promoción de la web del tenant (extra Web Premium), en `/promo/<slug>`.
 
+- `promo_landing_visits` (RLS): tenant_id, promo_landing_id (CASCADE), visitor_id (id aleatorio del navegador, sin datos personales), source, medium, campaign, created_at.
+- `marketing_channels.promo_landing_id` (FK SET NULL): canal cuyo enlace corto / QR lleva a esa landing.
+
 - `promo_landings` (RLS): id, tenant_id, name (interno), slug (único por tenant), is_active, starts_at/ends_at (opcionales; fuera de ellas no se sirve), headline, subheadline, offer_text, body, benefits[], conditions, cta_label, hero_image_key (bucket público, `<tenant>/promo/<id>/…`), coupon_id (FK coupons, SET NULL; opcional), facility_ids[] y unit_type_ids[] (vacío = todos), show_countdown, show_testimonials, show_faq, show_contact, seo_title, seo_description, indexable (por defecto false), created_at, updated_at.
 
 ## 4. Inquilinos finales
