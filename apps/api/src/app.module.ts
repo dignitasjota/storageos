@@ -35,6 +35,7 @@ import { CollectionsModule } from './modules/collections/collections.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { CompetitorsModule } from './modules/competitors/competitors.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { CouponsModule } from './modules/coupons/coupons.module';
 import { CustomerEmailsModule } from './modules/customer-emails/customer-emails.module';
 import { CustomerMessagesModule } from './modules/customer-messages/customer-messages.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -236,6 +237,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     NotificationsModule,
     ReviewsModule,
     PromotionsModule,
+    CouponsModule,
     ReferralsModule,
     CampaignsModule,
     RentIncreasesModule,

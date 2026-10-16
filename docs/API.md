@@ -1737,6 +1737,14 @@ Módulos `apps/api/src/modules/{reviews,promotions,referrals}/` + extensiones en
 - `POST /promotions/validate` (`contracts:write`): previsualiza el descuento de un código sobre un precio mensual.
 - Aplicación: `CreateContractSchema.promotionCode` en el alta de contrato → valida + fija `discount_amount` recurrente + `used_count++` (atómico). Solo percentage/fixed.
 
+### Cupones (`/coupons`)
+
+Descuento sobre el pago que se hace al contratar (no sobre las renovaciones). Importes sin IVA.
+
+- `GET /coupons` (`promotions:read`), `POST /coupons` y `PATCH/DELETE /coupons/:id` (`promotions:manage`). 409 `coupon_code_taken`; 400 `invalid_scope` (tipo o local de otro tenant) e `invalid_coupon` (reglas sobre el resultado al editar); borrar uno usado → 409 `coupon_in_use`. El código no se edita.
+- `GET /coupons/:id/redemptions` (`promotions:read`): usos (inquilino, contrato, meses, descuento).
+- `POST /coupons/validate {code, unitId, months, monthlyPrice?, customerId?}` (`contracts:write`) → `CouponQuoteDto`: `{valid: true, months, rentSubtotal, discountAmount, freeMonths, rentTotal}` o `{valid: false, reason, message}` (`not_found`, `inactive`, `not_started`, `expired`, `max_uses_reached`, `invalid_months`, `min_months`, `min_amount`, `unit_type`, `facility`, `new_customers_only`).
+
 ### Referidos (`/referrals`, `/portal/me/referrals`, `/settings/tenant/referrals`)
 
 - `GET /referrals` + `GET /referrals/stats` (`referrals:read`): lista + métricas.

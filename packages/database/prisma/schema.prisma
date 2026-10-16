@@ -472,6 +472,8 @@ model Tenant {
   dunningActions          DunningAction[]
   pricingRules            PricingRule[]
   promotions              Promotion[]
+  coupons                 Coupon[]
+  couponRedemptions       CouponRedemption[]
   dataSubjectRequests     DataSubjectRequest[]
   consents                Consent[]
   leads                   Lead[]
@@ -1189,6 +1191,7 @@ model Customer {
   retentionOffers    RetentionOffer[]
   winbackSends       WinbackSend[]
   whatsappConversations WhatsappConversation[]
+  couponRedemptions CouponRedemption[]
 
   @@index([tenantId])
   @@index([tenantId, deletedAt])
@@ -1328,6 +1331,7 @@ model Contract {
 
   communications Communication[]
   whatsappConversations WhatsappConversation[]
+  couponRedemptions CouponRedemption[]
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -1728,6 +1732,7 @@ model Invoice {
   // sequence_number > 0): los drafts llevan 0 y deben poder convivir.
   // Ver migración 20260702140000 (Prisma no representa índices parciales).
   communications Communication[]
+  couponRedemptions CouponRedemption[]
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -1928,6 +1933,60 @@ model Promotion {
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
   @@map("promotions")
+}
+
+/// Cupón de descuento sobre el pago que se hace en ese momento (no sobre las
+/// renovaciones). `discountValue` es % o € (percentage/fixed) o, en
+/// free_months, los meses regalados. Las listas vacías valen para todos.
+model Coupon {
+  id               String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String                @map("tenant_id") @db.Uuid
+  code             String
+  name             String
+  discountType     PromotionDiscountType @map("discount_type")
+  discountValue    Decimal               @map("discount_value") @db.Decimal(10, 2)
+  minMonths        Int                   @default(1) @map("min_months")
+  minAmount        Decimal?              @map("min_amount") @db.Decimal(10, 2)
+  unitTypeIds      String[]              @default([]) @map("unit_type_ids") @db.Uuid
+  facilityIds      String[]              @default([]) @map("facility_ids") @db.Uuid
+  newCustomersOnly Boolean               @default(false) @map("new_customers_only")
+  maxUses          Int?                  @map("max_uses")
+  usedCount        Int                   @default(0) @map("used_count")
+  validFrom        DateTime?             @map("valid_from") @db.Timestamptz(6)
+  validUntil       DateTime?             @map("valid_until") @db.Timestamptz(6)
+  isActive         Boolean               @default(true) @map("is_active")
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  redemptions CouponRedemption[]
+
+  @@unique([tenantId, code], map: "coupons_tenant_code_key")
+  @@index([tenantId, isActive], map: "coupons_tenant_active_idx")
+  @@map("coupons")
+}
+
+/// Cada uso de un cupón. Único por contrato (índice parcial en SQL).
+model CouponRedemption {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  couponId       String   @map("coupon_id") @db.Uuid
+  customerId     String?  @map("customer_id") @db.Uuid
+  contractId     String?  @map("contract_id") @db.Uuid
+  invoiceId      String?  @map("invoice_id") @db.Uuid
+  months         Int
+  discountAmount Decimal  @map("discount_amount") @db.Decimal(10, 2)
+  freeMonths     Int      @default(0) @map("free_months")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  coupon   Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, couponId, createdAt], map: "coupon_redemptions_coupon_idx")
+  @@map("coupon_redemptions")
 }
 
 /// Programa de referidos: un cliente (referidor) recomienda y otro (referido)
