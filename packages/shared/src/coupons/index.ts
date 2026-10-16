@@ -22,6 +22,16 @@ export const COUPON_DISCOUNT_TYPE_LABELS: Record<CouponDiscountType, string> = {
 /** Meses que se pueden pagar por adelantado con un cupón. */
 export const COUPON_MAX_MONTHS = 12;
 
+/** Meses que se pueden elegir para el primer pago de un contrato. */
+export const FIRST_PAYMENT_MONTHS = [1, 3, 6, 12] as const;
+export type FirstPaymentMonths = (typeof FIRST_PAYMENT_MONTHS)[number];
+export const FirstPaymentMonthsSchema = z.union([
+  z.literal(1),
+  z.literal(3),
+  z.literal(6),
+  z.literal(12),
+]);
+
 const couponCode = z
   .string()
   .trim()

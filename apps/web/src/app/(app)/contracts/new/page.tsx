@@ -55,6 +55,7 @@ export default function NewContractWizardPage() {
       ...(endDate ? { endDate } : {}),
       billingCycle: 'monthly',
       billingIntervalMonths,
+      firstPaymentMonths: 1,
       prepayDiscountPct: billingIntervalMonths > 1 ? prepayDiscountPct : 0,
       priceMonthly,
       discountAmount,

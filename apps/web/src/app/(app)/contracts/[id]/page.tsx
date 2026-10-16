@@ -315,6 +315,21 @@ export default function ContractDetailPage() {
                 {c.billingIntervalMonths} meses)
               </p>
             )}
+            {c.billingIntervalMonths === 1 && (c.firstPaymentMonths > 1 || c.coupon) && (
+              <p className="mt-1 text-xs font-medium text-primary">
+                Primer pago: {c.coupon?.months ?? c.firstPaymentMonths}{' '}
+                {(c.coupon?.months ?? c.firstPaymentMonths) === 1 ? 'mes' : 'meses'} (después,
+                mensual)
+              </p>
+            )}
+            {c.coupon && (
+              <p className="text-xs font-medium text-primary">
+                Cupón {c.coupon.code}:{' '}
+                {c.coupon.freeMonths > 0
+                  ? `${c.coupon.freeMonths} ${c.coupon.freeMonths === 1 ? 'mes gratis' : 'meses gratis'}`
+                  : `−${c.coupon.discountAmount.toFixed(2)} € en el primer pago`}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
