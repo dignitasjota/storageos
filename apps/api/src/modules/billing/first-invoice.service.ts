@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { rentTax } from '@storageos/shared';
 
 import { toCents } from '../../common/money';
+import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { InvoiceSeriesService } from './invoice-series.service';
@@ -13,8 +15,14 @@ const ymd = (d: Date): string => d.toISOString().slice(0, 10);
 const eur = (cents: number): string =>
   `${(cents / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
-function addMonths(d: Date, months: number): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate()));
+/** Suma meses; si el día no existe en el mes de destino, el último del mes (31 ene + 1 → 28 feb). */
+export function addMonths(d: Date, months: number): Date {
+  const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1));
+  const lastDay = new Date(
+    Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  first.setUTCDate(Math.min(d.getUTCDate(), lastDay));
+  return first;
 }
 function addDays(d: Date, days: number): Date {
   const copy = new Date(d);
@@ -43,6 +51,7 @@ export class FirstInvoiceService {
     private readonly admin: PrismaAdminService,
     private readonly invoices: InvoicesService,
     private readonly series: InvoiceSeriesService,
+    private readonly events: EventEmitter2,
   ) {}
 
   /** ¿Hay que emitir la 1ª factura al firmar en el panel? (cupón o varios meses). */
@@ -239,6 +248,10 @@ export class FirstInvoiceService {
             : { dueDate, bundledWithInvoiceId: invoice.id }),
         });
       }
+      // Alquiler a 0 € (cupón del 100 % o que cubre todo el periodo): no hay nada
+      // que cobrar, así que queda saldada (después de crear la fianza, para que el
+      // acceso espere a que se pague). La fianza se paga sola en el portal.
+      await this.settleIfZero(tenantId, invoice.id);
     } catch (err) {
       this.logger.error(
         `[first-invoice] no se pudo emitir la 1ª factura del contrato ${contractId}: ${
@@ -246,5 +259,40 @@ export class FirstInvoiceService {
         }`,
       );
     }
+  }
+
+  /**
+   * Una factura de 0 € no se puede cobrar: se marca pagada y se avisa como un
+   * pago (da el acceso de la reserva online; el correo de «pago recibido» no
+   * sale por importes de 0 €).
+   */
+  private async settleIfZero(tenantId: string, invoiceId: string): Promise<void> {
+    const inv = await this.admin.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        total: true,
+        invoiceNumber: true,
+        customerId: true,
+        customer: { select: { email: true } },
+      },
+    });
+    if (!inv || toCents(Number(inv.total)) !== 0) return;
+    const paidAt = new Date();
+    const flipped = await this.admin.invoice.updateMany({
+      where: { id: invoiceId, status: { in: ['issued', 'overdue'] } },
+      data: { status: 'paid', paidAt },
+    });
+    if (flipped.count === 0) return;
+    const payload: DomainEventPayload = {
+      tenantId,
+      entityType: 'invoice',
+      entityId: invoiceId,
+      customerId: inv.customerId,
+      recipientEmail: inv.customer?.email ?? null,
+      scope: {
+        invoice: { number: inv.invoiceNumber, total: '0.00', paidAt: paidAt.toISOString() },
+      },
+    };
+    this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
   }
 }

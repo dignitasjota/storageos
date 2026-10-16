@@ -7,6 +7,7 @@ import {
 import {
   couponRejectMessage,
   couponRuleIssues,
+  publicCouponRejectMessage,
   buildFirstPaymentQuote,
   quoteCoupon,
   rentTax,
@@ -45,6 +46,7 @@ function toRules(c: CouponRow): CouponRules {
     unitTypeIds: c.unitTypeIds,
     facilityIds: c.facilityIds,
     newCustomersOnly: c.newCustomersOnly,
+    oncePerCustomer: c.oncePerCustomer,
     maxUses: c.maxUses,
     usedCount: c.usedCount,
     validFrom: c.validFrom,
@@ -76,6 +78,7 @@ export class CouponsService {
       unitTypeIds: c.unitTypeIds,
       facilityIds: c.facilityIds,
       newCustomersOnly: c.newCustomersOnly,
+      oncePerCustomer: c.oncePerCustomer,
       maxUses: c.maxUses,
       usedCount: c.usedCount,
       validFrom: c.validFrom?.toISOString() ?? null,
@@ -110,6 +113,7 @@ export class CouponsService {
               unitTypeIds: input.unitTypeIds,
               facilityIds: input.facilityIds,
               newCustomersOnly: input.newCustomersOnly,
+              oncePerCustomer: input.oncePerCustomer,
               maxUses: input.maxUses,
               validFrom: input.validFrom ? new Date(input.validFrom) : null,
               validUntil: input.validUntil ? new Date(input.validUntil) : null,
@@ -161,6 +165,7 @@ export class CouponsService {
     if (input.unitTypeIds !== undefined) data.unitTypeIds = input.unitTypeIds;
     if (input.facilityIds !== undefined) data.facilityIds = input.facilityIds;
     if (input.newCustomersOnly !== undefined) data.newCustomersOnly = input.newCustomersOnly;
+    if (input.oncePerCustomer !== undefined) data.oncePerCustomer = input.oncePerCustomer;
     if (input.maxUses !== undefined) data.maxUses = input.maxUses;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.validFrom !== undefined)
@@ -238,7 +243,22 @@ export class CouponsService {
       unitTypeId: unit.unitTypeId,
       facilityId: unit.facilityId,
       isNewCustomer: input.customerId ? await this.isNewCustomer(tenantId, input.customerId) : null,
+      usedByCustomer: input.customerId
+        ? await this.usedByCustomer(tenantId, input.code, input.customerId)
+        : null,
     });
+  }
+
+  /** Si el cliente ya usó este cupón en otro contrato. */
+  async usedByCustomer(tenantId: string, code: string, customerId: string): Promise<boolean> {
+    const n = await this.prisma.withTenant(
+      (tx) =>
+        tx.couponRedemption.count({
+          where: { tenantId, customerId, coupon: { code: normalizeCode(code) } },
+        }),
+      tenantId,
+    );
+    return n > 0;
   }
 
   /** Calcula el cupón para un pago, sin reservar el uso. */
@@ -276,6 +296,10 @@ export class CouponsService {
       deposit: number;
       couponCode?: string | null | undefined;
       isNewCustomer?: boolean | null | undefined;
+      /** Para «un uso por cliente». */
+      customerId?: string | null | undefined;
+      /** Web pública: sin decir si un código existe. */
+      publicMessages?: boolean;
     },
   ): Promise<FirstPaymentQuoteDto> {
     const code = args.couponCode?.trim();
@@ -286,6 +310,9 @@ export class CouponsService {
           unitTypeId: args.unitTypeId,
           facilityId: args.facilityId,
           isNewCustomer: args.isNewCustomer,
+          usedByCustomer: args.customerId
+            ? await this.usedByCustomer(tenantId, code, args.customerId)
+            : null,
         })
       : null;
     return buildFirstPaymentQuote({
@@ -301,7 +328,11 @@ export class CouponsService {
             code: quote.code,
             name: quote.name,
             valid: quote.valid,
-            message: quote.valid ? null : quote.message,
+            message: quote.valid
+              ? null
+              : args.publicMessages
+                ? publicCouponRejectMessage(quote.reason, quote.message)
+                : quote.message,
           }
         : null,
     });
@@ -325,7 +356,7 @@ export class CouponsService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     code: string,
-    ctx: CouponQuoteContext,
+    ctx: CouponQuoteContext & { customerId?: string | null | undefined },
   ): Promise<RedeemedCoupon> {
     const normalized = normalizeCode(code);
     const coupon = await tx.coupon.findFirst({ where: { tenantId, code: normalized } });
@@ -335,7 +366,13 @@ export class CouponsService {
         message: couponRejectMessage('not_found'),
       });
     }
-    const quote = quoteCoupon(toRules(coupon), ctx);
+    const usedByCustomer =
+      coupon.oncePerCustomer && ctx.customerId
+        ? (await tx.couponRedemption.count({
+            where: { tenantId, couponId: coupon.id, customerId: ctx.customerId },
+          })) > 0
+        : null;
+    const quote = quoteCoupon(toRules(coupon), { ...ctx, usedByCustomer });
     if (!quote.valid) {
       throw new BadRequestException({ code: `coupon_${quote.reason}`, message: quote.message });
     }
@@ -388,9 +425,21 @@ export class CouponsService {
   ): Promise<void> {
     const use = await tx.couponRedemption.findFirst({
       where: { tenantId, contractId },
-      select: { id: true, couponId: true, invoice: { select: { amountPaid: true } } },
+      select: {
+        id: true,
+        couponId: true,
+        invoice: { select: { amountPaid: true, status: true } },
+      },
     });
-    if (!use || (use.invoice && Number(use.invoice.amountPaid) > 0)) return;
+    // Si el primer pago se cobró (o era de 0 € y quedó saldado), el uso se queda.
+    if (
+      !use ||
+      (use.invoice &&
+        (Number(use.invoice.amountPaid) > 0 ||
+          ['paid', 'refunded', 'partially_refunded'].includes(use.invoice.status)))
+    ) {
+      return;
+    }
     await tx.couponRedemption.delete({ where: { id: use.id } });
     await tx.coupon.updateMany({
       where: { id: use.couponId, usedCount: { gt: 0 } },

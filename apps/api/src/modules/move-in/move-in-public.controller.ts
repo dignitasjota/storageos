@@ -67,7 +67,8 @@ export class MoveInPublicController {
   /** Resumen del pago al reservar (meses, cupón, IVA y fianza). */
   @Post('book/:slug/quote')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  // Límite bajo: el resumen dice si un cupón vale, no se debe poder probar en bucle.
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   quote(
     @Param('slug') slug: string,
     @Body() body: BookingQuoteBody,
@@ -75,7 +76,6 @@ export class MoveInPublicController {
     return this.booking.quoteBooking(slug, {
       ...body,
       couponCode: body.couponCode || undefined,
-      email: body.email || undefined,
     });
   }
 

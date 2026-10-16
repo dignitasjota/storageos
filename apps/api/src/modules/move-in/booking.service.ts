@@ -167,7 +167,12 @@ export class BookingService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
-    return this.quoteFor(tenant.id, input);
+    return this.quoteFor(tenant.id, {
+      facilityId: input.facilityId,
+      unitTypeId: input.unitTypeId,
+      months: input.months,
+      ...(input.couponCode ? { couponCode: input.couponCode } : {}),
+    });
   }
 
   private async quoteFor(
@@ -177,6 +182,7 @@ export class BookingService {
       unitTypeId: string;
       months: number;
       couponCode?: string | undefined;
+      /** Solo al reservar (no en el resumen público: diría si un email es cliente). */
       email?: string | undefined;
     },
   ): Promise<FirstPaymentQuoteDto> {
@@ -214,6 +220,8 @@ export class BookingService {
       deposit: customer?.depositExempt ? 0 : Number(unit.unitType.defaultDepositAmount ?? 0),
       couponCode: input.couponCode,
       isNewCustomer: customer ? await this.coupons.isNewCustomer(tenantId, customer.id) : null,
+      customerId: customer?.id ?? null,
+      publicMessages: true,
     });
   }
 
@@ -251,8 +259,8 @@ export class BookingService {
       }
     }
 
-    const { unitId, customerId, priceMonthly, depositAmount } = await this.prisma.withTenant(
-      async (tx) => {
+    const { unitId, customerId, customerCreated, priceMonthly, depositAmount } =
+      await this.prisma.withTenant(async (tx) => {
         // Hold de la unidad: dos bookings simultáneos sobre el último trastero
         // no deben llevarse la misma unidad. Serializamos la selección+reserva
         // por (tenant, tipo) con un advisory lock de transacción (se libera al
@@ -326,12 +334,11 @@ export class BookingService {
         return {
           unitId: unit.id,
           customerId: customer.id,
+          customerCreated: !existing,
           priceMonthly: Number(unit.basePriceMonthly),
           depositAmount: Number(unitType?.defaultDepositAmount ?? 0),
         };
-      },
-      tenantId,
-    );
+      }, tenantId);
 
     let contract: Awaited<ReturnType<ContractsService['create']>>;
     try {
@@ -362,6 +369,13 @@ export class BookingService {
       await this.admin.unit
         .updateMany({ where: { id: unitId, status: 'reserved' }, data: { status: 'available' } })
         .catch(() => undefined);
+      // El cliente recién creado para esta reserva no se queda suelto.
+      if (customerCreated) {
+        await this.admin.referral
+          .deleteMany({ where: { tenantId, referredCustomerId: customerId } })
+          .catch(() => undefined);
+        await this.admin.customer.delete({ where: { id: customerId } }).catch(() => undefined);
+      }
       throw err;
     }
 

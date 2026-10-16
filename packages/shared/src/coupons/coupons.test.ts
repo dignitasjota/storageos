@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { CreateCouponSchema, couponSummary, quoteCoupon, type CouponRules } from './index';
+import {
+  CreateCouponSchema,
+  couponSummary,
+  publicCouponRejectMessage,
+  quoteCoupon,
+  type CouponRules,
+} from './index';
 
 const base: CouponRules = {
   discountType: 'percentage',
@@ -146,6 +152,44 @@ describe('CreateCouponSchema', () => {
     );
     expect(couponSummary({ discountType: 'percentage', discountValue: 15, minMonths: 1 })).toBe(
       '15 %',
+    );
+  });
+});
+
+describe('un uso por cliente', () => {
+  it('rechaza si el cliente ya lo usó', () => {
+    const rules = {
+      discountType: 'percentage' as const,
+      discountValue: 10,
+      minMonths: 1,
+      minAmount: null,
+      unitTypeIds: [],
+      facilityIds: [],
+      newCustomersOnly: false,
+      oncePerCustomer: true,
+      maxUses: null,
+      usedCount: 3,
+      validFrom: null,
+      validUntil: null,
+      isActive: true,
+    };
+    const used = quoteCoupon(rules, { monthlyPrice: 50, months: 1, usedByCustomer: true });
+    expect(used.valid).toBe(false);
+    if (!used.valid) expect(used.reason).toBe('already_used');
+    expect(quoteCoupon(rules, { monthlyPrice: 50, months: 1, usedByCustomer: false }).valid).toBe(
+      true,
+    );
+  });
+
+  it('en la web pública no dice si un código existe', () => {
+    expect(publicCouponRejectMessage('not_found', 'Este cupón no existe')).toBe(
+      'Este cupón no es válido',
+    );
+    expect(publicCouponRejectMessage('expired', 'Este cupón ha caducado')).toBe(
+      'Este cupón no es válido',
+    );
+    expect(publicCouponRejectMessage('min_months', 'A partir de 3 meses')).toBe(
+      'A partir de 3 meses',
     );
   });
 });

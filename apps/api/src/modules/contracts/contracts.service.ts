@@ -277,6 +277,12 @@ export class ContractsService {
         message: 'Un cupón no se puede combinar con un código promocional',
       });
     }
+    if (input.couponCode?.trim() && Number(input.discountAmount ?? 0) > 0) {
+      throw new BadRequestException({
+        code: 'coupon_with_discount',
+        message: 'Un cupón no se puede combinar con un descuento manual',
+      });
+    }
     const result = await this.prisma.withTenant(async (tx) => {
       // Validar customer y unit pertenecientes a este tenant.
       const customer = await tx.customer.findFirst({
@@ -359,6 +365,7 @@ export class ContractsService {
           unitTypeId: unit.unitTypeId,
           facilityId: unit.facilityId,
           isNewCustomer: signedBefore === 0,
+          customerId: input.customerId,
         });
         // Con prepago semestral/anual con descuento se aplica el mejor de los dos.
         const prepayPct = input.billingIntervalMonths > 1 ? input.prepayDiscountPct : 0;
@@ -495,6 +502,23 @@ export class ContractsService {
     if (args.input.endDate !== undefined) {
       data.endDate = args.input.endDate ? new Date(args.input.endDate) : null;
       changes.endDate = args.input.endDate;
+    }
+    if (
+      args.input.discountAmount !== undefined &&
+      args.input.discountAmount > 0 &&
+      existing.status === 'draft'
+    ) {
+      // El cupón ya está calculado sobre la cuota: no se le suma un descuento manual.
+      const withCoupon = await this.prisma.withTenant(
+        (tx) => tx.couponRedemption.count({ where: { contractId: existing.id } }),
+        args.tenantId,
+      );
+      if (withCoupon > 0) {
+        throw new BadRequestException({
+          code: 'coupon_with_discount',
+          message: 'Un cupón no se puede combinar con un descuento manual',
+        });
+      }
     }
     if (args.input.discountAmount !== undefined && existing.status === 'draft') {
       data.discountAmount = args.input.discountAmount;

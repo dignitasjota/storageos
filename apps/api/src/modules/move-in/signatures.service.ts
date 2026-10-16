@@ -466,6 +466,7 @@ export class SignaturesService {
       deposit: customer?.depositExempt ? 0 : Number(unit.unitType.defaultDepositAmount ?? 0),
       couponCode: args.couponCode,
       isNewCustomer: await this.coupons.isNewCustomer(args.tenantId, args.customerId),
+      customerId: args.customerId,
     });
   }
 
