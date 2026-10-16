@@ -10,11 +10,13 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import {
   type BlogCoverUploadResponseDto,
   CreatePromoLandingSchema,
   type PromoLandingDto,
+  type PromoLandingStatsDto,
   RequestBlogCoverUploadSchema,
   SetPromoLandingImageSchema,
   UpdatePromoLandingSchema,
@@ -45,6 +47,21 @@ export class PromoLandingsController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<PromoLandingDto[]> {
     return this.promos.list(user.tenantId);
+  }
+
+  @RequirePermission('settings:read')
+  @Get(':id/stats')
+  stats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('days') days?: string,
+  ): Promise<PromoLandingStatsDto> {
+    const n = Number(days ?? 30);
+    return this.promos.stats(
+      user.tenantId,
+      id,
+      Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 0), 3650) : 30,
+    );
   }
 
   @RequirePermission('settings:read')

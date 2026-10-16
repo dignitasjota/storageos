@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  BarChart3,
   Copy,
   CopyPlus,
   ExternalLink,
@@ -18,6 +19,7 @@ import { SettingsHeader } from '../settings-header';
 
 import { PromoLandingDialog } from './promo-landing-dialog';
 import { PromoLinksDialog } from './promo-links-dialog';
+import { PromoStatsDialog } from './promo-stats-dialog';
 
 import type { PromoLandingDto } from '@storageos/shared';
 
@@ -46,6 +48,7 @@ export default function PromoLandingsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PromoLandingDto | undefined>(undefined);
   const [linksOf, setLinksOf] = useState<PromoLandingDto | null>(null);
+  const [statsOf, setStatsOf] = useState<PromoLandingDto | null>(null);
   const canMarket = useHasPermission('marketing:manage');
 
   const domain =
@@ -136,6 +139,15 @@ export default function PromoLandingsPage() {
                     )}
                   </button>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Resultados"
+                      aria-label="Resultados"
+                      onClick={() => setStatsOf(p)}
+                    >
+                      <BarChart3 className="size-4" />
+                    </Button>
                     {canMarket && (
                       <Button
                         variant="ghost"
@@ -213,6 +225,7 @@ export default function PromoLandingsPage() {
       </Card>
       <PromoLandingDialog open={open} onOpenChange={setOpen} landing={editing} />
       <PromoLinksDialog landing={linksOf} onOpenChange={(o) => !o && setLinksOf(null)} />
+      <PromoStatsDialog landing={statsOf} onOpenChange={(o) => !o && setStatsOf(null)} />
     </div>
   );
 }

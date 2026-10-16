@@ -3,6 +3,7 @@ import request from 'supertest';
 import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
+import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { cleanupTestTenants, setTenantFeatureOverride } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -206,5 +207,109 @@ describe('Landings de promoción (e2e)', () => {
       .send({ name: 'Ajena', type: 'other', promoLandingId: landingId });
     expect(bad.status).toBe(400);
     expect(bad.body.code).toBe('promo_landing_not_found');
+  });
+
+  it('resultados: visitas por origen, reservas, pagadas e ingresos', async () => {
+    const owner = await registerVerifiedUser(app, 'promo-stats');
+    const a = auth(owner.accessToken);
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    await ensureDefaultSeries(app, owner.accessToken);
+    const fac = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 2,
+      pricePerUnit: 50,
+    });
+    const coupon = await http().post('/coupons').set(a).send({
+      code: 'DIEZ',
+      name: 'Diez',
+      discountType: 'percentage',
+      discountValue: 10,
+    });
+    await http()
+      .post('/promo-landings')
+      .set(a)
+      .send({
+        name: 'Inv',
+        slug: 'invierno',
+        headline: 'Invierno',
+        isActive: true,
+        couponId: coupon.body.id,
+      })
+      .expect(201);
+    const list = await http().get('/promo-landings').set(a);
+    const id = (list.body as { id: string }[])[0]!.id;
+
+    const visit = (visitorId: string, source: string) =>
+      http()
+        .post(`/public/landing/${owner.slug}/promo/invierno/visit`)
+        .send({ visitorId, source, medium: 'offline', campaign: 'promo-invierno' })
+        .expect(204);
+    await visit('visitor-flyer-1', 'flyer');
+    await visit('visitor-flyer-2', 'flyer');
+    await visit('visitor-insta-1', 'instagram');
+
+    // El cliente ya existía como contacto (sin origen): la reserva le pone el de la landing.
+    const email = `ana-promo-${Date.now()}@e2e.local`;
+    await http()
+      .post('/leads')
+      .set(a)
+      .send({ source: 'manual', firstName: 'Ana', email })
+      .expect(201);
+    const booked = await http()
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: fac.facilityId,
+        unitTypeId: fac.unitTypeId,
+        startDate: '2026-03-15',
+        months: 1,
+        couponCode: 'DIEZ',
+        utmSource: 'flyer',
+        utmMedium: 'offline',
+        utmCampaign: 'promo-invierno',
+        customer: {
+          firstName: 'Ana',
+          lastName: 'Ruiz',
+          email,
+          phone: '600111222',
+          documentNumber: '12345678Z',
+        },
+      });
+    expect(booked.status).toBe(201);
+    await http()
+      .post(`/public/move-in/sign/${booked.body.signingToken}`)
+      .send({ signerName: 'Ana Ruiz', method: 'typed', typedSignature: 'Ana Ruiz', accept: true })
+      .expect(201);
+    const invoices = await http().get('/invoices').set(a);
+    const inv = (
+      invoices.body as { id: string; contractId: string; kind: string; total: number }[]
+    ).find((i) => i.contractId === booked.body.contractId && i.kind === 'invoice')!;
+    await http()
+      .post(`/invoices/${inv.id}/mark-paid`)
+      .set(a)
+      .send({ amount: Number(inv.total), methodType: 'cash' })
+      .expect(200);
+
+    const stats = await http().get(`/promo-landings/${id}/stats?days=30`).set(a);
+    expect(stats.status).toBe(200);
+    expect(stats.body).toMatchObject({
+      visits: 3,
+      visitors: 3,
+      bookings: 1,
+      signed: 1,
+      paid: 1,
+      revenue: Number(inv.total),
+      couponUses: 1,
+    });
+    expect(stats.body.bySource).toEqual([
+      {
+        source: 'flyer',
+        visits: 2,
+        visitors: 2,
+        bookings: 1,
+        signed: 1,
+        paid: 1,
+        revenue: Number(inv.total),
+      },
+      { source: 'instagram', visits: 1, visitors: 1, bookings: 0, signed: 0, paid: 0, revenue: 0 },
+    ]);
   });
 });

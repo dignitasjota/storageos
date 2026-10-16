@@ -403,6 +403,15 @@ export class BookingService {
               wonAt: new Date(),
               convertedCustomerId: customerId,
               convertedContractId: contract.id,
+              // La reserva cuenta para el origen por el que llegó (anuncio,
+              // flyer, landing…), aunque el contacto ya existiera de antes.
+              ...(input.utmSource || input.utmMedium || input.utmCampaign
+                ? {
+                    utmSource: input.utmSource ?? null,
+                    utmMedium: input.utmMedium ?? null,
+                    utmCampaign: input.utmCampaign ?? null,
+                  }
+                : {}),
             },
           });
         } else {

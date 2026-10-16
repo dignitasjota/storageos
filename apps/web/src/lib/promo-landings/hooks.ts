@@ -6,6 +6,7 @@ import type {
   BlogCoverUploadResponseDto,
   CreatePromoLandingInput,
   PromoLandingDto,
+  PromoLandingStatsDto,
   UpdatePromoLandingInput,
 } from '@storageos/shared';
 
@@ -85,5 +86,13 @@ export function removePromoLandingImage(id: string): Promise<PromoLandingDto> {
   return apiFetch<PromoLandingDto>(`/promo-landings/${id}/image`, {
     method: 'PUT',
     json: { heroImageKey: null },
+  });
+}
+
+export function usePromoLandingStats(id: string | null, days: number) {
+  return useQuery({
+    queryKey: ['promo-landings', id, 'stats', days],
+    queryFn: () => apiFetch<PromoLandingStatsDto>(`/promo-landings/${id}/stats?days=${days}`),
+    enabled: id != null,
   });
 }
