@@ -146,7 +146,9 @@ export function WaitlistCard({ session }: { session: PortalSessionDto }) {
                         <p className="font-medium">{ut.name}</p>
                         <p className="text-muted-foreground">
                           {f.facilityName} ·{' '}
-                          {t('pricePerMonth', { price: money.format(ut.priceMonthly * 1.21) })}
+                          {t('pricePerMonth', {
+                            price: money.format(ut.priceMonthly * (1 + (ut.taxRate ?? 21) / 100)),
+                          })}
                         </p>
                       </div>
                       <Button

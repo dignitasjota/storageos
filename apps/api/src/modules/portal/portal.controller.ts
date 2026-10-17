@@ -199,7 +199,7 @@ export class PortalController {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     // Devuelve una sesión NUEVA: el cambio cierra las demás sesiones (y la
     // actual, cuyo token queda con la versión anterior).
-    return this.portal.setMyPassword(tenantId, customerId, input.password);
+    return this.portal.setMyPassword(tenantId, customerId, input.password, input.currentPassword);
   }
 
   /** Solicitar un enlace de restablecimiento de contraseña por email (204 silencioso). */

@@ -34,7 +34,11 @@ import { creditForLine, unusedPrepaidMonths } from './prepay-credit';
 import { PricingService } from './pricing.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { DomainEventPayload, UnitAvailablePayload } from '../automations/domain-events';
+import type {
+  DomainEventPayload,
+  MoveOutCancelledPayload,
+  UnitAvailablePayload,
+} from '../automations/domain-events';
 import type { Contract, ContractStatus, Prisma, UnitStatus } from '@storageos/database';
 import type {
   ActivateImportedContractsInput,
@@ -1226,6 +1230,9 @@ export class ContractsService {
         where: { id: args.contractId },
         data: { status: 'active', endDate: null, endingRequestedAt: null },
         include: {
+          customer: {
+            select: { firstName: true, lastName: true, companyName: true, customerType: true },
+          },
           unit: { select: { code: true, facility: { select: { name: true } } } },
           insurancePlan: { select: { name: true } },
           owner: { select: { legalName: true } },
@@ -1244,6 +1251,20 @@ export class ContractsService {
       });
       return row;
     }, args.tenantId);
+
+    // El equipo pudo estar preparando el check-out: hay que avisarle.
+    const c = updated.customer;
+    const cancelled: MoveOutCancelledPayload = {
+      tenantId: args.tenantId,
+      contractId: updated.id,
+      contractNumber: updated.contractNumber,
+      customerName:
+        c.customerType === 'business'
+          ? (c.companyName ?? 'Empresa')
+          : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente',
+      reason: 'portal',
+    };
+    this.eventBus.emit(DOMAIN_EVENTS.contract_move_out_cancelled, cancelled);
 
     return this.toPortalDto(updated);
   }

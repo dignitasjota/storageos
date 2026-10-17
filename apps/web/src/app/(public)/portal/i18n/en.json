@@ -308,7 +308,8 @@
           "tooShort": "The password must be at least 8 characters.",
           "mismatch": "The passwords don't match.",
           "saved": "Password saved. We signed you out on your other devices; you can now sign in with email and password.",
-          "saveError": "Couldn't save the password."
+          "saveError": "Couldn't save the password.",
+          "currentPasswordLabel": "Current password"
         }
       },
       "accessLogs": {
@@ -463,6 +464,16 @@
         "chargeFailed": "Couldn't charge your payment method. Check your details and try again.",
         "purchaseError": "Couldn't complete the purchase."
       }
+    },
+    "gocardless": {
+      "loading": "Setting up your direct debit…",
+      "successTitle": "Direct debit set up",
+      "successBody": "Taking you back to your portal…",
+      "cancelledTitle": "You cancelled the direct debit",
+      "errorTitle": "Couldn't complete it",
+      "errorFallback": "Couldn't complete the direct debit.",
+      "notFound": "We couldn't find the direct debit in progress.",
+      "back": "Back to the portal"
     }
   }
 }

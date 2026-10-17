@@ -48,7 +48,10 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
 
   async function load() {
     try {
-      const list = await apiFetch<CustomerDocumentDto[]>('/portal/me/documents', { headers });
+      const list = await apiFetch<CustomerDocumentDto[]>('/portal/me/documents', {
+        headers,
+        requiresAuth: false,
+      });
       setDocs(list);
     } catch {
       /* opcional */
@@ -64,6 +67,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
     try {
       const { url } = await apiFetch<{ url: string }>(`/portal/me/documents/${id}/download`, {
         headers,
+        requiresAuth: false,
       });
       window.open(url, '_blank', 'noopener');
     } catch (err) {
@@ -89,6 +93,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
         method: 'POST',
         json: { type, mimeType: file.type, sizeBytes: file.size, fileName: file.name },
         headers,
+        requiresAuth: false,
       });
       // 2) Subida directa al almacenamiento.
       const put = await fetch(up.uploadUrl, {
@@ -108,6 +113,7 @@ export function DocumentsCard({ session }: { session: PortalSessionDto }) {
           fileSize: file.size,
         },
         headers,
+        requiresAuth: false,
       });
       toast.success(t('uploaded'));
       if (fileRef.current) fileRef.current.value = '';

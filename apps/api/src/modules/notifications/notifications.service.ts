@@ -4,6 +4,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import {
   DOMAIN_EVENTS,
   type DomainEventPayload,
+  type MoveOutCancelledPayload,
   type PaymentOverpaidPayload,
 } from '../automations/domain-events';
 import { PrismaService } from '../database/prisma.service';
@@ -255,6 +256,20 @@ export class NotificationsService {
         : {}),
       link: `/contracts/${p.entityId}`,
       contractId: p.entityId,
+    });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.contract_move_out_cancelled, { async: true, promisify: true })
+  async onMoveOutCancelled(p: MoveOutCancelledPayload): Promise<void> {
+    await this.safe(p.tenantId, {
+      type: 'contract.move_out_cancelled',
+      title: `Baja anulada — ${p.contractNumber}`,
+      body:
+        p.reason === 'retention_offer'
+          ? `${p.customerName} ha aceptado la oferta y se queda: el contrato vuelve a estar activo.`
+          : `${p.customerName} ha anulado su solicitud de baja: el contrato vuelve a estar activo.`,
+      link: `/contracts/${p.contractId}`,
+      contractId: p.contractId,
     });
   }
 

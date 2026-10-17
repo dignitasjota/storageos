@@ -141,6 +141,9 @@ export async function adminApiFetch<T = unknown>(
       error: body.error ?? res.statusText,
       message: body.message ?? 'Error de la API',
       ...(body.details ? { details: body.details } : {}),
+      // El código semántico (`no_payment_method`, `unit_code_taken`…): sin él
+      // ninguna comprobación `err.body.code === …` de la web funcionaba.
+      ...(body.code ? { code: body.code } : {}),
     });
   }
 
@@ -178,6 +181,9 @@ export async function adminApiFetchBlob(
       error: body.error ?? res.statusText,
       message: body.message ?? 'Error de la API',
       ...(body.details ? { details: body.details } : {}),
+      // El código semántico (`no_payment_method`, `unit_code_taken`…): sin él
+      // ninguna comprobación `err.body.code === …` de la web funcionaba.
+      ...(body.code ? { code: body.code } : {}),
     });
   }
 

@@ -58,6 +58,8 @@ function buildAdmin(): {
     email: 'puri@e2e.local',
     locale: 'es',
     portalSessionVersion: 0,
+    // `verifyPortalToken` comprueba que el negocio sigue activo.
+    tenant: { status: 'active', deletedAt: null },
   };
   return {
     customer: {
@@ -238,7 +240,10 @@ describe('PortalService', () => {
     const token = new URL(url).searchParams.get('token')!;
     const session = await service.consumeMagicLink(token);
     // El staff revoca: la versión en BD pasa a 1; el JWT sigue llevando sv=0.
-    admin.customer.findFirst.mockResolvedValue({ portalSessionVersion: 1 });
+    admin.customer.findFirst.mockResolvedValue({
+      portalSessionVersion: 1,
+      tenant: { status: 'active', deletedAt: null },
+    });
     await expect(service.verifyPortalToken(session.accessToken)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'portal_session_revoked' }),
     });

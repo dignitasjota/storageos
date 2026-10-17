@@ -15,6 +15,8 @@ export const DOMAIN_EVENTS = {
   contract_ended: 'domain.contract_ended',
   /** El inquilino solicita la baja (move-out) desde el portal. */
   contract_move_out_requested: 'domain.contract_move_out_requested',
+  /** El inquilino anuló su baja (o aceptó una oferta para quedarse). No es trigger. */
+  contract_move_out_cancelled: 'domain.contract_move_out_cancelled',
   invoice_issued: 'domain.invoice_issued',
   invoice_overdue: 'domain.invoice_overdue',
   invoice_paid: 'domain.invoice_paid',
@@ -99,6 +101,16 @@ export type DomainEventName = (typeof DOMAIN_EVENTS)[keyof typeof DOMAIN_EVENTS]
  * cambio de trastero…). No pasa por el motor de automations/plantillas; solo lo
  * consume `PushService`. Por eso no reutiliza el `DomainEventPayload` pesado.
  */
+/** Baja anulada desde el portal: aviso al equipo. */
+export interface MoveOutCancelledPayload {
+  tenantId: string;
+  contractId: string;
+  contractNumber: string;
+  customerName: string;
+  /** `portal` = la anuló el inquilino · `retention_offer` = aceptó una oferta. */
+  reason: 'portal' | 'retention_offer';
+}
+
 export interface CustomerNotifyPayload {
   tenantId: string;
   customerId: string;

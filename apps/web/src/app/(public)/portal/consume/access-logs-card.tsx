@@ -32,6 +32,7 @@ export function AccessLogsCard({ session }: { session: PortalSessionDto }) {
   useEffect(() => {
     apiFetch<PortalAccessLogDto[]>('/portal/me/access-logs', {
       headers: { Authorization: `Bearer ${session.accessToken}` },
+      requiresAuth: false,
     })
       .then(setLogs)
       .catch(() => {

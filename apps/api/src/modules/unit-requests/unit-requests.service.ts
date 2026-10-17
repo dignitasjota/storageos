@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { rentTax } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -55,7 +56,7 @@ export class UnitRequestsService {
           orderBy: [{ facilityId: 'asc' }, { code: 'asc' }],
           include: {
             facility: { select: { name: true } },
-            unitType: { select: { id: true, name: true } },
+            unitType: { select: { id: true, name: true, propertyKind: true } },
           },
         }),
         tx.promotion.findMany({
@@ -77,6 +78,7 @@ export class UnitRequestsService {
         unitTypeName: u.unitType?.name ?? null,
         areaM2: num(u.areaM2),
         priceMonthly: num(u.basePriceMonthly),
+        taxRate: rentTax(u.unitType?.propertyKind).taxRate,
         offer: (() => {
           const o = offers.get(u.id);
           return o ? { code: o.code, freeMonths: o.freeMonths, validUntil: o.validUntil } : null;
@@ -91,6 +93,22 @@ export class UnitRequestsService {
     input: PortalUnitRequestInput;
   }): Promise<PortalUnitRequestDto> {
     const { tenantId, customerId, input } = args;
+    // Local y tipo, si vienen, tienen que ser de este negocio (no se guardan ids ajenos).
+    const [facilityOk, typeOk] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          input.facilityId
+            ? tx.facility.count({ where: { id: input.facilityId, tenantId, deletedAt: null } })
+            : Promise.resolve(1),
+          input.unitTypeId
+            ? tx.unitType.count({ where: { id: input.unitTypeId, tenantId } })
+            : Promise.resolve(1),
+        ]),
+      tenantId,
+    );
+    if (facilityOk === 0 || typeOk === 0) {
+      throw new NotFoundException({ code: 'not_found', message: 'Local o tipo no encontrado' });
+    }
     // Si indica un trastero concreto, validamos que existe y está disponible.
     if (input.unitId) {
       const unitId = input.unitId;

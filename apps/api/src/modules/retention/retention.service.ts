@@ -1,12 +1,15 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
+import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { RequestMeta } from '../auth/auth.service';
+import type { MoveOutCancelledPayload } from '../automations/domain-events';
 import type { RetentionOffer } from '@storageos/database';
 import type {
   CreateRetentionOfferInput,
@@ -51,6 +54,7 @@ export class RetentionService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly communications: CommunicationsService,
+    private readonly eventBus: EventEmitter2,
   ) {}
 
   async createOffer(args: {
@@ -196,10 +200,22 @@ export class RetentionService {
     customerId: string;
     offerId: string;
   }): Promise<{ accepted: true }> {
-    await this.prisma.withTenant(async (tx) => {
+    const cancelledMoveOut = await this.prisma.withTenant(async (tx) => {
       const offer = await tx.retentionOffer.findFirst({
         where: { id: args.offerId, customerId: args.customerId, status: 'pending' },
-        include: { contract: { select: { id: true, status: true, priceMonthly: true } } },
+        include: {
+          contract: {
+            select: {
+              id: true,
+              status: true,
+              priceMonthly: true,
+              contractNumber: true,
+              customer: {
+                select: { firstName: true, lastName: true, companyName: true, customerType: true },
+              },
+            },
+          },
+        },
       });
       if (!offer) {
         throw new NotFoundException({ code: 'offer_not_found', message: 'Oferta no encontrada' });
@@ -240,7 +256,23 @@ export class RetentionService {
         where: { id: offer.id },
         data: { status: 'accepted', respondedAt: new Date() },
       });
+      if (offer.contract.status !== 'ending') return null;
+      const c = offer.contract.customer;
+      return {
+        tenantId: args.tenantId,
+        contractId: offer.contract.id,
+        contractNumber: offer.contract.contractNumber,
+        customerName:
+          c.customerType === 'business'
+            ? (c.companyName ?? 'Empresa')
+            : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente',
+        reason: 'retention_offer',
+      } satisfies MoveOutCancelledPayload;
     }, args.tenantId);
+    // La baja quedó anulada: el equipo tiene que saberlo (deja de preparar el check-out).
+    if (cancelledMoveOut) {
+      this.eventBus.emit(DOMAIN_EVENTS.contract_move_out_cancelled, cancelledMoveOut);
+    }
     return { accepted: true };
   }
 

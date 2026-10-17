@@ -165,6 +165,9 @@ export async function apiFetch<T = unknown>(
       error: body.error ?? res.statusText,
       message: body.message ?? 'Error de la API',
       ...(body.details ? { details: body.details } : {}),
+      // El código semántico (`no_payment_method`, `unit_code_taken`…): sin él
+      // ninguna comprobación `err.body.code === …` de la web funcionaba.
+      ...(body.code ? { code: body.code } : {}),
     });
   }
 
@@ -200,6 +203,9 @@ export async function apiFetchBlob(path: string, options: ApiFetchOptions = {}):
       error: body.error ?? res.statusText,
       message: body.message ?? 'Error de la API',
       ...(body.details ? { details: body.details } : {}),
+      // El código semántico (`no_payment_method`, `unit_code_taken`…): sin él
+      // ninguna comprobación `err.body.code === …` de la web funcionaba.
+      ...(body.code ? { code: body.code } : {}),
     });
   }
 
@@ -235,6 +241,9 @@ export async function apiFetchResponse(
       error: body.error ?? res.statusText,
       message: body.message ?? 'Error de la API',
       ...(body.details ? { details: body.details } : {}),
+      // El código semántico (`no_payment_method`, `unit_code_taken`…): sin él
+      // ninguna comprobación `err.body.code === …` de la web funcionaba.
+      ...(body.code ? { code: body.code } : {}),
     });
   }
   return res;

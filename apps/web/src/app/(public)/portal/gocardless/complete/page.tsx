@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -20,11 +21,11 @@ export default function PortalGoCardlessCompletePage() {
 }
 
 function PortalGoCardlessCompleteContent() {
+  const t = useTranslations('portal.gocardless');
   const router = useRouter();
   const params = useSearchParams();
   const [state, setState] = useState<State>('loading');
   const [message, setMessage] = useState('');
-  const [portalToken, setPortalToken] = useState<string | null>(null);
   const ran = useRef(false);
 
   useEffect(() => {
@@ -35,7 +36,6 @@ function PortalGoCardlessCompleteContent() {
     const parsed = raw
       ? (JSON.parse(raw) as { portalToken: string; billingRequestId: string })
       : null;
-    if (parsed) setPortalToken(parsed.portalToken);
 
     if (params.get('cancelled')) {
       setState('cancelled');
@@ -43,29 +43,25 @@ function PortalGoCardlessCompleteContent() {
     }
     if (!parsed) {
       setState('error');
-      setMessage('No se encontró la domiciliación en curso.');
+      setMessage(t('notFound'));
       return;
     }
     completeGoCardlessMandatePortal(parsed.portalToken, parsed.billingRequestId)
       .then(() => {
         sessionStorage.removeItem('gc_portal_mandate');
         setState('success');
-        setTimeout(
-          () => router.push(`/portal/consume?token=${encodeURIComponent(parsed.portalToken)}`),
-          1600,
-        );
+        setTimeout(() => router.push('/portal/consume'), 1600);
       })
       .catch((err: unknown) => {
         setState('error');
-        setMessage(
-          err instanceof ApiError ? err.body.message : 'No se pudo completar la domiciliación.',
-        );
+        setMessage(err instanceof ApiError ? err.body.message : t('errorFallback'));
       });
+    // Una sola ejecución (ref): `t` no cambia el resultado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params, router]);
 
-  const backToPortal = portalToken
-    ? () => router.push(`/portal/consume?token=${encodeURIComponent(portalToken)}`)
-    : undefined;
+  // La sesión del portal está guardada en el navegador: basta con volver.
+  const backToPortal = () => router.push('/portal/consume');
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
@@ -74,37 +70,33 @@ function PortalGoCardlessCompleteContent() {
           {state === 'loading' && (
             <>
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Activando tu domiciliación…</p>
+              <p className="text-sm text-muted-foreground">{t('loading')}</p>
             </>
           )}
           {state === 'success' && (
             <>
               <CheckCircle2 className="h-8 w-8 text-green-600" />
-              <p className="font-medium">Domiciliación activada</p>
-              <p className="text-sm text-muted-foreground">Volviendo a tu portal…</p>
+              <p className="font-medium">{t('successTitle')}</p>
+              <p className="text-sm text-muted-foreground">{t('successBody')}</p>
             </>
           )}
           {state === 'cancelled' && (
             <>
               <XCircle className="h-8 w-8 text-muted-foreground" />
-              <p className="font-medium">Has cancelado la domiciliación</p>
-              {backToPortal && (
-                <Button variant="outline" onClick={backToPortal}>
-                  Volver al portal
-                </Button>
-              )}
+              <p className="font-medium">{t('cancelledTitle')}</p>
+              <Button variant="outline" onClick={backToPortal}>
+                {t('back')}
+              </Button>
             </>
           )}
           {state === 'error' && (
             <>
               <XCircle className="h-8 w-8 text-red-600" />
-              <p className="font-medium">No se pudo completar</p>
+              <p className="font-medium">{t('errorTitle')}</p>
               <p className="text-sm text-muted-foreground">{message}</p>
-              {backToPortal && (
-                <Button variant="outline" onClick={backToPortal}>
-                  Volver al portal
-                </Button>
-              )}
+              <Button variant="outline" onClick={backToPortal}>
+                {t('back')}
+              </Button>
             </>
           )}
         </CardContent>

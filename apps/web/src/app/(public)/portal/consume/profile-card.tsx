@@ -240,6 +240,7 @@ function PasswordSection({
   onChanged: (renewed: PortalSessionDto) => void;
 }) {
   const t = useTranslations('portal.consume.profile.password');
+  const [current, setCurrent] = useState('');
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [saving, setSaving] = useState(false);
@@ -257,10 +258,11 @@ function PasswordSection({
     try {
       const renewed = await apiFetch<PortalSessionDto>('/portal/me/password', {
         method: 'POST',
-        json: { password: pwd },
+        json: { password: pwd, ...(hasPassword ? { currentPassword: current } : {}) },
         headers: { Authorization: `Bearer ${session.accessToken}` },
         requiresAuth: false,
       });
+      setCurrent('');
       setPwd('');
       setConfirm('');
       onChanged(renewed);
@@ -282,6 +284,17 @@ function PasswordSection({
         {hasPassword ? t('changeDescription') : t('createDescription')}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {hasPassword && (
+          <Field label={t('currentPasswordLabel')} className="sm:col-span-2">
+            <Input
+              type="password"
+              value={current}
+              autoComplete="current-password"
+              onChange={(e) => setCurrent(e.target.value)}
+              className="text-base sm:text-sm"
+            />
+          </Field>
+        )}
         <Field label={t('newPasswordLabel')}>
           <Input
             type="password"
@@ -301,7 +314,12 @@ function PasswordSection({
           />
         </Field>
       </div>
-      <Button variant="outline" size="sm" onClick={save} disabled={saving || !pwd || !confirm}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={save}
+        disabled={saving || !pwd || !confirm || (hasPassword && !current)}
+      >
         {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
         {hasPassword ? t('updateButton') : t('saveButton')}
       </Button>

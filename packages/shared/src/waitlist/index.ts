@@ -100,7 +100,8 @@ export interface PortalWaitlistDto {
   options: {
     facilityId: string;
     facilityName: string;
-    unitTypes: { id: string; name: string; priceMonthly: number }[];
+    /** `taxRate`: IVA del alquiler (21 % trastero, 0 % vivienda). */
+    unitTypes: { id: string; name: string; priceMonthly: number; taxRate: number }[];
   }[];
   entries: PortalWaitlistEntryDto[];
 }
