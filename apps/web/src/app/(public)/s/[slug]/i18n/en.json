@@ -60,7 +60,9 @@
       "subtitle": "Secure storage space. Book online in minutes."
     },
     "chrome": {
-      "clientAccess": "Customer login"
+      "clientAccess": "Customer login",
+      "prices": "Units & prices",
+      "reserve": "Book"
     },
     "facility": {
       "headingWithCity": "Storage units in {city} — {name}",

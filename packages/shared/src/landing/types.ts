@@ -120,6 +120,8 @@ export interface PublicFacilityLandingDto {
   brandColor: string | null;
   logoUrl: string | null;
   customDomain: string | null;
+  /** Plantilla de la web (las subpáginas toman su aspecto). */
+  webTemplate: string;
   hasBlog: boolean;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
@@ -157,6 +159,8 @@ export interface PublicBlogListDto {
   brandColor: string | null;
   logoUrl: string | null;
   customDomain: string | null;
+  /** Plantilla de la web (las subpáginas toman su aspecto). */
+  webTemplate: string;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   posts: PublicBlogPostSummaryDto[];
@@ -182,6 +186,8 @@ export interface PublicBlogPostDto {
   brandColor: string | null;
   logoUrl: string | null;
   customDomain: string | null;
+  /** Plantilla de la web (las subpáginas toman su aspecto). */
+  webTemplate: string;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   post: PublicBlogPostContentDto;
