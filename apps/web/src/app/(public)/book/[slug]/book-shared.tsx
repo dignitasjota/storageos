@@ -22,6 +22,7 @@ import { FirstPaymentSummary } from '@/app/(public)/s/[slug]/first-payment-summa
 import { FunnelSteps } from '@/app/(public)/s/[slug]/funnel-steps';
 import { trackEvent } from '@/app/(public)/s/[slug]/google-analytics';
 import { signHref, type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
+import { grossPrice } from '@/app/(public)/s/[slug]/price-format';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -354,7 +355,7 @@ export function BookPageBody({
                       <option key={ut.id} value={ut.id}>
                         {t('unitTypeOption', {
                           name: ut.name,
-                          price: formatPrice(ut.priceMonthly * 1.21, locale),
+                          price: formatPrice(grossPrice(ut), locale),
                           count: ut.available,
                         })}
                       </option>
@@ -365,7 +366,7 @@ export function BookPageBody({
                     <p className="text-sm text-muted-foreground">
                       {t('quoteLabel')}{' '}
                       <span className="font-semibold text-foreground">
-                        {formatPrice(selectedType.priceMonthly * 1.21, locale)}
+                        {formatPrice(grossPrice(selectedType), locale)}
                         {t('quotePerMonth')}
                       </span>{' '}
                       {t('quoteNote')}

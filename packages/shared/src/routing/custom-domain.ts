@@ -164,6 +164,21 @@ export function resolveCustomDomainRoute(
     return { action: 'rewrite', path: `/tenant-site/${slug}${rest}` };
   }
 
+  // Versión en otro idioma (`/l/<idioma>[/<local>|/blog[/<entrada>]]`): la
+  // misma web bajo `/s/<slug>/l/<idioma>/…`. Sin esta regla daba 404 (y a
+  // ella apuntan el selector de idioma y los `hreflang`).
+  const localeParts = pathname.split('/').filter(Boolean);
+  if (localeParts[0] === 'l' && localeParts.length >= 2) {
+    const [, locale, ...rest] = localeParts;
+    const base = `/s/${slug}/l/${locale}`;
+    if (rest.length === 0) return { action: 'rewrite', path: base };
+    if (rest.length === 1) return { action: 'rewrite', path: `${base}/${rest[0]}` };
+    if (rest.length === 2 && rest[0] === 'blog') {
+      return { action: 'rewrite', path: `${base}/blog/${rest[1]}` };
+    }
+    return { action: 'next' };
+  }
+
   // Raíz → landing del tenant.
   if (pathname === '/') {
     return { action: 'rewrite', path: `/s/${slug}` };

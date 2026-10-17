@@ -8,6 +8,7 @@ import {
   parseWebContent,
   parseWebSeo,
   parseWebSections,
+  rentTax,
   resolvePlanFeatures,
   waMeNumber,
 } from '@storageos/shared';
@@ -170,7 +171,7 @@ export class LandingService {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
     }
 
-    const [facilities, unitTypes, grouped] = await Promise.all([
+    const [facilities, unitTypes, grouped, allGrouped] = await Promise.all([
       this.admin.facility.findMany({
         where: { tenantId: tenant.id, deletedAt: null, isActive: true },
         select: {
@@ -193,25 +194,45 @@ export class LandingService {
       }),
       this.admin.unitType.findMany({
         where: { tenantId: tenant.id, isActive: true },
-        select: { id: true, name: true, defaultPriceMonthly: true },
+        select: { id: true, name: true, defaultPriceMonthly: true, propertyKind: true },
       }),
       this.admin.unit.groupBy({
         by: ['facilityId', 'unitTypeId'],
         where: { tenantId: tenant.id, status: 'available' },
         _count: { _all: true },
         _avg: { areaM2: true },
+        _min: { basePriceMonthly: true },
+      }),
+      // Todos los trasteros (cualquier estado): qué tamaños tiene cada local.
+      this.admin.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { tenantId: tenant.id },
+        _avg: { areaM2: true },
+        _min: { basePriceMonthly: true },
       }),
     ]);
 
+    const round1 = (v: unknown) => (v != null ? Math.round(Number(v) * 10) / 10 : null);
     const availByFacilityType = new Map<string, number>();
     const areaByFacilityType = new Map<string, number | null>();
+    const minPriceByFacilityType = new Map<string, number>();
     for (const g of grouped) {
-      availByFacilityType.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
-      const avg = g._avg.areaM2;
-      areaByFacilityType.set(
-        `${g.facilityId}:${g.unitTypeId}`,
-        avg != null ? Math.round(Number(avg) * 10) / 10 : null,
-      );
+      const key = `${g.facilityId}:${g.unitTypeId}`;
+      availByFacilityType.set(key, g._count._all);
+      areaByFacilityType.set(key, round1(g._avg.areaM2));
+      if (g._min.basePriceMonthly != null) {
+        minPriceByFacilityType.set(key, Number(g._min.basePriceMonthly));
+      }
+    }
+    // Tamaños agotados: el m² y el precio salen de todos sus trasteros.
+    const existingFacilityType = new Set<string>();
+    for (const g of allGrouped) {
+      const key = `${g.facilityId}:${g.unitTypeId}`;
+      existingFacilityType.add(key);
+      if (!areaByFacilityType.get(key)) areaByFacilityType.set(key, round1(g._avg.areaM2));
+      if (!minPriceByFacilityType.has(key) && g._min.basePriceMonthly != null) {
+        minPriceByFacilityType.set(key, Number(g._min.basePriceMonthly));
+      }
     }
 
     // Web Premium: solo si el tenant tiene la feature se aplica la plantilla y los
@@ -292,16 +313,21 @@ export class LandingService {
         longitude: f.longitude != null ? Number(f.longitude) : null,
         imageUrls: (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key)),
         videoUrl: f.videoUrl,
-        // Se incluyen también los tipos sin disponibilidad (available:0) —
-        // el frontend los muestra como "Agotado" en vez de ocultarlos, para
-        // no dar la falsa impresión de que ese tamaño no existe.
-        unitTypes: unitTypes.map((t) => ({
-          id: t.id,
-          name: t.name,
-          available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
-          priceMonthly: Number(t.defaultPriceMonthly),
-          areaM2: areaByFacilityType.get(`${f.id}:${t.id}`) ?? null,
-        })),
+        // Solo los tamaños que tiene ESTE local; los que tiene pero están
+        // llenos salen con available:0 ("Agotado", con lista de espera).
+        // Precio = el del trastero más barato disponible de ese tamaño (es el
+        // que se asigna al reservar); agotado, el más barato que tenga.
+        unitTypes: unitTypes
+          .filter((t) => existingFacilityType.has(`${f.id}:${t.id}`))
+          .map((t) => ({
+            id: t.id,
+            name: t.name,
+            available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
+            priceMonthly:
+              minPriceByFacilityType.get(`${f.id}:${t.id}`) ?? Number(t.defaultPriceMonthly),
+            taxRate: rentTax(t.propertyKind).taxRate,
+            areaM2: areaByFacilityType.get(`${f.id}:${t.id}`) ?? null,
+          })),
       })),
     };
   }
@@ -681,31 +707,30 @@ export class LandingService {
       }),
       this.admin.unitType.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, defaultPriceMonthly: true },
+        select: { id: true, propertyKind: true },
       }),
+      // Precio del trastero más barato disponible de cada tamaño y local.
       this.admin.unit.groupBy({
         by: ['facilityId', 'unitTypeId'],
         where: { tenantId, status: 'available' },
-        _count: { _all: true },
+        _min: { basePriceMonthly: true },
       }),
     ]);
-    const availByPair = new Map<string, number>();
-    for (const g of grouped) {
-      availByPair.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
-    }
-    const priceById = new Map(unitTypes.map((t) => [t.id, Number(t.defaultPriceMonthly)]));
+    const taxById = new Map(unitTypes.map((t) => [t.id, rentTax(t.propertyKind).taxRate]));
     return facilities.map((f) => {
       let min: number | null = null;
-      for (const t of unitTypes) {
-        if ((availByPair.get(`${f.id}:${t.id}`) ?? 0) === 0) continue;
-        const price = priceById.get(t.id)!;
-        if (min === null || price < min) min = price;
+      for (const g of grouped) {
+        if (g.facilityId !== f.id || g._min.basePriceMonthly == null) continue;
+        const tax = taxById.get(g.unitTypeId);
+        if (tax === undefined) continue; // tipo inactivo
+        const gross = Number(g._min.basePriceMonthly) * (1 + tax / 100);
+        if (min === null || gross < min) min = gross;
       }
       return {
         publicSlug: f.publicSlug!,
         name: f.name,
         city: f.city,
-        fromPriceMonthly: min !== null ? Math.round(min * 1.21 * 100) / 100 : null,
+        fromPriceMonthly: min !== null ? Math.round(min * 100) / 100 : null,
       };
     });
   }

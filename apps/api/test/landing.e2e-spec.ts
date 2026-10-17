@@ -44,6 +44,66 @@ describe('Landing pública por tenant (e2e)', () => {
     expect(fac.unitTypes[0].areaM2).toBe(6);
   });
 
+  it('cada local solo lista sus tamaños, con el precio del más barato disponible y su IVA', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-sizes');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const a = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local A',
+      unitsCount: 3,
+      pricePerUnit: 60,
+    });
+    const b = await createFacilityWithUnits(app, owner.accessToken, {
+      facilityName: 'Local B',
+      unitsCount: 1,
+      pricePerUnit: 700,
+    });
+    // Un trastero de A más barato que el precio del tamaño.
+    await request(app.getHttpServer())
+      .patch(`/units/${a.unitIds[2]}`)
+      .set(auth)
+      .send({ basePriceMonthly: 45 })
+      .expect(200);
+    // El tamaño de B es una vivienda (exenta de IVA).
+    await setTenantFeatureOverride(owner.slug, 'housing', true);
+    await request(app.getHttpServer())
+      .patch(`/unit-types/${b.unitTypeId}`)
+      .set(auth)
+      .send({ propertyKind: 'housing' })
+      .expect(200);
+
+    const res = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    const facA = res.body.facilities.find((f: { id: string }) => f.id === a.facilityId);
+    const facB = res.body.facilities.find((f: { id: string }) => f.id === b.facilityId);
+    // A no anuncia el tamaño de B como «agotado».
+    expect(facA.unitTypes.map((t: { id: string }) => t.id)).toEqual([a.unitTypeId]);
+    expect(facA.unitTypes[0]).toMatchObject({ priceMonthly: 45, taxRate: 21, available: 3 });
+    expect(facB.unitTypes[0]).toMatchObject({ id: b.unitTypeId, taxRate: 0 });
+
+    // La reserva asigna ese trastero más barato y lo cobra a ese precio.
+    const quote = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${owner.slug}/quote`)
+      .send({ facilityId: a.facilityId, unitTypeId: a.unitTypeId, months: 1 });
+    expect(quote.status).toBe(200);
+    expect(quote.body.monthlyPrice).toBe(45);
+    const avail = await request(app.getHttpServer()).get(
+      `/public/move-in/book/${owner.slug}/availability`,
+    );
+    const availA = avail.body.facilities.find((f: { id: string }) => f.id === a.facilityId);
+    expect(availA.unitTypes[0]).toMatchObject({ priceMonthly: 45, taxRate: 21 });
+
+    // Sin trasteros libres sigue saliendo («Agotado»), con su m².
+    for (const id of a.unitIds) {
+      await request(app.getHttpServer())
+        .post(`/units/${id}/change-status`)
+        .set(auth)
+        .send({ status: 'maintenance', reason: 'test' })
+        .expect(200);
+    }
+    const soldOut = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    const soldA = soldOut.body.facilities.find((f: { id: string }) => f.id === a.facilityId);
+    expect(soldA.unitTypes[0]).toMatchObject({ available: 0, areaM2: 6 });
+  });
+
   it('promoción activa: se destaca en la landing y respeta ventana de fechas/usos', async () => {
     const owner = await registerVerifiedUser(app, 'landing-promo');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

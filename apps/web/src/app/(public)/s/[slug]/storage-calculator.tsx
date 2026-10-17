@@ -43,6 +43,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { trackEvent } from './google-analytics';
 import { bookHrefFor, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
+import { grossPrice } from './price-format';
 import { themeFor } from './promo/promo-theme';
 
 const CATEGORY_ORDER: StorageItemCategory[] = ['muebles', 'electrodomesticos', 'cajas', 'otros'];
@@ -268,7 +269,7 @@ export function StorageCalculator({
           <p className="mt-1 text-lg font-semibold">{recommendation.name}</p>
           <p className={`text-sm ${muted}`}>
             {recommendation.areaM2 != null ? `${recommendation.areaM2} m² · ` : ''}
-            {tCommon('from')} {formatPrice(recommendation.priceMonthly * 1.21, locale)}
+            {tCommon('from')} {formatPrice(grossPrice(recommendation), locale)}
             {t('perMonth')}
           </p>
           {recommendation.areaM2 != null && (

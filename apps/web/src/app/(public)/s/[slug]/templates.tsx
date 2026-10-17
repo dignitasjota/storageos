@@ -9,7 +9,7 @@ import { useTranslations } from 'next-intl';
 import { ContactForm } from './contact-form';
 import { trackEvent } from './google-analytics';
 import { bookHrefFor, facilityHref, type BookSite, type PublicWebLocale } from './i18n/messages';
-import { formatPrice } from './price-format';
+import { grossPrice, formatPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 
 import type { OpeningHours, PublicLandingDto, Weekday } from '@storageos/shared';
@@ -260,7 +260,7 @@ export function UnitTypeList({
               </Link>
             ) : (
               <span className="font-semibold">
-                {t('from')} {formatPrice(unitType.priceMonthly * 1.21, locale)}
+                {t('from')} {formatPrice(grossPrice(unitType), locale)}
                 <span className="text-xs font-normal text-muted-foreground">
                   {t('perMonthVatIncl')}
                 </span>

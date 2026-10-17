@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { rentTax } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -117,24 +118,34 @@ export class CatalogFeedService {
         }),
         tx.unitType.findMany({
           where: { tenantId, isActive: true },
-          select: { id: true, name: true, description: true, defaultPriceMonthly: true },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            defaultPriceMonthly: true,
+            propertyKind: true,
+          },
         }),
         tx.unit.groupBy({
           by: ['facilityId', 'unitTypeId'],
           where: { tenantId, status: 'available' },
           _count: { _all: true },
           _avg: { areaM2: true, volumeM3: true },
+          _min: { basePriceMonthly: true },
         }),
       ]);
 
       const availByPair = new Map<string, number>();
       const areaByPair = new Map<string, number | null>();
       const volumeByPair = new Map<string, number | null>();
+      const minPriceByPair = new Map<string, number>();
       for (const g of grouped) {
         const key = `${g.facilityId}:${g.unitTypeId}`;
         availByPair.set(key, g._count._all);
         areaByPair.set(key, g._avg.areaM2 != null ? Number(g._avg.areaM2) : null);
         volumeByPair.set(key, g._avg.volumeM3 != null ? Number(g._avg.volumeM3) : null);
+        if (g._min.basePriceMonthly != null)
+          minPriceByPair.set(key, Number(g._min.basePriceMonthly));
       }
 
       const rows: CatalogFeedRow[] = [];
@@ -157,7 +168,10 @@ export class CatalogFeedService {
               `Trastero${areaM2 != null ? ` de ${areaM2.toFixed(1)} m²` : ''} en ${f.name}${f.city ? `, ${f.city}` : ''}. Acceso seguro y contratación online.`,
             areaM2,
             volumeM3: volumeByPair.get(key) ?? null,
-            priceMonthly: Number(t.defaultPriceMonthly) * 1.21,
+            // El del trastero más barato disponible, con su IVA (0 % en viviendas).
+            priceMonthly:
+              (minPriceByPair.get(key) ?? Number(t.defaultPriceMonthly)) *
+              (1 + rentTax(t.propertyKind).taxRate / 100),
             available,
             phone: f.contactPhone ?? '',
             email: f.contactEmail ?? '',

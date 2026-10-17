@@ -9,7 +9,13 @@ export interface PublicLandingUnitTypeDto {
   id: string;
   name: string;
   available: number;
+  /**
+   * Sin IVA: el del trastero más barato disponible de ese tamaño en el local
+   * (el que se asigna al reservar); agotado, el más barato que tenga.
+   */
   priceMonthly: number;
+  /** % de IVA del alquiler (21; 0 en viviendas, exentas). */
+  taxRate: number;
   /** Área representativa del tipo (m²), media de los trasteros disponibles. */
   areaM2: number | null;
 }

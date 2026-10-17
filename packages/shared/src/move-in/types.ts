@@ -72,7 +72,10 @@ export interface BookingAvailabilityDto {
       id: string;
       name: string;
       available: number;
+      /** Sin IVA: el del trastero más barato disponible de ese tamaño. */
       priceMonthly: number;
+      /** % de IVA del alquiler (21; 0 en viviendas, exentas). */
+      taxRate: number;
     }[];
   }[];
 }

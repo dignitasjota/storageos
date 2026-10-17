@@ -26,6 +26,7 @@ import {
   type PublicWebLocale,
 } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
+import { grossPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 import {
   cities,
@@ -221,7 +222,7 @@ export function EscaparateTemplate({
                     .filter((unitType) => unitType.available > 0)
                     .reduce<
                       number | null
-                    >((min, unitType) => (min === null ? unitType.priceMonthly : Math.min(min, unitType.priceMonthly)), null);
+                    >((min, unitType) => (min === null ? grossPrice(unitType) : Math.min(min, grossPrice(unitType))), null);
                   const href = f.publicSlug
                     ? buildFacilityHref(data.tenantSlug, f.publicSlug, locale, data.customDomain)
                     : buildBookHrefFor(data, locale, { facilityId: f.id });
@@ -257,7 +258,7 @@ export function EscaparateTemplate({
                         </p>
                         {cheapest !== null && (
                           <p className="mt-2 text-sm font-semibold" style={{ color: brand }}>
-                            {tCommon('from')} {formatPrice(cheapest * 1.21, locale)}
+                            {tCommon('from')} {formatPrice(cheapest, locale)}
                             {t('perMonth')}
                           </p>
                         )}

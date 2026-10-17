@@ -8,6 +8,14 @@ import { intlLocaleFor, type PublicWebLocale } from './i18n/messages';
  * invocar directamente desde un Server Component (solo renderizar como JSX),
  * así que estas dos viven aparte.
  */
+/**
+ * Precio mensual con IVA de un tamaño: 21 % o el que diga la API (0 % en
+ * viviendas, exentas). Sin `taxRate` (API anterior), 21 %.
+ */
+export function grossPrice(t: { priceMonthly: number; taxRate?: number }): number {
+  return t.priceMonthly * (1 + (t.taxRate ?? 21) / 100);
+}
+
 export function formatPrice(n: number, locale: PublicWebLocale): string {
   return n.toLocaleString(intlLocaleFor(locale), {
     style: 'currency',
@@ -22,11 +30,11 @@ export function formatPrice(n: number, locale: PublicWebLocale): string {
  * en resultados/Maps. `null` si no hay tipos de trastero.
  */
 export function priceRangeString(
-  unitTypes: { priceMonthly: number }[],
+  unitTypes: { priceMonthly: number; taxRate?: number }[],
   locale: PublicWebLocale,
 ): string | null {
   if (unitTypes.length === 0) return null;
-  const prices = unitTypes.map((t) => t.priceMonthly * 1.21);
+  const prices = unitTypes.map(grossPrice);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   return min === max
