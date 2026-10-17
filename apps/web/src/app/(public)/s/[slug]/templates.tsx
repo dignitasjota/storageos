@@ -292,6 +292,7 @@ function DefaultTemplate({ data, locale }: TplProps) {
       <header className="mb-10 text-center">
         {data.logoUrl && (
           <Image
+            unoptimized
             src={data.logoUrl}
             alt={data.tenantName}
             width={200}
@@ -340,6 +341,7 @@ function ModernTemplate({ data, locale }: TplProps) {
       >
         {data.logoUrl && (
           <Image
+            unoptimized
             src={data.logoUrl}
             alt={data.tenantName}
             width={220}
@@ -393,6 +395,7 @@ function IndustrialTemplate({ data, locale }: TplProps) {
         <div className="mx-auto max-w-4xl">
           {data.logoUrl && (
             <Image
+              unoptimized
               src={data.logoUrl}
               alt={data.tenantName}
               width={170}

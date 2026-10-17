@@ -129,6 +129,7 @@ export async function TenantWebChrome({
           <Link href={home} className="flex items-center gap-2 font-semibold">
             {data.logoUrl ? (
               <Image
+                unoptimized
                 src={data.logoUrl}
                 alt={data.tenantName}
                 width={120}
