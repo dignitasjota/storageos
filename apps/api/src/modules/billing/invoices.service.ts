@@ -128,6 +128,9 @@ interface ListFilters {
   facilityScope?: string[] | null;
 }
 
+/** Motivo de las rectificativas automáticas por reembolso. */
+const REFUND_CREDIT_REASON = 'Reembolso de lo cobrado';
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
@@ -2129,11 +2132,25 @@ export class InvoicesService {
     try {
       await this.issueRefundCreditNote(p.tenantId, p.invoiceId, p.amount);
     } catch (err) {
-      this.logger.error(
-        `[invoices] abono por reembolso de ${p.invoiceId} sin emitir: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[invoices] abono por reembolso de ${p.invoiceId} sin emitir: ${reason}`);
+      // El dinero ya se devolvió: sin la rectificativa los libros no cuadran.
+      // Se avisa al equipo para que la emita (o lo resuelva) desde la factura.
+      await this.prisma
+        .withTenant(
+          (tx) =>
+            tx.notification.create({
+              data: {
+                tenantId: p.tenantId,
+                type: 'invoice.refund_credit_note_failed',
+                title: 'Falta la rectificativa de un reembolso',
+                body: `Se devolvieron ${p.amount.toFixed(2)} € de una factura pero no se pudo emitir su rectificativa de abono: ${reason.slice(0, 300)}. Revísala en la factura.`,
+                link: `/invoices/${p.invoiceId}`,
+              },
+            }),
+          p.tenantId,
+        )
+        .catch(() => undefined);
     }
   }
 
@@ -2219,13 +2236,29 @@ export class InvoicesService {
       };
     });
 
+    // Un abono de un reembolso anterior que no se llegó a emitir se sustituye
+    // por este (que ya cubre todo lo devuelto): si no, contaría dos veces en el
+    // límite de lo que se puede abonar.
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.updateMany({
+          where: {
+            rectifiesInvoiceId: invoiceId,
+            status: 'draft',
+            rectificationReason: REFUND_CREDIT_REASON,
+            deletedAt: null,
+          },
+          data: { status: 'cancelled' },
+        }),
+      tenantId,
+    );
     const draft = await this.rectify({
       originalInvoiceId: original.id,
       tenantId,
       userId: null,
       input: {
         rectificationType: original.invoiceType === 'F2' ? 'R5' : 'R4',
-        reason: 'Reembolso de lo cobrado',
+        reason: REFUND_CREDIT_REASON,
         correctionMethod: 'by_differences',
         items,
       },
