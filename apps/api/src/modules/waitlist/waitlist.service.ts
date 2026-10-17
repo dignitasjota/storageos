@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { AuditService } from '../auth/audit.service';
@@ -191,7 +192,7 @@ export class WaitlistService {
       }),
       this.admin.unitType.findMany({
         where: { tenantId, isActive: true },
-        select: { id: true, name: true, defaultPriceMonthly: true },
+        select: { id: true, name: true, defaultPriceMonthly: true, propertyKind: true },
         orderBy: { name: 'asc' },
       }),
       this.admin.unit.groupBy({
@@ -221,7 +222,12 @@ export class WaitlistService {
           facilityName: f.name,
           unitTypes: unitTypes
             .filter((t) => existsSet.has(`${f.id}:${t.id}`) && !availSet.has(`${f.id}:${t.id}`))
-            .map((t) => ({ id: t.id, name: t.name, priceMonthly: Number(t.defaultPriceMonthly) })),
+            .map((t) => ({
+              id: t.id,
+              name: t.name,
+              priceMonthly: Number(t.defaultPriceMonthly),
+              taxRate: rentTax(t.propertyKind).taxRate,
+            })),
         }))
         .filter((f) => f.unitTypes.length > 0),
       entries: entries.map((e) => ({

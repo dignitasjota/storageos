@@ -365,7 +365,7 @@ function PortalConsumeContent() {
       if (err instanceof ApiError && err.statusCode === 401) {
         clearStoredPortalSession();
         setSession(null);
-        setError(t('sessionExpired'));
+        setError(err.body.code === 'account_unavailable' ? err.body.message : t('sessionExpired'));
       }
       throw err;
     });
@@ -1950,7 +1950,10 @@ function MoveOutDialog({
   const notice = contract?.cancellationNoticeDays ?? 15;
   const min = new Date();
   min.setDate(min.getDate() + notice);
-  const minDate = min.toISOString().slice(0, 10);
+  // Fecha local (no UTC): entre las 00:00 y las 02:00 toISOString da la de ayer.
+  const minDate = `${min.getFullYear()}-${String(min.getMonth() + 1).padStart(2, '0')}-${String(
+    min.getDate(),
+  ).padStart(2, '0')}`;
   const [endDate, setEndDate] = useState(minDate);
 
   return (

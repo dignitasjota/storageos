@@ -19,6 +19,7 @@ import {
   type FirstPaymentQuoteDto,
 } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -542,7 +543,14 @@ export class SignaturesService {
       });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Hoy en la zona del local (entre las 00:00 y las 02:00 la fecha UTC es la de ayer).
+    const facility = await this.admin.facility.findUnique({
+      where: { id: unit.facilityId },
+      select: { timezone: true },
+    });
+    const today = todayInTimezone(facility?.timezone ?? undefined)
+      .toISOString()
+      .slice(0, 10);
     const contract = await this.contracts.create({
       tenantId,
       userId: null,

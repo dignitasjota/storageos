@@ -106,7 +106,7 @@ describe('Portal: documentos del inquilino (KYC) (e2e)', () => {
     expect(bad.body.code).toBe('invalid_file_url');
   });
 
-  it('un tenant suspendido no puede operar desde el portal (403 account_unavailable)', async () => {
+  it('un tenant suspendido no puede operar desde el portal (401 account_unavailable)', async () => {
     const owner = await registerVerifiedUser(app, 'psusp');
     const email = `psusp-${Date.now()}@e2e.local`;
     await createCustomer(app, owner.accessToken, { email });
@@ -121,8 +121,10 @@ describe('Portal: documentos del inquilino (KYC) (e2e)', () => {
     const tenant = await admin.tenant.findUnique({ where: { slug: owner.slug } });
     await admin.tenant.update({ where: { id: tenant!.id }, data: { status: 'suspended' } });
 
+    // La sesión deja de valer en todo el portal (401: el portal vuelve a la
+    // pantalla de acceso con el motivo).
     const res = await request(app.getHttpServer()).get('/portal/me/payment-methods').set(pAuth);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     expect(res.body.code).toBe('account_unavailable');
   });
 });

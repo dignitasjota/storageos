@@ -34,6 +34,8 @@ export interface AvailableUnitDto {
   areaM2: number | null;
   /** Precio mensual de catálogo (del tipo), si está definido. */
   priceMonthly: number | null;
+  /** IVA del alquiler (21 % trastero, 0 % vivienda). */
+  taxRate: number;
   /** Oferta activa de este trastero (meses gratis), si la hay. */
   offer: { code: string; freeMonths: number; validUntil: string } | null;
 }

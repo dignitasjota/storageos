@@ -544,6 +544,8 @@ export type PortalLoginPasswordInput = z.infer<typeof PortalLoginPasswordSchema>
 /** El inquilino fija/cambia su contraseña de portal (requiere sesión activa). */
 export const PortalSetPasswordSchema = z.object({
   password: z.string().min(8, 'Mínimo 8 caracteres').max(200),
+  /** Obligatoria si ya tiene contraseña (cambiarla, no crearla). */
+  currentPassword: z.string().max(200).optional(),
 });
 export type PortalSetPasswordInput = z.infer<typeof PortalSetPasswordSchema>;
 

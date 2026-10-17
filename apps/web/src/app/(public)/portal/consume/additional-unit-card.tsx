@@ -44,12 +44,9 @@ function statusLabel(
   return status;
 }
 
-/**
- * Precio con IVA incluido. `priceMonthly` es el precio de catálogo (sin IVA) y
- * el DTO no expone el tipo → asumimos el 21% de España, como el resto del portal.
- */
-function priceWithIva(net: number): number {
-  return net * 1.21;
+/** Precio con IVA incluido (`taxRate`: 21 % trastero, 0 % vivienda). */
+function priceWithIva(net: number, taxRate: number): number {
+  return net * (1 + taxRate / 100);
 }
 
 export function AdditionalUnitCard({
@@ -211,7 +208,7 @@ export function AdditionalUnitCard({
                     {u.areaM2 ? t('areaSuffix', { area: u.areaM2 }) : ''}
                     {u.priceMonthly != null
                       ? t('priceSuffix', {
-                          price: priceWithIva(u.priceMonthly).toLocaleString(
+                          price: priceWithIva(u.priceMonthly, u.taxRate ?? 21).toLocaleString(
                             intlLocaleForPortal(locale),
                             { minimumFractionDigits: 2, maximumFractionDigits: 2 },
                           ),
@@ -282,7 +279,7 @@ export function AdditionalUnitCard({
               {target?.facilityName}
               {target?.priceMonthly != null
                 ? t('priceSuffix', {
-                    price: priceWithIva(target.priceMonthly).toLocaleString(
+                    price: priceWithIva(target.priceMonthly, target.taxRate ?? 21).toLocaleString(
                       intlLocaleForPortal(locale),
                       { minimumFractionDigits: 2, maximumFractionDigits: 2 },
                     ),

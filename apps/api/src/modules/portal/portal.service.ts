@@ -15,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { Prisma } from '@storageos/database';
+import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { emailLocale } from '../../common/format';
@@ -353,7 +354,7 @@ export class PortalService {
     const tenant = await this.admin.tenant.findUnique({
       where: { slug: input.tenantSlug },
     });
-    if (!tenant || tenant.deletedAt) return; // 204 silencioso para no filtrar.
+    if (!tenant || !tenantUsable(tenant)) return; // 204 silencioso para no filtrar.
     const customer = await this.admin.customer.findFirst({
       where: { tenantId: tenant.id, email: emailEquals(input.email), deletedAt: null },
     });
@@ -507,8 +508,26 @@ export class PortalService {
     tenantId: string,
     customerId: string,
     password: string,
+    currentPassword?: string,
   ): Promise<PortalSessionDto> {
     await this.requireCustomer(tenantId, customerId);
+    // Cambiar una contraseña ya puesta exige la actual: si no, quien abriera un
+    // enlace de acceso reenviado (válido 7 días) podría dejarse una permanente.
+    const current = await this.admin.customer.findUniqueOrThrow({
+      where: { id: customerId },
+      select: { portalPasswordHash: true },
+    });
+    if (current.portalPasswordHash) {
+      const ok = currentPassword
+        ? await argonVerify(current.portalPasswordHash, currentPassword).catch(() => false)
+        : false;
+      if (!ok) {
+        throw new BadRequestException({
+          code: 'current_password_invalid',
+          message: 'La contraseña actual no es correcta',
+        });
+      }
+    }
     const portalPasswordHash = await argonHash(password);
     const updated = await this.admin.customer.update({
       where: { id: customerId },
@@ -529,7 +548,7 @@ export class PortalService {
    */
   async requestPasswordReset(input: PortalRequestMagicLinkInput): Promise<void> {
     const tenant = await this.admin.tenant.findUnique({ where: { slug: input.tenantSlug } });
-    if (!tenant || tenant.deletedAt) return;
+    if (!tenant || !tenantUsable(tenant)) return;
     const customer = await this.admin.customer.findFirst({
       where: { tenantId: tenant.id, email: emailEquals(input.email), deletedAt: null },
     });
@@ -803,12 +822,23 @@ export class PortalService {
     // Tokens emitidos antes de existir `sv` cuentan como versión 0.
     const customer = await this.admin.customer.findFirst({
       where: { id: payload.customerId, tenantId: payload.tenantId, deletedAt: null },
-      select: { portalSessionVersion: true },
+      select: {
+        portalSessionVersion: true,
+        tenant: { select: { status: true, deletedAt: true } },
+      },
     });
     if (!customer || customer.portalSessionVersion !== (payload.sv ?? 0)) {
       throw new UnauthorizedException({
         code: 'portal_session_revoked',
         message: 'Tu sesión ha caducado. Vuelve a entrar.',
+      });
+    }
+    // La sesión vive 48 h: si el negocio se suspende o se da de baja entretanto,
+    // deja de valer en todo el portal (no solo en pagos y contrataciones).
+    if (!tenantUsable(customer.tenant)) {
+      throw new UnauthorizedException({
+        code: 'account_unavailable',
+        message: 'Esta cuenta no está disponible temporalmente. Contacta con tu gestor.',
       });
     }
     return { customerId: payload.customerId, tenantId: payload.tenantId };
@@ -867,7 +897,9 @@ export class PortalService {
         dueDate: r.dueDate ? r.dueDate.toISOString().slice(0, 10) : null,
         total,
         amountPaid: paid,
-        amountPending: Math.max(0, total - paid),
+        // `amountPaid` ya incluye la retención (pago no monetario): lo que queda
+        // por pagar es el total menos todo lo aplicado, no menos solo lo cobrado.
+        amountPending: Math.max(0, Math.round((total - Number(r.amountPaid)) * 100) / 100),
         status: r.status,
         hasPdf: !!r.pdfUrl,
         paymentInProgress: inFlightIds.has(r.id),
@@ -913,7 +945,12 @@ export class PortalService {
   async listMyPayments(tenantId: string, customerId: string): Promise<PortalPaymentDto[]> {
     await this.requireCustomer(tenantId, customerId);
     const rows = await this.admin.payment.findMany({
-      where: { tenantId, customerId },
+      // Sin la retención de IRPF ni los abonos compensados: no son cobros.
+      where: {
+        tenantId,
+        customerId,
+        methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+      },
       orderBy: { createdAt: 'desc' },
       include: { invoice: { select: { invoiceNumber: true } } },
     });
@@ -1312,4 +1349,9 @@ export class PortalService {
  */
 function emailEquals(email: string): { equals: string; mode: 'insensitive' } {
   return { equals: email.trim(), mode: 'insensitive' };
+}
+
+/** Negocio activo: ni borrado, ni suspendido, ni dado de baja. */
+function tenantUsable(t: { status: string; deletedAt: Date | null }): boolean {
+  return !t.deletedAt && t.status !== 'suspended' && t.status !== 'cancelled';
 }
