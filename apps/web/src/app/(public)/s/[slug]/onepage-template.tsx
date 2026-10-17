@@ -151,7 +151,7 @@ export function OnePageTemplate({
     : undefined;
   const types = distinctUnitTypes(data);
   const defaultFaqs = t.raw('faqs') as FaqItem[];
-  const faqs = data.faqs.length > 0 ? data.faqs : defaultFaqs;
+  const faqs = data.faqs.length > 0 ? data.faqs : data.faqEnabled ? defaultFaqs : [];
 
   // Copy editable por el tenant (Ajustes → Web). Vacío → textos por defecto.
   const content = data.webContent;
@@ -174,7 +174,7 @@ export function OnePageTemplate({
     { id: 'trasteros', label: trasterosLabel },
     { id: 'espacios', label: t('nav.spaces') },
     { id: 'servicios', label: t('nav.services') },
-    { id: 'faq', label: t('nav.faq') },
+    ...(faqs.length > 0 ? [{ id: 'faq', label: t('nav.faq') }] : []),
     { id: 'contacto', label: tCommon('contactSectionTitle') },
   ];
 
@@ -351,21 +351,23 @@ export function OnePageTemplate({
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="scroll-mt-20 border-t py-14">
-          <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{tFaq('title')}</h2>
-          <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
-            {faqs.map((f, i) => (
-              <details key={i} className="group px-5 py-4">
-                <summary className="cursor-pointer list-none font-medium marker:content-none">
-                  {f.question}
-                </summary>
-                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                  {f.answer}
-                </p>
-              </details>
-            ))}
-          </div>
-        </section>
+        {faqs.length > 0 && (
+          <section id="faq" className="scroll-mt-20 border-t py-14">
+            <h2 className="mb-6 text-center text-2xl font-bold tracking-tight">{tFaq('title')}</h2>
+            <div className="mx-auto max-w-2xl divide-y rounded-lg border bg-card">
+              {faqs.map((f, i) => (
+                <details key={i} className="group px-5 py-4">
+                  <summary className="cursor-pointer list-none font-medium marker:content-none">
+                    {f.question}
+                  </summary>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                    {f.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Contacto */}
         <section id="contacto" className="scroll-mt-20 border-t py-14">

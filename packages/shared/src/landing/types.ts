@@ -82,6 +82,11 @@ export interface PublicLandingDto {
   testimonials: PublicTestimonialDto[];
   /** Preguntas frecuentes publicadas. Vacío si la sección está desactivada. */
   faqs: PublicFaqDto[];
+  /**
+   * Se muestran preguntas frecuentes (las propias o, sin ninguna, las de por
+   * defecto). false si el negocio tiene Web Premium y apagó la sección.
+   */
+  faqEnabled: boolean;
   /** Muestra el formulario de contacto (crea un lead). */
   contactEnabled: boolean;
   facilities: PublicLandingFacilityDto[];
@@ -201,6 +206,10 @@ export interface PublicSitemapEntryDto {
   facilitySlugs: string[];
   /** Slugs de las entradas de blog publicadas (`/s/<slug>/blog/<postSlug>`). */
   blogPostSlugs: string[];
+  /** Entradas publicadas con su última modificación (para el `lastmod`). */
+  blogPosts: { slug: string; updatedAt: string }[];
+  /** Landings de promoción en vigor marcadas como indexables (`/promo/<slug>`). */
+  promoSlugs: string[];
   /**
    * Dominio propio verificado, o null. Con dominio, la web va en el sitemap de
    * su dominio (`https://<dominio>/sitemap.xml`), no en el de la plataforma.

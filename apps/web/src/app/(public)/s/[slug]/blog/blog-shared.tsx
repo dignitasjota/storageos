@@ -15,7 +15,7 @@ import { BlogListBody, BlogPostBody } from './blog-body';
 import type { PublicBlogListDto, PublicBlogPostDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
-import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
 
@@ -25,10 +25,13 @@ export async function getBlogList(slug: string): Promise<PublicBlogListDto | nul
       headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) throw new ApiUnavailableError(res.status);
     return (await res.json()) as PublicBlogListDto;
-  } catch {
-    return null;
+  } catch (err) {
+    // Caído o sin respuesta: error (5xx), no «no existe» (404), para que los
+    // buscadores no den de baja la web por una caída.
+    throw err instanceof ApiUnavailableError ? err : new ApiUnavailableError(0);
   }
 }
 
@@ -41,10 +44,13 @@ export async function getBlogPost(
       `${API_URL}/public/landing/${encodeURIComponent(slug)}/blog/${encodeURIComponent(postSlug)}`,
       { headers: internalApiHeaders(), next: { revalidate: 60 } },
     );
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) throw new ApiUnavailableError(res.status);
     return (await res.json()) as PublicBlogPostDto;
-  } catch {
-    return null;
+  } catch (err) {
+    // Caído o sin respuesta: error (5xx), no «no existe» (404), para que los
+    // buscadores no den de baja la web por una caída.
+    throw err instanceof ApiUnavailableError ? err : new ApiUnavailableError(0);
   }
 }
 

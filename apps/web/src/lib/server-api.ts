@@ -16,3 +16,10 @@ export function internalApiHeaders(): Record<string, string> {
   const token = process.env.INTERNAL_API_TOKEN;
   return token ? { 'x-internal-token': token } : {};
 }
+
+/** El API no respondió bien (caído, 5xx): la página debe dar error, no 404. */
+export class ApiUnavailableError extends Error {
+  constructor(readonly status: number) {
+    super(`API no disponible (${status || 'sin respuesta'})`);
+  }
+}

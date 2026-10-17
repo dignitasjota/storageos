@@ -655,7 +655,7 @@ export function FaqSection({ data }: TplProps) {
   // patrón ya usado en la plantilla `onepage`), para no dejar sin resolver
   // objeciones comunes solo porque el tenant no dedicó tiempo a configurarlas.
   const defaults = t.raw('defaults') as { question: string; answer: string }[];
-  const faqs = data.faqs.length > 0 ? data.faqs : defaults;
+  const faqs = data.faqs.length > 0 ? data.faqs : data.faqEnabled ? defaults : [];
   if (faqs.length === 0) return null;
   return (
     <section className="mt-14">

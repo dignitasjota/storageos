@@ -286,6 +286,7 @@ export class LandingService {
       whatsappNumber: await this.whatsappNumber(tenant.id),
       testimonials,
       faqs,
+      faqEnabled: !hasWebPremium || sections.faq,
       contactEnabled: sections.contact,
       activePromotion,
       hasBlog: latestPosts.length > 0,
@@ -620,14 +621,25 @@ export class LandingService {
     });
     if (tenants.length === 0) return { entries: [] };
 
-    const [facilities, blogPosts] = await Promise.all([
+    const [facilities, blogPosts, promos] = await Promise.all([
       this.admin.facility.findMany({
         where: { deletedAt: null, isActive: true, publicSlug: { not: null } },
         select: { publicSlug: true, tenant: { select: { slug: true } } },
       }),
       this.admin.blogPost.findMany({
         where: { isPublished: true },
-        select: { slug: true, tenant: { select: { slug: true } } },
+        select: { slug: true, updatedAt: true, tenantId: true, tenant: { select: { slug: true } } },
+      }),
+      this.admin.promoLanding.findMany({
+        where: { indexable: true, isActive: true },
+        select: {
+          slug: true,
+          isActive: true,
+          startsAt: true,
+          endsAt: true,
+          tenantId: true,
+          tenant: { select: { slug: true } },
+        },
       }),
     ]);
     const bySlug = new Map<string, string[]>();
@@ -637,21 +649,40 @@ export class LandingService {
       list.push(f.publicSlug);
       bySlug.set(f.tenant.slug, list);
     }
-    const blogByTenant = new Map<string, string[]>();
+    // El blog y las landings solo se sirven con Web Premium: sin él no se listan.
+    const premium = new Map<string, boolean>();
+    const hasPremium = async (tenantId: string) => {
+      if (!premium.has(tenantId)) premium.set(tenantId, await this.hasWebPremium(tenantId));
+      return premium.get(tenantId)!;
+    };
+    const blogByTenant = new Map<string, { slug: string; updatedAt: string }[]>();
     for (const p of blogPosts) {
+      if (!(await hasPremium(p.tenantId))) continue;
       const list = blogByTenant.get(p.tenant.slug) ?? [];
-      list.push(p.slug);
+      list.push({ slug: p.slug, updatedAt: p.updatedAt.toISOString() });
       blogByTenant.set(p.tenant.slug, list);
+    }
+    const promosByTenant = new Map<string, string[]>();
+    for (const p of promos) {
+      if (!promoLandingIsLive(p) || !(await hasPremium(p.tenantId))) continue;
+      const list = promosByTenant.get(p.tenant.slug) ?? [];
+      list.push(p.slug);
+      promosByTenant.set(p.tenant.slug, list);
     }
 
     return {
-      entries: tenants.map((t) => ({
-        tenantSlug: t.slug,
-        updatedAt: t.updatedAt.toISOString(),
-        facilitySlugs: bySlug.get(t.slug) ?? [],
-        blogPostSlugs: blogByTenant.get(t.slug) ?? [],
-        customDomain: t.customDomainVerifiedAt ? t.customDomain : null,
-      })),
+      entries: tenants.map((t) => {
+        const posts = blogByTenant.get(t.slug) ?? [];
+        return {
+          tenantSlug: t.slug,
+          updatedAt: t.updatedAt.toISOString(),
+          facilitySlugs: bySlug.get(t.slug) ?? [],
+          blogPostSlugs: posts.map((p) => p.slug),
+          blogPosts: posts,
+          promoSlugs: promosByTenant.get(t.slug) ?? [],
+          customDomain: t.customDomainVerifiedAt ? t.customDomain : null,
+        };
+      }),
     };
   }
 
