@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  cityPages,
   couponSummary,
   effectiveFeaturesFromList,
   promoLandingIsLive,
@@ -544,6 +545,10 @@ export class LandingService {
       googleAnalyticsId: full.googleAnalyticsId,
       whatsappNumber: full.whatsappNumber,
       facility,
+      cityPage: (() => {
+        const page = cityPages(full.facilities).find((c) => c.facilities.includes(facility));
+        return page ? { name: page.name, slug: page.slug } : null;
+      })(),
     };
   }
 
@@ -621,8 +626,8 @@ export class LandingService {
 
     const [facilities, blogPosts] = await Promise.all([
       this.admin.facility.findMany({
-        where: { deletedAt: null, isActive: true, publicSlug: { not: null } },
-        select: { publicSlug: true, tenant: { select: { slug: true } } },
+        where: { deletedAt: null, isActive: true },
+        select: { publicSlug: true, city: true, tenant: { select: { slug: true } } },
       }),
       this.admin.blogPost.findMany({
         where: { isPublished: true },
@@ -630,7 +635,11 @@ export class LandingService {
       }),
     ]);
     const bySlug = new Map<string, string[]>();
+    const facilitiesByTenant = new Map<string, { city: string | null }[]>();
     for (const f of facilities) {
+      const all = facilitiesByTenant.get(f.tenant.slug) ?? [];
+      all.push(f);
+      facilitiesByTenant.set(f.tenant.slug, all);
       if (!f.publicSlug) continue;
       const list = bySlug.get(f.tenant.slug) ?? [];
       list.push(f.publicSlug);
@@ -648,6 +657,7 @@ export class LandingService {
         tenantSlug: t.slug,
         updatedAt: t.updatedAt.toISOString(),
         facilitySlugs: bySlug.get(t.slug) ?? [],
+        citySlugs: cityPages(facilitiesByTenant.get(t.slug) ?? []).map((c) => c.slug),
         blogPostSlugs: blogByTenant.get(t.slug) ?? [],
         customDomain: t.customDomainVerifiedAt ? t.customDomain : null,
       })),

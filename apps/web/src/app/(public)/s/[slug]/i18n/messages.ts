@@ -215,3 +215,13 @@ export function facilityHref(
     ? `/s/${encodedTenant}/${encodedFacility}`
     : `/s/${encodedTenant}/${PUBLIC_WEB_LOCALE_SEGMENT}/${locale}/${encodedFacility}`;
 }
+
+/** Página de una ciudad (`/trasteros-en-<ciudad>`), con el idioma y el dominio propio. */
+export function cityPageHref(
+  tenantSlug: string,
+  citySlug: string,
+  locale: PublicWebLocale,
+  customDomain?: string | null,
+): string {
+  return facilityHref(tenantSlug, `trasteros-en-${citySlug}`, locale, customDomain);
+}

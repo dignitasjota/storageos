@@ -23,6 +23,10 @@ export async function GET(
     { path: '/', priority: '1.0' },
     ...LANDING_SECTION_PATHS.map((p) => ({ path: `/${p}`, priority: '0.8' })),
     ...entry.facilitySlugs.map((f) => ({ path: `/${encodeURIComponent(f)}`, priority: '0.8' })),
+    ...(entry.citySlugs ?? []).map((c) => ({
+      path: `/trasteros-en-${encodeURIComponent(c)}`,
+      priority: '0.8',
+    })),
     ...(entry.blogPostSlugs.length > 0 ? [{ path: '/blog', priority: '0.6' }] : []),
     ...entry.blogPostSlugs.map((p) => ({
       path: `/blog/${encodeURIComponent(p)}`,

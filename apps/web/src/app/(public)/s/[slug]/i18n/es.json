@@ -856,6 +856,20 @@
       "contactTitle": "¿Tienes dudas? Te llamamos",
       "m2": "{value} m²",
       "where": "Dónde estamos"
+    },
+    "city": {
+      "heading": "Trasteros en {city}",
+      "intro": "{count, plural, one {# centro} other {# centros}} de {tenantName} en {city}.",
+      "fromPrice": "Desde {price} al mes, IVA incluido.",
+      "faqTitle": "Preguntas sobre los trasteros en {city}",
+      "q1": "¿Cuánto cuesta un trastero en {city}?",
+      "a1": "En {tenantName} los trasteros en {city} cuestan desde {price} al mes (IVA incluido). El precio depende del tamaño; puedes ver todos los tamaños y precios arriba.",
+      "a1NoPrice": "El precio depende del tamaño. Consulta los tamaños disponibles arriba o contáctanos.",
+      "q2": "¿Dónde están los trasteros de {tenantName} en {city}?",
+      "a2": "Tenemos {count, plural, one {un centro} other {# centros}} en {city}: {addresses}.",
+      "q3": "¿Puedo reservar el trastero online?",
+      "a3": "Sí. Eliges el centro y el tamaño, reservas en unos minutos, firmas el contrato desde el móvil y pagas online.",
+      "otherCities": "Trasteros en otras ciudades"
     }
   }
 }

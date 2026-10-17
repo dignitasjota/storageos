@@ -856,6 +856,20 @@
       "contactTitle": "Any questions? We'll call you",
       "m2": "{value} m²",
       "where": "Where we are"
+    },
+    "city": {
+      "heading": "Storage units in {city}",
+      "intro": "{count, plural, one {# location} other {# locations}} of {tenantName} in {city}.",
+      "fromPrice": "From {price} per month, VAT included.",
+      "faqTitle": "Questions about storage units in {city}",
+      "q1": "How much does a storage unit cost in {city}?",
+      "a1": "At {tenantName}, storage units in {city} cost from {price} per month (VAT included). The price depends on the size; you can see every size and price above.",
+      "a1NoPrice": "The price depends on the size. Check the available sizes above or contact us.",
+      "q2": "Where are {tenantName}'s storage units in {city}?",
+      "a2": "We have {count, plural, one {one location} other {# locations}} in {city}: {addresses}.",
+      "q3": "Can I book the storage unit online?",
+      "a3": "Yes. Choose the location and size, book in a few minutes, sign the contract from your phone and pay online.",
+      "otherCities": "Storage units in other cities"
     }
   }
 }
