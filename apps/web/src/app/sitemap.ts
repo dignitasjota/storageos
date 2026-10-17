@@ -41,6 +41,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/eliminar-datos`, changeFrequency: 'yearly', priority: 0.2 },
   ];
   for (const entry of data.entries) {
+    // Con dominio propio, su web va en el sitemap de su dominio (la canónica
+    // de sus páginas apunta allí).
+    if (entry.customDomain) continue;
     const lastModified = new Date(entry.updatedAt);
     urls.push({
       url: `${base}/s/${entry.tenantSlug}`,

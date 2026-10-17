@@ -125,6 +125,15 @@ export function resolveCustomDomainRoute(
     return { action: 'next' };
   }
 
+  // robots.txt y sitemap.xml propios del dominio (los de la plataforma apuntan
+  // a trasteros.pro). Con web externa, son los de esa web (el proxy).
+  if (!externalSite && (pathname === '/robots.txt' || pathname === '/sitemap.xml')) {
+    return {
+      action: 'rewrite',
+      path: `/tenant-seo/${slug}/${pathname === '/robots.txt' ? 'robots' : 'sitemap'}`,
+    };
+  }
+
   // Ficheros estáticos de la PLATAFORMA (sw.js, manifests, iconos, robots,
   // sitemap…) pasan tal cual — salvo en modo `externalSite`, donde cualquier
   // fichero (style.css, script.js, img/logo.png…) pertenece a la web propia

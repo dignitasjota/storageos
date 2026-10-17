@@ -43,7 +43,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { trackEvent } from './google-analytics';
 import { bookHrefFor, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
-import { grossPrice } from './price-format';
+import { formatPrice, grossPrice } from './price-format';
 import { themeFor } from './promo/promo-theme';
 
 const CATEGORY_ORDER: StorageItemCategory[] = ['muebles', 'electrodomesticos', 'cajas', 'otros'];
@@ -74,14 +74,6 @@ const ITEM_ICONS: Record<string, LucideIcon> = {
   cuadro: Frame,
   herramientas: Wrench,
 };
-
-function formatPrice(n: number, locale: PublicWebLocale): string {
-  return n.toLocaleString(intlLocaleFor(locale), {
-    style: 'currency',
-    currency: 'EUR',
-    maximumFractionDigits: 0,
-  });
-}
 
 /**
  * Calculadora de espacio (gratis en toda web `/s/[slug]`): atajos para

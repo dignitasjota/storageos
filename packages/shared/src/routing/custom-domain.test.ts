@@ -9,6 +9,21 @@ import {
 const SLUG = 'garcia';
 
 describe('resolveCustomDomainRoute', () => {
+  it('robots.txt y sitemap.xml propios del dominio (no con web externa)', () => {
+    expect(resolveCustomDomainRoute('/robots.txt', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-seo/garcia/robots',
+    });
+    expect(resolveCustomDomainRoute('/sitemap.xml', SLUG)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-seo/garcia/sitemap',
+    });
+    expect(resolveCustomDomainRoute('/robots.txt', SLUG, { externalSite: true })).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia/robots.txt',
+    });
+  });
+
   it('versión en otro idioma: /l/<idioma>, su local y su blog', () => {
     const r = (p: string) => resolveCustomDomainRoute(p, SLUG);
     expect(r('/l/en')).toEqual({ action: 'rewrite', path: '/s/garcia/l/en' });
@@ -136,8 +151,6 @@ describe('resolveCustomDomainRoute', () => {
       '/sw.js',
       '/manifest.webmanifest',
       '/icon.svg',
-      '/robots.txt',
-      '/sitemap.xml',
       '/favicon.ico',
     ]) {
       expect(resolveCustomDomainRoute(p, SLUG)).toEqual({ action: 'next' });

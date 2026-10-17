@@ -1,6 +1,7 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 
 import { buildFacilityMetadata, FacilityPageBody } from '../../../[facility]/facility-shared';
+import { redirectToDefaultLocale } from '../../../i18n/default-locale-redirect';
 import { DEFAULT_PUBLIC_WEB_LOCALE, isPublicWebLocale } from '../../../i18n/messages';
 
 import type { Metadata } from 'next';
@@ -24,6 +25,6 @@ export default async function FacilityLandingLocalePage({
   if (!isPublicWebLocale(locale)) notFound();
   // El idioma por defecto ya vive en la ruta desnuda `/s/[slug]/[facility]` —
   // evita contenido duplicado indexable en `/l/es/[facility]`.
-  if (locale === DEFAULT_PUBLIC_WEB_LOCALE) redirect(`/s/${slug}/${facility}`);
+  if (locale === DEFAULT_PUBLIC_WEB_LOCALE) await redirectToDefaultLocale(slug, `/${facility}`);
   return <FacilityPageBody slug={slug} facilitySlug={facility} locale={locale} />;
 }

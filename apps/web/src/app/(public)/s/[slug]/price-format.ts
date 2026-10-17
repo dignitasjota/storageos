@@ -17,10 +17,15 @@ export function grossPrice(t: { priceMonthly: number; taxRate?: number }): numbe
 }
 
 export function formatPrice(n: number, locale: PublicWebLocale): string {
+  // Sin céntimos si es un número redondo (60 €); con céntimos si no (60,49 €):
+  // antes se redondeaba siempre al euro, y la web decía 60 € con IVA incluido
+  // cuando se cobraban 60,49 €.
+  const whole = Math.abs(n - Math.round(n)) < 0.005;
   return n.toLocaleString(intlLocaleFor(locale), {
     style: 'currency',
     currency: 'EUR',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
   });
 }
 

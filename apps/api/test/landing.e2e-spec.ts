@@ -364,6 +364,19 @@ describe('Landing pública por tenant (e2e)', () => {
     );
     expect(entry).toBeTruthy();
     expect(entry!.facilitySlugs).toContain('local-sur');
+    expect((entry as unknown as { customDomain: string | null }).customDomain).toBeNull();
+
+    // Con dominio propio verificado, el sitemap lo dice (va en el de su dominio).
+    const domain = `${owner.slug}.example.com`;
+    await app.get(PrismaAdminService).tenant.update({
+      where: { slug: owner.slug },
+      data: { customDomain: domain, customDomainVerifiedAt: new Date() },
+    });
+    const after = await request(app.getHttpServer()).get('/public/landing/sitemap');
+    const withDomain = (after.body.entries as { tenantSlug: string; customDomain: string }[]).find(
+      (e) => e.tenantSlug === owner.slug,
+    );
+    expect(withDomain!.customDomain).toBe(domain);
   });
 
   it('web premium: sin la feature, el settings da 403 y la landing usa default', async () => {
