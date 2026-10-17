@@ -705,7 +705,11 @@ export class WhatsappAssistantService {
     );
     if (parsed.data.startDate < today) return fail(reasons.past);
 
-    let result: { contractId: string; signingToken: string };
+    let result: {
+      contractId: string;
+      signingToken: string | null;
+      signingLinkSentTo: string | null;
+    };
     try {
       result = await this.booking.createBooking(args.tenantSlug, parsed.data, {});
     } catch (err) {
@@ -731,7 +735,9 @@ export class WhatsappAssistantService {
         ...(created?.customerId ? { customerId: created.customerId } : {}),
       },
     });
-    const url = `${this.publicBase(args.landing.customDomain)}/sign/${result.signingToken}`;
+    const url = result.signingToken
+      ? `${this.publicBase(args.landing.customDomain)}/sign/${result.signingToken}`
+      : null;
     await this.notifications
       .create(args.tenantId, {
         type: 'whatsapp.booking',
@@ -743,9 +749,15 @@ export class WhatsappAssistantService {
       .catch(() => undefined);
     return {
       ok: true,
-      message: en
-        ? `Done! I've booked you a ${target.unitTypeName} unit at ${target.facilityName}. To confirm it, sign the contract and pay here: ${url}\nWe'll hold it for 72 hours.`
-        : `¡Listo! Te he reservado un trastero ${target.unitTypeName} en ${target.facilityName}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTe lo guardamos 72 horas.`,
+      // Si el email ya era de un inquilino, el enlace solo va a su correo (no
+      // se puede dar en el chat: daría acceso a su área de clientes).
+      message: url
+        ? en
+          ? `Done! I've booked you a ${target.unitTypeName} unit at ${target.facilityName}. To confirm it, sign the contract and pay here: ${url}\nWe'll hold it for 72 hours.`
+          : `¡Listo! Te he reservado un trastero ${target.unitTypeName} en ${target.facilityName}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTe lo guardamos 72 horas.`
+        : en
+          ? `Done! I've booked you a ${target.unitTypeName} unit at ${target.facilityName}. We've sent the link to sign and pay to your email${result.signingLinkSentTo ? ` (${result.signingLinkSentTo})` : ''}. We'll hold it for 72 hours.`
+          : `¡Listo! Te he reservado un trastero ${target.unitTypeName} en ${target.facilityName}. Te hemos enviado el enlace para firmar y pagar a tu email${result.signingLinkSentTo ? ` (${result.signingLinkSentTo})` : ''}. Te lo guardamos 72 horas.`,
     };
   }
 

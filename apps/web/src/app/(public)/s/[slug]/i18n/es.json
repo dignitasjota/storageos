@@ -429,7 +429,11 @@
       "summaryTotal": "Total a pagar al activar",
       "summaryAfter": "Después: {price}/mes (IVA incluido).",
       "summaryProrated": "El primer mes se cobra desde el día de alta hasta fin de mes, así que puede ser menos.",
-      "summaryInsurance": "Seguro / protección"
+      "summaryInsurance": "Seguro / protección",
+      "linkSentTitle": "Revisa tu email",
+      "linkSentText": "Ya tenías una cuenta con nosotros, así que te hemos enviado a {email} el enlace para firmar el contrato y pagar.",
+      "linkSentTextNoEmail": "Ya tenías una cuenta con nosotros: te hemos enviado a tu email el enlace para firmar el contrato y pagar.",
+      "linkSentHold": "Te guardamos el trastero 72 horas."
     },
     "sign": {
       "invalidTitle": "Enlace no válido",

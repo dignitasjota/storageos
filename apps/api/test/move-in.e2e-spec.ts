@@ -200,4 +200,67 @@ describe('Move-in: firma electrónica + booking (e2e)', () => {
       });
     expect(res.status).toBe(400);
   });
+
+  it('con el email de un inquilino que ya existe no se devuelve el enlace: se le envía por correo', async () => {
+    const owner = await registerVerifiedUser(app, 'movein-existing');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    const fac = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 2 });
+    const victimId = await createCustomer(app, owner.accessToken, {
+      email: 'victima.existente@e2e.local',
+    });
+
+    // Otra persona reserva con su email (cambiando mayúsculas).
+    const booking = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: fac.facilityId,
+        unitTypeId: fac.unitTypeId,
+        startDate: '2026-03-01',
+        customer: {
+          firstName: 'Intruso',
+          lastName: 'Ajeno',
+          email: 'Victima.Existente@E2E.local',
+          phone: '600000000',
+          documentNumber: '12345678Z',
+        },
+      });
+    expect(booking.status).toBe(201);
+    expect(booking.body.signingToken).toBeNull();
+    expect(booking.body.signingLinkSentTo).toBe('v***e@e2e.local');
+
+    // La reserva es del inquilino existente (no se duplica) y el enlace solo va a su email.
+    const contract = await request(app.getHttpServer())
+      .get(`/contracts/${booking.body.contractId}`)
+      .set(auth)
+      .expect(200);
+    expect(contract.body.customerId).toBe(victimId);
+    const comms = await request(app.getHttpServer())
+      .get('/communications?source=booking.signing_link')
+      .set(auth)
+      .expect(200);
+    const sent = comms.body as { recipient: string; bodyText: string }[];
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.recipient).toBe('victima.existente@e2e.local');
+    expect(sent[0]!.bodyText).toContain('/sign/');
+    expect(sent[0]!.bodyText).toContain('Si no has hecho tú esta reserva');
+
+    // Un cliente nuevo sigue en la misma pantalla con su enlace.
+    const fresh = await request(app.getHttpServer())
+      .post(`/public/move-in/book/${owner.slug}`)
+      .send({
+        facilityId: fac.facilityId,
+        unitTypeId: fac.unitTypeId,
+        startDate: '2026-03-01',
+        customer: {
+          firstName: 'Nuevo',
+          lastName: 'Cliente',
+          email: `nuevo-${Date.now()}@e2e.local`,
+          phone: '600000001',
+          documentNumber: '87654321X',
+        },
+      });
+    expect(fresh.status).toBe(201);
+    expect(fresh.body.signingToken).toContain('.');
+    expect(fresh.body.signingLinkSentTo).toBeNull();
+  });
 });

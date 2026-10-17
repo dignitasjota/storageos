@@ -97,7 +97,11 @@ export class SignaturesService {
   }
 
   /** Staff: solicita la firma remota de un contrato draft y envía el enlace. */
-  async requestSignature(tenantId: string, contractId: string): Promise<RequestSignatureResultDto> {
+  async requestSignature(
+    tenantId: string,
+    contractId: string,
+    opts: { selfServiceBooking?: boolean } = {},
+  ): Promise<RequestSignatureResultDto> {
     const contract = await this.admin.contract.findFirst({
       where: { id: contractId, tenantId, deletedAt: null },
       include: { customer: { select: { email: true } } },
@@ -132,6 +136,11 @@ export class SignaturesService {
     if (email) {
       const tenantName = tenant?.name ?? '';
       const until = expiresAt.toISOString().slice(0, 10);
+      // Reserva online hecha con el email de un inquilino que ya existe: el
+      // enlace solo le llega a él. Si no la hizo él, el trastero se libera solo.
+      const notMe = opts.selfServiceBooking
+        ? 'Si no has hecho tú esta reserva, ignora este correo: el trastero se liberará solo en 72 horas.'
+        : null;
       await this.communications.enqueue({
         tenantId,
         channel: 'email',
@@ -139,9 +148,9 @@ export class SignaturesService {
         subject: tenantName
           ? `Firma tu contrato de alquiler con ${tenantName}`
           : 'Firma tu contrato de alquiler',
-        bodyText: `Hola,\n\nYa puedes revisar y firmar tu contrato de alquiler de trastero en el siguiente enlace:\n\n${signingUrl}\n\nEl enlace caduca el ${until}.${tenantName ? `\n\nUn saludo,\n${tenantName}` : ''}`,
-        bodyHtml: `<p>Hola,</p><p>Ya puedes revisar y firmar tu contrato de alquiler de trastero:</p><p><a href="${signingUrl}" style="display:inline-block;background:#111;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none">Revisar y firmar</a></p><p style="font-size:12px;color:#888">El enlace caduca el ${until}.</p>${tenantName ? `<p>Un saludo,<br>${escapeHtml(tenantName)}</p>` : ''}`,
-        source: 'contract.request_signature',
+        bodyText: `Hola,\n\nYa puedes revisar y firmar tu contrato de alquiler de trastero en el siguiente enlace:\n\n${signingUrl}\n\nEl enlace caduca el ${until}.${notMe ? `\n\n${notMe}` : ''}${tenantName ? `\n\nUn saludo,\n${tenantName}` : ''}`,
+        bodyHtml: `<p>Hola,</p><p>Ya puedes revisar y firmar tu contrato de alquiler de trastero:</p><p><a href="${signingUrl}" style="display:inline-block;background:#111;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none">Revisar y firmar</a></p><p style="font-size:12px;color:#888">El enlace caduca el ${until}.</p>${notMe ? `<p style="font-size:12px;color:#888">${escapeHtml(notMe)}</p>` : ''}${tenantName ? `<p>Un saludo,<br>${escapeHtml(tenantName)}</p>` : ''}`,
+        source: opts.selfServiceBooking ? 'booking.signing_link' : 'contract.request_signature',
         customerId: contract.customerId,
         contractId,
       });
