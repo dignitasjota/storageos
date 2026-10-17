@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -47,6 +47,10 @@ export class PaymentRetryService {
           customerId: { not: null },
           autoRetryCount: { lt: t.autoChargeRetryMax },
           OR: [{ autoRetryLastAt: null }, { autoRetryLastAt: { lte: retryBefore } }],
+          // Ni con un cobro en curso ni en una remesa SEPA sin resolver: el
+          // cobro se rechazaría sin llegar a la pasarela.
+          payments: { none: { status: { in: ['pending', 'processing'] } } },
+          sepaRemittanceItems: { none: { status: 'pending' } },
         },
         select: { id: true, customerId: true, total: true, amountPaid: true },
         take: 200,
@@ -67,13 +71,12 @@ export class PaymentRetryService {
         });
         if (!pm) continue;
 
-        // Registrar el intento ANTES de cobrar: si el gateway rechaza (o lanza),
-        // el intento ya cuenta y no se reintenta hasta el próximo intervalo.
-        await this.admin.invoice.update({
-          where: { id: inv.id },
-          data: { autoRetryCount: { increment: 1 }, autoRetryLastAt: now },
-        });
-        attempted++;
+        // El intento cuenta si llega a la pasarela (cobrado, rechazado o con un
+        // error de la pasarela). Un rechazo previo (409 cobro en curso, 400 sin
+        // método que se pueda usar…) no gasta un reintento. El cobro registra
+        // su pago en curso antes de llamar a la pasarela, así que un corte a
+        // mitad no lleva a cobrar dos veces.
+        let counts = true;
         try {
           const payment = await this.payments.chargeInvoice({
             tenantId: t.id,
@@ -86,12 +89,21 @@ export class PaymentRetryService {
           });
           if (payment.status === 'succeeded') recovered++;
         } catch (err) {
+          if (err instanceof HttpException && err.getStatus() < 500) counts = false;
           this.logger.log(
             `[payment-retry] invoice ${inv.id} sin cobrar: ${
               err instanceof Error ? err.message : String(err)
             }`,
           );
         }
+        // Sin contar, se respeta igualmente el intervalo hasta volver a mirarla.
+        await this.admin.invoice.update({
+          where: { id: inv.id },
+          data: counts
+            ? { autoRetryCount: { increment: 1 }, autoRetryLastAt: now }
+            : { autoRetryLastAt: now },
+        });
+        if (counts) attempted++;
       }
     }
 

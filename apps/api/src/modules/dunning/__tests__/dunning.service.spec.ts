@@ -167,34 +167,37 @@ describe('DunningService.executeAction (email_reminder)', () => {
     );
   });
 
-  it('cancela la accion (sin enviar) si la factura ya esta pagada', async () => {
-    const admin: AdminMock = {
-      dunningAction: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: ACTION_ID,
-          tenantId: TENANT,
-          invoiceId: INVOICE_ID,
-          actionType: 'email_reminder',
-          status: 'scheduled',
-        }),
-        update: jest.fn().mockResolvedValue(undefined),
-      },
-      invoice: { findUnique: jest.fn().mockResolvedValue(overdueInvoice({ status: 'paid' })) },
-      tenant: { findUnique: jest.fn() },
-    };
-    const communications = { enqueue: jest.fn() };
-    const service = buildService(admin, communications);
+  it.each(['paid', 'rectified', 'refunded', 'cancelled'])(
+    'cancela la accion (sin enviar) si la factura ya no esta pendiente (%s)',
+    async (status) => {
+      const admin: AdminMock = {
+        dunningAction: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: ACTION_ID,
+            tenantId: TENANT,
+            invoiceId: INVOICE_ID,
+            actionType: 'email_reminder',
+            status: 'scheduled',
+          }),
+          update: jest.fn().mockResolvedValue(undefined),
+        },
+        invoice: { findUnique: jest.fn().mockResolvedValue(overdueInvoice({ status })) },
+        tenant: { findUnique: jest.fn() },
+      };
+      const communications = { enqueue: jest.fn() };
+      const service = buildService(admin, communications);
 
-    await service.handleJob(JOB_DUNNING_EXECUTE_ACTION, {
-      tenantId: TENANT,
-      actionId: ACTION_ID,
-    });
+      await service.handleJob(JOB_DUNNING_EXECUTE_ACTION, {
+        tenantId: TENANT,
+        actionId: ACTION_ID,
+      });
 
-    expect(communications.enqueue).not.toHaveBeenCalled();
-    expect(admin.dunningAction.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'cancelled' }) }),
-    );
-  });
+      expect(communications.enqueue).not.toHaveBeenCalled();
+      expect(admin.dunningAction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'cancelled' }) }),
+      );
+    },
+  );
 });
 
 describe('DunningService.dailyTick (marcar overdue)', () => {
@@ -229,6 +232,10 @@ describe('DunningService.dailyTick (marcar overdue)', () => {
 
     expect(admin.invoice.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'overdue' } }),
+    );
+    // Los justificantes de fianza no entran en el dunning.
+    expect(admin.invoice.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ kind: 'invoice' }) }),
     );
     expect(queue.add).toHaveBeenCalledWith(
       JOB_DUNNING_PROCESS_INVOICE,
