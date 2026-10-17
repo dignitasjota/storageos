@@ -923,6 +923,13 @@ ALLOWALL` en la ruta `/widget/[slug]` del Next.
 | GET    | `/public/landing/:slug/:facilitySlug` | NO   | 60/min/IP | Landing SEO de un local concreto (por `publicSlug`). Alimenta `/s/[slug]/[facility]`              |
 | GET    | `/public/landing/sitemap`             | NO   | 30/min/IP | URLs indexables (tenants activos + slugs de locales). Alimenta `app/sitemap.ts`                   |
 
+**Web pública (2026-10-17)**:
+
+- Los tamaños de cada local (`PublicLandingUnitTypeDto`, disponibilidad de la reserva) solo incluyen los que tiene ese local; `priceMonthly` es el del **trastero más barato disponible** de ese tamaño (agotado: el más barato que tenga) y la reserva asigna ese trastero; `taxRate` es el IVA del alquiler (21, o 0 en viviendas).
+- `PublicSitemapEntryDto.customDomain`: con dominio propio verificado, sus páginas van en `https://<dominio>/sitemap.xml` (y su `robots.txt`), no en el de la plataforma.
+- `POST /public/move-in/book/:slug`: 400 `start_date_too_far` si la entrada es a más de un año.
+- Las llamadas del servidor del web con `x-internal-token` = `INTERNAL_API_TOKEN` no cuentan en el límite de peticiones.
+
 ### Codigos `code` (Fase 5)
 
 | `code`                             | Cuando                                                |

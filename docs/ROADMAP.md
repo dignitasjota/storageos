@@ -670,3 +670,13 @@ Incluidas en **Web Premium**. Páginas propias por promoción con el estilo de l
 - ✅ **PR 1** — landings y editor (textos, foto, ventajas, condiciones, cupón, locales y tamaños, secciones, fechas, SEO; duplicar para la siguiente promoción). «Reservar» lleva el cupón y los meses a la reserva.
 - ✅ **PR 2** — de dónde vienen: un enlace por origen (flyer, QR, Instagram/Facebook, Google Ads, portal…) como canal de marketing con su enlace corto y QR descargable; visitas por origen y variables de seguimiento hasta la reserva.
 - ✅ **PR 3** — resultados por landing: visitas, visitantes, reservas, firmadas, pagadas, ingresos del primer pago y usos del cupón, por origen.
+
+### Análisis de la web pública (2026-10-17, #696–#699) ✅
+
+Revisión a fondo de las webs de los tenants, la reserva, la firma y las landings.
+
+- ✅ **#696 (grave)** — reservar con el email de un inquilino existente ya no da acceso a su área de clientes: el enlace de firma se envía a su email (también en el asistente de WhatsApp); emails sin mayúsculas.
+- ✅ **#697** — las páginas públicas llaman al API por la red interna con `INTERNAL_API_TOKEN` y no comparten un único límite por IP; caché de dominios acotada; el banner de promoción no anuncia recompensas de referidos ni ofertas de un trastero.
+- ✅ **#698** — inglés en el dominio propio (`/l/<idioma>`), viviendas sin IVA en la web, cada local solo con sus tamaños, precio anunciado = trastero más barato disponible (el que se cobra), reserva sin locales inactivos.
+- ✅ **#699** — fecha de entrada en hora de España (máx. un año vista), robots.txt y sitemap.xml del dominio propio, `/l/es` dentro del dominio propio y precios con céntimos.
+- Riesgos aceptados: reservas falsas a nombre de otro inquilino (sin acceso, retienen el trastero 72 h), fechas de entrada pasadas por el API e inflar las visitas de las landings.
