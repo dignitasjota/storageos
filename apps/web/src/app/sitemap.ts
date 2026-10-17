@@ -59,6 +59,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       });
     }
+    for (const c of entry.citySlugs ?? []) {
+      urls.push({
+        url: `${base}/s/${entry.tenantSlug}/trasteros-en-${c}`,
+        lastModified,
+        changeFrequency: 'weekly',
+        priority: 0.7,
+      });
+    }
     if (entry.blogPostSlugs.length > 0) {
       urls.push({
         url: `${base}/s/${entry.tenantSlug}/blog`,

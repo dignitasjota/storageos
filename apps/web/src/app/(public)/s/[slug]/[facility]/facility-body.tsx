@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { trackEvent } from '../google-analytics';
-import { bookHref, landingHref, type PublicWebLocale } from '../i18n/messages';
+import { bookHref, cityPageHref, landingHref, type PublicWebLocale } from '../i18n/messages';
 import { FacilityMeta, UnitTypeList } from '../templates';
 
 import { buildFacilityJsonLd } from './facility-shared';
@@ -90,6 +90,17 @@ export function FacilityBody({
           {data.tenantName}
         </Link>
         <span className="mx-1.5">/</span>
+        {data.cityPage && (
+          <>
+            <Link
+              href={cityPageHref(data.tenantSlug, data.cityPage.slug, locale, data.customDomain)}
+              className="hover:text-foreground"
+            >
+              {t('city.heading', { city: data.cityPage.name })}
+            </Link>
+            <span className="mx-1.5">/</span>
+          </>
+        )}
         <span>{f.name}</span>
       </nav>
 
