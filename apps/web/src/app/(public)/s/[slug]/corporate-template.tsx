@@ -91,7 +91,7 @@ export function CorporateTemplate({
   const heroImage = data.facilities.flatMap((f) => f.imageUrls)[0] ?? null;
   const hasReviews = data.testimonials.length > 0;
   const defaultFaqs = tFaq.raw('defaults') as FaqItem[];
-  const faqs = data.faqs.length > 0 ? data.faqs : defaultFaqs;
+  const faqs = data.faqs.length > 0 ? data.faqs : data.faqEnabled ? defaultFaqs : [];
   const solutions = t.raw('solutions') as { title: string; text: string }[];
 
   // Copy editable por el tenant (Ajustes → Web). Vacío → textos por defecto.
@@ -408,23 +408,27 @@ export function CorporateTemplate({
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="scroll-mt-20 py-16">
-          <div className="mx-auto max-w-2xl px-4">
-            <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">{tFaq('title')}</h2>
-            <div className="divide-y rounded-lg border bg-card">
-              {faqs.map((f, i) => (
-                <details key={i} className="group px-5 py-4">
-                  <summary className="cursor-pointer list-none font-medium marker:content-none">
-                    {f.question}
-                  </summary>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                    {f.answer}
-                  </p>
-                </details>
-              ))}
+        {faqs.length > 0 && (
+          <section id="faq" className="scroll-mt-20 py-16">
+            <div className="mx-auto max-w-2xl px-4">
+              <h2 className="mb-8 text-center text-2xl font-bold tracking-tight">
+                {tFaq('title')}
+              </h2>
+              <div className="divide-y rounded-lg border bg-card">
+                {faqs.map((f, i) => (
+                  <details key={i} className="group px-5 py-4">
+                    <summary className="cursor-pointer list-none font-medium marker:content-none">
+                      {f.question}
+                    </summary>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                      {f.answer}
+                    </p>
+                  </details>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Contacto */}
         <section id="contacto" className="scroll-mt-20 bg-muted/40 py-16">
