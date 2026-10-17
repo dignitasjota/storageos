@@ -51,6 +51,9 @@ export function PublicChrome({
     pathname?.startsWith('/s/') ||
     pathname?.startsWith('/book/') ||
     pathname?.startsWith('/sign/') ||
+    // Valoración y vuelta del pago: las ve el inquilino, con la marca del negocio.
+    pathname?.startsWith('/review/') ||
+    pathname?.startsWith('/pay/') ||
     pathname?.startsWith('/unsubscribe/');
   if (bare) {
     return <main className="flex min-h-screen flex-col">{children}</main>;

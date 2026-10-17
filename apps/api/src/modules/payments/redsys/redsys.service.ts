@@ -170,6 +170,9 @@ export class RedsysService {
     const order = orderRow.order;
 
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
+    const tenantSlug =
+      (await this.admin.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }))
+        ?.slug ?? '';
     const apiBase = this.config.get('API_BASE_URL', { infer: true });
     const merchantParams: Record<string, string> = {
       // El importe SIEMPRE es el de `orderRow` (no el `amountCents` recién
@@ -183,8 +186,9 @@ export class RedsysService {
       DS_MERCHANT_TRANSACTIONTYPE: '0',
       DS_MERCHANT_TERMINAL: cfg.terminal,
       DS_MERCHANT_MERCHANTURL: `${apiBase}/webhooks/redsys`,
-      DS_MERCHANT_URLOK: `${webBase}/pay/redsys/ok`,
-      DS_MERCHANT_URLKO: `${webBase}/pay/redsys/ko`,
+      // Con el negocio en la dirección: la página de vuelta lleva su marca.
+      DS_MERCHANT_URLOK: `${webBase}/pay/redsys/ok?t=${encodeURIComponent(tenantSlug)}`,
+      DS_MERCHANT_URLKO: `${webBase}/pay/redsys/ko?t=${encodeURIComponent(tenantSlug)}`,
       DS_MERCHANT_PRODUCTDESCRIPTION: `Factura ${invoice.invoiceNumber}`,
       // 'z' = Bizum, 'C' = tarjeta. Sin el campo, el TPV ofrece los métodos que
       // tenga configurados el comercio (retrocompatible con el flujo anterior).
