@@ -127,6 +127,8 @@ export interface PlatformSepaRemittanceDto {
   /** true si `PlatformSepaSettings` cambió después de generar el XML — el
    * creditor embebido en el XML puede estar desactualizado. */
   creditorMayBeStale?: boolean;
+  /** Items sin resolver (con la remesa confirmada: confirmación cortada a medias). */
+  pendingCount: number;
   items?: PlatformSepaRemittanceItemDto[];
 }
 

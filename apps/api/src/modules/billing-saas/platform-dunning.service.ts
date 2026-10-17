@@ -82,15 +82,34 @@ export class PlatformDunningService {
         plan: { priceMonthly: { gt: 0 } }, // planes de pago (free no se cobra)
         tenant: { deletedAt: null, billingExempt: false, status: { not: 'suspended' } },
       },
-      select: { id: true },
+      select: { id: true, tenantId: true, billingMode: true },
     });
     if (lapsed.length === 0) return 0;
+    // Domiciliación SEPA con el adeudo ya en una remesa: el cobro está en el
+    // banco (se confirma al liquidarse), no es un impago.
+    const sepaTenants = lapsed.filter((s) => s.billingMode === 'sepa').map((s) => s.tenantId);
+    const inRemittance = new Set(
+      sepaTenants.length === 0
+        ? []
+        : (
+            await this.admin.platformSepaRemittanceItem.findMany({
+              where: {
+                tenantId: { in: sepaTenants },
+                itemStatus: 'pending',
+                remittance: { status: { not: 'cancelled' } },
+              },
+              select: { tenantId: true },
+            })
+          ).map((i) => i.tenantId),
+    );
+    const due = lapsed.filter((s) => !inRemittance.has(s.tenantId));
+    if (due.length === 0) return 0;
     await this.admin.tenantSubscription.updateMany({
-      where: { id: { in: lapsed.map((s) => s.id) } },
+      where: { id: { in: due.map((s) => s.id) } },
       data: { status: 'past_due' },
     });
-    this.logger.log(`Enforcement manual: ${lapsed.length} suscripciones a past_due por impago`);
-    return lapsed.length;
+    this.logger.log(`Enforcement manual: ${due.length} suscripciones a past_due por impago`);
+    return due.length;
   }
 
   /** Evalúa las suscripciones morosas y ejecuta los pasos que toquen. */

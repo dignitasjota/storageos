@@ -126,6 +126,11 @@ export default function PlatformSepaRemittancesPage() {
               <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar cobro
             </Button>
           )}
+          {row.original.status === 'confirmed' && row.original.pendingCount > 0 && (
+            <Button variant="outline" size="sm" onClick={() => handleConfirm(row.original.id)}>
+              <CheckCircle2 className="mr-1 h-4 w-4" /> Terminar de confirmar
+            </Button>
+          )}
           {row.original.status === 'confirmed' && (
             <Button variant="outline" size="sm" onClick={() => setDetailId(row.original.id)}>
               <Eye className="mr-1 h-4 w-4" /> Ver detalle

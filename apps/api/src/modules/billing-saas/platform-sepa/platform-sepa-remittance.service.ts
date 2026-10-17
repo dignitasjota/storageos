@@ -56,6 +56,9 @@ interface EligibleCandidate {
  * `BillingSaasService.recordManualPayment` (misma extensión de periodo +
  * candado + dedup que ya usa el pago manual, sin reimplementar nada).
  */
+/** Una confirmación cortada a medias se puede reanudar pasado este tiempo. */
+const RESUME_AFTER_MS = 5 * 60_000;
+
 @Injectable()
 export class PlatformSepaRemittanceService {
   private readonly logger = new Logger(PlatformSepaRemittanceService.name);
@@ -249,15 +252,21 @@ export class PlatformSepaRemittanceService {
       where: { id: remittance.id },
       data: { xml, itemCount: committed.length, totalAmount: totalCents },
     });
-    return this.toDto(updated, settings.updatedAt);
+    return this.toDto(updated, settings.updatedAt, updated.itemCount);
   }
 
   async listRemittances(): Promise<PlatformSepaRemittanceDto[]> {
-    const [rows, settings] = await Promise.all([
+    const [rows, settings, pending] = await Promise.all([
       this.admin.platformSepaRemittance.findMany({ orderBy: { createdAt: 'desc' } }),
       this.admin.platformSepaSettings.findFirst(),
+      this.admin.platformSepaRemittanceItem.groupBy({
+        by: ['remittanceId'],
+        where: { itemStatus: 'pending' },
+        _count: { _all: true },
+      }),
     ]);
-    return rows.map((r) => this.toDto(r, settings?.updatedAt));
+    const pendingBy = new Map(pending.map((p) => [p.remittanceId, p._count._all]));
+    return rows.map((r) => this.toDto(r, settings?.updatedAt, pendingBy.get(r.id) ?? 0));
   }
 
   async getRemittance(id: string): Promise<PlatformSepaRemittanceDto> {
@@ -271,7 +280,7 @@ export class PlatformSepaRemittanceService {
       }),
     ]);
     return {
-      ...this.toDto(r, settings?.updatedAt),
+      ...this.toDto(r, settings?.updatedAt, items.filter((i) => i.itemStatus === 'pending').length),
       items: items.map((i) => ({
         id: i.id,
         tenantId: i.tenantId,
@@ -293,31 +302,43 @@ export class PlatformSepaRemittanceService {
     return { filename: `remesa-sepa-plataforma-${r.messageId}.xml`, xml: r.xml };
   }
 
-  /** Confirma el cobro: registra el pago (extiende el periodo) por cada item y rota FRST→RCUR. */
+  /**
+   * Confirma el cobro: registra el pago (extiende el periodo) por cada item y
+   * rota FRST→RCUR. La remesa se reserva antes de cobrar (un doble clic no
+   * cobra dos veces) y solo se procesan los items pendientes: si la
+   * confirmación se cortó a medias, se puede reanudar pasados unos minutos.
+   */
   async confirmRemittance(id: string): Promise<PlatformSepaRemittanceDto> {
     const remittance = await this.findOrThrow(id);
-    if (remittance.status !== 'generated') {
-      throw new BadRequestException({
-        code: 'remittance_not_confirmable',
-        message: 'La remesa ya está confirmada o cancelada',
-      });
-    }
+    await this.claimConfirmation(remittance);
     const items = await this.admin.platformSepaRemittanceItem.findMany({
-      where: { remittanceId: id },
+      where: { remittanceId: id, itemStatus: 'pending' },
     });
     for (const item of items) {
       try {
-        const payment = await this.billingSaas.recordManualPayment({
-          tenantId: item.tenantId,
-          provider: 'sepa',
-          amount: item.amount / 100,
-          currency: 'EUR',
-          durationMonths: 1,
-          extendsPeriod: true,
-          description: `Remesa SEPA plataforma ${remittance.name}`,
+        // Reanudación: el pago de este item ya se registró (la confirmación
+        // anterior se cortó justo después): solo falta enlazarlo.
+        const existing = await this.admin.tenantSubscriptionPayment.findFirst({
+          where: {
+            tenantId: item.tenantId,
+            provider: 'sepa',
+            description: { contains: item.endToEndId },
+          },
+          select: { id: true },
         });
-        await this.admin.platformSepaRemittanceItem.update({
-          where: { id: item.id },
+        const payment =
+          existing ??
+          (await this.billingSaas.recordManualPayment({
+            tenantId: item.tenantId,
+            provider: 'sepa',
+            amount: item.amount / 100,
+            currency: 'EUR',
+            durationMonths: 1,
+            extendsPeriod: true,
+            description: `Remesa SEPA plataforma ${remittance.name} · ${item.endToEndId}`,
+          }));
+        await this.admin.platformSepaRemittanceItem.updateMany({
+          where: { id: item.id, itemStatus: 'pending' },
           data: { itemStatus: 'collected', paymentId: payment.id },
         });
       } catch (err) {
@@ -332,11 +353,49 @@ export class PlatformSepaRemittanceService {
       where: { id: { in: mandateIds }, sequenceType: 'FRST', status: 'active' },
       data: { sequenceType: 'RCUR' },
     });
-    const updated = await this.admin.platformSepaRemittance.update({
-      where: { id },
+    const updated = await this.findOrThrow(id);
+    return this.toDto(updated, undefined, await this.pendingCount(id));
+  }
+
+  /** Reserva la confirmación (o la reanuda si se cortó hace más de unos minutos). */
+  private async claimConfirmation(remittance: {
+    id: string;
+    status: string;
+    confirmedAt: Date | null;
+  }): Promise<void> {
+    const { count } = await this.admin.platformSepaRemittance.updateMany({
+      where: { id: remittance.id, status: 'generated' },
       data: { status: 'confirmed', confirmedAt: new Date() },
     });
-    return this.toDto(updated);
+    if (count === 1) return;
+    if (
+      remittance.status === 'confirmed' &&
+      remittance.confirmedAt &&
+      (await this.pendingCount(remittance.id)) > 0
+    ) {
+      if (Date.now() - remittance.confirmedAt.getTime() < RESUME_AFTER_MS) {
+        throw new BadRequestException({
+          code: 'remittance_confirming',
+          message:
+            'La remesa se está confirmando. Si se interrumpió, vuelve a intentarlo en unos minutos.',
+        });
+      }
+      const resumed = await this.admin.platformSepaRemittance.updateMany({
+        where: { id: remittance.id, status: 'confirmed', confirmedAt: remittance.confirmedAt },
+        data: { confirmedAt: new Date() },
+      });
+      if (resumed.count === 1) return;
+    }
+    throw new BadRequestException({
+      code: 'remittance_not_confirmable',
+      message: 'La remesa ya está confirmada o cancelada',
+    });
+  }
+
+  private pendingCount(remittanceId: string): Promise<number> {
+    return this.admin.platformSepaRemittanceItem.count({
+      where: { remittanceId, itemStatus: 'pending' },
+    });
   }
 
   /**
@@ -397,6 +456,7 @@ export class PlatformSepaRemittanceService {
   private toDto(
     r: Prisma.PlatformSepaRemittanceGetPayload<object>,
     creditorUpdatedAt?: Date,
+    pendingCount = 0,
   ): PlatformSepaRemittanceDto {
     return {
       id: r.id,
@@ -410,6 +470,7 @@ export class PlatformSepaRemittanceService {
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
       creditorMayBeStale:
         r.status === 'generated' && !!creditorUpdatedAt && creditorUpdatedAt > r.createdAt,
+      pendingCount,
     };
   }
 }
