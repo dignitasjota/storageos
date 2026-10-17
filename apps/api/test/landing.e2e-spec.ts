@@ -674,7 +674,20 @@ describe('Landing pública por tenant (e2e)', () => {
     const landing = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(landing.body.testimonials).toEqual([]);
     expect(landing.body.faqs).toEqual([]);
+    // Sin Web Premium se muestran las preguntas por defecto.
+    expect(landing.body.faqEnabled).toBe(true);
     expect(landing.body.contactEnabled).toBe(false);
+
+    // Con Web Premium y la sección apagada, no.
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+    await request(app.getHttpServer())
+      .patch('/settings/tenant/web')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send({ sections: { testimonials: false, faq: false, contact: false } })
+      .expect(200);
+    const off = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(off.body.faqEnabled).toBe(false);
+    await setTenantFeatureOverride(owner.slug, 'web_premium', false);
 
     // El endpoint de contacto responde 404 (sección desactivada).
     await request(app.getHttpServer())

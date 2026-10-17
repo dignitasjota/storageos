@@ -158,5 +158,17 @@ describe('Blog público de la landing (e2e)', () => {
     );
     expect(entry).toBeTruthy();
     expect(entry!.blogPostSlugs).toContain(post.body.slug);
+    // Con su fecha de modificación (lastmod de cada entrada).
+    const full = (res.body.entries as { tenantSlug: string; blogPosts: { slug: string }[] }[]).find(
+      (e) => e.tenantSlug === owner.slug,
+    )!;
+    expect(full.blogPosts.map((p) => p.slug)).toContain(post.body.slug);
+    // Sin Web Premium el blog no se sirve: tampoco va al sitemap.
+    await setTenantFeatureOverride(owner.slug, 'web_premium', false);
+    const without = await request(app.getHttpServer()).get('/public/landing/sitemap');
+    const after = (without.body.entries as { tenantSlug: string; blogPostSlugs: string[] }[]).find(
+      (e) => e.tenantSlug === owner.slug,
+    )!;
+    expect(after.blogPostSlugs).toEqual([]);
   });
 });

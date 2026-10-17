@@ -45,31 +45,44 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // de sus páginas apunta allí).
     if (entry.customDomain) continue;
     const lastModified = new Date(entry.updatedAt);
+    const tenantBase = `${base}/s/${entry.tenantSlug}`;
     urls.push({
-      url: `${base}/s/${entry.tenantSlug}`,
+      url: tenantBase,
       lastModified,
       changeFrequency: 'daily',
       priority: 0.8,
+      alternates: { languages: { es: tenantBase, en: `${tenantBase}/l/en` } },
     });
     for (const f of entry.facilitySlugs) {
       urls.push({
-        url: `${base}/s/${entry.tenantSlug}/${f}`,
+        url: `${tenantBase}/${f}`,
         lastModified,
         changeFrequency: 'daily',
         priority: 0.7,
+        alternates: { languages: { es: `${tenantBase}/${f}`, en: `${tenantBase}/l/en/${f}` } },
       });
     }
-    if (entry.blogPostSlugs.length > 0) {
+    for (const p of entry.promoSlugs ?? []) {
       urls.push({
-        url: `${base}/s/${entry.tenantSlug}/blog`,
+        url: `${tenantBase}/promo/${p}`,
         lastModified,
         changeFrequency: 'weekly',
         priority: 0.6,
       });
-      for (const p of entry.blogPostSlugs) {
+    }
+    const posts =
+      entry.blogPosts ?? entry.blogPostSlugs.map((slug) => ({ slug, updatedAt: entry.updatedAt }));
+    if (posts.length > 0) {
+      urls.push({
+        url: `${tenantBase}/blog`,
+        lastModified: new Date(Math.max(...posts.map((p) => new Date(p.updatedAt).getTime()))),
+        changeFrequency: 'weekly',
+        priority: 0.6,
+      });
+      for (const p of posts) {
         urls.push({
-          url: `${base}/s/${entry.tenantSlug}/blog/${p}`,
-          lastModified,
+          url: `${tenantBase}/blog/${p.slug}`,
+          lastModified: new Date(p.updatedAt),
           changeFrequency: 'monthly',
           priority: 0.5,
         });

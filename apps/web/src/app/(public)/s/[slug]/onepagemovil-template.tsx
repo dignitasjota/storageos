@@ -100,7 +100,8 @@ export function OnePageMovilTemplate({
   const phone = data.facilities.find((f) => f.contactPhone)?.contactPhone ?? null;
   const email = data.facilities.find((f) => f.contactEmail)?.contactEmail ?? null;
   const hasReviews = data.testimonials.length > 0;
-  const faqs: FaqItem[] = data.faqs.length > 0 ? data.faqs : (tFaq.raw('defaults') as FaqItem[]);
+  const faqs: FaqItem[] =
+    data.faqs.length > 0 ? data.faqs : data.faqEnabled ? (tFaq.raw('defaults') as FaqItem[]) : [];
 
   // Copy editable por el tenant (Ajustes → Web). Vacío → textos por defecto.
   const content = data.webContent;
@@ -159,7 +160,7 @@ export function OnePageMovilTemplate({
     { id: 'usos', label: t('nav.uses') },
     { id: 'como-funciona', label: t('nav.how') },
     ...(hasReviews || images.length > 0 ? [{ id: 'opiniones', label: t('nav.reviews') }] : []),
-    { id: 'preguntas', label: t('nav.faq') },
+    ...(faqs.length > 0 ? [{ id: 'preguntas', label: t('nav.faq') }] : []),
     { id: 'contacto', label: t('nav.contact') },
   ];
 
@@ -435,24 +436,26 @@ export function OnePageMovilTemplate({
         )}
 
         {/* Preguntas frecuentes */}
-        <section id="preguntas" className="scroll-mt-20 py-14">
-          <div className="mx-auto max-w-3xl px-4">
-            <SectionTitle title={tFaq('title')} />
-            <div className="divide-y rounded-xl border bg-card">
-              {faqs.map((f, i) => (
-                <details key={i} className="group px-5 py-4">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium marker:content-none">
-                    {f.question}
-                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-                  </summary>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                    {f.answer}
-                  </p>
-                </details>
-              ))}
+        {faqs.length > 0 && (
+          <section id="preguntas" className="scroll-mt-20 py-14">
+            <div className="mx-auto max-w-3xl px-4">
+              <SectionTitle title={tFaq('title')} />
+              <div className="divide-y rounded-xl border bg-card">
+                {faqs.map((f, i) => (
+                  <details key={i} className="group px-5 py-4">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium marker:content-none">
+                      {f.question}
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                      {f.answer}
+                    </p>
+                  </details>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Blog */}
         {blogHref && data.latestBlogPosts.length > 0 && (

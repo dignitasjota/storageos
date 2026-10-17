@@ -99,7 +99,9 @@ export function CabeTemplate({
   const faqs: { question: string; answer: string }[] =
     data.faqs.length > 0
       ? data.faqs
-      : (tFaq.raw('defaults') as { question: string; answer: string }[]);
+      : data.faqEnabled
+        ? (tFaq.raw('defaults') as { question: string; answer: string }[])
+        : [];
 
   // Textos editables (Ajustes → Web). Vacío → textos por defecto.
   const content = data.webContent;
@@ -137,7 +139,7 @@ export function CabeTemplate({
     { id: 'ventajas', label: t('nav.advantages') },
     { id: 'como-funciona', label: t('nav.how') },
     { id: 'calculadora', label: t('nav.calculator') },
-    { id: 'faq', label: t('nav.faq') },
+    ...(faqs.length > 0 ? [{ id: 'faq', label: t('nav.faq') }] : []),
     ...(data.contactEnabled ? [{ id: 'contacto', label: t('nav.contact') }] : []),
   ];
 
@@ -534,42 +536,44 @@ export function CabeTemplate({
       )}
 
       {/* Preguntas frecuentes */}
-      <section
-        id="faq"
-        className="scroll-mt-24 border-b border-slate-200 bg-white py-16 dark:border-border dark:bg-card"
-      >
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            brand={brand}
-            kicker={t('faqKicker')}
-            title={tFaq('title')}
-            subtitle={t('faqSubtitle')}
-          />
-          <div className="space-y-3">
-            {faqs.map((f, i) => (
-              <details
-                key={i}
-                className="group rounded-2xl border border-slate-200 bg-neutral-50 p-6 dark:border-border dark:bg-muted/40"
-                open={i === 0}
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-black marker:content-none sm:text-base">
-                  {f.question}
-                  <span
-                    className="text-lg font-black transition-transform group-open:rotate-45"
-                    style={{ color: brand }}
-                    aria-hidden
-                  >
-                    +
-                  </span>
-                </summary>
-                <p className="mt-3 whitespace-pre-line border-t border-slate-200/80 pt-3 text-xs leading-relaxed text-slate-600 dark:border-border dark:text-muted-foreground sm:text-sm">
-                  {f.answer}
-                </p>
-              </details>
-            ))}
+      {faqs.length > 0 && (
+        <section
+          id="faq"
+          className="scroll-mt-24 border-b border-slate-200 bg-white py-16 dark:border-border dark:bg-card"
+        >
+          <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+            <SectionHeading
+              brand={brand}
+              kicker={t('faqKicker')}
+              title={tFaq('title')}
+              subtitle={t('faqSubtitle')}
+            />
+            <div className="space-y-3">
+              {faqs.map((f, i) => (
+                <details
+                  key={i}
+                  className="group rounded-2xl border border-slate-200 bg-neutral-50 p-6 dark:border-border dark:bg-muted/40"
+                  open={i === 0}
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-black marker:content-none sm:text-base">
+                    {f.question}
+                    <span
+                      className="text-lg font-black transition-transform group-open:rotate-45"
+                      style={{ color: brand }}
+                      aria-hidden
+                    >
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-3 whitespace-pre-line border-t border-slate-200/80 pt-3 text-xs leading-relaxed text-slate-600 dark:border-border dark:text-muted-foreground sm:text-sm">
+                    {f.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Blog */}
       {blogHref && data.latestBlogPosts.length > 0 && (
