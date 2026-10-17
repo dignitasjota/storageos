@@ -96,7 +96,9 @@ export function TrstromTemplate({
   const faqs: { question: string; answer: string }[] =
     data.faqs.length > 0
       ? data.faqs
-      : (tFaq.raw('defaults') as { question: string; answer: string }[]);
+      : data.faqEnabled
+        ? (tFaq.raw('defaults') as { question: string; answer: string }[])
+        : [];
 
   // Textos editables (Ajustes → Web). Vacío → textos por defecto.
   const content = data.webContent;
@@ -129,7 +131,7 @@ export function TrstromTemplate({
     { id: 'trasteros', label: t('nav.units') },
     { id: 'como-funciona', label: t('nav.how') },
     { id: 'calculadora', label: t('nav.calculator') },
-    { id: 'faq', label: t('nav.faq') },
+    ...(faqs.length > 0 ? [{ id: 'faq', label: t('nav.faq') }] : []),
     ...(data.contactEnabled ? [{ id: 'contacto', label: t('nav.contact') }] : []),
   ];
 
@@ -509,39 +511,41 @@ export function TrstromTemplate({
       )}
 
       {/* Preguntas frecuentes */}
-      <section id="faq" className="scroll-mt-24 border-b py-16">
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            brand={brand}
-            kicker={t('faqKicker')}
-            title={tFaq('title')}
-            subtitle={t('faqSubtitle')}
-          />
-          <div className="space-y-4">
-            {faqs.map((f, i) => (
-              <details
-                key={i}
-                className="group rounded-2xl border bg-card p-6 shadow-sm"
-                open={i === 0}
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold marker:content-none">
-                  {f.question}
-                  <span
-                    className="text-xl font-bold transition-transform group-open:rotate-45"
-                    style={{ color: brand }}
-                    aria-hidden
-                  >
-                    +
-                  </span>
-                </summary>
-                <p className="mt-3 whitespace-pre-line border-t pt-3 text-sm leading-relaxed text-muted-foreground">
-                  {f.answer}
-                </p>
-              </details>
-            ))}
+      {faqs.length > 0 && (
+        <section id="faq" className="scroll-mt-24 border-b py-16">
+          <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+            <SectionHeading
+              brand={brand}
+              kicker={t('faqKicker')}
+              title={tFaq('title')}
+              subtitle={t('faqSubtitle')}
+            />
+            <div className="space-y-4">
+              {faqs.map((f, i) => (
+                <details
+                  key={i}
+                  className="group rounded-2xl border bg-card p-6 shadow-sm"
+                  open={i === 0}
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold marker:content-none">
+                    {f.question}
+                    <span
+                      className="text-xl font-bold transition-transform group-open:rotate-45"
+                      style={{ color: brand }}
+                      aria-hidden
+                    >
+                      +
+                    </span>
+                  </summary>
+                  <p className="mt-3 whitespace-pre-line border-t pt-3 text-sm leading-relaxed text-muted-foreground">
+                    {f.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Blog */}
       {blogHref && data.latestBlogPosts.length > 0 && (
