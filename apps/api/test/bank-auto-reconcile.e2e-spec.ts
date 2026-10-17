@@ -98,4 +98,42 @@ describe('Conciliación N43 automática (e2e)', () => {
       .set(auth)
       .expect(400);
   });
+  it('no concilia sola una factura con un cobro en curso', async () => {
+    const owner = await registerVerifiedUser(app, 'autorecflight');
+    await setTenantPlan(owner.slug, 'pro');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await ensureDefaultSeries(app, owner.accessToken);
+    const customerId = await createCustomer(app, owner.accessToken);
+    const id = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 100 });
+    const issued = await request(app.getHttpServer())
+      .post(`/invoices/${id}/issue`)
+      .set(auth)
+      .expect(200);
+    await request(app.getHttpServer())
+      .put('/bank-statements/settings')
+      .set(auth)
+      .send({ autoReconcile: true })
+      .expect(200);
+    const { PrismaAdminService } = await import('../src/modules/database/prisma-admin.service');
+    await app.get(PrismaAdminService).payment.create({
+      data: {
+        tenantId: owner.tenantId,
+        invoiceId: id,
+        customerId,
+        amount: 121,
+        status: 'processing',
+        methodType: 'sepa_debit',
+        gateway: 'stripe',
+        gatewayPaymentId: `pi_autorec_${Date.now()}`,
+      },
+    });
+    const res = await request(app.getHttpServer())
+      .post('/bank-statements/import')
+      .set(auth)
+      .send({
+        filename: 'extracto.n43',
+        content: buildN43('00000000012100', issued.body.invoiceNumber as string),
+      });
+    expect(res.body.autoMatchedCount).toBe(0);
+  });
 });

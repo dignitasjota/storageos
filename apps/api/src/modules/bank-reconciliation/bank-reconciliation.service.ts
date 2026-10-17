@@ -478,7 +478,10 @@ export class BankReconciliationService {
       tenantId,
     );
     if (txs.length === 0) return 0;
-    const candidates = await this.loadCandidates(tenantId);
+    // Solo facturas sin un cobro en marcha: una en una remesa SEPA sin
+    // confirmar o con un cobro por pasarela en curso se concilia a mano (si
+    // no, la remesa la daría luego por «ya pagada» y habría que devolverla).
+    const candidates = await this.loadCandidates(tenantId, { excludeInFlight: true });
     const used = new Set<string>();
     let matched = 0;
     for (const t of txs) {
@@ -635,11 +638,24 @@ export class BankReconciliationService {
 
   // -------------------------------------------------------------------------
 
-  private async loadCandidates(tenantId: string): Promise<CandidateInvoice[]> {
+  private async loadCandidates(
+    tenantId: string,
+    opts: { excludeInFlight?: boolean } = {},
+  ): Promise<CandidateInvoice[]> {
     const invoices = await this.prisma.withTenant(
       (tx) =>
         tx.invoice.findMany({
-          where: { tenantId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          where: {
+            tenantId,
+            status: { in: ['issued', 'overdue'] },
+            deletedAt: null,
+            ...(opts.excludeInFlight
+              ? {
+                  sepaRemittanceItems: { none: { status: 'pending' } },
+                  payments: { none: { status: { in: ['pending', 'processing'] } } },
+                }
+              : {}),
+          },
           select: {
             id: true,
             invoiceNumber: true,

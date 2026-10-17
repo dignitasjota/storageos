@@ -310,6 +310,59 @@ describe('Redsys (e2e)', () => {
     expect(orders[0]?.status).toBe('pending');
   });
 
+  it('si lo pendiente cambia, la orden pendiente se sustituye por otra con el importe nuevo', async () => {
+    const owner = await registerVerifiedUser(app, 'redsys-replace');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await configureRedsys(app, owner.accessToken);
+    const invoiceId = await issuedInvoice(app, owner.accessToken);
+    const decode = (mp: string) =>
+      JSON.parse(Buffer.from(mp, 'base64').toString('utf8')) as Record<string, string>;
+
+    const first = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({})
+      .expect(200);
+    // Paga 21 € en efectivo en el local mientras tanto.
+    await request(app.getHttpServer())
+      .post(`/invoices/${invoiceId}/mark-paid`)
+      .set(auth)
+      .send({ amount: 21, methodType: 'cash' })
+      .expect(200);
+    const second = await request(app.getHttpServer())
+      .post(`/settings/redsys/invoices/${invoiceId}/redirect`)
+      .set(auth)
+      .send({})
+      .expect(200);
+    const a = decode(first.body.merchantParameters);
+    const b = decode(second.body.merchantParameters);
+    expect(b.DS_MERCHANT_ORDER).not.toBe(a.DS_MERCHANT_ORDER);
+    expect(b.DS_MERCHANT_AMOUNT).toBe('10000');
+    const old = await admin.redsysOrder.findUniqueOrThrow({
+      where: { order: a.DS_MERCHANT_ORDER! },
+    });
+    expect(old.status).toBe('replaced');
+
+    // Si aun así el inquilino paga la orden antigua, el aviso se procesa.
+    const notif = encodeMerchantParameters({
+      Ds_Order: a.DS_MERCHANT_ORDER!,
+      Ds_Response: '0000',
+      Ds_Amount: a.DS_MERCHANT_AMOUNT!,
+    });
+    await request(app.getHttpServer())
+      .post('/webhooks/redsys')
+      .send({
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_MerchantParameters: notif,
+        Ds_Signature: signRequest(notif, a.DS_MERCHANT_ORDER!, TEST_KEY),
+      })
+      .expect(200);
+    expect(
+      (await admin.redsysOrder.findUniqueOrThrow({ where: { order: a.DS_MERCHANT_ORDER! } }))
+        .status,
+    ).toBe('paid');
+  });
+
   it('condición de carrera: N redirects CONCURRENTES para la misma factura generan UNA sola orden pendiente', async () => {
     const owner = await registerVerifiedUser(app, 'redsys-race');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

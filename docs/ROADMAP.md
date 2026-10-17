@@ -680,3 +680,13 @@ Revisión a fondo de las webs de los tenants, la reserva, la firma y las landing
 - ✅ **#698** — inglés en el dominio propio (`/l/<idioma>`), viviendas sin IVA en la web, cada local solo con sus tamaños, precio anunciado = trastero más barato disponible (el que se cobra), reserva sin locales inactivos.
 - ✅ **#699** — fecha de entrada en hora de España (máx. un año vista), robots.txt y sitemap.xml del dominio propio, `/l/es` dentro del dominio propio y precios con céntimos.
 - Riesgos aceptados: reservas falsas a nombre de otro inquilino (sin acceso, retienen el trastero 72 h), fechas de entrada pasadas por el API e inflar las visitas de las landings.
+
+### Revisión de pagos y facturación (2026-10-17, #701–#704) ✅
+
+Revisión de Stripe, Stripe Connect, Redsys, GoCardless, remesas SEPA, N43, dunning, recurrente y facturación del SaaS. No se encontró ningún camino que contabilice dos veces una factura; sí cobros que podían repetirse y estados que se quedaban colgados.
+
+- ✅ **#701 (alto)** — cobros sin respuesta de la pasarela: Stripe (red o 5xx) y Redsys con tarjeta guardada quedan **en curso** (no fallidos) y no se vuelven a cobrar; un `requires_action` sin el cliente se cancela; repaso cada 15 min (`payments.stale-charges`) que busca el cobro en Stripe por el `paymentId` y caduca las órdenes de Redsys sin noticias en 24 h.
+- ✅ **#702** — confirmar una remesa SEPA (del tenant y de la plataforma) se puede reanudar si se corta a medias sin cobrar dos veces; la de la plataforma ya no se confirma dos veces con un doble clic; un tenant domiciliado con el adeudo en remesa ya no sale como moroso.
+- ✅ **#703** — el dunning no reclama facturas anuladas con rectificativa o reembolsadas ni justificantes de fianza; los reintentos de cobro no se gastan en rechazos previos a la pasarela.
+- ✅ **#704** — aviso al equipo si no se pudo emitir la rectificativa de un reembolso (y un borrador anterior se sustituye); una orden de Redsys pendiente se rehace si cambió lo pendiente; la conciliación N43 automática no toca facturas en remesa o con cobro en curso.
+- Pendiente (no bloqueante): un cobro de GoCardless sin respuesta de su API sigue contando como fallido (sus avisos no traen nuestro id de pago para recuperarlo).

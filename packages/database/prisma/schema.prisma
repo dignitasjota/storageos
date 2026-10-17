@@ -3959,7 +3959,7 @@ model RedsysOrder {
   tenantId    String    @map("tenant_id") @db.Uuid
   invoiceId   String    @map("invoice_id") @db.Uuid
   amountCents Int       @map("amount_cents")
-  /// "pending" | "paid" | "failed"
+  /// "pending" | "charging" | "paid" | "failed" | "expired" | "replaced"
   status      String    @default("pending")
   dsResponse  String?   @map("ds_response")
   /// El inquilino pidió guardar la tarjeta en este pago (pago por referencia).

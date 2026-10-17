@@ -143,9 +143,18 @@ export class RedsysService {
         where: { tenantId, invoiceId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
       });
-      if (existing) {
+      if (existing && existing.amountCents === amountCents) {
         if (existing.saveCard === saveCard) return existing;
         return tx.redsysOrder.update({ where: { order: existing.order }, data: { saveCard } });
+      }
+      // Lo pendiente cambió (cobro parcial entre medias): la orden anterior se
+      // sustituye por otra con el importe actual. Si aun así llega su pago,
+      // la notificación lo aplica igualmente (estado `replaced`).
+      if (existing) {
+        await tx.redsysOrder.update({
+          where: { order: existing.order },
+          data: { status: 'replaced' },
+        });
       }
       return tx.redsysOrder.create({
         data: {
@@ -285,8 +294,9 @@ export class RedsysService {
       (tx) =>
         tx.redsysOrder.updateMany({
           // `charging` = cobro con tarjeta guardada cuya respuesta se perdió;
-          // `expired` = esa orden se dio por no cobrada y luego llega el aviso.
-          where: { order, status: { in: ['pending', 'charging', 'expired'] } },
+          // `expired` = esa orden se dio por no cobrada y luego llega el aviso;
+          // `replaced` = orden sustituida por otra con el importe actualizado.
+          where: { order, status: { in: ['pending', 'charging', 'expired', 'replaced'] } },
           data: {
             status: approved ? 'paid' : 'failed',
             dsResponse,
