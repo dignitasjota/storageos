@@ -8,8 +8,9 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from '@/app/(public)/s/[slug]/i18n/messages';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = SERVER_API_URL;
 
 /**
  * Carga la disponibilidad de reserva EN EL SERVIDOR (`cache: 'no-store'` —
@@ -28,7 +29,7 @@ export async function getBookingAvailability(
   try {
     const res = await fetch(
       `${API_URL}/public/move-in/book/${encodeURIComponent(slug)}/availability`,
-      { cache: 'no-store' },
+      { headers: internalApiHeaders(), cache: 'no-store' },
     );
     if (res.ok) {
       return { data: (await res.json()) as BookingAvailabilityDto, error: null };

@@ -1,5 +1,7 @@
 import request from 'supertest';
 
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
+
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
@@ -85,6 +87,63 @@ describe('Landing pública por tenant (e2e)', () => {
       .expect(200);
     const expired = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(expired.body.activePromotion).toBeNull();
+  });
+
+  it('el banner no anuncia recompensas de referidos ni ofertas de un trastero', async () => {
+    const owner = await registerVerifiedUser(app, 'landing-promo-private');
+    const fac = await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 1 });
+    const admin = app.get(PrismaAdminService);
+    const tenant = await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    const referrer = await createCustomer(app, owner.accessToken, { email: 'ref-a@e2e.local' });
+    const referred = await createCustomer(app, owner.accessToken, { email: 'ref-b@e2e.local' });
+
+    // Recompensa personal de un referido (código de un solo uso de otra persona).
+    const reward = await admin.promotion.create({
+      data: {
+        tenantId: tenant.id,
+        code: 'REF-PRIVADO',
+        name: 'Recompensa por recomendar',
+        discountType: 'percentage',
+        discountValue: 10,
+        maxUses: 1,
+      },
+    });
+    await admin.referral.create({
+      data: {
+        tenantId: tenant.id,
+        referrerCustomerId: referrer,
+        referredCustomerId: referred,
+        status: 'converted',
+        rewardPromotionId: reward.id,
+      },
+    });
+    // Oferta de un trastero concreto.
+    await admin.promotion.create({
+      data: {
+        tenantId: tenant.id,
+        code: 'OFERTA-T1',
+        name: 'Oferta del trastero',
+        discountType: 'free_months',
+        discountValue: 1,
+        maxUses: 1,
+        appliesTo: { unitId: fac.unitIds[0] },
+      },
+    });
+    const res = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(res.body.activePromotion).toBeNull();
+
+    // Una promoción general sí se anuncia.
+    await admin.promotion.create({
+      data: {
+        tenantId: tenant.id,
+        code: 'PARATODOS',
+        name: 'Para todos',
+        discountType: 'percentage',
+        discountValue: 5,
+      },
+    });
+    const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(after.body.activePromotion?.code).toBe('PARATODOS');
   });
 
   it('horario de apertura: se expone en la landing pública, con la timezone del local', async () => {

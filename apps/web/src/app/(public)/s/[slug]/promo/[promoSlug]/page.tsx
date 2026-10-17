@@ -12,7 +12,9 @@ import { themeFor } from '../promo-theme';
 import type { PublicPromoPageDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 type Params = { params: Promise<{ slug: string; promoSlug: string }> };
 
@@ -21,7 +23,7 @@ async function getPromo(slug: string, promoSlug: string): Promise<PublicPromoPag
   try {
     const res = await fetch(
       `${API_URL}/public/landing/${encodeURIComponent(slug)}/promo/${encodeURIComponent(promoSlug)}`,
-      { next: { revalidate: 30 } },
+      { headers: internalApiHeaders(), next: { revalidate: 30 } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicPromoPageDto;

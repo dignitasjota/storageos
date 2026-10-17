@@ -1,6 +1,8 @@
 import type { PlatformFounderOfferDto } from '@storageos/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 /**
  * Oferta fundador de la sección de precios (panel admin → Web de TrasterOS).
@@ -9,6 +11,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 export async function fetchFounderOffer(): Promise<PlatformFounderOfferDto | null> {
   try {
     const res = await fetch(`${API_URL}/v1/platform-founder-offer`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

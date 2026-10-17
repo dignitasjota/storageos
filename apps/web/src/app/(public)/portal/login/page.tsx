@@ -4,11 +4,14 @@ import { PortalLoginClient } from './portal-login-client';
 
 import type { PublicTenantBrandDto } from '@storageos/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
+const API_URL = SERVER_API_URL;
 
 async function fetchBrand(slug: string): Promise<PublicTenantBrandDto | null> {
   try {
     const res = await fetch(`${API_URL}/public/landing/brand/${encodeURIComponent(slug)}`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

@@ -1,6 +1,8 @@
 import { resolveCustomDomainRoute } from '@storageos/shared';
 import { type NextRequest, NextResponse } from 'next/server';
 
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
 /**
  * Middleware combinado:
  *
@@ -46,7 +48,7 @@ function withNoindex(pathname: string, res: NextResponse): NextResponse {
   }
   return res;
 }
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = SERVER_API_URL;
 
 function hostFromUrl(u: string | undefined): string | null {
   if (!u) return null;
@@ -77,6 +79,7 @@ interface DomainResolution {
 // estado del módulo persiste entre requests; si se recicla, se re-resuelve.
 const domainCache = new Map<string, { value: DomainResolution; exp: number }>();
 const DOMAIN_TTL_MS = 60_000;
+const DOMAIN_CACHE_MAX = 2_000;
 
 async function resolveSlug(host: string): Promise<DomainResolution> {
   const now = Date.now();
@@ -86,6 +89,7 @@ async function resolveSlug(host: string): Promise<DomainResolution> {
   try {
     const res = await fetch(
       `${API_URL}/public/landing/resolve-domain?host=${encodeURIComponent(host)}`,
+      { headers: internalApiHeaders() },
     );
     if (res.ok) {
       const data = (await res.json()) as { tenantSlug?: string; hasExternalSite?: boolean };
@@ -93,6 +97,12 @@ async function resolveSlug(host: string): Promise<DomainResolution> {
     }
   } catch {
     value = { slug: null, hasExternalSite: false };
+  }
+  // Tamaño máximo: cualquiera puede mandar peticiones con un `Host` inventado
+  // y la caché no debe crecer sin límite (se descarta la entrada más antigua).
+  if (domainCache.size >= DOMAIN_CACHE_MAX) {
+    const oldest = domainCache.keys().next().value;
+    if (oldest !== undefined) domainCache.delete(oldest);
   }
   domainCache.set(host, { value, exp: now + DOMAIN_TTL_MS });
   return value;

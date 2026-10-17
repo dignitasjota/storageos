@@ -1272,3 +1272,13 @@ desde el panel.
 2. **Comisión de la plataforma**: panel admin → Facturación → «Cobros de los tenants» (2 % por defecto).
 3. **Redsys con pago por referencia** (§12E): el banco del tenant tiene que tener activado el pago por referencia (COF) en su TPV; el tenant marca la casilla en Configuración → Cobros. **No** poner `REDSYS_MODE=stub`.
 4. **Cupones y landings**: sin configuración de plataforma. Las landings solo se ven con Web Premium; con dominio propio la dirección es `/promo/<nombre>`. Probar una landing con un enlace corto de un flyer y una reserva con cupón hasta el pago.
+
+## 26. Límites de peticiones de las webs públicas (INTERNAL_API_TOKEN)
+
+Las páginas públicas (webs de los tenants, reserva, firma, landings) se generan en el servidor del web, que pide los datos al API. Sin configurar nada, todas esas peticiones llegan al API desde la misma IP y comparten un único límite (30-120/min según el endpoint): con tráfico, la reserva muestra «no disponible» y alguna web da 404.
+
+1. Generar un secreto: `openssl rand -hex 32`.
+2. En Portainer → stack → Environment, añadir **`INTERNAL_API_TOKEN`** con ese valor (lo usan el API y el web; el compose ya pasa `INTERNAL_API_URL=http://api:3001` al web).
+3. Redesplegar. Comprobar que la web de un tenant y `/book/<slug>` cargan.
+
+Sin la variable todo funciona como antes (URL pública, con límite compartido). Con `docker-compose.prod.yml`, ponerla en `apps/api/.env.production` y en el `.env` del compose.

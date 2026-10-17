@@ -39,6 +39,8 @@ x-app-env: &app-env
   REDIS_HOST: redis
   REDIS_PORT: '6379'
   REDIS_PASSWORD: ${REDIS_PASSWORD}
+  # Llamadas del servidor del web al API sin contar en los límites por IP (opcional, ≥32 caracteres).
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
   REDIS_DB: '0'
   MINIO_ENDPOINT: minio
   MINIO_PORT: '9000'
@@ -306,6 +308,10 @@ services:
       NODE_ENV: production
       PORT: '3000'
       HOSTNAME: 0.0.0.0
+      # El servidor del web llama al API por la red interna (sin salir a
+      # internet) y con el token, para no compartir un único límite por IP.
+      INTERNAL_API_URL: http://api:3001
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
     depends_on:
       - api
     networks:

@@ -10,6 +10,8 @@ import type { NextRequest } from 'next/server';
 import type { IncomingMessage } from 'node:http';
 import type { LookupFunction } from 'node:net';
 
+import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+
 /**
  * Proxy inverso hacia la web EXTERNA de un tenant (ya alojada fuera de la
  * plataforma), servida bajo su dominio propio verificado — ver
@@ -22,7 +24,7 @@ import type { LookupFunction } from 'node:net';
  */
 export const runtime = 'nodejs';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = SERVER_API_URL;
 const MAX_PROXY_BYTES = 15 * 1024 * 1024; // 15MB por fichero — sobra para una web normal.
 const UPSTREAM_TIMEOUT_MS = 8000;
 
@@ -69,6 +71,7 @@ function platformHosts(): string[] {
 async function fetchExternalSite(slug: string): Promise<ExternalSiteDto | null> {
   try {
     const res = await fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}/external-site`, {
+      headers: internalApiHeaders(),
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;

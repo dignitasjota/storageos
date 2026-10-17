@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, type ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -13,6 +13,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { SecurityThrottlerGuard } from './common/guards/security-throttler.guard';
 import { TenantStatusGuard } from './common/guards/tenant-status.guard';
+import { isInternalWebRequest } from './common/http/internal-request';
 import { serializeRequestForLog } from './common/logging/sanitize';
 import { AppConfigModule } from './config/env.config';
 import { AccessModule } from './modules/access/access.module';
@@ -150,6 +151,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => {
         const isTest = config.get('NODE_ENV', { infer: true }) === 'test';
+        const internalToken = config.get('INTERNAL_API_TOKEN', { infer: true });
         return {
           throttlers: [
             // Un solo throttler "default" a nivel global; los endpoints de
@@ -160,7 +162,10 @@ import type { Options as PinoHttpOptions } from 'pino-http';
           // En tests todos los requests vienen de 127.0.0.1 y comparten
           // bucket. Deshabilitamos el rate limit para no romper specs; el
           // throttle real se valida con smoke tests cURL (ver docs/API.md).
-          ...(isTest ? { skipIf: () => true } : {}),
+          // Las llamadas del servidor del web (con `INTERNAL_API_TOKEN`) no
+          // cuentan: salen todas de la misma IP y compartían un único límite.
+          skipIf: (context: ExecutionContext) =>
+            isTest || isInternalWebRequest(context, internalToken),
           errorMessage: 'Demasiadas peticiones, prueba mas tarde.',
         };
       },

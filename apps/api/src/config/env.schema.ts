@@ -19,6 +19,12 @@ const envSchemaBase = z.object({
    * vía `X-Forwarded-For`. `0` = sin proxy (API expuesta directamente).
    */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+  /**
+   * Secreto compartido con el web: sus llamadas desde el servidor (páginas
+   * públicas) lo mandan en `x-internal-token` y no cuentan en los límites por
+   * IP (todas salen del mismo servidor). Opcional; mínimo 32 caracteres.
+   */
+  INTERNAL_API_TOKEN: z.string().min(32).optional(),
 
   // --- Postgres ---
   /** URL para el rol restringido `storageos_app` (RLS activo). */
