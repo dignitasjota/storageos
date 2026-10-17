@@ -91,7 +91,7 @@ function buildTx(): TxMock {
 function buildService(
   tx: TxMock,
   deps: {
-    gateway?: { charge: jest.Mock };
+    gateway?: { charge: jest.Mock; cancelCharge?: jest.Mock };
     paymentMethods?: { decryptToken: jest.Mock; cardContext?: jest.Mock };
     goCardlessCharge?: { charge: jest.Mock };
     events?: { emit: jest.Mock };
@@ -549,6 +549,78 @@ describe('PaymentsService.chargeInvoice (SEPA)', () => {
       }),
     );
     expect(tx.invoice.update).not.toHaveBeenCalled();
+  });
+
+  function cardSetup(gatewayResult: Record<string, unknown>) {
+    const tx = buildTx();
+    tx.invoice.findFirst.mockResolvedValue(issuedInvoice());
+    tx.paymentMethod.findUniqueOrThrow.mockResolvedValue({
+      id: PM_ID,
+      type: 'card',
+      gateway: 'stripe',
+      gatewayCustomerId: 'cus_123',
+    });
+    tx.payment.create.mockResolvedValue({ id: PAYMENT_ID });
+    tx.payment.findFirst.mockResolvedValue(createdPaymentRow('processing'));
+    const gateway = {
+      charge: jest.fn().mockResolvedValue(gatewayResult),
+      cancelCharge: jest.fn().mockResolvedValue(undefined),
+    };
+    const paymentMethods = {
+      decryptToken: jest.fn().mockResolvedValue('pm_token'),
+      cardContext: jest.fn().mockResolvedValue({ mode: 'platform' }),
+    };
+    const events = { emit: jest.fn() };
+    const service = buildService(tx, { gateway, paymentMethods, events });
+    return { tx, gateway, events, service };
+  }
+
+  it('sin respuesta de la pasarela (unknown): el pago queda en curso, sin avisar de rechazo', async () => {
+    const { tx, events, service } = cardSetup({
+      gatewayPaymentId: '',
+      status: 'unknown',
+      failureReason: 'stripe_unreachable',
+    });
+    await service.chargeInvoice({
+      tenantId: TENANT,
+      userId: null,
+      invoiceId: INVOICE_ID,
+      input: { paymentMethodId: PM_ID },
+      notifyCustomerOnFailure: true,
+      meta,
+    });
+    const finalize = tx.payment.updateMany.mock.calls.find(
+      (c) => (c[0] as { where: { id?: string } }).where.id === PAYMENT_ID,
+    )?.[0] as { data: Record<string, unknown> };
+    expect(finalize.data.status).toBe('processing');
+    expect(finalize.data).not.toHaveProperty('gatewayPaymentId');
+    expect(finalize.data).not.toHaveProperty('failureReason');
+    expect(tx.invoice.update).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalledWith('domain.payment_failed', expect.anything());
+  });
+
+  it('pendiente de autenticación (requires_action): se cancela y cuenta como fallido', async () => {
+    const { tx, gateway, service } = cardSetup({
+      gatewayPaymentId: 'pi_3ds',
+      status: 'requires_action',
+    });
+    await service.chargeInvoice({
+      tenantId: TENANT,
+      userId: null,
+      invoiceId: INVOICE_ID,
+      input: { paymentMethodId: PM_ID },
+      meta,
+    });
+    expect(gateway.cancelCharge).toHaveBeenCalledWith({ gatewayPaymentId: 'pi_3ds' });
+    expect(tx.payment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: PAYMENT_ID }),
+        data: expect.objectContaining({
+          status: 'failed',
+          failureReason: 'authentication_required',
+        }),
+      }),
+    );
   });
 
   it('PM no cobrable (cash) devuelve 400 payment_method_not_chargeable sin llamar al gateway', async () => {

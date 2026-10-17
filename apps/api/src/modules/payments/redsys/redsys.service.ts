@@ -14,6 +14,7 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { PaymentMethodsService } from '../payment-methods.service';
+import { PaymentsService } from '../payments.service';
 
 import { savedCardFromNotification } from './redsys-charge.service';
 import { RedsysSettingsService } from './redsys-settings.service';
@@ -42,6 +43,7 @@ export class RedsysService {
     private readonly config: ConfigService<Env, true>,
     private readonly notifications: NotificationsService,
     private readonly paymentMethods: PaymentMethodsService,
+    private readonly payments: PaymentsService,
   ) {}
 
   /**
@@ -282,8 +284,9 @@ export class RedsysService {
     const { count } = await this.prisma.withTenant(
       (tx) =>
         tx.redsysOrder.updateMany({
-          // `charging` = cobro con tarjeta guardada cuya respuesta se perdió.
-          where: { order, status: { in: ['pending', 'charging'] } },
+          // `charging` = cobro con tarjeta guardada cuya respuesta se perdió;
+          // `expired` = esa orden se dio por no cobrada y luego llega el aviso.
+          where: { order, status: { in: ['pending', 'charging', 'expired'] } },
           data: {
             status: approved ? 'paid' : 'failed',
             dsResponse,
@@ -294,6 +297,26 @@ export class RedsysService {
     );
     if (count === 0) {
       this.logger.log(`[redsys] order ${order} ya procesada (notificación duplicada); ignorada`);
+      return;
+    }
+
+    // Cobro con tarjeta guardada cuya respuesta se perdió: el pago sigue en
+    // curso con el número de orden. Se resuelve ese pago (sin crear otro).
+    const inFlight = await this.admin.payment.count({
+      where: {
+        tenantId: orderRow.tenantId,
+        gateway: 'redsys',
+        gatewayPaymentId: order,
+        status: { in: ['processing', 'pending'] },
+      },
+    });
+    if (inFlight > 0) {
+      await this.payments.syncFromWebhook({
+        tenantId: orderRow.tenantId,
+        gatewayPaymentId: order,
+        newStatus: approved ? 'succeeded' : 'failed',
+        ...(approved ? { paidAt: new Date() } : { failureReason: `Redsys ${dsResponse}` }),
+      });
       return;
     }
 

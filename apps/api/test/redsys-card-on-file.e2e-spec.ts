@@ -185,6 +185,63 @@ describe('Redsys: tarjeta guardada y cobro automático (e2e)', () => {
     const declined = await http().post(`/payments/invoices/${third}/charge`).set(auth).send({});
     expect(declined.body.status).toBe('failed');
     expect((await http().get(`/invoices/${third}`).set(auth)).body.status).toBe('issued');
+
+    // El banco no contesta: el pago queda en curso (no se puede cobrar otra vez)
+    // y la notificación posterior lo aplica sin crear un segundo pago.
+    await admin.paymentMethod.update({
+      where: { id: saved.id },
+      data: { gatewayTokenEncrypted: await encryptForTenant(owner.tenantId, 'stub-noresponse-1') },
+    });
+    const fourth = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 50 });
+    await http().post(`/invoices/${fourth}/issue`).set(auth).expect(200);
+    const silent = await http().post(`/payments/invoices/${fourth}/charge`).set(auth).send({});
+    expect(silent.body.status).toBe('processing');
+    await http().post(`/payments/invoices/${fourth}/charge`).set(auth).send({}).expect(409);
+    const silentOrder = await admin.redsysOrder.findFirstOrThrow({
+      where: { invoiceId: fourth, status: 'charging' },
+    });
+    const silentNotif = encodeMerchantParameters({
+      Ds_Order: silentOrder.order,
+      Ds_Response: '0000',
+      Ds_Amount: String(silentOrder.amountCents),
+    });
+    await http()
+      .post('/webhooks/redsys')
+      .send({
+        Ds_SignatureVersion: 'HMAC_SHA256_V1',
+        Ds_MerchantParameters: silentNotif,
+        Ds_Signature: signRequest(silentNotif, silentOrder.order, TEST_KEY),
+      })
+      .expect(200);
+    expect((await http().get(`/invoices/${fourth}`).set(auth)).body.status).toBe('paid');
+    expect(await admin.payment.count({ where: { invoiceId: fourth } })).toBe(1);
+
+    // Sin notificación en 24 h: la orden caduca, el pago queda fallido y la
+    // factura se puede volver a cobrar.
+    const fifth = await createDraftInvoice(app, owner.accessToken, customerId, { unitPrice: 50 });
+    await http().post(`/invoices/${fifth}/issue`).set(auth).expect(200);
+    await http().post(`/payments/invoices/${fifth}/charge`).set(auth).send({}).expect(200);
+    const staleOrder = await admin.redsysOrder.findFirstOrThrow({
+      where: { invoiceId: fifth, status: 'charging' },
+    });
+    await admin.redsysOrder.update({
+      where: { order: staleOrder.order },
+      data: { createdAt: new Date(Date.now() - 25 * 3_600_000) },
+    });
+    const { StaleChargesService } = await import('../src/modules/payments/stale-charges.service');
+    await app.get(StaleChargesService, { strict: false }).run();
+    expect(
+      (await admin.redsysOrder.findUniqueOrThrow({ where: { order: staleOrder.order } })).status,
+    ).toBe('expired');
+    expect((await admin.payment.findFirstOrThrow({ where: { invoiceId: fifth } })).status).toBe(
+      'failed',
+    );
+    await admin.paymentMethod.update({
+      where: { id: saved.id },
+      data: { gatewayTokenEncrypted: await encryptForTenant(owner.tenantId, 'ref-tarjeta-123') },
+    });
+    const again = await http().post(`/payments/invoices/${fifth}/charge`).set(auth).send({});
+    expect(again.body.status).toBe('succeeded');
   });
 
   it('sin pago por referencia activado no se pide guardar la tarjeta', async () => {

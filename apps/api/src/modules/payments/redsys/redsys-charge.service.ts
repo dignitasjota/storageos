@@ -35,7 +35,8 @@ export const REDSYS_UNCERTAIN_REASONS = [
  * Redsys. El cobro se resuelve en el momento (autorizado o denegado).
  *
  * Simulado con `NODE_ENV=test` o `REDSYS_MODE=stub`: una referencia que empieza
- * por `stub-decline` se deniega; el resto se autoriza.
+ * por `stub-decline` se deniega, por `stub-noresponse` se queda sin respuesta;
+ * el resto se autoriza.
  *
  * No depende de `PaymentsService` (vive en el módulo base de Redsys): así
  * `PaymentsModule` lo puede importar sin ciclo.
@@ -84,6 +85,10 @@ export class RedsysChargeService {
       },
     });
     if (this.stub) {
+      // `stub-noresponse`: el banco no contesta (la orden queda `charging`).
+      if (args.identifier.startsWith('stub-noresponse')) {
+        return { gatewayPaymentId: order, status: 'unknown', failureReason: 'redsys_unreachable' };
+      }
       return args.identifier.startsWith('stub-decline')
         ? this.resolve(order, false, '0190', 'Denegada (simulado)')
         : this.resolve(order, true, '0000');
@@ -124,8 +129,9 @@ export class RedsysChargeService {
       this.logger.warn(
         `[redsys] cobro ${order} sin respuesta: ${err instanceof Error ? err.message : String(err)}`,
       );
-      // La orden queda `charging`: si el banco cobró, la notificación la aplica.
-      return { gatewayPaymentId: order, status: 'failed', failureReason: 'redsys_unreachable' };
+      // La orden queda `charging` y el pago en curso: si el banco cobró, la
+      // notificación lo aplica; si no llega, el repaso de cobros lo cierra.
+      return { gatewayPaymentId: order, status: 'unknown', failureReason: 'redsys_unreachable' };
     }
     if (json.errorCode) {
       return {
@@ -137,7 +143,7 @@ export class RedsysChargeService {
     if (!json.Ds_MerchantParameters || !json.Ds_Signature) {
       return {
         gatewayPaymentId: order,
-        status: 'failed',
+        status: 'unknown',
         failureReason: 'redsys_invalid_response',
       };
     }
@@ -150,7 +156,7 @@ export class RedsysChargeService {
       this.logger.error(`[redsys] firma inválida en la respuesta del cobro ${order}`);
       return {
         gatewayPaymentId: order,
-        status: 'failed',
+        status: 'unknown',
         failureReason: 'redsys_invalid_signature',
       };
     }

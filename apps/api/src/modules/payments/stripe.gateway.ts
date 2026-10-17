@@ -19,6 +19,7 @@ import {
   type CreateCustomerResult,
   type CreateSetupIntentParams,
   type CreateSetupIntentResult,
+  type GatewayChargeLookup,
   PaymentGateway,
   type PaymentMethodDetails,
   type RefundParams,
@@ -120,6 +121,19 @@ export class StripeGateway extends PaymentGateway {
           : {}),
       };
     } catch (err) {
+      // Sin respuesta (red) o error del servidor de Stripe: no se sabe si el
+      // cargo se hizo. No es un rechazo: el pago queda en curso hasta aclararlo.
+      if (
+        err instanceof StripeSDK.errors.StripeConnectionError ||
+        err instanceof StripeSDK.errors.StripeAPIError
+      ) {
+        const e = err as { payment_intent?: { id?: string } };
+        return {
+          gatewayPaymentId: e.payment_intent?.id ?? '',
+          status: 'unknown',
+          failureReason: 'stripe_unreachable',
+        };
+      }
       if (err instanceof StripeSDK.errors.StripeError) {
         const e = err as { payment_intent?: { id?: string }; message: string };
         return {
@@ -184,6 +198,55 @@ export class StripeGateway extends PaymentGateway {
       expYear: null,
       mandateReference: null,
     };
+  }
+
+  override async findCharge(args: {
+    paymentId: string;
+    gatewayPaymentId: string | null;
+    stripeAccount?: string;
+  }): Promise<GatewayChargeLookup | null> {
+    const opts = requestOptions(args.stripeAccount);
+    let intent:
+      | {
+          id: string;
+          status: string;
+          metadata: unknown;
+          last_payment_error?: { message?: string } | null;
+        }
+      | undefined;
+    if (args.gatewayPaymentId) {
+      intent = await this.stripe.paymentIntents.retrieve(args.gatewayPaymentId, {}, opts);
+    } else {
+      const found = await this.stripe.paymentIntents.search(
+        {
+          query: `metadata['paymentId']:'${args.paymentId.replace(/[^0-9a-f-]/gi, '')}'`,
+          limit: 1,
+        },
+        opts,
+      );
+      intent = found.data[0];
+    }
+    if (!intent) return null;
+    const status = this.mapIntentStatus(intent.status as PaymentIntentStatus);
+    return {
+      gatewayPaymentId: intent.id,
+      status: status === 'unknown' ? 'failed' : status,
+      ...(intent.last_payment_error?.message
+        ? { failureReason: intent.last_payment_error.message }
+        : {}),
+      metadata: (intent.metadata ?? {}) as Record<string, string>,
+    };
+  }
+
+  override async cancelCharge(args: {
+    gatewayPaymentId: string;
+    stripeAccount?: string;
+  }): Promise<void> {
+    await this.stripe.paymentIntents.cancel(
+      args.gatewayPaymentId,
+      {},
+      requestOptions(args.stripeAccount),
+    );
   }
 
   verifyWebhook(rawBody: Buffer, signatureHeader: string): WebhookEvent {
