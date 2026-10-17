@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { ContactForm } from '../contact-form';
 import { bookHrefFor, type PublicWebLocale } from '../i18n/messages';
-import { formatPrice } from '../price-format';
+import { grossPrice, formatPrice } from '../price-format';
 
 import { themeFor } from './promo-theme';
 
@@ -238,7 +238,7 @@ export function PromoBody({ data, locale }: { data: PublicPromoPageDto; locale: 
                           )}
                           <p className="mt-3 text-2xl font-extrabold">
                             <span className={`text-sm font-normal ${muted}`}>{t('from')} </span>
-                            {formatPrice(ut.priceMonthly * 1.21, locale)}
+                            {formatPrice(grossPrice(ut), locale)}
                             <span className={`text-sm font-normal ${muted}`}>{t('perMonth')}</span>
                           </p>
                           <p className={`text-xs ${muted}`}>{t('vatIncluded')}</p>

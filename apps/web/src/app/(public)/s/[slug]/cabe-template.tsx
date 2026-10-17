@@ -30,6 +30,7 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from './i18n/messages';
+import { grossPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 import { cities, formatPrice, isOpenNow, useHeadlineFallback } from './templates';
 
@@ -1070,7 +1071,7 @@ function UnitTypeCard({
             <span
               className={`text-3xl font-black ${soldOut ? 'text-slate-500 dark:text-muted-foreground' : ''}`}
             >
-              {formatPrice(unit.priceMonthly * 1.21, locale)}
+              {formatPrice(grossPrice(unit), locale)}
             </span>
             <span className="text-xs font-semibold text-slate-500">{t('perMonth')}</span>
           </div>

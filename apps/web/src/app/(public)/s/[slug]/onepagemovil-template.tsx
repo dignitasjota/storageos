@@ -30,6 +30,7 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from './i18n/messages';
+import { grossPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 import {
   cities,
@@ -140,7 +141,7 @@ export function OnePageMovilTemplate({
         unitTypeId: u.id,
         name: u.name,
         areaM2: u.areaM2,
-        price: u.priceMonthly,
+        price: grossPrice(u),
         available: u.available,
       })),
     )
@@ -762,9 +763,7 @@ function UnitCardView({
       </p>
       <p className="mt-4 text-sm text-muted-foreground">
         {tCommon('from')}{' '}
-        <span className="text-xl font-bold text-foreground">
-          {formatPrice(unit.price * 1.21, locale)}
-        </span>
+        <span className="text-xl font-bold text-foreground">{formatPrice(unit.price, locale)}</span>
         {t('perMonth')}
       </p>
       <p className="mt-1 h-4 text-xs font-medium">

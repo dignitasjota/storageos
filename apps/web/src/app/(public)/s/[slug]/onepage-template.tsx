@@ -13,6 +13,7 @@ import {
   type PublicWebLocale,
 } from './i18n/messages';
 import { OnePageNav, type OnePageNavItem } from './onepage-nav';
+import { grossPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 import {
   cities,
@@ -110,7 +111,7 @@ function FacilityBlock({ f, locale }: { f: PublicLandingFacilityDto; locale: Pub
               >
                 <span className="font-medium">{unitType.name}</span>
                 <span className="font-semibold">
-                  {formatPrice(unitType.priceMonthly * 1.21, locale)}
+                  {formatPrice(grossPrice(unitType), locale)}
                   <span className="text-xs font-normal text-muted-foreground">{t('perMonth')}</span>
                 </span>
               </li>
@@ -268,7 +269,7 @@ export function OnePageTemplate({
                       <p className="text-sm text-muted-foreground">{unitType.areaM2} m²</p>
                     )}
                     <p className="mt-2 text-2xl font-bold" style={{ color: brand }}>
-                      {formatPrice(unitType.priceMonthly * 1.21, locale)}
+                      {formatPrice(grossPrice(unitType), locale)}
                       <span className="text-sm font-normal text-muted-foreground">
                         {t('perMonth')}
                       </span>

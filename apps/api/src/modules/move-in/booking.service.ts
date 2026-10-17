@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { rentTax } from '@storageos/shared';
 
 import { DOMAIN_EVENTS, type BookingCreatedPayload } from '../automations/domain-events';
 import { ContractsService } from '../contracts/contracts.service';
@@ -121,24 +122,32 @@ export class BookingService {
     }
     const [facilities, unitTypes, grouped] = await Promise.all([
       this.admin.facility.findMany({
-        where: { tenantId: tenant.id, deletedAt: null },
+        where: { tenantId: tenant.id, deletedAt: null, isActive: true },
         select: { id: true, name: true, publicSlug: true },
         orderBy: { name: 'asc' },
       }),
       this.admin.unitType.findMany({
         where: { tenantId: tenant.id, isActive: true },
-        select: { id: true, name: true, defaultPriceMonthly: true },
+        select: { id: true, name: true, defaultPriceMonthly: true, propertyKind: true },
       }),
       this.admin.unit.groupBy({
         by: ['facilityId', 'unitTypeId'],
         where: { tenantId: tenant.id, status: 'available' },
         _count: { _all: true },
+        _min: { basePriceMonthly: true },
       }),
     ]);
 
     const availByFacilityType = new Map<string, number>();
+    const minPriceByFacilityType = new Map<string, number>();
     for (const g of grouped) {
       availByFacilityType.set(`${g.facilityId}:${g.unitTypeId}`, g._count._all);
+      if (g._min.basePriceMonthly != null) {
+        minPriceByFacilityType.set(
+          `${g.facilityId}:${g.unitTypeId}`,
+          Number(g._min.basePriceMonthly),
+        );
+      }
     }
 
     return {
@@ -157,7 +166,10 @@ export class BookingService {
               id: t.id,
               name: t.name,
               available: availByFacilityType.get(`${f.id}:${t.id}`) ?? 0,
-              priceMonthly: Number(t.defaultPriceMonthly),
+              // El del trastero más barato disponible: es el que se asigna.
+              priceMonthly:
+                minPriceByFacilityType.get(`${f.id}:${t.id}`) ?? Number(t.defaultPriceMonthly),
+              taxRate: rentTax(t.propertyKind).taxRate,
             }))
             .filter((t) => t.available > 0),
         }))
@@ -200,7 +212,8 @@ export class BookingService {
         unitTypeId: input.unitTypeId,
         status: 'available',
       },
-      orderBy: { code: 'asc' },
+      // El más barato disponible (el precio que anuncia la web).
+      orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
       select: {
         basePriceMonthly: true,
         unitType: { select: { propertyKind: true, defaultDepositAmount: true } },
@@ -298,7 +311,8 @@ export class BookingService {
             unitTypeId: input.unitTypeId,
             status: 'available',
           },
-          orderBy: { code: 'asc' },
+          // El más barato disponible (el precio que anuncia la web y el resumen).
+          orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
         });
         if (!unit) {
           throw new ConflictException({

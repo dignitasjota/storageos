@@ -9,6 +9,21 @@ import {
 const SLUG = 'garcia';
 
 describe('resolveCustomDomainRoute', () => {
+  it('versión en otro idioma: /l/<idioma>, su local y su blog', () => {
+    const r = (p: string) => resolveCustomDomainRoute(p, SLUG);
+    expect(r('/l/en')).toEqual({ action: 'rewrite', path: '/s/garcia/l/en' });
+    expect(r('/l/en/local-norte')).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/l/en/local-norte',
+    });
+    expect(r('/l/en/blog')).toEqual({ action: 'rewrite', path: '/s/garcia/l/en/blog' });
+    expect(r('/l/en/blog/mudanza')).toEqual({
+      action: 'rewrite',
+      path: '/s/garcia/l/en/blog/mudanza',
+    });
+    expect(r('/l/en/a/b')).toEqual({ action: 'next' });
+  });
+
   it('raíz → reescribe a la landing del tenant', () => {
     expect(resolveCustomDomainRoute('/', SLUG)).toEqual({
       action: 'rewrite',

@@ -31,6 +31,7 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from './i18n/messages';
+import { grossPrice } from './price-format';
 import { StorageCalculator } from './storage-calculator';
 import { cities, formatPrice, isOpenNow, useHeadlineFallback } from './templates';
 
@@ -1013,7 +1014,7 @@ function UnitTypeCard({
         <div className="flex items-baseline justify-between">
           <div>
             <span className={`text-3xl font-black ${soldOut ? 'text-muted-foreground' : ''}`}>
-              {formatPrice(unit.priceMonthly * 1.21, locale)}
+              {formatPrice(grossPrice(unit), locale)}
             </span>
             <span className="text-xs font-medium text-muted-foreground">{t('perMonth')}</span>
           </div>

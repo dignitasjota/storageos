@@ -878,7 +878,7 @@ export class WhatsappAssistantService {
           }${hours ? ` · horario de atención: ${hours}` : ''}`,
         );
         for (const [ti, t] of f.unitTypes.entries()) {
-          const price = (t.priceMonthly * 1.21).toFixed(2).replace('.', ',');
+          const price = (t.priceMonthly * (1 + t.taxRate / 100)).toFixed(2).replace('.', ',');
           lines.push(
             `  · [L${fi + 1}-T${ti + 1}] ${t.name}${t.areaM2 ? ` (unos ${t.areaM2} m²)` : ''}: ${price} €/mes · ${
               t.available > 0
