@@ -42,6 +42,7 @@ import { useHasPermission } from '@/lib/auth/hooks';
 import {
   downloadRemittanceXml,
   useCancelRemittance,
+  useConfirmRemittance,
   useCreateRemittance,
   useRemittancePreview,
   useSepaRemittances,
@@ -64,6 +65,7 @@ export default function SepaRemittancesPage() {
   const list = useSepaRemittances();
   const settings = useSepaSettings();
   const cancelMut = useCancelRemittance();
+  const resumeMut = useConfirmRemittance();
   const canManage = useHasPermission('invoices:manage');
   const [prenoticeFor, setPrenoticeFor] = useState<SepaRemittanceDto | null>(null);
   const [confirmFor, setConfirmFor] = useState<SepaRemittanceDto | null>(null);
@@ -79,6 +81,15 @@ export default function SepaRemittancesPage() {
     try {
       await cancelMut.mutateAsync(id);
       toast.success('Remesa cancelada: sus facturas vuelven a estar pendientes.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function handleResume(id: string) {
+    try {
+      await resumeMut.mutateAsync({ id, rejectedItemIds: [] });
+      toast.success('Confirmación terminada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -164,6 +175,16 @@ export default function SepaRemittancesPage() {
           >
             <Download className="mr-1 h-4 w-4" /> XML
           </Button>
+          {canManage && row.original.status === 'confirmed' && row.original.pendingCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={resumeMut.isPending}
+              onClick={() => void handleResume(row.original.id)}
+            >
+              <CheckCircle2 className="mr-1 h-4 w-4" /> Terminar de confirmar
+            </Button>
+          )}
           {canManage && row.original.status === 'generated' && (
             <>
               <Button variant="outline" size="sm" onClick={() => setConfirmFor(row.original)}>

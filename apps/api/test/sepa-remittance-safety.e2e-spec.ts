@@ -115,6 +115,54 @@ describe('Remesas SEPA: estados de los adeudos (e2e)', () => {
       .expect(200);
   });
 
+  it('una confirmación cortada a medias se reanuda sin cobrar dos veces', async () => {
+    const a = await issued(100);
+    const b = await issued(40);
+    const rem = await remittance([a, b]);
+    const its = await items(rem);
+    const itemA = await admin.sepaRemittanceItem.findUniqueOrThrow({
+      where: { id: its.find((i) => i.invoiceId === a)!.itemId },
+    });
+
+    // Se cortó después de cobrar la factura A y antes de marcar su adeudo.
+    await http()
+      .post(`/invoices/${a}/mark-paid`)
+      .set(auth())
+      .send({
+        amount: 121,
+        methodType: 'sepa_debit',
+        notes: `Remesa SEPA x · ${itemA.endToEndId}`,
+        overridePaymentInFlight: true,
+        allowInSepaRemittance: true,
+      })
+      .expect(200);
+    await admin.sepaRemittance.update({
+      where: { id: rem },
+      data: { status: 'confirmed', confirmedAt: new Date() },
+    });
+
+    // Recién empezada: no se reanuda todavía.
+    const busy = await http().post(`/sepa/remittances/${rem}/confirm`).set(auth()).send({});
+    expect(busy.status).toBe(400);
+    expect(busy.body.code).toBe('remittance_confirming');
+    const listed = await http().get('/sepa/remittances').set(auth()).expect(200);
+    expect(listed.body.find((r: { id: string }) => r.id === rem).pendingCount).toBe(2);
+
+    await admin.sepaRemittance.update({
+      where: { id: rem },
+      data: { confirmedAt: new Date(Date.now() - 10 * 60_000) },
+    });
+    const resumed = await http()
+      .post(`/sepa/remittances/${rem}/confirm`)
+      .set(auth())
+      .send({})
+      .expect(200);
+    expect(resumed.body).toMatchObject({ collectedCount: 2, pendingCount: 0 });
+    expect(await admin.payment.count({ where: { invoiceId: a } })).toBe(1);
+    expect(await admin.payment.count({ where: { invoiceId: b } })).toBe(1);
+    await http().post(`/sepa/remittances/${rem}/confirm`).set(auth()).send({}).expect(400);
+  });
+
   it('confirmar informa de los adeudos rechazados y de los ya pagados por otra vía', async () => {
     const ok = await issued(100);
     const rejected = await issued(50);

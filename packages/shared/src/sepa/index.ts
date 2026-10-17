@@ -137,6 +137,8 @@ export interface SepaRemittanceDto {
   collectedCount: number;
   failedCount: number;
   returnedCount: number;
+  /** Adeudos aún sin resolver (con la remesa confirmada: confirmación cortada a medias). */
+  pendingCount: number;
 }
 
 /**

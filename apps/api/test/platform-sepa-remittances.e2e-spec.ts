@@ -171,6 +171,17 @@ describe('Platform SEPA — remesas (e2e)', () => {
     expect(dup.status).toBe(400);
     expect(dup.body.code).toBe('no_eligible_tenants');
 
+    // Con el adeudo ya en la remesa, el vencimiento del periodo no es un impago.
+    const { PlatformDunningService } =
+      await import('../src/modules/billing-saas/platform-dunning.service');
+    await app
+      .get(PlatformDunningService, { strict: false })
+      .markLapsedManualPastDue(new Date(periodEnd.getTime() + 86_400_000));
+    expect(
+      (await adminClient.tenantSubscription.findUnique({ where: { tenantId: owner.tenantId } }))!
+        .status,
+    ).toBe('active');
+
     // Confirma el cobro: reutiliza recordManualPayment (extiende periodo +
     // registra el pago) y rota el mandato FRST→RCUR.
     const confirm = await request(app.getHttpServer())
@@ -184,6 +195,17 @@ describe('Platform SEPA — remesas (e2e)', () => {
     });
     expect(sub!.currentPeriodEnd.getTime()).toBeGreaterThan(periodEnd.getTime());
     expect(sub!.status).toBe('active');
+
+    // Un segundo «Confirmar» (doble clic) no vuelve a cobrar ni a extender.
+    const again = await request(app.getHttpServer())
+      .post(`/admin/platform-sepa/remittances/${created.body.id}/confirm`)
+      .set(adminAuth());
+    expect(again.status).toBe(400);
+    expect(
+      await adminClient.tenantSubscriptionPayment.count({
+        where: { tenantId: owner.tenantId, provider: 'sepa' },
+      }),
+    ).toBe(1);
 
     const payment = await adminClient.tenantSubscriptionPayment.findFirst({
       where: { tenantId: owner.tenantId, provider: 'sepa' },

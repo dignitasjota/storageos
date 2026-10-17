@@ -44,7 +44,10 @@ function customerName(c: {
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
 }
 
-type ItemStatusCounts = { collected: number; failed: number; returned: number };
+type ItemStatusCounts = { collected: number; failed: number; returned: number; pending: number };
+
+/** Una confirmación cortada a medias se puede reanudar pasado este tiempo. */
+const RESUME_AFTER_MS = 5 * 60_000;
 
 function rand(n = 8): string {
   return randomBytes(n).toString('hex').toUpperCase().slice(0, n);
@@ -443,7 +446,12 @@ export class SepaService {
       tenantId,
       remittanceId: created.id,
     } satisfies SepaRemittanceCreatedPayload);
-    return this.toDto(created);
+    return this.toDto(created, undefined, {
+      collected: 0,
+      failed: 0,
+      returned: 0,
+      pending: created.itemCount,
+    });
   }
 
   async listRemittances(tenantId: string): Promise<SepaRemittanceDto[]> {
@@ -552,8 +560,13 @@ export class SepaService {
       tenantId,
     );
     for (const g of groups) {
-      const cur = out.get(g.remittanceId) ?? { collected: 0, failed: 0, returned: 0 };
-      if (g.status === 'collected' || g.status === 'failed' || g.status === 'returned') {
+      const cur = out.get(g.remittanceId) ?? { collected: 0, failed: 0, returned: 0, pending: 0 };
+      if (
+        g.status === 'collected' ||
+        g.status === 'failed' ||
+        g.status === 'returned' ||
+        g.status === 'pending'
+      ) {
         cur[g.status] += g._count._all;
       }
       out.set(g.remittanceId, cur);
@@ -583,20 +596,7 @@ export class SepaService {
     const remittance = await this.findOrThrow(tenantId, id);
     // Reclamar la remesa ANTES de cobrar sus facturas: un doble clic en
     // «Confirmar cobro» no registra dos veces cada cobro; el segundo recibe 400.
-    const { count } = await this.prisma.withTenant(
-      (tx) =>
-        tx.sepaRemittance.updateMany({
-          where: { id, tenantId, status: 'generated' },
-          data: { status: 'confirmed', confirmedAt: new Date() },
-        }),
-      tenantId,
-    );
-    if (count === 0) {
-      throw new BadRequestException({
-        code: 'remittance_not_confirmable',
-        message: 'La remesa ya está confirmada o cancelada',
-      });
-    }
+    await this.claimConfirmation(tenantId, remittance);
     const rejected = new Set(input.rejectedItemIds ?? []);
     const items = await this.prisma.withTenant(
       (tx) => tx.sepaRemittanceItem.findMany({ where: { remittanceId: id, status: 'pending' } }),
@@ -609,6 +609,24 @@ export class SepaService {
         continue;
       }
       try {
+        // Reanudación: si el cobro de este adeudo ya se registró (la confirmación
+        // anterior se cortó justo después), solo falta marcarlo como cobrado.
+        const already = await this.prisma.withTenant(
+          (tx) =>
+            tx.payment.count({
+              where: {
+                invoiceId: item.invoiceId,
+                methodType: 'sepa_debit',
+                notes: { contains: item.endToEndId },
+              },
+            }),
+          tenantId,
+        );
+        if (already > 0) {
+          await this.setItemStatus(tenantId, item.id, 'collected', null);
+          collectedMandates.add(item.mandateId);
+          continue;
+        }
         await this.invoices.markPaidManually({
           tenantId,
           userId,
@@ -616,7 +634,7 @@ export class SepaService {
           input: {
             amount: item.amount / 100,
             methodType: 'sepa_debit',
-            notes: `Remesa SEPA ${remittance.name}`,
+            notes: `Remesa SEPA ${remittance.name} · ${item.endToEndId}`,
             // Confirmación de un cobro real por remesa: salta el guard de adeudo en vuelo.
             overridePaymentInFlight: true,
             allowInSepaRemittance: true,
@@ -645,6 +663,62 @@ export class SepaService {
       return tx.sepaRemittance.findUniqueOrThrow({ where: { id } });
     }, tenantId);
     return this.dtoWithCounts(tenantId, updated);
+  }
+
+  /**
+   * Reserva la confirmación de la remesa. Si una confirmación anterior se cortó
+   * a medias (quedan adeudos pendientes en una remesa ya confirmada), se puede
+   * reanudar pasados unos minutos; la comparación con `confirmedAt` hace que
+   * solo una petición la reanude.
+   */
+  private async claimConfirmation(
+    tenantId: string,
+    remittance: { id: string; status: string; confirmedAt: Date | null },
+  ): Promise<void> {
+    const { count } = await this.prisma.withTenant(
+      (tx) =>
+        tx.sepaRemittance.updateMany({
+          where: { id: remittance.id, tenantId, status: 'generated' },
+          data: { status: 'confirmed', confirmedAt: new Date() },
+        }),
+      tenantId,
+    );
+    if (count === 1) return;
+    if (remittance.status === 'confirmed' && remittance.confirmedAt) {
+      const pending = await this.prisma.withTenant(
+        (tx) =>
+          tx.sepaRemittanceItem.count({
+            where: { remittanceId: remittance.id, status: 'pending' },
+          }),
+        tenantId,
+      );
+      if (pending > 0) {
+        if (Date.now() - remittance.confirmedAt.getTime() < RESUME_AFTER_MS) {
+          throw new BadRequestException({
+            code: 'remittance_confirming',
+            message:
+              'La remesa se está confirmando. Si se interrumpió, vuelve a intentarlo en unos minutos.',
+          });
+        }
+        const resumed = await this.prisma.withTenant(
+          (tx) =>
+            tx.sepaRemittance.updateMany({
+              where: {
+                id: remittance.id,
+                status: 'confirmed',
+                confirmedAt: remittance.confirmedAt,
+              },
+              data: { confirmedAt: new Date() },
+            }),
+          tenantId,
+        );
+        if (resumed.count === 1) return;
+      }
+    }
+    throw new BadRequestException({
+      code: 'remittance_not_confirmable',
+      message: 'La remesa ya está confirmada o cancelada',
+    });
   }
 
   /**
@@ -713,7 +787,7 @@ export class SepaService {
   private toDto(
     r: Prisma.SepaRemittanceGetPayload<object>,
     counts: { sent: number; missing: number } = { sent: 0, missing: 0 },
-    items: ItemStatusCounts = { collected: 0, failed: 0, returned: 0 },
+    items: ItemStatusCounts = { collected: 0, failed: 0, returned: 0, pending: 0 },
   ): SepaRemittanceDto {
     return {
       id: r.id,
@@ -730,6 +804,7 @@ export class SepaService {
       collectedCount: items.collected,
       failedCount: items.failed,
       returnedCount: items.returned,
+      pendingCount: items.pending,
     };
   }
 }
