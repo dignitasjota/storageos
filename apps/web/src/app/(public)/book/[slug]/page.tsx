@@ -29,6 +29,7 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
     <NextIntlClientProvider locale={intlLocaleFor('es')} messages={messages}>
       {data ? (
         <TenantWebChrome
+          hideReserve
           locale="es"
           languageHrefBuilder={(l) => bookHref(slug, l)}
           googleAnalyticsId={data.googleAnalyticsId}

@@ -60,7 +60,9 @@
       "subtitle": "Espacio de almacenaje seguro. Reserva online en minutos."
     },
     "chrome": {
-      "clientAccess": "Acceso clientes"
+      "clientAccess": "Acceso clientes",
+      "prices": "Trasteros y precios",
+      "reserve": "Reservar"
     },
     "facility": {
       "headingWithCity": "Trasteros en {city} — {name}",

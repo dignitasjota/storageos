@@ -40,6 +40,7 @@ export default async function BookLocalePage({
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
       {data ? (
         <TenantWebChrome
+          hideReserve
           locale={locale}
           languageHrefBuilder={(l) => bookHref(slug, l)}
           googleAnalyticsId={data.googleAnalyticsId}

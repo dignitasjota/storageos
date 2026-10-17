@@ -18,6 +18,7 @@ export default async function SignPage({ params }: { params: Promise<{ token: st
     <NextIntlClientProvider locale={intlLocaleFor('es')} messages={messages}>
       {data ? (
         <TenantWebChrome
+          hideReserve
           data={brandOf(data)}
           locale="es"
           googleAnalyticsId={data.googleAnalyticsId}
