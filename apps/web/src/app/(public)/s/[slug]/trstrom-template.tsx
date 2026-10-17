@@ -19,10 +19,11 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { ContactForm } from './contact-form';
 import { GoogleAnalyticsScript, TenantLegalLinks, trackEvent } from './google-analytics';
+import { LanguageSwitcher } from './i18n/language-switcher';
 import {
   blogHref as buildBlogHref,
   blogPostHref as buildBlogPostHref,
@@ -181,6 +182,13 @@ export function TrstromTemplate({
         onNavigate={goTo}
         bookHref={bookHref}
         portalHref={portalHref}
+        languageSwitcher={
+          <LanguageSwitcher
+            tenantSlug={data.tenantSlug}
+            currentLocale={locale}
+            customDomain={data.customDomain}
+          />
+        }
         blogHref={blogHref}
       />
 
@@ -1060,6 +1068,7 @@ function Header({
   onNavigate,
   bookHref,
   portalHref,
+  languageSwitcher,
   blogHref,
 }: {
   data: PublicLandingDto;
@@ -1068,6 +1077,8 @@ function Header({
   onNavigate: (id: string) => void;
   bookHref: string;
   portalHref: string;
+  /** Selector ES/EN. */
+  languageSwitcher: ReactNode;
   blogHref: string | undefined;
 }) {
   const t = useTranslations('publicWeb.trstrom');
@@ -1121,6 +1132,7 @@ function Header({
           </nav>
 
           <div className="hidden items-center gap-3 md:flex">
+            {languageSwitcher}
             <Link
               href={portalHref}
               className="inline-flex items-center gap-1.5 rounded-xl bg-muted px-3.5 py-2 text-sm font-semibold transition-colors hover:bg-muted/70"

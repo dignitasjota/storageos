@@ -4,7 +4,7 @@ import { Menu, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 export interface OnePageNavItem {
   id: string;
@@ -23,6 +23,7 @@ export function OnePageNav({
   logoUrl,
   portalHref,
   blogHref,
+  languageSwitcher,
 }: {
   items: OnePageNavItem[];
   brand: string;
@@ -31,6 +32,8 @@ export function OnePageNav({
   portalHref: string;
   /** Enlace real al blog del tenant (no hace scroll), o `undefined` si no tiene. */
   blogHref?: string;
+  /** Selector ES/EN. */
+  languageSwitcher?: ReactNode;
 }) {
   const t = useTranslations('publicWeb');
   const [open, setOpen] = useState(false);
@@ -86,6 +89,7 @@ export function OnePageNav({
               {t('blog.title')}
             </Link>
           )}
+          {languageSwitcher && <span className="ml-2">{languageSwitcher}</span>}
           <Link
             href={portalHref}
             className="ml-2 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
@@ -97,6 +101,7 @@ export function OnePageNav({
 
         {/* Móvil: acceso + botón de menú */}
         <div className="flex items-center gap-2 md:hidden">
+          {languageSwitcher}
           <Link
             href={portalHref}
             className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-white shadow-sm"

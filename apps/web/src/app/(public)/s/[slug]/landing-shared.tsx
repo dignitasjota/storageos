@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { CabeTemplate } from './cabe-template';
 import { CorporateTemplate } from './corporate-template';
 import { EscaparateTemplate } from './escaparate-template';
+import { HtmlLang } from './html-lang';
 import { getPublicWebMessages, intlLocaleFor, type PublicWebLocale } from './i18n/messages';
 import { OnePageTemplate } from './onepage-template';
 import { OnePageMovilTemplate } from './onepagemovil-template';
@@ -197,7 +198,7 @@ export async function buildLandingMetadata(
         }. Consulta disponibilidad y precios y reserva online en minutos.`;
   const description = seo.homeDescription ?? generatedDescription;
   const base = data.customDomain ? `https://${data.customDomain}` : `/s/${slug}`;
-  if (section) return sectionMetadata(data, base, where, section);
+  if (section) return sectionMetadata(data, base, where, section, locale);
   // Con dominio propio activo, el canonical apunta a él (versión canónica);
   // así la ruta `/s/<slug>` de la plataforma no compite por SEO.
   const canonical = locale === 'en' ? `${base}/l/en` : `${base}/`;
@@ -234,34 +235,66 @@ function sectionMetadata(
   base: string,
   where: string,
   section: LandingSection,
+  locale: PublicWebLocale,
 ): Metadata {
-  const en = where ? ` en ${where}` : '';
   const prices = priceRangeString(
     data.facilities.flatMap((f) => f.unitTypes),
-    'es',
+    locale,
   );
-  const seo = data.webSeo ?? {};
+  // Los textos SEO propios se escriben en español: en inglés se usan los generados.
+  const seo = locale === 'es' ? (data.webSeo ?? {}) : {};
   const customTitle = section === 'precios' ? seo.pricesTitle : seo.contactTitle;
   const customDescription = section === 'precios' ? seo.pricesDescription : seo.contactDescription;
-  const title =
-    customTitle ??
-    (section === 'precios'
-      ? `Precios de trasteros${en} · ${data.tenantName}`
-      : `Contacto · ${data.tenantName}`);
-  const generatedDescription =
-    section === 'precios'
-      ? `Tamaños y precios de los trasteros de ${data.tenantName}${en}${
-          prices ? ` (${prices})` : ''
-        }, con IVA incluido. Reserva online en minutos.`
-      : `Contacta con ${data.tenantName}${en}: teléfono, dirección, horario y formulario. Te respondemos lo antes posible.`;
+  let title: string;
+  let generatedDescription: string;
+  if (locale === 'en') {
+    const inWhere = where ? ` in ${where}` : '';
+    title =
+      section === 'precios'
+        ? `Storage unit prices${inWhere} · ${data.tenantName}`
+        : `Contact · ${data.tenantName}`;
+    generatedDescription =
+      section === 'precios'
+        ? `Sizes and prices of ${data.tenantName}'s storage units${inWhere}${
+            prices ? ` (${prices})` : ''
+          }, VAT included. Book online in minutes.`
+        : `Contact ${data.tenantName}${inWhere}: phone, address, opening hours and form.`;
+  } else {
+    const en = where ? ` en ${where}` : '';
+    title =
+      customTitle ??
+      (section === 'precios'
+        ? `Precios de trasteros${en} · ${data.tenantName}`
+        : `Contacto · ${data.tenantName}`);
+    generatedDescription =
+      section === 'precios'
+        ? `Tamaños y precios de los trasteros de ${data.tenantName}${en}${
+            prices ? ` (${prices})` : ''
+          }, con IVA incluido. Reserva online en minutos.`
+        : `Contacta con ${data.tenantName}${en}: teléfono, dirección, horario y formulario. Te respondemos lo antes posible.`;
+  }
   const description = customDescription ?? generatedDescription;
+  const path = locale === 'en' ? `/l/en/${section}` : `/${section}`;
   return {
     // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
     title: { absolute: title },
     description,
-    alternates: { canonical: `${base}/${section}` },
+    alternates: {
+      canonical: `${base}${path}`,
+      languages: {
+        es: `${base}/${section}`,
+        en: `${base}/l/en/${section}`,
+        'x-default': `${base}/${section}`,
+      },
+    },
     robots: { index: true, follow: true },
-    openGraph: { title, description, type: 'website', siteName: data.tenantName, locale: 'es_ES' },
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+      siteName: data.tenantName,
+      locale: locale === 'en' ? 'en_GB' : 'es_ES',
+    },
     twitter: { card: 'summary_large_image', title, description },
   };
 }
@@ -301,6 +334,7 @@ export async function LandingPageBody({
 
   return (
     <NextIntlClientProvider locale={intlLocaleFor(locale)} messages={messages}>
+      <HtmlLang locale={locale} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       {section && <ScrollToSection section={section} />}
       {data.webTemplate === 'onepage' ? (
